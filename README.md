@@ -1,8 +1,21 @@
-# m1nd
+<p align="center">
+  <img src=".github/logo.svg" alt="m1nd" width="480" />
+</p>
 
-**Cognitive Graph Engine** -- spreading activation, noise cancellation, and Hebbian learning over knowledge graphs. Built for LLM agents via MCP.
+<p align="center">
+  <strong>Cognitive Graph Engine</strong> -- spreading activation, noise cancellation, and Hebbian learning over knowledge graphs.<br/>
+  Built for LLM agents via MCP.
+</p>
 
-*Give your agents a nervous system.*
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#the-13-tools">13 Tools</a> &middot;
+  <a href="#use-cases">Use Cases</a> &middot;
+  <a href="INTEGRATION-GUIDE.md">Integration Guide</a> &middot;
+  <a href="EXAMPLES.md">Live Examples</a>
+</p>
+
+---
 
 m1nd doesn't search your data -- it *activates* it. Query a concept, and the graph lights up: connected nodes fire with decaying signal across four dimensions (structural, semantic, temporal, causal), noise gets cancelled via XLR differential processing, and the system learns from feedback via Hebbian plasticity.
 
@@ -269,8 +282,9 @@ MCP server. JSON-RPC stdio transport, full MCP 2024-11-05 compliance with inputS
 
 ## Documentation
 
-- **[FINAL-REPORT.md](FINAL-REPORT.md)** -- Architecture deep dive, build methodology, validation results
+- **[EXAMPLES.md](EXAMPLES.md)** -- Real CLI output from m1nd running against its own codebase
 - **[INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md)** -- Complete tool reference, usage patterns, domain configuration, best practices
+- **[FINAL-REPORT.md](FINAL-REPORT.md)** -- Architecture deep dive, build methodology, validation results
 
 ---
 
@@ -280,4 +294,6 @@ MIT
 
 ---
 
-**MAX ELIAS KLEINSCHMIDT -- COSMOPHONIX INTELLIGENCE**
+<p align="center">
+  <strong>MAX ELIAS KLEINSCHMIDT -- COSMOPHONIX INTELLIGENCE</strong>
+</p>
