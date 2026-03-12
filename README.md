@@ -1,8 +1,10 @@
 # m1nd
 
-**Semantic Circuit Simulator** -- a spreading activation engine for knowledge graphs, built for LLM agents via MCP.
+**Cognitive Graph Engine** -- spreading activation, noise cancellation, and Hebbian learning over knowledge graphs. Built for LLM agents via MCP.
 
-m1nd treats data as a circuit board. You don't search it -- you *activate* it. Query a concept, and the graph lights up: connected nodes fire with decaying signal across four dimensions (structural, semantic, temporal, causal), noise gets cancelled, and the system learns from feedback via Hebbian plasticity.
+*Give your agents a nervous system.*
+
+m1nd doesn't search your data -- it *activates* it. Query a concept, and the graph lights up: connected nodes fire with decaying signal across four dimensions (structural, semantic, temporal, causal), noise gets cancelled via XLR differential processing, and the system learns from feedback via Hebbian plasticity.
 
 Built in Rust. 13 MCP tools. 159 tests. Domain-agnostic.
 
