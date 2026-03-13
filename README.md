@@ -310,7 +310,7 @@ Full competitive analysis: [Wiki - Competitive Report](https://github.com/maxkle
 ## When NOT to use m1nd
 
 - **You need neural semantic search.** m1nd uses trigram TF-IDF, not embeddings. "Find code that *means* authentication but never uses the word" is not a strength yet.
-- **You need 50+ language support.** Extractors exist for Python, Rust, TypeScript/JavaScript, Go, Java, plus a generic fallback. Tree-sitter integration is planned.
+- **You need 50+ language support.** 28 languages supported via deep regex extractors (Python, Rust, TS/JS, Go, Java) and tree-sitter (C, C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Bash, Lua, R, Elixir, Dart, Zig, Haskell, OCaml, HTML, CSS, JSON, TOML, YAML, SQL) plus a generic fallback. Growing fast.
 - **You need dataflow analysis.** m1nd tracks structural and co-change relationships, not data flow through variables. Use a dedicated SAST tool for taint analysis.
 - **You need distributed mode.** Federation stitches multiple repos, but the server runs on one machine. Distributed graph is not yet implemented.
 
@@ -366,7 +366,7 @@ MIT -- see [LICENSE](LICENSE).
 ---
 
 <p align="center">
-  <sub>~15,500 lines of Rust &middot; 159 tests &middot; 43 tools &middot; 6+1 languages &middot; ~8MB binary</sub>
+  <sub>~15,500 lines of Rust &middot; 296 tests &middot; 43 tools &middot; 28 languages &middot; ~8MB binary</sub>
 </p>
 
 <p align="center">
