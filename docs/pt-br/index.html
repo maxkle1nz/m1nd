@@ -109,7 +109,7 @@
       padding: 8px 0; min-width: 160px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
       z-index: 200;
     }
-    .lang-dropdown:hover .lang-dropdown-menu { display: block; }
+    .lang-dropdown-menu.open { display: block; }
     .lang-dropdown-menu a {
       display: block; padding: 6px 16px; font-size: 13px; white-space: nowrap;
     }
@@ -671,7 +671,7 @@
         <a href="#benchmarks">Benchmarks</a>
         <a href="../wiki-build/index.html">Wiki</a>
         <div class="lang-dropdown">
-          <button class="lang-dropdown-btn">&#x1F310; PT &#x25BE;</button>
+          <button class="lang-dropdown-btn" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('open')">&#x1F310; PT &#x25BE;</button>
           <div class="lang-dropdown-menu">
             <a href="/">&#x1F1EC;&#x1F1E7; English</a>
             <a href="/pt-br/">&#x1F1E7;&#x1F1F7; Portugu&ecirc;s</a>
@@ -2575,4 +2575,5 @@
   vizObs.observe(svg);
 })();
 </script>
+<script>document.addEventListener('click',function(){document.querySelectorAll('.lang-dropdown-menu.open').forEach(function(m){m.classList.remove('open')})});</script>
 </html>
