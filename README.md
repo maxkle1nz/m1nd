@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://crates.io/crates/m1nd-mcp"><img src="https://img.shields.io/crates/v/m1nd-mcp.svg" alt="crates.io" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/languages-28-00E5A0" alt="28 Languages" />
   <img src="https://img.shields.io/badge/rust-stable-orange?logo=rust" alt="Rust" />

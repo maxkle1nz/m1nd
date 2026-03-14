@@ -114,7 +114,7 @@ git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd && cargo build --release
 ```
 
-crates.io publishing is planned.
+Yes: `cargo install m1nd-mcp`
 
 ---
 
