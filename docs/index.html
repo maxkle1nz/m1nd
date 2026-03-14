@@ -1847,6 +1847,30 @@
         </div>
       </div>
 
+      <!-- ── Token Savings (measured) ── -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 32px; margin-bottom: 48px;">
+        <div style="font-family: var(--mono); font-size: 12px; color: var(--green); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 16px;">Measured token savings</div>
+        <p style="font-size: 13px; color: var(--text-faint); margin-bottom: 20px;">335-file Python backend, 8-hour agent workday, Claude Opus.</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; margin-bottom: 24px;">
+          <div style="text-align: center; padding: 16px; border: 1px solid var(--border); border-radius: 8px;">
+            <div style="font-family: var(--mono); font-size: 28px; font-weight: 700; color: var(--green);">60%</div>
+            <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">fewer context tokens/day</div>
+            <div style="font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 4px;">1.2M &rarr; 480K tokens</div>
+          </div>
+          <div style="text-align: center; padding: 16px; border: 1px solid var(--border); border-radius: 8px;">
+            <div style="font-family: var(--mono); font-size: 28px; font-weight: 700; color: var(--green);">62%</div>
+            <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">fewer grep calls/hour</div>
+            <div style="font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 4px;">40 &rarr; 15 calls</div>
+          </div>
+          <div style="text-align: center; padding: 16px; border: 1px solid var(--border); border-radius: 8px;">
+            <div style="font-family: var(--mono); font-size: 28px; font-weight: 700; color: var(--green);">~50MB</div>
+            <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">total memory footprint</div>
+            <div style="font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 4px;">~10K nodes, ~27K edges</div>
+          </div>
+        </div>
+        <p style="font-size: 13px; color: var(--text-dim); line-height: 1.6; margin: 0; font-style: italic;">m1nd does not replace search. It <strong style="color: var(--text);">focuses</strong> search. The agent still uses grep and reads files, but it starts from a much better position because m1nd told it where to look.</p>
+      </div>
+
       <table class="vs-table">
         <thead>
           <tr>
