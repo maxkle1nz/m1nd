@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>m1nd — Grep trova ciò che esiste. m1nd trova ciò che manca.</title>
-  <meta name="description" content="m1nd: un binario Rust locale che offre ai coding agent AI una comprensione strutturale della tua codebase. Query in 31ms, zero token LLM, zero costi. 43 tool MCP. 16/16 capacità vs 0/16 di Cursor. 3-4 anni di vantaggio.">
+  <meta name="description" content="m1nd: un binario Rust locale che offre ai coding agent AI una comprensione strutturale della tua codebase. Query in 31ms, zero token LLM, zero costi. 52 tool MCP. 16/16 capacità vs 0/16 di Cursor. 3-4 anni di vantaggio.">
   <meta property="og:title" content="m1nd — Il tuo agente AI soffre di amnesia. m1nd ricorda.">
-  <meta property="og:description" content="m1nd: un binario Rust locale che offre ai coding agent AI una comprensione strutturale della tua codebase. Query in 31ms, zero token LLM, zero costi. 43 tool MCP. 3-4 anni avanti rispetto a qualsiasi concorrente.">
+  <meta property="og:description" content="m1nd: un binario Rust locale che offre ai coding agent AI una comprensione strutturale della tua codebase. Query in 31ms, zero token LLM, zero costi. 52 tool MCP. 3-4 anni avanti rispetto a qualsiasi concorrente.">
   <meta property="og:image" content="https://raw.githubusercontent.com/maxkle1nz/m1nd/main/.github/social-preview.jpg">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
@@ -821,7 +821,7 @@
         </svg>
       </div>
 
-      <div class="hero-badge"><span class="dot"></span> 43 tool MCP &middot; Rust &middot; $0.00/query</div>
+      <div class="hero-badge"><span class="dot"></span> 52 tool MCP &middot; Rust &middot; $0.00/query</div>
       <h1 style="font-size: clamp(32px, 5vw, 56px); letter-spacing: -2px; line-height: 1.15;">Il tuo agente AI soffre di <span style="color: var(--red);">amnesia</span>.<br>m<span class="one">1</span>nd <span class="one">ricorda</span>.</h1>
       <p class="tagline">Ogni strumento trova ci&ograve; che esiste. m1nd trova ci&ograve; che manca.</p>
       <p class="subtitle">Ad ogni sessione, il tuo agente rilegge l'intera codebase &mdash; bruciando <strong style="color: var(--red);">$0.05&ndash;$0.50 per ciclo di ricerca</strong> in token LLM, dimenticando tutto alla sessione successiva. m1nd sostituisce quel ciclo con un grafo del codice persistente che <strong style="color: var(--green);">impara dall'uso</strong>, rileva <strong style="color: var(--green);">buchi strutturali</strong> che nessun grep potrebbe mai trovare, e risponde in <strong style="color: var(--green);">31ms a $0.00</strong>. Binario Rust locale. Nessuna API key. Nessun contatore che scorre.</p>
@@ -1469,7 +1469,7 @@
   <!-- ── Tools ── -->
   <section id="tools">
     <div class="container">
-      <div class="section-label">43 tool MCP</div>
+      <div class="section-label">52 tool MCP</div>
       <h2 class="section-title">Tutto ci&ograve; di cui un agente ha bisogno.</h2>
       <p class="section-desc">Invocabili da qualsiasi client MCP via JSON-RPC stdio. Nessun SDK richiesto.</p>
 
@@ -1672,7 +1672,7 @@
       </div>
 
       <div class="tools-group">
-        <div class="tools-group-title">Superpoteri <span>(13)</span></div>
+        <div class="tools-group-title">Superpoteri <span>(22)</span></div>
         <div class="tools-grid">
           <div class="tool-card">
             <div>
@@ -1750,6 +1750,60 @@
             <div>
               <div class="tool-name">trail.list</div>
               <div class="tool-desc">Elenca tutti i trail salvati con metadati e timestamp.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.antibody_scan</div>
+              <div class="tool-desc">Rilevamento immunologico -- scansiona il grafo alla ricerca di pattern anomali e minacce strutturali.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.antibody_list</div>
+              <div class="tool-desc">Elenca tutti gli anticorpi attivi -- pattern di anomalia registrati nel sistema.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.antibody_create</div>
+              <div class="tool-desc">Crea un nuovo anticorpo -- registra un pattern di anomalia per il rilevamento futuro.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.flow_simulate</div>
+              <div class="tool-desc">Simula il flusso di informazioni nel grafo -- traccia come si propagano i cambiamenti.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.epidemic</div>
+              <div class="tool-desc">Modello epidemico di propagazione -- simula come si diffonderebbe un bug o un cambiamento.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.tremor</div>
+              <div class="tool-desc">Analisi del tremore strutturale -- rileva instabilit&#224; e potenziali punti di guasto.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.trust</div>
+              <div class="tool-desc">Punteggio di fiducia per nodo -- indica quali moduli sono pi&#249; affidabili e stabili.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.layers</div>
+              <div class="tool-desc">Elenca tutti gli strati del grafo -- panoramica architetturale di alto livello del codebase.</div>
+            </div>
+          </div>
+          <div class="tool-card">
+            <div>
+              <div class="tool-name">m1nd.layer_inspect</div>
+              <div class="tool-desc">Ispeziona uno strato specifico -- nodi, archi e pattern all&rsquo;interno di uno strato.</div>
             </div>
           </div>
         </div>
@@ -1930,7 +1984,7 @@
           </tr>
           <tr>
             <td>Interfaccia agente</td>
-            <td class="yes">43 tool MCP</td>
+            <td class="yes">52 tool MCP</td>
             <td class="partial">API</td>
             <td class="no">Solo integrato</td>
             <td class="no">Solo integrato</td>
@@ -1989,8 +2043,8 @@
         <!-- 4 -->
         <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; border-left: 3px solid var(--green);">
           <div style="font-family: var(--mono); font-size: 11px; color: var(--green); margin-bottom: 8px;">04 &mdash; SCIENZA COGNITIVA</div>
-          <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">43 tool = ciclo cognitivo completo</div>
-          <div style="font-size: 13px; color: var(--text-dim); line-height: 1.5;">43 strumenti MCP formano un ciclo cognitivo completo: ingerire, attivare, ipotizzare, simulare, apprendere, navigare, federare.</div>
+          <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">52 tool = ciclo cognitivo completo</div>
+          <div style="font-size: 13px; color: var(--text-dim); line-height: 1.5;">52 strumenti MCP formano un ciclo cognitivo completo: ingerire, attivare, ipotizzare, simulare, apprendere, navigare, federare.</div>
         </div>
 
         <!-- 5 -->
@@ -2180,11 +2234,11 @@
         <div style="font-size: 13px; color: var(--text-faint); margin-top: 4px;">Righe di Rust</div>
       </div>
       <div>
-        <div style="font-family: var(--mono); font-size: 32px; font-weight: 700; color: var(--green);">159</div>
+        <div style="font-family: var(--mono); font-size: 32px; font-weight: 700; color: var(--green);">354+</div>
         <div style="font-size: 13px; color: var(--text-faint); margin-top: 4px;">Test</div>
       </div>
       <div>
-        <div style="font-family: var(--mono); font-size: 32px; font-weight: 700; color: var(--green);">43</div>
+        <div style="font-family: var(--mono); font-size: 32px; font-weight: 700; color: var(--green);">52</div>
         <div style="font-size: 13px; color: var(--text-faint); margin-top: 4px;">Tool MCP</div>
       </div>
       <div>
@@ -2203,7 +2257,7 @@
     <div class="container">
       <h2 class="section-title" style="max-width: 700px; margin: 0 auto 16px;">Smetti di pagare per l'amnesia.<br>Dai ai tuoi agenti un <span style="color: var(--green);">m1nd</span>.</h2>
       <p style="color: var(--text-dim); font-size: 16px; max-width: 560px; margin: 0 auto 40px; line-height: 1.6;">
-        Open source. Locale. Zero costi. Un solo binario. 43 tool.<br>La tua codebase non lascia mai la tua macchina.
+        Open source. Locale. Zero costi. Un solo binario. 52 tool.<br>La tua codebase non lascia mai la tua macchina.
       </p>
       <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
         <a href="https://github.com/maxkle1nz/m1nd" class="btn btn-primary" style="font-size: 16px; padding: 16px 36px;">
