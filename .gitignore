@@ -20,6 +20,5 @@ plasticity_state.json
 # Test artifacts
 /tmp/
 
-# Wiki build output (prevent committing generated HTML)
-wiki-build/
+# Wiki build intermediate artifacts
 docs/wiki-build/wiki-build/
