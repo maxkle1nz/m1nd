@@ -4,13 +4,14 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="360" />
 </p>
 
+<h1 align="center">⍌⍐⍂𝔻 ⟁</h1>
+
 <h3 align="center">Seu agente de IA tem amnesia. m1nd lembra.</h3>
 
 <p align="center">
-  <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
+  <img src="https://img.shields.io/badge/languages-28-00E5A0" alt="28 Linguagens" />
   <img src="https://img.shields.io/badge/rust-stable-orange?logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/MCP-43_tools-00E5A0" alt="43 MCP Tools" />
   <img src="https://img.shields.io/badge/cost-$0.00/query-00E5A0" alt="$0.00/query" />
@@ -61,6 +62,8 @@ The slop cycle:                          m1nd:
   $0.30-$0.50 / 10 seconds                 $0.00 / 31ms
 ```
 
+**Impacto medido** (backend Python de 335 arquivos, Claude Opus, jornada de 8h): 60% menos tokens de contexto (1,2M → 480K/dia), 62% menos chamadas grep (40 → 15/hora), ~50MB de RAM total. m1nd não substitui a busca — ele *foca* a busca. Agentes ainda usam grep e leem arquivos, mas partem de uma posição muito melhor porque m1nd disse onde procurar.
+
 ## Inicio rapido
 
 ```bash
@@ -105,6 +108,8 @@ Primeira consulta -- ingira sua base de codigo e faca uma pergunta:
 > m1nd.learn feedback=correct node_ids=["file::auth.py","file::middleware.py"] agent_id=dev
   740 edges strengthened via Hebbian LTP. Next query is smarter.
 ```
+
+> **Dica pro:** Use m1nd *antes* de qualquer grep ou busca de arquivos. Rode `activate("seu topico")` primeiro — ele diz ao seu agente exatamente onde procurar. Isso sozinho reduz chamadas grep em 60% e pode te surpreender com conexoes que voce nao sabia que existiam.
 
 ## Tres workflows
 
@@ -305,12 +310,12 @@ Todos os numeros de execucao real contra uma base de codigo de producao (335 arq
 
 Capacidades: spreading activation, Hebbian plasticity, structural holes, counterfactual simulation, hypothesis testing, perspective navigation, trail persistence, multi-agent locks, XLR noise cancellation, co-change prediction, resonance analysis, multi-repo federation, 4D scoring, plan validation, fingerprint detection, temporal intelligence.
 
-Analise competitiva completa: [Wiki - Competitive Report](https://github.com/maxkle1nz/m1nd/wiki)
+Analise competitiva completa: [Benchmarks](https://m1nd.world/wiki-build/benchmarks.html)
 
 ## Quando NAO usar m1nd
 
 - **Voce precisa de busca semantica neural.** m1nd uses trigram TF-IDF, not embeddings. "Encontrar codigo que *significa* autenticacao mas nunca usa a palavra" nao e um ponto forte ainda.
-- **Voce precisa de suporte a 50+ linguagens.** Extratores existem para Python, Rust, TypeScript/JavaScript, Go, Java, mais um fallback generico. Integracao com tree-sitter esta planejada.
+- **Voce precisa de suporte a 50+ linguagens.** 28 linguagens suportadas via extratores regex profundos (Python, Rust, TS/JS, Go, Java) e tree-sitter (C, C++, C#, Ruby, PHP, Swift, Kotlin, Scala, Bash, Lua, R, Elixir, Dart, Zig, Haskell, OCaml, HTML, CSS, JSON, TOML, YAML, SQL) mais um fallback generico. Crescendo rapido.
 - **Voce precisa de analise de fluxo de dados.** m1nd rastreia relacoes estruturais e de co-mudanca, nao fluxo de dados por variaveis. Use uma ferramenta SAST dedicada para analise de taint.
 - **Voce precisa de modo distribuido.** Federacao costura multiplos repos, mas o servidor roda em uma maquina. Grafo distribuido ainda nao esta implementado.
 
@@ -320,6 +325,7 @@ Analise competitiva completa: [Wiki - Competitive Report](https://github.com/max
 |----------|---------|---------|
 | `M1ND_GRAPH_SOURCE` | Caminho para persistir estado do grafo | Somente em memoria |
 | `M1ND_PLASTICITY_STATE` | Caminho para persistir pesos de plasticidade | Somente em memoria |
+| `M1ND_XLR_ENABLED` | Ativar cancelamento de ruido XLR | `true` |
 
 ## Compilando do fonte
 
@@ -366,7 +372,7 @@ MIT -- veja [LICENSE](LICENSE).
 ---
 
 <p align="center">
-  <sub>~15,500 lines of Rust &middot; 159 tests &middot; 43 tools &middot; 6+1 languages &middot; ~8MB binary</sub>
+  <sub>~15.500 linhas de Rust &middot; 280 testes &middot; 43 ferramentas &middot; 28 linguagens &middot; ~8MB binario</sub>
 </p>
 
 <p align="center">

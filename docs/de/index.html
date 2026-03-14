@@ -1997,8 +1997,8 @@
         <!-- 2 -->
         <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; border-left: 3px solid var(--green);">
           <div style="font-family: var(--mono); font-size: 11px; color: var(--green); margin-bottom: 8px;">02 &mdash; LEISTUNG</div>
-          <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">$0,00/Abfrage bei &lt;100ms</div>
-          <div style="font-size: 13px; color: var(--text-dim); line-height: 1.5;">Lokale Rust-Binary. Null LLM-Token pro Abfrage. $0,00/Abfrage bei &lt;100ms. Jedes LLM-abhaengige Tool kostet $0,10&ndash;$0,50 und braucht 300ms&ndash;2s.</div>
+          <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">$0,00/Abfrage bei 31ms</div>
+          <div style="font-size: 13px; color: var(--text-dim); line-height: 1.5;">Lokale Rust-Binary. Keine LLM-Tokens pro Abfrage. Spreading Activation laeuft vollstaendig auf deinem Rechner &mdash; keine Netzwerk-Roundtrips, keine API-Kosten, keine Latenz.</div>
         </div>
 
         <!-- 3 -->
@@ -2032,7 +2032,7 @@
 
       <!-- ── Benchmarks link ── -->
       <div style="text-align: center; margin-top: 48px;">
-        <a href="wiki-build/benchmarks.html" style="display: inline-block; font-family: var(--mono); font-size: 13px; color: var(--green); text-decoration: underline;">Vollstaendige technische Benchmarks &rarr;</a>
+        <a href="../wiki-build/benchmarks.html" style="display: inline-block; font-family: var(--mono); font-size: 13px; color: var(--green); text-decoration: underline;">Vollstaendige technische Benchmarks &rarr;</a>
       </div>
     </div>
   </section>
@@ -2134,13 +2134,13 @@
             <h3>Einlesen &amp; Abfragen</h3>
             <p>MCP-Nachrichten ueber stdin senden. Zustand wird automatisch persistiert.</p>
             <div class="code-block">
-              <span class="comment">// Ingest a codebase</span><br>
+              <span class="comment">// Eine Codebase einlesen</span><br>
               {"method":"tools/call","params":{"name":"m1nd.ingest",<br>
               &nbsp;&nbsp;"arguments":{"path":"/your/project","agent_id":"my-agent"}}}<br><br>
-              <span class="comment">// Query</span><br>
+              <span class="comment">// Abfragen</span><br>
               {"method":"tools/call","params":{"name":"m1nd.activate",<br>
               &nbsp;&nbsp;"arguments":{"query":"authentication","agent_id":"my-agent"}}}<br><br>
-              <span class="comment">// Learn from results</span><br>
+              <span class="comment">// Aus Ergebnissen lernen</span><br>
               {"method":"tools/call","params":{"name":"m1nd.learn",<br>
               &nbsp;&nbsp;"arguments":{"feedback":"correct","node_ids":["file::src/auth.rs"]}}}
             </div>
@@ -2153,7 +2153,7 @@
             <h3>Jede Domaene</h3>
             <p>Nicht nur Code. Jeden Wissensgraphen aus JSON einlesen.</p>
             <div class="code-block">
-              <span class="comment">// JSON descriptor -- works for any domain</span><br>
+              <span class="comment">// JSON-Deskriptor -- funktioniert fuer jede Domaene</span><br>
               {"nodes": [<br>
               &nbsp;&nbsp;{"id":"concept::activation", "label":"Spreading Activation", "type":"Concept"},<br>
               &nbsp;&nbsp;{"id":"concept::plasticity", "label":"Hebbian Plasticity", "type":"Process"}<br>
@@ -2250,14 +2250,14 @@
       <div class="footer-desc">Der adaptive Code-Graph</div>
       <div class="footer-links">
         <a href="https://github.com/maxkle1nz/m1nd">GitHub</a>
-        <a href="wiki-build/index.html">Wiki</a>
-        <a href="wiki-build/faq.html">FAQ</a>
-        <a href="wiki-build/api-reference/overview.html">API Reference</a>
-        <a href="https://github.com/maxkle1nz/m1nd/blob/main/EXAMPLES.md">Examples</a>
+        <a href="../wiki-build/index.html">Wiki</a>
+        <a href="../wiki-build/faq.html">FAQ</a>
+        <a href="../wiki-build/api-reference/overview.html">API-Referenz</a>
+        <a href="https://github.com/maxkle1nz/m1nd/blob/main/EXAMPLES.md">Beispiele</a>
         <a href="https://github.com/sponsors/maxkle1nz">Sponsor</a>
-        <a href="https://github.com/maxkle1nz/m1nd/blob/main/LICENSE">MIT License</a>
+        <a href="https://github.com/maxkle1nz/m1nd/blob/main/LICENSE">MIT-Lizenz</a>
       </div>
-      <div class="author">MAX ELIAS KLEINSCHMIDT &#x1F1E7;&#x1F1F7; &mdash; stolz Brasilianer</div>
+      <div class="author">MAX ELIAS KLEINSCHMIDT &#x1F1E7;&#x1F1F7; &mdash; COSMOPHONIX INTELLIGENCE &mdash; stolz Brasilianer</div>
     </div>
   </footer>
 
