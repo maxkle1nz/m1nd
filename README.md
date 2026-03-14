@@ -62,6 +62,8 @@ The slop cycle:                          m1nd:
   $0.30-$0.50 / 10 seconds                 $0.00 / 31ms
 ```
 
+**Measured impact** (335-file Python backend, Claude Opus, 8h workday): 60% fewer context tokens (1.2M → 480K/day), 62% fewer grep calls (40 → 15/hour), ~50MB RAM total. m1nd doesn't replace search — it *focuses* search. Agents still grep and read files, but they start from a better position because m1nd told them where to look.
+
 ## Quick start
 
 ```bash
