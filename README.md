@@ -4,6 +4,8 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="360" />
 </p>
 
+<h1 align="center">⍌⍐⍂𝔻 ⟁</h1>
+
 <h3 align="center">Your AI agent has amnesia. m1nd remembers.</h3>
 
 <p align="center">
