@@ -10,11 +10,11 @@ use serde_json::{json, Value};
 // ---------------------------------------------------------------------------
 
 /// m1nd logo glyphs with their semantic meanings.
-pub const GLYPH_SIGNAL: &str = "\u{234C}"; // ⍌ — spreading activation signal
-pub const GLYPH_PATH: &str = "\u{2350}"; // ⍐ — paths through the graph
-pub const GLYPH_STRUCTURE: &str = "\u{2342}"; // ⍂ — structural analysis
+pub const GLYPH_SIGNAL: &str = "\u{234C}";     // ⍌ — spreading activation signal
+pub const GLYPH_PATH: &str = "\u{2350}";       // ⍐ — paths through the graph
+pub const GLYPH_STRUCTURE: &str = "\u{2342}";  // ⍂ — structural analysis
 pub const GLYPH_DIMENSION: &str = "\u{1D53B}"; // 𝔻 — 4D dimensional scoring
-pub const GLYPH_CONNECTION: &str = "\u{27C1}"; // ⟁ — graph connections, edges
+pub const GLYPH_CONNECTION: &str = "\u{27C1}";  // ⟁ — graph connections, edges
 
 /// ANSI escape codes for m1nd's color palette.
 pub const ANSI_CYAN: &str = "\x1b[38;2;0;212;255m";
@@ -37,11 +37,7 @@ pub fn gradient_top_border(width: usize) -> String {
     let segment = width / colors.len();
     let mut border = String::new();
     for (i, color) in colors.iter().enumerate() {
-        let len = if i == colors.len() - 1 {
-            width - segment * i
-        } else {
-            segment
-        };
+        let len = if i == colors.len() - 1 { width - segment * i } else { segment };
         border.push_str(color);
         for _ in 0..len {
             border.push('\u{2550}'); // ═
@@ -57,11 +53,7 @@ pub fn gradient_bottom_border(width: usize) -> String {
     let segment = width / colors.len();
     let mut border = String::new();
     for (i, color) in colors.iter().enumerate() {
-        let len = if i == colors.len() - 1 {
-            width - segment * i
-        } else {
-            segment
-        };
+        let len = if i == colors.len() - 1 { width - segment * i } else { segment };
         border.push_str(color);
         for _ in 0..len {
             border.push('\u{2550}'); // ═
@@ -141,16 +133,12 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
 pub fn personality_line(tool_name: &str, result: &Value) -> String {
     match tool_name {
         "m1nd.activate" => {
-            let count = result
-                .get("results")
-                .and_then(|v| v.as_array())
-                .map_or(0, |a| a.len());
+            let count = result.get("results").and_then(|v| v.as_array()).map_or(0, |a| a.len());
             let query = result.get("query").and_then(|v| v.as_str()).unwrap_or("?");
             if count == 0 {
                 format!("no results for '{}'. try ingest first, or rephrase.", query)
             } else {
-                let top = result
-                    .get("results")
+                let top = result.get("results")
                     .and_then(|v| v.as_array())
                     .and_then(|a| a.first())
                     .and_then(|v| v.get("label"))
@@ -160,59 +148,29 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
             }
         }
         "m1nd.impact" => {
-            let total = result
-                .get("blast_radius")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let total = result.get("blast_radius").and_then(|v| v.as_u64()).unwrap_or(0);
             format!("{} nodes in blast radius. careful here.", total)
         }
         "m1nd.search" => {
-            let count = result
-                .get("total_matches")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let count = result.get("total_matches").and_then(|v| v.as_u64()).unwrap_or(0);
             let query = result.get("query").and_then(|v| v.as_str()).unwrap_or("?");
-            let mode = result
-                .get("mode")
-                .and_then(|v| v.as_str())
-                .unwrap_or("literal");
+            let mode = result.get("mode").and_then(|v| v.as_str()).unwrap_or("literal");
             format!("{} matches for '{}' ({})", count, query, mode)
         }
         "m1nd.panoramic" => {
-            let total = result
-                .get("total_modules")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let alerts = result
-                .get("critical_alerts")
-                .and_then(|v| v.as_array())
-                .map_or(0, |a| a.len());
+            let total = result.get("total_modules").and_then(|v| v.as_u64()).unwrap_or(0);
+            let alerts = result.get("critical_alerts")
+                .and_then(|v| v.as_array()).map_or(0, |a| a.len());
             format!("{} modules scanned. {} critical alerts.", total, alerts)
         }
         "m1nd.hypothesize" => {
-            let verdict = result
-                .get("verdict")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let confidence = result
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            format!(
-                "verdict: {} ({:.0}% confidence).",
-                verdict,
-                confidence * 100.0
-            )
+            let verdict = result.get("verdict").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let confidence = result.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            format!("verdict: {} ({:.0}% confidence).", verdict, confidence * 100.0)
         }
         "m1nd.ingest" => {
-            let nodes = result
-                .get("node_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let edges = result
-                .get("edge_count")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let nodes = result.get("node_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            let edges = result.get("edge_count").and_then(|v| v.as_u64()).unwrap_or(0);
             format!("ingested: {} nodes, {} edges. graph ready.", nodes, edges)
         }
         _ => String::new(),
@@ -293,16 +251,8 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                 ("query", "Search query for spreading activation", true),
                 ("agent_id", "Calling agent identifier", true),
                 ("top_k", "Number of top results (default: 20)", false),
-                (
-                    "dimensions",
-                    "Activation dimensions (structural, semantic, temporal, causal)",
-                    false,
-                ),
-                (
-                    "xlr",
-                    "Enable XLR noise cancellation (default: true)",
-                    false,
-                ),
+                ("dimensions", "Activation dimensions (structural, semantic, temporal, causal)", false),
+                ("xlr", "Enable XLR noise cancellation (default: true)", false),
             ],
             returns: "Ranked list of activated nodes with scores, dimensions, ghost edges",
             example: r#"{"query": "rate limiting", "agent_id": "jimi", "top_k": 10}"#,
@@ -316,11 +266,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[
                 ("node_id", "Target node identifier", true),
                 ("agent_id", "Calling agent identifier", true),
-                (
-                    "direction",
-                    "forward | reverse | both (default: forward)",
-                    false,
-                ),
+                ("direction", "forward | reverse | both (default: forward)", false),
             ],
             returns: "Blast radius, depth distribution, causal chains",
             example: r#"{"node_id": "file::backend/chat_handler.py", "agent_id": "jimi"}"#,
@@ -402,11 +348,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[
                 ("agent_id", "Calling agent identifier", true),
                 ("target_node", "Node to find equivalents for", false),
-                (
-                    "similarity_threshold",
-                    "Cosine similarity threshold (default: 0.85)",
-                    false,
-                ),
+                ("similarity_threshold", "Cosine similarity threshold (default: 0.85)", false),
             ],
             returns: "Equivalent node pairs with similarity scores",
             example: r#"{"target_node": "file::utils.py", "agent_id": "jimi"}"#,
@@ -419,11 +361,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             one_liner: "Weight drift since last session -- what changed in the graph?",
             params: &[
                 ("agent_id", "Calling agent identifier", true),
-                (
-                    "since",
-                    "Baseline: last_session (default) or ISO date",
-                    false,
-                ),
+                ("since", "Baseline: last_session (default) or ISO date", false),
             ],
             returns: "Edge weight changes, node additions/removals",
             example: r#"{"agent_id": "jimi"}"#,
@@ -478,7 +416,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             category: "Foundation",
             glyph: GLYPH_DIMENSION,
             one_liner: "Server health -- graph size, uptime, sessions",
-            params: &[("agent_id", "Calling agent identifier", true)],
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+            ],
             returns: "Status, node/edge counts, uptime, active sessions",
             example: r#"{"agent_id": "jimi"}"#,
             next: &["ingest", "drift"],
@@ -505,11 +445,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             glyph: GLYPH_STRUCTURE,
             one_liner: "Pattern-based structural analysis with graph validation",
             params: &[
-                (
-                    "pattern",
-                    "Pattern ID (error_handling, concurrency, auth_boundary, etc.)",
-                    true,
-                ),
+                ("pattern", "Pattern ID (error_handling, concurrency, auth_boundary, etc.)", true),
                 ("agent_id", "Calling agent identifier", true),
                 ("scope", "File path prefix", false),
             ],
@@ -525,23 +461,11 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[
                 ("query", "Search term or regex pattern", true),
                 ("agent_id", "Calling agent identifier", true),
-                (
-                    "mode",
-                    "literal | regex | semantic (default: literal)",
-                    false,
-                ),
+                ("mode", "literal | regex | semantic (default: literal)", false),
                 ("scope", "File path prefix filter", false),
                 ("top_k", "Max results (default: 50, max: 500)", false),
-                (
-                    "context_lines",
-                    "Lines of context (default: 2, max: 10)",
-                    false,
-                ),
-                (
-                    "case_sensitive",
-                    "Case-sensitive matching (default: false)",
-                    false,
-                ),
+                ("context_lines", "Lines of context (default: 2, max: 10)", false),
+                ("case_sensitive", "Case-sensitive matching (default: false)", false),
             ],
             returns: "File matches with context lines and graph node cross-references",
             example: r#"{"query": "ANTHROPIC_API_KEY", "agent_id": "jimi", "mode": "literal"}"#,
@@ -620,7 +544,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             category: "Superpowers",
             glyph: GLYPH_STRUCTURE,
             one_liner: "Immune system -- scan for known bug patterns",
-            params: &[("agent_id", "Calling agent identifier", true)],
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+            ],
             returns: "Antibody matches with severity and affected nodes",
             example: r#"{"agent_id": "jimi"}"#,
             next: &["antibody.create", "panoramic"],
@@ -766,6 +692,352 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             example: r#"{"edits": [{"file": "a.py", "content": "..."}], "agent_id": "jimi"}"#,
             next: &["predict", "learn"],
         },
+        // --- Perspective ---
+        ToolDoc {
+            name: "m1nd.perspective.start",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Enter a perspective -- create a navigable route surface from a query",
+            params: &[
+                ("query", "Seed query for route synthesis", true),
+                ("agent_id", "Calling agent identifier", true),
+                ("anchor_node", "Anchor to a specific node (activates anchored mode)", false),
+                ("lens", "Starting lens configuration", false),
+            ],
+            returns: "Perspective ID, initial route set, focus node",
+            example: r#"{"query": "authentication flow", "agent_id": "jimi"}"#,
+            next: &["perspective.routes", "perspective.follow", "perspective.suggest"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.routes",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Browse the current route set with pagination",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+                ("page", "Page number, 1-based (default: 1)", false),
+                ("page_size", "Routes per page, clamped 1-10 (default: 6)", false),
+                ("route_set_version", "Version from previous response for staleness check", false),
+            ],
+            returns: "Paginated routes with labels, scores, and route IDs",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123"}"#,
+            next: &["perspective.inspect", "perspective.follow", "perspective.peek"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.inspect",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Expand a route with full path, metrics, provenance, and affinity",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+                ("route_set_version", "Version for staleness check", true),
+                ("route_id", "Stable content-addressed route ID", false),
+                ("route_index", "1-based page-local position", false),
+            ],
+            returns: "Full route path with edge weights, provenance, affinity scores",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123", "route_id": "r-def456", "route_set_version": 1}"#,
+            next: &["perspective.follow", "perspective.peek", "perspective.affinity"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.peek",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Extract a small relevant code/doc slice from a route target",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+                ("route_set_version", "Version for staleness check", true),
+                ("route_id", "Stable route ID", false),
+                ("route_index", "1-based page-local position", false),
+            ],
+            returns: "Code snippet from target node with line numbers",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123", "route_id": "r-def456", "route_set_version": 1}"#,
+            next: &["perspective.follow", "perspective.inspect"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.follow",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Follow a route -- move focus to target, synthesize new routes",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+                ("route_set_version", "Version for staleness check", true),
+                ("route_id", "Stable route ID", false),
+                ("route_index", "1-based page-local position", false),
+            ],
+            returns: "New focus node, new route set, navigation depth",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123", "route_id": "r-def456", "route_set_version": 1}"#,
+            next: &["perspective.routes", "perspective.back", "perspective.suggest"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.suggest",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Get next best move suggestion based on navigation history",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+                ("route_set_version", "Version for staleness check", true),
+            ],
+            returns: "Suggested route with reasoning based on coverage gaps",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123", "route_set_version": 1}"#,
+            next: &["perspective.follow", "perspective.inspect"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.affinity",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Discover probable connections a route target might have",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+                ("route_set_version", "Version for staleness check", true),
+                ("route_id", "Stable route ID", false),
+                ("route_index", "1-based page-local position", false),
+            ],
+            returns: "Affinity edges with strength scores and shared dimensions",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123", "route_id": "r-def456", "route_set_version": 1}"#,
+            next: &["perspective.follow", "perspective.inspect"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.branch",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Fork the current navigation state into a new branch",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+                ("branch_name", "Optional name for the branch", false),
+            ],
+            returns: "New perspective ID for the branch, inherited state",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123", "branch_name": "auth-deep-dive"}"#,
+            next: &["perspective.routes", "perspective.compare"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.back",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Navigate back to previous focus, restoring checkpoint state",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Active perspective ID", true),
+            ],
+            returns: "Restored focus node, previous route set",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123"}"#,
+            next: &["perspective.routes", "perspective.follow"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.compare",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Compare two perspectives on shared/unique nodes and dimension deltas",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id_a", "First perspective ID", true),
+                ("perspective_id_b", "Second perspective ID", true),
+                ("dimensions", "Dimensions to compare (empty = all)", false),
+            ],
+            returns: "Shared nodes, unique nodes per perspective, dimension deltas",
+            example: r#"{"agent_id": "jimi", "perspective_id_a": "p-abc123", "perspective_id_b": "p-def456"}"#,
+            next: &["perspective.inspect", "perspective.branch"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.list",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "List all perspectives for an agent",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+            ],
+            returns: "Active perspectives with focus nodes, route counts, depth",
+            example: r#"{"agent_id": "jimi"}"#,
+            next: &["perspective.start", "perspective.close"],
+        },
+        ToolDoc {
+            name: "m1nd.perspective.close",
+            category: "Perspective",
+            glyph: GLYPH_PATH,
+            one_liner: "Close a perspective and release associated locks",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("perspective_id", "Perspective ID to close", true),
+            ],
+            returns: "Confirmation with released resource count",
+            example: r#"{"agent_id": "jimi", "perspective_id": "p-abc123"}"#,
+            next: &["perspective.list", "perspective.start"],
+        },
+        // --- Lock ---
+        ToolDoc {
+            name: "m1nd.lock.create",
+            category: "Lock",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Pin a subgraph region and capture a baseline for change monitoring",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("scope", "Lock scope: node | subgraph | query_neighborhood | path", true),
+                ("root_nodes", "Root node IDs for the lock", true),
+                ("radius", "BFS radius for subgraph scope (1-4)", false),
+                ("query", "Query for query_neighborhood scope", false),
+                ("path_nodes", "Ordered nodes for path scope", false),
+            ],
+            returns: "Lock ID, baseline snapshot, locked node count",
+            example: r#"{"agent_id": "jimi", "scope": "subgraph", "root_nodes": ["file::auth.py"], "radius": 2}"#,
+            next: &["lock.watch", "lock.diff", "lock.release"],
+        },
+        ToolDoc {
+            name: "m1nd.lock.watch",
+            category: "Lock",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Set a watcher strategy on a lock (manual, on_ingest, on_learn)",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("lock_id", "Lock to configure", true),
+                ("strategy", "Watcher strategy: manual | on_ingest | on_learn", true),
+            ],
+            returns: "Updated lock with active watcher strategy",
+            example: r#"{"agent_id": "jimi", "lock_id": "lk-abc123", "strategy": "on_ingest"}"#,
+            next: &["lock.diff", "lock.release"],
+        },
+        ToolDoc {
+            name: "m1nd.lock.diff",
+            category: "Lock",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Compute what changed in a locked region since baseline",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("lock_id", "Lock to diff", true),
+            ],
+            returns: "Added/removed/modified nodes and edges since baseline",
+            example: r#"{"agent_id": "jimi", "lock_id": "lk-abc123"}"#,
+            next: &["lock.rebase", "lock.release", "impact"],
+        },
+        ToolDoc {
+            name: "m1nd.lock.rebase",
+            category: "Lock",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Re-capture lock baseline from current graph without releasing",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("lock_id", "Lock to rebase", true),
+            ],
+            returns: "Updated baseline with new snapshot timestamp",
+            example: r#"{"agent_id": "jimi", "lock_id": "lk-abc123"}"#,
+            next: &["lock.diff", "lock.watch"],
+        },
+        ToolDoc {
+            name: "m1nd.lock.release",
+            category: "Lock",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Release a lock and free its resources",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("lock_id", "Lock to release", true),
+            ],
+            returns: "Confirmation with lock duration and change summary",
+            example: r#"{"agent_id": "jimi", "lock_id": "lk-abc123"}"#,
+            next: &["lock.create", "perspective.start"],
+        },
+        // --- Temporal Intelligence ---
+        ToolDoc {
+            name: "m1nd.timeline",
+            category: "Temporal",
+            glyph: GLYPH_DIMENSION,
+            one_liner: "Git-based temporal history -- changes, co-changes, velocity, stability",
+            params: &[
+                ("node", "Node external_id (e.g. file::backend/chat_handler.py)", true),
+                ("agent_id", "Calling agent identifier", true),
+                ("depth", "Time depth: 7d, 30d, 90d, all (default: 30d)", false),
+                ("include_co_changes", "Include co-changed files with coupling scores (default: true)", false),
+                ("include_churn", "Include lines added/deleted churn data (default: true)", false),
+                ("top_k", "Max co-change partners to return (default: 10)", false),
+            ],
+            returns: "Commit history, co-change coupling matrix, churn velocity, stability score",
+            example: r#"{"node": "file::backend/chat_handler.py", "agent_id": "jimi", "depth": "30d"}"#,
+            next: &["diverge", "predict", "impact"],
+        },
+        ToolDoc {
+            name: "m1nd.diverge",
+            category: "Temporal",
+            glyph: GLYPH_DIMENSION,
+            one_liner: "Detect structural drift between a baseline and current graph state",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("baseline", "Baseline reference: ISO date, git ref, or last_session", true),
+                ("scope", "File path glob to limit scope", false),
+                ("include_coupling_changes", "Include coupling matrix delta (default: true)", false),
+                ("include_anomalies", "Detect anomalies like test deficits, velocity spikes (default: true)", false),
+            ],
+            returns: "Structural deltas, coupling drift, anomalies with severity",
+            example: r#"{"agent_id": "jimi", "baseline": "last_session"}"#,
+            next: &["timeline", "drift", "impact"],
+        },
+        // --- Investigation Memory ---
+        ToolDoc {
+            name: "m1nd.trail.save",
+            category: "Trail",
+            glyph: GLYPH_PATH,
+            one_liner: "Persist current investigation state -- nodes, hypotheses, conclusions",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("label", "Human-readable label for this investigation", true),
+                ("hypotheses", "Hypotheses formed during investigation", false),
+                ("conclusions", "Conclusions reached", false),
+                ("open_questions", "Open questions remaining", false),
+                ("tags", "Tags for organization and search", false),
+                ("summary", "Summary (auto-generated if omitted)", false),
+                ("visited_nodes", "Visited nodes with annotations", false),
+                ("activation_boosts", "Map of node_id -> boost weight [0.0, 1.0]", false),
+            ],
+            returns: "Trail ID, persisted node count, saved timestamp",
+            example: r#"{"agent_id": "jimi", "label": "auth flow investigation", "tags": ["security", "auth"]}"#,
+            next: &["trail.resume", "trail.list", "trail.merge"],
+        },
+        ToolDoc {
+            name: "m1nd.trail.resume",
+            category: "Trail",
+            glyph: GLYPH_PATH,
+            one_liner: "Restore a saved investigation -- re-inject activation boosts, detect staleness",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("trail_id", "Trail ID to resume", true),
+                ("force", "Resume even if trail is stale (>50% missing nodes) (default: false)", false),
+            ],
+            returns: "Restored state with staleness report, re-boosted nodes",
+            example: r#"{"agent_id": "jimi", "trail_id": "trail-abc123"}"#,
+            next: &["activate", "trail.save", "perspective.start"],
+        },
+        ToolDoc {
+            name: "m1nd.trail.merge",
+            category: "Trail",
+            glyph: GLYPH_PATH,
+            one_liner: "Combine two or more investigation trails -- discover cross-connections",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("trail_ids", "Two or more trail IDs to merge", true),
+                ("label", "Label for the merged trail (auto-generated if omitted)", false),
+            ],
+            returns: "Merged trail with cross-connections, shared nodes, combined hypotheses",
+            example: r#"{"agent_id": "jimi", "trail_ids": ["trail-abc", "trail-def"]}"#,
+            next: &["trail.resume", "trail.list"],
+        },
+        ToolDoc {
+            name: "m1nd.trail.list",
+            category: "Trail",
+            glyph: GLYPH_PATH,
+            one_liner: "List saved investigation trails with optional filters",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("filter_agent_id", "Filter to a specific agent's trails", false),
+                ("filter_status", "Filter by status: active, saved, archived, stale, merged", false),
+                ("filter_tags", "Filter by tags (any match)", false),
+            ],
+            returns: "Trails with labels, timestamps, node counts, status",
+            example: r#"{"agent_id": "jimi", "filter_status": "active"}"#,
+            next: &["trail.resume", "trail.save"],
+        },
         // --- v0.4.0 new tools ---
         ToolDoc {
             name: "m1nd.panoramic",
@@ -786,7 +1058,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             category: "Efficiency",
             glyph: GLYPH_DIMENSION,
             one_liner: "Token economy -- how much m1nd saved vs grep/Read",
-            params: &[("agent_id", "Calling agent identifier", true)],
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+            ],
             returns: "Session + global token/cost savings",
             example: r#"{"agent_id": "jimi"}"#,
             next: &["report", "help"],
@@ -796,7 +1070,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             category: "Report",
             glyph: GLYPH_DIMENSION,
             one_liner: "Session intelligence report -- queries, savings, graph evolution",
-            params: &[("agent_id", "Calling agent identifier", true)],
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+            ],
             returns: "Markdown report with query log, savings, graph evolution",
             example: r#"{"agent_id": "jimi"}"#,
             next: &["savings", "trail.save"],
@@ -808,11 +1084,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             one_liner: "Self-documenting tool reference with visual identity",
             params: &[
                 ("agent_id", "Calling agent identifier", true),
-                (
-                    "tool_name",
-                    "Specific tool name (omit for full index)",
-                    false,
-                ),
+                ("tool_name", "Specific tool name (omit for full index)", false),
             ],
             returns: "Formatted help text with params, examples, and NEXT suggestions",
             example: r#"{"agent_id": "jimi", "tool_name": "activate"}"#,
@@ -829,20 +1101,10 @@ pub fn format_help_index() -> String {
 
     out.push_str(&gradient_top_border(width));
     out.push('\n');
-    out.push_str(&format!(
-        "{}{}  m1nd  {}-- neuro-symbolic code graph engine{}\n",
-        ANSI_BOLD, ANSI_CYAN, ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  {} SIGNAL  {} PATH  {} STRUCTURE  {} DIMENSION  {} CONNECTION{}\n",
-        ANSI_DIM,
-        GLYPH_SIGNAL,
-        GLYPH_PATH,
-        GLYPH_STRUCTURE,
-        GLYPH_DIMENSION,
-        GLYPH_CONNECTION,
-        ANSI_RESET
-    ));
+    out.push_str(&format!("{}{}  m1nd  {}-- neuro-symbolic code graph engine{}\n",
+        ANSI_BOLD, ANSI_CYAN, ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("{}  {} SIGNAL  {} PATH  {} STRUCTURE  {} DIMENSION  {} CONNECTION{}\n",
+        ANSI_DIM, GLYPH_SIGNAL, GLYPH_PATH, GLYPH_STRUCTURE, GLYPH_DIMENSION, GLYPH_CONNECTION, ANSI_RESET));
     out.push_str(&gradient_bottom_border(width));
     out.push('\n');
     out.push('\n');
@@ -850,6 +1112,10 @@ pub fn format_help_index() -> String {
     // Group by category
     let categories = [
         ("Foundation", GLYPH_SIGNAL, ANSI_CYAN),
+        ("Perspective", GLYPH_PATH, ANSI_MAGENTA),
+        ("Lock", GLYPH_CONNECTION, ANSI_BLUE),
+        ("Temporal", GLYPH_DIMENSION, ANSI_GOLD),
+        ("Trail", GLYPH_PATH, ANSI_GOLD),
         ("Superpowers", GLYPH_STRUCTURE, ANSI_GOLD),
         ("Extended", GLYPH_DIMENSION, ANSI_MAGENTA),
         ("Surgical", GLYPH_CONNECTION, ANSI_GREEN),
@@ -861,72 +1127,19 @@ pub fn format_help_index() -> String {
 
     for (cat_name, glyph, color) in &categories {
         let cat_tools: Vec<&ToolDoc> = docs.iter().filter(|d| d.category == *cat_name).collect();
-        if cat_tools.is_empty() {
-            continue;
-        }
+        if cat_tools.is_empty() { continue; }
 
-        out.push_str(&format!(
-            "{}{} {} ({}):{}\n",
-            color,
-            glyph,
-            cat_name,
-            cat_tools.len(),
-            ANSI_RESET
-        ));
+        out.push_str(&format!("{}{} {} ({}):{}\n", color, glyph, cat_name, cat_tools.len(), ANSI_RESET));
         for doc in cat_tools {
             let short_name = doc.name.strip_prefix("m1nd.").unwrap_or(doc.name);
-            out.push_str(&format!(
-                "  {}{}  {}{}{}\n",
-                ANSI_BOLD, short_name, ANSI_DIM, doc.one_liner, ANSI_RESET
-            ));
+            out.push_str(&format!("  {}{}  {}{}{}\n",
+                ANSI_BOLD, short_name, ANSI_DIM, doc.one_liner, ANSI_RESET));
         }
         out.push('\n');
     }
 
-    // Perspective tools (not in tool_docs, but referenced)
-    out.push_str(&format!(
-        "{}{} Perspective (12):{}\n",
-        ANSI_MAGENTA, GLYPH_PATH, ANSI_RESET
-    ));
-    for name in &[
-        "start", "routes", "inspect", "peek", "follow", "suggest", "affinity", "branch", "back",
-        "compare", "list", "close",
-    ] {
-        out.push_str(&format!(
-            "  {}perspective.{}  {}stateful graph navigation{}\n",
-            ANSI_BOLD, name, ANSI_DIM, ANSI_RESET
-        ));
-    }
-    out.push('\n');
-
-    out.push_str(&format!(
-        "{}{} Lock (5):{}\n",
-        ANSI_BLUE, GLYPH_CONNECTION, ANSI_RESET
-    ));
-    for name in &["create", "watch", "diff", "rebase", "release"] {
-        out.push_str(&format!(
-            "  {}lock.{}  {}concurrent access coordination{}\n",
-            ANSI_BOLD, name, ANSI_DIM, ANSI_RESET
-        ));
-    }
-    out.push('\n');
-
-    out.push_str(&format!(
-        "{}{} Trail (4):{}\n",
-        ANSI_GOLD, GLYPH_PATH, ANSI_RESET
-    ));
-    for name in &["save", "resume", "merge", "list"] {
-        out.push_str(&format!(
-            "  {}trail.{}  {}investigation memory{}\n",
-            ANSI_BOLD, name, ANSI_DIM, ANSI_RESET
-        ));
-    }
-    out.push('\n');
-
-    out.push_str(&format!(
-        "{}use help(tool_name=\"activate\") for detailed help on any tool{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str(&format!("{}use help(tool_name=\"activate\") for detailed help on any tool{}\n", ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — m1nd.help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
     out
 }
 
@@ -939,34 +1152,21 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
     out.push('\n');
 
     let short_name = doc.name.strip_prefix("m1nd.").unwrap_or(doc.name);
-    out.push_str(&format!(
-        "{}{} {}  {}  m1nd.{}{}\n",
-        ANSI_CYAN,
-        doc.glyph,
-        doc.category.to_uppercase(),
-        ANSI_BOLD,
-        short_name,
-        ANSI_RESET
-    ));
+    out.push_str(&format!("{}{} {}  {}  m1nd.{}{}\n",
+        ANSI_CYAN, doc.glyph, doc.category.to_uppercase(), ANSI_BOLD, short_name, ANSI_RESET));
     out.push_str(&format!("{}{}{}\n\n", ANSI_DIM, doc.one_liner, ANSI_RESET));
 
     // Params section
     out.push_str(&format!("{}\u{2338} PARAMS{}\n", ANSI_GOLD, ANSI_RESET)); // ⌸
     for (i, (name, desc, required)) in doc.params.iter().enumerate() {
-        let connector = if i == doc.params.len() - 1 {
-            "\u{2514}\u{2500}"
-        } else {
-            "\u{251C}\u{2500}"
-        };
+        let connector = if i == doc.params.len() - 1 { "\u{2514}\u{2500}" } else { "\u{251C}\u{2500}" };
         let req_mark = if *required {
             format!("{}*{}", ANSI_RED, ANSI_RESET)
         } else {
             String::new()
         };
-        out.push_str(&format!(
-            "  {} {}{}{} {}{}{}\n",
-            connector, ANSI_BOLD, name, req_mark, ANSI_DIM, desc, ANSI_RESET
-        ));
+        out.push_str(&format!("  {} {}{}{} {}{}{}\n",
+            connector, ANSI_BOLD, name, req_mark, ANSI_DIM, desc, ANSI_RESET));
     }
     out.push('\n');
 
@@ -981,10 +1181,7 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
     // Next section
     out.push_str(&format!("{}\u{2350} NEXT{}\n", ANSI_CYAN, ANSI_RESET)); // ⍐
     for next in doc.next {
-        out.push_str(&format!(
-            "  {} {}{}{}\n",
-            ANSI_CYAN, ANSI_BOLD, next, ANSI_RESET
-        ));
+        out.push_str(&format!("  {} {}{}{}\n", ANSI_CYAN, ANSI_BOLD, next, ANSI_RESET));
     }
     out.push('\n');
 
@@ -1001,64 +1198,23 @@ pub fn format_about() -> String {
     out.push_str(&gradient_top_border(width));
     out.push('\n');
     out.push_str(&format!("{}{}  m1nd{}\n", ANSI_BOLD, ANSI_CYAN, ANSI_RESET));
-    out.push_str(&format!(
-        "{}  neuro-symbolic code graph engine{}\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str(&format!("{}  neuro-symbolic code graph engine{}\n\n", ANSI_DIM, ANSI_RESET));
 
-    out.push_str(&format!(
-        "{}  created by Max Kleinschmidt{}\n",
-        ANSI_GREEN, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  cosmophonix / ROOMANIZER OS{}\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str(&format!("{}  created by Max Kleinschmidt{}\n", ANSI_GREEN, ANSI_RESET));
+    out.push_str(&format!("{}  github.com/maxkle1nz/m1nd{}\n\n", ANSI_DIM, ANSI_RESET));
 
-    out.push_str(&format!(
-        "{}  4 letters = 4 dimensions:{}\n",
-        ANSI_BOLD, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}M{} = {}STRUCTURAL{} (who calls who)\n",
-        ANSI_BLUE, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}1{} = {}TEMPORAL{} (what changed together)\n",
-        ANSI_GOLD, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}N{} = {}CAUSAL{} (what broke when this changed)\n",
-        ANSI_MAGENTA, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}D{} = {}SEMANTIC{} (naming patterns)\n\n",
-        ANSI_BLUE, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str(&format!("{}  4 letters = 4 dimensions:{}\n", ANSI_BOLD, ANSI_RESET));
+    out.push_str(&format!("  {}M{} = {}STRUCTURAL{} (who calls who)\n", ANSI_BLUE, ANSI_RESET, ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("  {}1{} = {}TEMPORAL{} (what changed together)\n", ANSI_GOLD, ANSI_RESET, ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("  {}N{} = {}CAUSAL{} (what broke when this changed)\n", ANSI_MAGENTA, ANSI_RESET, ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("  {}D{} = {}SEMANTIC{} (naming patterns)\n\n", ANSI_BLUE, ANSI_RESET, ANSI_DIM, ANSI_RESET));
 
-    out.push_str(&format!(
-        "{}  12 disciplines from neuroscience to epidemiology.{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  zero tokens burned. zero API cost. all local Rust.{}\n",
-        ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "{}  every query makes the graph smarter.{}\n\n",
-        ANSI_DIM, ANSI_RESET
-    ));
+    out.push_str(&format!("{}  12 disciplines from neuroscience to epidemiology.{}\n", ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("{}  zero tokens burned. zero API cost. all local Rust.{}\n", ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("{}  every query makes the graph smarter.{}\n\n", ANSI_DIM, ANSI_RESET));
 
-    out.push_str(&format!(
-        "{}  {} SIGNAL  {} PATH  {} STRUCTURE  {} DIMENSION  {} CONNECTION{}\n",
-        ANSI_DIM,
-        GLYPH_SIGNAL,
-        GLYPH_PATH,
-        GLYPH_STRUCTURE,
-        GLYPH_DIMENSION,
-        GLYPH_CONNECTION,
-        ANSI_RESET
-    ));
+    out.push_str(&format!("{}  {} SIGNAL  {} PATH  {} STRUCTURE  {} DIMENSION  {} CONNECTION{}\n",
+        ANSI_DIM, GLYPH_SIGNAL, GLYPH_PATH, GLYPH_STRUCTURE, GLYPH_DIMENSION, GLYPH_CONNECTION, ANSI_RESET));
 
     out.push_str(&gradient_bottom_border(width));
     out.push('\n');
@@ -1071,8 +1227,7 @@ pub fn find_similar_tools(query: &str) -> Vec<String> {
     let query_lower = query.to_lowercase();
     let query_lower = query_lower.strip_prefix("m1nd.").unwrap_or(&query_lower);
 
-    let mut matches: Vec<(&str, usize)> = docs
-        .iter()
+    let mut matches: Vec<(&str, usize)> = docs.iter()
         .map(|d| {
             let name = d.name.strip_prefix("m1nd.").unwrap_or(d.name);
             let dist = levenshtein_distance(&query_lower, &name.to_lowercase());
@@ -1082,11 +1237,7 @@ pub fn find_similar_tools(query: &str) -> Vec<String> {
         .collect();
 
     matches.sort_by_key(|(_, dist)| *dist);
-    matches
-        .into_iter()
-        .take(3)
-        .map(|(name, _)| name.to_string())
-        .collect()
+    matches.into_iter().take(3).map(|(name, _)| name.to_string()).collect()
 }
 
 fn levenshtein_distance(a: &str, b: &str) -> usize {
@@ -1096,20 +1247,12 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     let b_len = b_bytes.len();
     let mut dp = vec![vec![0usize; b_len + 1]; a_len + 1];
 
-    for i in 0..=a_len {
-        dp[i][0] = i;
-    }
-    for j in 0..=b_len {
-        dp[0][j] = j;
-    }
+    for i in 0..=a_len { dp[i][0] = i; }
+    for j in 0..=b_len { dp[0][j] = j; }
 
     for i in 1..=a_len {
         for j in 1..=b_len {
-            let cost = if a_bytes[i - 1] == b_bytes[j - 1] {
-                0
-            } else {
-                1
-            };
+            let cost = if a_bytes[i - 1] == b_bytes[j - 1] { 0 } else { 1 };
             dp[i][j] = (dp[i - 1][j] + 1)
                 .min(dp[i][j - 1] + 1)
                 .min(dp[i - 1][j - 1] + cost);

@@ -390,14 +390,14 @@ Git-based temporal history for a node. Returns the change history, co-change par
     {
       "date": "2026-03-10",
       "commit": "a1b2c3d",
-      "author": "cosmophonix",
+      "author": "dev",
       "delta": "+45/-12",
       "co_changed": ["parser.py", "routes.py"]
     },
     {
       "date": "2026-03-05",
       "commit": "e4f5g6h",
-      "author": "cosmophonix",
+      "author": "dev",
       "delta": "+120/-30",
       "co_changed": ["pool.py", "worker.py"]
     }
