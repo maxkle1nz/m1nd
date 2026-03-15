@@ -1,3 +1,5 @@
+🇬🇧 [English](README.md) | 🇧🇷 [Português](README.pt-br.md) | 🇪🇸 [Español](README.es.md) | 🇮🇹 [Italiano](README.it.md) | 🇫🇷 [Français](README.fr.md) | 🇩🇪 [Deutsch](README.de.md) | 🇨🇳 [中文](README.zh.md)
+
 <p align="center">
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
