@@ -115,7 +115,7 @@ async fn watch_event_log(path: std::path::PathBuf, tx: broadcast::Sender<SseEven
 // ---------------------------------------------------------------------------
 
 #[derive(Embed)]
-#[folder = "../m1nd-ui/dist/"]
+#[folder = "ui-dist/"]
 #[prefix = ""]
 struct UiAssets;
 
@@ -474,7 +474,7 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         .layer(DefaultBodyLimit::max(1_048_576)); // 1MB body limit (FM-A-004)
 
     if dev_mode {
-        let ui_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../m1nd-ui/dist");
+        let ui_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ui-dist");
         api.fallback_service(tower_http::services::ServeDir::new(ui_dir))
             .layer(CorsLayer::permissive())
     } else {

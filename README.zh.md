@@ -280,6 +280,18 @@ cd m1nd && cargo build --release
 | `apply_batch` | 原子写入多个文件，单次重新摄取，返回每个文件的 diff | 165ms |
 </details>
 
+<details>
+<summary><strong>智能（5 个工具）</strong></summary>
+
+| 工具 | 功能 | 速度 |
+|------|------|------|
+| `search` | 对所有图谱节点标签和源内容进行字面量 + 正则全文搜索 | 4-11ms |
+| `help` | 内置工具参考 — 文档、参数和使用示例 | <1ms |
+| `panoramic` | 完整代码库风险全景 — 扫描 50 个模块，风险评分排名 | 38ms |
+| `savings` | Token 经济追踪器 — 已节省的 LLM token 数 vs 直接读取基线 | <1ms |
+| `report` | 结构化会话报告 — 指标、顶级节点、异常、节省情况（markdown 格式） | <1ms |
+</details>
+
 [完整 API 参考及示例 ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
 
 ## 架构

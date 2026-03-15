@@ -281,6 +281,18 @@ Compatibile con qualsiasi client MCP: Claude Code, Cursor, Windsurf, Zed o il tu
 | `apply_batch` | Scrive più file atomicamente, re-ingest singolo, restituisce diff per file | 165ms |
 </details>
 
+<details>
+<summary><strong>Intelligenza (5 tool)</strong></summary>
+
+| Tool | Cosa fa | Velocità |
+|------|---------|----------|
+| `search` | Ricerca full-text letterale + regex su tutti i label dei nodi e il contenuto sorgente | 4-11ms |
+| `help` | Riferimento strumenti integrato — documentazione, parametri ed esempi di utilizzo | <1ms |
+| `panoramic` | Panorama di rischio dell'intero codebase — 50 moduli scansionati, score di rischio classificati | 38ms |
+| `savings` | Tracker economia token — token LLM risparmiati vs baseline di lettura diretta | <1ms |
+| `report` | Report di sessione strutturato — metriche, top nodi, anomalie, risparmi in markdown | <1ms |
+</details>
+
 [Riferimento API completo con esempi ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
 
 ## Architettura

@@ -281,6 +281,18 @@ Funktioniert mit jedem MCP-Client: Claude Code, Cursor, Windsurf, Zed oder deine
 | `apply_batch` | Schreibt mehrere Dateien atomar, einmaliges Re-Ingest, gibt Diffs pro Datei zurück | 165ms |
 </details>
 
+<details>
+<summary><strong>Intelligenz (5 Tools)</strong></summary>
+
+| Tool | Was es macht | Geschwindigkeit |
+|------|-------------|-----------------|
+| `search` | Literal + Regex-Volltextsuche über alle Graph-Knoten-Labels und Quellinhalt | 4-11ms |
+| `help` | Integrierte Tool-Referenz — Dokumentation, Parameter und Verwendungsbeispiele | <1ms |
+| `panoramic` | Vollständiges Codebase-Risikopanorama — 50 Module gescannt, Risiko-Scores gereiht | 38ms |
+| `savings` | Token-Ökonomie-Tracker — gespeicherte LLM-Tokens vs. Direktlese-Baseline | <1ms |
+| `report` | Strukturierter Sitzungsbericht — Metriken, Top-Knoten, Anomalien, Einsparungen in Markdown | <1ms |
+</details>
+
 [Vollständige API-Referenz mit Beispielen ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
 
 ## Architektur
