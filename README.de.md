@@ -8,7 +8,7 @@
 
 <p align="center">
   Neuro-symbolische Konnektom-Engine mit Hebbscher Plastizität, Spreading Activation
-  und 52 MCP-Tools. In Rust gebaut für KI-Agenten.<br/>
+  und 54 MCP-Tools. In Rust gebaut für KI-Agenten.<br/>
   <em>(Ein Code-Graph, der bei jeder Abfrage lernt. Stell eine Frage; er wird klüger.)</em>
 </p>
 
@@ -27,7 +27,7 @@
   <a href="#schnellstart">Schnellstart</a> &middot;
   <a href="#nachgewiesene-ergebnisse">Ergebnisse</a> &middot;
   <a href="#warum-nicht-einfach-cursorraggrep-nutzen">Warum m1nd</a> &middot;
-  <a href="#die-52-tools">Tools</a> &middot;
+  <a href="#die-54-tools">Tools</a> &middot;
   <a href="https://github.com/maxkle1nz/m1nd/wiki">Wiki</a> &middot;
   <a href="EXAMPLES.md">Beispiele</a>
 </p>
@@ -171,7 +171,7 @@ Funktioniert mit jedem MCP-Client: Claude Code, Cursor, Windsurf, Zed oder deine
 
 **Der Graph speichert Untersuchungen.** `trail.save` -> `trail.resume` Tage später von exakt derselben kognitiven Position. Zwei Agenten am selben Bug? `trail.merge` -- automatische Konflikterkennung auf geteilten Knoten.
 
-## Die 52 Tools
+## Die 54 Tools
 
 | Kategorie | Anzahl | Highlights |
 |-----------|--------|------------|
@@ -180,6 +180,7 @@ Funktioniert mit jedem MCP-Client: Claude Code, Cursor, Windsurf, Zed oder deine
 | **Lock-System** | 5 | Fixiere Subgraph-Regionen, überwache Änderungen (lock.diff: 0.08&micro;s) |
 | **Superpowers** | 13 | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
 | **Superpowers Extended** | 9 | antibody, flow_simulate, epidemic, tremor, trust, layers |
+| **Chirurgisch** | 2 | surgical_context, apply |
 
 <details>
 <summary><strong>Foundation (13 Tools)</strong></summary>
@@ -268,6 +269,15 @@ Funktioniert mit jedem MCP-Client: Claude Code, Cursor, Windsurf, Zed oder deine
 | `layer_inspect` | Inspiziere eine bestimmte Schicht: Knoten, Kanten, Gesundheit | variiert |
 </details>
 
+<details>
+<summary><strong>Chirurgisch (2 Tools)</strong></summary>
+
+| Tool | Was Es Tut | Geschwindigkeit |
+|------|-----------|-----------------|
+| `surgical_context` | Vollständiger Kontext für einen Code-Knoten: Quelle, Caller, Callees, Tests, Trust-Score, Blast-Radius — in einem Aufruf | variiert |
+| `apply` | Schreibt bearbeiteten Code zurück in die Datei, atomares Schreiben, re-ingestiert den Graphen, führt predict aus | variiert |
+</details>
+
 [Vollständige API-Referenz mit Beispielen ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
 
 ## Architektur
@@ -279,7 +289,7 @@ m1nd-core/     Graph-Engine, Spreading Activation, Hebbsche Plastizität, Hypoth
                Antikörper-System, Flusssimulator, Epidemie, Tremor, Vertrauen, Schicht-Erkennung
 m1nd-ingest/   Sprach-Extraktoren (28 Sprachen), Memory Adapter, JSON Adapter,
                Git-Anreicherung, Cross-File-Resolver, inkrementeller Diff
-m1nd-mcp/      MCP-Server, 52 Tool-Handler, JSON-RPC über stdio, HTTP-Server + GUI
+m1nd-mcp/      MCP-Server, 54 Tool-Handler, JSON-RPC über stdio, HTTP-Server + GUI
 ```
 
 ```mermaid
@@ -299,7 +309,7 @@ graph LR
         SA --> XLR[XLR Rauschunterdrückung]
     end
     subgraph MCP
-        XLR --> T[52 Tools]
+        XLR --> T[54 Tools]
         HP --> T
         HY --> T
         SX --> T

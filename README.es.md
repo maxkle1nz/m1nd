@@ -8,7 +8,7 @@
 
 <p align="center">
   Motor de conectoma neuro-simbólico con plasticidad Hebbiana, spreading activation
-  y 52 herramientas MCP. Construido en Rust para agentes de IA.<br/>
+  y 54 herramientas MCP. Construido en Rust para agentes de IA.<br/>
   <em>(Un grafo de código que aprende con cada consulta. Hazle una pregunta; se vuelve más inteligente.)</em>
 </p>
 
@@ -27,7 +27,7 @@
   <a href="#inicio-rápido">Inicio Rápido</a> &middot;
   <a href="#resultados-comprobados">Resultados</a> &middot;
   <a href="#por-qué-no-usar-cursorraggrep">Por qué m1nd</a> &middot;
-  <a href="#las-52-herramientas">Herramientas</a> &middot;
+  <a href="#las-54-herramientas">Herramientas</a> &middot;
   <a href="https://github.com/maxkle1nz/m1nd/wiki">Wiki</a> &middot;
   <a href="EXAMPLES.md">Ejemplos</a>
 </p>
@@ -171,7 +171,7 @@ Funciona con cualquier cliente MCP: Claude Code, Cursor, Windsurf, Zed o el tuyo
 
 **El grafo guarda investigaciones.** `trail.save` -> `trail.resume` días después desde la misma posición cognitiva exacta. ¿Dos agentes en el mismo bug? `trail.merge` -- detección automática de conflictos en nodos compartidos.
 
-## Las 52 Herramientas
+## Las 54 Herramientas
 
 | Categoría | Cantidad | Destacados |
 |-----------|----------|------------|
@@ -180,6 +180,7 @@ Funciona con cualquier cliente MCP: Claude Code, Cursor, Windsurf, Zed o el tuyo
 | **Sistema de Lock** | 5 | Fija regiones del subgrafo, monitorea cambios (lock.diff: 0.08&micro;s) |
 | **Superpoderes** | 13 | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
 | **Superpoderes Extendidos** | 9 | antibody, flow_simulate, epidemic, tremor, trust, layers |
+| **Quirúrgico** | 2 | surgical_context, apply |
 
 <details>
 <summary><strong>Fundación (13 herramientas)</strong></summary>
@@ -268,6 +269,15 @@ Funciona con cualquier cliente MCP: Claude Code, Cursor, Windsurf, Zed o el tuyo
 | `layer_inspect` | Inspecciona una capa específica: nodos, aristas, salud | varía |
 </details>
 
+<details>
+<summary><strong>Quirúrgico (2 herramientas)</strong></summary>
+
+| Herramienta | Qué Hace | Velocidad |
+|------------|----------|-----------|
+| `surgical_context` | Contexto completo para un nodo de código: fuente, callers, callees, tests, puntuación de confianza, radio de blast — en una llamada | varía |
+| `apply` | Escribe el código editado de vuelta al archivo, escritura atómica, re-ingesta el grafo, ejecuta predict | varía |
+</details>
+
 [Referencia completa de la API con ejemplos ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
 
 ## Arquitectura
@@ -279,7 +289,7 @@ m1nd-core/     Motor de grafo, spreading activation, plasticidad Hebbiana, motor
                sistema de anticuerpos, simulador de flujo, epidemia, tremor, confianza, detección de capas
 m1nd-ingest/   Extractores de lenguaje (28 lenguajes), memory adapter, JSON adapter,
                enriquecimiento git, resolvedor cross-file, diff incremental
-m1nd-mcp/      Servidor MCP, 52 handlers de herramientas, JSON-RPC sobre stdio, servidor HTTP + GUI
+m1nd-mcp/      Servidor MCP, 54 handlers de herramientas, JSON-RPC sobre stdio, servidor HTTP + GUI
 ```
 
 ```mermaid
@@ -299,7 +309,7 @@ graph LR
         SA --> XLR[XLR Cancelación de Ruido]
     end
     subgraph MCP
-        XLR --> T[52 Herramientas]
+        XLR --> T[54 Herramientas]
         HP --> T
         HY --> T
         SX --> T
