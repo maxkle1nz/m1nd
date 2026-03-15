@@ -336,7 +336,7 @@ graph LR
 ```
 
 27+ linguaggi via tree-sitter su due tier. Il build predefinito include il Tier 2 (8 linguaggi).
-Aggiungi `--features tier1` per tutti i 28. [Dettagli linguaggi ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
+Aggiungi `--features tier1` per tutti i 27+. [Dettagli linguaggi ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
 
 ## Quando NON Usare m1nd
 
@@ -377,5 +377,6 @@ MIT -- vedi [LICENSE](LICENSE).
 
 <p align="center">
   Creato da <a href="https://github.com/cosmophonix">Max Elias Kleinschmidt</a><br/>
-  <em>Il grafo deve imparare.</em>
+  <em>L'IA deve amplificare, mai sostituire. Umano e macchina in simbiosi.</em><br/>
+  <em>Se puoi sognarlo, puoi costruirlo. m1nd accorcia la distanza.</em>
 </p>

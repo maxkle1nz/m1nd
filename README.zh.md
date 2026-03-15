@@ -9,11 +9,11 @@
 <p align="center">
   具备赫布可塑性、扩散激活和 61 个 MCP 工具的神经符号连接组引擎。
   用 Rust 构建，专为 AI 智能体打造。<br/>
-  <em>（一个每次查询都会学习的代码图谱。问它一个问题，它就变得更聪明。）</em>
+  <em>它不是在读你的代码。它在思考你的代码。</em>
 </p>
 
 <p align="center">
-  <strong>一次会话发现 39 个 bug &middot; 89% 假设准确率 &middot; 1.36&micro;s 激活 &middot; 零 LLM token 消耗</strong>
+  <strong>一次会话发现 39 个 bug &middot; 89% 假设准确率 &middot; 零 LLM token 消耗</strong>
 </p>
 
 <p align="center">
@@ -301,7 +301,7 @@ cd m1nd && cargo build --release
 ```
 m1nd-core/     图谱引擎、扩散激活、赫布可塑性、假设引擎、
                抗体系统、流模拟器、流行病、震颤、信任、层级检测
-m1nd-ingest/   语言提取器（28 种语言）、记忆适配器、JSON 适配器、
+m1nd-ingest/   语言提取器（27+ 种语言）、记忆适配器、JSON 适配器、
                Git 丰富化、跨文件解析器、增量差异
 m1nd-mcp/      MCP 服务器、61 个工具处理器、JSON-RPC over stdio、HTTP 服务器 + GUI
 ```
@@ -309,7 +309,7 @@ m1nd-mcp/      MCP 服务器、61 个工具处理器、JSON-RPC over stdio、HTT
 ```mermaid
 graph LR
     subgraph 摄入
-        A[代码 / 28 种语言] --> R[引用解析器]
+        A[代码 / 27+ 种语言] --> R[引用解析器]
         MA[记忆适配器] --> R
         JA[JSON 适配器] --> R
         R --> GD[Git 丰富化]
@@ -334,8 +334,8 @@ graph LR
     HTTP --> B[浏览器访问 localhost:1337]
 ```
 
-通过 tree-sitter 支持 28 种语言，分为两个层级。默认构建包含 Tier 2（8 种语言）。
-添加 `--features tier1` 获得全部 28 种。[语言详情 ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
+通过 tree-sitter 支持 27+ 种语言，分为两个层级。默认构建包含 Tier 2（8 种语言）。
+添加 `--features tier1` 获得全部 27+ 种。[语言详情 ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
 
 ## 何时不应使用 m1nd
 
@@ -376,5 +376,6 @@ MIT —— 参见 [LICENSE](LICENSE)。
 
 <p align="center">
   创建者 <a href="https://github.com/cosmophonix">Max Elias Kleinschmidt</a><br/>
-  <em>图谱必须学习。</em>
+  <em>AI 应该放大，而非取代。人与机器共生。</em><br/>
+  <em>如果你能梦想到，你就能构建它。m1nd 缩短了这段距离。</em>
 </p>
