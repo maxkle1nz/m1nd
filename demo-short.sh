@@ -82,9 +82,22 @@ echo -e "${RED}  runtime dependency?${RESET}      ${RED}impossible${RESET}"
 echo -e "${RED}  undiscovered bugs?${RESET}       ${RED}impossible${RESET}"
 echo ""
 
-# === PUNCHLINE (3s) ===
-echo -e "${WHITE}  8 bugs found that grep will never find.${RESET}"
-echo -e "${WHITE}  They have no keyword. They have structure.${RESET}"
+# === COST (the real comparison) ===
+echo -e "${WHITE}  ───────────────────────────────────────────${RESET}"
+echo -e "${WHITE}                    m1nd        grep+LLM${RESET}"
+echo -e "${WHITE}  queries           ${GREEN}46${WHITE}            ${RED}~210${RESET}"
+echo -e "${WHITE}  time              ${GREEN}3.1s${WHITE}          ${RED}~35 min${RESET}"
+echo -e "${WHITE}  files read        ${GREEN}0${WHITE}             ${RED}228${RESET}"
+echo -e "${WHITE}  tokens            ${GREEN}0${WHITE}             ${RED}~193K${RESET}"
+echo -e "${WHITE}  cost              ${GREEN}\$0.00${WHITE}         ${RED}~\$7.23${RESET}"
+echo -e "${WHITE}  bugs found        ${GREEN}39${WHITE}            ${YELLOW}~23${RESET}"
+echo -e "${WHITE}  invisible bugs    ${GREEN}8${WHITE}             ${RED}0${RESET}"
+echo -e "${WHITE}  ───────────────────────────────────────────${RESET}"
+echo ""
+
+# === PUNCHLINE ===
+echo -e "${WHITE}  8 bugs that grep will never find.${RESET}"
+echo -e "${WHITE}  no keyword. no string. just structure.${RESET}"
 echo ""
 echo -e "${GREEN}  github.com/maxkle1nz/m1nd${RESET}"
 echo ""
