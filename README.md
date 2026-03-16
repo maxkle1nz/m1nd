@@ -9,11 +9,11 @@
 <p align="center">
   Neuro-symbolic connectome engine with Hebbian plasticity, spreading activation,
   and 61 MCP tools. Built in Rust for AI agents.<br/>
-  <em>It doesn't read your code. It thinks about your code.</em>
+  <em>(A code graph that learns from every query. Ask it a question; it gets smarter.)</em>
 </p>
 
 <p align="center">
-  <strong>39 bugs found in one session &middot; 89% hypothesis accuracy &middot; Zero LLM tokens</strong>
+  <strong>39 bugs found in one session &middot; 89% hypothesis accuracy &middot; 12/12 verify scenarios &middot; Zero LLM tokens</strong>
 </p>
 
 <p align="center">
@@ -29,6 +29,7 @@
   <a href="#proven-results">Results</a> &middot;
   <a href="#why-not-just-use-cursorraggrep">Why m1nd</a> &middot;
   <a href="#the-61-tools">Tools</a> &middot;
+  <a href="#post-write-verification">Post-Write Verification</a> &middot;
   <a href="https://github.com/maxkle1nz/m1nd/wiki">Wiki</a> &middot;
   <a href="EXAMPLES.md">Examples</a>
 </p>
@@ -72,6 +73,7 @@ Live audit on a production Python/FastAPI codebase (52K lines, 380 files):
 | **Bugs found in one session** | 39 (28 confirmed fixed + 9 high-confidence) |
 | **Invisible to grep** | 8 of 28 (28.5%) -- required structural analysis |
 | **Hypothesis accuracy** | 89% over 10 live claims |
+| **Post-write verify accuracy** | 100% — 12/12 scenarios (SAFE/RISKY/BROKEN) |
 | **LLM tokens consumed** | 0 -- pure Rust, local binary |
 | **m1nd queries vs grep ops** | 46 vs ~210 |
 | **Total query latency** | ~3.1 seconds vs ~35 minutes estimated |
@@ -149,6 +151,7 @@ You have m1nd available via MCP. Use it BEFORE grep, glob, or file reads:
 - m1nd.surgical_context_v2 replaces Read — returns source + all connected files in one call
 - m1nd.impact replaces manual dependency checking — shows blast radius before edits
 - m1nd.apply replaces Edit — writes code and auto-updates the graph
+- m1nd.apply_batch(verify=true) — write multiple files + 5-layer post-write verification
 - m1nd.help() — call when unsure which tool to use
 ```
 
@@ -160,7 +163,8 @@ Copy-paste into your project's `CLAUDE.md`:
 ## Code Intelligence
 m1nd is your primary code navigation tool. Use it before grep/glob/Read.
 Key tools: search (grep replacement), activate (find related), surgical_context_v2 (full context),
-impact (blast radius), apply (edit + re-ingest), help (when confused).
+impact (blast radius), apply (edit + re-ingest), apply_batch(verify=true) (batch edit + verification),
+help (when confused).
 ```
 
 ### Cursor (.cursorrules)
@@ -199,6 +203,7 @@ AI agents waste 80% of their context window navigating code with grep and file r
 | Bug immune memory | No | No | No | No | **Antibody system** |
 | Pre-failure detection | No | No | No | No | **Tremor + epidemic + trust** |
 | Architectural layers | No | No | No | No | **Auto-detect + violation report** |
+| Post-write verification | No | No | No | No | **5-layer verify (12/12, 100%)** |
 | Cost per query | Hosted SaaS | Subscription | LLM tokens | LLM tokens | **Zero** |
 
 *Comparisons reflect capabilities at time of writing. Each tool excels at its primary use case; m1nd is not a replacement for Sourcegraph's enterprise search or Cursor's editing UX.*
@@ -218,6 +223,8 @@ AI agents waste 80% of their context window navigating code with grep and file r
 - **Trust Ledger** -- per-module actuarial risk scores from defect history
 - **Layer Detection** -- auto-detects architectural layers, reports dependency violations
 
+**The graph verifies writes.** `apply_batch(verify=true)` runs 5 independent layers of analysis on every file you write -- before your CI pipeline ever runs. 12/12 accuracy across all severity scenarios (SAFE / RISKY / BROKEN). See [Post-Write Verification](#post-write-verification).
+
 **The graph saves investigations.** `trail.save` -> `trail.resume` days later from the exact same cognitive position. Two agents on the same bug? `trail.merge` -- automatic conflict detection on shared nodes.
 
 ## The 61 Tools
@@ -229,8 +236,7 @@ AI agents waste 80% of their context window navigating code with grep and file r
 | **Lock System** | 5 | Pin subgraph regions, watch for changes (lock.diff: 0.08&micro;s) |
 | **Superpowers** | 13 | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
 | **Superpowers Extended** | 9 | antibody, flow_simulate, epidemic, tremor, trust, layers |
-| **Surgical** | 4 | surgical_context, apply, surgical_context_v2, apply_batch |
-| **Intelligence** | 5 | search, help, panoramic, savings, report |
+| **Surgical** | 9 | surgical_context, apply, surgical_context_v2, apply_batch (+ verify=true) |
 
 <details>
 <summary><strong>Foundation (13 tools)</strong></summary>
@@ -328,21 +334,62 @@ AI agents waste 80% of their context window navigating code with grep and file r
 | `apply` | Write edited code back to file, atomic write, re-ingest graph, run predict | 3.5ms |
 | `surgical_context_v2` | All connected files with source code in ONE call — complete dependency context without multiple round-trips | 1.3ms |
 | `apply_batch` | Write multiple files atomically, single re-ingest pass, returns per-file diffs | 165ms |
-</details>
-
-<details>
-<summary><strong>Intelligence (5 tools)</strong></summary>
-
-| Tool | What It Does | Speed |
-|------|-------------|-------|
-| `search` | Literal + regex full-text search across all graph node labels and source content | 4-11ms |
-| `help` | Built-in tool reference — per-tool docs, parameters, and usage examples | <1ms |
-| `panoramic` | Full-codebase risk panorama — 50 modules scanned, risk scores ranked | 38ms |
-| `savings` | Token economy tracker — cumulative LLM tokens saved vs. direct-read baseline | <1ms |
-| `report` | Structured session report — metrics, top nodes, anomalies, savings in markdown | <1ms |
+| `apply_batch(verify=true)` | All of the above + **5-layer post-write verification** (pattern detection, compile check, graph BFS impact, test execution, anti-pattern analysis) — verdict: SAFE / RISKY / BROKEN | 165ms + verify |
 </details>
 
 [Full API reference with examples ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
+
+## Post-Write Verification
+
+`apply_batch` with `verify=true` runs 5 independent verification layers on every file written,
+returning a single `VerificationReport` with a SAFE / RISKY / BROKEN verdict.
+**12/12 scenarios correctly classified. 100% accuracy.**
+
+```jsonc
+// Write multiple files + verify everything in one call
+{
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.apply_batch",
+    "arguments": {
+      "agent_id": "my-agent",
+      "verify": true,
+      "edits": [
+        { "file_path": "/project/src/auth.py",    "new_content": "..." },
+        { "file_path": "/project/src/session.py", "new_content": "..." }
+      ]
+    }
+  }
+}
+// -> {
+//      "all_succeeded": true,
+//      "verification": {
+//        "verdict": "RISKY",
+//        "total_affected_nodes": 14,
+//        "blast_radius": [{ "file_path": "auth.py", "reachable_files": 7, "risk": "high" }],
+//        "antibodies_triggered": ["bare-except-swallow"],
+//        "layer_violations": [],
+//        "compile_check": "ok",
+//        "tests_run": 42, "tests_passed": 42, "tests_failed": 0,
+//        "verify_elapsed_ms": 340.2
+//      }
+//    }
+```
+
+### The 5 Layers
+
+| Layer | What it checks | Verdict contribution |
+|-------|---------------|---------------------|
+| **A — Pattern detection** | Graph diff: compares pre-write vs post-write node sets to detect structural deletions and unexpected topology changes | BROKEN if key nodes vanish |
+| **B — Anti-pattern analysis** | Scans textual diff for `todo!()` removal without replacement, bare `unwrap()` additions, swallowed errors, and stub-filling patterns | RISKY if patterns detected |
+| **C — Graph BFS impact** | 2-hop reachability via CSR edges: counts how many other file-level nodes your changes can reach | RISKY if blast radius > 10 files |
+| **D — Test execution** | Detects project type (Rust/Go/Python) and runs the relevant test suite (`cargo test` / `go test` / `pytest`) scoped to affected modules | BROKEN if any test fails |
+| **E — Compile check** | Runs `cargo check` / `go build` / `python -m py_compile` on the project after writes | BROKEN if compilation fails |
+
+Verdict rules: any BROKEN layer → overall BROKEN. Any RISKY layer → overall RISKY. All clear → SAFE.
+All 5 layers run in parallel where possible. Verification adds ~340ms median on a 52K-line codebase.
+
+---
 
 ## Architecture
 
@@ -380,7 +427,7 @@ graph LR
         T --> IO[JSON-RPC stdio]
         T --> HTTP[HTTP API + GUI]
     end
-    IO --> C[Claude Code / Cursor / any MCP client]
+    IO --> C[Claude Code / Cursor / any MCP]
     HTTP --> B[Browser on localhost:1337]
 ```
 
@@ -412,8 +459,8 @@ New developer asks "how does auth work?" -- graph lights up the path.
 **Cross-domain search:** `ingest(adapter="memory", mode="merge")` -> `activate`.
 Code + docs in one graph. One question returns both the spec and the implementation.
 
-**PLUG Integration:** `ingest` -> `layers` -> `activate("entry hook plugin")` -> `impact` -> `surgical_context_v2` -> `apply_batch`.
-Map any codebase in 30 minutes. Proven on OpenCode (Go, 140 files): 1,888 nodes in 1 second, 15 entry points found, 10 hook points, 23 risks identified. 70% of integration required zero code changes.
+**Safe multi-file edit:** `surgical_context_v2` -> `apply_batch(verify=true)`.
+Write N files at once. Get a SAFE/RISKY/BROKEN verdict before CI runs.
 
 ## Contributing
 

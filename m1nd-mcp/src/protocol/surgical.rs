@@ -36,12 +36,8 @@ pub struct SurgicalContextInput {
     pub include_tests: bool,
 }
 
-fn default_radius() -> u32 {
-    1
-}
-fn default_true() -> bool {
-    true
-}
+fn default_radius() -> u32 { 1 }
+fn default_true() -> bool { true }
 
 /// Output for m1nd.surgical_context.
 #[derive(Clone, Debug, Serialize)]
@@ -167,12 +163,8 @@ pub struct SurgicalContextV2Input {
     pub max_lines_per_file: usize,
 }
 
-fn default_max_connected_files() -> usize {
-    5
-}
-fn default_max_lines_per_file() -> usize {
-    60
-}
+fn default_max_connected_files() -> usize { 5 }
+fn default_max_lines_per_file() -> usize { 60 }
 
 /// Source excerpt for a connected file in v2 context.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -271,6 +263,10 @@ pub struct ApplyBatchInput {
     /// Re-ingest all modified files after writing. Default: true.
     #[serde(default = "default_true")]
     pub reingest: bool,
+    /// Run post-write verification (impact + antibody_scan + layer violations).
+    /// Returns a VerificationReport with verdict. Default: false.
+    #[serde(default)]
+    pub verify: bool,
 }
 
 /// Output for m1nd.apply_batch.
@@ -288,6 +284,82 @@ pub struct ApplyBatchOutput {
     pub reingested: bool,
     /// Total bytes written across all files.
     pub total_bytes_written: usize,
+    /// Post-write verification report (populated when verify=true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<VerificationReport>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
+}
+
+/// Post-write verification report for apply/apply_batch.
+/// Automatically runs impact analysis, antibody scan, and layer violation check
+/// on all modified files after writing.
+///
+/// Layer A: graph-diff (pre vs post node sets)
+/// Layer B: anti-pattern detection (todo!() removal, unwrap, error handling)
+/// Layer C: real graph BFS impact (2-hop blast radius via CSR edges)
+/// Layer D: affected test execution (cargo test / go test / pytest)
+#[derive(Clone, Debug, Serialize)]
+pub struct VerificationReport {
+    /// Overall verdict: SAFE, RISKY, or BROKEN.
+    pub verdict: String,
+    /// Files with high impact (many dependents affected).
+    pub high_impact_files: Vec<VerificationImpact>,
+    /// Antibody patterns triggered by the changes.
+    pub antibodies_triggered: Vec<String>,
+    /// Layer dependency violations introduced.
+    pub layer_violations: Vec<String>,
+    /// Total nodes affected across all modified files.
+    pub total_affected_nodes: usize,
+    /// Layer C: real BFS blast radius per file (2-hop reachability count).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub blast_radius: Vec<BlastRadiusEntry>,
+    /// Layer D: number of tests executed (None if test detection skipped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tests_run: Option<u32>,
+    /// Layer D: number of tests that passed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tests_passed: Option<u32>,
+    /// Layer D: number of tests that failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tests_failed: Option<u32>,
+    /// Layer D: first 500 chars of test output on failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_output: Option<String>,
+    /// Post-write compilation check result.
+    /// None = skipped (no recognized project type or verify=false).
+    /// Some("ok") = compilation passed.
+    /// Some("error: ...") = compilation failed (first 200 chars of stderr).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compile_check: Option<String>,
+    /// Verification elapsed milliseconds.
+    pub verify_elapsed_ms: f64,
+}
+
+/// Layer C: BFS blast radius entry for a single modified file.
+#[derive(Clone, Debug, Serialize)]
+pub struct BlastRadiusEntry {
+    /// File that was modified.
+    pub file_path: String,
+    /// Number of OTHER file-level nodes reachable within 2 hops.
+    pub reachable_files: usize,
+    /// Risk level derived from reachable_files: "low" (0-3), "medium" (4-10), "high" (11+).
+    pub risk: String,
+    /// Top affected node IDs (external IDs of reachable file nodes, max 5).
+    pub top_affected: Vec<String>,
+}
+
+/// Impact summary for a single modified file.
+#[derive(Clone, Debug, Serialize)]
+pub struct VerificationImpact {
+    /// File that was modified.
+    pub file_path: String,
+    /// Node ID in the graph.
+    pub node_id: String,
+    /// Number of nodes affected by this change.
+    pub affected_count: usize,
+    /// Risk level: "low", "medium", "high".
+    pub risk: String,
+    /// Top affected node IDs (max 5).
+    pub top_affected: Vec<String>,
 }

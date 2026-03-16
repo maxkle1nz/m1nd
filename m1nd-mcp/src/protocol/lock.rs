@@ -4,7 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::perspective::state::{LockDiffResult, LockScope, LockState, WatchStrategy};
+use crate::perspective::state::{
+    LockDiffResult, LockScope, LockState, WatchStrategy,
+};
 
 // ---------------------------------------------------------------------------
 // lock.create (Theme 2, 14)

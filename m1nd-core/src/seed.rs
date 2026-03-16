@@ -99,9 +99,7 @@ impl SeedFinder {
                 }
 
                 // 2. Prefix match
-                if label_lower.starts_with(token.as_str())
-                    || token.starts_with(label_lower.as_str())
-                {
+                if label_lower.starts_with(token.as_str()) || token.starts_with(label_lower.as_str()) {
                     best = best.max(PREFIX_MATCH_RELEVANCE);
                     continue;
                 }

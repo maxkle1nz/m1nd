@@ -2,13 +2,6 @@
 name = "m1nd-ingest"
 version = "0.4.0"
 edition = "2021"
-description = "Code ingestion engine for m1nd — 28 languages via tree-sitter"
-license = "MIT"
-repository = "https://github.com/maxkle1nz/m1nd"
-homepage = "https://m1nd.world"
-readme = "../README.md"
-keywords = ["code-graph", "tree-sitter", "code-analysis", "ingestion", "mcp"]
-categories = ["development-tools", "parsing"]
 
 [features]
 default = ["tier2"]
@@ -44,7 +37,7 @@ tier2 = [
 ]
 
 [dependencies]
-m1nd-core = { version = "0.4.0", path = "../m1nd-core" }
+m1nd-core = { path = "../m1nd-core" }
 regex = "1"
 walkdir = "2"
 rayon = "1.10"
@@ -54,7 +47,7 @@ serde_json = { workspace = true }
 tree-sitter = { version = "0.25", optional = true }
 tree-sitter-language = { version = "0.1", optional = true }
 
-# Tier 1 grammars (15 languages)
+# Tier 1 grammars (14 languages)
 tree-sitter-c = { version = "0.23", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-c-sharp = { version = "0.23", optional = true }
@@ -86,6 +79,3 @@ tree-sitter-ocaml = { version = "0.24", optional = true }
 tree-sitter-toml-ng = { version = "0.7", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 tree-sitter-sequel = { version = "0.3", optional = true }
-
-[lints]
-workspace = true

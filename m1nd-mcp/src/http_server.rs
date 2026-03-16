@@ -115,7 +115,7 @@ async fn watch_event_log(path: std::path::PathBuf, tx: broadcast::Sender<SseEven
 // ---------------------------------------------------------------------------
 
 #[derive(Embed)]
-#[folder = "ui-dist/"]
+#[folder = "../m1nd-ui/dist/"]
 #[prefix = ""]
 struct UiAssets;
 
@@ -200,10 +200,7 @@ pub fn spawn_background(
                 let _ = axum::serve(listener, router).await;
             }
             Err(e) => {
-                eprintln!(
-                    "[m1nd-mcp] Background HTTP server failed to bind to {}: {} (GUI unavailable)",
-                    addr, e
-                );
+                eprintln!("[m1nd-mcp] Background HTTP server failed to bind to {}: {} (GUI unavailable)", addr, e);
             }
         }
     })
@@ -347,11 +344,7 @@ pub async fn run(
                                 "error": { "code": -32603, "message": e.to_string() }
                             }),
                         };
-                        let _ = writeln!(
-                            writer,
-                            "{}",
-                            serde_json::to_string(&resp).unwrap_or_default()
-                        );
+                        let _ = writeln!(writer, "{}", serde_json::to_string(&resp).unwrap_or_default());
                         let _ = writer.flush();
                     } else if req.get("method").and_then(|m| m.as_str()) == Some("tools/list") {
                         let schemas = tool_schemas();
@@ -360,11 +353,7 @@ pub async fn run(
                             "id": req.get("id").cloned().unwrap_or(serde_json::Value::Null),
                             "result": schemas
                         });
-                        let _ = writeln!(
-                            writer,
-                            "{}",
-                            serde_json::to_string(&resp).unwrap_or_default()
-                        );
+                        let _ = writeln!(writer, "{}", serde_json::to_string(&resp).unwrap_or_default());
                         let _ = writer.flush();
                     }
                 }
@@ -373,10 +362,12 @@ pub async fn run(
     }
 
     // 8. Bind and serve
-    let addr: std::net::SocketAddr = format!("{}:{}", bind, port).parse().unwrap_or_else(|_| {
-        eprintln!("[m1nd-mcp] Invalid bind address: {}:{}", bind, port);
-        std::process::exit(1);
-    });
+    let addr: std::net::SocketAddr = format!("{}:{}", bind, port)
+        .parse()
+        .unwrap_or_else(|_| {
+            eprintln!("[m1nd-mcp] Invalid bind address: {}:{}", bind, port);
+            std::process::exit(1);
+        });
 
     eprintln!("[m1nd-mcp] HTTP server listening on http://{}", addr);
 
@@ -426,9 +417,7 @@ fn open_browser(url: &str) -> std::io::Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", url])
-            .spawn()?;
+        std::process::Command::new("cmd").args(["/C", "start", url]).spawn()?;
     }
     Ok(())
 }
@@ -474,7 +463,8 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         .layer(DefaultBodyLimit::max(1_048_576)); // 1MB body limit (FM-A-004)
 
     if dev_mode {
-        let ui_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ui-dist");
+        let ui_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../m1nd-ui/dist");
         api.fallback_service(tower_http::services::ServeDir::new(ui_dir))
             .layer(CorsLayer::permissive())
     } else {
@@ -597,11 +587,10 @@ async fn handle_tool_call(
             }
 
             match inner {
-                Ok(output) => (
-                    StatusCode::OK,
-                    Json(serde_json::json!({ "result": output })),
-                )
-                    .into_response(),
+                Ok(output) => {
+                    (StatusCode::OK, Json(serde_json::json!({ "result": output })))
+                        .into_response()
+                }
                 Err(e) => {
                     let (status, error_type) = match &e {
                         m1nd_core::error::M1ndError::UnknownTool { .. } => {
@@ -649,7 +638,7 @@ async fn handle_subgraph(
             "include_ghost_edges": true,
             "include_structural_holes": false,
         });
-        let activate_result = dispatch_tool(&mut session, "m1nd.activate", &activate_params);
+        let activate_result = dispatch_tool(&mut session, "m1nd_activate", &activate_params);
 
         match activate_result {
             Err(e) => {
@@ -690,15 +679,11 @@ async fn handle_subgraph(
 
                 // Collect top_k node external IDs and resolve to NodeIds
                 let mut top_node_ids: Vec<m1nd_core::types::NodeId> = Vec::new();
-                let mut top_ext_ids: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
+                let mut top_ext_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
                 let mut subgraph_nodes: Vec<serde_json::Value> = Vec::new();
 
                 for node_val in activated.iter().take(top_k) {
-                    let ext_id = node_val
-                        .get("node_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let ext_id = node_val.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
                     if ext_id.is_empty() {
                         continue;
                     }
@@ -710,10 +695,7 @@ async fn handle_subgraph(
 
                             let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
                             let node_type_val = node_type_to_u8(graph.nodes.node_type[idx]);
-                            let activation = node_val
-                                .get("activation")
-                                .and_then(|v| v.as_f64())
-                                .unwrap_or(0.0) as f32;
+                            let activation = node_val.get("activation").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                             let tags: Vec<String> = graph.nodes.tags[idx]
                                 .iter()
                                 .map(|&t| graph.strings.resolve(t).to_string())
@@ -751,12 +733,8 @@ async fn handle_subgraph(
                         if tgt_idx < n && top_ext_ids.contains(&node_to_ext[tgt_idx]) {
                             let src_ext = &node_to_ext[nid.as_usize()];
                             let tgt_ext = &node_to_ext[tgt_idx];
-                            let weight = graph
-                                .csr
-                                .read_weight(m1nd_core::types::EdgeIdx::new(j as u32))
-                                .get();
-                            let relation =
-                                graph.strings.resolve(graph.csr.relations[j]).to_string();
+                            let weight = graph.csr.read_weight(m1nd_core::types::EdgeIdx::new(j as u32)).get();
+                            let relation = graph.strings.resolve(graph.csr.relations[j]).to_string();
                             subgraph_edges.push(serde_json::json!({
                                 "source": src_ext,
                                 "target": tgt_ext,
@@ -773,8 +751,7 @@ async fn handle_subgraph(
                         let src = ge.get("source").and_then(|v| v.as_str()).unwrap_or("");
                         let tgt = ge.get("target").and_then(|v| v.as_str()).unwrap_or("");
                         if top_ext_ids.contains(src) && top_ext_ids.contains(tgt) {
-                            let strength =
-                                ge.get("strength").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                            let strength = ge.get("strength").and_then(|v| v.as_f64()).unwrap_or(0.0);
                             subgraph_edges.push(serde_json::json!({
                                 "source": src,
                                 "target": tgt,
