@@ -16,7 +16,6 @@ use m1nd_mcp::protocol::layers::{
     ApplyInput, ApplyOutput, ApplyPrediction, SurgicalContextInput, SurgicalContextOutput,
     SurgicalDep, SurgicalSourcePeek,
 };
-use std::io::Write;
 
 // ===========================================================================
 // Shared Test Infrastructure
