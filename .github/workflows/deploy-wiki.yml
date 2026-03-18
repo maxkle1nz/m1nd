@@ -38,7 +38,7 @@ jobs:
           mkdir -p site
           cp -R docs/* site/
           rm -rf site/wiki
-          mdbook build docs/wiki -d ../../site/wiki-build
+          mdbook build docs/wiki -d $GITHUB_WORKSPACE/site/wiki-build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
