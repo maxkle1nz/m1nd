@@ -33,12 +33,8 @@ jobs:
         with:
           mdbook-version: 'latest'
 
-      - name: Build site structure
-        run: |
-          mkdir -p site
-          cp -R docs/* site/
-          rm -rf site/wiki
-          mdbook build docs/wiki -d $GITHUB_WORKSPACE/site/wiki-build
+      - name: Build mdBook
+        run: mdbook build docs/wiki
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -46,7 +42,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './site'
+          path: './docs/wiki/book'
 
       - name: Deploy to GitHub Pages
         id: deployment
