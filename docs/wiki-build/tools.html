@@ -1323,6 +1323,264 @@
         <div class="tool-card connection" id="tool-apply_batch"><div class="tool-card-header"><span class="tc-glyph">&#x2342;</span><span class="tc-name">apply_batch</span><span class="tc-oneliner">&#x2014; Atomic multi-file writes</span></div><div class="tool-card-body"><p class="tool-description">Write multiple files atomically and trigger a single bulk re-ingest. All-or-nothing semantics: if any file fails, none are written. Use after surgical_context_v2 when editing a primary file and its callers/tests together. Prevents partial-state inconsistencies.</p><div class="use-cases"><span class="use-case">Atomic refactors</span><span class="use-case">Multi-file API changes</span><span class="use-case">Batch generation</span></div></div></div>
       </section>
 
+
+      <!-- ═══════ SEARCH ═══════ -->
+      <div class="tool-card" id="search">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">search</h3>
+        </div>
+        <p class="tool-description">Unified code search: literal string, regex (with multiline), or semantic (graph-aware). Searches graph node labels AND file contents on disk. Supports invert (grep -v), count-only (grep -c), multiline regex, and filename pattern filtering. In regex mode, searches file contents (not just node IDs) since v0.5.0.</p>
+        <table class="param-table">
+          <tr><td>query</td><td><span class="param-type">string</span></td><td>required</td><td>Search query string</td></tr>
+          <tr><td>mode</td><td><span class="param-type">literal | regex | semantic</span></td><td>literal</td><td>literal = substring, regex = pattern on file contents, semantic = graph-aware embedding</td></tr>
+          <tr><td>scope</td><td><span class="param-type">path</span></td><td>—</td><td>File path prefix filter</td></tr>
+          <tr><td>top_k</td><td><span class="param-type">integer</span></td><td>50</td><td>Max results (1–500)</td></tr>
+          <tr><td>context_lines</td><td><span class="param-type">integer</span></td><td>2</td><td>Lines of context before/after match</td></tr>
+          <tr><td>case_sensitive</td><td><span class="param-type">boolean</span></td><td>false</td><td>Case-sensitive matching</td></tr>
+          <tr><td>invert</td><td><span class="param-type">boolean</span></td><td>false</td><td>Return lines that DON'T match (grep -v)</td></tr>
+          <tr><td>count_only</td><td><span class="param-type">boolean</span></td><td>false</td><td>Return just the match count (grep -c)</td></tr>
+          <tr><td>multiline</td><td><span class="param-type">boolean</span></td><td>false</td><td>Enable multiline regex — dot matches newline (rg -U, regex mode only)</td></tr>
+          <tr><td>filename_pattern</td><td><span class="param-type">glob</span></td><td>—</td><td>Filter by filename pattern, e.g. *.rs, test_*.py</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ GLOB ═══════ -->
+      <div class="tool-card" id="glob">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">glob</h3>
+        </div>
+        <p class="tool-description">Graph-aware file glob: find files in the ingested graph by glob pattern. Zero I/O — pure graph query. Replaces find/glob for indexed codebases. Can sort results by path (alphabetical) or by activation score (most connected files first).</p>
+        <table class="param-table">
+          <tr><td>pattern</td><td><span class="param-type">glob</span></td><td>required</td><td>Glob pattern, e.g. **/*.rs, src/**/mod.rs, *.toml</td></tr>
+          <tr><td>scope</td><td><span class="param-type">path</span></td><td>—</td><td>Root directory prefix to narrow scope</td></tr>
+          <tr><td>top_k</td><td><span class="param-type">integer</span></td><td>200</td><td>Max results (1–10000)</td></tr>
+          <tr><td>sort</td><td><span class="param-type">path | activation</span></td><td>path</td><td>Sort order: path = alphabetical, activation = most connected first</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ ANTIBODY SCAN ═══════ -->
+      <div class="tool-card" id="antibody_scan">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">antibody_scan</h3>
+        </div>
+        <p class="tool-description">Scan the code graph against stored bug antibody patterns (immune memory). Returns matches where known bug patterns recur. Runs automatically on every ingest when patterns exist. Use after confirming a bug to build immune memory that prevents recurrence.</p>
+        <table class="param-table">
+          <tr><td>scope</td><td><span class="param-type">all | changed</span></td><td>all</td><td>"all" scans entire graph; "changed" only nodes since last scan</td></tr>
+          <tr><td>antibody_ids</td><td><span class="param-type">string[]</span></td><td>—</td><td>Scan only specific antibody IDs (omit for all)</td></tr>
+          <tr><td>max_matches</td><td><span class="param-type">integer</span></td><td>50</td><td>Maximum total matches to return</td></tr>
+          <tr><td>min_severity</td><td><span class="param-type">info | warning | critical</span></td><td>info</td><td>Minimum severity level to include</td></tr>
+          <tr><td>similarity_threshold</td><td><span class="param-type">float</span></td><td>0.7</td><td>Fuzzy match threshold for label matching (0.0–1.0)</td></tr>
+          <tr><td>match_mode</td><td><span class="param-type">exact | substring | regex</span></td><td>substring</td><td>Label match strategy</td></tr>
+          <tr><td>max_matches_per_antibody</td><td><span class="param-type">integer</span></td><td>50</td><td>Per-antibody match cap</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ ANTIBODY LIST ═══════ -->
+      <div class="tool-card" id="antibody_list">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">antibody_list</h3>
+        </div>
+        <p class="tool-description">List all stored bug antibody patterns with metadata, match history, and specificity scores. Use to audit your immune memory library.</p>
+        <table class="param-table">
+          <tr><td>include_disabled</td><td><span class="param-type">boolean</span></td><td>false</td><td>Include disabled antibodies in the listing</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ ANTIBODY CREATE ═══════ -->
+      <div class="tool-card" id="antibody_create">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">antibody_create</h3>
+        </div>
+        <p class="tool-description">Create, disable, enable, or delete a bug antibody pattern. When you confirm a real bug via learn(), create an antibody to encode the structural pattern so it is detected automatically in future scans.</p>
+        <table class="param-table">
+          <tr><td>action</td><td><span class="param-type">create | disable | enable | delete</span></td><td>create</td><td>Operation to perform</td></tr>
+          <tr><td>antibody_id</td><td><span class="param-type">string</span></td><td>—</td><td>Required for disable/enable/delete operations</td></tr>
+          <tr><td>name</td><td><span class="param-type">string</span></td><td>—</td><td>Antibody name (for create)</td></tr>
+          <tr><td>description</td><td><span class="param-type">string</span></td><td>—</td><td>Human-readable description of what this pattern detects</td></tr>
+          <tr><td>severity</td><td><span class="param-type">info | warning | critical</span></td><td>warning</td><td>Severity level for matches</td></tr>
+          <tr><td>pattern</td><td><span class="param-type">object</span></td><td>—</td><td>Pattern definition with nodes, edges, and negative_edges arrays</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ FLOW SIMULATE ═══════ -->
+      <div class="tool-card" id="flow_simulate">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">flow_simulate</h3>
+        </div>
+        <p class="tool-description">Simulate concurrent execution flow using fluid dynamics (particle simulation). Detects race conditions via particle collision on shared mutable state without synchronization. Particles traverse the graph from entry points; collisions on shared nodes without lock patterns are flagged as turbulence.</p>
+        <table class="param-table">
+          <tr><td>entry_nodes</td><td><span class="param-type">string[]</span></td><td>auto</td><td>Entry point node IDs. Auto-discovered from graph topology if empty.</td></tr>
+          <tr><td>num_particles</td><td><span class="param-type">integer</span></td><td>2</td><td>Particles per entry point (simulated concurrent threads)</td></tr>
+          <tr><td>lock_patterns</td><td><span class="param-type">regex[]</span></td><td>—</td><td>Patterns identifying lock/mutex nodes (skipped by collision detection)</td></tr>
+          <tr><td>read_only_patterns</td><td><span class="param-type">regex[]</span></td><td>—</td><td>Patterns for read-only operations (no collision risk)</td></tr>
+          <tr><td>max_depth</td><td><span class="param-type">integer</span></td><td>15</td><td>Maximum BFS depth per particle</td></tr>
+          <tr><td>turbulence_threshold</td><td><span class="param-type">float</span></td><td>0.5</td><td>Minimum collision score to report (0.0–1.0)</td></tr>
+          <tr><td>scope_filter</td><td><span class="param-type">string</span></td><td>—</td><td>Substring filter — only nodes matching this prefix are entered</td></tr>
+          <tr><td>max_total_steps</td><td><span class="param-type">integer</span></td><td>50000</td><td>Global step budget across all particles</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ EPIDEMIC ═══════ -->
+      <div class="tool-card" id="epidemic">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">epidemic</h3>
+        </div>
+        <p class="tool-description">Predict bug propagation via SIR (Susceptible-Infected-Recovered) epidemiological model. Given known buggy modules as "infected" nodes, simulates spread through the graph to predict which neighboring modules are most likely to harbor undiscovered bugs. Edge weights determine infection probability.</p>
+        <table class="param-table">
+          <tr><td>infected_nodes</td><td><span class="param-type">string[]</span></td><td>required</td><td>Known buggy node IDs (confirmed bugs)</td></tr>
+          <tr><td>recovered_nodes</td><td><span class="param-type">string[]</span></td><td>—</td><td>Already-fixed node IDs (immune)</td></tr>
+          <tr><td>infection_rate</td><td><span class="param-type">float</span></td><td>auto</td><td>Infection probability per edge. If omitted, derived from edge weights.</td></tr>
+          <tr><td>recovery_rate</td><td><span class="param-type">float</span></td><td>0</td><td>SIR recovery rate (0 = permanent infection)</td></tr>
+          <tr><td>iterations</td><td><span class="param-type">integer</span></td><td>50</td><td>Simulation time steps</td></tr>
+          <tr><td>direction</td><td><span class="param-type">forward | backward | both</span></td><td>both</td><td>Propagation direction through the graph</td></tr>
+          <tr><td>auto_calibrate</td><td><span class="param-type">boolean</span></td><td>true</td><td>Auto-adjust infection_rate based on graph density</td></tr>
+          <tr><td>top_k</td><td><span class="param-type">integer</span></td><td>20</td><td>Max predictions to return</td></tr>
+          <tr><td>scope</td><td><span class="param-type">files | functions | all</span></td><td>all</td><td>Filter prediction granularity</td></tr>
+          <tr><td>min_probability</td><td><span class="param-type">float</span></td><td>0.001</td><td>Filter predictions below this probability</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ TREMOR ═══════ -->
+      <div class="tool-card" id="tremor">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">tremor</h3>
+        </div>
+        <p class="tool-description">Detect code tremors: modules with accelerating change frequency (second derivative of change rate). Earthquake precursor analogy — acceleration precedes instability, not just churn volume. High tremor = imminent bug risk before any bug is confirmed.</p>
+        <table class="param-table">
+          <tr><td>window</td><td><span class="param-type">7d | 30d | 90d | all</span></td><td>30d</td><td>Time window for change frequency analysis</td></tr>
+          <tr><td>threshold</td><td><span class="param-type">float</span></td><td>0.1</td><td>Minimum tremor magnitude to report</td></tr>
+          <tr><td>top_k</td><td><span class="param-type">integer</span></td><td>20</td><td>Max results to return</td></tr>
+          <tr><td>node_filter</td><td><span class="param-type">string</span></td><td>—</td><td>Filter to nodes matching this path prefix</td></tr>
+          <tr><td>sensitivity</td><td><span class="param-type">float</span></td><td>1.0</td><td>Multiplier on acceleration threshold (higher = more sensitive)</td></tr>
+          <tr><td>min_observations</td><td><span class="param-type">integer</span></td><td>3</td><td>Minimum data points required to compute tremor</td></tr>
+          <tr><td>include_history</td><td><span class="param-type">boolean</span></td><td>false</td><td>Include observation history in output</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ TRUST ═══════ -->
+      <div class="tool-card" id="trust">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">trust</h3>
+        </div>
+        <p class="tool-description">Per-module trust scores from confirmed defect history. Actuarial risk assessment: more confirmed bugs (learn() feedback) = lower trust = higher risk multiplier. Scores decay over time — older defects lose weight. Use to identify chronically unreliable modules.</p>
+        <table class="param-table">
+          <tr><td>scope</td><td><span class="param-type">file | function | class | all</span></td><td>file</td><td>Node type to compute trust for</td></tr>
+          <tr><td>sort_by</td><td><span class="param-type">trust_asc | trust_desc | defects_desc | recency</span></td><td>trust_asc</td><td>Sort order (trust_asc = least trusted first)</td></tr>
+          <tr><td>top_k</td><td><span class="param-type">integer</span></td><td>20</td><td>Max results</td></tr>
+          <tr><td>node_filter</td><td><span class="param-type">string</span></td><td>—</td><td>Filter to nodes matching this prefix</td></tr>
+          <tr><td>decay_half_life_days</td><td><span class="param-type">float</span></td><td>30</td><td>How fast old defects lose weight (days to 50% decay)</td></tr>
+          <tr><td>risk_cap</td><td><span class="param-type">float</span></td><td>3.0</td><td>Maximum risk multiplier (capped to prevent outlier dominance)</td></tr>
+          <tr><td>min_history</td><td><span class="param-type">integer</span></td><td>1</td><td>Minimum learn events for a node to be included</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ LAYERS ═══════ -->
+      <div class="tool-card" id="layers">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">layers</h3>
+        </div>
+        <p class="tool-description">Auto-detect architectural layers from graph topology using network analysis. Returns layer assignments (UI, API, Service, Data…) plus dependency violations — edges that go against the expected dependency flow direction.</p>
+        <table class="param-table">
+          <tr><td>scope</td><td><span class="param-type">path</span></td><td>—</td><td>File path prefix to limit analysis scope</td></tr>
+          <tr><td>max_layers</td><td><span class="param-type">integer</span></td><td>8</td><td>Maximum number of layers to detect</td></tr>
+          <tr><td>include_violations</td><td><span class="param-type">boolean</span></td><td>true</td><td>Include dependency violation analysis in output</td></tr>
+          <tr><td>min_nodes_per_layer</td><td><span class="param-type">integer</span></td><td>2</td><td>Minimum nodes required for a layer to be reported</td></tr>
+          <tr><td>node_types</td><td><span class="param-type">string[]</span></td><td>—</td><td>Filter by node types (function, class, module…)</td></tr>
+          <tr><td>naming_strategy</td><td><span class="param-type">auto | path_prefix | pagerank</span></td><td>auto</td><td>Layer naming strategy</td></tr>
+          <tr><td>exclude_tests</td><td><span class="param-type">boolean</span></td><td>false</td><td>Exclude test files from layer detection</td></tr>
+          <tr><td>violation_limit</td><td><span class="param-type">integer</span></td><td>100</td><td>Maximum violations to return</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ LAYER INSPECT ═══════ -->
+      <div class="tool-card" id="layer_inspect">
+        <div class="tool-header">
+          <span class="tool-badge badge-superpowers">⍂ Superpowers</span>
+          <h3 class="tool-name">layer_inspect</h3>
+        </div>
+        <p class="tool-description">Inspect a specific architectural layer: nodes contained, inter-layer connections, violations, and health metrics. Use after layers() to drill into a specific layer level.</p>
+        <table class="param-table">
+          <tr><td>level</td><td><span class="param-type">integer</span></td><td>required</td><td>Layer level number from the layers() output</td></tr>
+          <tr><td>scope</td><td><span class="param-type">path</span></td><td>—</td><td>File path prefix to limit scope</td></tr>
+          <tr><td>include_edges</td><td><span class="param-type">boolean</span></td><td>true</td><td>Include inter-layer edges in output</td></tr>
+          <tr><td>top_k</td><td><span class="param-type">integer</span></td><td>50</td><td>Max nodes to return per layer</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ PANORAMIC ═══════ -->
+      <div class="tool-card" id="panoramic">
+        <div class="tool-header">
+          <span class="tool-badge badge-panoramic">⍂ Panoramic</span>
+          <h3 class="tool-name">panoramic</h3>
+        </div>
+        <p class="tool-description">Panoramic graph health overview: per-module risk scores combining 7 signals — blast radius, centrality, churn velocity, trust score, tremor magnitude, antibody match history, and co-change coupling. The single best starting point for a codebase health audit.</p>
+        <table class="param-table">
+          <tr><td>scope</td><td><span class="param-type">path</span></td><td>—</td><td>File path prefix to filter output</td></tr>
+          <tr><td>top_n</td><td><span class="param-type">integer</span></td><td>50</td><td>Max modules to return (1–1000)</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ REPORT ═══════ -->
+      <div class="tool-card" id="report">
+        <div class="tool-header">
+          <span class="tool-badge badge-report">𝔻 Report</span>
+          <h3 class="tool-name">report</h3>
+        </div>
+        <p class="tool-description">Session intelligence report: all queries made, bugs discovered, graph evolution events, and token savings accumulated. A complete picture of what happened in the current session.</p>
+        <table class="param-table">
+          <tr><td colspan="4" style="color: var(--text-faint); font-style: italic; text-align: center;">No parameters — returns the full session report.</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ SAVINGS ═══════ -->
+      <div class="tool-card" id="savings">
+        <div class="tool-header">
+          <span class="tool-badge badge-savings">𝔻 Efficiency</span>
+          <h3 class="tool-name">savings</h3>
+        </div>
+        <p class="tool-description">Estimated token and cost savings from using m1nd vs raw grep/Read patterns. Shows current session savings and global totals. Includes the Gaia counter: cumulative CO₂ equivalent saved by avoided LLM tokens across all sessions.</p>
+        <table class="param-table">
+          <tr><td colspan="4" style="color: var(--text-faint); font-style: italic; text-align: center;">No parameters — returns session and global savings metrics.</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ HELP ═══════ -->
+      <div class="tool-card" id="help">
+        <div class="tool-header">
+          <span class="tool-badge badge-help">𝔻 Help</span>
+          <h3 class="tool-name">help</h3>
+        </div>
+        <p class="tool-description">Self-documenting tool reference with visual identity. Returns the full tool overview or detailed help for a specific tool. The overview renders with neural-glyph color coding and group organization.</p>
+        <table class="param-table">
+          <tr><td>tool_name</td><td><span class="param-type">string</span></td><td>—</td><td>Specific tool name for detailed help. Omit to get the full overview.</td></tr>
+        </table>
+      </div>
+
+      <!-- ═══════ PERSIST (hidden) ═══════ -->
+      <div class="tool-card" id="persist">
+        <div class="tool-header">
+          <span class="tool-badge badge-report">𝔻 Internal</span>
+          <h3 class="tool-name">persist</h3>
+        </div>
+        <p class="tool-description">Persist or load graph and plasticity state to/from disk. Supports binary snapshots for fast restore. Not exposed in m1nd.help — internal tool for graph snapshotting and session portability.</p>
+        <table class="param-table">
+          <tr><td>action</td><td><span class="param-type">save | load | checkpoint | status</span></td><td>required</td><td>Action to perform on the persisted state</td></tr>
+          <tr><td>format</td><td><span class="param-type">json | bin</span></td><td>json</td><td>Snapshot format: json (readable) or bin (fast binary)</td></tr>
+          <tr><td>path</td><td><span class="param-type">path</span></td><td>—</td><td>Override snapshot path (optional)</td></tr>
+        </table>
+      </div>
+
+
     </main>
   </div>
 
