@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tool Reference — m1nd Wiki</title>
-  <meta name="description" content="Complete reference for all 43 m1nd MCP tools. Grouped by semantic domain: Signal, Path, Structure, Dimension, State, Connection.">
+  <meta name="description" content="Complete reference for all 63 m1nd MCP tools. Grouped by semantic domain: Signal, Path, Structure, Dimension, State, Connection.">
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -363,7 +363,10 @@
         <a href="#structure" class="sidebar-link"><span class="sl-glyph g-ma">&#x2342;</span> Structure (4)</a>
         <a href="#dimension" class="sidebar-link"><span class="sl-glyph g-bl">&#x1D53B;</span> Dimension (5)</a>
         <a href="#state" class="sidebar-link"><span class="sl-glyph g-ma">&#x2342;</span> State (12)</a>
-        <a href="#connection" class="sidebar-link"><span class="sl-glyph g-gr">&#x27C1;</span> Connection (14)</a>
+        <a href="#connection" class="sidebar-link"><span class="sl-glyph g-gr">&#x27C1;</span> Perspective (12)</a>
+        <a href="#lock" class="sidebar-link"><span class="sl-glyph g-bl">&#x27C1;</span> Lock (5)</a>
+        <a href="#trail" class="sidebar-link"><span class="sl-glyph g-ye">&#x2350;</span> Trail (4)</a>
+        <a href="#surgical" class="sidebar-link"><span class="sl-glyph g-gr">&#x2342;</span> Surgical (5)</a>
       </div>
       <div class="sidebar-section">
         <div class="sidebar-title">Signal Tools</div>
@@ -401,8 +404,8 @@
       <div class="page-header">
         <div class="breadcrumb"><a href="index.html">Wiki</a> / Tool Reference</div>
         <h1>Tool Reference</h1>
-        <p class="page-desc">Complete reference for all 43 MCP tools. Each tool is mapped to a semantic domain defined by the five connectome glyphs.</p>
-        <div class="tool-count-badge"><span class="dot"></span> 43 tools across 6 domains</div>
+        <p class="page-desc">Complete reference for all 63 MCP tools. Each tool is mapped to a semantic domain defined by the five connectome glyphs.</p>
+        <div class="tool-count-badge"><span class="dot"></span> 63 tools across 8 groups</div>
       </div>
 
       <!-- ═══════ SIGNAL ═══════ -->
@@ -1265,6 +1268,57 @@
         <div class="tool-card connection"><div class="tool-card-header"><span class="tc-glyph">&#x27C1;</span><span class="tc-name">perspective.list</span><span class="tc-oneliner">&#x2014; List active perspectives</span></div><div class="tool-card-body"><p class="tool-description">List all active perspective sessions with their current focus, history length, and creation time.</p><div class="params-label">Parameters</div><table class="params-table"><tr><th>Name</th><th>Type</th><th>Description</th></tr><tr><td>agent_id</td><td><span class="param-type">string</span></td><td>Calling agent identifier.</td></tr></table></div></div>
 
         <div class="tool-card connection"><div class="tool-card-header"><span class="tc-glyph">&#x27C1;</span><span class="tc-name">perspective.close</span><span class="tc-oneliner">&#x2014; Close a perspective session</span></div><div class="tool-card-body"><p class="tool-description">Close and clean up a perspective session. Consider saving it as a trail first with trail.save if you want to resume later.</p><div class="params-label">Parameters</div><table class="params-table"><tr><th>Name</th><th>Type</th><th>Description</th></tr><tr><td>perspective_id</td><td><span class="param-type">string</span></td><td>Perspective to close.</td></tr><tr><td>agent_id</td><td><span class="param-type">string</span></td><td>Calling agent identifier.</td></tr></table></div></div>
+      </section>
+
+
+      <!-- ═══════ LOCK ═══════ -->
+      <section class="domain-section" id="lock">
+        <div class="domain-header">
+          <span class="dh-glyph g-bl">&#x27C1;</span>
+          <div class="dh-info">
+            <div class="dh-name" style="color: var(--blue);">Lock</div>
+            <div class="dh-desc">Pin subgraph regions, capture baselines, and monitor changes with precise deltas.</div>
+          </div>
+          <span class="dh-count">5 tools</span>
+        </div>
+        <div class="tool-card dimension" id="tool-lock_create"><div class="tool-card-header"><span class="tc-glyph">&#x27C1;</span><span class="tc-name">lock_create</span><span class="tc-oneliner">&#x2014; Pin a subgraph + capture baseline</span></div><div class="tool-card-body"><p class="tool-description">Pin a subgraph region and snapshot its current state as a baseline. Subsequent lock_diff calls report exactly what changed since the snapshot. Supports node, subgraph, path, and query_neighborhood scopes.</p><div class="use-cases"><span class="use-case">Change monitoring</span><span class="use-case">Pre/post refactor diff</span><span class="use-case">CI guardrails</span></div></div></div>
+        <div class="tool-card dimension" id="tool-lock_diff"><div class="tool-card-header"><span class="tc-glyph">&#x27C1;</span><span class="tc-name">lock_diff</span><span class="tc-oneliner">&#x2014; What changed in a locked region?</span></div><div class="tool-card-body"><p class="tool-description">Compute the structural delta between the lock baseline and the current graph. Returns added/removed nodes and edges, drift score, and risk assessment.</p><div class="use-cases"><span class="use-case">Post-edit verification</span><span class="use-case">Regression detection</span></div></div></div>
+        <div class="tool-card dimension" id="tool-lock_watch"><div class="tool-card-header"><span class="tc-glyph">&#x27C1;</span><span class="tc-name">lock_watch</span><span class="tc-oneliner">&#x2014; Set watcher strategy on a lock</span></div><div class="tool-card-body"><p class="tool-description">Configure how a lock monitors changes: manual (on demand), on_ingest (triggers after every ingest), or on_learn (triggers after Hebbian updates).</p><div class="use-cases"><span class="use-case">Automated monitoring</span><span class="use-case">CI integration</span></div></div></div>
+        <div class="tool-card dimension" id="tool-lock_rebase"><div class="tool-card-header"><span class="tc-glyph">&#x27C1;</span><span class="tc-name">lock_rebase</span><span class="tc-oneliner">&#x2014; Re-capture baseline without releasing</span></div><div class="tool-card-body"><p class="tool-description">Update the baseline of an existing lock to the current graph state — preserving the lock's scope — so future diffs are relative to the new snapshot.</p><div class="use-cases"><span class="use-case">Baseline refresh</span><span class="use-case">Iterative development</span></div></div></div>
+        <div class="tool-card dimension" id="tool-lock_release"><div class="tool-card-header"><span class="tc-glyph">&#x27C1;</span><span class="tc-name">lock_release</span><span class="tc-oneliner">&#x2014; Release a lock and free resources</span></div><div class="tool-card-body"><p class="tool-description">Destroy a lock and release its associated memory and watcher. Always release locks when done to avoid accumulating stale monitors.</p><div class="use-cases"><span class="use-case">Cleanup</span><span class="use-case">Resource management</span></div></div></div>
+      </section>
+
+      <!-- ═══════ TRAIL ═══════ -->
+      <section class="domain-section" id="trail">
+        <div class="domain-header">
+          <span class="dh-glyph g-ye">&#x2350;</span>
+          <div class="dh-info">
+            <div class="dh-name" style="color: var(--yellow);">Trail</div>
+            <div class="dh-desc">Persist, resume, and merge investigation states across sessions. Your work survives restarts.</div>
+          </div>
+          <span class="dh-count">4 tools</span>
+        </div>
+        <div class="tool-card path" id="tool-trail_save"><div class="tool-card-header"><span class="tc-glyph">&#x2350;</span><span class="tc-name">trail_save</span><span class="tc-oneliner">&#x2014; Persist investigation state</span></div><div class="tool-card-body"><p class="tool-description">Serialize the current investigation — nodes visited, hypotheses formed, conclusions reached, open questions — into a durable trail. The trail survives session restarts and can be resumed later with full context restoration.</p><div class="use-cases"><span class="use-case">Multi-session investigations</span><span class="use-case">Collaboration</span><span class="use-case">Audit trail</span></div></div></div>
+        <div class="tool-card path" id="tool-trail_resume"><div class="tool-card-header"><span class="tc-glyph">&#x2350;</span><span class="tc-name">trail_resume</span><span class="tc-oneliner">&#x2014; Restore a saved investigation</span></div><div class="tool-card-body"><p class="tool-description">Load a saved trail and re-inject its activation boosts into the current graph. Detects staleness (>50% missing nodes) automatically. Restores the full context of a previous investigation session.</p><div class="use-cases"><span class="use-case">Session resumption</span><span class="use-case">Context restoration</span></div></div></div>
+        <div class="tool-card path" id="tool-trail_merge"><div class="tool-card-header"><span class="tc-glyph">&#x2350;</span><span class="tc-name">trail_merge</span><span class="tc-oneliner">&#x2014; Combine two investigation trails</span></div><div class="tool-card-body"><p class="tool-description">Merge two or more trails into a unified investigation. Discovers cross-connections between separate investigation threads. Useful when parallel agents have investigated different regions of the same codebase.</p><div class="use-cases"><span class="use-case">Multi-agent coordination</span><span class="use-case">Cross-thread synthesis</span></div></div></div>
+        <div class="tool-card path" id="tool-trail_list"><div class="tool-card-header"><span class="tc-glyph">&#x2350;</span><span class="tc-name">trail_list</span><span class="tc-oneliner">&#x2014; List saved trails</span></div><div class="tool-card-body"><p class="tool-description">List all stored investigation trails with metadata: label, status (active/saved/stale), tags, and creation timestamps. Supports filtering by status and tag.</p><div class="use-cases"><span class="use-case">Trail discovery</span><span class="use-case">Session management</span></div></div></div>
+      </section>
+
+      <!-- ═══════ SURGICAL ═══════ -->
+      <section class="domain-section" id="surgical">
+        <div class="domain-header">
+          <span class="dh-glyph g-gr">&#x2342;</span>
+          <div class="dh-info">
+            <div class="dh-name" style="color: var(--green);">Surgical</div>
+            <div class="dh-desc">Read, edit, and apply code changes with full graph awareness. Zero approximation.</div>
+          </div>
+          <span class="dh-count">5 tools</span>
+        </div>
+        <div class="tool-card connection" id="tool-view"><div class="tool-card-header"><span class="tc-glyph">&#x2342;</span><span class="tc-name">view</span><span class="tc-oneliner">&#x2014; Fast file reader with line numbers</span></div><div class="tool-card-body"><p class="tool-description">Read any file from the ingested graph with zero traversal overhead. Returns content with line numbers, auto-ingest if not yet indexed. Replaces cat/head/tail for all code navigation. The baseline step before any surgical edit.</p><div class="use-cases"><span class="use-case">File inspection</span><span class="use-case">Pre-edit context</span><span class="use-case">Quick audit</span></div></div></div>
+        <div class="tool-card connection" id="tool-surgical_context"><div class="tool-card-header"><span class="tc-glyph">&#x2342;</span><span class="tc-name">surgical_context</span><span class="tc-oneliner">&#x2014; Targeted edit context extraction</span></div><div class="tool-card-body"><p class="tool-description">Return the minimum graph neighbourhood required for a safe, informed edit: file content, symbol definitions, callers, callees, and associated tests. Eliminates the need to load entire modules to understand a single change point.</p><div class="use-cases"><span class="use-case">Before every edit</span><span class="use-case">Caller/callee analysis</span><span class="use-case">Test coverage check</span></div></div></div>
+        <div class="tool-card connection" id="tool-surgical_context_v2"><div class="tool-card-header"><span class="tc-glyph">&#x2342;</span><span class="tc-name">surgical_context_v2</span><span class="tc-oneliner">&#x2014; Full workspace snapshot in one call</span></div><div class="tool-card-body"><p class="tool-description">Superset of surgical_context: returns the primary file's full content PLUS the source of all connected files (callers, callees, tests) in a single call. Designed for multi-file edits where co-change surface area must be fully understood before writing.</p><div class="use-cases"><span class="use-case">Multi-file refactors</span><span class="use-case">API surface changes</span></div></div></div>
+        <div class="tool-card connection" id="tool-apply"><div class="tool-card-header"><span class="tc-glyph">&#x2342;</span><span class="tc-name">apply</span><span class="tc-oneliner">&#x2014; Write code and trigger re-ingest</span></div><div class="tool-card-body"><p class="tool-description">Write new content to a file and automatically trigger incremental graph re-ingest so the connectome stays coherent with the code. The graph reflects edits immediately — subsequent queries operate on the updated structure.</p><div class="use-cases"><span class="use-case">Code edits</span><span class="use-case">Refactoring</span><span class="use-case">Auto-sync graph</span></div></div></div>
+        <div class="tool-card connection" id="tool-apply_batch"><div class="tool-card-header"><span class="tc-glyph">&#x2342;</span><span class="tc-name">apply_batch</span><span class="tc-oneliner">&#x2014; Atomic multi-file writes</span></div><div class="tool-card-body"><p class="tool-description">Write multiple files atomically and trigger a single bulk re-ingest. All-or-nothing semantics: if any file fails, none are written. Use after surgical_context_v2 when editing a primary file and its callers/tests together. Prevents partial-state inconsistencies.</p><div class="use-cases"><span class="use-case">Atomic refactors</span><span class="use-case">Multi-file API changes</span><span class="use-case">Batch generation</span></div></div></div>
       </section>
 
     </main>

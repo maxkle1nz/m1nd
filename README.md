@@ -8,7 +8,7 @@
 
 <p align="center">
   m1nd simulates counterfactual node removals, epidemic defect spread, and standing wave harmonics to find bugs LLMs can't see.<br/>
-  <em>(Zero API calls. 84% fewer tokens. Your code as a 4D living graph with Hebbian plasticity.)</em>
+  <em>(Local execution. 84% fewer tokens. Your code as a 4D living graph with Hebbian plasticity.)</em>
 </p>
 
 <p align="center">
@@ -53,19 +53,19 @@
   <img src=".github/demo-cinema.gif" alt="m1nd — 5 real queries, 1.9 seconds, zero tokens, 8 invisible bugs" width="720" />
 </p>
 
-## Why This Changes Everything (The "WOW" Effect)
+## Architecture & Paradigm Shift
 
 Until now, AI agents have navigated code like humans using a terminal: searching for text (`grep`), listing files (`ls`), or relying on static RAG vectors that don't understand causality. 
 
 **m1nd replaces text search with physics and epidemiology.**
 
-When an AI agent uses m1nd's 61 MCP tools across your codebase, it's not searching text. It's injecting a signal into a **living graph** and watching it propagate across structural, semantic, temporal, and causal dimensions. Wait, did you read that right? Yes.
+When an AI agent uses m1nd's 61 MCP tools across your codebase, it's not searching text. It's injecting a signal into a **living graph** and watching it propagate across structural, semantic, temporal, and causal dimensions.
 
 * **84% Fewer Tokens:** Stop shoving entire files into the context window. m1nd surgically extracts only the topologically relevant paths, slashing token costs and preventing context exhaustion. Instead of 210 `grep` operations reading 80,000 lines, m1nd gives the agent the exact graph node in 3 milliseconds using 0 tokens.
 * **Epidemic Bug Detection:** m1nd uses the SIR epidemiological model to predict where the next bug will spawn based on the infection rate of connected modules.
 * **Counterfactual Simulation:** "What happens if I remove this node?" m1nd simulates the blast radius before the AI even touches the file. It finds synergistic failures that LLMs simply cannot see.
 * **Hebbian Plasticity:** The graph learns. When the AI gets a correct answer, the neural pathways forming that connection physically strengthen. The next query is radically faster and smarter.
-* **The Intelligence Paradox:** Paradoxically, m1nd has the capacity to make smaller, less intelligent models perform like frontier models. By feeding the LLM only the exact, causal, and structurally relevant nodes instead of dumping files into context, small open-source models succeed where large proprietary models drown in noise.
+* **Context Efficiency:** Paradoxically, m1nd has the capacity to make smaller, less intelligent models perform like frontier models. By feeding the LLM only the exact, causal, and structurally relevant nodes instead of dumping files into context, small open-source models succeed where large proprietary models drown in noise.
 * **Neuro-Symbolic Editing:** `grep` just searches text. `m1nd` applies edits atomically and instantly runs a topological graph verification (`verify=true`). It re-ingests the changed files to mathematically prove whether the agent's code broke dependencies, introduced syntax errors, or worsened the graph's coherence before the AI takes another step.
 * **Sub-Millisecond Speed:** Pure Rust. Codebases with tens of thousands of nodes compute activations in microseconds. In one real case, a memory pool of 259,000 nodes was queryable via RAM in under 1ms.
 
@@ -144,15 +144,19 @@ Works with any MCP client: Antigravity, Claude Code, Codex, Cursor, Windsurf, Ze
 
 ---
 
-### ⚠️ A Note from the Author
+### The Context Window Is Not Intelligence
 
-> **I have been banned by Anthropic 3 times while developing this.** 
-> 
-> Big AI providers sell you context window expansions. They *want* you to shove 200,000 tokens of raw code into their APIs using `grep` and dumb RAG, because that's how they charge you. `m1nd` bypasses that entirely. By simulating the connectome locally in pure Rust, it cuts token waste by 84%. 
-> 
-> I don't think they want this to move forward. But if you believe in local, autonomous, and mathematically rigorous code intelligence—if you want AI agents to actually *understand* your code instead of just reading it—**I need your help.** 
-> 
-> Star this repo. Share it. Build on it. Stop paying the Big Tech context-window tax.
+The dominant approach in AI-assisted development treats the context window as a substitute for understanding: inject raw files, search by text pattern, let the LLM infer structure. This works at small scale and fails at the scale of real codebases.
+
+`m1nd` is built on a different premise: **code structure is a graph problem, not a text problem.**
+
+A neuro-symbolic connectome — built in pure Rust, running locally, persisted across sessions — encodes every function, module, type, and file as a node with weighted edges. Spreading activation, Hebbian plasticity, and structural hole detection replace grep, glob, and linear file reads.
+
+The practical consequences are measurable: 84% fewer tokens consumed per session, sub-millisecond graph traversal, and the detection of bugs that exist in the *absence* of code — structural holes that no text search engine can find because there is no text to match.
+
+We designed m1nd after observing that the context window paradigm, while commercially convenient, architecturally penalizes agents for understanding codebases. Every file loaded is a cost. Every grep is an approximation. `m1nd` removes both constraints.
+
+> If you believe code intelligence should be mathematically rigorous — graph topology over pattern matching, structural truth over probabilistic guessing — build on this. Star the repo, open issues, contribute. The architecture is open.
 
 ---
 
