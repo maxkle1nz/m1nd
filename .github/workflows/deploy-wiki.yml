@@ -1,15 +1,14 @@
-name: Deploy mdBook to GitHub Pages
+name: Deploy M1nd Docs to GitHub Pages
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'docs/wiki/**'
+      - 'docs/**'
       - '.github/workflows/deploy-wiki.yml'
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# Allow only one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -34,8 +33,12 @@ jobs:
         with:
           mdbook-version: 'latest'
 
-      - name: Build mdBook
-        run: mdbook build docs/wiki
+      - name: Build site structure
+        run: |
+          mkdir -p site
+          cp -R docs/* site/
+          rm -rf site/wiki
+          mdbook build docs/wiki -d ../../site/wiki-build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -43,7 +46,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './docs/wiki/book'
+          path: './site'
 
       - name: Deploy to GitHub Pages
         id: deployment
