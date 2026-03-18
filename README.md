@@ -246,7 +246,40 @@ Instead of paying to read 20,000 lines of code just to "find out how the provide
 
 **The graph tests claims.** "Does worker_pool depend on whatsapp_manager at runtime?" m1nd explores 25,015 paths in 58ms and returns a Bayesian confidence verdict. 89% accuracy across 10 live claims. It confirmed a `session_pool` leak at 99% confidence (3 bugs found) and correctly rejected a circular dependency hypothesis at 1%.
 
-**The graph ingests memory.** Pass `adapter: "memory"` to ingest `.md`/`.txt` files into the same graph as code. `activate("antibody pattern matching")` returns both `pattern_models.py` (implementation) and `PRD-ANTIBODIES.md` (spec). `missing("GUI web server")` finds specs with no implementation -- gap detection across domains.
+**The graph ingests documentation and code simultaneously.** m1nd provides four ingest adapters:
+
+- **`code`** (default) — 27+ language parsers. Build the full code connectome from source files.
+- **`json`** — Custom graph descriptors and structured data imports.
+- **`memory`** — Unstructured `.md`/`.txt` corpus as a lightweight knowledge graph.
+- **`light`** — [L1GHT Protocol](docs/wiki-build/l1ght.html): structured markdown with typed YAML frontmatter and inline semantic markers. Transforms specs, design decisions, and knowledge bases into first-class graph nodes with typed edges.
+
+With `mode: "merge"`, these graphs fuse: `activate("payment auth")` returns both `payment_handler.rs` and `payment-spec.md`. `missing("refund flow")` detects specs without any implementation counterpart. Cross-domain structural hole detection across the full knowledge graph.
+
+```
+# Example L1GHT document (any .md file)
+---
+Protocol: L1GHT/1.0
+Node:     AuthService
+State:    production
+Depends on:
+- JWTService
+- SessionStore
+---
+
+## Token Validation
+
+The [⍂ entity: TokenValidator] runs HMAC-SHA256 checks.
+[⟁ depends_on: RedisSessionStore]
+[RED blocker: Connection pool not yet tuned for peak load]
+```
+
+```python
+# Ingest code + specs into a unified graph
+m1nd.ingest({"path": "./src", "adapter": "code", "mode": "replace"})
+m1nd.ingest({"path": "./docs/specs", "adapter": "light", "mode": "merge"})
+m1nd.activate({"query": "auth token refresh"})  # fires across both domains
+```
+
 
 **The graph detects bugs before they happen.** Five engines beyond structural analysis:
 - **Antibody System** -- remembers bug patterns, scans for recurrence on every ingest

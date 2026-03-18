@@ -459,12 +459,14 @@
             <span class="tc-oneliner">&#x2014; Load codebase into graph</span>
           </div>
           <div class="tool-card-body">
-            <p class="tool-description">Parse a codebase or JSON data and build the connectome graph. Extracts modules, functions, types, and files as nodes. Discovers imports, calls, contains, and co-change relationships as edges. Supports full rebuild or incremental updates.</p>
+            <p class="tool-description">Parse a codebase, documentation corpus, or structured data and build the connectome graph. Supports four adapters:<br><br><strong style="color:var(--cyan)">code</strong> (default) — 27+ language parsers extracting functions, modules, types, and edges from source files.<br><strong style="color:var(--yellow)">json</strong> — Import custom graph descriptors or exported structured data.<br><strong style="color:var(--green)">memory</strong> — Unstructured text corpus (.md/.txt) ingested as a lightweight knowledge graph.<br><strong style="color:var(--green)">light</strong> — <a href="l1ght.html" style="color:var(--green)">L1GHT Protocol</a>: structured markdown with typed frontmatter and inline markers, producing a fully typed, weighted graph from documentation and specs.</p>
             <div class="params-label">Parameters</div>
             <table class="params-table">
               <tr><th>Name</th><th>Type</th><th>Description</th></tr>
-              <tr><td>source</td><td><span class="param-type">path</span></td><td>Path to the codebase directory or JSON file to ingest.</td></tr>
-              <tr><td>mode</td><td><span class="param-type">full | incremental</span></td><td>Full rebuilds the entire graph. Incremental updates only changed files.</td></tr>
+              <tr><td>path</td><td><span class="param-type">path</span></td><td>Path to directory or file to ingest.</td></tr>
+              <tr><td>adapter</td><td><span class="param-type">code | json | memory | light</span></td><td>Which parser to use. Default: code. Use light for L1GHT markdown corpora.</td></tr>
+              <tr><td>mode</td><td><span class="param-type">replace | merge</span></td><td>Replace rebuilds the graph; merge adds to the existing graph (enables cross-domain fusion).</td></tr>
+              <tr><td>namespace</td><td><span class="param-type">string</span></td><td>Optional namespace prefix for node IDs. Useful when merging multiple corpora.</td></tr>
               <tr><td>agent_id</td><td><span class="param-type">string</span></td><td>Calling agent identifier.</td></tr>
             </table>
             <div class="params-label">Example</div>
