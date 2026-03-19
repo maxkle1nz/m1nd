@@ -2,6 +2,33 @@
 
 All notable changes to m1nd are documented here. This project uses [Semantic Versioning](https://semver.org/).
 
+## v0.5.1 -- Ultra Edit Phase 1
+
+Two-phase transactional editing for LLM agents. Preview before you write.
+
+### New Tools
+
+- **`edit_preview`**: Build an in-memory preview of a single-file edit without touching disk. Returns preview handle, source snapshot (hash, bytes, line count), unified diff, and validation report (empty content check, noop detection, ready-to-commit flag).
+- **`edit_commit`**: Commit a previously created preview to disk. Three safety guards:
+  - **Confirm guard**: `confirm` must be explicitly set to `true` (default `false`).
+  - **TTL**: Previews expire after 5 minutes. Garbage-collected on access.
+  - **Source hash verification**: Re-reads the file at commit time; rejects if it changed since preview.
+
+### Technical Details
+
+- `EditPreviewState` stored in `SessionState` with agent isolation (agent_id must match).
+- Preview handles are single-use — consumed on successful commit.
+- Delegates to existing `handle_apply()` path for actual disk write + graph re-ingest.
+- 7 new integration tests covering: happy path, nonexistent file, commit, TTL expiry, source tampering, confirm guard, invalid handle.
+- Help system updated with ToolDoc entries and suggest_next chains.
+
+### Stats
+
+- 63 MCP tools total (was 61).
+- 342 tests all passing.
+
+---
+
 ## v0.1.0 -- Initial Release
 
 The first public release of m1nd: a neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 43 MCP tools. Built in Rust.

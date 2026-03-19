@@ -27,7 +27,7 @@
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#configure-your-agent">Configure Your Agent</a> &middot;
   <a href="#proven-results">Results</a> &middot;
-  <a href="#the-61-tools">Tools</a> &middot;
+  <a href="#the-63-tools">Tools</a> &middot;
   <a href="https://github.com/maxkle1nz/m1nd/wiki">Wiki</a> &middot;
   <a href="EXAMPLES.md">Examples</a>
 </p>
@@ -59,7 +59,7 @@ Until now, AI agents have navigated code like humans using a terminal: searching
 
 **m1nd replaces text search with physics and epidemiology.**
 
-When an AI agent uses m1nd's 61 MCP tools across your codebase, it's not searching text. It's injecting a signal into a **living graph** and watching it propagate across structural, semantic, temporal, and causal dimensions.
+When an AI agent uses m1nd's 63 MCP tools across your codebase, it's not searching text. It's injecting a signal into a **living graph** and watching it propagate across structural, semantic, temporal, and causal dimensions.
 
 * **84% Fewer Tokens:** Stop shoving entire files into the context window. m1nd surgically extracts only the topologically relevant paths, slashing token costs and preventing context exhaustion. Instead of 210 `grep` operations reading 80,000 lines, m1nd gives the agent the exact graph node in 3 milliseconds using 0 tokens.
 * **Epidemic Bug Detection:** m1nd uses the SIR epidemiological model to predict where the next bug will spawn based on the infection rate of connected modules.
@@ -292,7 +292,7 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 
 **The graph saves investigations.** `trail.save` -> `trail.resume` days later from the exact same cognitive position. Two agents on the same bug? `trail.merge` -- automatic conflict detection on shared nodes.
 
-## The 61 Tools
+## The 63 Tools
 
 | Category | Count | Highlights |
 |----------|-------|------------|
@@ -301,7 +301,7 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 | **Lock System** | 5 | Pin subgraph regions, watch for changes (lock.diff: 0.08&micro;s) |
 | **Superpowers** | 13 | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
 | **Superpowers Extended** | 9 | antibody, flow_simulate, epidemic, tremor, trust, layers |
-| **Surgical** | 9 | surgical_context, apply, surgical_context_v2, apply_batch (+ verify=true) |
+| **Surgical** | 11 | surgical_context, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
 
 <details>
 <summary><strong>Foundation (13 tools)</strong></summary>
@@ -391,13 +391,15 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 </details>
 
 <details>
-<summary><strong>Surgical (4 tools)</strong></summary>
+<summary><strong>Surgical (6 tools)</strong></summary>
 
 | Tool | What It Does | Speed |
 |------|-------------|-------|
 | `surgical_context` | Complete context for a code node: source, callers, callees, tests, trust score, blast radius — in one call | varies |
-| `apply` | Write edited code back to file, atomic write, re-ingest graph, run predict | 3.5ms |
 | `surgical_context_v2` | All connected files with source code in ONE call — complete dependency context without multiple round-trips | 1.3ms |
+| `edit_preview` | **Preview a code change without writing to disk** — returns diff, snapshot, validation. Two-phase safety: see before you write | <1ms |
+| `edit_commit` | **Commit a previewed change** — requires explicit `confirm=true`, TTL 5min, source hash verification. Prevents stale/tampered writes | <1ms + apply |
+| `apply` | Write edited code back to file, atomic write, re-ingest graph, run predict | 3.5ms |
 | `apply_batch` | Write multiple files atomically, single re-ingest pass, returns per-file diffs | 165ms |
 | `apply_batch(verify=true)` | All of the above + **5-layer post-write verification** (pattern detection, compile check, graph BFS impact, test execution, anti-pattern analysis) — verdict: SAFE / RISKY / BROKEN | 165ms + verify |
 </details>
@@ -465,7 +467,7 @@ m1nd-core/     Graph engine, spreading activation, Hebbian plasticity, hypothesi
                antibody system, flow simulator, epidemic, tremor, trust, layer detection
 m1nd-ingest/   Language extractors (27+ languages), memory adapter, JSON adapter,
                git enrichment, cross-file resolver, incremental diff
-m1nd-mcp/      MCP server, 61 tool handlers, JSON-RPC over stdio, HTTP server + GUI
+m1nd-mcp/      MCP server, 63 tool handlers, JSON-RPC over stdio, HTTP server + GUI
 ```
 
 ```mermaid
