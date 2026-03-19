@@ -12,10 +12,11 @@
 // Pattern: identical to layer_handlers.rs -- parse typed input -> call engine -> return output.
 
 use crate::protocol::surgical;
-use crate::session::SessionState;
+use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -132,6 +133,43 @@ fn diff_summary(old: &str, new: &str) -> (i32, i32) {
     let removed = old_lines.iter().filter(|l| !new_set.contains(**l)).count() as i32;
     let added = new_lines.iter().filter(|l| !old_set.contains(**l)).count() as i32;
     (added, removed)
+}
+
+fn content_hash(content: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn unified_diff_preview(old: &str, new: &str) -> String {
+    if old == new {
+        return "".to_string();
+    }
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    let mut out = String::new();
+    out.push_str("--- source\n+++ candidate\n");
+    let max_len = old_lines.len().max(new_lines.len());
+    for i in 0..max_len {
+        match (old_lines.get(i), new_lines.get(i)) {
+            (Some(a), Some(b)) if a == b => {}
+            (Some(a), Some(b)) => {
+                out.push_str(&format!("-{}\n+{}\n", a, b));
+            }
+            (Some(a), None) => {
+                out.push_str(&format!("-{}\n", a));
+            }
+            (None, Some(b)) => {
+                out.push_str(&format!("+{}\n", b));
+            }
+            (None, None) => {}
+        }
+        if out.lines().count() > 120 {
+            out.push_str("... (truncated)\n");
+            break;
+        }
+    }
+    out
 }
 
 /// Extract symbols from file content (lightweight heuristic parser).
@@ -1168,6 +1206,159 @@ pub fn handle_surgical_context(
         callees,
         tests,
         elapsed_ms,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// m1nd.edit_preview / m1nd.edit_commit
+// ---------------------------------------------------------------------------
+
+pub fn handle_edit_preview(
+    state: &mut SessionState,
+    input: surgical::EditPreviewInput,
+) -> M1ndResult<surgical::EditPreviewOutput> {
+    let start = Instant::now();
+    let resolved_path = resolve_file_path(&input.file_path, &state.ingest_roots);
+    let validated_path = validate_path_safety(&resolved_path, &state.ingest_roots)?;
+
+    let old_content = std::fs::read_to_string(&validated_path).unwrap_or_default();
+    let file_exists = validated_path.exists();
+    let line_count = old_content.lines().count();
+    let source_hash = content_hash(&old_content);
+    let (lines_added, lines_removed) = diff_summary(&old_content, &input.new_content);
+    let unified_diff = unified_diff_preview(&old_content, &input.new_content);
+    let bytes_written = input.new_content.len();
+    let candidate_is_empty = input.new_content.is_empty();
+    let candidate_equals_source = old_content == input.new_content;
+    let preview_id = state.next_edit_preview_id(&input.agent_id);
+
+    state.edit_previews.insert(
+        preview_id.clone(),
+        EditPreviewState {
+            preview_id: preview_id.clone(),
+            agent_id: input.agent_id.clone(),
+            file_path: validated_path.to_string_lossy().to_string(),
+            new_content: input.new_content.clone(),
+            source_hash: source_hash.clone(),
+            source_exists: file_exists,
+            source_bytes: old_content.len(),
+            source_line_count: line_count,
+            lines_added,
+            lines_removed,
+            bytes_written,
+            unified_diff: unified_diff.clone(),
+            description: input.description.clone(),
+            created_at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        },
+    );
+
+    state.track_agent(&input.agent_id);
+
+    Ok(surgical::EditPreviewOutput {
+        preview_id,
+        file_path: validated_path.to_string_lossy().to_string(),
+        snapshot: surgical::SourceFileSnapshot {
+            file_path: validated_path.to_string_lossy().to_string(),
+            file_exists,
+            content_hash: source_hash,
+            bytes: old_content.len(),
+            line_count,
+        },
+        diff: surgical::CandidateDiffReport {
+            unified_diff,
+            lines_added,
+            lines_removed,
+            bytes_written,
+        },
+        validation: surgical::PreviewValidationReport {
+            source_changed: false,
+            candidate_is_empty,
+            candidate_equals_source,
+            ready_to_commit: !candidate_equals_source,
+        },
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+    })
+}
+
+pub fn handle_edit_commit(
+    state: &mut SessionState,
+    input: surgical::EditCommitInput,
+) -> M1ndResult<surgical::EditCommitOutput> {
+    let start = Instant::now();
+
+    // Guard: confirm must be true
+    if !input.confirm {
+        return Err(M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: "confirm must be true to commit; set confirm=true after reviewing the preview"
+                .into(),
+        });
+    }
+
+    // Garbage-collect expired previews (TTL = 5 min)
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    const TTL_MS: u64 = 5 * 60 * 1000;
+    state
+        .edit_previews
+        .retain(|_, v| now_ms.saturating_sub(v.created_at_ms) < TTL_MS);
+
+    let preview = state
+        .edit_previews
+        .get(&input.preview_id)
+        .cloned()
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: format!(
+                "preview_id not found or expired (TTL=5min): {}",
+                input.preview_id
+            ),
+        })?;
+
+    if preview.agent_id != input.agent_id {
+        return Err(M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: "preview belongs to a different agent".into(),
+        });
+    }
+
+    let current_content = std::fs::read_to_string(&preview.file_path).unwrap_or_default();
+    let current_hash = content_hash(&current_content);
+    if current_hash != preview.source_hash {
+        return Err(M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: "source_modified: file changed since preview was created; run edit_preview again".into(),
+        });
+    }
+
+    let apply_output = handle_apply(
+        state,
+        surgical::ApplyInput {
+            file_path: preview.file_path.clone(),
+            agent_id: input.agent_id.clone(),
+            new_content: preview.new_content.clone(),
+            description: preview.description.clone(),
+            reingest: input.reingest,
+        },
+    )?;
+
+    state.edit_previews.remove(&input.preview_id);
+    state.track_agent(&input.agent_id);
+
+    Ok(surgical::EditCommitOutput {
+        preview_id: input.preview_id,
+        file_path: apply_output.file_path,
+        bytes_written: apply_output.bytes_written,
+        lines_added: apply_output.lines_added,
+        lines_removed: apply_output.lines_removed,
+        reingested: apply_output.reingested,
+        updated_node_ids: apply_output.updated_node_ids,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
 }
 

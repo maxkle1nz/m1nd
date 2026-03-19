@@ -3,8 +3,8 @@
 
 use crate::error::{M1ndError, M1ndResult};
 use crate::graph::{Graph, NodeProvenanceInput, ResolvedNodeProvenance};
-use crate::types::*;
 use crate::snapshot::SNAPSHOT_VERSION;
+use crate::types::*;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
@@ -153,7 +153,11 @@ pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
                 target_id: node_to_ext_id[tgt].clone(),
                 relation,
                 weight,
-                direction: if dir == EdgeDirection::Bidirectional { 1 } else { 0 },
+                direction: if dir == EdgeDirection::Bidirectional {
+                    1
+                } else {
+                    0
+                },
                 inhibitory: graph.csr.inhibitory[j],
                 causal_strength: graph.csr.causal_strengths[j].get(),
             });
@@ -166,7 +170,8 @@ pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
         edges,
     };
 
-    let bytes = bincode::serialize(&snapshot).map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
+    let bytes =
+        bincode::serialize(&snapshot).map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
 
     // Atomic write
     let temp_path = path.with_extension("tmp");
@@ -184,8 +189,8 @@ pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
 /// Load full graph from compact binary snapshot.
 pub fn load_graph(path: &Path) -> M1ndResult<Graph> {
     let data = std::fs::read(path)?;
-    let snapshot: GraphSnapshotBin = bincode::deserialize(&data)
-        .map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
+    let snapshot: GraphSnapshotBin =
+        bincode::deserialize(&data).map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
 
     if snapshot.nodes.is_empty() {
         return Ok(Graph::new());
@@ -220,8 +225,15 @@ pub fn load_graph(path: &Path) -> M1ndResult<Graph> {
 
     // Edges
     for edge in &snapshot.edges {
-        if let (Some(src), Some(tgt)) = (graph.resolve_id(&edge.source_id), graph.resolve_id(&edge.target_id)) {
-            let direction = if edge.direction == 1 { EdgeDirection::Bidirectional } else { EdgeDirection::Forward };
+        if let (Some(src), Some(tgt)) = (
+            graph.resolve_id(&edge.source_id),
+            graph.resolve_id(&edge.target_id),
+        ) {
+            let direction = if edge.direction == 1 {
+                EdgeDirection::Bidirectional
+            } else {
+                EdgeDirection::Forward
+            };
             let _ = graph.add_edge(
                 src,
                 tgt,

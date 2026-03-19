@@ -34,6 +34,24 @@ pub struct AgentSession {
     pub query_count: u64,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EditPreviewState {
+    pub preview_id: String,
+    pub agent_id: String,
+    pub file_path: String,
+    pub new_content: String,
+    pub source_hash: String,
+    pub source_exists: bool,
+    pub source_bytes: usize,
+    pub source_line_count: usize,
+    pub lines_added: i32,
+    pub lines_removed: i32,
+    pub bytes_written: usize,
+    pub unified_diff: String,
+    pub description: Option<String>,
+    pub created_at_ms: u64,
+}
+
 // ---------------------------------------------------------------------------
 // SavingsTracker — tracks estimated token savings from m1nd usage
 // ---------------------------------------------------------------------------
@@ -143,6 +161,8 @@ pub struct SessionState {
     pub plasticity_path: PathBuf,
     /// Per-agent session tracking.
     pub sessions: HashMap<String, AgentSession>,
+    /// In-memory preview states for Ultra Edit phase 1.
+    pub edit_previews: HashMap<String, EditPreviewState>,
 
     // --- Perspective MCP state (12-PERSPECTIVE-SYNTHESIS) ---
     /// Generation counter: bumped on ingest, rebuild_engines (Theme 1).
@@ -245,6 +265,7 @@ impl SessionState {
             graph_path: config.graph_source.clone(),
             plasticity_path: config.plasticity_state.clone(),
             sessions: HashMap::new(),
+            edit_previews: HashMap::new(),
             // Perspective MCP state
             graph_generation: 0,
             plasticity_generation: 0,
@@ -632,6 +653,15 @@ impl SessionState {
             });
         session.last_seen = now;
         session.query_count += 1;
+    }
+
+    pub fn next_edit_preview_id(&self, agent_id: &str) -> String {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let short_id = &agent_id[..agent_id.len().min(8)];
+        format!("preview_{}_{}", short_id, now_ms)
     }
 
     /// Log a tool call to the query log ring buffer (max 1000 entries).

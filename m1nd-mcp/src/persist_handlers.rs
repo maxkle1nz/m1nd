@@ -14,10 +14,13 @@ pub struct PersistInput {
     #[serde(default)]
     pub format: Option<String>, // json | bin (default json)
     #[serde(default)]
-    pub path: Option<String>,  // override snapshot path
+    pub path: Option<String>, // override snapshot path
 }
 
-pub fn handle_persist(state: &mut SessionState, input: PersistInput) -> M1ndResult<serde_json::Value> {
+pub fn handle_persist(
+    state: &mut SessionState,
+    input: PersistInput,
+) -> M1ndResult<serde_json::Value> {
     let fmt = input.format.as_deref().unwrap_or("json");
     let is_bin = fmt.eq_ignore_ascii_case("bin");
 
@@ -55,7 +58,8 @@ pub fn handle_persist(state: &mut SessionState, input: PersistInput) -> M1ndResu
                 m1nd_core::snapshot_bin::save_graph(&g, &path)?;
                 // Plasticity stays JSON for readability
                 if let Ok(states) = state.plasticity.export_state(&g) {
-                    let _ = m1nd_core::snapshot::save_plasticity_state(&states, &state.plasticity_path);
+                    let _ =
+                        m1nd_core::snapshot::save_plasticity_state(&states, &state.plasticity_path);
                 }
             } else {
                 // Existing JSON path (graph + plasticity + antibodies)

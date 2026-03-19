@@ -1096,6 +1096,34 @@ pub fn tool_schemas() -> serde_json::Value {
                     "required": ["agent_id", "edits"]
                 }
             },
+            {
+                "name": "edit_preview",
+                "description": "Build an in-memory preview of a single-file full-replacement edit. Returns a preview handle, source snapshot, diff, and validation report. Does not touch disk.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "file_path": { "type": "string", "description": "Absolute or workspace-relative path of the file to preview" },
+                        "new_content": { "type": "string", "description": "Candidate file contents (full replacement, UTF-8)" },
+                        "description": { "type": "string", "description": "Optional human-readable description of the preview" }
+                    },
+                    "required": ["agent_id", "file_path", "new_content"]
+                }
+            },
+            {
+                "name": "edit_commit",
+                "description": "Commit a previously created edit_preview handle after re-checking source freshness. Persists atomically through the existing apply path.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "preview_id": { "type": "string", "description": "Preview handle returned by edit_preview" },
+                        "confirm": { "type": "boolean", "default": false, "description": "Must be true to confirm the commit. Safety guard against accidental writes." },
+                        "reingest": { "type": "boolean", "default": true, "description": "Re-ingest the modified file after commit" }
+                    },
+                    "required": ["agent_id", "preview_id", "confirm"]
+                }
+            },
             // =================================================================
             // v0.4.0: search, help, report, panoramic, savings
             // =================================================================
@@ -1246,9 +1274,7 @@ pub fn dispatch_tool(
         .to_string();
 
     let result = match normalized.as_str() {
-        name if name.starts_with("perspective_") => {
-            dispatch_perspective_tool(state, name, params)
-        }
+        name if name.starts_with("perspective_") => dispatch_perspective_tool(state, name, params),
         name if name.starts_with("lock_") => dispatch_lock_tool(state, name, params),
         _ => dispatch_core_tool(state, &normalized, params),
     };
@@ -1564,6 +1590,24 @@ fn dispatch_core_tool(
                     detail: e.to_string(),
                 })?;
             let output = surgical_handlers::handle_apply_batch(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "edit_preview" => {
+            let input: crate::protocol::surgical::EditPreviewInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "edit_preview".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = surgical_handlers::handle_edit_preview(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "edit_commit" => {
+            let input: crate::protocol::surgical::EditCommitInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "edit_commit".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = surgical_handlers::handle_edit_commit(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         // -----------------------------------------------------------------

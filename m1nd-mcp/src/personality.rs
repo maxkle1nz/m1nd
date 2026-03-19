@@ -452,7 +452,11 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[
                 ("path", "Filesystem path to source root", true),
                 ("agent_id", "Calling agent identifier", true),
-                ("adapter", "code | json | memory | light (default: code)", false),
+                (
+                    "adapter",
+                    "code | json | memory | light (default: code)",
+                    false,
+                ),
                 ("mode", "replace | merge (default: replace)", false),
             ],
             returns: "Node/edge counts, ingest stats",

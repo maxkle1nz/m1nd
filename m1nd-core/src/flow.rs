@@ -1504,9 +1504,10 @@ mod tests {
         config_locked.turbulence_threshold = 0.0;
         config_locked.lock_patterns = Vec::new();
         config_locked.read_only_patterns = Vec::new();
-        config_locked
-            .advisory_lock_protected_nodes
-            .insert("shared_state".to_string(), vec!["lock_jimi_001".to_string()]);
+        config_locked.advisory_lock_protected_nodes.insert(
+            "shared_state".to_string(),
+            vec!["lock_jimi_001".to_string()],
+        );
 
         let result_locked = engine
             .simulate(&g, &entry_nodes, 1, &config_locked)
@@ -1561,9 +1562,10 @@ mod tests {
         config.turbulence_threshold = 0.3;
         config.lock_patterns = Vec::new();
         config.read_only_patterns = Vec::new();
-        config
-            .advisory_lock_protected_nodes
-            .insert("shared_state".to_string(), vec!["lock_test_001".to_string()]);
+        config.advisory_lock_protected_nodes.insert(
+            "shared_state".to_string(),
+            vec!["lock_test_001".to_string()],
+        );
 
         let entry_nodes = vec![NodeId::new(0), NodeId::new(1)];
         let result = engine.simulate(&g, &entry_nodes, 1, &config).unwrap();
@@ -1605,9 +1607,10 @@ mod tests {
         config.turbulence_threshold = 0.0;
         config.lock_patterns = Vec::new();
         config.read_only_patterns = Vec::new();
-        config
-            .advisory_lock_protected_nodes
-            .insert("unrelated_node".to_string(), vec!["lock_other_001".to_string()]);
+        config.advisory_lock_protected_nodes.insert(
+            "unrelated_node".to_string(),
+            vec!["lock_other_001".to_string()],
+        );
 
         let entry_nodes = vec![NodeId::new(0), NodeId::new(1)];
         let result = engine.simulate(&g, &entry_nodes, 1, &config).unwrap();
@@ -1670,8 +1673,15 @@ mod tests {
             )
             .unwrap();
         }
-        g.add_node("shared", "shared_critical", NodeType::Function, &[], 0.9, 0.4)
-            .unwrap(); // node 4
+        g.add_node(
+            "shared",
+            "shared_critical",
+            NodeType::Function,
+            &[],
+            0.9,
+            0.4,
+        )
+        .unwrap(); // node 4
         for i in 0..4u32 {
             g.add_edge(
                 NodeId::new(i),

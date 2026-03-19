@@ -160,7 +160,11 @@ impl L1ghtIngestAdapter {
         }
     }
 
-    fn push_node(nodes: &mut Vec<L1ghtNodeRecord>, seen: &mut HashSet<String>, record: L1ghtNodeRecord) {
+    fn push_node(
+        nodes: &mut Vec<L1ghtNodeRecord>,
+        seen: &mut HashSet<String>,
+        record: L1ghtNodeRecord,
+    ) {
         if seen.insert(record.id.clone()) {
             nodes.push(record);
         }
@@ -355,7 +359,12 @@ impl L1ghtIngestAdapter {
         }
 
         for dep in header_meta.depends_on {
-            let dep_id = format!("light::{}::dep::{}::{}", self.namespace, file_slug, Self::slugify(&dep));
+            let dep_id = format!(
+                "light::{}::dep::{}::{}",
+                self.namespace,
+                file_slug,
+                Self::slugify(&dep)
+            );
             Self::push_node(
                 nodes,
                 node_seen,
@@ -390,7 +399,12 @@ impl L1ghtIngestAdapter {
         }
 
         for next in header_meta.next {
-            let next_id = format!("light::{}::next::{}::{}", self.namespace, file_slug, Self::slugify(&next));
+            let next_id = format!(
+                "light::{}::next::{}::{}",
+                self.namespace,
+                file_slug,
+                Self::slugify(&next)
+            );
             Self::push_node(
                 nodes,
                 node_seen,
@@ -570,7 +584,14 @@ impl IngestAdapter for L1ghtIngestAdapter {
             if !Self::looks_like_l1ght(&text) {
                 continue;
             }
-            self.parse_file(root, &path, &mut nodes, &mut edges, &mut node_seen, &mut edge_seen)?;
+            self.parse_file(
+                root,
+                &path,
+                &mut nodes,
+                &mut edges,
+                &mut node_seen,
+                &mut edge_seen,
+            )?;
             stats.files_parsed += 1;
         }
 
@@ -601,7 +622,10 @@ impl IngestAdapter for L1ghtIngestAdapter {
         }
 
         for edge in &edges {
-            if let (Some(source), Some(target)) = (graph.resolve_id(&edge.source), graph.resolve_id(&edge.target)) {
+            if let (Some(source), Some(target)) = (
+                graph.resolve_id(&edge.source),
+                graph.resolve_id(&edge.target),
+            ) {
                 if graph
                     .add_edge(
                         source,

@@ -296,7 +296,11 @@ mod tests {
         let g = build_test_graph();
         let seeds = SeedFinder::find_seeds(&g, "Polietileno", 200).unwrap();
         assert!(!seeds.is_empty(), "Should find at least one seed");
-        assert_eq!(seeds[0].1.get(), 1.0, "Exact match should have relevance 1.0");
+        assert_eq!(
+            seeds[0].1.get(),
+            1.0,
+            "Exact match should have relevance 1.0"
+        );
     }
 
     #[test]
@@ -327,7 +331,10 @@ mod tests {
         let config = PropagationConfig::default();
         let seeds = vec![(NodeId::new(0), FiniteF32::ONE)];
         let result = engine.propagate(&g, &seeds, &config).unwrap();
-        assert!(!result.scores.is_empty(), "Wavefront should activate at least one node");
+        assert!(
+            !result.scores.is_empty(),
+            "Wavefront should activate at least one node"
+        );
         assert!(result.scores[0].1.get() > 0.0);
     }
 
@@ -338,7 +345,10 @@ mod tests {
         let config = PropagationConfig::default();
         let seeds = vec![(NodeId::new(0), FiniteF32::ONE)];
         let result = engine.propagate(&g, &seeds, &config).unwrap();
-        assert!(!result.scores.is_empty(), "Heap should activate at least one node");
+        assert!(
+            !result.scores.is_empty(),
+            "Heap should activate at least one node"
+        );
     }
 
     #[test]
@@ -383,7 +393,11 @@ mod tests {
         assert_eq!(activated.active_dimension_count, 4);
         let base = 0.5 * 0.35 + 0.5 * 0.25 + 0.5 * 0.15 + 0.5 * 0.25;
         let expected = base * RESONANCE_BONUS_4DIM;
-        assert!((activated.activation.get() - expected).abs() < 0.01, "Expected ~{expected}, got {}", activated.activation.get());
+        assert!(
+            (activated.activation.get() - expected).abs() < 0.01,
+            "Expected ~{expected}, got {}",
+            activated.activation.get()
+        );
     }
 
     #[test]
@@ -418,14 +432,22 @@ mod tests {
     fn temporal_decay_clamps_negative_age() {
         let scorer = TemporalDecayScorer::new(PosF32::new(168.0).unwrap());
         let result = scorer.score_one(-10.0, FiniteF32::ZERO, None);
-        assert!((result.raw_decay.get() - 1.0).abs() < 0.01, "Negative age should clamp to decay=1.0, got {}", result.raw_decay.get());
+        assert!(
+            (result.raw_decay.get() - 1.0).abs() < 0.01,
+            "Negative age should clamp to decay=1.0, got {}",
+            result.raw_decay.get()
+        );
     }
 
     #[test]
     fn temporal_decay_exponential() {
         let scorer = TemporalDecayScorer::new(PosF32::new(168.0).unwrap());
         let result = scorer.score_one(168.0, FiniteF32::ZERO, None);
-        assert!((result.raw_decay.get() - 0.5).abs() < 0.05, "After one half-life, decay ~0.5, got {}", result.raw_decay.get());
+        assert!(
+            (result.raw_decay.get() - 0.5).abs() < 0.05,
+            "After one half-life, decay ~0.5, got {}",
+            result.raw_decay.get()
+        );
     }
 
     #[test]
@@ -484,7 +506,10 @@ mod tests {
         };
         acc.accumulate(&pulse1);
         let amp = acc.amplitude().get();
-        assert!((amp - 1.0).abs() < 0.01, "Single pulse amplitude should be ~1.0");
+        assert!(
+            (amp - 1.0).abs() < 0.01,
+            "Single pulse amplitude should be ~1.0"
+        );
     }
 
     #[test]
@@ -492,7 +517,14 @@ mod tests {
         let g = build_test_graph();
         let propagator = StandingWavePropagator::new(5, FiniteF32::new(0.01), 10_000);
         let seeds = vec![(NodeId::new(0), FiniteF32::ONE)];
-        let result = propagator.propagate(&g, &seeds, PosF32::new(1.0).unwrap(), PosF32::new(4.0).unwrap()).unwrap();
+        let result = propagator
+            .propagate(
+                &g,
+                &seeds,
+                PosF32::new(1.0).unwrap(),
+                PosF32::new(4.0).unwrap(),
+            )
+            .unwrap();
         assert!(result.pulses_processed > 0);
         assert!(!result.antinodes.is_empty());
     }

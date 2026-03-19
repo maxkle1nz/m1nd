@@ -120,7 +120,9 @@ impl Ingestor {
             #[cfg(feature = "tier1")]
             "r" | "R" | "Rmd" => Box::new(extract::tree_sitter_ext::r_extractor()),
             #[cfg(feature = "tier1")]
-            "html" | "htm" => Box::new(extract::tree_sitter_ext::EmbeddedExtractor::html_embedded()),
+            "html" | "htm" => {
+                Box::new(extract::tree_sitter_ext::EmbeddedExtractor::html_embedded())
+            }
             #[cfg(feature = "tier1")]
             "css" => Box::new(extract::tree_sitter_ext::css_extractor()),
             #[cfg(feature = "tier1")]
@@ -211,18 +213,14 @@ impl Ingestor {
         let mut graph = m1nd_core::graph::Graph::new();
         for node in &all_nodes {
             let tags: Vec<&str> = node.tags.iter().map(String::as_str).collect();
-            let _ = graph.add_node(
-                &node.id,
-                &node.label,
-                node.node_type,
-                &tags,
-                0.0,
-                0.0,
-            );
+            let _ = graph.add_node(&node.id, &node.label, node.node_type, &tags, 0.0, 0.0);
         }
 
         for edge in &all_edges {
-            if let (Some(source), Some(target)) = (graph.resolve_id(&edge.source), graph.resolve_id(&edge.target)) {
+            if let (Some(source), Some(target)) = (
+                graph.resolve_id(&edge.source),
+                graph.resolve_id(&edge.target),
+            ) {
                 let _ = graph.add_edge(
                     source,
                     target,

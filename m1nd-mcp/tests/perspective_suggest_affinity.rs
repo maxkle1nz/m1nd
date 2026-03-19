@@ -250,13 +250,8 @@ fn suggest_02_single_route_recommends_follow() {
 #[test]
 fn suggest_03_prefers_unvisited_routes() {
     // Visit module_0.rs, so suggest should skip it and recommend module_1.rs
-    let persp = build_perspective_with_routes(
-        "agent_a",
-        "persp_001",
-        "main.rs",
-        5,
-        &["module_0.rs"],
-    );
+    let persp =
+        build_perspective_with_routes("agent_a", "persp_001", "main.rs", 5, &["module_0.rs"]);
 
     let cached = persp.route_cache.as_ref().unwrap();
 
@@ -280,20 +275,16 @@ fn suggest_03_prefers_unvisited_routes() {
 #[test]
 fn suggest_04_all_visited_falls_back_to_top() {
     // Visit all route targets
-    let targets: Vec<&str> = (0..3).map(|i| match i {
-        0 => "module_0.rs",
-        1 => "module_1.rs",
-        2 => "module_2.rs",
-        _ => unreachable!(),
-    }).collect();
+    let targets: Vec<&str> = (0..3)
+        .map(|i| match i {
+            0 => "module_0.rs",
+            1 => "module_1.rs",
+            2 => "module_2.rs",
+            _ => unreachable!(),
+        })
+        .collect();
 
-    let persp = build_perspective_with_routes(
-        "agent_a",
-        "persp_001",
-        "main.rs",
-        3,
-        &targets,
-    );
+    let persp = build_perspective_with_routes("agent_a", "persp_001", "main.rs", 3, &targets);
 
     let cached = persp.route_cache.as_ref().unwrap();
 
@@ -392,13 +383,8 @@ fn suggest_07_based_on_reflects_history_depth() {
     assert_eq!(based_on_fresh, "initial_ranking");
 
     // Perspective with history (start + follow events) → navigation_history
-    let navigated = build_perspective_with_routes(
-        "agent_a",
-        "persp_nav",
-        "main.rs",
-        3,
-        &["module_0.rs"],
-    );
+    let navigated =
+        build_perspective_with_routes("agent_a", "persp_nav", "main.rs", 3, &["module_0.rs"]);
     assert!(navigated.navigation_history.len() > 1);
     let based_on_nav = if navigated.navigation_history.len() > 1 {
         "navigation_history"
@@ -451,7 +437,7 @@ fn affinity_01_isolated_node_empty_candidates() {
 fn affinity_02_multi_source_confidence_accuracy() {
     // Two sources with moderate scores → geometric mean within bounds
     let breakdown = ConfidenceBreakdown {
-        ghost_edge_strength: Some(0.64),  // sqrt(0.64) = 0.8 normalized
+        ghost_edge_strength: Some(0.64), // sqrt(0.64) = 0.8 normalized
         structural_hole_pressure: Some(0.5),
         resonant_amplitude: None,
         semantic_overlap: None,
@@ -471,7 +457,12 @@ fn affinity_02_multi_source_confidence_accuracy() {
     // With 2 sources, the multi-source gate does NOT apply (need < 2 sources for gate)
     // So the raw geometric mean should be the result
     let expected = (0.64_f64 * 0.5_f64).powf(0.5) as f32;
-    assert!((c - expected).abs() < 0.01, "expected ~{:.3}, got {:.3}", expected, c);
+    assert!(
+        (c - expected).abs() < 0.01,
+        "expected ~{:.3}, got {:.3}",
+        expected,
+        c
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -491,7 +482,11 @@ fn affinity_03_single_source_gate() {
     };
 
     let confidence = compute_combined_confidence(&breakdown).unwrap();
-    assert!(confidence <= 0.40, "single-source should be gated at 0.40, got {}", confidence);
+    assert!(
+        confidence <= 0.40,
+        "single-source should be gated at 0.40, got {}",
+        confidence
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -510,8 +505,16 @@ fn affinity_04_all_sources_cap_at_max() {
     };
 
     let confidence = compute_combined_confidence(&breakdown).unwrap();
-    assert!(confidence <= MAX_CONFIDENCE, "confidence {} exceeds MAX {}", confidence, MAX_CONFIDENCE);
-    assert!(confidence > 0.40, "six sources should exceed single-source gate");
+    assert!(
+        confidence <= MAX_CONFIDENCE,
+        "confidence {} exceeds MAX {}",
+        confidence,
+        MAX_CONFIDENCE
+    );
+    assert!(
+        confidence > 0.40,
+        "six sources should exceed single-source gate"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +534,10 @@ fn affinity_05_below_threshold_returns_none() {
     };
 
     let confidence = compute_combined_confidence(&breakdown);
-    assert!(confidence.is_none(), "scores this low should be below threshold");
+    assert!(
+        confidence.is_none(),
+        "scores this low should be below threshold"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -561,8 +567,14 @@ fn affinity_06_epistemic_guards() {
         },
     };
 
-    assert!(candidate.is_hypothetical, "epistemic guard: must be hypothetical");
-    assert!(candidate.proposed_relation.is_none(), "V1: proposed_relation must be None");
+    assert!(
+        candidate.is_hypothetical,
+        "epistemic guard: must be hypothetical"
+    );
+    assert!(
+        candidate.proposed_relation.is_none(),
+        "V1: proposed_relation must be None"
+    );
     assert!(candidate.confidence >= MIN_CONFIDENCE_THRESHOLD);
     assert!(candidate.confidence <= MAX_CONFIDENCE);
 
@@ -604,7 +616,10 @@ fn affinity_07_builder_helper_roundtrip() {
         breakdown.clone(),
     );
 
-    assert!(candidate.is_some(), "valid multi-source should produce a candidate");
+    assert!(
+        candidate.is_some(),
+        "valid multi-source should produce a candidate"
+    );
     let c = candidate.unwrap();
     assert_eq!(c.candidate_node, "file::utils.py");
     assert_eq!(c.candidate_label, "utils.py");
@@ -656,10 +671,9 @@ fn affinity_08_schema_parity() {
     assert_eq!(input2.route_index, Some(3));
 
     // PerspectiveSuggestInput: minimal params
-    let suggest: PerspectiveSuggestInput = serde_json::from_str(
-        r#"{"agent_id": "a", "perspective_id": "p", "route_set_version": 1}"#,
-    )
-    .expect("suggest input should deserialize");
+    let suggest: PerspectiveSuggestInput =
+        serde_json::from_str(r#"{"agent_id": "a", "perspective_id": "p", "route_set_version": 1}"#)
+            .expect("suggest input should deserialize");
     assert_eq!(suggest.agent_id, "a");
     assert_eq!(suggest.perspective_id, "p");
     assert_eq!(suggest.route_set_version, 1);
@@ -706,7 +720,10 @@ fn cross_01_suggest_output_structure() {
     assert!(json["suggestion"]["why"].is_string());
     assert!(json["suggestion"]["based_on"].is_string());
     assert!(json["suggestion"]["alternatives"].is_array());
-    assert_eq!(json["suggestion"]["alternatives"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        json["suggestion"]["alternatives"].as_array().unwrap().len(),
+        2
+    );
     // diagnostic is None → should not be present (skip_serializing_if)
     assert!(json.get("diagnostic").is_none() || json["diagnostic"].is_null());
 }
@@ -836,15 +853,15 @@ fn cross_05_normalization_functions_for_affinity() {
     assert!((normalize_route_path_neighborhood(3) - 0.25).abs() < 0.001);
 
     // Provenance overlap
-    assert_eq!(normalize_provenance_overlap(true, Some(10)), 1.0);  // same file, close
+    assert_eq!(normalize_provenance_overlap(true, Some(10)), 1.0); // same file, close
     assert_eq!(normalize_provenance_overlap(true, Some(100)), 0.5); // same file, far
-    assert_eq!(normalize_provenance_overlap(true, None), 0.5);      // same file, unknown distance
+    assert_eq!(normalize_provenance_overlap(true, None), 0.5); // same file, unknown distance
     assert_eq!(normalize_provenance_overlap(false, Some(10)), 0.0); // different file
 
     // Semantic overlap: passthrough clamp
     assert_eq!(normalize_semantic_overlap(0.75), 0.75);
-    assert_eq!(normalize_semantic_overlap(1.5), 1.0);  // clamped
-    assert_eq!(normalize_semantic_overlap(-0.3), 0.0);  // clamped
+    assert_eq!(normalize_semantic_overlap(1.5), 1.0); // clamped
+    assert_eq!(normalize_semantic_overlap(-0.3), 0.0); // clamped
 
     // Resonant amplitude
     assert!((normalize_resonant_amplitude(0.5, 1.0) - 0.5).abs() < 0.001);

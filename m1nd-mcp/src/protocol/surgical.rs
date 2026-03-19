@@ -136,6 +136,77 @@ pub struct ApplyOutput {
 }
 
 // ---------------------------------------------------------------------------
+// m1nd.edit_preview / m1nd.edit_commit
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct EditPreviewInput {
+    pub file_path: String,
+    pub agent_id: String,
+    pub new_content: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SourceFileSnapshot {
+    pub file_path: String,
+    pub file_exists: bool,
+    pub content_hash: String,
+    pub bytes: usize,
+    pub line_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CandidateDiffReport {
+    pub unified_diff: String,
+    pub lines_added: i32,
+    pub lines_removed: i32,
+    pub bytes_written: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct EditPreviewOutput {
+    pub preview_id: String,
+    pub file_path: String,
+    pub snapshot: SourceFileSnapshot,
+    pub diff: CandidateDiffReport,
+    pub validation: PreviewValidationReport,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PreviewValidationReport {
+    pub source_changed: bool,
+    pub candidate_is_empty: bool,
+    pub candidate_equals_source: bool,
+    pub ready_to_commit: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct EditCommitInput {
+    pub preview_id: String,
+    pub agent_id: String,
+    /// LLM must explicitly set true to confirm the commit.
+    #[serde(default)]
+    pub confirm: bool,
+    #[serde(default = "default_true")]
+    pub reingest: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct EditCommitOutput {
+    pub preview_id: String,
+    pub file_path: String,
+    pub bytes_written: usize,
+    pub lines_added: i32,
+    pub lines_removed: i32,
+    pub reingested: bool,
+    pub updated_node_ids: Vec<String>,
+    pub elapsed_ms: f64,
+}
+
+// ---------------------------------------------------------------------------
 // m1nd.surgical_context_v2
 // ---------------------------------------------------------------------------
 
