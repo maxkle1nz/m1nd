@@ -94,8 +94,16 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
             "learn(feedback) to confirm/deny".into(),
         ],
         "surgical_context" | "surgical_context_v2" => vec![
-            "apply(file, content) to make changes".into(),
+            "edit_preview(file, content) to preview changes before writing".into(),
+            "apply(file, content) to make changes directly".into(),
             "apply_batch(edits) for multiple files".into(),
+        ],
+        "edit_preview" => vec![
+            "edit_commit(preview_id, confirm=true) to apply the previewed change".into(),
+        ],
+        "edit_commit" => vec![
+            "predict(changed_node) for ripple effects".into(),
+            "learn(feedback) to update graph".into(),
         ],
         "apply" | "apply_batch" => vec![
             "predict(changed_node) for ripple effects".into(),
@@ -768,6 +776,36 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "Batch result with per-file status",
             example: r#"{"edits": [{"file": "a.py", "content": "..."}], "agent_id": "jimi"}"#,
+            next: &["predict", "learn"],
+        },
+        ToolDoc {
+            name: "edit_preview",
+            category: "Surgical",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Preview a code change without writing to disk",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("file_path", "Target file path", true),
+                ("new_content", "Proposed new content", true),
+                ("description", "Human-readable description", false),
+            ],
+            returns: "Preview handle, source snapshot, unified diff, validation report",
+            example: r#"{"file_path": "src/auth.py", "new_content": "...", "agent_id": "jimi"}"#,
+            next: &["edit_commit"],
+        },
+        ToolDoc {
+            name: "edit_commit",
+            category: "Surgical",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Commit a previewed change to disk (requires confirm=true)",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("preview_id", "Handle from edit_preview", true),
+                ("confirm", "Must be true to proceed", true),
+                ("reingest", "Re-ingest file into graph (default true)", false),
+            ],
+            returns: "Commit result with bytes written, graph updates",
+            example: r#"{"preview_id": "preview_jimi_17...", "confirm": true, "agent_id": "jimi"}"#,
             next: &["predict", "learn"],
         },
         // --- Perspective ---
