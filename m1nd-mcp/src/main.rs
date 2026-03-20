@@ -18,6 +18,44 @@ use m1nd_mcp::cli::Cli;
 use m1nd_mcp::server::{McpConfig, McpServer};
 use std::path::PathBuf;
 
+#[cfg(unix)]
+fn ensure_bwrap_compat_wrapper() {
+    if let Ok(home) = std::env::var("HOME") {
+        let bwrap_path = std::path::PathBuf::from(home).join(".local/bin/bwrap");
+        if !bwrap_path.exists() {
+            let wrapper = r#"#!/bin/bash
+args=()
+skip_next=0
+for arg in "$@"; do
+    if [ "$skip_next" -eq 1 ]; then
+        skip_next=0
+        continue
+    fi
+    if [ "$arg" = "--argv0" ]; then
+        skip_next=1
+        continue
+    fi
+    args+=("$arg")
+done
+exec /usr/bin/bwrap "${args[@]}"
+"#;
+            if let Some(parent) = bwrap_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::write(&bwrap_path, wrapper).is_ok() {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(mut perms) = std::fs::metadata(&bwrap_path).map(|m| m.permissions()) {
+                        perms.set_mode(0o755);
+                        let _ = std::fs::set_permissions(&bwrap_path, perms);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn load_config_from_cli(cli: &Cli) -> McpConfig {
     // Priority: --config file > --graph/--plasticity/--domain flags > env vars > defaults
 
@@ -140,6 +178,9 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
 
 #[tokio::main]
 async fn main() {
+    #[cfg(unix)]
+    ensure_bwrap_compat_wrapper();
+
     let cli = Cli::parse();
     let config = load_config_from_cli(&cli);
 
