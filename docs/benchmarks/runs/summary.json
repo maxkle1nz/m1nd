@@ -11,6 +11,7 @@
       ],
       "manual": {
         "token_proxy": 1340,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 25.0,
         "time_to_full_proof_ms": 40.0,
         "files_opened": 4,
@@ -22,10 +23,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 145,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 3.8,
         "time_to_full_proof_ms": 6.1,
         "files_opened": 1,
@@ -37,7 +43,11 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 1195,
@@ -48,7 +58,10 @@
         "false_start_delta": 1,
         "guidance_event_delta": 0,
         "guidance_followed_delta": 0,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -60,6 +73,7 @@
       ],
       "manual": {
         "token_proxy": 1043,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 25.0,
         "time_to_full_proof_ms": 55.0,
         "files_opened": 3,
@@ -71,10 +85,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 148,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 3.7,
         "time_to_full_proof_ms": 5.8,
         "files_opened": 1,
@@ -86,7 +105,11 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 895,
@@ -97,7 +120,10 @@
         "false_start_delta": 0,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -109,6 +135,7 @@
       ],
       "manual": {
         "token_proxy": 440,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 11.4,
         "time_to_full_proof_ms": 17.9,
         "files_opened": 2,
@@ -120,10 +147,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 175,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 5.1,
         "time_to_full_proof_ms": 8.2,
         "files_opened": 1,
@@ -135,7 +167,11 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 265,
@@ -146,7 +182,10 @@
         "false_start_delta": 1,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -158,6 +197,7 @@
       ],
       "manual": {
         "token_proxy": 670,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 19.5,
         "time_to_full_proof_ms": 29.3,
         "files_opened": 2,
@@ -169,10 +209,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 310,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 1.486,
         "time_to_full_proof_ms": 2.008,
         "files_opened": 1,
@@ -184,7 +229,11 @@
         "final_proof_state": "ready_to_edit",
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 360,
@@ -195,7 +244,10 @@
         "false_start_delta": 0,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -207,6 +259,7 @@
       ],
       "manual": {
         "token_proxy": 650,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 19.2,
         "time_to_full_proof_ms": 28.3,
         "files_opened": 2,
@@ -218,10 +271,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 295,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 1.214,
         "time_to_full_proof_ms": 1.747,
         "files_opened": 1,
@@ -233,7 +291,11 @@
         "final_proof_state": "proving",
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 355,
@@ -244,7 +306,10 @@
         "false_start_delta": 0,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -256,6 +321,7 @@
       ],
       "manual": {
         "token_proxy": 1115,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 12.0,
         "time_to_full_proof_ms": 20.0,
         "files_opened": 3,
@@ -267,10 +333,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 388,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 4.2,
         "time_to_full_proof_ms": 6.1,
         "files_opened": 3,
@@ -282,7 +353,11 @@
         "final_proof_state": "proving",
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 727,
@@ -293,7 +368,10 @@
         "false_start_delta": 0,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -305,6 +383,7 @@
       ],
       "manual": {
         "token_proxy": 560,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 15.315,
         "time_to_full_proof_ms": 15.613,
         "files_opened": 2,
@@ -316,10 +395,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 350,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 0.742,
         "time_to_full_proof_ms": 1.153,
         "files_opened": 1,
@@ -331,7 +415,11 @@
         "final_proof_state": "proving",
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 210,
@@ -342,7 +430,10 @@
         "false_start_delta": 0,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -354,6 +445,7 @@
       ],
       "manual": {
         "token_proxy": 693,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 163.0,
         "time_to_full_proof_ms": 204.0,
         "files_opened": 2,
@@ -365,12 +457,17 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 170,
-        "time_to_first_good_answer_ms": 181.0,
-        "time_to_full_proof_ms": 401.0,
+        "execution_origin": null,
+        "time_to_first_good_answer_ms": 115.0,
+        "time_to_full_proof_ms": 165.0,
         "files_opened": 2,
         "repeat_reads": 1,
         "search_iterations": 0,
@@ -386,18 +483,31 @@
           "phase_completed",
           "phase_completed",
           "batch_completed"
-        ]
+        ],
+        "progress_delivery_modes": [
+          "live",
+          "live",
+          "live",
+          "live",
+          "live"
+        ],
+        "live_progress_events": 5,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 523,
         "token_savings_pct": 75.47,
-        "first_good_answer_delta_ms": -18.0,
+        "first_good_answer_delta_ms": 48.0,
         "search_iteration_delta": 1,
         "repeat_read_delta": 0,
         "false_start_delta": 0,
         "guidance_event_delta": -2,
         "guidance_followed_delta": -2,
-        "progress_event_delta": -5
+        "progress_event_delta": -5,
+        "live_progress_event_delta": -5,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     },
     {
@@ -409,6 +519,7 @@
       ],
       "manual": {
         "token_proxy": 610,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 15.7,
         "time_to_full_proof_ms": 23.4,
         "files_opened": 2,
@@ -420,10 +531,15 @@
         "final_proof_state": null,
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "m1nd_warm": {
         "token_proxy": 170,
+        "execution_origin": null,
         "time_to_first_good_answer_ms": 2.7,
         "time_to_full_proof_ms": 4.0,
         "files_opened": 1,
@@ -435,7 +551,11 @@
         "final_proof_state": "triaging",
         "progress_events": 0,
         "max_progress_pct": 0.0,
-        "progress_event_types": []
+        "progress_event_types": [],
+        "progress_delivery_modes": [],
+        "live_progress_events": 0,
+        "replay_progress_events": 0,
+        "snapshot_progress_events": 0
       },
       "comparison": {
         "token_delta": 440,
@@ -446,7 +566,10 @@
         "false_start_delta": 1,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1,
-        "progress_event_delta": 0
+        "progress_event_delta": 0,
+        "live_progress_event_delta": 0,
+        "replay_progress_event_delta": 0,
+        "snapshot_progress_event_delta": 0
       }
     }
   ],
@@ -456,8 +579,8 @@
     "token_delta": 4970,
     "token_savings_pct": 69.79,
     "manual_first_good_answer_ms": 306.115,
-    "m1nd_warm_first_good_answer_ms": 203.942,
-    "first_good_answer_delta_ms": 102.173,
+    "m1nd_warm_first_good_answer_ms": 137.942,
+    "first_good_answer_delta_ms": 168.173,
     "manual_search_iterations": 11,
     "m1nd_warm_search_iterations": 2,
     "search_iteration_delta": 9,
@@ -480,6 +603,19 @@
     "m1nd_warm_progress_event_types": [
       "batch_completed",
       "phase_completed"
-    ]
+    ],
+    "manual_progress_delivery_modes": [],
+    "m1nd_warm_progress_delivery_modes": [
+      "live"
+    ],
+    "manual_live_progress_events": 0,
+    "m1nd_warm_live_progress_events": 5,
+    "live_progress_event_delta": -5,
+    "manual_replay_progress_events": 0,
+    "m1nd_warm_replay_progress_events": 0,
+    "replay_progress_event_delta": 0,
+    "manual_snapshot_progress_events": 0,
+    "m1nd_warm_snapshot_progress_events": 0,
+    "snapshot_progress_event_delta": 0
   }
 }

@@ -55,6 +55,8 @@ def iter_progress_entries(event):
             normalized.append(
                 {
                     "event_type": item.get("event_type"),
+                    "progress_delivery": item.get("progress_delivery")
+                    or event.get("progress_delivery"),
                     "phase": item.get("phase") or event.get("active_phase"),
                     "phase_index": item.get("phase_index"),
                     "progress_pct": item.get("progress_pct"),
@@ -74,6 +76,7 @@ def iter_progress_entries(event):
         return [
             {
                 "event_type": "snapshot",
+                "progress_delivery": event.get("progress_delivery") or "snapshot",
                 "phase": active_phase,
                 "phase_index": event.get("completed_phase_count"),
                 "progress_pct": progress_pct,
@@ -101,6 +104,10 @@ def summarize_events(events):
     active_phases = []
     next_phases = []
     progress_event_types = []
+    progress_delivery_modes = []
+    live_progress_events = 0
+    replay_progress_events = 0
+    snapshot_progress_events = 0
 
     for event in events:
         chars_surfaced += event["payload_chars"]
@@ -136,6 +143,15 @@ def summarize_events(events):
             event_type = progress_entry.get("event_type")
             if isinstance(event_type, str) and event_type:
                 progress_event_types.append(event_type)
+            progress_delivery = progress_entry.get("progress_delivery")
+            if isinstance(progress_delivery, str) and progress_delivery:
+                progress_delivery_modes.append(progress_delivery)
+                if progress_delivery == "live":
+                    live_progress_events += 1
+                elif progress_delivery == "replay":
+                    replay_progress_events += 1
+                elif progress_delivery == "snapshot":
+                    snapshot_progress_events += 1
         for key in ("opened_files", "surfaced_files"):
             for path in event.get(key, []):
                 files_open_sequence.append(str(path))
@@ -159,6 +175,10 @@ def summarize_events(events):
         "active_phases": active_phases,
         "next_phases": next_phases,
         "progress_event_types": progress_event_types,
+        "progress_delivery_modes": progress_delivery_modes,
+        "live_progress_events": live_progress_events,
+        "replay_progress_events": replay_progress_events,
+        "snapshot_progress_events": snapshot_progress_events,
     }
 
 
@@ -179,6 +199,8 @@ def build_run(args):
         "scenario_name": scenario["scenario_name"],
         "scenario_tags": scenario.get("tags", []),
         "mode": args.mode,
+        "execution_origin": args.execution_origin,
+        "source_ref": args.source_ref,
         "cold_graph_time_ms": args.cold_graph_time_ms,
         "warm_graph_time_ms": args.warm_graph_time_ms,
         "time_to_first_good_answer_ms": args.time_to_first_good_answer_ms,
@@ -207,6 +229,10 @@ def build_run(args):
         "active_phases": derived["active_phases"],
         "next_phases": derived["next_phases"],
         "progress_event_types": derived["progress_event_types"],
+        "progress_delivery_modes": derived["progress_delivery_modes"],
+        "live_progress_events": derived["live_progress_events"],
+        "replay_progress_events": derived["replay_progress_events"],
+        "snapshot_progress_events": derived["snapshot_progress_events"],
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),
@@ -220,6 +246,17 @@ def main():
     parser.add_argument("--mode", required=True, choices=["manual", "m1nd_cold", "m1nd_warm"])
     parser.add_argument("--output", required=True, help="Where to write the run JSON")
     parser.add_argument("--events", help="Optional path to tool-event JSON array")
+    parser.add_argument(
+        "--execution-origin",
+        choices=["live", "replay", "snapshot"],
+        default="snapshot",
+        help="How the benchmark evidence was captured",
+    )
+    parser.add_argument(
+        "--source-ref",
+        default="",
+        help="Optional path or identifier for the event/log source that produced the run",
+    )
     parser.add_argument("--cold-graph-time-ms", type=float)
     parser.add_argument("--warm-graph-time-ms", type=float)
     parser.add_argument("--time-to-first-good-answer-ms", type=float, required=True)
@@ -243,6 +280,7 @@ def main():
         {
             "scenario_id": run["scenario_id"],
             "mode": run["mode"],
+            "execution_origin": run["execution_origin"],
             "token_proxy": run["token_proxy"],
             "files_opened": run["files_opened"],
             "repeat_reads": run["repeat_reads"],
@@ -251,6 +289,9 @@ def main():
             "guidance_followed": run["guidance_followed"],
             "progress_events": run["progress_events"],
             "max_progress_pct": run["max_progress_pct"],
+            "live_progress_events": run["live_progress_events"],
+            "replay_progress_events": run["replay_progress_events"],
+            "snapshot_progress_events": run["snapshot_progress_events"],
             "output": str(Path(args.output)),
         },
         indent=2,

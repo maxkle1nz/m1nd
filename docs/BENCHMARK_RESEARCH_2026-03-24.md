@@ -254,6 +254,42 @@ Track:
 - `tests_identified_before_edit`
 - `false_start_count`
 
+For long-running execution surfaces, also track:
+
+- `progress_events`
+- `progress_delivery_modes`
+- `live_progress_events`
+- `replay_progress_events`
+- `snapshot_progress_events`
+
+This matters because `apply_batch` UX is no longer just “did the batch finish?” It
+is now part of the product truth: the system can show progress during execution,
+not only explain the batch after it ends.
+
+## Current Warm-Graph Corpus Snapshot
+
+The current versioned corpus lives under `docs/benchmarks/` and currently compares
+nine warm-graph scenarios.
+
+At the current branch tip, the aggregate summary is:
+
+- manual token proxy: `7,121`
+- `m1nd_warm` token proxy: `2,151`
+- aggregate token savings: `69.79%`
+- manual guidance events: `0`
+- `m1nd_warm` guidance events: `9`
+- manual progress events: `0`
+- `m1nd_warm` progress events: `5`
+
+The important new truth is not just “there are progress events.” It is that the
+benchmark harness can now distinguish:
+
+- `live` progress emitted during execution
+- `replay` progress emitted after the batch
+- `snapshot` progress captured as one coarse state
+
+That lets future benchmark rounds measure real UX progress, not just final output shape.
+
 These metrics may explain value better than token count alone.
 
 ## Additional Work Worth Doing

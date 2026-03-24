@@ -34,6 +34,11 @@ Optional sensitivity inputs:
 - `--input-price-per-1m 5`
 - `--time-value-per-hour-usd 100`
 
+Optional provenance inputs:
+
+- `--execution-origin live|replay|snapshot`
+- `--source-ref docs/benchmarks/events/warm-structural-proof-apply-batch.json`
+
 ## Event format
 
 The `--events` file is a JSON array. Each item can contain:
@@ -59,6 +64,7 @@ The `--events` file is a JSON array. Each item can contain:
 - `status_message`
 - `phases`
 - `progress_events`
+- `progress_delivery`
 
 If `payload_chars` is omitted, the runner derives a conservative char count
 from the strings present in the event.
@@ -68,6 +74,8 @@ Run-level metadata can also record:
 - `false_start_count`
 - `tests_identified_before_edit`
 - `workflow_notes`
+- `execution_origin`
+- `source_ref`
 
 For continuity scenarios, capture whether the run only restored context or also
 surfaced the next move. The actionable-resume scenarios are meant to benchmark
@@ -88,6 +96,12 @@ Current states:
 For long-running write scenarios such as `apply_batch`, benchmark the returned
 `status_message`, coarse progress fields, `phases`, and `progress_events` too.
 This keeps UX/progress work measurable instead of leaving it as a subjective shell/UI impression.
+
+When progress is present, record how it arrived:
+
+- `progress_delivery="live"` for events emitted during execution on the SSE bus
+- `progress_delivery="replay"` for events re-emitted after the batch finished
+- `progress_delivery="snapshot"` for one-shot coarse progress snapshots without an event stream
 
 For `proof_focused_edit_prep`, treat the scenario as a compact proof handoff
 into planning, not as an automatic `ready_to_edit` claim. In the current corpus
@@ -122,4 +136,5 @@ In particular:
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file, with `proof_state` showing when retrieval has already moved from loose localization into file-level proof
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
 - `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`, detailed `progress_events`, and the post-batch handoff into the next proof surface
+- `structural_proof_apply_batch.json` currently marks `apply_batch` progress as `live`, which reflects the current serve-mode behavior rather than the older replay-only contract
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone

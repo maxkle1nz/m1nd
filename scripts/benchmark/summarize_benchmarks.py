@@ -43,6 +43,14 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
     aggregate_warm_progress_events = 0
     aggregate_manual_progress_event_types = set()
     aggregate_warm_progress_event_types = set()
+    aggregate_manual_progress_delivery_modes = set()
+    aggregate_warm_progress_delivery_modes = set()
+    aggregate_manual_live_progress_events = 0
+    aggregate_warm_live_progress_events = 0
+    aggregate_manual_replay_progress_events = 0
+    aggregate_warm_replay_progress_events = 0
+    aggregate_manual_snapshot_progress_events = 0
+    aggregate_warm_snapshot_progress_events = 0
     compared = 0
 
     for scenario_id, modes in sorted(by_scenario.items()):
@@ -56,6 +64,7 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
         if manual:
             entry["manual"] = {
                 "token_proxy": manual["token_proxy"],
+                "execution_origin": manual.get("execution_origin"),
                 "time_to_first_good_answer_ms": manual["time_to_first_good_answer_ms"],
                 "time_to_full_proof_ms": manual["time_to_full_proof_ms"],
                 "files_opened": manual["files_opened"],
@@ -68,10 +77,15 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "progress_events": manual.get("progress_events", 0),
                 "max_progress_pct": manual.get("max_progress_pct", 0.0),
                 "progress_event_types": manual.get("progress_event_types", []),
+                "progress_delivery_modes": manual.get("progress_delivery_modes", []),
+                "live_progress_events": manual.get("live_progress_events", 0),
+                "replay_progress_events": manual.get("replay_progress_events", 0),
+                "snapshot_progress_events": manual.get("snapshot_progress_events", 0),
             }
         if warm:
             entry["m1nd_warm"] = {
                 "token_proxy": warm["token_proxy"],
+                "execution_origin": warm.get("execution_origin"),
                 "time_to_first_good_answer_ms": warm["time_to_first_good_answer_ms"],
                 "time_to_full_proof_ms": warm["time_to_full_proof_ms"],
                 "files_opened": warm["files_opened"],
@@ -84,6 +98,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "progress_events": warm.get("progress_events", 0),
                 "max_progress_pct": warm.get("max_progress_pct", 0.0),
                 "progress_event_types": warm.get("progress_event_types", []),
+                "progress_delivery_modes": warm.get("progress_delivery_modes", []),
+                "live_progress_events": warm.get("live_progress_events", 0),
+                "replay_progress_events": warm.get("replay_progress_events", 0),
+                "snapshot_progress_events": warm.get("snapshot_progress_events", 0),
             }
         if manual and warm:
             token_delta = manual["token_proxy"] - warm["token_proxy"]
@@ -104,6 +122,12 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 - warm.get("guidance_followed", 0),
                 "progress_event_delta": manual.get("progress_events", 0)
                 - warm.get("progress_events", 0),
+                "live_progress_event_delta": manual.get("live_progress_events", 0)
+                - warm.get("live_progress_events", 0),
+                "replay_progress_event_delta": manual.get("replay_progress_events", 0)
+                - warm.get("replay_progress_events", 0),
+                "snapshot_progress_event_delta": manual.get("snapshot_progress_events", 0)
+                - warm.get("snapshot_progress_events", 0),
             }
             aggregate_manual += manual["token_proxy"]
             aggregate_warm += warm["token_proxy"]
@@ -123,6 +147,26 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             aggregate_warm_progress_events += warm.get("progress_events", 0)
             aggregate_manual_progress_event_types.update(manual.get("progress_event_types", []))
             aggregate_warm_progress_event_types.update(warm.get("progress_event_types", []))
+            aggregate_manual_progress_delivery_modes.update(
+                manual.get("progress_delivery_modes", [])
+            )
+            aggregate_warm_progress_delivery_modes.update(
+                warm.get("progress_delivery_modes", [])
+            )
+            aggregate_manual_live_progress_events += manual.get("live_progress_events", 0)
+            aggregate_warm_live_progress_events += warm.get("live_progress_events", 0)
+            aggregate_manual_replay_progress_events += manual.get(
+                "replay_progress_events", 0
+            )
+            aggregate_warm_replay_progress_events += warm.get(
+                "replay_progress_events", 0
+            )
+            aggregate_manual_snapshot_progress_events += manual.get(
+                "snapshot_progress_events", 0
+            )
+            aggregate_warm_snapshot_progress_events += warm.get(
+                "snapshot_progress_events", 0
+            )
             compared += 1
         scenarios.append(entry)
 
@@ -172,6 +216,24 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             - aggregate_warm_progress_events,
             "manual_progress_event_types": sorted(aggregate_manual_progress_event_types),
             "m1nd_warm_progress_event_types": sorted(aggregate_warm_progress_event_types),
+            "manual_progress_delivery_modes": sorted(
+                aggregate_manual_progress_delivery_modes
+            ),
+            "m1nd_warm_progress_delivery_modes": sorted(
+                aggregate_warm_progress_delivery_modes
+            ),
+            "manual_live_progress_events": aggregate_manual_live_progress_events,
+            "m1nd_warm_live_progress_events": aggregate_warm_live_progress_events,
+            "live_progress_event_delta": aggregate_manual_live_progress_events
+            - aggregate_warm_live_progress_events,
+            "manual_replay_progress_events": aggregate_manual_replay_progress_events,
+            "m1nd_warm_replay_progress_events": aggregate_warm_replay_progress_events,
+            "replay_progress_event_delta": aggregate_manual_replay_progress_events
+            - aggregate_warm_replay_progress_events,
+            "manual_snapshot_progress_events": aggregate_manual_snapshot_progress_events,
+            "m1nd_warm_snapshot_progress_events": aggregate_warm_snapshot_progress_events,
+            "snapshot_progress_event_delta": aggregate_manual_snapshot_progress_events
+            - aggregate_warm_snapshot_progress_events,
         }
         if input_price_per_1m is not None:
             summary["aggregate"]["input_price_per_1m"] = input_price_per_1m
