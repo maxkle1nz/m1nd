@@ -30,9 +30,11 @@ Implemented on `codex/benchmark-research-and-timeline-p1`:
 - automatic structural boost derivation in `trail_save`
 - structural node reactivation from derived boosts in `trail_resume`
 - literal search demotion of fixture-like hardcoded identity noise
+- initial benchmark harness with scenario/event/run JSON support
 
 Still open after this pass:
 
+- expand the harness from single-run recording into aggregate summarization
 - measure the practical effect of `proof_focused` in warm-graph edit-prep scenarios
 - deepen `trail_resume` so saved investigations reopen the next useful question, not only the boosted graph state
 - measure whether literal-search continuity now needs fewer reformulations in warm-graph runs

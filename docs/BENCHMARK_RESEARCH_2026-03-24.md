@@ -352,6 +352,7 @@ Implemented so far:
 - `trail_save` now auto-derives structural boosts from visited nodes, hypotheses, and conclusions
 - `trail_resume` now reactivates that derived structural memory without requiring explicit manual boosts
 - literal search now demotes fixture-like hardcoded identity noise in continuity-style queries
+- a first benchmark harness now exists under `scripts/benchmark/run_benchmark.py` with scenario and run JSON support
 
 Current implication:
 
@@ -359,6 +360,7 @@ Current implication:
 - the repo now contains concrete patches aimed at reducing warm-graph payload and retrieval reformulation
 - continuity is now less dependent on perfect caller-side bookkeeping
 - continuity lookup should surface fewer false seams from test fixtures and mock paths
+- future warm-graph runs can now be recorded in a repeatable JSON format instead of notes-only
 - the next benchmark pass should explicitly measure `proof_focused` against the previous `surgical_context_v2` behavior
 
 ### Priority 1

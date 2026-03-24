@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_continuity_boot_memory",
+  "scenario_name": "Warm continuity resume for boot memory investigation",
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "Resume a boot-memory investigation without rediscovering the structural path from scratch.",
+  "tags": ["warm-graph", "continuity", "trail-resume", "boot-memory"],
+  "expected_strength": "mixed"
+}
