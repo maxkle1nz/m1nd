@@ -4278,6 +4278,9 @@ fn l6_vp_record_blast_file(
         if norm.is_empty() {
             return;
         }
+        if l6_vp_should_suppress_gap_candidate(&norm, plan_files) {
+            return;
+        }
         if !plan_files.contains(&norm) {
             blast_files.insert(norm.clone());
             if hop == 0 {
@@ -4285,6 +4288,26 @@ fn l6_vp_record_blast_file(
             }
         }
     }
+}
+
+fn l6_vp_should_suppress_gap_candidate(
+    path: &str,
+    plan_files: &std::collections::HashSet<String>,
+) -> bool {
+    if plan_files.contains(path) {
+        return false;
+    }
+
+    let basename = std::path::Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+
+    matches!(basename, "Cargo.toml" | "Cargo.lock")
+        || (basename.starts_with("test_") && path.ends_with(".md"))
+        || path.contains("/target/")
+        || path.contains("/node_modules/")
+        || path.contains("/dist/")
 }
 
 /// Compute test coverage for modified files.
@@ -7382,6 +7405,72 @@ mod tests {
         state
     }
 
+    fn build_layer_state_with_manifest_gap(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let core = graph
+            .add_node(
+                "file::src/core.rs",
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add core node");
+        let ui = graph
+            .add_node("file::src/ui.rs", "ui.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add ui node");
+        let manifest = graph
+            .add_node(
+                "file::Cargo.toml",
+                "Cargo.toml",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add manifest node");
+        graph
+            .add_edge(
+                core,
+                ui,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add core->ui edge");
+        graph
+            .add_edge(
+                core,
+                manifest,
+                "workspace",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.6),
+            )
+            .expect("add core->manifest edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
     fn run_seek(
         state: &mut SessionState,
         scope: Option<String>,
@@ -7801,6 +7890,41 @@ mod tests {
         assert!(
             output.risk_score > 0.0,
             "risk score should include heuristic contribution"
+        );
+    }
+
+    #[test]
+    fn validate_plan_suppresses_manifest_noise_in_gap_suggestions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state_with_manifest_gap(root);
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: "src/core.rs".into(),
+                    description: Some("change core".into()),
+                    depends_on: vec![],
+                }],
+                include_test_impact: false,
+                include_risk_score: true,
+            },
+        )
+        .expect("validate_plan should succeed");
+
+        assert!(
+            output.gaps.iter().all(|gap| gap.file_path != "Cargo.toml"),
+            "validate_plan should suppress manifest-only noise by default"
+        );
+        assert!(
+            output
+                .suggested_additions
+                .iter()
+                .all(|item| item.file_path != "Cargo.toml"),
+            "suggested additions should not reintroduce suppressed manifest noise"
         );
     }
 }
