@@ -298,21 +298,22 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 
 **It verifies writes.** `apply_batch(verify=true)` runs multiple post-write checks and returns a SAFE / RISKY / BROKEN-style verdict. See [Post-Write Verification](#post-write-verification).
 
-**It can persist investigations.** `trail.save`, `trail.resume`, and `trail.merge` let agents keep and combine graph-grounded investigation state.
+**It can persist investigations.** `trail_save`, `trail_resume`, and `trail_merge` let agents keep and combine graph-grounded investigation state.
 
 ## Tool Surface
 
-The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **64 MCP tools**. The categories below are more stable than the exact count, but the count itself is now grounded in the live registry.
+The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **63 MCP tools**. The categories below are more stable than the exact count, but the count itself is grounded in the live registry.
+
+Canonical tool names in the exported MCP schema use underscores, such as `trail_save`, `perspective_start`, and `apply_batch`. Some clients may present names with a transport prefix like `m1nd.apply_batch`, but the underlying tool registry entries are underscore-based.
 
 | Category | Highlights |
 |----------|------------|
 | **Foundation** | ingest, activate, impact, why, learn, drift, seek, scan, warmup, federate |
-| **Perspective Navigation** | start, follow, peek, branch, compare, inspect, suggest |
-| **Lock System** | pin subgraph regions, watch for changes, diff locked state |
-| **Graph Analysis** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
+| **Perspective Navigation** | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
+| **Graph Analysis** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails, validate_plan |
 | **Extended Analysis** | antibody, flow_simulate, epidemic, tremor, trust, layers |
-| **Reporting** | report, savings |
-| **Surgical** | surgical_context, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
+| **Reporting & State** | report, savings, persist, boot_memory |
+| **Surgical** | surgical_context, heuristics_surface, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
 
 <details>
 <summary><strong>Foundation</strong></summary>
@@ -339,30 +340,18 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 
 | Tool | Purpose |
 |------|---------|
-| `perspective.start` | Open a perspective anchored to a node |
-| `perspective.routes` | List available routes from current focus |
-| `perspective.follow` | Move focus to a route target |
-| `perspective.back` | Navigate backward |
-| `perspective.peek` | Read source code at the focused node |
-| `perspective.inspect` | Deep metadata + 5-factor score breakdown |
-| `perspective.suggest` | Navigation recommendation |
-| `perspective.affinity` | Check route relevance to current investigation |
-| `perspective.branch` | Fork an independent perspective copy |
-| `perspective.compare` | Diff two perspectives (shared/unique nodes) |
-| `perspective.list` | All active perspectives + memory usage |
-| `perspective.close` | Release perspective state |
-</details>
-
-<details>
-<summary><strong>Lock System</strong></summary>
-
-| Tool | Purpose | Speed |
-|------|---------|-------|
-| `lock.create` | Snapshot a subgraph region | 24ms |
-| `lock.watch` | Register change strategy | ~0ms |
-| `lock.diff` | Compare current vs baseline | 0.08&micro;s |
-| `lock.rebase` | Advance baseline to current | 22ms |
-| `lock.release` | Free lock state | ~0ms |
+| `perspective_start` | Open a perspective anchored to a node |
+| `perspective_routes` | List available routes from current focus |
+| `perspective_follow` | Move focus to a route target |
+| `perspective_back` | Navigate backward |
+| `perspective_peek` | Read source code at the focused node |
+| `perspective_inspect` | Deep metadata + 5-factor score breakdown |
+| `perspective_suggest` | Navigation recommendation |
+| `perspective_affinity` | Check route relevance to current investigation |
+| `perspective_branch` | Fork an independent perspective copy |
+| `perspective_compare` | Diff two perspectives (shared/unique nodes) |
+| `perspective_list` | All active perspectives + memory usage |
+| `perspective_close` | Release perspective state |
 </details>
 
 <details>
@@ -378,10 +367,10 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `trace` | Map stacktraces to root causes | 3.5-5.8ms |
 | `validate_plan` | Pre-flight risk assessment for changes with heuristic-memory signals and direct `heuristics_surface_ref` pointers | 0.5-10ms |
 | `predict` | Co-change prediction with `heuristics_surface_ref` pointers for ranking justification | <1ms |
-| `trail.save` | Persist investigation state | ~0ms |
-| `trail.resume` | Restore exact investigation context | 0.2ms |
-| `trail.merge` | Combine multi-agent investigations | 1.2ms |
-| `trail.list` | Browse saved investigations | ~0ms |
+| `trail_save` | Persist investigation state | ~0ms |
+| `trail_resume` | Restore exact investigation context | 0.2ms |
+| `trail_merge` | Combine multi-agent investigations | 1.2ms |
+| `trail_list` | Browse saved investigations | ~0ms |
 | `differential` | Structural diff between graph snapshots | ~ms |
 </details>
 
@@ -417,12 +406,14 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 </details>
 
 <details>
-<summary><strong>Reporting</strong></summary>
+<summary><strong>Reporting & State</strong></summary>
 
 | Tool | What It Does | Speed |
 |------|-------------|-------|
 | `report` | Session report with recent queries, savings, graph stats, and top heuristic hotspots; markdown summary includes `### Heuristic Hotspots` | ~0ms |
 | `savings` | Session/global token, CO2, and cost savings summary | ~0ms |
+| `persist` | Save/load graph and plasticity snapshots | varies |
+| `boot_memory` | Persist small canonical doctrine/state entries on disk and keep them hot in runtime memory; use this for lightweight operational state rather than full investigation trails | ~0ms |
 </details>
 
 [Full API reference with examples ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
@@ -530,6 +521,8 @@ Language count is broad, but depth varies by language. [Language details ->](htt
 
 The current default build also includes an HTTP/UI surface. Keep it bound to localhost unless you intentionally want remote access; there is no built-in authentication layer for arbitrary public exposure.
 
+Runtime sidecar state can be redirected with `M1ND_RUNTIME_DIR`. When set, m1nd stores sidecar files such as antibody, tremor, trust, savings, and boot-memory state under that dedicated runtime root instead of colocating everything beside the graph snapshot.
+
 ## When NOT to Use m1nd
 
 - **You need neural semantic search.** V1 uses trigram matching, not embeddings. "Find code that *means* authentication but never uses the word" won't work yet.
@@ -549,7 +542,7 @@ Scans for known bug shapes, assesses blast radius, predicts infection spread.
 **Architecture audit:** `layers` -> `layer_inspect` -> `counterfactual`.
 Auto-detects layers, finds violations, simulates what breaks if you remove a module.
 
-**Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
+**Onboarding:** `activate` -> `layers` -> `perspective_start` -> `perspective_follow`.
 New developer asks "how does auth work?" -- graph lights up the path.
 
 **Cross-domain search:** `ingest(adapter="memory", mode="merge")` -> `activate`.
