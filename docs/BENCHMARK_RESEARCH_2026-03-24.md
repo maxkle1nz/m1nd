@@ -458,6 +458,37 @@ Interpretation:
 - `surgical_context_v2` now joins that same cognitive surface too: proof-focused edit prep can end in an explicit `proving` handoff instead of leaving stage inference to the agent
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
+### Production-like validation: live SSE `apply_batch` on a real HTTP run
+
+After the harness and unit-level work, the `apply_batch` progress path was also
+validated in a production-like loop against the real HTTP server:
+
+- transport: `m1nd-mcp --serve --bind 127.0.0.1 --port 8787`
+- workflow:
+  1. ingest a small real Python repo
+  2. open `/api/events` with `curl -N`
+  3. trigger `POST /api/tools/apply_batch`
+  4. inspect the SSE stream and final HTTP result together
+
+Observed result:
+
+- the SSE stream emitted five live `apply_batch_progress` events
+- every event carried the same `batch_id`
+- the final `batch_completed` event arrived before the final `tool_result` blob
+- that final progress event already carried:
+  - `proof_state="ready_to_edit"`
+  - `next_step_hint`
+  - the same `batch_id` as the final result
+- the final HTTP result returned the same `batch_id`, `proof_state`, `phases`,
+  and `progress_events`
+
+Why this matters:
+
+- this is stronger evidence than a unit test or synthetic replay alone
+- it proves the serve-mode SSE surface is usable as a real client handoff path
+- it also proves `apply_batch` progress is no longer only “visual status”; it is
+  now a cognitive surface that can carry the next move before the final result is parsed
+
 ### New structural-claim result: `hypothesize` now guides the proof follow-up
 
 The structural-claim scenario is now part of the harness corpus instead of
