@@ -393,7 +393,7 @@ Current aggregate from those recorded runs:
 - warm `m1nd` token proxy: `2096`
 - aggregate token savings: `70.57%`
 - manual first good answer total: `306.115ms`
-- warm `m1nd` first good answer total: `208.042ms`
+- warm `m1nd` first good answer total: `206.742ms`
 - manual search iterations: `11`
 - warm `m1nd` search iterations: `2`
 - manual repeat reads: `16`
@@ -405,7 +405,7 @@ Current aggregate from those recorded runs:
 Interpretation:
 
 - the harness now confirms meaningful context compression across retrieval, continuity, edit-prep, and structural proof
-- the recorded time values are still corpus-specific, but the aggregate warm-graph pass now also beats manual on first-good-answer time
+- the recorded time values are still corpus-specific, and individual scenarios can still favor manual even when the aggregate warm-graph pass is faster on first-good-answer time
 - `proof_focused` edit prep is currently the strongest harness-backed compactness win in the corpus
 - the new actionable continuity scenario is a strong workflow win: fewer searches, fewer rereads, and no false start before the next concrete move
 - the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
@@ -418,6 +418,7 @@ Interpretation:
 - guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, triage, blast-radius, and structural-claim flows
 - the harness now also records `proof_state` where tools expose it, which starts to separate `proving` flows from `ready_to_edit` handoffs inside the same benchmark family
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
+- `apply_batch` now exposes `status_message` and `phases`, so long-running write UX can be benchmarked as an explicit product surface instead of a vague shell wait
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
 ### New structural-claim result: `hypothesize` now guides the proof follow-up

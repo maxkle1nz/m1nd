@@ -179,7 +179,7 @@ Without m1nd:
 With m1nd:
 
 - run `trace`
-- inspect the ranked suspects
+- inspect the ranked suspects and `proof_state`
 - follow connected context with `activate`, `why`, or `perspective_*`
 
 Practical benefit:
@@ -200,6 +200,8 @@ Without m1nd, this usually becomes a long grep-and-read loop with weak stopping 
 
 With m1nd, you can ask directly for structural holes or test a claim against graph paths.
 
+When the claim is strong enough, `hypothesize` can now surface both the next proof target and a coarse `proof_state`, so an agent can tell whether it is still proving something or already ready to move into edit prep.
+
 ### 3. Safe multi-file edits
 
 Use `validate_plan`, `surgical_context_v2`, `heuristics_surface`, and `apply_batch` when you are editing unfamiliar or connected code.
@@ -218,6 +220,7 @@ With m1nd:
 - pull the primary file plus connected files in one call
 - inspect heuristic summaries
 - write with one atomic batch when needed
+- use `proof_state` to distinguish “still proving this edit is risky” from “ready to edit”
 
 Practical benefit:
 
@@ -256,6 +259,7 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 | Save small persistent operating state | `boot_memory` |
 | Save or resume an investigation trail | `trail_save`, `trail_resume`, `trail_merge` |
 | Resume an investigation and get the next likely move | `trail_resume` with `resume_hints`, `next_focus_node_id`, `next_open_question`, `next_suggested_tool` |
+| Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `trace`, `hypothesize`, and `validate_plan` |
 | Ask what changed recently and why it matters | `timeline` |
 
 ## Results And Measurements
@@ -389,6 +393,8 @@ It is not a replacement for an LSP, a compiler, or runtime observability. It giv
 
 **It has write-aware workflows.** `surgical_context_v2`, `edit_preview`, `edit_commit`, and `apply_batch` make more sense as edit-preparation and edit-verification tools than as generic search tools.
 
+**It is starting to expose agent state, not only tool output.** `trace`, `hypothesize`, and `validate_plan` can now surface `proof_state`, and `apply_batch` now returns `status_message` plus structured `phases` so long-running writes are easier to understand and present in shells or UIs.
+
 ## Tool Surface
 
 The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **63 MCP tools**.
@@ -513,6 +519,11 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 `apply_batch` with `verify=true` runs multiple verification layers and returns a single SAFE / RISKY / BROKEN-style verdict.
 
 When `verification.high_impact_files` contains heuristic hotspots, the report can be promoted to `RISKY` even if blast radius alone would have stayed lower.
+
+`apply_batch` now also returns:
+
+- `status_message` for a single human-readable summary
+- `phases` for structured execution progress across `validate`, `write`, `reingest`, `verify`, and `done`
 
 ```jsonc
 {

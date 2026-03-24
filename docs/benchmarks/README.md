@@ -51,7 +51,13 @@ The `--events` file is a JSON array. Each item can contain:
 - `next_focus_node_id`
 - `next_open_question`
 - `next_suggested_tool`
+- `next_suggested_target`
+- `next_step_hint`
+- `proof_hint`
+- `proof_state`
 - `next_tool_used`
+- `status_message`
+- `phases`
 
 If `payload_chars` is omitted, the runner derives a conservative char count
 from the strings present in the event.
@@ -78,6 +84,10 @@ Current states:
 - `proving`
 - `ready_to_edit`
 
+For long-running write scenarios such as `apply_batch`, benchmark the returned
+`status_message` and `phases` too. This keeps UX/progress work measurable
+instead of leaving it as a subjective shell/UI impression.
+
 ## Current scenario corpus
 
 - `semantic_retrieval_dispatch.json`
@@ -102,3 +112,5 @@ In particular:
 - `hypothesize_structural_claim_follow_up.json` captures `hypothesize` plus guided follow-up into the strongest proof target
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
+- `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan`
+- `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone

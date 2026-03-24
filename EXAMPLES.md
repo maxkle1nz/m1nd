@@ -117,6 +117,7 @@ to:
 
 - likely root cause files
 - structurally connected suspects
+- a `proof_state` that tells you whether the run is still triaging or already strong enough for edit prep
 
 faster than repeated grep and caller chasing.
 
@@ -143,6 +144,11 @@ Illustrative response shape:
 
 This is the right tool when the question is “should I be careful?” rather than “where is the string?”
 
+Recent behavior:
+
+- `impact` can now suggest the strongest downstream file to open next
+- this makes blast-radius work better as a guided handoff instead of a raw blast set
+
 ## 6. Test a structural claim
 
 Use `hypothesize` when you want to test whether a dependency or path likely exists.
@@ -159,6 +165,11 @@ This is useful for questions like:
 - does auth bypass rate limiting here?
 - does this worker path touch billing?
 - is there a runtime edge between these subsystems?
+
+Recent behavior:
+
+- `hypothesize` can now return both a `next_suggested_target` and a `proof_state`
+- strong runs land in `ready_to_edit`, while partial or inconclusive runs stay in `proving`
 
 ## 7. Ask what is missing
 
@@ -212,6 +223,11 @@ What this saves:
 - fewer missed neighboring files
 - better pre-edit risk awareness
 
+Recent behavior:
+
+- `validate_plan` now exposes `proof_state`
+- that makes it easier for an agent to tell whether it still needs more proof or can move on to edit prep
+
 ## 9. Explain why something looks risky
 
 Use `heuristics_surface` when ranking or risk feels opaque and you want the reason, not just the result.
@@ -250,6 +266,12 @@ It is useful when you want:
 - one atomic multi-file write
 - one re-ingest pass
 - one post-write verdict
+
+Recent behavior:
+
+- `apply_batch` now returns a human-readable `status_message`
+- it also returns structured `phases` for `validate`, `write`, `reingest`, `verify`, and `done`
+- this makes long-running batch writes easier to surface in shells and UI clients
 
 ## 11. Persist small operating state
 
