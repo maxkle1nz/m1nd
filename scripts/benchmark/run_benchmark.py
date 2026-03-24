@@ -120,6 +120,8 @@ def summarize_events(events):
     snapshot_progress_events = 0
     progress_guidance_events = 0
     progress_guidance_followed = 0
+    recovery_events = 0
+    recovery_followed = 0
 
     for event in events:
         chars_surfaced += event["payload_chars"]
@@ -141,6 +143,25 @@ def summarize_events(events):
         proof_state = event.get("proof_state")
         if isinstance(proof_state, str) and proof_state:
             proof_states.append(proof_state)
+        hint = event.get("hint")
+        suggested_next_step = event.get("suggested_next_step")
+        example = event.get("example")
+        if (
+            isinstance(hint, str)
+            and hint.strip()
+            or isinstance(suggested_next_step, str)
+            and suggested_next_step.strip()
+            or isinstance(example, (dict, list))
+        ):
+            recovery_events += 1
+            next_tool_used = str(event.get("next_tool_used", "")).strip()
+            recovery_followed_flag = event.get("recovery_followed")
+            if isinstance(recovery_followed_flag, bool):
+                if recovery_followed_flag:
+                    recovery_followed += 1
+            elif next_tool_used and isinstance(suggested_tool, str) and suggested_tool:
+                if next_tool_used == suggested_tool:
+                    recovery_followed += 1
         for progress_entry in iter_progress_entries(event):
             progress_events += 1
             progress_pct = progress_entry.get("progress_pct")
@@ -202,6 +223,8 @@ def summarize_events(events):
         "snapshot_progress_events": snapshot_progress_events,
         "progress_guidance_events": progress_guidance_events,
         "progress_guidance_followed": progress_guidance_followed,
+        "recovery_events": recovery_events,
+        "recovery_followed": recovery_followed,
     }
 
 
@@ -258,6 +281,8 @@ def build_run(args):
         "snapshot_progress_events": derived["snapshot_progress_events"],
         "progress_guidance_events": derived["progress_guidance_events"],
         "progress_guidance_followed": derived["progress_guidance_followed"],
+        "recovery_events": derived["recovery_events"],
+        "recovery_followed": derived["recovery_followed"],
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),

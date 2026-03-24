@@ -55,6 +55,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
     aggregate_warm_progress_guidance_events = 0
     aggregate_manual_progress_guidance_followed = 0
     aggregate_warm_progress_guidance_followed = 0
+    aggregate_manual_recovery_events = 0
+    aggregate_warm_recovery_events = 0
+    aggregate_manual_recovery_followed = 0
+    aggregate_warm_recovery_followed = 0
     compared = 0
 
     for scenario_id, modes in sorted(by_scenario.items()):
@@ -89,6 +93,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "progress_guidance_followed": manual.get(
                     "progress_guidance_followed", 0
                 ),
+                "recovery_events": manual.get("recovery_events", 0),
+                "recovery_followed": manual.get("recovery_followed", 0),
             }
         if warm:
             entry["m1nd_warm"] = {
@@ -114,6 +120,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "progress_guidance_followed": warm.get(
                     "progress_guidance_followed", 0
                 ),
+                "recovery_events": warm.get("recovery_events", 0),
+                "recovery_followed": warm.get("recovery_followed", 0),
             }
         if manual and warm:
             token_delta = manual["token_proxy"] - warm["token_proxy"]
@@ -148,6 +156,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                     "progress_guidance_followed", 0
                 )
                 - warm.get("progress_guidance_followed", 0),
+                "recovery_event_delta": manual.get("recovery_events", 0)
+                - warm.get("recovery_events", 0),
+                "recovery_followed_delta": manual.get("recovery_followed", 0)
+                - warm.get("recovery_followed", 0),
             }
             aggregate_manual += manual["token_proxy"]
             aggregate_warm += warm["token_proxy"]
@@ -199,6 +211,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             aggregate_warm_progress_guidance_followed += warm.get(
                 "progress_guidance_followed", 0
             )
+            aggregate_manual_recovery_events += manual.get("recovery_events", 0)
+            aggregate_warm_recovery_events += warm.get("recovery_events", 0)
+            aggregate_manual_recovery_followed += manual.get("recovery_followed", 0)
+            aggregate_warm_recovery_followed += warm.get("recovery_followed", 0)
             compared += 1
         scenarios.append(entry)
 
@@ -274,6 +290,14 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             "m1nd_warm_progress_guidance_followed": aggregate_warm_progress_guidance_followed,
             "progress_guidance_followed_delta": aggregate_manual_progress_guidance_followed
             - aggregate_warm_progress_guidance_followed,
+            "manual_recovery_events": aggregate_manual_recovery_events,
+            "m1nd_warm_recovery_events": aggregate_warm_recovery_events,
+            "recovery_event_delta": aggregate_manual_recovery_events
+            - aggregate_warm_recovery_events,
+            "manual_recovery_followed": aggregate_manual_recovery_followed,
+            "m1nd_warm_recovery_followed": aggregate_warm_recovery_followed,
+            "recovery_followed_delta": aggregate_manual_recovery_followed
+            - aggregate_warm_recovery_followed,
         }
         if input_price_per_1m is not None:
             summary["aggregate"]["input_price_per_1m"] = input_price_per_1m

@@ -258,6 +258,43 @@ For long-running execution surfaces, also track:
 
 - `progress_events`
 - `progress_delivery_modes`
+
+For error-recovery surfaces, also track:
+
+- `recovery_events`
+- `recovery_followed`
+
+This matters because a good repair loop does not necessarily reduce raw search
+count in every run, but it should reduce `false_start_count` and keep the agent
+inside a compact recovery path instead of forcing a new grep/read sweep.
+
+## Recovery Loop Benchmarking
+
+The benchmark harness now records whether a tool error exposed an actionable
+repair path and whether the agent followed it.
+
+### Current recovery scenario
+
+`warm_search_invalid_regex_recovery`
+
+- manual token proxy: `413`
+- `m1nd_warm` token proxy: `375`
+- savings: `9.2%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is not a headline compactness benchmark
+- it is a strong behavior benchmark
+- the win is that `search` turns an invalid regex into a short repair loop that
+  stays inside the tool, instead of kicking the agent into a fresh manual
+  reformulation pass
+
+This is exactly the kind of improvement that matters for JIMI-style agents:
+less dead-end failure, less rediscovery, and fewer wasted retries.
 - `live_progress_events`
 - `replay_progress_events`
 - `snapshot_progress_events`

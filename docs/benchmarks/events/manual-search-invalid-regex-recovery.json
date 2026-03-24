@@ -1,0 +1,29 @@
+[
+  {
+    "tool_name": "shell.rg",
+    "query": "rg -n 'normalize_dispatch_tool_name(' m1nd-mcp/src",
+    "elapsed_ms": 1.8,
+    "payload_chars": 380,
+    "opened_files": [],
+    "surfaced_files": []
+  },
+  {
+    "tool_name": "shell.rg",
+    "query": "rg -n 'normalize_dispatch_tool_name' m1nd-mcp/src/server.rs",
+    "elapsed_ms": 1.1,
+    "payload_chars": 410,
+    "opened_files": [],
+    "surfaced_files": [
+      "m1nd-mcp/src/server.rs"
+    ]
+  },
+  {
+    "tool_name": "shell.view",
+    "target": "m1nd-mcp/src/server.rs",
+    "elapsed_ms": 0.7,
+    "payload_chars": 860,
+    "opened_files": [
+      "m1nd-mcp/src/server.rs"
+    ]
+  }
+]

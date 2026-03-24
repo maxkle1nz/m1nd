@@ -1,0 +1,12 @@
+{
+  "scenario_id": "warm_search_invalid_regex_recovery",
+  "scenario_name": "Warm recovery from invalid regex search into literal search",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "search",
+    "error-guidance"
+  ],
+  "question": "Recover from an invalid regex search and still reach the correct literal match quickly.",
+  "expected_strength": "strong"
+}
