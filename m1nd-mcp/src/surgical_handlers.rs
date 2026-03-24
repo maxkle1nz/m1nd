@@ -1934,6 +1934,14 @@ pub fn handle_surgical_context_v2(
         }
     }
 
+    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+        surgical_v2_next_step(
+            &primary.file_path,
+            primary.heuristic_summary.as_ref(),
+            &connected_files,
+            input.proof_focused,
+        );
+
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
 
@@ -1946,9 +1954,48 @@ pub fn handle_surgical_context_v2(
         focused_symbol: primary.focused_symbol,
         connected_files,
         heuristic_summary: primary.heuristic_summary,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
         total_lines,
         elapsed_ms,
     })
+}
+
+fn surgical_v2_next_step(
+    file_path: &str,
+    heuristic_summary: Option<&surgical::SurgicalHeuristicSummary>,
+    connected_files: &[surgical::ConnectedFileSource],
+    proof_focused: bool,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let has_connected_proof = !connected_files.is_empty();
+    let risky = heuristic_summary
+        .map(|summary| summary.risk_score > 0.0 || summary.blast_radius_files > 0)
+        .unwrap_or(false);
+
+    if proof_focused || risky || has_connected_proof {
+        let relation_list = connected_files
+            .iter()
+            .take(3)
+            .map(|file| file.relation_type.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let hint = if relation_list.is_empty() {
+            format!("Run validate_plan next before editing {}", file_path)
+        } else {
+            format!(
+                "Run validate_plan next before editing {} because connected proof includes {}",
+                file_path, relation_list
+            )
+        };
+        return (
+            Some("validate_plan".into()),
+            Some(file_path.to_string()),
+            Some(hint),
+        );
+    }
+
+    (None, None, None)
 }
 
 fn surgical_v2_select_candidates(
@@ -3718,6 +3765,12 @@ mod tests {
                 .all(|file| !file.file_path.ends_with("reference.md")),
             "proof-focused mode should keep proof files over documentation noise"
         );
+        assert_eq!(output.next_suggested_tool.as_deref(), Some("validate_plan"));
+        assert_eq!(output.next_suggested_target.as_deref(), Some(primary_str.as_str()));
+        assert!(output
+            .next_step_hint
+            .as_deref()
+            .is_some_and(|hint| hint.contains("Run validate_plan next before editing")));
     }
 
     #[test]

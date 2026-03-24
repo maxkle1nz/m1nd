@@ -57,6 +57,9 @@ fn build_v2_output(
         focused_symbol: None,
         connected_files: connected,
         heuristic_summary: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
         total_lines,
         elapsed_ms: 3.0,
     }

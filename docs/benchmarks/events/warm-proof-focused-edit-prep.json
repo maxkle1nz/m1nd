@@ -4,10 +4,13 @@
     "query": "normalized scope edit prep proof focused",
     "elapsed_ms": 2.4,
     "payload_chars": 990,
+    "next_suggested_tool": "validate_plan",
+    "next_tool_used": "validate_plan",
     "opened_files": [
       "m1nd-mcp/src/search_handlers.rs",
       "m1nd-mcp/src/surgical_handlers.rs"
-    ]
+    ],
+    "notes": "proof-focused edit prep now recommends validate_plan directly when connected proof suggests a coupled edit."
   },
   {
     "tool_name": "m1nd.validate_plan",

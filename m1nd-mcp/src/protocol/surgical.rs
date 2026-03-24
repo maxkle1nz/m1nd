@@ -344,6 +344,15 @@ pub struct SurgicalContextV2Output {
     /// Heuristic explanation for why this file may be risky to patch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<SurgicalHeuristicSummary>,
+    /// Suggested next tool for continuing edit preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    /// Suggested next target for that tool.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    /// Short next-step hint for the agent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
     /// Sum of all lines returned: line_count + sum(excerpt_lines).
     pub total_lines: usize,
     /// Elapsed milliseconds.
