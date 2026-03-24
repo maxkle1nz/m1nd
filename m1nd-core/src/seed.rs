@@ -357,11 +357,8 @@ impl SeedFinder {
                 .source_path
                 .and_then(|s| graph.strings.try_resolve(s));
             let family_key = Self::family_key(label, &graph.nodes.node_type[i], source_path);
-            let specificity = Self::node_specificity_bias(
-                label,
-                &graph.nodes.node_type[i],
-                source_path,
-            );
+            let specificity =
+                Self::node_specificity_bias(label, &graph.nodes.node_type[i], source_path);
 
             best_by_family
                 .entry(family_key)
