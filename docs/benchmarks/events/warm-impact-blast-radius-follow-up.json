@@ -1,0 +1,24 @@
+[
+  {
+    "tool_name": "m1nd.impact",
+    "target": "file::m1nd-mcp/src/search_handlers.rs::fn::l7_normalize_path_hint",
+    "elapsed_ms": 1.214,
+    "payload_chars": 420,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/layer_handlers.rs",
+    "next_step_hint": "Open the top impacted node next: m1nd-mcp/src/layer_handlers.rs (hop 1, signal 0.74).",
+    "next_tool_used": "view"
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 0.533,
+    "payload_chars": 760,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  }
+]

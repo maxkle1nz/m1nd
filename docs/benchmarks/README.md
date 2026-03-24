@@ -78,6 +78,7 @@ collapses both explanation and next-step routing into a single step.
 - `structural_proof_apply_batch.json`
 - `continuity_actionable_resume.json`
 - `continuity_temporal_resume.json`
+- `impact_blast_radius_follow_up.json`
 - `trace_root_cause_triage.json`
 
 These are warm-graph oriented starter scenarios for rerunning the benchmark
@@ -88,5 +89,6 @@ In particular:
 - `continuity_boot_memory.json` captures the older, heavier continuity flow
 - `continuity_actionable_resume.json` captures compact resume plus next-step guidance
 - `continuity_temporal_resume.json` captures compact resume that routes directly into `timeline`
+- `impact_blast_radius_follow_up.json` captures `impact` plus guided follow-up into the strongest downstream seam
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file

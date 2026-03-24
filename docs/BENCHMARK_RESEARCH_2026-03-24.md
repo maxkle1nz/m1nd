@@ -381,24 +381,25 @@ Current harness-backed comparison set:
 - `warm_continuity_boot_memory`
 - `warm_proof_focused_edit_prep`
 - `warm_structural_proof_apply_batch`
+- `warm_impact_blast_radius_follow_up`
 - `warm_continuity_actionable_resume`
 - `warm_continuity_temporal_resume`
 - `warm_trace_root_cause_triage`
 
 Current aggregate from those recorded runs:
 
-- manual token proxy: `5801`
-- warm `m1nd` token proxy: `1491`
-- aggregate token savings: `74.3%`
-- manual first good answer total: `267.415ms`
-- warm `m1nd` first good answer total: `205.342ms`
-- manual search iterations: `9`
+- manual token proxy: `6451`
+- warm `m1nd` token proxy: `1786`
+- aggregate token savings: `72.31%`
+- manual first good answer total: `286.615ms`
+- warm `m1nd` first good answer total: `206.556ms`
+- manual search iterations: `10`
 - warm `m1nd` search iterations: `2`
-- manual repeat reads: `12`
-- warm `m1nd` repeat reads: `6`
+- manual repeat reads: `14`
+- warm `m1nd` repeat reads: `7`
 - manual false starts: `3`
 - warm `m1nd` false starts: `0`
-- warm `m1nd` guidance-followed count: `6`
+- warm `m1nd` guidance-followed count: `7`
 
 Interpretation:
 
@@ -410,10 +411,25 @@ Interpretation:
 - the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
 - semantic retrieval now joins the guided-flow set too: `seek` can hand off directly into `view` on the winning file
+- blast-radius follow-up now joins it as well: `impact` can point straight at the strongest downstream seam instead of leaving the dependent choice implicit
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
-- guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, and triage flows
+- guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, triage, and blast-radius flows
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
+
+### New blast-radius result: `impact` now guides the first follow-up
+
+The blast-radius scenario is now part of the harness corpus rather than living
+only as product intuition.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Impact-guided blast-radius follow-up | 650 | 295 | 54.62% | Search iterations drop from `1` to `0`; repeat reads drop from `2` to `1`; guidance followed `1/1` |
+
+Interpretation:
+
+- `impact` no longer only returns a blast set; it now suggests the first downstream target worth opening
+- that makes blast-radius inspection part of the same measurable guided workflow family as `seek`, `trace`, `trail_resume`, and `validate_plan`
 
 ### New triage result: `trace` now guides the next move
 

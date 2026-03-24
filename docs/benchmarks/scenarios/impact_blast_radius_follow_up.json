@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_impact_blast_radius_follow_up",
+  "scenario_name": "Warm blast-radius follow-up for risky scope normalization changes",
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "What downstream node should I inspect first before changing search scope normalization?",
+  "tags": ["warm-graph", "impact", "blast-radius", "follow-up"],
+  "expected_strength": "strong"
+}

@@ -1,6 +1,6 @@
 {
-  "run_count": 14,
-  "compared_scenarios": 7,
+  "run_count": 16,
+  "compared_scenarios": 8,
   "scenarios": [
     {
       "scenario_id": "warm_continuity_actionable_resume",
@@ -118,6 +118,46 @@
         "search_iteration_delta": 2,
         "repeat_read_delta": 1,
         "false_start_delta": 1,
+        "guidance_event_delta": -1,
+        "guidance_followed_delta": -1
+      }
+    },
+    {
+      "scenario_id": "warm_impact_blast_radius_follow_up",
+      "scenario_name": "Warm blast-radius follow-up for risky scope normalization changes",
+      "modes_present": [
+        "m1nd_warm",
+        "manual"
+      ],
+      "manual": {
+        "token_proxy": 650,
+        "time_to_first_good_answer_ms": 19.2,
+        "time_to_full_proof_ms": 28.3,
+        "files_opened": 2,
+        "repeat_reads": 2,
+        "search_iterations": 1,
+        "false_start_count": 0,
+        "guidance_events": 0,
+        "guidance_followed": 0
+      },
+      "m1nd_warm": {
+        "token_proxy": 295,
+        "time_to_first_good_answer_ms": 1.214,
+        "time_to_full_proof_ms": 1.747,
+        "files_opened": 1,
+        "repeat_reads": 1,
+        "search_iterations": 0,
+        "false_start_count": 0,
+        "guidance_events": 1,
+        "guidance_followed": 1
+      },
+      "comparison": {
+        "token_delta": 355,
+        "token_savings_pct": 54.62,
+        "first_good_answer_delta_ms": 17.986,
+        "search_iteration_delta": 1,
+        "repeat_read_delta": 1,
+        "false_start_delta": 0,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1
       }
@@ -284,27 +324,27 @@
     }
   ],
   "aggregate": {
-    "manual_token_proxy": 5801,
-    "m1nd_warm_token_proxy": 1491,
-    "token_delta": 4310,
-    "token_savings_pct": 74.3,
-    "manual_first_good_answer_ms": 267.415,
-    "m1nd_warm_first_good_answer_ms": 205.342,
-    "first_good_answer_delta_ms": 62.073,
-    "manual_search_iterations": 9,
+    "manual_token_proxy": 6451,
+    "m1nd_warm_token_proxy": 1786,
+    "token_delta": 4665,
+    "token_savings_pct": 72.31,
+    "manual_first_good_answer_ms": 286.615,
+    "m1nd_warm_first_good_answer_ms": 206.556,
+    "first_good_answer_delta_ms": 80.059,
+    "manual_search_iterations": 10,
     "m1nd_warm_search_iterations": 2,
-    "search_iteration_delta": 7,
-    "manual_repeat_reads": 12,
-    "m1nd_warm_repeat_reads": 6,
-    "repeat_read_delta": 6,
+    "search_iteration_delta": 8,
+    "manual_repeat_reads": 14,
+    "m1nd_warm_repeat_reads": 7,
+    "repeat_read_delta": 7,
     "manual_false_starts": 3,
     "m1nd_warm_false_starts": 0,
     "false_start_delta": 3,
     "manual_guidance_events": 0,
-    "m1nd_warm_guidance_events": 6,
-    "guidance_event_delta": -6,
+    "m1nd_warm_guidance_events": 7,
+    "guidance_event_delta": -7,
     "manual_guidance_followed": 0,
-    "m1nd_warm_guidance_followed": 6,
-    "guidance_followed_delta": -6
+    "m1nd_warm_guidance_followed": 7,
+    "guidance_followed_delta": -7
   }
 }
