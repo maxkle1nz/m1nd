@@ -390,11 +390,11 @@ Current aggregate from those recorded runs:
 - warm `m1nd` token proxy: `1464`
 - aggregate token savings: `71.8%`
 - manual first good answer total: `251.715ms`
-- warm `m1nd` first good answer total: `5844.9ms`
+- warm `m1nd` first good answer total: `307.342ms`
 - manual search iterations: `8`
-- warm `m1nd` search iterations: `4`
+- warm `m1nd` search iterations: `2`
 - manual repeat reads: `11`
-- warm `m1nd` repeat reads: `8`
+- warm `m1nd` repeat reads: `6`
 - manual false starts: `2`
 - warm `m1nd` false starts: `0`
 - warm `m1nd` guidance-followed count: `2`
@@ -407,8 +407,9 @@ Interpretation:
 - the new actionable continuity scenario is a strong workflow win: fewer searches, fewer rereads, and no false start before the next concrete move
 - the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
 - the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
-- the biggest remaining time outlier in the corpus is now warm semantic retrieval, not continuity
-- the next useful benchmark step is to rerun continuity and semantic retrieval with stricter event capture and less synthetic timing overhead
+- the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
+- aggregate warm-graph timing is now much closer to manual, though still not a clean global speed win
+- the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
 ### New continuity result: actionable resume hints
 
@@ -500,8 +501,8 @@ Interpretation:
    Why: structural reactivation and actionable hints now exist, but the next-focus and next-tool guidance still need broader validation outside the starter corpus.
    Likely files: `m1nd-mcp/src/layer_handlers.rs`, `m1nd-mcp/src/protocol/layers.rs`
 
-2. Continue tightening guidance quality and latency in warm retrieval workflows.
-   Why: continuity has improved materially; the remaining timing outlier is now warm semantic retrieval and mixed proof flows.
+2. Continue tightening guidance quality and latency in mixed proof workflows.
+   Why: continuity has improved materially, and the remaining timing gap now comes more from proof-heavy mixed flows than from guided continuity.
    Likely files: `m1nd-mcp/src/server.rs`, `m1nd-mcp/src/layer_handlers.rs`
 
 3. Reduce noisy fixture-style matches inside literal search.

@@ -11,8 +11,8 @@ python3 scripts/benchmark/run_benchmark.py \
   --scenario docs/benchmarks/scenarios/semantic_retrieval_dispatch.json \
   --mode m1nd_warm \
   --events docs/benchmarks/events/sample-semantic-retrieval.json \
-  --time-to-first-good-answer-ms 740 \
-  --time-to-full-proof-ms 1153 \
+  --time-to-first-good-answer-ms 0.742 \
+  --time-to-full-proof-ms 1.153 \
   --answer-quality high \
   --false-start-count 0 \
   --tests-identified-before-edit 0 \

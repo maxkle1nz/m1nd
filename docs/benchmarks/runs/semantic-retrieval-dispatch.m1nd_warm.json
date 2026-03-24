@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T18:04:08.538706+00:00",
+  "recorded_at": "2026-03-24T19:04:21.882116+00:00",
   "scenario_id": "warm_semantic_retrieval_dispatch",
   "scenario_name": "Warm semantic retrieval for normalize_dispatch_tool_name",
   "scenario_tags": [
@@ -11,11 +11,14 @@
   "mode": "m1nd_warm",
   "cold_graph_time_ms": null,
   "warm_graph_time_ms": null,
-  "time_to_first_good_answer_ms": 742.0,
-  "time_to_full_proof_ms": 1153.0,
+  "time_to_first_good_answer_ms": 0.742,
+  "time_to_full_proof_ms": 1.153,
   "answer_quality": "high",
   "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
+  "workflow_notes": "seek resolves the canonical dispatch helper in one shot and view confirms it immediately",
   "notes": "",
   "events": [
     {
@@ -46,6 +49,10 @@
   "search_iterations": 1,
   "chars_surfaced": 1400,
   "token_proxy": 350,
+  "guidance_events": 0,
+  "guidance_followed": 0,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
   "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
   "question": "Where do we normalize alias tool names into the canonical dispatch status name?",
   "expected_strength": "strong"
