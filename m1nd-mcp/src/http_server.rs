@@ -23,7 +23,9 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 use crate::http_types::SubgraphQuery;
-use crate::server::{dispatch_tool, tool_schemas, McpConfig};
+use crate::server::{
+    dispatch_tool, timeout_error_payload, tool_error_payload, tool_schemas, McpConfig,
+};
 use crate::session::{ApplyBatchProgressSink, SessionState};
 
 // ---------------------------------------------------------------------------
@@ -739,10 +741,7 @@ async fn handle_tool_call(
 
             (
                 StatusCode::GATEWAY_TIMEOUT,
-                Json(serde_json::json!({
-                    "error": "timeout",
-                    "detail": format!("Tool execution exceeded {}s limit.", TOOL_TIMEOUT_SECS)
-                })),
+                Json(timeout_error_payload(TOOL_TIMEOUT_SECS)),
             )
                 .into_response()
         }
@@ -798,14 +797,9 @@ async fn handle_tool_call(
                         }
                         _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
                     };
-                    (
-                        status,
-                        Json(serde_json::json!({
-                            "error": error_type,
-                            "detail": e.to_string(),
-                        })),
-                    )
-                        .into_response()
+                    let mut payload = tool_error_payload(&e);
+                    payload["error"] = serde_json::json!(error_type);
+                    (status, Json(payload)).into_response()
                 }
             }
         }
@@ -1166,6 +1160,7 @@ async fn serve_embedded_ui(uri: Uri) -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::timeout_error_payload;
 
     #[test]
     fn emit_followup_events_replays_apply_batch_progress() {
@@ -1237,5 +1232,12 @@ mod tests {
         let (tx, mut rx) = broadcast::channel::<SseEvent>(16);
         emit_apply_batch_handoff(&tx, None, "http", "tester", &serde_json::json!({}));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn timeout_payload_teaches_how_to_retry() {
+        let payload = timeout_error_payload(30);
+        assert_eq!(payload["error_type"], "timeout");
+        assert!(payload["hint"].as_str().expect("hint").contains("scope"));
     }
 }
