@@ -413,6 +413,7 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
             "Use active_phase, completed_phase_count, phase_count, remaining_phase_count, progress_pct, and next_phase for coarse progress without reconstructing the phase timeline yourself.",
             "Each phase can carry phase_index, current_file, progress_pct, and next_phase for better progress rendering.",
             "progress_events mirrors the same lifecycle in a streaming-friendly event shape for future MCP emission.",
+            "Read proof_state plus next_suggested_tool after the batch finishes; apply_batch now hands off the next verification or inspection step instead of only returning a verdict.",
         ],
         _ => &[],
     }
@@ -451,6 +452,7 @@ fn benchmark_notes(tool_name: &str) -> &'static [&'static str] {
         "apply_batch" => &[
             "Benchmark value here is mostly safety, verification, and better progress UX.",
             "Use after discovery and proof; this is execution, not exploration.",
+            "The newer wins here are about observability and handoff quality, not only token savings.",
         ],
         "timeline" => &[
             "Usually strongest when historical proof is the missing piece after localization.",
@@ -496,7 +498,10 @@ fn workflow_patterns(tool_name: &str) -> &'static [&'static str] {
             "hypothesize -> view or timeline on the strongest proof target",
             "hypothesize -> validate_plan when the claim is strong enough to shape an edit",
         ],
-        "apply_batch" => &["validate_plan -> heuristics_surface -> apply_batch(verify=true)"],
+        "apply_batch" => &[
+            "validate_plan -> heuristics_surface -> apply_batch(verify=true)",
+            "apply_batch -> next_suggested_tool when verification says the batch still needs review",
+        ],
         "timeline" => &["trace or trail_resume -> timeline -> view"],
         _ => &[],
     }
@@ -525,6 +530,12 @@ fn state_handoffs(tool_name: &str) -> &'static [&'static str] {
             "triaging: inspect the strongest downstream seam before turning blast radius into a plan.",
             "proving: the blast pattern is strong enough to validate the change against the impacted target next.",
             "ready_to_edit: rare here; only trust it when the causal chain is strong and specific enough to ground the seam.",
+        ],
+        "apply_batch" => &[
+            "blocked: inspect the failed or broken target before retrying or promoting the batch.",
+            "triaging: the batch wrote cleanly, but it still needs a verification pass before you trust it.",
+            "proving: the batch finished, but the verification verdict is still risky and needs hotspot review.",
+            "ready_to_edit: the batch verification is strong enough that follow-up work can continue safely.",
         ],
         _ => &[],
     }

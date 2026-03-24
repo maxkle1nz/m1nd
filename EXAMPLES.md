@@ -273,6 +273,7 @@ It is useful when you want:
 
 Recent behavior:
 
+- `apply_batch` now returns `proof_state` plus `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
 - `apply_batch` now returns a human-readable `status_message`
 - it also returns coarse progress fields like `active_phase`, `completed_phase_count`, `phase_count`, `remaining_phase_count`, `progress_pct`, and `next_phase`
 - it also returns structured `phases` for `validate`, `write`, `reingest`, `verify`, and `done`, with per-phase `progress_pct` and `next_phase`

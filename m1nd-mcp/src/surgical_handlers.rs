@@ -2158,6 +2158,10 @@ pub fn handle_apply_batch(
             reingested: false,
             total_bytes_written: 0,
             verification: None,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
+            proof_state: "ready_to_edit".into(),
             status_message: "apply_batch noop: no edits provided".into(),
             active_phase: "done".into(),
             completed_phase_count: 1,
@@ -3157,6 +3161,9 @@ pub fn handle_apply_batch(
         message: status_message.clone(),
     });
 
+    let (next_suggested_tool, next_suggested_target, next_step_hint, proof_state) =
+        apply_batch_next_step(all_succeeded, reingested, verification.as_ref(), &results);
+
     Ok(surgical::ApplyBatchOutput {
         all_succeeded,
         files_written,
@@ -3165,6 +3172,10 @@ pub fn handle_apply_batch(
         reingested,
         total_bytes_written,
         verification,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        proof_state,
         status_message,
         active_phase: "done".into(),
         completed_phase_count: phases.len(),
@@ -3176,6 +3187,76 @@ pub fn handle_apply_batch(
         phases,
         elapsed_ms,
     })
+}
+
+fn apply_batch_next_step(
+    all_succeeded: bool,
+    reingested: bool,
+    verification: Option<&surgical::VerificationReport>,
+    results: &[surgical::BatchEditResult],
+) -> (Option<String>, Option<String>, Option<String>, String) {
+    let first_written = results
+        .iter()
+        .find(|result| result.success)
+        .map(|result| result.file_path.clone());
+    let first_failed = results
+        .iter()
+        .find(|result| !result.success)
+        .map(|result| result.file_path.clone());
+
+    if !all_succeeded {
+        let target = first_failed.or(first_written);
+        return (
+            Some("view".into()),
+            target,
+            Some("Inspect the failed or partial write target before retrying the batch.".into()),
+            "blocked".into(),
+        );
+    }
+
+    if let Some(report) = verification {
+        let hotspot_target = report
+            .high_impact_files
+            .first()
+            .map(|impact| impact.file_path.clone())
+            .or_else(|| first_written.clone());
+        return match report.verdict.as_str() {
+            "BROKEN" => (
+                Some("view".into()),
+                hotspot_target,
+                Some("Verification found a broken outcome; inspect the leading file before making more edits.".into()),
+                "blocked".into(),
+            ),
+            "RISKY" => (
+                Some("heuristics_surface".into()),
+                hotspot_target,
+                Some("Verification is risky; inspect the highest-impact file before continuing the edit loop.".into()),
+                "proving".into(),
+            ),
+            _ => (
+                None,
+                first_written,
+                Some("Batch verification came back safe; the edit set is ready for follow-up work if needed.".into()),
+                "ready_to_edit".into(),
+            ),
+        };
+    }
+
+    if reingested {
+        return (
+            Some("validate_plan".into()),
+            first_written,
+            Some("The batch wrote successfully, but it still needs a verification pass before promotion.".into()),
+            "triaging".into(),
+        );
+    }
+
+    (
+        Some("view".into()),
+        first_written,
+        Some("The batch wrote files, but re-ingest did not complete; inspect the touched file before trusting graph state.".into()),
+        "blocked".into(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -4214,5 +4295,76 @@ mod tests {
 
         let verification = output.verification.expect("verification should be present");
         assert_eq!(verification.verdict, "RISKY");
+    }
+
+    #[test]
+    fn test_apply_batch_guides_next_step_from_verification_verdict() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let now = 50_000.0;
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 60.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.0,
+            4,
+            now - 50.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.1,
+            4,
+            now - 40.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.2,
+            4,
+            now - 30.0,
+        );
+
+        let output = handle_apply_batch(
+            &mut state,
+            surgical::ApplyBatchInput {
+                agent_id: "test".into(),
+                edits: vec![surgical::BatchEditItem {
+                    file_path: primary_str.clone(),
+                    new_content: "def core():\n    return 2\n".into(),
+                    description: Some("update return".into()),
+                }],
+                atomic: true,
+                reingest: true,
+                verify: true,
+            },
+        )
+        .expect("apply batch");
+
+        assert_eq!(output.proof_state, "proving");
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("heuristics_surface")
+        );
+        assert!(
+            output
+                .next_suggested_target
+                .as_deref()
+                .is_some_and(|target| target.ends_with("src/core.py")),
+            "next suggested target should point at the modified file"
+        );
+        assert!(output
+            .next_step_hint
+            .as_deref()
+            .is_some_and(|hint| hint.contains("highest-impact file")));
     }
 }

@@ -529,7 +529,7 @@ Interpretation:
 
 - `validate_plan` now carries enough compact proof to justify the first risky verdict without an immediate second call
 - `validate_plan` now also emits explicit next-step guidance, so the proof flow can be measured as a guided one-step handoff instead of an implicit manual decision
-- the same scenario now records `apply_batch` execution progress as benchmark telemetry; the warm run now captures the full event stream shape (`phase_completed` plus `batch_completed`) with `max_progress_pct=100.0`
+- the same scenario now records `apply_batch` execution progress as benchmark telemetry; the warm run now captures the full event stream shape (`phase_completed` plus `batch_completed`) with `max_progress_pct=100.0`, and the batch itself now contributes a second guided handoff into the next proof surface
 - this did not fully beat manual in the single-scenario first-answer time, but it materially improved compactness and helped flip the aggregate warm-graph timing result
 
 ### Updated edit-prep result: `surgical_context_v2` now carries `proof_state`

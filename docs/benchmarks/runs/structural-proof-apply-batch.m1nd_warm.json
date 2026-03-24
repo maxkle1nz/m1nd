@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T22:11:25.788973+00:00",
+  "recorded_at": "2026-03-24T22:14:32.818284+00:00",
   "scenario_id": "warm_structural_proof_apply_batch",
   "scenario_name": "Warm structural proof around apply_batch risky verification",
   "scenario_tags": [
@@ -18,7 +18,7 @@
   "false_start_count": 0,
   "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
-  "workflow_notes": "validate_plan now carries a compact proof hint while apply_batch exposes measurable batch progress metadata for the execution handoff",
+  "workflow_notes": "validate_plan and apply_batch now both hand off the next proof surface while batch execution exposes measurable progress metadata",
   "notes": "",
   "events": [
     {
@@ -42,12 +42,16 @@
       "target": "m1nd-mcp/src/surgical_handlers.rs",
       "elapsed_ms": 165.0,
       "payload_chars": 220,
+      "proof_state": "proving",
       "active_phase": "done",
       "completed_phase_count": 5,
       "phase_count": 5,
       "remaining_phase_count": 0,
       "progress_pct": 100.0,
       "next_phase": null,
+      "next_suggested_tool": "heuristics_surface",
+      "next_suggested_target": "m1nd-mcp/src/surgical_handlers.rs",
+      "next_tool_used": "heuristics_surface",
       "progress_events": [
         {
           "event_type": "phase_completed",
@@ -103,7 +107,7 @@
       "surfaced_files": [
         "m1nd-mcp/src/surgical_handlers.rs"
       ],
-      "notes": "apply_batch now exposes global progress metadata plus a streaming-friendly progress_events log so shells and UIs can show both the current stage and the batch lifecycle without reconstructing it from one final snapshot.",
+      "notes": "apply_batch now exposes global progress metadata plus a streaming-friendly progress_events log, and it hands off the next hotspot review step directly when verification still ends in a risky proof state.",
       "event_index": 2,
       "opened_files": []
     }
@@ -113,11 +117,12 @@
   "search_iterations": 0,
   "chars_surfaced": 680,
   "token_proxy": 170,
-  "guidance_events": 1,
-  "guidance_followed": 1,
+  "guidance_events": 2,
+  "guidance_followed": 2,
   "reactivated_nodes": 0,
   "resume_hints": 0,
   "proof_states": [
+    "proving",
     "proving"
   ],
   "final_proof_state": "proving",

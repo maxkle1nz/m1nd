@@ -436,6 +436,17 @@ pub struct ApplyBatchOutput {
     /// Post-write verification report (populated when verify=true).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<VerificationReport>,
+    /// Suggested next tool after the batch finishes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    /// Suggested target for the next tool when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    /// Short hint for the next step after the batch finishes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
+    /// Cognitive state of the batch result: blocked, triaging, proving, ready_to_edit.
+    pub proof_state: String,
     /// Human-readable final status for shells/UIs.
     pub status_message: String,
     /// Final phase key reached by the batch lifecycle.
