@@ -2165,6 +2165,10 @@ pub fn handle_apply_batch(
             progress_pct: 100.0,
             current_file: None,
             next_phase: None,
+            proof_state: Some("ready_to_edit".into()),
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
             message: "No edits were provided.".into(),
         };
@@ -2239,6 +2243,10 @@ pub fn handle_apply_batch(
             .first()
             .map(|(path, _, _)| path.to_string_lossy().to_string()),
         next_phase: Some(phase_names[1].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!("Validated {} edit targets.", input.edits.len()),
     };
@@ -2471,6 +2479,10 @@ pub fn handle_apply_batch(
         progress_pct: 40.0,
         current_file: results.last().map(|result| result.file_path.clone()),
         next_phase: Some(phase_names[2].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!(
             "Wrote {} of {} files.",
@@ -2561,6 +2573,10 @@ pub fn handle_apply_batch(
             .find(|result| result.success)
             .map(|result| result.file_path.clone()),
         next_phase: Some(phase_names[3].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if input.reingest {
             if reingested {
@@ -3122,6 +3138,10 @@ pub fn handle_apply_batch(
                     .map(|r| r.file_path.clone())
             }),
         next_phase: Some(phase_names[4].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if let Some(report) = verification.as_ref() {
             format!("Verification finished with verdict {}.", report.verdict)
@@ -3173,6 +3193,9 @@ pub fn handle_apply_batch(
         elapsed_ms,
         message: status_message.clone(),
     });
+    let (next_suggested_tool, next_suggested_target, next_step_hint, proof_state) =
+        apply_batch_next_step(all_succeeded, reingested, verification.as_ref(), &results);
+
     let done_event = surgical::ApplyBatchProgressEvent {
         batch_id: batch_id.clone(),
         event_type: "batch_completed".into(),
@@ -3181,14 +3204,15 @@ pub fn handle_apply_batch(
         progress_pct: 100.0,
         current_file: None,
         next_phase: None,
+        proof_state: Some(proof_state.clone()),
+        next_suggested_tool: next_suggested_tool.clone(),
+        next_suggested_target: next_suggested_target.clone(),
+        next_step_hint: next_step_hint.clone(),
         elapsed_ms,
         message: status_message.clone(),
     };
     emit_apply_batch_progress(state, &done_event);
     progress_events.push(done_event);
-
-    let (next_suggested_tool, next_suggested_target, next_step_hint, proof_state) =
-        apply_batch_next_step(all_succeeded, reingested, verification.as_ref(), &results);
 
     Ok(surgical::ApplyBatchOutput {
         batch_id,
@@ -4387,6 +4411,16 @@ mod tests {
         assert_eq!(output.proof_state, "proving");
         assert_eq!(
             output.next_suggested_tool.as_deref(),
+            Some("heuristics_surface")
+        );
+        let done_event = output
+            .progress_events
+            .last()
+            .expect("apply_batch should emit a final progress event");
+        assert_eq!(done_event.event_type, "batch_completed");
+        assert_eq!(done_event.proof_state.as_deref(), Some("proving"));
+        assert_eq!(
+            done_event.next_suggested_tool.as_deref(),
             Some("heuristics_surface")
         );
         assert!(

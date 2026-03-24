@@ -518,6 +518,18 @@ pub struct ApplyBatchProgressEvent {
     /// Next expected phase after this event when known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_phase: Option<String>,
+    /// Cognitive state at the time of this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_state: Option<String>,
+    /// Suggested next tool once this event carries enough information to hand off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    /// Suggested target for the next tool when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    /// Short hint for the next step after this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
     /// Event timestamp in elapsed milliseconds from batch start.
     pub elapsed_ms: f64,
     /// Short status line for user-visible progress.
