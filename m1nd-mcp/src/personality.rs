@@ -410,7 +410,7 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
         ],
         "apply_batch" => &[
             "Use status_message and phases to drive shell/UI progress.",
-            "Use active_phase, completed_phase_count, phase_count, and progress_pct for coarse progress without reconstructing the phase timeline yourself.",
+            "Use active_phase, completed_phase_count, phase_count, remaining_phase_count, progress_pct, and next_phase for coarse progress without reconstructing the phase timeline yourself.",
             "Each phase can carry phase_index and current_file for better progress rendering.",
         ],
         _ => &[],

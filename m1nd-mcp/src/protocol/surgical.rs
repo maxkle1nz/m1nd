@@ -444,8 +444,13 @@ pub struct ApplyBatchOutput {
     pub completed_phase_count: usize,
     /// Total lifecycle phases in the batch contract.
     pub phase_count: usize,
+    /// Remaining phases after the current active phase.
+    pub remaining_phase_count: usize,
     /// Final coarse-grained progress percentage for shells/UIs.
     pub progress_pct: f32,
+    /// Next expected phase in the lifecycle when not yet done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_phase: Option<String>,
     /// Structured phase history for UI progress rendering and future streaming.
     pub phases: Vec<ApplyBatchPhase>,
     /// Elapsed milliseconds.

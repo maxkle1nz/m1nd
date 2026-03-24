@@ -2160,7 +2160,9 @@ pub fn handle_apply_batch(
             active_phase: "done".into(),
             completed_phase_count: 1,
             phase_count,
+            remaining_phase_count: 0,
             progress_pct: 100.0,
+            next_phase: None,
             phases: vec![surgical::ApplyBatchPhase {
                 phase: "done".into(),
                 phase_index: 0,
@@ -3057,7 +3059,9 @@ pub fn handle_apply_batch(
         active_phase: "done".into(),
         completed_phase_count: phases.len(),
         phase_count,
+        remaining_phase_count: 0,
         progress_pct: ((phases.len() as f32 / phase_count as f32) * 100.0).min(100.0),
+        next_phase: None,
         phases,
         elapsed_ms,
     })

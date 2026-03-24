@@ -111,7 +111,9 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         active_phase: "done".into(),
         completed_phase_count: 1,
         phase_count: 5,
+        remaining_phase_count: 0,
         progress_pct: 100.0,
+        next_phase: None,
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
             phase_index: 4,
@@ -849,7 +851,9 @@ fn test_batch_empty_edits_noop() {
         active_phase: "done".into(),
         completed_phase_count: 1,
         phase_count: 5,
+        remaining_phase_count: 0,
         progress_pct: 100.0,
+        next_phase: None,
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
             phase_index: 0,
@@ -888,7 +892,9 @@ fn test_batch_empty_edits_noop() {
     assert_eq!(out.active_phase, "done");
     assert_eq!(out.completed_phase_count, 1);
     assert_eq!(out.phase_count, 5);
+    assert_eq!(out.remaining_phase_count, 0);
     assert_eq!(out.progress_pct, 100.0);
+    assert_eq!(out.next_phase, None);
     assert_eq!(
         out.phases.len(),
         1,
