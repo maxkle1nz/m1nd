@@ -1894,6 +1894,19 @@ fn trail_resume_hints(
     hints
 }
 
+fn trail_resume_suggested_tool(
+    next_focus_node_id: Option<&String>,
+    next_open_question: Option<&String>,
+) -> Option<String> {
+    if next_focus_node_id.is_some() {
+        return Some("view".into());
+    }
+    if next_open_question.is_some() {
+        return Some("search".into());
+    }
+    None
+}
+
 /// Resolve the trails/ directory path from the graph snapshot path.
 /// Creates the directory if it does not exist.
 fn trails_dir(state: &SessionState) -> M1ndResult<PathBuf> {
@@ -2287,6 +2300,10 @@ pub fn handle_trail_resume(
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     let next_focus_node_id = reactivated_node_ids.first().cloned();
     let next_open_question = trail.open_questions.first().cloned();
+    let next_suggested_tool = trail_resume_suggested_tool(
+        next_focus_node_id.as_ref(),
+        next_open_question.as_ref(),
+    );
     let resume_hints = trail_resume_hints(&trail, &reactivated_node_ids, hint_limit);
 
     Ok(layers::TrailResumeOutput {
@@ -2300,6 +2317,7 @@ pub fn handle_trail_resume(
         hypotheses_downgraded,
         next_focus_node_id,
         next_open_question,
+        next_suggested_tool,
         resume_hints,
         trail: trail_to_summary(&trail),
         elapsed_ms,
@@ -7953,6 +7971,7 @@ mod tests {
             resumed.next_open_question.as_deref(),
             Some("is there a test?")
         );
+        assert_eq!(resumed.next_suggested_tool.as_deref(), Some("view"));
         assert!(resumed
             .resume_hints
             .iter()
@@ -8013,6 +8032,7 @@ mod tests {
 
         assert_eq!(resumed.reactivated_node_ids.len(), 1);
         assert_eq!(resumed.resume_hints.len(), 1);
+        assert_eq!(resumed.next_suggested_tool.as_deref(), Some("view"));
     }
 
     #[test]

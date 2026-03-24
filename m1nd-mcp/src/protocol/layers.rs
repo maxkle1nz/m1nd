@@ -473,6 +473,8 @@ pub struct TrailResumeOutput {
     pub next_focus_node_id: Option<String>,
     /// Highest-priority open question carried forward from the saved trail.
     pub next_open_question: Option<String>,
+    /// Suggested next tool for continuing the investigation.
+    pub next_suggested_tool: Option<String>,
     /// Suggested next prompts or moves for continuing the investigation.
     pub resume_hints: Vec<String>,
     /// The full trail data.
