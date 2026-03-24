@@ -45,6 +45,40 @@ fn append_event_to_log(path: &std::path::Path, event: &SseEvent) {
     }
 }
 
+fn emit_followup_events(
+    event_tx: &broadcast::Sender<SseEvent>,
+    event_log_path: Option<&std::path::PathBuf>,
+    tool_name: &str,
+    source: &str,
+    agent_id: &str,
+    output: &serde_json::Value,
+) {
+    if tool_name != "apply_batch" {
+        return;
+    }
+
+    let Some(progress_events) = output.get("progress_events").and_then(|v| v.as_array()) else {
+        return;
+    };
+
+    for progress_event in progress_events {
+        let sse_event = SseEvent {
+            event_type: "apply_batch_progress".to_string(),
+            data: serde_json::json!({
+                "tool": tool_name,
+                "source": source,
+                "agent_id": agent_id,
+                "progress": progress_event,
+                "timestamp_ms": now_ms(),
+            }),
+        };
+        let _ = event_tx.send(sse_event.clone());
+        if let Some(log_path) = event_log_path {
+            append_event_to_log(log_path, &sse_event);
+        }
+    }
+}
+
 /// Watch an event log file and broadcast new events via SSE.
 /// Polls every 100ms for new lines appended to the file.
 async fn watch_event_log(path: std::path::PathBuf, tx: broadcast::Sender<SseEvent>) {
@@ -336,6 +370,19 @@ pub async fn run(
                         if let Some(ref log_path) = stdio_event_log {
                             append_event_to_log(log_path, &sse_event);
                         }
+                        if let Ok(ref output) = result {
+                            emit_followup_events(
+                                &stdio_event_tx,
+                                stdio_event_log.as_ref(),
+                                tool_name,
+                                "stdio",
+                                arguments
+                                    .get("agent_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown"),
+                                output,
+                            );
+                        }
 
                         let resp = match result {
                             Ok(output) => serde_json::json!({
@@ -596,6 +643,16 @@ async fn handle_tool_call(
             let _ = event_tx.send(sse_event.clone());
             if let Some(ref log_path) = event_log_path {
                 append_event_to_log(log_path, &sse_event);
+            }
+            if let Ok(ref output) = inner {
+                emit_followup_events(
+                    &event_tx,
+                    event_log_path.as_ref(),
+                    &tool_for_event,
+                    "http",
+                    &agent_id_for_event,
+                    output,
+                );
             }
 
             match inner {
@@ -979,5 +1036,40 @@ async fn serve_embedded_ui(uri: Uri) -> impl IntoResponse {
                 None => (StatusCode::NOT_FOUND, "UI not built").into_response(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emit_followup_events_replays_apply_batch_progress() {
+        let (tx, mut rx) = broadcast::channel::<SseEvent>(16);
+        let output = serde_json::json!({
+            "progress_events": [
+                {
+                    "event_type": "phase_completed",
+                    "phase": "validate",
+                    "phase_index": 0,
+                    "progress_pct": 20.0
+                },
+                {
+                    "event_type": "batch_completed",
+                    "phase": "done",
+                    "phase_index": 4,
+                    "progress_pct": 100.0
+                }
+            ]
+        });
+
+        emit_followup_events(&tx, None, "apply_batch", "http", "tester", &output);
+
+        let first = rx.try_recv().expect("first progress event");
+        let second = rx.try_recv().expect("second progress event");
+        assert_eq!(first.event_type, "apply_batch_progress");
+        assert_eq!(second.event_type, "apply_batch_progress");
+        assert_eq!(first.data["progress"]["phase"].as_str(), Some("validate"));
+        assert_eq!(second.data["progress"]["phase"].as_str(), Some("done"));
     }
 }
