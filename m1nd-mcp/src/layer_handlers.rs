@@ -2817,6 +2817,9 @@ pub fn handle_hypothesize(
             partial_reach: None,
             paths_explored: 0,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
         });
     }
 
@@ -2863,6 +2866,9 @@ pub fn handle_hypothesize(
             partial_reach: None,
             paths_explored: 0,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
         });
     }
 
@@ -3280,6 +3286,18 @@ pub fn handle_hypothesize(
         "inconclusive"
     };
 
+    let partial_reach = if partial_reach_entries.is_empty() {
+        None
+    } else {
+        Some(partial_reach_entries)
+    };
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = l5_hypothesize_next_step(
+        verdict,
+        &supporting,
+        &contradicting,
+        partial_reach.as_deref(),
+    );
+
     Ok(layers::HypothesizeOutput {
         claim: input.claim,
         claim_type: parsed.claim_type.as_str().into(),
@@ -3289,14 +3307,52 @@ pub fn handle_hypothesize(
         confidence,
         supporting_evidence: supporting,
         contradicting_evidence: contradicting,
-        partial_reach: if partial_reach_entries.is_empty() {
-            None
-        } else {
-            Some(partial_reach_entries)
-        },
+        partial_reach,
         paths_explored,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     })
+}
+
+fn l5_hypothesize_next_step(
+    verdict: &str,
+    supporting: &[layers::HypothesisEvidence],
+    contradicting: &[layers::HypothesisEvidence],
+    partial_reach: Option<&[layers::PartialReachEntry]>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let evidence = if verdict == "likely_false" {
+        contradicting.first()
+    } else {
+        supporting.first().or_else(|| contradicting.first())
+    };
+
+    if let Some(evidence) = evidence {
+        if let Some(target) = evidence.nodes.last() {
+            return (
+                Some("view".into()),
+                Some(target.clone()),
+                Some(format!(
+                    "Open the strongest hypothesis evidence next: {}.",
+                    target
+                )),
+            );
+        }
+    }
+
+    if let Some(partial) = partial_reach.and_then(|entries| entries.first()) {
+        return (
+            Some("view".into()),
+            Some(partial.node_id.clone()),
+            Some(format!(
+                "Open the furthest partial-reach node next: {}.",
+                partial.node_id
+            )),
+        );
+    }
+
+    (None, None, None)
 }
 
 /// Handle m1nd.differential — focused structural diff between two graph snapshots.
@@ -8269,6 +8325,52 @@ mod tests {
         );
 
         assert_eq!(suggested.as_deref(), Some("seek"));
+    }
+
+    #[test]
+    fn hypothesize_next_step_prefers_strongest_evidence_target() {
+        let supporting = vec![crate::protocol::layers::HypothesisEvidence {
+            evidence_type: "path_found".into(),
+            description: "path".into(),
+            likelihood_factor: 2.0,
+            nodes: vec!["file::src/a.rs".into(), "file::src/b.rs".into()],
+            relations: vec!["calls".into()],
+            path_weight: Some(0.8),
+        }];
+
+        let (tool, target, hint) =
+            super::l5_hypothesize_next_step("likely_true", &supporting, &[], None);
+
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("file::src/b.rs"));
+        assert!(
+            hint.as_deref()
+                .unwrap_or_default()
+                .contains("strongest hypothesis evidence"),
+            "hypothesize should guide the agent into the strongest evidence target"
+        );
+    }
+
+    #[test]
+    fn hypothesize_next_step_falls_back_to_partial_reach() {
+        let partial = vec![crate::protocol::layers::PartialReachEntry {
+            node_id: "file::src/reachable.rs".into(),
+            label: "reachable".into(),
+            hops_from_source: 2,
+            activation_at_stop: 0.42,
+        }];
+
+        let (tool, target, hint) =
+            super::l5_hypothesize_next_step("inconclusive", &[], &[], Some(&partial));
+
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("file::src/reachable.rs"));
+        assert!(
+            hint.as_deref()
+                .unwrap_or_default()
+                .contains("partial-reach"),
+            "hypothesize should still guide the next step when only partial reach exists"
+        );
     }
 
     #[test]

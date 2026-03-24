@@ -1,0 +1,71 @@
+{
+  "recorded_at": "2026-03-24T19:41:07.008564+00:00",
+  "scenario_id": "warm_hypothesize_structural_claim_follow_up",
+  "scenario_name": "Warm structural-claim follow-up for missing validation proof",
+  "scenario_tags": [
+    "warm-graph",
+    "hypothesize",
+    "proof",
+    "follow-up"
+  ],
+  "mode": "manual",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 19.5,
+  "time_to_full_proof_ms": 29.3,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "manual search plus file reads can recover the proof seam, but the next file choice stays implicit",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "rg",
+      "query": "missing validation guard dispatch path",
+      "elapsed_ms": 8.9,
+      "payload_chars": 840,
+      "surfaced_files": [
+        "m1nd-mcp/src/server.rs",
+        "m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "read_file",
+      "target": "m1nd-mcp/src/server.rs",
+      "elapsed_ms": 10.6,
+      "payload_chars": 940,
+      "opened_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "event_index": 2,
+      "surfaced_files": []
+    },
+    {
+      "tool_name": "read_file",
+      "target": "m1nd-mcp/src/layer_handlers.rs",
+      "elapsed_ms": 9.8,
+      "payload_chars": 900,
+      "opened_files": [
+        "m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "event_index": 3,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 2,
+  "repeat_reads": 2,
+  "search_iterations": 1,
+  "chars_surfaced": 2680,
+  "token_proxy": 670,
+  "guidance_events": 0,
+  "guidance_followed": 0,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "Why is this dispatch path missing a validation guard, and what file should I inspect next?",
+  "expected_strength": "strong"
+}

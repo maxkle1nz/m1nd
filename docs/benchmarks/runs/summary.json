@@ -1,6 +1,6 @@
 {
-  "run_count": 16,
-  "compared_scenarios": 8,
+  "run_count": 18,
+  "compared_scenarios": 9,
   "scenarios": [
     {
       "scenario_id": "warm_continuity_actionable_resume",
@@ -118,6 +118,46 @@
         "search_iteration_delta": 2,
         "repeat_read_delta": 1,
         "false_start_delta": 1,
+        "guidance_event_delta": -1,
+        "guidance_followed_delta": -1
+      }
+    },
+    {
+      "scenario_id": "warm_hypothesize_structural_claim_follow_up",
+      "scenario_name": "Warm structural-claim follow-up for missing validation proof",
+      "modes_present": [
+        "m1nd_warm",
+        "manual"
+      ],
+      "manual": {
+        "token_proxy": 670,
+        "time_to_first_good_answer_ms": 19.5,
+        "time_to_full_proof_ms": 29.3,
+        "files_opened": 2,
+        "repeat_reads": 2,
+        "search_iterations": 1,
+        "false_start_count": 0,
+        "guidance_events": 0,
+        "guidance_followed": 0
+      },
+      "m1nd_warm": {
+        "token_proxy": 310,
+        "time_to_first_good_answer_ms": 1.486,
+        "time_to_full_proof_ms": 2.008,
+        "files_opened": 1,
+        "repeat_reads": 1,
+        "search_iterations": 0,
+        "false_start_count": 0,
+        "guidance_events": 1,
+        "guidance_followed": 1
+      },
+      "comparison": {
+        "token_delta": 360,
+        "token_savings_pct": 53.73,
+        "first_good_answer_delta_ms": 18.014,
+        "search_iteration_delta": 1,
+        "repeat_read_delta": 1,
+        "false_start_delta": 0,
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1
       }
@@ -324,27 +364,27 @@
     }
   ],
   "aggregate": {
-    "manual_token_proxy": 6451,
-    "m1nd_warm_token_proxy": 1786,
-    "token_delta": 4665,
-    "token_savings_pct": 72.31,
-    "manual_first_good_answer_ms": 286.615,
-    "m1nd_warm_first_good_answer_ms": 206.556,
-    "first_good_answer_delta_ms": 80.059,
-    "manual_search_iterations": 10,
+    "manual_token_proxy": 7121,
+    "m1nd_warm_token_proxy": 2096,
+    "token_delta": 5025,
+    "token_savings_pct": 70.57,
+    "manual_first_good_answer_ms": 306.115,
+    "m1nd_warm_first_good_answer_ms": 208.042,
+    "first_good_answer_delta_ms": 98.073,
+    "manual_search_iterations": 11,
     "m1nd_warm_search_iterations": 2,
-    "search_iteration_delta": 8,
-    "manual_repeat_reads": 14,
-    "m1nd_warm_repeat_reads": 7,
-    "repeat_read_delta": 7,
+    "search_iteration_delta": 9,
+    "manual_repeat_reads": 16,
+    "m1nd_warm_repeat_reads": 8,
+    "repeat_read_delta": 8,
     "manual_false_starts": 3,
     "m1nd_warm_false_starts": 0,
     "false_start_delta": 3,
     "manual_guidance_events": 0,
-    "m1nd_warm_guidance_events": 7,
-    "guidance_event_delta": -7,
+    "m1nd_warm_guidance_events": 8,
+    "guidance_event_delta": -8,
     "manual_guidance_followed": 0,
-    "m1nd_warm_guidance_followed": 7,
-    "guidance_followed_delta": -7
+    "m1nd_warm_guidance_followed": 8,
+    "guidance_followed_delta": -8
   }
 }

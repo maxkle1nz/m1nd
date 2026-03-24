@@ -650,6 +650,12 @@ pub struct HypothesizeOutput {
     pub partial_reach: Option<Vec<PartialReachEntry>>,
     pub paths_explored: usize,
     pub elapsed_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 /// A single piece of evidence for or against a hypothesis.

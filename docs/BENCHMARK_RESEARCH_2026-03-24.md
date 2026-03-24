@@ -382,24 +382,25 @@ Current harness-backed comparison set:
 - `warm_proof_focused_edit_prep`
 - `warm_structural_proof_apply_batch`
 - `warm_impact_blast_radius_follow_up`
+- `warm_hypothesize_structural_claim_follow_up`
 - `warm_continuity_actionable_resume`
 - `warm_continuity_temporal_resume`
 - `warm_trace_root_cause_triage`
 
 Current aggregate from those recorded runs:
 
-- manual token proxy: `6451`
-- warm `m1nd` token proxy: `1786`
-- aggregate token savings: `72.31%`
-- manual first good answer total: `286.615ms`
-- warm `m1nd` first good answer total: `206.556ms`
-- manual search iterations: `10`
+- manual token proxy: `7121`
+- warm `m1nd` token proxy: `2096`
+- aggregate token savings: `70.57%`
+- manual first good answer total: `306.115ms`
+- warm `m1nd` first good answer total: `208.042ms`
+- manual search iterations: `11`
 - warm `m1nd` search iterations: `2`
-- manual repeat reads: `14`
-- warm `m1nd` repeat reads: `7`
+- manual repeat reads: `16`
+- warm `m1nd` repeat reads: `8`
 - manual false starts: `3`
 - warm `m1nd` false starts: `0`
-- warm `m1nd` guidance-followed count: `7`
+- warm `m1nd` guidance-followed count: `8`
 
 Interpretation:
 
@@ -412,10 +413,25 @@ Interpretation:
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
 - semantic retrieval now joins the guided-flow set too: `seek` can hand off directly into `view` on the winning file
 - blast-radius follow-up now joins it as well: `impact` can point straight at the strongest downstream seam instead of leaving the dependent choice implicit
+- structural-claim proof joins the same family too: `hypothesize` can now point directly at the strongest evidence target instead of stopping at a verdict blob
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
-- guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, triage, and blast-radius flows
+- guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, triage, blast-radius, and structural-claim flows
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
+
+### New structural-claim result: `hypothesize` now guides the proof follow-up
+
+The structural-claim scenario is now part of the harness corpus instead of
+ending at an unstructured verdict.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Hypothesis-guided structural proof follow-up | 670 | 310 | 53.73% | Search iterations drop from `1` to `0`; repeat reads drop from `2` to `1`; guidance followed `1/1` |
+
+Interpretation:
+
+- `hypothesize` no longer only emits verdict/evidence; it now points to the best next proof target
+- that makes structural-claim testing part of the same guided workflow family as `seek`, `impact`, `trace`, `trail_resume`, and `validate_plan`
 
 ### New blast-radius result: `impact` now guides the first follow-up
 

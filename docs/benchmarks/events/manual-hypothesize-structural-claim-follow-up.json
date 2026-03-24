@@ -1,0 +1,30 @@
+[
+  {
+    "tool_name": "rg",
+    "query": "missing validation guard dispatch path",
+    "elapsed_ms": 8.9,
+    "payload_chars": 840,
+    "surfaced_files": [
+      "m1nd-mcp/src/server.rs",
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/server.rs",
+    "elapsed_ms": 10.6,
+    "payload_chars": 940,
+    "opened_files": [
+      "m1nd-mcp/src/server.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 9.8,
+    "payload_chars": 900,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  }
+]
