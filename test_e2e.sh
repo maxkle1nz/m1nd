@@ -5,8 +5,10 @@
 # =============================================================================
 set -euo pipefail
 
-BINARY="./target/release/m1nd-mcp"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BINARY="$SCRIPT_DIR/target/release/m1nd-mcp"
 WORKDIR="/tmp/m1nd_e2e_test_$$"
+INGEST_PATH="$SCRIPT_DIR"
 GRAPH_SNAP="$WORKDIR/graph_snapshot.json"
 PLASTICITY="$WORKDIR/plasticity_state.json"
 PASS=0
@@ -23,6 +25,8 @@ rpc() {
     local name="$1"
     local args="$2"
     local id="$3"
+    name="${name#m1nd.}"
+    name="${name//./_}"
     printf '{"jsonrpc":"2.0","method":"tools/call","id":%d,"params":{"name":"%s","arguments":%s}}\n' "$id" "$name" "$args"
 }
 
@@ -100,7 +104,7 @@ JSONRPC_EOF
 # Build actual messages
 MSG_INIT=$(init_msg)
 
-MSG_INGEST=$(rpc "m1nd.ingest" '{"path":"/Users/cosmophonix/connectome-poc/m1nd","agent_id":"e2e-test"}' 2)
+MSG_INGEST=$(rpc "m1nd.ingest" "{\"path\":\"$INGEST_PATH\",\"agent_id\":\"e2e-test\",\"mode\":\"replace\"}" 2)
 
 MSG_HEALTH1=$(rpc "m1nd.health" '{"agent_id":"e2e-test"}' 3)
 
@@ -159,14 +163,7 @@ echo "  Server exited. Parsing responses..."
 # Extract each response by id
 get_resp() {
     local id=$1
-    echo "$RESPONSES" | while IFS= read -r line; do
-        local rid
-        rid=$(echo "$line" | jq -r '.id // empty' 2>/dev/null)
-        if [ "$rid" = "$id" ]; then
-            echo "$line"
-            break
-        fi
-    done
+    echo "$RESPONSES" | jq -c --argjson id "$id" 'select(.id == $id)' | head -n 1
 }
 
 R_INIT=$(get_resp 1)

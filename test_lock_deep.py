@@ -17,9 +17,10 @@ import os
 import tempfile
 import time
 
-BINARY = "./target/release/m1nd-mcp"
-M1ND_PATH = "/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd"
-BACKEND_PATH = "/Users/cosmophonix/clawd/roomanizer-os/backend"
+ROOT = os.path.dirname(os.path.abspath(__file__))
+BINARY = os.path.join(ROOT, "target/release/m1nd-mcp")
+M1ND_PATH = ROOT
+BACKEND_PATH = ROOT
 PASS = 0
 FAIL = 0
 TOTAL = 0
@@ -29,8 +30,8 @@ workdir = tempfile.mkdtemp(prefix="m1nd_lock_")
 
 def start_server():
     env = os.environ.copy()
-    env["GRAPH_SNAPSHOT_PATH"] = os.path.join(workdir, "graph.json")
-    env["PLASTICITY_STATE_PATH"] = os.path.join(workdir, "plasticity.json")
+    env["M1ND_GRAPH_SOURCE"] = os.path.join(workdir, "graph.json")
+    env["M1ND_PLASTICITY_STATE"] = os.path.join(workdir, "plasticity.json")
     return subprocess.Popen(
         [BINARY], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=open(os.path.join(workdir, "stderr.log"), "w"), env=env, bufsize=0)
@@ -39,6 +40,7 @@ def next_id():
     global MSG_ID; MSG_ID += 1; return MSG_ID
 
 def call(proc, name, args):
+    name = name.replace("m1nd.", "").replace(".", "_")
     msg = json.dumps({"jsonrpc":"2.0","method":"tools/call","id":next_id(),"params":{"name":name,"arguments":args}})
     proc.stdin.write((msg + "\n").encode()); proc.stdin.flush()
     return json.loads(proc.stdout.readline().decode().strip())
@@ -73,7 +75,7 @@ print(f"Server PID {proc.pid}")
 init(proc)
 
 # Ingest m1nd codebase
-r = call(proc, "m1nd.ingest", {"agent_id":"lk","path":M1ND_PATH,"mode":"full"})
+r = call(proc, "m1nd.ingest", {"agent_id":"lk","path":M1ND_PATH,"mode":"replace"})
 d = xt(r)
 print(f"Ingested m1nd: {d.get('node_count','?')} nodes, {d.get('edge_count','?')} edges")
 GEN_AFTER_INGEST_1 = d.get("graph_generation", d.get("generation", "?"))
@@ -84,14 +86,14 @@ sec("UC1: Lock Before Refactoring — Ingest Change — See Diff")
 # ============================================================================
 
 # Start a perspective to anchor the lock
-r = call(proc, "m1nd.perspective.start", {"agent_id":"refactor","query":"McpServer"})
+r = call(proc, "m1nd.perspective.start", {"agent_id":"refactor","query":"server"})
 d = xt(r)
 print(f"  Perspective: {d.get('perspective_id')} focus={d.get('focus_node')}")
 
 # Lock the server node
-r = call(proc, "m1nd.lock.create", {"agent_id":"refactor","scope":"node","root_nodes":["McpServer"]})
+r = call(proc, "m1nd.lock.create", {"agent_id":"refactor","scope":"node","root_nodes":["server"]})
 d = xt(r)
-ok("lock.create on McpServer", isinstance(d, dict) and d.get("lock_id") is not None, str(d)[:200])
+ok("lock.create on server", isinstance(d, dict) and d.get("lock_id") is not None, str(d)[:200])
 lock_id = d.get("lock_id","") if isinstance(d, dict) else ""
 baseline_nodes = d.get("baseline_nodes", 0) if isinstance(d, dict) else 0
 baseline_edges = d.get("baseline_edges", 0) if isinstance(d, dict) else 0
@@ -111,7 +113,7 @@ print(f"  Pre-change diff: {json.dumps(d.get('diff',{}))[:150]}" if isinstance(d
 
 # Now RE-INGEST the same codebase (simulates code change + ingest cycle)
 print("  Re-ingesting codebase (simulate code change)...")
-r = call(proc, "m1nd.ingest", {"agent_id":"refactor","path":M1ND_PATH,"mode":"full"})
+r = call(proc, "m1nd.ingest", {"agent_id":"refactor","path":M1ND_PATH,"mode":"replace"})
 d2 = xt(r)
 print(f"  Re-ingested: {d2.get('node_count','?')} nodes, gen={d2.get('graph_generation', d2.get('generation','?'))}")
 
@@ -154,10 +156,10 @@ sec("UC2: Subgraph Lock — BFS Radius")
 # Lock a subgraph centered on a node with radius 2
 # ============================================================================
 
-r = call(proc, "m1nd.perspective.start", {"agent_id":"sub","query":"server"})
+r = call(proc, "m1nd.perspective.start", {"agent_id":"sub","query":"lock"})
 d = xt(r)
 
-r = call(proc, "m1nd.lock.create", {"agent_id":"sub","scope":"subgraph","root_nodes":["server"],"radius":2})
+r = call(proc, "m1nd.lock.create", {"agent_id":"sub","scope":"subgraph","root_nodes":["lock_handlers"],"radius":2})
 d = xt(r)
 if isinstance(d, dict) and d.get("lock_id"):
     ok("subgraph lock created", True)
@@ -273,10 +275,10 @@ sec("UC6: Lock + Watch + Real Mutation Detection")
 # Lock a region, learn (Hebbian feedback), check if lock detects plasticity change
 # ============================================================================
 
-r = call(proc, "m1nd.perspective.start", {"agent_id":"mut","query":"Graph"})
+r = call(proc, "m1nd.perspective.start", {"agent_id":"mut","query":"perspective"})
 d = xt(r)
 
-r = call(proc, "m1nd.lock.create", {"agent_id":"mut","scope":"node","root_nodes":["Graph"]})
+r = call(proc, "m1nd.lock.create", {"agent_id":"mut","scope":"node","root_nodes":["perspective_handlers"]})
 d = xt(r)
 mut_lock = d.get("lock_id","") if isinstance(d, dict) else ""
 print(f"  Lock: {mut_lock}")
@@ -285,12 +287,12 @@ r = call(proc, "m1nd.lock.watch", {"agent_id":"mut","lock_id":mut_lock,"strategy
 
 # Run m1nd.learn (Hebbian feedback) — this changes plasticity weights
 # Needs node_ids (actual external IDs from the graph)
-r = call(proc, "m1nd.activate", {"agent_id":"mut","query":"Graph","top_k":5})
+r = call(proc, "m1nd.activate", {"agent_id":"mut","query":"perspective","top_k":5})
 act = xt(r)
 node_ids = [n.get("node_id","") for n in act.get("activated",[])][:3] if isinstance(act, dict) else []
 print(f"  Activated node_ids for learn: {node_ids[:3]}")
 
-r = call(proc, "m1nd.learn", {"agent_id":"mut","query":"Graph","feedback":"correct","node_ids":node_ids})
+r = call(proc, "m1nd.learn", {"agent_id":"mut","query":"perspective","feedback":"correct","node_ids":node_ids})
 d_learn = xt(r)
 print(f"  Learn result: {str(d_learn)[:150]}")
 
@@ -322,17 +324,17 @@ sec("UC7: Lock on Large Codebase (Backend)")
 
 print("  Ingesting full backend...")
 t0 = time.time()
-r = call(proc, "m1nd.ingest", {"agent_id":"big","path":BACKEND_PATH,"mode":"full"})
+r = call(proc, "m1nd.ingest", {"agent_id":"big","path":BACKEND_PATH,"mode":"replace"})
 d = xt(r)
 elapsed = time.time() - t0
 print(f"  Backend: {d.get('node_count','?')} nodes, {d.get('edge_count','?')} edges in {elapsed:.1f}s")
 
-r = call(proc, "m1nd.perspective.start", {"agent_id":"big","query":"chat_handler"})
+r = call(proc, "m1nd.perspective.start", {"agent_id":"big","query":"server"})
 d = xt(r)
-print(f"  Perspective on chat_handler: focus={d.get('focus_node','?')}")
+print(f"  Perspective on server: focus={d.get('focus_node','?')}")
 
-# Lock subgraph around chat_handler with radius 2
-r = call(proc, "m1nd.lock.create", {"agent_id":"big","scope":"subgraph","root_nodes":["chat_handler"],"radius":2})
+# Lock subgraph around the server with radius 2
+r = call(proc, "m1nd.lock.create", {"agent_id":"big","scope":"subgraph","root_nodes":["server"],"radius":2})
 d = xt(r)
 if isinstance(d, dict) and d.get("lock_id"):
     ok("large codebase lock", True)

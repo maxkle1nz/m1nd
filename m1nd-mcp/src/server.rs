@@ -160,6 +160,18 @@ fn write_response<W: Write>(
     writer.flush()
 }
 
+fn normalize_dispatch_tool_name(tool_name: &str) -> String {
+    let mut normalized = tool_name.strip_prefix("m1nd.").unwrap_or(tool_name);
+    normalized = normalized.strip_prefix("m1nd_").unwrap_or(normalized);
+
+    let normalized = normalized.replace('.', "_");
+    if normalized == "status" {
+        "health".to_string()
+    } else {
+        normalized
+    }
+}
+
 // ---------------------------------------------------------------------------
 // McpConfig — server configuration
 // Replaces: 03-MCP Section 1.2 initialization config
@@ -1278,7 +1290,8 @@ pub fn tool_schemas() -> serde_json::Value {
 // Zero duplication: McpServer::dispatch_tool() delegates to these.
 // ---------------------------------------------------------------------------
 
-/// Dispatch a tool call by name. Normalizes underscores to dots.
+/// Dispatch a tool call by name. Accepts canonical names plus `m1nd.*` and
+/// `m1nd_*` aliases, while preserving the canonical registry surface.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
 /// v0.4.0: wraps all responses with _m1nd metadata, tracks savings.
@@ -1287,7 +1300,7 @@ pub fn dispatch_tool(
     tool_name: &str,
     params: &serde_json::Value,
 ) -> M1ndResult<serde_json::Value> {
-    let normalized = tool_name.to_string();
+    let normalized = normalize_dispatch_tool_name(tool_name);
     let start = std::time::Instant::now();
 
     // Extract agent_id for tracking
@@ -2149,5 +2162,43 @@ impl McpServer {
         params: &serde_json::Value,
     ) -> M1ndResult<serde_json::Value> {
         dispatch_tool(&mut self.state, tool_name, params)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_dispatch_tool_name;
+
+    #[test]
+    fn normalizes_m1nd_aliases_to_canonical_tool_names() {
+        let cases = [
+            ("activate", "activate"),
+            ("m1nd.ingest", "ingest"),
+            ("m1nd_ingest", "ingest"),
+            ("m1nd.perspective.start", "perspective_start"),
+            ("m1nd_perspective.start", "perspective_start"),
+            ("m1nd.status", "health"),
+            ("status", "health"),
+            ("m1nd.health", "health"),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(normalize_dispatch_tool_name(input), expected);
+        }
+    }
+
+    #[test]
+    fn preserves_existing_canonical_and_nested_tool_names() {
+        let cases = [
+            ("health", "health"),
+            ("perspective_follow", "perspective_follow"),
+            ("trail_save", "trail_save"),
+            ("surgical_context_v2", "surgical_context_v2"),
+            ("m1nd.surgical.context.v2", "surgical_context_v2"),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(normalize_dispatch_tool_name(input), expected);
+        }
     }
 }

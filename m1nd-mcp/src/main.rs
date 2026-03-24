@@ -75,6 +75,7 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         .as_ref()
         .map(PathBuf::from)
         .or_else(|| std::env::var("M1ND_GRAPH_SOURCE").ok().map(PathBuf::from))
+        .or_else(|| std::env::var("GRAPH_SNAPSHOT_PATH").ok().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("./graph_snapshot.json"));
 
     let plasticity_state = cli
@@ -83,6 +84,11 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         .map(PathBuf::from)
         .or_else(|| {
             std::env::var("M1ND_PLASTICITY_STATE")
+                .ok()
+                .map(PathBuf::from)
+        })
+        .or_else(|| {
+            std::env::var("PLASTICITY_STATE_PATH")
                 .ok()
                 .map(PathBuf::from)
         })

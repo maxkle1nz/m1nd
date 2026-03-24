@@ -109,7 +109,7 @@ fi
 
 # --- Step 6: Test activate + subgraph ---
 echo "[6/6] Testing tool endpoints..."
-ACTIVATE=$(curl -sf -X POST "http://localhost:$PORT/api/tools/m1nd.activate" \
+ACTIVATE=$(curl -sf -X POST "http://localhost:$PORT/api/tools/activate" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"test","query":"test","top_k":3}' 2>/dev/null || echo "")
 if echo "$ACTIVATE" | grep -q "result"; then

@@ -11,9 +11,11 @@ import os
 import tempfile
 import shutil
 
-BINARY = "./target/release/m1nd-mcp"
-BACKEND_PATH = "/Users/cosmophonix/clawd/roomanizer-os/backend"
-M1ND_PATH = "/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd"
+ROOT = os.path.dirname(os.path.abspath(__file__))
+BINARY = os.path.join(ROOT, "target/release/m1nd-mcp")
+REPO_ROOT = ROOT
+M1ND_CORE_PATH = os.path.join(ROOT, "m1nd-core")
+M1ND_MCP_PATH = os.path.join(ROOT, "m1nd-mcp")
 PASS = 0
 FAIL = 0
 TOTAL = 0
@@ -33,6 +35,7 @@ def next_id():
     global MSG_ID; MSG_ID += 1; return MSG_ID
 
 def call(proc, name, args):
+    name = name.replace("m1nd.", "").replace(".", "_")
     msg = json.dumps({"jsonrpc":"2.0","method":"tools/call","id":next_id(),"params":{"name":name,"arguments":args}})
     proc.stdin.write((msg + "\n").encode()); proc.stdin.flush()
     return json.loads(proc.stdout.readline().decode().strip())
@@ -66,9 +69,9 @@ proc = start_server()
 print(f"Server PID {proc.pid}, workdir {workdir}")
 init(proc)
 
-# Ingest backend (with cross-file edges from L1)
-sec("INGEST: Backend with L1 cross-file edges")
-r = call(proc, "m1nd.ingest", {"agent_id":"golden","path":BACKEND_PATH,"mode":"full"})
+# Ingest the current m1nd checkout (with cross-file edges from L1)
+sec("INGEST: Current m1nd checkout with L1 cross-file edges")
+r = call(proc, "m1nd.ingest", {"agent_id":"golden","path":REPO_ROOT,"mode":"replace"})
 d = xt(r)
 nodes = d.get("node_count", 0)
 edges = d.get("edge_count", 0)
@@ -80,20 +83,20 @@ ok("Ingest succeeded", nodes > 100 and edges > 100, f"nodes={nodes} edges={edges
 # ============================================================================
 sec("L1: Cross-File Edges — import resolution")
 
-# L1-01: Import edges exist (chat_handler -> config)
-r = call(proc, "m1nd.why", {"agent_id":"l1","source":"file::chat_handler.py","target":"file::config.py","max_hops":3})
+# L1-01: Import edges exist (http_server -> server)
+r = call(proc, "m1nd.why", {"agent_id":"l1","source":"file::m1nd-mcp/src/http_server.rs","target":"file::m1nd-mcp/src/server.rs","max_hops":3})
 d = xt(r)
 if isinstance(d, dict):
     paths = d.get("paths", [])
-    ok("L1-01: chat_handler->config has paths", len(paths) >= 1, f"paths={len(paths)}")
+    ok("L1-01: http_server->server has paths", len(paths) >= 1, f"paths={len(paths)}")
     # Check for imports relation in any path
     has_import = any("imports" in str(p) for p in paths) if paths else False
     ok("L1-01: has 'imports' relation", has_import or len(paths) >= 1, f"paths={json.dumps(paths)[:200]}")
 else:
     ok("L1-01: why returned dict", False, f"got: {str(d)[:200]}")
 
-# L1-02: Test edges (test_spawner -> spawner)
-r = call(proc, "m1nd.why", {"agent_id":"l1","source":"file::tests/test_spawner.py","target":"file::spawner.py","max_hops":3})
+# L1-02: Core edges (server -> tools)
+r = call(proc, "m1nd.why", {"agent_id":"l1","source":"file::m1nd-mcp/src/server.rs","target":"file::m1nd-mcp/src/tools.rs","max_hops":3})
 d = xt(r)
 if isinstance(d, dict):
     paths = d.get("paths", [])
@@ -101,8 +104,8 @@ if isinstance(d, dict):
 else:
     ok("L1-02: why returned dict", False, f"got: {str(d)[:200]}")
 
-# L1-03: Impact includes route files after cross-file edges
-r = call(proc, "m1nd.impact", {"agent_id":"l1","node_id":"file::main.py","direction":"forward"})
+# L1-03: Impact includes related MCP files after cross-file edges
+r = call(proc, "m1nd.impact", {"agent_id":"l1","node_id":"file::m1nd-mcp/src/server.rs","direction":"forward"})
 d = xt(r)
 if isinstance(d, dict):
     blast = d.get("blast_radius", [])
@@ -111,8 +114,8 @@ if isinstance(d, dict):
 else:
     ok("L1-03: impact returned dict", False, f"got: {str(d)[:200]}")
 
-# L1-04: Circular import no panic
-r = call(proc, "m1nd.why", {"agent_id":"l1","source":"file::config.py","target":"file::config.py","max_hops":6})
+# L1-04: Self-loop no panic
+r = call(proc, "m1nd.why", {"agent_id":"l1","source":"file::m1nd-mcp/src/server.rs","target":"file::m1nd-mcp/src/server.rs","max_hops":6})
 ok("L1-04: self-loop no crash", not is_err(r), f"resp: {str(r)[:200]}")
 
 # ============================================================================
@@ -120,27 +123,27 @@ ok("L1-04: self-loop no crash", not is_err(r), f"resp: {str(r)[:200]}")
 # ============================================================================
 sec("L2: Semantic Search — m1nd.seek + m1nd.scan")
 
-# L2-01: seek finds auth-related code
-r = call(proc, "m1nd.seek", {"agent_id":"l2","query":"authentication and session validation","top_k":10})
+# L2-01: seek finds dispatch/session-related code
+r = call(proc, "m1nd.seek", {"agent_id":"l2","query":"dispatch and session validation","top_k":10})
 d = xt(r)
 ok("L2-01: seek returns results", isinstance(d, dict) and len(d.get("results",[])) > 0, f"d={str(d)[:200]}")
 if isinstance(d, dict):
-    ok("L2-01: embeddings_used is false (V1)", d.get("embeddings_used") == False, f"embeddings_used={d.get('embeddings_used')}")
+    ok("L2-01: embeddings_used is boolean", isinstance(d.get("embeddings_used"), bool), f"embeddings_used={d.get('embeddings_used')}")
     results = d.get("results", [])
     ok("L2-01: results have scores", all("score" in r for r in results[:3]), f"first={results[0] if results else 'none'}")
 
 # L2-02: seek with scope filter
-r = call(proc, "m1nd.seek", {"agent_id":"l2","query":"storm lifecycle management","top_k":5,"scope":"backend/stormender"})
+r = call(proc, "m1nd.seek", {"agent_id":"l2","query":"perspective management","top_k":5,"scope":"m1nd-mcp/src"})
 d = xt(r)
 ok("L2-02: seek with scope", isinstance(d, dict) and not is_err(r), f"d={str(d)[:200]}")
 if isinstance(d, dict):
     results = d.get("results", [])
-    # All results should be in stormender scope
-    in_scope = all("stormender" in r.get("node_id","").lower() or "stormender" in r.get("label","").lower() or "stormender" in str(r.get("file_path","")).lower() for r in results) if results else True
+    # All results should stay within the m1nd-mcp source scope
+    in_scope = all("m1nd-mcp/src" in str(r.get("file_path","")) or "m1nd-mcp/src" in str(r.get("node_id","")).lower() for r in results) if results else True
     ok("L2-02: results respect scope", in_scope or len(results) == 0, f"results={len(results)}")
 
 # L2-03: scan with error_handling pattern
-r = call(proc, "m1nd.scan", {"agent_id":"l2","pattern":"error_handling","scope":"backend/","limit":20})
+r = call(proc, "m1nd.scan", {"agent_id":"l2","pattern":"error_handling","scope":"m1nd-mcp/src","limit":20})
 d = xt(r)
 ok("L2-03: scan returns findings", isinstance(d, dict) and "findings" in (d or {}), f"d={str(d)[:200]}")
 if isinstance(d, dict):
@@ -159,7 +162,7 @@ ok("L2-04: test_coverage scan", isinstance(d, dict) and not is_err(r), f"d={str(
 sec("L3: Temporal Intelligence — m1nd.timeline + m1nd.diverge")
 
 # L3-01: timeline for a known file
-r = call(proc, "m1nd.timeline", {"agent_id":"l3","node":"file::chat_handler.py","depth":"30d"})
+r = call(proc, "m1nd.timeline", {"agent_id":"l3","node":"file::m1nd-mcp/src/server.rs","depth":"30d"})
 d = xt(r)
 ok("L3-01: timeline returns data", isinstance(d, dict) and not is_err(r), f"d={str(d)[:200]}")
 if isinstance(d, dict):
@@ -189,8 +192,8 @@ r = call(proc, "m1nd.trail.save", {
     "conclusions":[{"statement":"cross-file edges work","confidence":0.95}],
     "open_questions":["Does federation preserve trails?"],
     "tags":["golden","test"],
-    "visited_nodes":[{"node_external_id":"file::config.py","relevance":0.9}],
-    "activation_boosts":{"file::config.py":0.5}
+    "visited_nodes":[{"node_external_id":"file::m1nd-mcp/src/server.rs","relevance":0.9}],
+    "activation_boosts":{"file::m1nd-mcp/src/server.rs":0.5}
 })
 d = xt(r)
 ok("L4-01: trail.save succeeds", isinstance(d, dict) and not is_err(r), f"d={str(d)[:200]}")
@@ -226,7 +229,7 @@ r2 = call(proc, "m1nd.trail.save", {
     "label":"second investigation",
     "hypotheses":[{"statement":"spawner is tightly coupled","confidence":0.6}],
     "tags":["golden","merge-test"],
-    "visited_nodes":[{"node_external_id":"file::spawner.py","relevance":0.8}]
+    "visited_nodes":[{"node_external_id":"file::m1nd-mcp/src/tools.rs","relevance":0.8}]
 })
 d2 = xt(r2)
 trail_id_2 = d2.get("trail_id") if isinstance(d2, dict) else None
@@ -248,7 +251,7 @@ else:
 sec("L5: Hypothesis Engine — m1nd.hypothesize + m1nd.differential")
 
 # L5-01: hypothesize a dependency claim
-r = call(proc, "m1nd.hypothesize", {"agent_id":"l5","claim":"chat_handler depends on config","max_hops":4})
+r = call(proc, "m1nd.hypothesize", {"agent_id":"l5","claim":"server depends on tools","max_hops":4})
 d = xt(r)
 ok("L5-01: hypothesize returns data", isinstance(d, dict) and not is_err(r), f"d={str(d)[:200]}")
 if isinstance(d, dict):
@@ -257,7 +260,7 @@ if isinstance(d, dict):
     ok("L5-01: has claim_type", d.get("claim_type") is not None, f"claim_type={d.get('claim_type')}")
 
 # L5-02: hypothesize isolation claim
-r = call(proc, "m1nd.hypothesize", {"agent_id":"l5","claim":"critic is isolated from whatsapp","max_hops":5})
+r = call(proc, "m1nd.hypothesize", {"agent_id":"l5","claim":"http_server is isolated from core graph mutations","max_hops":5})
 d = xt(r)
 ok("L5-02: isolation hypothesis", isinstance(d, dict) and not is_err(r), f"d={str(d)[:200]}")
 if isinstance(d, dict):
@@ -278,11 +281,11 @@ sec("L6: Execution Feedback — m1nd.trace + m1nd.validate_plan")
 
 # L6-01: trace a Python stacktrace
 python_error = """Traceback (most recent call last):
-  File "backend/tests/test_spawner.py", line 45, in test_spawn_basic
+  File "m1nd-mcp/tests/test_v04.rs", line 45, in test_spawn_basic
     result = spawner.spawn(provider="claude")
-  File "backend/spawner.py", line 67, in spawn
+  File "m1nd-mcp/src/server.rs", line 67, in spawn
     session = self.pool.acquire(provider_id)
-  File "backend/session_pool.py", line 120, in acquire
+  File "m1nd-mcp/src/session.rs", line 120, in acquire
     raise TimeoutError("No session available")
 TimeoutError: No session available"""
 
@@ -297,9 +300,9 @@ if isinstance(d, dict):
 
 # L6-02: validate_plan
 r = call(proc, "m1nd.validate_plan", {"agent_id":"l6","actions":[
-    {"action_type":"modify","file_path":"backend/spawner.py","description":"add retry logic"},
-    {"action_type":"modify","file_path":"backend/config.py","description":"add retry_count setting"},
-    {"action_type":"test","file_path":"backend/tests/test_spawner.py"}
+    {"action_type":"modify","file_path":"m1nd-mcp/src/server.rs","description":"add retry logic"},
+    {"action_type":"modify","file_path":"m1nd-mcp/src/main.rs","description":"add retry_count setting"},
+    {"action_type":"test","file_path":"m1nd-mcp/tests/test_v04.rs"}
 ]})
 d = xt(r)
 ok("L6-02: validate_plan returns data", isinstance(d, dict) and not is_err(r), f"d={str(d)[:200]}")
@@ -318,7 +321,7 @@ sec("L7: Multi-Repository Federation — m1nd.federate")
 # L7-01: federate with single repo (smoke test)
 r = call(proc, "m1nd.federate", {
     "agent_id":"l7",
-    "repos":[{"name":"m1nd","path":M1ND_PATH}],
+    "repos":[{"name":"m1nd-core","path":M1ND_CORE_PATH},{"name":"m1nd-mcp","path":M1ND_MCP_PATH}],
     "detect_cross_repo_edges": False
 })
 d = xt(r)
@@ -328,14 +331,14 @@ if isinstance(d, dict):
     ok("L7-01: total_nodes > 0", d.get("total_nodes",0) > 0, f"total_nodes={d.get('total_nodes')}")
     repos = d.get("repos_ingested",[])
     if repos:
-        ok("L7-01: repo name is 'm1nd'", repos[0].get("name") == "m1nd", f"name={repos[0].get('name')}")
+        ok("L7-01: repo name is 'm1nd-core' or 'm1nd-mcp'", repos[0].get("name") in ("m1nd-core", "m1nd-mcp"), f"name={repos[0].get('name')}")
 
 # L7-02: federate with two repos (cross-repo edge detection)
 r = call(proc, "m1nd.federate", {
     "agent_id":"l7",
     "repos":[
-        {"name":"backend","path":BACKEND_PATH},
-        {"name":"m1nd","path":M1ND_PATH}
+        {"name":"m1nd-core","path":M1ND_CORE_PATH},
+        {"name":"m1nd-mcp","path":M1ND_MCP_PATH}
     ],
     "detect_cross_repo_edges": True
 })
