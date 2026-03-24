@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 fn surgical_dampened_trust_factor(raw_factor: f32) -> f32 {
     1.0 + (raw_factor - 1.0) * 0.2
@@ -2143,6 +2143,13 @@ pub fn handle_apply_batch(
     input: surgical::ApplyBatchInput,
 ) -> M1ndResult<surgical::ApplyBatchOutput> {
     let start = Instant::now();
+    let batch_id = format!(
+        "batch-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or(0)
+    );
     let mut phases: Vec<surgical::ApplyBatchPhase> = Vec::new();
     let mut progress_events: Vec<surgical::ApplyBatchProgressEvent> = Vec::new();
     let phase_count = 5usize;
@@ -2151,6 +2158,7 @@ pub fn handle_apply_batch(
     // Step 1: Empty edits = fast-path no-op
     if input.edits.is_empty() {
         let noop_event = surgical::ApplyBatchProgressEvent {
+            batch_id: batch_id.clone(),
             event_type: "batch_completed".into(),
             phase: "done".into(),
             phase_index: 0,
@@ -2162,6 +2170,7 @@ pub fn handle_apply_batch(
         };
         emit_apply_batch_progress(state, &noop_event);
         return Ok(surgical::ApplyBatchOutput {
+            batch_id,
             all_succeeded: true,
             files_written: 0,
             files_total: 0,
@@ -2221,6 +2230,7 @@ pub fn handle_apply_batch(
         message: format!("Validated {} edit targets.", input.edits.len()),
     });
     let validate_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
         event_type: "phase_completed".into(),
         phase: "validate".into(),
         phase_index: 0,
@@ -2454,6 +2464,7 @@ pub fn handle_apply_batch(
         ),
     });
     let write_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
         event_type: "phase_completed".into(),
         phase: "write".into(),
         phase_index: 1,
@@ -2540,6 +2551,7 @@ pub fn handle_apply_batch(
         },
     });
     let reingest_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
         event_type: "phase_completed".into(),
         phase: "reingest".into(),
         phase_index: 2,
@@ -3090,6 +3102,7 @@ pub fn handle_apply_batch(
         },
     });
     let verify_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
         event_type: "phase_completed".into(),
         phase: "verify".into(),
         phase_index: 3,
@@ -3161,6 +3174,7 @@ pub fn handle_apply_batch(
         message: status_message.clone(),
     });
     let done_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
         event_type: "batch_completed".into(),
         phase: "done".into(),
         phase_index: 4,
@@ -3177,6 +3191,7 @@ pub fn handle_apply_batch(
         apply_batch_next_step(all_succeeded, reingested, verification.as_ref(), &results);
 
     Ok(surgical::ApplyBatchOutput {
+        batch_id,
         all_succeeded,
         files_written,
         files_total: input.edits.len(),

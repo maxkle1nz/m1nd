@@ -101,6 +101,7 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         .sum();
 
     ApplyBatchOutput {
+        batch_id: "batch-test".into(),
         all_succeeded: files_written == files_total,
         files_written,
         files_total,
@@ -120,6 +121,7 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         progress_pct: 100.0,
         next_phase: None,
         progress_events: vec![ApplyBatchProgressEvent {
+            batch_id: "batch-test".into(),
             event_type: "batch_completed".into(),
             phase: "done".into(),
             phase_index: 4,
@@ -857,6 +859,7 @@ fn test_batch_empty_edits_noop() {
 
     // Simulate no-op output
     let out = ApplyBatchOutput {
+        batch_id: "batch-noop".into(),
         all_succeeded: true,
         files_written: 0,
         files_total: 0,
@@ -876,6 +879,7 @@ fn test_batch_empty_edits_noop() {
         progress_pct: 100.0,
         next_phase: None,
         progress_events: vec![ApplyBatchProgressEvent {
+            batch_id: "batch-noop".into(),
             event_type: "batch_completed".into(),
             phase: "done".into(),
             phase_index: 0,

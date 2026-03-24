@@ -68,6 +68,7 @@ fn emit_followup_events(
                 "tool": tool_name,
                 "source": source,
                 "agent_id": agent_id,
+                "batch_id": progress_event.get("batch_id").cloned().unwrap_or(serde_json::Value::Null),
                 "progress": progress_event,
                 "timestamp_ms": now_ms(),
             }),
@@ -92,6 +93,7 @@ fn apply_batch_progress_sink(
                 "tool": "apply_batch",
                 "source": source,
                 "agent_id": agent_id,
+                "batch_id": progress_event.batch_id,
                 "progress": progress_event,
                 "timestamp_ms": now_ms(),
             }),
@@ -1075,12 +1077,14 @@ mod tests {
         let output = serde_json::json!({
             "progress_events": [
                 {
+                    "batch_id": "batch-1",
                     "event_type": "phase_completed",
                     "phase": "validate",
                     "phase_index": 0,
                     "progress_pct": 20.0
                 },
                 {
+                    "batch_id": "batch-1",
                     "event_type": "batch_completed",
                     "phase": "done",
                     "phase_index": 4,
@@ -1095,6 +1099,8 @@ mod tests {
         let second = rx.try_recv().expect("second progress event");
         assert_eq!(first.event_type, "apply_batch_progress");
         assert_eq!(second.event_type, "apply_batch_progress");
+        assert_eq!(first.data["batch_id"].as_str(), Some("batch-1"));
+        assert_eq!(second.data["batch_id"].as_str(), Some("batch-1"));
         assert_eq!(first.data["progress"]["phase"].as_str(), Some("validate"));
         assert_eq!(second.data["progress"]["phase"].as_str(), Some("done"));
     }

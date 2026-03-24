@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T23:09:45.617796+00:00",
+  "recorded_at": "2026-03-24T23:12:35.259504+00:00",
   "scenario_id": "warm_structural_proof_apply_batch",
   "scenario_name": "Warm structural proof around apply_batch risky verification",
   "scenario_tags": [
@@ -41,6 +41,7 @@
     },
     {
       "tool_name": "m1nd.apply_batch",
+      "batch_id": "batch-benchmark-live-1",
       "target": "m1nd-mcp/src/surgical_handlers.rs",
       "elapsed_ms": 165.0,
       "payload_chars": 220,
@@ -56,6 +57,7 @@
       "next_tool_used": "heuristics_surface",
       "progress_events": [
         {
+          "batch_id": "batch-benchmark-live-1",
           "event_type": "phase_completed",
           "progress_delivery": "live",
           "phase": "validate",
@@ -67,6 +69,7 @@
           "message": "Validation completed."
         },
         {
+          "batch_id": "batch-benchmark-live-1",
           "event_type": "phase_completed",
           "progress_delivery": "live",
           "phase": "write",
@@ -78,6 +81,7 @@
           "message": "Batch write completed."
         },
         {
+          "batch_id": "batch-benchmark-live-1",
           "event_type": "phase_completed",
           "progress_delivery": "live",
           "phase": "reingest",
@@ -89,6 +93,7 @@
           "message": "Re-ingest completed."
         },
         {
+          "batch_id": "batch-benchmark-live-1",
           "event_type": "phase_completed",
           "progress_delivery": "live",
           "phase": "verify",
@@ -100,6 +105,7 @@
           "message": "Verification completed."
         },
         {
+          "batch_id": "batch-benchmark-live-1",
           "event_type": "batch_completed",
           "progress_delivery": "live",
           "phase": "done",

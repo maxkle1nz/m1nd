@@ -465,7 +465,7 @@
       },
       "m1nd_warm": {
         "token_proxy": 170,
-        "execution_origin": null,
+        "execution_origin": "live",
         "time_to_first_good_answer_ms": 115.0,
         "time_to_full_proof_ms": 165.0,
         "files_opened": 2,

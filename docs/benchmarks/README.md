@@ -60,6 +60,7 @@ The `--events` file is a JSON array. Each item can contain:
 - `next_step_hint`
 - `proof_hint`
 - `proof_state`
+- `batch_id`
 - `next_tool_used`
 - `status_message`
 - `phases`
@@ -96,6 +97,8 @@ Current states:
 For long-running write scenarios such as `apply_batch`, benchmark the returned
 `status_message`, coarse progress fields, `phases`, and `progress_events` too.
 This keeps UX/progress work measurable instead of leaving it as a subjective shell/UI impression.
+When available, capture `batch_id` too so live SSE progress, replay, and the
+final result can be tied back to the same execution.
 
 When progress is present, record how it arrived:
 

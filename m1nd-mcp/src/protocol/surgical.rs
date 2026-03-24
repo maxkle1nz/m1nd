@@ -421,6 +421,8 @@ pub struct ApplyBatchInput {
 /// Output for m1nd.apply_batch.
 #[derive(Clone, Debug, Serialize)]
 pub struct ApplyBatchOutput {
+    /// Stable identifier for correlating final output with live progress events.
+    pub batch_id: String,
     /// True when all files were written successfully.
     pub all_succeeded: bool,
     /// Number of files successfully written.
@@ -500,6 +502,8 @@ pub struct ApplyBatchPhase {
 /// A streaming-friendly progress event for apply_batch.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApplyBatchProgressEvent {
+    /// Stable identifier for correlating this event with the parent batch run.
+    pub batch_id: String,
     /// Event type: phase_completed or batch_completed.
     pub event_type: String,
     /// Phase key this event belongs to.

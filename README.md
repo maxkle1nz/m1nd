@@ -524,6 +524,7 @@ When `verification.high_impact_files` contains heuristic hotspots, the report ca
 
 `apply_batch` now also returns:
 
+- `batch_id` so the final result can be correlated with live or replayed progress events
 - `proof_state` plus `next_suggested_tool`, `next_suggested_target`, and `next_step_hint` so the batch can hand off the next review or verification move
 - `status_message` for a single human-readable summary
 - coarse progress fields: `active_phase`, `completed_phase_count`, `phase_count`, `remaining_phase_count`, `progress_pct`, and `next_phase`
