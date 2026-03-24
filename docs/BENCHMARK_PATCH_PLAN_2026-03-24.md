@@ -248,6 +248,28 @@ Expected impact:
 Acceptance criteria:
 - real implementation seams outrank fixture-like artifacts for direct seam queries
 
+### 12. Improve `apply_batch` progress UX during long writes
+
+Problem:
+- `apply_batch` can feel opaque during larger writes because the user sees one big batch land without intermediate state
+- even when the backend work is correct, the waiting experience feels confusing and untrustworthy
+
+Likely files:
+- `m1nd-mcp/src/surgical_handlers.rs`
+- `m1nd-mcp/src/protocol/surgical.rs`
+- any client/UI surfaces that render batch execution state
+
+Expected impact:
+- better user trust during long-running batch writes
+- fewer “is it stuck?” moments
+- clearer mental model of what the system is doing before verification completes
+
+Acceptance criteria:
+- long `apply_batch` executions can surface stepwise progress such as prepare, write, re-ingest, verify
+- the user can see which file or phase is currently being processed
+- partial progress updates do not require waiting for the full batch response to finish
+- the final response still remains compact and authoritative after completion
+
 ## Suggested Execution Order
 
 1. `timeline` fidelity + canonical identity normalization
@@ -256,6 +278,7 @@ Acceptance criteria:
 4. `surgical_context_v2` proof-focused mode
 5. `seek` ranking improvements
 6. `trail_resume` ranking and continuity follow-up improvements
+7. `apply_batch` progress and user-facing execution feedback
 
 ## Suggested Benchmark Gates
 
