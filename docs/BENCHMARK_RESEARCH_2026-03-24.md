@@ -351,14 +351,18 @@ Implemented so far:
 - `surgical_context_v2` now has an opt-in `proof_focused` mode for smaller connected proof sets
 - `trail_save` now auto-derives structural boosts from visited nodes, hypotheses, and conclusions
 - `trail_resume` now reactivates that derived structural memory without requiring explicit manual boosts
+- `trail_resume` now returns `reactivated_node_ids` and `resume_hints` so the next useful move is explicit
 - literal search now demotes fixture-like hardcoded identity noise in continuity-style queries
 - a first benchmark harness now exists under `scripts/benchmark/run_benchmark.py` with scenario and run JSON support
+- the harness now records workflow metadata such as `false_start_count`, `tests_identified_before_edit`, and `workflow_notes`
+- aggregate summaries now track search-iteration, repeat-read, and false-start deltas
 
 Current implication:
 
 - the benchmark work is no longer only observational
 - the repo now contains concrete patches aimed at reducing warm-graph payload and retrieval reformulation
 - continuity is now less dependent on perfect caller-side bookkeeping
+- continuity can now propose the next continuation seam instead of only restoring graph state
 - continuity lookup should surface fewer false seams from test fixtures and mock paths
 - future warm-graph runs can now be recorded in a repeatable JSON format instead of notes-only
 - the next benchmark pass should explicitly measure `proof_focused` against the previous `surgical_context_v2` behavior
@@ -374,22 +378,45 @@ Current harness-backed comparison set:
 - `warm_continuity_boot_memory`
 - `warm_proof_focused_edit_prep`
 - `warm_structural_proof_apply_batch`
+- `warm_continuity_actionable_resume`
 
 Current aggregate from those recorded runs:
 
-- manual token proxy: `3411`
-- warm `m1nd` token proxy: `1626`
-- aggregate token savings: `52.33%`
-- manual first good answer total: `215.315ms`
-- warm `m1nd` first good answer total: `5836.0ms`
+- manual token proxy: `4751`
+- warm `m1nd` token proxy: `1876`
+- aggregate token savings: `60.51%`
+- manual first good answer total: `240.315ms`
+- warm `m1nd` first good answer total: `5840.6ms`
+- manual search iterations: `6`
+- warm `m1nd` search iterations: `4`
+- manual repeat reads: `9`
+- warm `m1nd` repeat reads: `7`
+- manual false starts: `1`
+- warm `m1nd` false starts: `0`
 
 Interpretation:
 
 - the harness now confirms meaningful context compression across retrieval, continuity, edit-prep, and structural proof
 - the recorded time values are not yet a public speed claim
 - `proof_focused` edit prep is currently the strongest harness-backed compactness win in the corpus
-- continuity remains the main drag on first-answer latency, even after the current trail improvements
+- the new actionable continuity scenario is a strong workflow win: fewer searches, fewer rereads, and no false start before the next concrete move
+- the older `warm_continuity_boot_memory` scenario remains the main drag on first-answer latency, which keeps continuity as the top latency candidate for a future patch
 - the next useful benchmark step is to rerun continuity and semantic retrieval with stricter event capture and less synthetic timing overhead
+
+### New continuity result: actionable resume hints
+
+The newest recorded scenario tests whether `trail_resume` can reopen the next
+useful question instead of merely restoring latent graph state.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Actionable continuity resume | 1340 | 250 | 81.34% | Search iterations drop from `2` to `0`; repeat reads drop from `3` to `1`; false starts drop from `1` to `0` |
+
+Interpretation:
+
+- this is the first continuity scenario in the harness that looks like a public-quality `m1nd` win
+- the main benefit is reduced rediscovery, not a broad universal speed claim
+- this makes continuity a more defensible `m1nd` value surface for docs and release notes
 
 ### Priority 1
 

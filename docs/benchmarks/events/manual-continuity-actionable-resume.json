@@ -1,0 +1,45 @@
+[
+  {
+    "tool_name": "rg",
+    "query": "trail resume open question boot memory next step",
+    "elapsed_ms": 10.1,
+    "payload_chars": 1480,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs",
+      "m1nd-mcp/src/protocol/layers.rs",
+      "docs/BENCHMARK_RESEARCH_2026-03-24.md"
+    ],
+    "notes": "Manual pass starts by rediscovering trail surfaces and open question context."
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 8.4,
+    "payload_chars": 1780,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "Read handler to infer what trail_resume restores and where to continue."
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/protocol/layers.rs",
+    "elapsed_ms": 6.7,
+    "payload_chars": 920,
+    "opened_files": [
+      "m1nd-mcp/src/protocol/layers.rs"
+    ],
+    "notes": "Read output contract to confirm available resume fields."
+  },
+  {
+    "tool_name": "rg",
+    "query": "persist_boot_memory re-test hypothesis inspect neighborhood",
+    "elapsed_ms": 9.6,
+    "payload_chars": 1180,
+    "surfaced_files": [
+      "m1nd-mcp/src/session.rs",
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "Second search needed to turn the investigation into the next concrete move."
+  }
+]

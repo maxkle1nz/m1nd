@@ -1,0 +1,23 @@
+[
+  {
+    "tool_name": "m1nd.trail_resume",
+    "query": "resume boot memory investigation and continue from next useful question",
+    "elapsed_ms": 3.2,
+    "payload_chars": 540,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs",
+      "m1nd-mcp/src/session.rs"
+    ],
+    "notes": "Resume returns reactivated_node_ids and resume_hints, reducing rediscovery."
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/session.rs",
+    "elapsed_ms": 1.4,
+    "payload_chars": 460,
+    "opened_files": [
+      "m1nd-mcp/src/session.rs"
+    ],
+    "notes": "Single follow-up view validates the hinted continuation target."
+  }
+]

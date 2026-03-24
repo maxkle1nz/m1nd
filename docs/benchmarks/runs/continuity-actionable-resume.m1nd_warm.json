@@ -1,0 +1,58 @@
+{
+  "recorded_at": "2026-03-24T18:16:40.052970+00:00",
+  "scenario_id": "warm_continuity_actionable_resume",
+  "scenario_name": "Warm continuity resume with actionable next-step hints",
+  "scenario_tags": [
+    "warm-graph",
+    "continuity",
+    "trail-resume",
+    "resume-hints"
+  ],
+  "mode": "m1nd_warm",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 4.6,
+  "time_to_full_proof_ms": 7.2,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "trail_resume hints collapse rediscovery into one follow-up view",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.trail_resume",
+      "query": "resume boot memory investigation and continue from next useful question",
+      "elapsed_ms": 3.2,
+      "payload_chars": 540,
+      "surfaced_files": [
+        "m1nd-mcp/src/layer_handlers.rs",
+        "m1nd-mcp/src/session.rs"
+      ],
+      "notes": "Resume returns reactivated_node_ids and resume_hints, reducing rediscovery.",
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.view",
+      "target": "m1nd-mcp/src/session.rs",
+      "elapsed_ms": 1.4,
+      "payload_chars": 460,
+      "opened_files": [
+        "m1nd-mcp/src/session.rs"
+      ],
+      "notes": "Single follow-up view validates the hinted continuation target.",
+      "event_index": 2,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 2,
+  "repeat_reads": 1,
+  "search_iterations": 0,
+  "chars_surfaced": 1000,
+  "token_proxy": 250,
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "Resume a saved investigation and continue directly from the next useful question instead of rediscovering the path by hand.",
+  "expected_strength": "strong"
+}

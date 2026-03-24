@@ -29,15 +29,17 @@ Implemented on `codex/benchmark-research-and-timeline-p1`:
 - `surgical_context_v2.proof_focused` for smaller connected proof bundles
 - automatic structural boost derivation in `trail_save`
 - structural node reactivation from derived boosts in `trail_resume`
+- explicit `reactivated_node_ids` and `resume_hints` in `trail_resume`
 - literal search demotion of fixture-like hardcoded identity noise
 - initial benchmark harness with scenario/event/run JSON support
+- aggregate summary support and workflow metadata capture for false starts, test awareness, and workflow notes
 
 Still open after this pass:
 
-- expand the harness from single-run recording into aggregate summarization
 - measure the practical effect of `proof_focused` in warm-graph edit-prep scenarios
-- deepen `trail_resume` so saved investigations reopen the next useful question, not only the boosted graph state
+- validate whether the new `trail_resume` hints keep winning once timings are captured less synthetically
 - measure whether literal-search continuity now needs fewer reformulations in warm-graph runs
+- add optional public cost/time-value projections without hardcoding one provider assumption
 
 Harness status update:
 

@@ -94,7 +94,10 @@ def build_run(args):
         "time_to_full_proof_ms": args.time_to_full_proof_ms,
         "answer_quality": args.answer_quality,
         "plan_changed": args.plan_changed,
+        "false_start_count": args.false_start_count,
+        "tests_identified_before_edit": args.tests_identified_before_edit,
         "public_claim_worthy": args.public_claim_worthy,
+        "workflow_notes": args.workflow_notes,
         "notes": args.notes,
         "events": events,
         "files_opened": derived["files_opened"],
@@ -125,7 +128,10 @@ def main():
         choices=["low", "medium", "high", "very_high"],
     )
     parser.add_argument("--plan-changed", action="store_true")
+    parser.add_argument("--false-start-count", type=int, default=0)
+    parser.add_argument("--tests-identified-before-edit", type=int, default=0)
     parser.add_argument("--public-claim-worthy", action="store_true")
+    parser.add_argument("--workflow-notes", default="")
     parser.add_argument("--notes", default="")
     args = parser.parse_args()
 

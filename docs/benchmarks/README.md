@@ -14,9 +14,25 @@ python3 scripts/benchmark/run_benchmark.py \
   --time-to-first-good-answer-ms 740 \
   --time-to-full-proof-ms 1153 \
   --answer-quality high \
+  --false-start-count 0 \
+  --tests-identified-before-edit 0 \
+  --workflow-notes "one-shot retrieval, no query reformulation" \
   --public-claim-worthy \
   --output docs/benchmarks/runs/semantic-retrieval-dispatch.m1nd_warm.json
 ```
+
+Summarize a corpus with:
+
+```bash
+python3 scripts/benchmark/summarize_benchmarks.py \
+  --runs-dir docs/benchmarks/runs \
+  --output docs/benchmarks/runs/summary.json
+```
+
+Optional sensitivity inputs:
+
+- `--input-price-per-1m 5`
+- `--time-value-per-hour-usd 100`
 
 ## Event format
 
@@ -34,10 +50,19 @@ The `--events` file is a JSON array. Each item can contain:
 If `payload_chars` is omitted, the runner derives a conservative char count
 from the strings present in the event.
 
+Run-level metadata can also record:
+
+- `false_start_count`
+- `tests_identified_before_edit`
+- `workflow_notes`
+
 ## Current scenario corpus
 
 - `semantic_retrieval_dispatch.json`
 - `continuity_boot_memory.json`
+- `proof_focused_edit_prep.json`
+- `structural_proof_apply_batch.json`
+- `continuity_actionable_resume.json`
 
 These are warm-graph oriented starter scenarios for rerunning the benchmark
 work captured in `docs/BENCHMARK_RESEARCH_2026-03-24.md`.
