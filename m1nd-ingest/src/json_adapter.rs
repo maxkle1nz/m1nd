@@ -275,22 +275,28 @@ impl IngestAdapter for JsonIngestAdapter {
 mod tests {
     use super::*;
     use crate::IngestAdapter;
+    use std::fs::OpenOptions;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     /// Helper: write JSON content to a temp file and return its path.
     fn write_temp_json(content: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join("m1nd_json_test");
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(format!(
-            "test_{}.json",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(content.as_bytes()).unwrap();
-        path
+        let pid = std::process::id();
+
+        for _ in 0..32 {
+            let unique = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = dir.join(format!("test_{pid}_{unique}.json"));
+            if let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(&path) {
+                file.write_all(content.as_bytes()).unwrap();
+                return path;
+            }
+        }
+
+        panic!("failed to create unique temp json file after multiple attempts");
     }
 
     #[test]
