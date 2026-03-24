@@ -57,11 +57,16 @@ def iter_progress_entries(event):
                     "event_type": item.get("event_type"),
                     "progress_delivery": item.get("progress_delivery")
                     or event.get("progress_delivery"),
+                    "batch_id": item.get("batch_id") or event.get("batch_id"),
                     "phase": item.get("phase") or event.get("active_phase"),
                     "phase_index": item.get("phase_index"),
                     "progress_pct": item.get("progress_pct"),
                     "current_file": item.get("current_file"),
                     "next_phase": item.get("next_phase"),
+                    "proof_state": item.get("proof_state"),
+                    "next_suggested_tool": item.get("next_suggested_tool"),
+                    "next_suggested_target": item.get("next_suggested_target"),
+                    "next_step_hint": item.get("next_step_hint"),
                     "elapsed_ms": item.get("elapsed_ms"),
                     "message": item.get("message"),
                 }
@@ -77,11 +82,16 @@ def iter_progress_entries(event):
             {
                 "event_type": "snapshot",
                 "progress_delivery": event.get("progress_delivery") or "snapshot",
+                "batch_id": event.get("batch_id"),
                 "phase": active_phase,
                 "phase_index": event.get("completed_phase_count"),
                 "progress_pct": progress_pct,
                 "current_file": event.get("current_file"),
                 "next_phase": next_phase,
+                "proof_state": event.get("proof_state"),
+                "next_suggested_tool": event.get("next_suggested_tool"),
+                "next_suggested_target": event.get("next_suggested_target"),
+                "next_step_hint": event.get("next_step_hint"),
                 "elapsed_ms": event.get("elapsed_ms"),
                 "message": event.get("status_message") or event.get("notes"),
             }
@@ -108,6 +118,8 @@ def summarize_events(events):
     live_progress_events = 0
     replay_progress_events = 0
     snapshot_progress_events = 0
+    progress_guidance_events = 0
+    progress_guidance_followed = 0
 
     for event in events:
         chars_surfaced += event["payload_chars"]
@@ -143,6 +155,15 @@ def summarize_events(events):
             event_type = progress_entry.get("event_type")
             if isinstance(event_type, str) and event_type:
                 progress_event_types.append(event_type)
+            progress_suggested_tool = progress_entry.get("next_suggested_tool")
+            if isinstance(progress_suggested_tool, str) and progress_suggested_tool:
+                progress_guidance_events += 1
+                next_tool_used = str(event.get("next_tool_used", "")).strip()
+                if next_tool_used and next_tool_used == progress_suggested_tool:
+                    progress_guidance_followed += 1
+            progress_proof_state = progress_entry.get("proof_state")
+            if isinstance(progress_proof_state, str) and progress_proof_state:
+                proof_states.append(progress_proof_state)
             progress_delivery = progress_entry.get("progress_delivery")
             if isinstance(progress_delivery, str) and progress_delivery:
                 progress_delivery_modes.append(progress_delivery)
@@ -179,6 +200,8 @@ def summarize_events(events):
         "live_progress_events": live_progress_events,
         "replay_progress_events": replay_progress_events,
         "snapshot_progress_events": snapshot_progress_events,
+        "progress_guidance_events": progress_guidance_events,
+        "progress_guidance_followed": progress_guidance_followed,
     }
 
 
@@ -233,6 +256,8 @@ def build_run(args):
         "live_progress_events": derived["live_progress_events"],
         "replay_progress_events": derived["replay_progress_events"],
         "snapshot_progress_events": derived["snapshot_progress_events"],
+        "progress_guidance_events": derived["progress_guidance_events"],
+        "progress_guidance_followed": derived["progress_guidance_followed"],
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),
@@ -292,6 +317,8 @@ def main():
             "live_progress_events": run["live_progress_events"],
             "replay_progress_events": run["replay_progress_events"],
             "snapshot_progress_events": run["snapshot_progress_events"],
+            "progress_guidance_events": run["progress_guidance_events"],
+            "progress_guidance_followed": run["progress_guidance_followed"],
             "output": str(Path(args.output)),
         },
         indent=2,

@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T23:12:35.259504+00:00",
+  "recorded_at": "2026-03-24T23:17:19.069262+00:00",
   "scenario_id": "warm_structural_proof_apply_batch",
   "scenario_name": "Warm structural proof around apply_batch risky verification",
   "scenario_tags": [
@@ -113,6 +113,10 @@
           "progress_pct": 100.0,
           "current_file": "m1nd-mcp/src/surgical_handlers.rs",
           "next_phase": null,
+          "proof_state": "proving",
+          "next_suggested_tool": "heuristics_surface",
+          "next_suggested_target": "m1nd-mcp/src/surgical_handlers.rs",
+          "next_step_hint": "Inspect the highest-impact file with heuristics_surface before promoting this batch.",
           "elapsed_ms": 165.0,
           "message": "Batch edit completed."
         }
@@ -135,6 +139,7 @@
   "reactivated_nodes": 0,
   "resume_hints": 0,
   "proof_states": [
+    "proving",
     "proving",
     "proving"
   ],
@@ -171,6 +176,8 @@
   "live_progress_events": 5,
   "replay_progress_events": 0,
   "snapshot_progress_events": 0,
+  "progress_guidance_events": 1,
+  "progress_guidance_followed": 1,
   "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
   "question": "Prove why an apply_batch change should be considered risky with compact structural evidence.",
   "expected_strength": "strong"

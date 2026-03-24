@@ -87,6 +87,10 @@
         "progress_pct": 100.0,
         "current_file": "m1nd-mcp/src/surgical_handlers.rs",
         "next_phase": null,
+        "proof_state": "proving",
+        "next_suggested_tool": "heuristics_surface",
+        "next_suggested_target": "m1nd-mcp/src/surgical_handlers.rs",
+        "next_step_hint": "Inspect the highest-impact file with heuristics_surface before promoting this batch.",
         "elapsed_ms": 165.0,
         "message": "Batch edit completed."
       }

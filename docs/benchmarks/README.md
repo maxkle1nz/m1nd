@@ -99,6 +99,9 @@ For long-running write scenarios such as `apply_batch`, benchmark the returned
 This keeps UX/progress work measurable instead of leaving it as a subjective shell/UI impression.
 When available, capture `batch_id` too so live SSE progress, replay, and the
 final result can be tied back to the same execution.
+If the final `batch_completed` event carries `proof_state` and next-step guidance,
+record that too. The event stream itself should be benchmarked as a usable handoff,
+not only as a visual progress bar.
 
 When progress is present, record how it arrived:
 
