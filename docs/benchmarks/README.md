@@ -166,6 +166,7 @@ In particular:
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file, with `proof_state` showing when retrieval has already moved from loose localization into file-level proof
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
 - `search_invalid_regex_recovery.json` captures a concrete repair loop where `search` rejects an invalid regex, suggests `literal` mode, and the agent retries successfully without falling back to shell grep
+- `search_ambiguous_scope_recovery.json` captures a scope-repair loop where `search` rejects an ambiguous `auto_ingest` scope, teaches the agent to retry with an explicit path, and avoids manual file guessing
 - `perspective_stale_route_recovery.json` captures a stateful recovery loop where a stale `route_set_version` points the agent to `perspective_routes`, then back into a fresh `perspective_follow` without restarting the investigation
 - `edit_preview_source_modified_recovery.json` captures a write-safety recovery loop where `edit_commit` rejects a stale preview, teaches the agent to rerun `edit_preview`, and keeps the edit flow safe without forcing a blind write
 - `apply_batch_path_safety_recovery.json` captures a long-running write-safety recovery loop where `apply_batch` rejects an out-of-root target, teaches the agent to retry inside the ingested workspace, and preserves progress plus handoff on the successful retry

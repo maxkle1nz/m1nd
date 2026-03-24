@@ -1,0 +1,12 @@
+{
+  "scenario_id": "warm_search_ambiguous_scope_recovery",
+  "scenario_name": "Warm recovery from search auto-ingest scope ambiguity",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "search",
+    "scope"
+  ],
+  "question": "Recover from a search scope that resolves to multiple candidate paths under auto_ingest, then retry with an explicit scope instead of falling into manual file guessing.",
+  "expected_strength": "strong"
+}

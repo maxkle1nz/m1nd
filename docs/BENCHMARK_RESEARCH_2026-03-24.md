@@ -368,6 +368,25 @@ Interpretation:
   system's own graph/plasticity state and redirects it back into source code
 - this is the kind of organism-level safety improvement that matters more than a
   small token delta
+
+`warm_search_ambiguous_scope_recovery`
+
+- manual token proxy: `278`
+- `m1nd_warm` token proxy: `318`
+- savings: `-14.39%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is a scope-disambiguation recovery benchmark
+- it is not a token win in the current form because the warm path carries an
+  explicit recovery event plus the follow-up handoff
+- the meaningful gains are behavioral: the agent stops guessing, opens fewer
+  files, and stays inside the `search -> view` loop instead of dropping into
+  manual file discovery
 - `live_progress_events`
 - `replay_progress_events`
 - `snapshot_progress_events`
@@ -379,21 +398,21 @@ not only explain the batch after it ends.
 ## Current Warm-Graph Corpus Snapshot
 
 The current versioned corpus lives under `docs/benchmarks/` and currently compares
-fourteen warm-graph scenarios.
+fifteen warm-graph scenarios.
 
 At the current branch tip, the aggregate summary is:
 
-- manual token proxy: `8,592`
-- `m1nd_warm` token proxy: `3,496`
-- aggregate token savings: `59.31%`
+- manual token proxy: `8,870`
+- `m1nd_warm` token proxy: `3,814`
+- aggregate token savings: `57.0%`
 - manual guidance events: `0`
-- `m1nd_warm` guidance events: `19`
+- `m1nd_warm` guidance events: `21`
 - manual progress events: `10`
 - `m1nd_warm` progress events: `15`
-- manual false starts: `8`
+- manual false starts: `9`
 - `m1nd_warm` false starts: `0`
 - manual recovery events: `0`
-- `m1nd_warm` recovery events: `5`
+- `m1nd_warm` recovery events: `6`
 
 The important new truth is not just “there are progress events.” It is that the
 benchmark harness can now distinguish:
