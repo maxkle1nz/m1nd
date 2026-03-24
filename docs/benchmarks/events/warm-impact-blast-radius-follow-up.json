@@ -7,6 +7,7 @@
     "surfaced_files": [
       "m1nd-mcp/src/layer_handlers.rs"
     ],
+    "proof_state": "proving",
     "next_suggested_tool": "view",
     "next_suggested_target": "m1nd-mcp/src/layer_handlers.rs",
     "next_step_hint": "Open the top impacted node next: m1nd-mcp/src/layer_handlers.rs (hop 1, signal 0.74).",

@@ -397,6 +397,10 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
         "timeline" => &[
             "Timeline is historical proof on files; it does not replace runtime or compiler truth.",
         ],
+        "impact" => &[
+            "Read proof_state before editing: triaging means inspect the seam first, not patch yet.",
+            "Use next_suggested_target as the downstream seam to inspect before widening the edit.",
+        ],
         "apply_batch" => &[
             "Use status_message and phases to drive shell/UI progress.",
             "Each phase can carry phase_index and current_file for better progress rendering.",
@@ -507,6 +511,11 @@ fn state_handoffs(tool_name: &str) -> &'static [&'static str] {
             "triaging: you have context, but not enough proof to commit to a coupled edit yet.",
             "proving: the connected edit surface is grounded; validate or verify before writing.",
             "ready_to_edit: the edit surface is compact and sufficiently settled for execution.",
+        ],
+        "impact" => &[
+            "triaging: inspect the strongest downstream seam before turning blast radius into a plan.",
+            "proving: the blast pattern is strong enough to validate the change against the impacted target next.",
+            "ready_to_edit: rare here; only trust it when the causal chain is strong and specific enough to ground the seam.",
         ],
         _ => &[],
     }

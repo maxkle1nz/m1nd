@@ -450,6 +450,7 @@ only as product intuition.
 Interpretation:
 
 - `impact` no longer only returns a blast set; it now suggests the first downstream target worth opening
+- in the warm benchmark run, that guided blast lands in `proof_state="proving"`, which is the right reading for “strong seam, inspect next” rather than “edit immediately”
 - that makes blast-radius inspection part of the same measurable guided workflow family as `seek`, `trace`, `trail_resume`, and `validate_plan`
 
 ### New triage result: `trace` now guides the next move

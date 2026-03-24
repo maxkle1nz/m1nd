@@ -112,7 +112,7 @@ In particular:
 - `continuity_boot_memory.json` captures the older, heavier continuity flow
 - `continuity_actionable_resume.json` captures compact resume plus next-step guidance
 - `continuity_temporal_resume.json` captures compact resume that routes directly into `timeline`
-- `impact_blast_radius_follow_up.json` captures `impact` plus guided follow-up into the strongest downstream seam
+- `impact_blast_radius_follow_up.json` captures `impact` plus guided follow-up into the strongest downstream seam, with `proof_state` showing when blast analysis has moved from triage into proof
 - `hypothesize_structural_claim_follow_up.json` captures `hypothesize` plus guided follow-up into the strongest proof target
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file

@@ -442,6 +442,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 total_energy: 0.0,
                 max_hops_reached: 0,
                 causal_chains: vec![],
+                proof_state: "blocked".into(),
                 next_suggested_tool: None,
                 next_suggested_target: None,
                 next_step_hint: None,
@@ -527,6 +528,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         })
         .collect();
 
+    let proof_state = impact_proof_state(&blast_radius, &causal_chains);
     let (next_suggested_tool, next_suggested_target, next_step_hint) =
         impact_next_step(&blast_radius, &causal_chains);
 
@@ -538,10 +540,35 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         total_energy: impact.total_energy.get(),
         max_hops_reached: impact.max_hops_reached,
         causal_chains,
+        proof_state,
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
     })
+}
+
+fn impact_proof_state(
+    blast_radius: &[BlastRadiusEntry],
+    causal_chains: &[CausalChainOutput],
+) -> String {
+    if blast_radius.is_empty() && causal_chains.is_empty() {
+        return "blocked".into();
+    }
+
+    if let Some(top_chain) = causal_chains.first() {
+        if top_chain.cumulative_strength >= 0.8 && top_chain.path.len() >= 2 {
+            return "ready_to_edit".into();
+        }
+        return "proving".into();
+    }
+
+    if let Some(top_blast) = blast_radius.first() {
+        if blast_radius.len() > 1 || top_blast.signal_strength >= 0.7 {
+            return "proving".into();
+        }
+    }
+
+    "triaging".into()
 }
 
 fn impact_next_step(
@@ -575,6 +602,50 @@ fn impact_next_step(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn impact_proof_state_distinguishes_triage_proof_and_ready_states() {
+        let empty_blast = Vec::<BlastRadiusEntry>::new();
+        let empty_chains = Vec::<CausalChainOutput>::new();
+        assert_eq!(impact_proof_state(&empty_blast, &empty_chains), "blocked");
+
+        let triage_blast = vec![BlastRadiusEntry {
+            node_id: "file::src/leaf.rs".into(),
+            label: "leaf".into(),
+            node_type: "File".into(),
+            signal_strength: 0.42,
+            hop_distance: 1,
+        }];
+        assert_eq!(impact_proof_state(&triage_blast, &empty_chains), "triaging");
+
+        let proving_blast = vec![
+            BlastRadiusEntry {
+                node_id: "file::src/a.rs".into(),
+                label: "a".into(),
+                node_type: "File".into(),
+                signal_strength: 0.74,
+                hop_distance: 1,
+            },
+            BlastRadiusEntry {
+                node_id: "file::src/b.rs".into(),
+                label: "b".into(),
+                node_type: "File".into(),
+                signal_strength: 0.51,
+                hop_distance: 2,
+            },
+        ];
+        assert_eq!(impact_proof_state(&proving_blast, &empty_chains), "proving");
+
+        let ready_chain = vec![CausalChainOutput {
+            path: vec!["file::src/root.rs".into(), "file::src/leaf.rs".into()],
+            relations: vec!["calls".into()],
+            cumulative_strength: 0.84,
+        }];
+        assert_eq!(
+            impact_proof_state(&triage_blast, &ready_chain),
+            "ready_to_edit"
+        );
+    }
 
     #[test]
     fn impact_next_step_prefers_causal_chain_target() {

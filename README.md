@@ -140,6 +140,8 @@ Minimal MCP flow:
 {"method":"tools/call","params":{"name":"impact","arguments":{"node_id":"file::src/auth.rs","agent_id":"dev"}}}
 ```
 
+`impact` now works best as a guided handoff: it can expose `proof_state` and point at the downstream file worth opening next.
+
 Add to Claude Code (`~/.claude.json`):
 
 ```json

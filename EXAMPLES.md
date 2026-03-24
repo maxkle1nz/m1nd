@@ -146,7 +146,7 @@ This is the right tool when the question is “should I be careful?” rather th
 
 Recent behavior:
 
-- `impact` can now suggest the strongest downstream file to open next
+- `impact` can now suggest the strongest downstream file to open next and expose `proof_state` so the agent can tell blast triage from stronger proof
 - this makes blast-radius work better as a guided handoff instead of a raw blast set
 
 ## 6. Test a structural claim
