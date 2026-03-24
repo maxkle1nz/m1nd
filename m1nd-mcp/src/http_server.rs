@@ -24,7 +24,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::http_types::SubgraphQuery;
 use crate::server::{dispatch_tool, tool_schemas, McpConfig};
-use crate::session::SessionState;
+use crate::session::{ApplyBatchProgressSink, SessionState};
 
 // ---------------------------------------------------------------------------
 // Event log: append-only JSON lines file for cross-process SSE (Option B)
@@ -77,6 +77,30 @@ fn emit_followup_events(
             append_event_to_log(log_path, &sse_event);
         }
     }
+}
+
+fn apply_batch_progress_sink(
+    event_tx: broadcast::Sender<SseEvent>,
+    event_log_path: Option<std::path::PathBuf>,
+    source: String,
+    agent_id: String,
+) -> ApplyBatchProgressSink {
+    Arc::new(move |progress_event| {
+        let sse_event = SseEvent {
+            event_type: "apply_batch_progress".to_string(),
+            data: serde_json::json!({
+                "tool": "apply_batch",
+                "source": source,
+                "agent_id": agent_id,
+                "progress": progress_event,
+                "timestamp_ms": now_ms(),
+            }),
+        };
+        let _ = event_tx.send(sse_event.clone());
+        if let Some(ref log_path) = event_log_path {
+            append_event_to_log(log_path, &sse_event);
+        }
+    })
 }
 
 /// Watch an event log file and broadcast new events via SSE.
@@ -343,7 +367,21 @@ pub async fn run(
                             .unwrap_or(serde_json::json!({}));
                         let result = {
                             let mut s = stdio_session.lock();
-                            dispatch_tool(&mut s, tool_name, &arguments)
+                            if tool_name == "apply_batch" {
+                                s.apply_batch_progress_sink = Some(apply_batch_progress_sink(
+                                    stdio_event_tx.clone(),
+                                    stdio_event_log.clone(),
+                                    "stdio".to_string(),
+                                    arguments
+                                        .get("agent_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown")
+                                        .to_string(),
+                                ));
+                            }
+                            let result = dispatch_tool(&mut s, tool_name, &arguments);
+                            s.apply_batch_progress_sink = None;
+                            result
                         };
 
                         // Broadcast SSE event for cross-process visibility (Option A)
@@ -370,20 +408,6 @@ pub async fn run(
                         if let Some(ref log_path) = stdio_event_log {
                             append_event_to_log(log_path, &sse_event);
                         }
-                        if let Ok(ref output) = result {
-                            emit_followup_events(
-                                &stdio_event_tx,
-                                stdio_event_log.as_ref(),
-                                tool_name,
-                                "stdio",
-                                arguments
-                                    .get("agent_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown"),
-                                output,
-                            );
-                        }
-
                         let resp = match result {
                             Ok(output) => serde_json::json!({
                                 "jsonrpc": "2.0",
@@ -584,13 +608,26 @@ async fn handle_tool_call(
         .to_string();
     let state = state.clone();
     let tool = tool_name.clone();
+    let progress_event_tx = event_tx.clone();
+    let progress_event_log_path = event_log_path.clone();
+    let progress_agent_id = agent_id_for_event.clone();
 
     // Wrap in timeout (FM-C-004: 30s per tool)
     let result = tokio::time::timeout(
         Duration::from_secs(TOOL_TIMEOUT_SECS),
         tokio::task::spawn_blocking(move || {
             let mut session = state.session.lock();
-            dispatch_tool(&mut session, &tool, &body)
+            if tool == "apply_batch" {
+                session.apply_batch_progress_sink = Some(apply_batch_progress_sink(
+                    progress_event_tx.clone(),
+                    progress_event_log_path.clone(),
+                    "http".to_string(),
+                    progress_agent_id.clone(),
+                ));
+            }
+            let result = dispatch_tool(&mut session, &tool, &body);
+            session.apply_batch_progress_sink = None;
+            result
         }),
     )
     .await;
@@ -644,17 +681,6 @@ async fn handle_tool_call(
             if let Some(ref log_path) = event_log_path {
                 append_event_to_log(log_path, &sse_event);
             }
-            if let Ok(ref output) = inner {
-                emit_followup_events(
-                    &event_tx,
-                    event_log_path.as_ref(),
-                    &tool_for_event,
-                    "http",
-                    &agent_id_for_event,
-                    output,
-                );
-            }
-
             match inner {
                 Ok(output) => (
                     StatusCode::OK,

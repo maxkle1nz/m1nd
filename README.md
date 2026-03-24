@@ -531,7 +531,7 @@ When `verification.high_impact_files` contains heuristic hotspots, the report ca
 - each phase can now carry its own `progress_pct` and `next_phase`
 - `progress_events` as a streaming-friendly event log using the same lifecycle data
 - each phase now includes `phase_index` and, when useful, `current_file` so shells and UIs can render progress without inferring order or file focus
-- on the HTTP/UI transport, `apply_batch` progress now also replays onto the SSE bus as `apply_batch_progress` events for clients that want lifecycle visibility without parsing the final result blob
+- on the HTTP/UI transport, `apply_batch` progress now emits onto the SSE bus as live `apply_batch_progress` events while the batch runs, so clients can follow lifecycle updates without waiting for the final result blob
 
 ```jsonc
 {

@@ -279,7 +279,7 @@ Recent behavior:
 - it also returns structured `phases` for `validate`, `write`, `reingest`, `verify`, and `done`, with per-phase `progress_pct` and `next_phase`
 - it also returns `progress_events`, which mirrors the same lifecycle in a streaming-friendly shape
 - each phase now includes `phase_index` and, when useful, `current_file`
-- on the HTTP/UI transport, those progress events are also replayed onto the SSE bus as `apply_batch_progress`
+- on the HTTP/UI transport, those progress events are also emitted live onto the SSE bus as `apply_batch_progress`
 - this makes long-running batch writes easier to surface in shells and UI clients
 
 ## 11. Persist small operating state

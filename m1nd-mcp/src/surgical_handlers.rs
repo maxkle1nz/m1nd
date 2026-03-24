@@ -2150,6 +2150,17 @@ pub fn handle_apply_batch(
 
     // Step 1: Empty edits = fast-path no-op
     if input.edits.is_empty() {
+        let noop_event = surgical::ApplyBatchProgressEvent {
+            event_type: "batch_completed".into(),
+            phase: "done".into(),
+            phase_index: 0,
+            progress_pct: 100.0,
+            current_file: None,
+            next_phase: None,
+            elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            message: "No edits were provided.".into(),
+        };
+        emit_apply_batch_progress(state, &noop_event);
         return Ok(surgical::ApplyBatchOutput {
             all_succeeded: true,
             files_written: 0,
@@ -2169,16 +2180,7 @@ pub fn handle_apply_batch(
             remaining_phase_count: 0,
             progress_pct: 100.0,
             next_phase: None,
-            progress_events: vec![surgical::ApplyBatchProgressEvent {
-                event_type: "batch_completed".into(),
-                phase: "done".into(),
-                phase_index: 0,
-                progress_pct: 100.0,
-                current_file: None,
-                next_phase: None,
-                elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
-                message: "No edits were provided.".into(),
-            }],
+            progress_events: vec![noop_event],
             phases: vec![surgical::ApplyBatchPhase {
                 phase: "done".into(),
                 phase_index: 0,
@@ -2218,7 +2220,7 @@ pub fn handle_apply_batch(
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!("Validated {} edit targets.", input.edits.len()),
     });
-    progress_events.push(surgical::ApplyBatchProgressEvent {
+    let validate_event = surgical::ApplyBatchProgressEvent {
         event_type: "phase_completed".into(),
         phase: "validate".into(),
         phase_index: 0,
@@ -2229,7 +2231,9 @@ pub fn handle_apply_batch(
         next_phase: Some(phase_names[1].into()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!("Validated {} edit targets.", input.edits.len()),
-    });
+    };
+    emit_apply_batch_progress(state, &validate_event);
+    progress_events.push(validate_event);
 
     // Pre-write snapshot: capture graph nodes BEFORE writing (for verify graph-diff)
     let pre_nodes: std::collections::HashMap<String, HashSet<String>> = if input.verify {
@@ -2449,7 +2453,7 @@ pub fn handle_apply_batch(
             input.edits.len()
         ),
     });
-    progress_events.push(surgical::ApplyBatchProgressEvent {
+    let write_event = surgical::ApplyBatchProgressEvent {
         event_type: "phase_completed".into(),
         phase: "write".into(),
         phase_index: 1,
@@ -2462,7 +2466,9 @@ pub fn handle_apply_batch(
             results.iter().filter(|r| r.success).count(),
             input.edits.len()
         ),
-    });
+    };
+    emit_apply_batch_progress(state, &write_event);
+    progress_events.push(write_event);
 
     // Step 7: Bulk re-ingest (single pass covering all successfully written files)
     let files_written = results.iter().filter(|r| r.success).count();
@@ -2533,7 +2539,7 @@ pub fn handle_apply_batch(
             "Re-ingest skipped.".into()
         },
     });
-    progress_events.push(surgical::ApplyBatchProgressEvent {
+    let reingest_event = surgical::ApplyBatchProgressEvent {
         event_type: "phase_completed".into(),
         phase: "reingest".into(),
         phase_index: 2,
@@ -2553,7 +2559,9 @@ pub fn handle_apply_batch(
         } else {
             "Re-ingest skipped.".into()
         },
-    });
+    };
+    emit_apply_batch_progress(state, &reingest_event);
+    progress_events.push(reingest_event);
 
     // Step 8: Post-write verification via GRAPH DIFF (verify=true)
     // Compares pre-write graph nodes vs post-write to find what ACTUALLY changed structurally.
@@ -3081,7 +3089,7 @@ pub fn handle_apply_batch(
             "Verification skipped.".into()
         },
     });
-    progress_events.push(surgical::ApplyBatchProgressEvent {
+    let verify_event = surgical::ApplyBatchProgressEvent {
         event_type: "phase_completed".into(),
         phase: "verify".into(),
         phase_index: 3,
@@ -3109,7 +3117,9 @@ pub fn handle_apply_batch(
         } else {
             "Verification skipped.".into()
         },
-    });
+    };
+    emit_apply_batch_progress(state, &verify_event);
+    progress_events.push(verify_event);
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
@@ -3150,7 +3160,7 @@ pub fn handle_apply_batch(
         elapsed_ms,
         message: status_message.clone(),
     });
-    progress_events.push(surgical::ApplyBatchProgressEvent {
+    let done_event = surgical::ApplyBatchProgressEvent {
         event_type: "batch_completed".into(),
         phase: "done".into(),
         phase_index: 4,
@@ -3159,7 +3169,9 @@ pub fn handle_apply_batch(
         next_phase: None,
         elapsed_ms,
         message: status_message.clone(),
-    });
+    };
+    emit_apply_batch_progress(state, &done_event);
+    progress_events.push(done_event);
 
     let (next_suggested_tool, next_suggested_target, next_step_hint, proof_state) =
         apply_batch_next_step(all_succeeded, reingested, verification.as_ref(), &results);
@@ -3187,6 +3199,12 @@ pub fn handle_apply_batch(
         phases,
         elapsed_ms,
     })
+}
+
+fn emit_apply_batch_progress(state: &SessionState, event: &surgical::ApplyBatchProgressEvent) {
+    if let Some(sink) = state.apply_batch_progress_sink.as_ref() {
+        sink(event);
+    }
 }
 
 fn apply_batch_next_step(
@@ -3352,6 +3370,7 @@ mod tests {
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::{Graph, NodeProvenanceInput};
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+    use std::sync::{Arc, Mutex};
 
     fn build_surgical_state(root: &std::path::Path, file_path: &str) -> SessionState {
         let runtime_dir = root.join("runtime");
@@ -4366,5 +4385,56 @@ mod tests {
             .next_step_hint
             .as_deref()
             .is_some_and(|hint| hint.contains("highest-impact file")));
+    }
+
+    #[test]
+    fn test_apply_batch_emits_progress_to_live_sink() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = captured.clone();
+        state.apply_batch_progress_sink = Some(Arc::new(move |event| {
+            sink_events
+                .lock()
+                .expect("capture lock")
+                .push((event.phase.clone(), event.progress_pct));
+        }));
+
+        let _output = handle_apply_batch(
+            &mut state,
+            surgical::ApplyBatchInput {
+                agent_id: "test".into(),
+                edits: vec![surgical::BatchEditItem {
+                    file_path: primary_str,
+                    new_content: "def core():\n    return 2\n".into(),
+                    description: Some("update return".into()),
+                }],
+                atomic: true,
+                reingest: false,
+                verify: false,
+            },
+        )
+        .expect("apply batch");
+
+        let events = captured.lock().expect("capture lock");
+        assert!(
+            events.iter().any(|(phase, _)| phase == "validate"),
+            "live sink should receive validate phase"
+        );
+        assert!(
+            events.iter().any(|(phase, _)| phase == "write"),
+            "live sink should receive write phase"
+        );
+        assert!(
+            events.iter().any(|(phase, _)| phase == "done"),
+            "live sink should receive done phase"
+        );
     }
 }
