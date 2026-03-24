@@ -616,7 +616,7 @@ pub fn handle_timeline(
     let start = Instant::now();
 
     // --- Resolve node to file path ---
-    let file_path = node_to_file_path(&input.node);
+    let file_path = resolve_timeline_file_path(state, &input.node);
     let repo_root = discover_git_root(state)?;
 
     // --- Parse depth into git --after arg ---
@@ -917,14 +917,94 @@ fn is_auto_sync_commit(subject: &str) -> bool {
 /// Convert a node external_id (e.g. "file::backend/chat_handler.py") to a
 /// relative file path (e.g. "backend/chat_handler.py").
 fn node_to_file_path(node_id: &str) -> String {
-    if let Some(rest) = node_id.strip_prefix("file::") {
-        rest.to_string()
-    } else if node_id.contains('/') || node_id.contains('.') {
-        // Looks like a raw path already
-        node_id.to_string()
-    } else {
-        node_id.to_string()
+    let trimmed = node_id.trim();
+    if trimmed.is_empty() {
+        return String::new();
     }
+
+    let candidate = if let Some(idx) = trimmed.find("file::") {
+        &trimmed[idx + "file::".len()..]
+    } else {
+        trimmed
+    };
+
+    let file_like = candidate.split("::").next().unwrap_or(candidate);
+    if file_like.starts_with('/') {
+        file_like.trim_end_matches('/').to_string()
+    } else {
+        file_like.trim_matches('/').to_string()
+    }
+}
+
+/// Resolve a timeline target to the repo-relative file path `git log` expects.
+///
+/// This prefers graph provenance when possible so equivalent identities like:
+/// - `file::src/main.rs`
+/// - `file::src/main.rs::fn::boot`
+/// - `repo::file::src/main.rs::fn::boot`
+/// - `/abs/root/src/main.rs`
+///
+/// all converge on the same repo-relative file path.
+fn resolve_timeline_file_path(state: &SessionState, node_id: &str) -> String {
+    let raw_path = node_to_file_path(node_id);
+    let normalized_hint = l7_normalize_path_hint(&raw_path, &state.ingest_roots);
+    let fallback = if normalized_hint.is_empty() {
+        raw_path.clone()
+    } else {
+        normalized_hint.clone()
+    };
+
+    let graph = state.graph.read();
+
+    for candidate in [
+        node_id.to_string(),
+        raw_path.clone(),
+        fallback.clone(),
+        format!("file::{}", raw_path),
+        format!("file::{}", fallback),
+    ] {
+        if candidate.is_empty() {
+            continue;
+        }
+        if let Some(nid) = graph.resolve_id(&candidate) {
+            let prov = graph.resolve_node_provenance(nid);
+            if let Some(source_path) = prov.source_path {
+                let normalized = l7_normalize_path_hint(&source_path, &state.ingest_roots);
+                if !normalized.is_empty() {
+                    return normalized;
+                }
+            }
+        }
+    }
+
+    let normalized_fallback = l6_normalize_path(&fallback);
+    let mut first_match: Option<String> = None;
+    for i in 0..graph.num_nodes() as usize {
+        let prov = &graph.nodes.provenance[i];
+        if let Some(sp) = prov.source_path {
+            if let Some(source_str) = graph.strings.try_resolve(sp) {
+                let source_norm = l6_normalize_path(source_str);
+                let paths_match = source_norm == normalized_fallback
+                    || source_norm.ends_with(&normalized_fallback)
+                    || normalized_fallback.ends_with(&source_norm);
+                if !paths_match {
+                    continue;
+                }
+
+                let normalized = l7_normalize_path_hint(source_str, &state.ingest_roots);
+                if normalized.is_empty() {
+                    continue;
+                }
+
+                if graph.nodes.node_type[i] == m1nd_core::types::NodeType::File {
+                    return normalized;
+                }
+                first_match.get_or_insert(normalized);
+            }
+        }
+    }
+
+    first_match.unwrap_or(fallback)
 }
 
 /// Walk up from the first ingest root (or graph_path) to find the .git directory.
@@ -7391,6 +7471,39 @@ mod tests {
             super::l7_normalize_path_hint("file::src/core.rs", &state.ingest_roots),
             "src/core.rs"
         );
+    }
+
+    #[test]
+    fn node_to_file_path_strips_repo_prefixes_and_symbol_suffixes() {
+        assert_eq!(super::node_to_file_path("file::src/core.rs"), "src/core.rs");
+        assert_eq!(
+            super::node_to_file_path("file::src/core.rs::fn::boot"),
+            "src/core.rs"
+        );
+        assert_eq!(
+            super::node_to_file_path("m1nd::file::src/core.rs::fn::boot"),
+            "src/core.rs"
+        );
+    }
+
+    #[test]
+    fn resolve_timeline_file_path_canonicalizes_equivalent_id_shapes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let state = build_layer_state(root);
+        let absolute = root.join("src/core.rs").to_string_lossy().to_string();
+
+        for candidate in [
+            "file::src/core.rs",
+            "file::src/core.rs::fn::boot",
+            "m1nd::file::src/core.rs::fn::boot",
+            absolute.as_str(),
+        ] {
+            assert_eq!(
+                super::resolve_timeline_file_path(&state, candidate),
+                "src/core.rs"
+            );
+        }
     }
 
     #[test]
