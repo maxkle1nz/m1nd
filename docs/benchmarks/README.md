@@ -92,6 +92,10 @@ For `proof_focused_edit_prep`, treat the scenario as a compact proof handoff
 into planning, not as an automatic `ready_to_edit` claim. In the current corpus
 that flow ends in `proof_state="proving"`, which is the correct public reading.
 
+For `impact_blast_radius_follow_up`, treat `proof_state="proving"` as “the seam
+is strong enough to inspect next,” not as “edit immediately.” The win there is
+guided downstream targeting, not skipping proof.
+
 ## Current scenario corpus
 
 - `semantic_retrieval_dispatch.json`

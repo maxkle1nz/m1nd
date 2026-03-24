@@ -1770,6 +1770,39 @@ mod tests {
     }
 
     #[test]
+    fn help_handler_updates_impact_and_trace_for_guided_proof_flow() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(&root);
+
+        let impact = handle_help(
+            &mut state,
+            crate::protocol::layers::HelpInput {
+                agent_id: "jimi-codex".into(),
+                tool_name: Some("impact".into()),
+            },
+        )
+        .expect("impact help");
+        assert!(impact.found);
+        assert!(impact.formatted.contains("proof_state"));
+        assert!(impact.formatted.contains("strongest downstream seam"));
+        assert!(impact.formatted.contains("STATE HANDOFF"));
+
+        let trace = handle_help(
+            &mut state,
+            crate::protocol::layers::HelpInput {
+                agent_id: "jimi-codex".into(),
+                tool_name: Some("trace".into()),
+            },
+        )
+        .expect("trace help");
+        assert!(trace.found);
+        assert!(trace.formatted.contains("proof_state"));
+        assert!(trace.formatted.contains("Failure triage"));
+        assert!(trace.formatted.contains("view"));
+    }
+
+    #[test]
     fn help_index_includes_short_decision_guide() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();

@@ -136,9 +136,12 @@ Illustrative response shape:
 
 ```jsonc
 {
-  "total_affected": 4271,
-  "pct_of_graph": 43.7,
-  "risk": "critical"
+  "blast_radius": ["file::session_store.py", "file::router.py"],
+  "causal_chains": ["chat_handler.py -> session_store.py"],
+  "proof_state": "proving",
+  "next_suggested_tool": "view",
+  "next_suggested_target": "file::session_store.py",
+  "next_step_hint": "Open the strongest downstream seam before editing the root file."
 }
 ```
 

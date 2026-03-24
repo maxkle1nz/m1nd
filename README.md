@@ -261,7 +261,7 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 | Save small persistent operating state | `boot_memory` |
 | Save or resume an investigation trail | `trail_save`, `trail_resume`, `trail_merge` |
 | Resume an investigation and get the next likely move | `trail_resume` with `resume_hints`, `next_focus_node_id`, `next_open_question`, `next_suggested_tool` |
-| Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` |
+| Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `impact`, `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` |
 | Ask what changed recently and why it matters | `timeline` |
 
 ## Results And Measurements
@@ -315,7 +315,7 @@ Use m1nd before broad grep/glob/file-read loops when the task depends on structu
 - glob for filename/path patterns
 - seek for natural-language intent
 - activate for connected neighborhoods
-- impact before risky edits
+- impact before risky edits, especially when you need the next downstream seam and a `triaging` vs `proving` read
 - heuristics_surface when you need ranking justification
 - validate_plan before broad or coupled changes
 - surgical_context_v2 when preparing a multi-file edit
@@ -338,7 +338,7 @@ Reach for:
 - glob for filename patterns
 - seek for intent
 - activate for related code
-- impact before edits
+- impact before edits when you need the next file to inspect, not just a blast set
 - validate_plan before risky changes
 - surgical_context_v2 for multi-file edit prep
 - use `proof_focused=true` when you want the smallest useful connected edit surface
@@ -356,7 +356,7 @@ Prefer m1nd for repo exploration when structure matters:
 - glob for filename/path patterns
 - seek for intent
 - activate for related code
-- impact before edits
+- impact before edits, with `proof_state` to tell whether you are still triaging or already proving the seam
 - trail_resume for continuity and `timeline` for recent-change proof
 
 Prefer plain tools for single-file edits, exact string chores, and runtime/build truth.

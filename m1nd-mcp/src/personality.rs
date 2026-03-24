@@ -84,19 +84,19 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
             "hypothesize(claim) to test a theory".into(),
         ],
         "impact" => vec![
-            "validate_plan(files) to verify changes".into(),
+            "view(next_suggested_target) to inspect the strongest downstream seam".into(),
+            "validate_plan(files) before touching a high-blast seam".into(),
             "counterfactual(node) to simulate removal".into(),
-            "predict(changed_node) for co-change likelihood".into(),
         ],
         "hypothesize" => vec![
-            "missing(query) to find structural holes".into(),
-            "trace(error) to follow dependency chain".into(),
-            "learn(feedback) to confirm/deny".into(),
+            "view(next_suggested_target) to inspect the strongest proof target".into(),
+            "timeline(next_suggested_target) when historical proof is missing".into(),
+            "validate_plan(files) when the claim is strong enough to shape an edit".into(),
         ],
         "surgical_context" | "surgical_context_v2" => vec![
+            "validate_plan(files) to ground the coupled edit surface".into(),
             "edit_preview(file, content) to preview changes before writing".into(),
-            "apply(file, content) to make changes directly".into(),
-            "apply_batch(edits) for multiple files".into(),
+            "apply_batch(edits) for multiple files after proof".into(),
         ],
         "edit_preview" => {
             vec!["edit_commit(preview_id, confirm=true) to apply the previewed change".into()]
@@ -170,9 +170,16 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
         "impact" => {
             let total = result
                 .get("blast_radius")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            format!("{} nodes in blast radius. careful here.", total)
+                .and_then(|v| v.as_array())
+                .map_or(0, |a| a.len());
+            let proof_state = result
+                .get("proof_state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("triaging");
+            format!(
+                "{} nodes in blast radius. proof_state={}. follow the downstream seam next.",
+                total, proof_state
+            )
         }
         "search" => {
             let count = result
@@ -562,9 +569,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     false,
                 ),
             ],
-            returns: "Blast radius, depth distribution, causal chains",
+            returns: "Blast radius, causal chains, proof_state, and guided next-step target",
             example: r#"{"node_id": "file::backend/chat_handler.py", "agent_id": "jimi"}"#,
-            next: &["validate_plan", "counterfactual", "predict"],
+            next: &["view", "validate_plan", "counterfactual"],
         },
         ToolDoc {
             name: "missing",
@@ -796,27 +803,27 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             name: "hypothesize",
             category: "Extended",
             glyph: GLYPH_STRUCTURE,
-            one_liner: "Test a structural claim about the codebase",
+            one_liner: "Test a structural claim and surface the strongest next proof target",
             params: &[
                 ("claim", "Natural language claim", true),
                 ("agent_id", "Calling agent identifier", true),
             ],
-            returns: "Verdict (likely_true/likely_false/inconclusive), confidence, evidence",
+            returns: "Verdict, confidence, evidence, proof_state, and guided follow-up target",
             example: r#"{"claim": "chat_handler validates session tokens", "agent_id": "jimi"}"#,
-            next: &["missing", "learn"],
+            next: &["view", "timeline", "validate_plan"],
         },
         ToolDoc {
             name: "trace",
             category: "Extended",
             glyph: GLYPH_PATH,
-            one_liner: "Dependency chain tracing -- follow imports and calls",
+            one_liner: "Failure triage -- map error text to the best next file and proof stage",
             params: &[
                 ("query", "Start node or query", true),
                 ("agent_id", "Calling agent identifier", true),
             ],
-            returns: "Dependency chains with edge types",
+            returns: "Suspects, causal chain, proof_state, and guided next-step file",
             example: r#"{"query": "file::auth.py", "agent_id": "jimi"}"#,
-            next: &["impact", "hypothesize"],
+            next: &["view", "timeline", "surgical_context_v2"],
         },
         ToolDoc {
             name: "differential",
@@ -841,9 +848,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                 ("agent_id", "Calling agent identifier", true),
                 ("plan", "Array of file changes", true),
             ],
-            returns: "Validation result: conflicts, missing deps, risk assessment",
+            returns: "Validation result, proof_state, proof_hint, and guided next-step target",
             example: r#"{"plan": [{"file": "auth.py", "action": "modify"}], "agent_id": "jimi"}"#,
-            next: &["impact", "apply"],
+            next: &["heuristics_surface", "apply_batch", "surgical_context_v2"],
         },
         ToolDoc {
             name: "federate",
@@ -974,14 +981,14 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             name: "surgical_context_v2",
             category: "Surgical",
             glyph: GLYPH_CONNECTION,
-            one_liner: "Enhanced context extraction with dependency resolution",
+            one_liner: "Connected edit prep -- compact proof-focused context before risky writes",
             params: &[
                 ("agent_id", "Calling agent identifier", true),
                 ("query", "What you need context for", true),
             ],
-            returns: "Code context with imports, dependencies, and types resolved",
+            returns: "Connected code context, proof_state, and guided next-step handoff",
             example: r#"{"query": "chat handler message routing", "agent_id": "jimi"}"#,
-            next: &["apply", "apply_batch"],
+            next: &["validate_plan", "apply_batch", "edit_preview"],
         },
         ToolDoc {
             name: "apply",
@@ -1426,7 +1433,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             category: "Trail",
             glyph: GLYPH_PATH,
             one_liner:
-                "Restore a saved investigation -- re-inject activation boosts, detect staleness",
+                "Resume an investigation with actionable continuity, next focus, and next tool",
             params: &[
                 ("agent_id", "Calling agent identifier", true),
                 ("trail_id", "Trail ID to resume", true),
@@ -1436,9 +1443,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     false,
                 ),
             ],
-            returns: "Restored state with staleness report, re-boosted nodes",
+            returns: "Restored state with staleness report, resume_hints, next_focus_node_id, and next_suggested_tool",
             example: r#"{"agent_id": "jimi", "trail_id": "trail-abc123"}"#,
-            next: &["activate", "trail_save", "perspective_start"],
+            next: &["timeline", "view", "activate"],
         },
         ToolDoc {
             name: "trail_merge",
@@ -1529,7 +1536,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     false,
                 ),
             ],
-            returns: "Formatted help text with params, examples, and NEXT suggestions",
+            returns: "Formatted help text with params, examples, next steps, workflows, and state handoffs",
             example: r#"{"agent_id": "jimi", "tool_name": "activate"}"#,
             next: &["activate", "ingest"],
         },
