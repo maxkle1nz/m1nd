@@ -363,6 +363,31 @@ Current implication:
 - future warm-graph runs can now be recorded in a repeatable JSON format instead of notes-only
 - the next benchmark pass should explicitly measure `proof_focused` against the previous `surgical_context_v2` behavior
 
+### First harness-backed mini-battery
+
+The repository now includes four recorded runs plus one summary JSON under
+`docs/benchmarks/runs/`.
+
+Current harness-backed comparison set:
+
+- `warm_semantic_retrieval_dispatch`
+- `warm_continuity_boot_memory`
+
+Current aggregate from those recorded runs:
+
+- manual token proxy: `1603`
+- warm `m1nd` token proxy: `980`
+- aggregate token savings: `38.86%`
+- manual first good answer total: `40.315ms`
+- warm `m1nd` first good answer total: `5542.0ms`
+
+Interpretation:
+
+- the harness already confirms context compression in the starter scenarios
+- the recorded time values are not yet a public speed claim
+- continuity remains the main drag on first-answer latency, even after the current trail improvements
+- the next useful benchmark step is to rerun continuity and proof-focused edit prep with the harness using stricter event capture and less synthetic timing
+
 ### Priority 1
 
 1. Fix `timeline` history fidelity for recently changed files.

@@ -1,0 +1,65 @@
+{
+  "recorded_at": "2026-03-24T18:06:47.249770+00:00",
+  "scenario_id": "warm_continuity_boot_memory",
+  "scenario_name": "Warm continuity resume for boot memory investigation",
+  "scenario_tags": [
+    "warm-graph",
+    "continuity",
+    "trail-resume",
+    "boot-memory"
+  ],
+  "mode": "m1nd_warm",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 4800.0,
+  "time_to_full_proof_ms": 12000.0,
+  "answer_quality": "medium",
+  "plan_changed": false,
+  "public_claim_worthy": false,
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.trail_resume",
+      "query": "resume boot memory investigation",
+      "elapsed_ms": 4.8,
+      "payload_chars": 760,
+      "surfaced_files": [
+        "m1nd-mcp/src/layer_handlers.rs",
+        "m1nd-mcp/src/session.rs"
+      ],
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.search",
+      "query": "persist_boot_memory",
+      "elapsed_ms": 1.9,
+      "payload_chars": 520,
+      "surfaced_files": [
+        "m1nd-mcp/src/session.rs"
+      ],
+      "event_index": 2,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.surgical_context_v2",
+      "target": "m1nd-mcp/src/session.rs",
+      "elapsed_ms": 3.1,
+      "payload_chars": 1240,
+      "opened_files": [
+        "m1nd-mcp/src/session.rs",
+        "m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "event_index": 3,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 2,
+  "repeat_reads": 3,
+  "search_iterations": 2,
+  "chars_surfaced": 2520,
+  "token_proxy": 630,
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "Resume a boot-memory investigation without rediscovering the structural path from scratch.",
+  "expected_strength": "mixed"
+}

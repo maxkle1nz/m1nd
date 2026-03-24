@@ -1,0 +1,31 @@
+[
+  {
+    "tool_name": "rg",
+    "query": "boot_memory persist resume continuity",
+    "elapsed_ms": 9.8,
+    "payload_chars": 1420,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs",
+      "m1nd-mcp/src/session.rs",
+      "m1nd-mcp/src/protocol/layers.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 7.2,
+    "payload_chars": 1840,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/session.rs",
+    "elapsed_ms": 6.4,
+    "payload_chars": 910,
+    "opened_files": [
+      "m1nd-mcp/src/session.rs"
+    ]
+  }
+]

@@ -39,6 +39,12 @@ Still open after this pass:
 - deepen `trail_resume` so saved investigations reopen the next useful question, not only the boosted graph state
 - measure whether literal-search continuity now needs fewer reformulations in warm-graph runs
 
+Harness status update:
+
+- run recording exists
+- aggregate summarization now exists
+- next missing step is a less synthetic corpus with repeatable event capture for continuity and edit-prep
+
 ## Priority 1
 
 ### 1. Fix recent-history fidelity in `timeline`

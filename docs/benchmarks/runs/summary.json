@@ -1,0 +1,69 @@
+{
+  "run_count": 4,
+  "compared_scenarios": 2,
+  "scenarios": [
+    {
+      "scenario_id": "warm_continuity_boot_memory",
+      "scenario_name": "Warm continuity resume for boot memory investigation",
+      "modes_present": [
+        "m1nd_warm",
+        "manual"
+      ],
+      "manual": {
+        "token_proxy": 1043,
+        "time_to_first_good_answer_ms": 25.0,
+        "time_to_full_proof_ms": 55.0,
+        "files_opened": 3,
+        "search_iterations": 1
+      },
+      "m1nd_warm": {
+        "token_proxy": 630,
+        "time_to_first_good_answer_ms": 4800.0,
+        "time_to_full_proof_ms": 12000.0,
+        "files_opened": 2,
+        "search_iterations": 2
+      },
+      "comparison": {
+        "token_delta": 413,
+        "token_savings_pct": 39.6,
+        "first_good_answer_delta_ms": -4775.0
+      }
+    },
+    {
+      "scenario_id": "warm_semantic_retrieval_dispatch",
+      "scenario_name": "Warm semantic retrieval for normalize_dispatch_tool_name",
+      "modes_present": [
+        "m1nd_warm",
+        "manual"
+      ],
+      "manual": {
+        "token_proxy": 560,
+        "time_to_first_good_answer_ms": 15.315,
+        "time_to_full_proof_ms": 15.613,
+        "files_opened": 2,
+        "search_iterations": 1
+      },
+      "m1nd_warm": {
+        "token_proxy": 350,
+        "time_to_first_good_answer_ms": 742.0,
+        "time_to_full_proof_ms": 1153.0,
+        "files_opened": 1,
+        "search_iterations": 1
+      },
+      "comparison": {
+        "token_delta": 210,
+        "token_savings_pct": 37.5,
+        "first_good_answer_delta_ms": -726.685
+      }
+    }
+  ],
+  "aggregate": {
+    "manual_token_proxy": 1603,
+    "m1nd_warm_token_proxy": 980,
+    "token_delta": 623,
+    "token_savings_pct": 38.86,
+    "manual_first_good_answer_ms": 40.315,
+    "m1nd_warm_first_good_answer_ms": 5542.0,
+    "first_good_answer_delta_ms": -5501.685
+  }
+}

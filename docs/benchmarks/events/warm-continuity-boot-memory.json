@@ -1,0 +1,31 @@
+[
+  {
+    "tool_name": "m1nd.trail_resume",
+    "query": "resume boot memory investigation",
+    "elapsed_ms": 4.8,
+    "payload_chars": 760,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs",
+      "m1nd-mcp/src/session.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.search",
+    "query": "persist_boot_memory",
+    "elapsed_ms": 1.9,
+    "payload_chars": 520,
+    "surfaced_files": [
+      "m1nd-mcp/src/session.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.surgical_context_v2",
+    "target": "m1nd-mcp/src/session.rs",
+    "elapsed_ms": 3.1,
+    "payload_chars": 1240,
+    "opened_files": [
+      "m1nd-mcp/src/session.rs",
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  }
+]
