@@ -1851,12 +1851,20 @@ pub fn handle_surgical_context_v2(
     // Also exclude primary node_id from connected set (circular guard)
     candidate_map.retain(|_, (nid, _, _, _)| *nid != primary_node_id);
 
-    // Step 3: Sort by edge_weight descending, cap at max_connected_files
+    // Step 3: Prefer code-bearing proof files over docs/manifests/tests when
+    // selecting a bounded connected set. This keeps v2 useful for edit prep
+    // instead of spending precious slots on auxiliary surfaces first.
     let mut scored: Vec<(String, String, String, String, f32)> = candidate_map
         .into_iter()
         .map(|(path, (nid, label, rel, w))| (path, nid, label, rel, w))
         .collect();
-    scored.sort_by(|a, b| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        surgical_v2_file_kind_rank(&b.0)
+            .cmp(&surgical_v2_file_kind_rank(&a.0))
+            .then_with(|| surgical_v2_relation_rank(&b.3).cmp(&surgical_v2_relation_rank(&a.3)))
+            .then_with(|| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.0.cmp(&b.0))
+    });
     scored.truncate(input.max_connected_files);
 
     // Step 4: Read each connected file, build ConnectedFileSource
@@ -1932,6 +1940,56 @@ pub fn handle_surgical_context_v2(
         total_lines,
         elapsed_ms,
     })
+}
+
+fn surgical_v2_relation_rank(relation_type: &str) -> u8 {
+    match relation_type {
+        "caller" | "callee" => 3,
+        "test" => 2,
+        _ => 1,
+    }
+}
+
+fn surgical_v2_file_kind_rank(path: &str) -> u8 {
+    let path_lower = path.to_lowercase();
+    let basename = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if matches!(
+        basename.as_str(),
+        "cargo.toml" | "cargo.lock" | "package.json"
+    ) || path_lower.ends_with(".md")
+        || path_lower.contains("/docs/")
+        || path_lower.contains("/target/")
+        || path_lower.contains("/node_modules/")
+        || path_lower.contains("/dist/")
+    {
+        return 0;
+    }
+
+    if path_lower.contains("/tests/")
+        || basename.starts_with("test_")
+        || path_lower.contains(".test.")
+        || path_lower.contains(".spec.")
+        || path_lower.ends_with("_test.rs")
+    {
+        return 2;
+    }
+
+    if matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or(""),
+        "rs" | "py" | "ts" | "tsx" | "js" | "jsx" | "go" | "java"
+    ) {
+        return 3;
+    }
+
+    1
 }
 
 // ---------------------------------------------------------------------------
@@ -2900,6 +2958,126 @@ mod tests {
         state
     }
 
+    fn build_surgical_state_with_doc_noise(
+        root: &std::path::Path,
+        file_path: &str,
+    ) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let primary = graph
+            .add_node(
+                &format!("file::{}", file_path),
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add primary node");
+        graph.set_node_provenance(
+            primary,
+            NodeProvenanceInput {
+                source_path: Some(file_path),
+                line_start: Some(1),
+                line_end: Some(12),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        let code_path = root.join("src/dependent.rs");
+        std::fs::create_dir_all(code_path.parent().expect("dependent parent"))
+            .expect("mk dependent parent");
+        std::fs::write(&code_path, "pub fn dependent() {}\n").expect("write dependent file");
+        let code_str = code_path.to_string_lossy().to_string();
+        let code = graph
+            .add_node(
+                &format!("file::{}", code_str),
+                "dependent.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add code node");
+        graph.set_node_provenance(
+            code,
+            NodeProvenanceInput {
+                source_path: Some(&code_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        let doc_path = root.join("EXAMPLES.md");
+        std::fs::write(&doc_path, "# examples\n").expect("write doc file");
+        let doc_str = doc_path.to_string_lossy().to_string();
+        let doc = graph
+            .add_node(
+                &format!("file::{}", doc_str),
+                "EXAMPLES.md",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add doc node");
+        graph.set_node_provenance(
+            doc,
+            NodeProvenanceInput {
+                source_path: Some(&doc_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        graph
+            .add_edge(
+                primary,
+                code,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add core->code edge");
+        graph
+            .add_edge(
+                primary,
+                doc,
+                "documents",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.95),
+            )
+            .expect("add core->doc edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
     #[test]
     fn test_extract_identifier() {
         assert_eq!(extract_identifier("handle_apply(state)"), "handle_apply");
@@ -3255,6 +3433,42 @@ mod tests {
         assert!(summary.risk_score > 0.0);
         assert!(summary.heuristic_signals.trust_risk_multiplier >= 1.0);
         assert!(summary.heuristic_signals.tremor_observation_count >= 3);
+    }
+
+    #[test]
+    fn test_surgical_context_v2_prefers_code_over_doc_noise_when_slots_are_tight() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.rs");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "pub fn core() {\n    dependent();\n}\n")
+            .expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state_with_doc_noise(root, &primary_str);
+
+        let output = handle_surgical_context_v2(
+            &mut state,
+            surgical::SurgicalContextV2Input {
+                file_path: primary_str,
+                agent_id: "test".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+                max_connected_files: 1,
+                max_lines_per_file: 60,
+            },
+        )
+        .expect("surgical context v2");
+
+        assert_eq!(output.connected_files.len(), 1);
+        assert!(
+            output.connected_files[0]
+                .file_path
+                .ends_with("src/dependent.rs"),
+            "code neighbor should outrank markdown noise when slots are limited"
+        );
     }
 
     #[test]
