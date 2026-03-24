@@ -896,6 +896,12 @@ pub struct ValidatePlanOutput {
     pub blast_radius_total: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<PlanHeuristicSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
     pub elapsed_ms: f64,
 }
 

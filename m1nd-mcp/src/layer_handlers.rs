@@ -3663,6 +3663,9 @@ pub fn handle_validate_plan(
             suggested_additions: vec![],
             blast_radius_total: 0,
             heuristic_summary: None,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -3943,6 +3946,33 @@ pub fn handle_validate_plan(
         });
     }
 
+    let top_hotspot = heuristic_summary
+        .as_ref()
+        .and_then(|summary| summary.hotspots.first());
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = if let Some(hotspot) =
+        top_hotspot
+    {
+        (
+            Some("heuristics_surface".into()),
+            Some(hotspot.file_path.clone()),
+            Some(format!(
+                "Inspect {} next: {}",
+                hotspot.file_path, hotspot.proof_hint
+            )),
+        )
+    } else if let Some(gap) = gaps.iter().find(|gap| gap.severity == "critical") {
+        (
+            Some("view".into()),
+            Some(gap.file_path.clone()),
+            Some(format!(
+                "Open {} next because it is a critical gap: {}",
+                gap.file_path, gap.reason
+            )),
+        )
+    } else {
+        (None, None, None)
+    };
+
     Ok(layers::ValidatePlanOutput {
         actions_analyzed,
         actions_resolved,
@@ -3954,6 +3984,9 @@ pub fn handle_validate_plan(
         suggested_additions,
         blast_radius_total,
         heuristic_summary,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
 }
@@ -8703,6 +8736,18 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         );
         assert_eq!(hotspot.heuristics_surface_ref.node_id, "file::src/core.rs");
         assert_eq!(hotspot.heuristics_surface_ref.file_path, "src/core.rs");
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("heuristics_surface")
+        );
+        assert_eq!(
+            output.next_suggested_target.as_deref(),
+            Some("src/core.rs")
+        );
+        assert!(output
+            .next_step_hint
+            .as_deref()
+            .is_some_and(|hint| hint.contains("Inspect src/core.rs next")));
         assert!(output
             .gaps
             .iter()
