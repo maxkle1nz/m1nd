@@ -449,12 +449,17 @@ pub struct ApplyBatchOutput {
 pub struct ApplyBatchPhase {
     /// Phase key: validate, write, reingest, verify, done.
     pub phase: String,
+    /// Stable phase order for shells/UIs that want to render a timeline.
+    pub phase_index: usize,
     /// Phase status: completed, skipped, failed.
     pub status: String,
     /// Files completed by the time this phase finished.
     pub files_completed: usize,
     /// Total files in the batch.
     pub files_total: usize,
+    /// Representative file for this phase when one file best explains the work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_file: Option<String>,
     /// Elapsed milliseconds at the end of this phase.
     pub elapsed_ms: f64,
     /// Short status line for user-visible progress.

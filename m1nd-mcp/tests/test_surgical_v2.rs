@@ -110,9 +110,11 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         status_message: "apply_batch completed".into(),
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
+            phase_index: 4,
             status: "completed".into(),
             files_completed: files_written,
             files_total,
+            current_file: None,
             elapsed_ms: 20.0,
             message: "batch completed".into(),
         }],
@@ -842,9 +844,11 @@ fn test_batch_empty_edits_noop() {
         status_message: "apply_batch noop: no edits provided".into(),
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
+            phase_index: 0,
             status: "completed".into(),
             files_completed: 0,
             files_total: 0,
+            current_file: None,
             elapsed_ms: 0.1,
             message: "No edits were provided.".into(),
         }],
@@ -879,6 +883,8 @@ fn test_batch_empty_edits_noop() {
         "no-op should still expose a done phase"
     );
     assert_eq!(out.phases[0].phase, "done");
+    assert_eq!(out.phases[0].phase_index, 0);
+    assert_eq!(out.phases[0].current_file, None);
     assert!(out.elapsed_ms >= 0.0, "elapsed_ms must be >= 0");
 
     // Verify round-trip serialization

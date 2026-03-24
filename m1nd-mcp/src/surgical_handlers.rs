@@ -2158,9 +2158,11 @@ pub fn handle_apply_batch(
             status_message: "apply_batch noop: no edits provided".into(),
             phases: vec![surgical::ApplyBatchPhase {
                 phase: "done".into(),
+                phase_index: 0,
                 status: "completed".into(),
                 files_completed: 0,
                 files_total: 0,
+                current_file: None,
                 elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
                 message: "No edits were provided.".into(),
             }],
@@ -2179,9 +2181,13 @@ pub fn handle_apply_batch(
     }
     phases.push(surgical::ApplyBatchPhase {
         phase: "validate".into(),
+        phase_index: 0,
         status: "completed".into(),
         files_completed: 0,
         files_total: input.edits.len(),
+        current_file: resolved_edits
+            .first()
+            .map(|(path, _, _)| path.to_string_lossy().to_string()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!("Validated {} edit targets.", input.edits.len()),
     });
@@ -2386,6 +2392,7 @@ pub fn handle_apply_batch(
     }
     phases.push(surgical::ApplyBatchPhase {
         phase: "write".into(),
+        phase_index: 1,
         status: if results.iter().all(|r| r.success) {
             "completed".into()
         } else {
@@ -2393,6 +2400,7 @@ pub fn handle_apply_batch(
         },
         files_completed: results.iter().filter(|r| r.success).count(),
         files_total: input.edits.len(),
+        current_file: results.last().map(|result| result.file_path.clone()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!(
             "Wrote {} of {} files.",
@@ -2441,6 +2449,7 @@ pub fn handle_apply_batch(
     };
     phases.push(surgical::ApplyBatchPhase {
         phase: "reingest".into(),
+        phase_index: 2,
         status: if input.reingest {
             if reingested {
                 "completed".into()
@@ -2452,6 +2461,10 @@ pub fn handle_apply_batch(
         },
         files_completed: files_written,
         files_total: input.edits.len(),
+        current_file: results
+            .iter()
+            .find(|result| result.success)
+            .map(|result| result.file_path.clone()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if input.reingest {
             if reingested {
@@ -2953,6 +2966,7 @@ pub fn handle_apply_batch(
     };
     phases.push(surgical::ApplyBatchPhase {
         phase: "verify".into(),
+        phase_index: 3,
         status: if input.verify {
             if verification.is_some() {
                 "completed".into()
@@ -2964,6 +2978,20 @@ pub fn handle_apply_batch(
         },
         files_completed: files_written,
         files_total: input.edits.len(),
+        current_file: verification
+            .as_ref()
+            .and_then(|report| {
+                report
+                    .high_impact_files
+                    .first()
+                    .map(|impact| impact.file_path.clone())
+            })
+            .or_else(|| {
+                results
+                    .iter()
+                    .find(|result| result.success)
+                    .map(|r| r.file_path.clone())
+            }),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if let Some(report) = verification.as_ref() {
             format!("Verification finished with verdict {}.", report.verdict)
@@ -2999,6 +3027,7 @@ pub fn handle_apply_batch(
     };
     phases.push(surgical::ApplyBatchPhase {
         phase: "done".into(),
+        phase_index: 4,
         status: if all_succeeded {
             "completed".into()
         } else {
@@ -3006,6 +3035,7 @@ pub fn handle_apply_batch(
         },
         files_completed: files_written,
         files_total: input.edits.len(),
+        current_file: None,
         elapsed_ms,
         message: status_message.clone(),
     });
