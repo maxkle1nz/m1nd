@@ -4,11 +4,12 @@
     "query": "apply_batch risky verification proof",
     "elapsed_ms": 2.0,
     "payload_chars": 460,
+    "next_suggested_tool": "heuristics_surface",
+    "next_tool_used": "heuristics_surface",
     "surfaced_files": [
       "m1nd-mcp/src/surgical_handlers.rs",
       "m1nd-mcp/src/protocol/surgical.rs"
-    ]
-    ,
-    "notes": "validate_plan now includes a compact proof_hint on heuristic hotspots, so the first proof step does not require a second heuristics_surface call."
+    ],
+    "notes": "validate_plan now includes a compact proof_hint and suggests the next surface directly, so first proof no longer needs an extra discovery step."
   }
 ]

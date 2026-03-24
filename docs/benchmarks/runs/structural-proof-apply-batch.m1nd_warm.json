@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T19:07:40.336037+00:00",
+  "recorded_at": "2026-03-24T19:12:04.864469+00:00",
   "scenario_id": "warm_structural_proof_apply_batch",
   "scenario_name": "Warm structural proof around apply_batch risky verification",
   "scenario_tags": [
@@ -18,7 +18,7 @@
   "false_start_count": 0,
   "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
-  "workflow_notes": "validate_plan now carries a compact proof_hint, eliminating the immediate heuristics_surface follow-up for first proof",
+  "workflow_notes": "validate_plan now carries a compact proof_hint and explicit next-step guidance for structural proof",
   "notes": "",
   "events": [
     {
@@ -26,11 +26,13 @@
       "query": "apply_batch risky verification proof",
       "elapsed_ms": 2.0,
       "payload_chars": 460,
+      "next_suggested_tool": "heuristics_surface",
+      "next_tool_used": "heuristics_surface",
       "surfaced_files": [
         "m1nd-mcp/src/surgical_handlers.rs",
         "m1nd-mcp/src/protocol/surgical.rs"
       ],
-      "notes": "validate_plan now includes a compact proof_hint on heuristic hotspots, so the first proof step does not require a second heuristics_surface call.",
+      "notes": "validate_plan now includes a compact proof_hint and suggests the next surface directly, so first proof no longer needs an extra discovery step.",
       "event_index": 1,
       "opened_files": []
     }
@@ -40,8 +42,8 @@
   "search_iterations": 0,
   "chars_surfaced": 460,
   "token_proxy": 115,
-  "guidance_events": 0,
-  "guidance_followed": 0,
+  "guidance_events": 1,
+  "guidance_followed": 1,
   "reactivated_nodes": 0,
   "resume_hints": 0,
   "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",

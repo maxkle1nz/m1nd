@@ -397,7 +397,7 @@ Current aggregate from those recorded runs:
 - warm `m1nd` repeat reads: `6`
 - manual false starts: `2`
 - warm `m1nd` false starts: `0`
-- warm `m1nd` guidance-followed count: `2`
+- warm `m1nd` guidance-followed count: `3`
 
 Interpretation:
 
@@ -409,6 +409,7 @@ Interpretation:
 - the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
+- guidance-followed is now measurable in both continuity and structural-proof flows, not only resume scenarios
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
 ### New continuity result: actionable resume hints
@@ -471,6 +472,7 @@ to heuristic hotspots in `validate_plan`.
 Interpretation:
 
 - `validate_plan` now carries enough compact proof to justify the first risky verdict without an immediate second call
+- `validate_plan` now also emits explicit next-step guidance, so the proof flow can be measured as a guided one-step handoff instead of an implicit manual decision
 - this did not fully beat manual in the single-scenario first-answer time, but it materially improved compactness and helped flip the aggregate warm-graph timing result
 
 ### Priority 1

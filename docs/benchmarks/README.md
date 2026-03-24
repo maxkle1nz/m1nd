@@ -66,6 +66,10 @@ For continuity scenarios, capture whether the run only restored context or also
 surfaced the next move. The actionable-resume scenarios are meant to benchmark
 "resume and continue" behavior, not bookmark restore alone.
 
+For proof and planning scenarios, use the same guidance fields when a tool now
+suggests the next surface directly. This lets the corpus measure when one tool
+collapses both explanation and next-step routing into a single step.
+
 ## Current scenario corpus
 
 - `semantic_retrieval_dispatch.json`
