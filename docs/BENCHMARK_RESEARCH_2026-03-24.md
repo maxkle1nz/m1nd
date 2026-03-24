@@ -387,8 +387,8 @@ Current harness-backed comparison set:
 Current aggregate from those recorded runs:
 
 - manual token proxy: `5191`
-- warm `m1nd` token proxy: `1946`
-- aggregate token savings: `62.51%`
+- warm `m1nd` token proxy: `1464`
+- aggregate token savings: `71.8%`
 - manual first good answer total: `251.715ms`
 - warm `m1nd` first good answer total: `5844.9ms`
 - manual search iterations: `8`
@@ -397,7 +397,7 @@ Current aggregate from those recorded runs:
 - warm `m1nd` repeat reads: `8`
 - manual false starts: `2`
 - warm `m1nd` false starts: `0`
-- warm `m1nd` guidance-followed count: `1`
+- warm `m1nd` guidance-followed count: `2`
 
 Interpretation:
 
@@ -406,7 +406,8 @@ Interpretation:
 - `proof_focused` edit prep is currently the strongest harness-backed compactness win in the corpus
 - the new actionable continuity scenario is a strong workflow win: fewer searches, fewer rereads, and no false start before the next concrete move
 - the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
-- the older `warm_continuity_boot_memory` scenario remains the main drag on first-answer latency, which keeps continuity as the top latency candidate for a future patch
+- the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
+- the biggest remaining time outlier in the corpus is now warm semantic retrieval, not continuity
 - the next useful benchmark step is to rerun continuity and semantic retrieval with stricter event capture and less synthetic timing overhead
 
 ### New continuity result: actionable resume hints
@@ -441,6 +442,21 @@ Interpretation:
 - this is the first harness-backed proof that `trail_resume` can route directly into `timeline`
 - the main win is not just compression; it is eliminating the intermediate rediscovery step
 - this makes `next_suggested_tool` measurable instead of anecdotal inside the benchmark corpus
+
+### Updated continuity result: boot-memory resume now follows guided focus
+
+The older boot-memory continuity scenario was rerun after the `trail_resume`
+guidance changes instead of following the pre-guidance search-heavy flow.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Boot-memory continuity resume | 1043 | 148 | 85.81% | Search iterations drop from `1` to `0`; repeat reads drop from `2` to `1`; guidance followed `1/1` |
+
+Interpretation:
+
+- the earlier heavy continuity outlier was mostly a stale benchmark path, not the current product behavior
+- guided resume now reopens the session persistence seam directly instead of forcing search plus surgical expansion
+- continuity is no longer the main drag in the harness once the updated resume flow is used
 
 ### Priority 1
 
@@ -484,8 +500,8 @@ Interpretation:
    Why: structural reactivation and actionable hints now exist, but the next-focus and next-tool guidance still need broader validation outside the starter corpus.
    Likely files: `m1nd-mcp/src/layer_handlers.rs`, `m1nd-mcp/src/protocol/layers.rs`
 
-2. Continue tightening resume latency and payload in continuity-heavy workflows.
-   Why: the actionable continuity scenario is now strong, but the older heavy continuity flow is still the top latency drag in the harness.
+2. Continue tightening guidance quality and latency in warm retrieval workflows.
+   Why: continuity has improved materially; the remaining timing outlier is now warm semantic retrieval and mixed proof flows.
    Likely files: `m1nd-mcp/src/server.rs`, `m1nd-mcp/src/layer_handlers.rs`
 
 3. Reduce noisy fixture-style matches inside literal search.
