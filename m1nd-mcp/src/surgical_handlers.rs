@@ -2144,6 +2144,7 @@ pub fn handle_apply_batch(
 ) -> M1ndResult<surgical::ApplyBatchOutput> {
     let start = Instant::now();
     let mut phases: Vec<surgical::ApplyBatchPhase> = Vec::new();
+    let mut progress_events: Vec<surgical::ApplyBatchProgressEvent> = Vec::new();
     let phase_count = 5usize;
     let phase_names = ["validate", "write", "reingest", "verify", "done"];
 
@@ -2164,6 +2165,16 @@ pub fn handle_apply_batch(
             remaining_phase_count: 0,
             progress_pct: 100.0,
             next_phase: None,
+            progress_events: vec![surgical::ApplyBatchProgressEvent {
+                event_type: "batch_completed".into(),
+                phase: "done".into(),
+                phase_index: 0,
+                progress_pct: 100.0,
+                current_file: None,
+                next_phase: None,
+                elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+                message: "No edits were provided.".into(),
+            }],
             phases: vec![surgical::ApplyBatchPhase {
                 phase: "done".into(),
                 phase_index: 0,
@@ -2199,6 +2210,18 @@ pub fn handle_apply_batch(
             .first()
             .map(|(path, _, _)| path.to_string_lossy().to_string()),
         progress_pct: 20.0,
+        next_phase: Some(phase_names[1].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!("Validated {} edit targets.", input.edits.len()),
+    });
+    progress_events.push(surgical::ApplyBatchProgressEvent {
+        event_type: "phase_completed".into(),
+        phase: "validate".into(),
+        phase_index: 0,
+        progress_pct: 20.0,
+        current_file: resolved_edits
+            .first()
+            .map(|(path, _, _)| path.to_string_lossy().to_string()),
         next_phase: Some(phase_names[1].into()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!("Validated {} edit targets.", input.edits.len()),
@@ -2422,6 +2445,20 @@ pub fn handle_apply_batch(
             input.edits.len()
         ),
     });
+    progress_events.push(surgical::ApplyBatchProgressEvent {
+        event_type: "phase_completed".into(),
+        phase: "write".into(),
+        phase_index: 1,
+        progress_pct: 40.0,
+        current_file: results.last().map(|result| result.file_path.clone()),
+        next_phase: Some(phase_names[2].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!(
+            "Wrote {} of {} files.",
+            results.iter().filter(|r| r.success).count(),
+            input.edits.len()
+        ),
+    });
 
     // Step 7: Bulk re-ingest (single pass covering all successfully written files)
     let files_written = results.iter().filter(|r| r.success).count();
@@ -2480,6 +2517,27 @@ pub fn handle_apply_batch(
             .find(|result| result.success)
             .map(|result| result.file_path.clone()),
         progress_pct: 60.0,
+        next_phase: Some(phase_names[3].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if input.reingest {
+            if reingested {
+                format!("Re-ingested {} written files.", files_written)
+            } else {
+                "Re-ingest did not complete successfully.".into()
+            }
+        } else {
+            "Re-ingest skipped.".into()
+        },
+    });
+    progress_events.push(surgical::ApplyBatchProgressEvent {
+        event_type: "phase_completed".into(),
+        phase: "reingest".into(),
+        phase_index: 2,
+        progress_pct: 60.0,
+        current_file: results
+            .iter()
+            .find(|result| result.success)
+            .map(|result| result.file_path.clone()),
         next_phase: Some(phase_names[3].into()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if input.reingest {
@@ -3019,6 +3077,35 @@ pub fn handle_apply_batch(
             "Verification skipped.".into()
         },
     });
+    progress_events.push(surgical::ApplyBatchProgressEvent {
+        event_type: "phase_completed".into(),
+        phase: "verify".into(),
+        phase_index: 3,
+        progress_pct: 80.0,
+        current_file: verification
+            .as_ref()
+            .and_then(|report| {
+                report
+                    .high_impact_files
+                    .first()
+                    .map(|impact| impact.file_path.clone())
+            })
+            .or_else(|| {
+                results
+                    .iter()
+                    .find(|result| result.success)
+                    .map(|r| r.file_path.clone())
+            }),
+        next_phase: Some(phase_names[4].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if let Some(report) = verification.as_ref() {
+            format!("Verification finished with verdict {}.", report.verdict)
+        } else if input.verify {
+            "Verification could not run because writes or re-ingest did not complete.".into()
+        } else {
+            "Verification skipped.".into()
+        },
+    });
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
@@ -3059,6 +3146,16 @@ pub fn handle_apply_batch(
         elapsed_ms,
         message: status_message.clone(),
     });
+    progress_events.push(surgical::ApplyBatchProgressEvent {
+        event_type: "batch_completed".into(),
+        phase: "done".into(),
+        phase_index: 4,
+        progress_pct: 100.0,
+        current_file: None,
+        next_phase: None,
+        elapsed_ms,
+        message: status_message.clone(),
+    });
 
     Ok(surgical::ApplyBatchOutput {
         all_succeeded,
@@ -3075,6 +3172,7 @@ pub fn handle_apply_batch(
         remaining_phase_count: 0,
         progress_pct: ((phases.len() as f32 / phase_count as f32) * 100.0).min(100.0),
         next_phase: None,
+        progress_events,
         phases,
         elapsed_ms,
     })

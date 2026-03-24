@@ -412,6 +412,7 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
             "Use status_message and phases to drive shell/UI progress.",
             "Use active_phase, completed_phase_count, phase_count, remaining_phase_count, progress_pct, and next_phase for coarse progress without reconstructing the phase timeline yourself.",
             "Each phase can carry phase_index, current_file, progress_pct, and next_phase for better progress rendering.",
+            "progress_events mirrors the same lifecycle in a streaming-friendly event shape for future MCP emission.",
         ],
         _ => &[],
     }

@@ -14,8 +14,9 @@
 // Pattern mirrors tests/test_surgical.rs + tests/perspective_golden.rs.
 
 use m1nd_mcp::protocol::surgical::{
-    ApplyBatchInput, ApplyBatchOutput, ApplyBatchPhase, BatchEditItem, BatchEditResult,
-    ConnectedFileSource, SurgicalContextV2Input, SurgicalContextV2Output, SurgicalSymbol,
+    ApplyBatchInput, ApplyBatchOutput, ApplyBatchPhase, ApplyBatchProgressEvent, BatchEditItem,
+    BatchEditResult, ConnectedFileSource, SurgicalContextV2Input, SurgicalContextV2Output,
+    SurgicalSymbol,
 };
 
 // ===========================================================================
@@ -114,6 +115,16 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         remaining_phase_count: 0,
         progress_pct: 100.0,
         next_phase: None,
+        progress_events: vec![ApplyBatchProgressEvent {
+            event_type: "batch_completed".into(),
+            phase: "done".into(),
+            phase_index: 4,
+            progress_pct: 100.0,
+            current_file: None,
+            next_phase: None,
+            elapsed_ms: 20.0,
+            message: "batch completed".into(),
+        }],
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
             phase_index: 4,
@@ -856,6 +867,16 @@ fn test_batch_empty_edits_noop() {
         remaining_phase_count: 0,
         progress_pct: 100.0,
         next_phase: None,
+        progress_events: vec![ApplyBatchProgressEvent {
+            event_type: "batch_completed".into(),
+            phase: "done".into(),
+            phase_index: 0,
+            progress_pct: 100.0,
+            current_file: None,
+            next_phase: None,
+            elapsed_ms: 0.1,
+            message: "No edits were provided.".into(),
+        }],
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
             phase_index: 0,
@@ -899,6 +920,8 @@ fn test_batch_empty_edits_noop() {
     assert_eq!(out.remaining_phase_count, 0);
     assert_eq!(out.progress_pct, 100.0);
     assert_eq!(out.next_phase, None);
+    assert_eq!(out.progress_events.len(), 1);
+    assert_eq!(out.progress_events[0].event_type, "batch_completed");
     assert_eq!(
         out.phases.len(),
         1,

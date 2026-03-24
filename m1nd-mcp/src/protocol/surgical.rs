@@ -451,6 +451,8 @@ pub struct ApplyBatchOutput {
     /// Next expected phase in the lifecycle when not yet done.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_phase: Option<String>,
+    /// Streaming-friendly progress events emitted by the batch lifecycle.
+    pub progress_events: Vec<ApplyBatchProgressEvent>,
     /// Structured phase history for UI progress rendering and future streaming.
     pub phases: Vec<ApplyBatchPhase>,
     /// Elapsed milliseconds.
@@ -479,6 +481,29 @@ pub struct ApplyBatchPhase {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_phase: Option<String>,
     /// Elapsed milliseconds at the end of this phase.
+    pub elapsed_ms: f64,
+    /// Short status line for user-visible progress.
+    pub message: String,
+}
+
+/// A streaming-friendly progress event for apply_batch.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApplyBatchProgressEvent {
+    /// Event type: phase_completed or batch_completed.
+    pub event_type: String,
+    /// Phase key this event belongs to.
+    pub phase: String,
+    /// Stable phase order.
+    pub phase_index: usize,
+    /// Progress percentage at the time of the event.
+    pub progress_pct: f32,
+    /// Representative file for this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_file: Option<String>,
+    /// Next expected phase after this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_phase: Option<String>,
+    /// Event timestamp in elapsed milliseconds from batch start.
     pub elapsed_ms: f64,
     /// Short status line for user-visible progress.
     pub message: String,

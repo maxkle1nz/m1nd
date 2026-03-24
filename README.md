@@ -528,6 +528,7 @@ When `verification.high_impact_files` contains heuristic hotspots, the report ca
 - coarse progress fields: `active_phase`, `completed_phase_count`, `phase_count`, `remaining_phase_count`, `progress_pct`, and `next_phase`
 - `phases` for structured execution progress across `validate`, `write`, `reingest`, `verify`, and `done`
 - each phase can now carry its own `progress_pct` and `next_phase`
+- `progress_events` as a streaming-friendly event log using the same lifecycle data
 - each phase now includes `phase_index` and, when useful, `current_file` so shells and UIs can render progress without inferring order or file focus
 
 ```jsonc
