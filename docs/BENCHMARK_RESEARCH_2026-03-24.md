@@ -411,7 +411,7 @@ Interpretation:
 - the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
 - the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
-- semantic retrieval now joins the guided-flow set too: `seek` can hand off directly into `view` on the winning file
+- semantic retrieval now joins the guided-flow set too: `seek` can hand off directly into `view` on the winning file, and it now carries `proof_state` so retrieval can distinguish loose localization from a stronger file-level proof handoff
 - blast-radius follow-up now joins it as well: `impact` can point straight at the strongest downstream seam instead of leaving the dependent choice implicit
 - structural-claim proof joins the same family too: `hypothesize` can now point directly at the strongest evidence target instead of stopping at a verdict blob
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result

@@ -119,7 +119,7 @@ In particular:
 - `continuity_temporal_resume.json` captures compact resume that routes directly into `timeline`
 - `impact_blast_radius_follow_up.json` captures `impact` plus guided follow-up into the strongest downstream seam, with `proof_state` showing when blast analysis has moved from triage into proof
 - `hypothesize_structural_claim_follow_up.json` captures `hypothesize` plus guided follow-up into the strongest proof target
-- `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file
+- `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file, with `proof_state` showing when retrieval has already moved from loose localization into file-level proof
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
 - `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`, detailed `progress_events`, and the post-batch handoff into the next proof surface
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone

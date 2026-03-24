@@ -395,7 +395,7 @@ It is not a replacement for an LSP, a compiler, or runtime observability. It giv
 
 **It has write-aware workflows.** `surgical_context_v2`, `edit_preview`, `edit_commit`, and `apply_batch` make more sense as edit-preparation and edit-verification tools than as generic search tools.
 
-**It is starting to expose agent state, not only tool output.** `impact`, `trace`, `hypothesize`, `validate_plan`, `timeline`, and `surgical_context_v2` can now surface `proof_state`, and `apply_batch` now returns `status_message`, coarse progress fields, and structured `phases` so long-running writes are easier to understand and present in shells or UIs.
+**It is starting to expose agent state, not only tool output.** `seek`, `impact`, `trace`, `hypothesize`, `validate_plan`, `timeline`, and `surgical_context_v2` can now surface `proof_state`, and `apply_batch` now returns `status_message`, coarse progress fields, structured `phases`, and follow-up guidance so long-running writes are easier to understand and present in shells or UIs.
 
 ## Tool Surface
 

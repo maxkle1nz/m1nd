@@ -526,6 +526,11 @@ fn state_handoffs(tool_name: &str) -> &'static [&'static str] {
             "proving: the connected edit surface is grounded; validate or verify before writing.",
             "ready_to_edit: the edit surface is compact and sufficiently settled for execution.",
         ],
+        "seek" => &[
+            "triaging: the semantic hit is promising, but you still need to inspect the winning file.",
+            "proving: the winning target is strong enough to move into file-level proof next.",
+            "ready_to_edit: rare here; only trust it when retrieval lands on one dominant file-level target.",
+        ],
         "impact" => &[
             "triaging: inspect the strongest downstream seam before turning blast radius into a plan.",
             "proving: the blast pattern is strong enough to validate the change against the impacted target next.",

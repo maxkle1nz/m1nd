@@ -95,6 +95,7 @@ pub fn handle_seek(
             results: vec![],
             total_candidates_scanned: 0,
             embeddings_used: false,
+            proof_state: "blocked".into(),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
             next_suggested_tool: None,
             next_suggested_target: None,
@@ -439,12 +440,14 @@ pub fn handle_seek(
     }
 
     let (next_suggested_tool, next_suggested_target, next_step_hint) = l2_seek_next_step(&results);
+    let proof_state = l2_seek_proof_state(&results);
 
     Ok(layers::SeekOutput {
         query: input.query,
         results,
         total_candidates_scanned: candidates_scanned,
         embeddings_used: semantic_used,
+        proof_state,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         next_suggested_tool,
         next_suggested_target,
@@ -859,6 +862,31 @@ fn timeline_next_step(
             file_path
         )),
     )
+}
+
+fn l2_seek_proof_state(results: &[layers::SeekResultEntry]) -> String {
+    let Some(top) = results.first() else {
+        return "blocked".into();
+    };
+
+    let target_path = top
+        .file_path
+        .clone()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| node_to_file_path(&top.node_id));
+    let second_score = results.get(1).map(|entry| entry.score).unwrap_or(0.0);
+    let margin = top.score - second_score;
+
+    if target_path.is_empty() {
+        return "triaging".into();
+    }
+    if top.score >= 0.85 && margin >= 0.25 && top.node_type == "file" {
+        return "ready_to_edit".into();
+    }
+    if top.score >= 0.45 && (margin >= 0.02 || results.len() == 1) {
+        return "proving".into();
+    }
+    "triaging".into()
 }
 
 /// Handle m1nd.diverge — structural drift between two points in time.
@@ -8879,6 +8907,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .contains("normalize_dispatch_tool_name"),
             "seek should suggest opening the strongest result next"
         );
+        assert_eq!(output.proof_state, "proving");
     }
 
     #[test]

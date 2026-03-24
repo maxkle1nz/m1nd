@@ -328,7 +328,7 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": null,
+        "final_proof_state": "proving",
         "progress_events": 0,
         "max_progress_pct": 0.0,
         "progress_event_types": []

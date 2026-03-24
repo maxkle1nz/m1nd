@@ -7,6 +7,7 @@
     "surfaced_files": [
       "m1nd-mcp/src/server.rs"
     ],
+    "proof_state": "proving",
     "next_suggested_tool": "view",
     "next_suggested_target": "m1nd-mcp/src/server.rs",
     "next_step_hint": "Open the top seek result next: normalize_dispatch_tool_name in m1nd-mcp/src/server.rs.",

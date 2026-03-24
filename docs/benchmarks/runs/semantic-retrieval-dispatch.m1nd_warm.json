@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T19:30:29.694424+00:00",
+  "recorded_at": "2026-03-24T22:17:46.312879+00:00",
   "scenario_id": "warm_semantic_retrieval_dispatch",
   "scenario_name": "Warm semantic retrieval for normalize_dispatch_tool_name",
   "scenario_tags": [
@@ -18,7 +18,7 @@
   "false_start_count": 0,
   "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
-  "workflow_notes": "seek resolves the canonical dispatch helper in one shot, suggests view, and view confirms it immediately",
+  "workflow_notes": "seek resolves the canonical dispatch helper in one shot, signals proving, suggests view, and view confirms it immediately",
   "notes": "",
   "events": [
     {
@@ -29,6 +29,7 @@
       "surfaced_files": [
         "m1nd-mcp/src/server.rs"
       ],
+      "proof_state": "proving",
       "next_suggested_tool": "view",
       "next_suggested_target": "m1nd-mcp/src/server.rs",
       "next_step_hint": "Open the top seek result next: normalize_dispatch_tool_name in m1nd-mcp/src/server.rs.",
@@ -57,6 +58,15 @@
   "guidance_followed": 1,
   "reactivated_nodes": 0,
   "resume_hints": 0,
+  "proof_states": [
+    "proving"
+  ],
+  "final_proof_state": "proving",
+  "progress_events": 0,
+  "max_progress_pct": 0.0,
+  "active_phases": [],
+  "next_phases": [],
+  "progress_event_types": [],
   "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
   "question": "Where do we normalize alias tool names into the canonical dispatch status name?",
   "expected_strength": "strong"

@@ -83,6 +83,9 @@ pub struct SeekOutput {
     pub total_candidates_scanned: usize,
     /// Whether embeddings were used (false = fallback to trigram/semantic engine).
     pub embeddings_used: bool,
+    /// Coarse proof stage for semantic retrieval:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     pub elapsed_ms: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_suggested_tool: Option<String>,
