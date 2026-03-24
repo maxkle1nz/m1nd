@@ -175,10 +175,7 @@ fn load_metadata(root: &Path) -> Option<Metadata> {
     let mut cmd = MetadataCommand::new();
     cmd.current_dir(root);
     cmd.no_deps();
-    match cmd.exec() {
-        Ok(metadata) => Some(metadata),
-        Err(_) => None,
-    }
+    cmd.exec().ok()
 }
 
 fn ensure_module_node(
@@ -258,6 +255,7 @@ fn attach_package_files(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_edge_once(
     graph: &mut m1nd_core::graph::Graph,
     source: m1nd_core::types::NodeId,

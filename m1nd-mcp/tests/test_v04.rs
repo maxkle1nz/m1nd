@@ -37,12 +37,14 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
             node_id: format!("file::module_{}.py", i),
             label: format!("module_{}.py", i),
             node_type: "File".into(),
+            score: Some(0.75),
             file_path: format!("/project/backend/module_{}.py", i),
             line_number: (i as u32) * 10 + 1,
             matched_line: format!("    match_token_{}", i),
             context_before: vec!["# context before".into()],
             context_after: vec!["# context after".into()],
             graph_linked: true,
+            heuristic_signals: None,
         })
         .collect();
 
@@ -95,6 +97,7 @@ fn build_report_output(agent_id: &str, queries: u32) -> ReportOutput {
         tokens_saved_global: tokens_saved * 10,
         co2_saved_grams: co2,
         recent_queries: recent,
+        heuristic_hotspots: vec![],
         markdown_summary: format!(
             "## m1nd Session Report\n- Queries: {}\n- Tokens saved: {}\n",
             queries, tokens_saved
@@ -520,6 +523,7 @@ fn test_report_empty_session() {
         tokens_saved_global: 0,
         co2_saved_grams: 0.0,
         recent_queries: vec![],
+        heuristic_hotspots: vec![],
         markdown_summary: "## m1nd Session Report\n- Queries: 0\n- Tokens saved: 0\n".into(),
     };
 

@@ -513,7 +513,7 @@ fn resolve_auto_ingest_scope_candidates(
             scope_override: candidates
                 .strip_prefix(&ingest_root)
                 .ok()
-                .and_then(|path| normalize_relative_scope_for_search(path)),
+                .and_then(normalize_relative_scope_for_search),
         }];
     }
 
@@ -544,7 +544,7 @@ fn resolve_auto_ingest_scope_candidates(
                             .unwrap_or(candidates),
                     )
                     .ok()
-                    .and_then(|path| normalize_relative_scope_for_search(path)),
+                    .and_then(normalize_relative_scope_for_search),
             });
         }
     }
@@ -569,7 +569,7 @@ fn resolve_auto_ingest_scope_candidates(
                             .unwrap_or(candidates),
                     )
                     .ok()
-                    .and_then(|path| normalize_relative_scope_for_search(path)),
+                    .and_then(normalize_relative_scope_for_search),
             });
         }
     }

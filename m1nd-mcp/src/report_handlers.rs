@@ -53,8 +53,8 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
         let graph = state.graph.read();
         let mut candidates: Vec<(String, String)> = graph
             .id_to_node
-            .iter()
-            .map(|(interned, _)| graph.strings.resolve(*interned))
+            .keys()
+            .map(|interned| graph.strings.resolve(*interned))
             .filter(|ext_id| ext_id.starts_with("file::"))
             .map(|ext_id| {
                 let file_path = ext_id.trim_start_matches("file::").to_string();
