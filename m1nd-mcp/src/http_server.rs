@@ -80,6 +80,32 @@ fn emit_followup_events(
     }
 }
 
+fn tool_result_summary(tool_name: &str, output: &serde_json::Value) -> serde_json::Value {
+    if tool_name != "apply_batch" {
+        return truncate_json(output, 500);
+    }
+
+    serde_json::json!({
+        "batch_id": output.get("batch_id").cloned().unwrap_or(serde_json::Value::Null),
+        "proof_state": output.get("proof_state").cloned().unwrap_or(serde_json::Value::Null),
+        "active_phase": output.get("active_phase").cloned().unwrap_or(serde_json::Value::Null),
+        "progress_pct": output.get("progress_pct").cloned().unwrap_or(serde_json::Value::Null),
+        "next_suggested_tool": output.get("next_suggested_tool").cloned().unwrap_or(serde_json::Value::Null),
+        "next_suggested_target": output.get("next_suggested_target").cloned().unwrap_or(serde_json::Value::Null),
+        "next_step_hint": output.get("next_step_hint").cloned().unwrap_or(serde_json::Value::Null),
+        "verification_verdict": output
+            .get("verification")
+            .and_then(|value| value.get("verdict"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "progress_event_count": output
+            .get("progress_events")
+            .and_then(|value| value.as_array())
+            .map(|value| value.len())
+            .unwrap_or(0),
+    })
+}
+
 fn apply_batch_progress_sink(
     event_tx: broadcast::Sender<SseEvent>,
     event_log_path: Option<std::path::PathBuf>,
@@ -673,7 +699,7 @@ async fn handle_tool_call(
                     "agent_id": agent_id_for_event,
                     "success": inner.is_ok(),
                     "result_preview": match &inner {
-                        Ok(v) => truncate_json(v, 500),
+                        Ok(v) => tool_result_summary(&tool_for_event, v),
                         Err(e) => serde_json::json!({"error": e.to_string()}),
                     },
                     "timestamp_ms": now_ms(),
@@ -1103,5 +1129,24 @@ mod tests {
         assert_eq!(second.data["batch_id"].as_str(), Some("batch-1"));
         assert_eq!(first.data["progress"]["phase"].as_str(), Some("validate"));
         assert_eq!(second.data["progress"]["phase"].as_str(), Some("done"));
+    }
+
+    #[test]
+    fn tool_result_summary_compacts_apply_batch_for_sse_consumers() {
+        let output = serde_json::json!({
+            "batch_id": "batch-42",
+            "proof_state": "ready_to_edit",
+            "active_phase": "done",
+            "progress_pct": 100.0,
+            "next_step_hint": "Safe to continue.",
+            "verification": {"verdict": "SAFE"},
+            "progress_events": [{}, {}, {}]
+        });
+
+        let summary = tool_result_summary("apply_batch", &output);
+        assert_eq!(summary["batch_id"], "batch-42");
+        assert_eq!(summary["proof_state"], "ready_to_edit");
+        assert_eq!(summary["verification_verdict"], "SAFE");
+        assert_eq!(summary["progress_event_count"], 3);
     }
 }
