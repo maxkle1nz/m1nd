@@ -78,6 +78,8 @@ fn emit_followup_events(
             append_event_to_log(log_path, &sse_event);
         }
     }
+
+    emit_apply_batch_handoff(event_tx, event_log_path, source, agent_id, output);
 }
 
 fn tool_result_summary(tool_name: &str, output: &serde_json::Value) -> serde_json::Value {
@@ -104,6 +106,63 @@ fn tool_result_summary(tool_name: &str, output: &serde_json::Value) -> serde_jso
             .map(|value| value.len())
             .unwrap_or(0),
     })
+}
+
+fn emit_apply_batch_handoff(
+    event_tx: &broadcast::Sender<SseEvent>,
+    event_log_path: Option<&std::path::PathBuf>,
+    source: &str,
+    agent_id: &str,
+    output: &serde_json::Value,
+) {
+    let batch_id = output
+        .get("batch_id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let proof_state = output
+        .get("proof_state")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let next_suggested_tool = output
+        .get("next_suggested_tool")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let next_suggested_target = output
+        .get("next_suggested_target")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let next_step_hint = output
+        .get("next_step_hint")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    if batch_id.is_null()
+        && proof_state.is_null()
+        && next_suggested_tool.is_null()
+        && next_suggested_target.is_null()
+        && next_step_hint.is_null()
+    {
+        return;
+    }
+
+    let sse_event = SseEvent {
+        event_type: "apply_batch_handoff".to_string(),
+        data: serde_json::json!({
+            "tool": "apply_batch",
+            "source": source,
+            "agent_id": agent_id,
+            "batch_id": batch_id,
+            "proof_state": proof_state,
+            "next_suggested_tool": next_suggested_tool,
+            "next_suggested_target": next_suggested_target,
+            "next_step_hint": next_step_hint,
+            "timestamp_ms": now_ms(),
+        }),
+    };
+    let _ = event_tx.send(sse_event.clone());
+    if let Some(log_path) = event_log_path {
+        append_event_to_log(log_path, &sse_event);
+    }
 }
 
 fn apply_batch_progress_sink(
@@ -709,6 +768,17 @@ async fn handle_tool_call(
             if let Some(ref log_path) = event_log_path {
                 append_event_to_log(log_path, &sse_event);
             }
+            if let Ok(output) = &inner {
+                if tool_for_event == "apply_batch" {
+                    emit_apply_batch_handoff(
+                        &event_tx,
+                        event_log_path.as_ref(),
+                        "http",
+                        &agent_id_for_event,
+                        output,
+                    );
+                }
+            }
             match inner {
                 Ok(output) => (
                     StatusCode::OK,
@@ -1101,6 +1171,11 @@ mod tests {
     fn emit_followup_events_replays_apply_batch_progress() {
         let (tx, mut rx) = broadcast::channel::<SseEvent>(16);
         let output = serde_json::json!({
+            "batch_id": "batch-1",
+            "proof_state": "proving",
+            "next_suggested_tool": "heuristics_surface",
+            "next_suggested_target": "src/core.py",
+            "next_step_hint": "Inspect the hotspot before promotion.",
             "progress_events": [
                 {
                     "batch_id": "batch-1",
@@ -1123,10 +1198,17 @@ mod tests {
 
         let first = rx.try_recv().expect("first progress event");
         let second = rx.try_recv().expect("second progress event");
+        let third = rx.try_recv().expect("handoff event");
         assert_eq!(first.event_type, "apply_batch_progress");
         assert_eq!(second.event_type, "apply_batch_progress");
+        assert_eq!(third.event_type, "apply_batch_handoff");
         assert_eq!(first.data["batch_id"].as_str(), Some("batch-1"));
         assert_eq!(second.data["batch_id"].as_str(), Some("batch-1"));
+        assert_eq!(third.data["batch_id"].as_str(), Some("batch-1"));
+        assert_eq!(
+            third.data["next_suggested_tool"].as_str(),
+            Some("heuristics_surface")
+        );
         assert_eq!(first.data["progress"]["phase"].as_str(), Some("validate"));
         assert_eq!(second.data["progress"]["phase"].as_str(), Some("done"));
     }
@@ -1148,5 +1230,12 @@ mod tests {
         assert_eq!(summary["proof_state"], "ready_to_edit");
         assert_eq!(summary["verification_verdict"], "SAFE");
         assert_eq!(summary["progress_event_count"], 3);
+    }
+
+    #[test]
+    fn emit_apply_batch_handoff_skips_empty_payloads() {
+        let (tx, mut rx) = broadcast::channel::<SseEvent>(16);
+        emit_apply_batch_handoff(&tx, None, "http", "tester", &serde_json::json!({}));
+        assert!(rx.try_recv().is_err());
     }
 }
