@@ -1,0 +1,12 @@
+{
+  "scenario_id": "warm_perspective_stale_route_recovery",
+  "scenario_name": "Warm recovery from stale perspective route_set_version",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "perspective",
+    "stateful-navigation"
+  ],
+  "question": "Recover from a stale perspective route_set_version and continue with the correct fresh route without restarting the investigation.",
+  "expected_strength": "strong"
+}

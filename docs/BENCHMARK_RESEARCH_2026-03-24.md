@@ -273,7 +273,7 @@ inside a compact recovery path instead of forcing a new grep/read sweep.
 The benchmark harness now records whether a tool error exposed an actionable
 repair path and whether the agent followed it.
 
-### Current recovery scenario
+### Current recovery scenarios
 
 `warm_search_invalid_regex_recovery`
 
@@ -295,6 +295,22 @@ Interpretation:
 
 This is exactly the kind of improvement that matters for JIMI-style agents:
 less dead-end failure, less rediscovery, and fewer wasted retries.
+
+`warm_perspective_stale_route_recovery`
+
+- manual token proxy: `265`
+- `m1nd_warm` token proxy: `218`
+- savings: `17.74%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is a stateful recovery benchmark, not a raw retrieval benchmark
+- the value is that a stale navigation state now teaches the exact repair path
+- the agent stays inside the perspective workflow instead of rebuilding state by hand
 - `live_progress_events`
 - `replay_progress_events`
 - `snapshot_progress_events`

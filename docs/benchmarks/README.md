@@ -150,6 +150,7 @@ guided downstream targeting, not skipping proof.
 - `hypothesize_structural_claim_follow_up.json`
 - `trace_root_cause_triage.json`
 - `search_invalid_regex_recovery.json`
+- `perspective_stale_route_recovery.json`
 
 These are warm-graph oriented starter scenarios for rerunning the benchmark
 work captured in `docs/BENCHMARK_RESEARCH_2026-03-24.md`.
@@ -164,6 +165,7 @@ In particular:
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file, with `proof_state` showing when retrieval has already moved from loose localization into file-level proof
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
 - `search_invalid_regex_recovery.json` captures a concrete repair loop where `search` rejects an invalid regex, suggests `literal` mode, and the agent retries successfully without falling back to shell grep
+- `perspective_stale_route_recovery.json` captures a stateful recovery loop where a stale `route_set_version` points the agent to `perspective_routes`, then back into a fresh `perspective_follow` without restarting the investigation
 - `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`, detailed `progress_events`, and the post-batch handoff into the next proof surface
 - `structural_proof_apply_batch.json` currently marks `apply_batch` progress as `live`, which reflects the current serve-mode behavior rather than the older replay-only contract
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone

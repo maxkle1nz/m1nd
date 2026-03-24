@@ -1,0 +1,35 @@
+[
+  {
+    "tool_name": "m1nd.perspective_follow",
+    "query": "follow route with stale route_set_version",
+    "elapsed_ms": 1.1,
+    "payload_chars": 210,
+    "hint": "stale `route_set_version` 7. Current version is 11. Call `perspective_routes` to refresh the route set, then retry this operation with the new `route_set_version`.",
+    "suggested_next_step": "Refresh the current route page with `perspective_routes`, then retry `perspective_follow` with the fresh `route_set_version`.",
+    "next_suggested_tool": "perspective_routes",
+    "next_tool_used": "perspective_routes",
+    "recovery_followed": true,
+    "notes": "The stale route error teaches the exact recovery path instead of forcing the agent to rediscover state."
+  },
+  {
+    "tool_name": "m1nd.perspective_routes",
+    "query": "refresh route page after stale route_set_version",
+    "elapsed_ms": 1.6,
+    "payload_chars": 360,
+    "next_suggested_tool": "perspective_follow",
+    "next_tool_used": "perspective_follow",
+    "surfaced_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "notes": "Fresh routes are returned with the current route_set_version."
+  },
+  {
+    "tool_name": "m1nd.perspective_follow",
+    "query": "retry follow with fresh route_set_version",
+    "elapsed_ms": 1.2,
+    "payload_chars": 300,
+    "opened_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ]
+  }
+]
