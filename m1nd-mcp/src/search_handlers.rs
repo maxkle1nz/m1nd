@@ -1748,6 +1748,43 @@ mod tests {
     }
 
     #[test]
+    fn help_handler_surfaces_decision_sections_for_known_tools() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(&root);
+
+        let input = crate::protocol::layers::HelpInput {
+            agent_id: "jimi-codex".into(),
+            tool_name: Some("surgical_context_v2".into()),
+        };
+
+        let output = handle_help(&mut state, input).expect("help output");
+        assert!(output.found);
+        assert!(output.formatted.contains("WHEN TO USE"));
+        assert!(output.formatted.contains("AVOID WHEN"));
+        assert!(output.formatted.contains("AGENT NOTES"));
+        assert!(output.formatted.contains("proof_focused=true"));
+    }
+
+    #[test]
+    fn help_index_includes_short_decision_guide() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(&root);
+
+        let input = crate::protocol::layers::HelpInput {
+            agent_id: "jimi-codex".into(),
+            tool_name: None,
+        };
+
+        let output = handle_help(&mut state, input).expect("help output");
+        assert!(output.found);
+        assert!(output.formatted.contains("decision guide"));
+        assert!(output.formatted.contains("search=text"));
+        assert!(output.formatted.contains("seek=intent"));
+    }
+
+    #[test]
     fn ranking_prefers_file_content_over_symbol_noise_for_literal_search() {
         let mut results = vec![
             SearchResultEntry {

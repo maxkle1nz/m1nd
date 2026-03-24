@@ -289,6 +289,122 @@ pub struct ToolDoc {
     pub next: &'static [&'static str],
 }
 
+fn when_to_use(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "search" => &[
+            "Use when you already know the text, regex, or exact identifier you want.",
+            "Best for precise string matching, scoped grep, and quick confirmation.",
+        ],
+        "seek" => &[
+            "Use when you know the intent but not the exact symbol or filename.",
+            "Best for natural-language retrieval before opening a likely file.",
+        ],
+        "glob" => &[
+            "Use when the question is mainly about filenames or path patterns.",
+            "Best for narrowing a file set before search, view, or surgical tools.",
+        ],
+        "trace" => &[
+            "Use when you have an error or stacktrace and need the most likely file to inspect next.",
+            "Best for turning failure text into a guided triage path.",
+        ],
+        "hypothesize" => &[
+            "Use when you want to test a structural claim instead of manually proving it with grep.",
+            "Best for yes-or-no dependency/path questions before editing.",
+        ],
+        "validate_plan" => &[
+            "Use before a connected or risky edit when you want gaps, hotspots, and the next proof step.",
+            "Best for deciding whether an edit plan is still proving or ready to execute.",
+        ],
+        "surgical_context_v2" => &[
+            "Use when you need the target file plus connected proof files in one edit-prep surface.",
+            "Best for compact multi-file grounding before validate_plan or apply_batch.",
+        ],
+        "trail_resume" => &[
+            "Use when you are resuming an earlier investigation and want the next likely move, not just raw history.",
+            "Best for continuity across long-running agent work.",
+        ],
+        "timeline" => &[
+            "Use when the question is historical: what changed, when, and with what nearby churn.",
+            "Best for commit history and co-change proof on a file.",
+        ],
+        "apply_batch" => &[
+            "Use when you already know the multi-file edit set and want one write, one re-ingest, and one verdict.",
+            "Best for execution after plan/proof, not for discovery.",
+        ],
+        _ => &[
+            "Use when this tool is the shortest path to the answer you need right now.",
+        ],
+    }
+}
+
+fn avoid_when(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "search" => &[
+            "Avoid when the problem is structural and you do not know the right text yet.",
+        ],
+        "seek" => &[
+            "Avoid when you already have an exact string, regex, or filename.",
+        ],
+        "glob" => &[
+            "Avoid when you need semantic or structural ranking instead of filename matching.",
+        ],
+        "trace" => &[
+            "Avoid when you do not have failure text or when simple compiler output already points to one file.",
+        ],
+        "hypothesize" => &[
+            "Avoid when a direct literal search or file read already settles the question cheaply.",
+        ],
+        "validate_plan" => &[
+            "Avoid as the first move when you still do not know the edit surface.",
+        ],
+        "surgical_context_v2" => &[
+            "Avoid for one-file questions where view or surgical_context is enough.",
+        ],
+        "trail_resume" => &[
+            "Avoid when you are not resuming prior work or when the trail is clearly irrelevant.",
+        ],
+        "timeline" => &[
+            "Avoid when you need runtime truth or current code shape rather than git history.",
+        ],
+        "apply_batch" => &[
+            "Avoid while you are still discovering the plan or proving the target files.",
+        ],
+        _ => &["Avoid when a simpler tool answers the question more directly."],
+    }
+}
+
+fn agent_notes(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "Read proof_state before editing: triaging means inspect next, not patch yet.",
+            "Prefer next_suggested_tool and next_suggested_target over manual follow-up guesses.",
+        ],
+        "hypothesize" => &[
+            "Use proof_state to separate a strong structural handoff from an inconclusive one.",
+        ],
+        "validate_plan" => &[
+            "Read proof_hint and next_step_hint before calling more tools.",
+            "A proving state means keep gathering evidence; ready_to_edit means the plan is grounded enough to proceed.",
+        ],
+        "surgical_context_v2" => &[
+            "proof_focused=true is for compact edit proof, not wide exploration.",
+            "Use proof_state plus next_suggested_tool to decide whether to keep proving or move into execution.",
+        ],
+        "trail_resume" => &[
+            "Treat this as continuity assist on the current graph, not perfect replay of old agent state.",
+            "Prefer the returned next_focus_node_id and next_suggested_tool over a fresh search loop.",
+        ],
+        "timeline" => &[
+            "Timeline is historical proof on files; it does not replace runtime or compiler truth.",
+        ],
+        "apply_batch" => &[
+            "Use status_message and phases to drive shell/UI progress.",
+            "Each phase can carry phase_index and current_file for better progress rendering.",
+        ],
+        _ => &[],
+    }
+}
+
 /// Get all tool documentation entries.
 pub fn tool_docs() -> Vec<ToolDoc> {
     vec![
@@ -1418,6 +1534,10 @@ pub fn format_help_index() -> String {
         "{}use help(tool_name=\"activate\") for detailed help on any tool{}\n",
         ANSI_DIM, ANSI_RESET
     ));
+    out.push_str(&format!(
+        "{}decision guide: search=text, glob=filenames, seek=intent, trace=errors, validate_plan=edit risk, surgical_context_v2=connected edit prep{}\n",
+        ANSI_DIM, ANSI_RESET
+    ));
     out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — m1nd.help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
     out
 }
@@ -1466,9 +1586,38 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
     out.push_str(&format!("{}\u{234D} RETURNS{}\n", ANSI_GREEN, ANSI_RESET)); // ⍍
     out.push_str(&format!("  {}{}{}\n\n", ANSI_DIM, doc.returns, ANSI_RESET));
 
+    // When to use section
+    out.push_str(&format!(
+        "{}\u{25B7} WHEN TO USE{}\n",
+        ANSI_CYAN, ANSI_RESET
+    ));
+    for line in when_to_use(doc.name) {
+        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+    }
+    out.push('\n');
+
+    // Avoid when section
+    out.push_str(&format!("{}\u{26A0} AVOID WHEN{}\n", ANSI_RED, ANSI_RESET));
+    for line in avoid_when(doc.name) {
+        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+    }
+    out.push('\n');
+
     // Example section
     out.push_str(&format!("{}\u{233C} EXAMPLE{}\n", ANSI_MAGENTA, ANSI_RESET)); // ⌼
     out.push_str(&format!("  {}{}{}\n\n", ANSI_DIM, doc.example, ANSI_RESET));
+
+    let notes = agent_notes(doc.name);
+    if !notes.is_empty() {
+        out.push_str(&format!(
+            "{}\u{2699} AGENT NOTES{}\n",
+            ANSI_GOLD, ANSI_RESET
+        ));
+        for line in notes {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
 
     // Next section
     out.push_str(&format!("{}\u{2350} NEXT{}\n", ANSI_CYAN, ANSI_RESET)); // ⍐
