@@ -4742,6 +4742,21 @@ fn l6_vp_heuristic_reason(
     }
 }
 
+fn l6_vp_proof_hint(file_path: &str, role: &str, heuristic_reason: &str, antibody_hits: usize) -> String {
+    let mut hint = match role {
+        "planned" => format!("{} is already in the plan and carries heuristic risk", file_path),
+        "gap" => format!("{} is outside the plan but structurally risky", file_path),
+        _ => format!("{} surfaced as a risky proof seam", file_path),
+    };
+    if heuristic_reason != "neutral heuristics" {
+        hint.push_str(&format!(": {}", heuristic_reason));
+    }
+    if antibody_hits > 0 {
+        hint.push_str(&format!("; antibody hits={}", antibody_hits));
+    }
+    hint
+}
+
 fn l6_vp_build_heuristic_hotspot(
     state: &SessionState,
     file_path: &str,
@@ -4788,6 +4803,12 @@ fn l6_vp_build_heuristic_hotspot(
         .unwrap_or(0.0);
     let antibody_risk = (antibody_hits.min(3) as f32 / 3.0).clamp(0.0, 1.0);
     let hotspot_risk = (trust_risk * 0.5 + tremor_risk * 0.3 + antibody_risk * 0.2).min(1.0);
+    let heuristic_reason = l6_vp_heuristic_reason(
+        trust_factor,
+        tremor_factor,
+        tremor_observation_count,
+        antibody_hits,
+    );
 
     (
         layers::PlanHeuristicHotspot {
@@ -4795,6 +4816,7 @@ fn l6_vp_build_heuristic_hotspot(
             node_id: external_id.to_string(),
             role: role.to_string(),
             antibody_hits,
+            proof_hint: l6_vp_proof_hint(file_path, role, &heuristic_reason, antibody_hits),
             heuristic_signals: layers::HeuristicSignals {
                 heuristic_factor,
                 trust_score: trust.trust_score,
@@ -4805,12 +4827,7 @@ fn l6_vp_build_heuristic_hotspot(
                 tremor_risk_level: tremor_alert
                     .as_ref()
                     .map(|alert| format!("{:?}", alert.risk_level)),
-                reason: l6_vp_heuristic_reason(
-                    trust_factor,
-                    tremor_factor,
-                    tremor_observation_count,
-                    antibody_hits,
-                ),
+                reason: heuristic_reason,
             },
             heuristics_surface_ref: layers::HeuristicsSurfaceRef {
                 node_id: external_id.to_string(),
@@ -8676,6 +8693,14 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             .iter()
             .find(|hotspot| hotspot.file_path == "src/core.rs")
             .expect("planned hotspot ref");
+        assert!(
+            hotspot.proof_hint.contains("src/core.rs is already in the plan"),
+            "validate_plan should emit a compact proof hint with the hotspot"
+        );
+        assert!(
+            hotspot.proof_hint.contains("immune-memory recurrence"),
+            "proof hint should carry the main heuristic reason"
+        );
         assert_eq!(hotspot.heuristics_surface_ref.node_id, "file::src/core.rs");
         assert_eq!(hotspot.heuristics_surface_ref.file_path, "src/core.rs");
         assert!(output

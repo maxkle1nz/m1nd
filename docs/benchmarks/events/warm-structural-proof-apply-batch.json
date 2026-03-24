@@ -2,20 +2,13 @@
   {
     "tool_name": "m1nd.validate_plan",
     "query": "apply_batch risky verification proof",
-    "elapsed_ms": 2.1,
-    "payload_chars": 610,
+    "elapsed_ms": 2.0,
+    "payload_chars": 460,
     "surfaced_files": [
       "m1nd-mcp/src/surgical_handlers.rs",
       "m1nd-mcp/src/protocol/surgical.rs"
     ]
-  },
-  {
-    "tool_name": "m1nd.heuristics_surface",
-    "target": "m1nd-mcp/src/surgical_handlers.rs",
-    "elapsed_ms": 1.2,
-    "payload_chars": 420,
-    "opened_files": [
-      "m1nd-mcp/src/surgical_handlers.rs"
-    ]
+    ,
+    "notes": "validate_plan now includes a compact proof_hint on heuristic hotspots, so the first proof step does not require a second heuristics_surface call."
   }
 ]

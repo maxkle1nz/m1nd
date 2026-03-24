@@ -387,10 +387,10 @@ Current harness-backed comparison set:
 Current aggregate from those recorded runs:
 
 - manual token proxy: `5191`
-- warm `m1nd` token proxy: `1464`
-- aggregate token savings: `71.8%`
+- warm `m1nd` token proxy: `1321`
+- aggregate token savings: `74.55%`
 - manual first good answer total: `251.715ms`
-- warm `m1nd` first good answer total: `307.342ms`
+- warm `m1nd` first good answer total: `201.342ms`
 - manual search iterations: `8`
 - warm `m1nd` search iterations: `2`
 - manual repeat reads: `11`
@@ -402,13 +402,13 @@ Current aggregate from those recorded runs:
 Interpretation:
 
 - the harness now confirms meaningful context compression across retrieval, continuity, edit-prep, and structural proof
-- the recorded time values are not yet a public speed claim
+- the recorded time values are still corpus-specific, but the aggregate warm-graph pass now also beats manual on first-good-answer time
 - `proof_focused` edit prep is currently the strongest harness-backed compactness win in the corpus
 - the new actionable continuity scenario is a strong workflow win: fewer searches, fewer rereads, and no false start before the next concrete move
 - the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
 - the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
-- aggregate warm-graph timing is now much closer to manual, though still not a clean global speed win
+- `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
 ### New continuity result: actionable resume hints
@@ -458,6 +458,20 @@ Interpretation:
 - the earlier heavy continuity outlier was mostly a stale benchmark path, not the current product behavior
 - guided resume now reopens the session persistence seam directly instead of forcing search plus surgical expansion
 - continuity is no longer the main drag in the harness once the updated resume flow is used
+
+### Updated structural-proof result: `validate_plan` now carries a compact proof hint
+
+The `apply_batch` proof scenario was rerun after adding a compact `proof_hint`
+to heuristic hotspots in `validate_plan`.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Structural proof around `apply_batch` | 693 | 115 | 83.41% | Removes the immediate `heuristics_surface` follow-up and cuts repeat reads from `1` to `0` |
+
+Interpretation:
+
+- `validate_plan` now carries enough compact proof to justify the first risky verdict without an immediate second call
+- this did not fully beat manual in the single-scenario first-answer time, but it materially improved compactness and helped flip the aggregate warm-graph timing result
 
 ### Priority 1
 

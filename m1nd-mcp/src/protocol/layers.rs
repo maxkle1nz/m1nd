@@ -948,6 +948,7 @@ pub struct PlanHeuristicHotspot {
     /// "planned" | "gap"
     pub role: String,
     pub antibody_hits: usize,
+    pub proof_hint: String,
     pub heuristic_signals: HeuristicSignals,
     pub heuristics_surface_ref: HeuristicsSurfaceRef,
 }

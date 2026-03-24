@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T18:10:03.136434+00:00",
+  "recorded_at": "2026-03-24T19:07:40.336037+00:00",
   "scenario_id": "warm_structural_proof_apply_batch",
   "scenario_name": "Warm structural proof around apply_batch risky verification",
   "scenario_tags": [
@@ -11,42 +11,39 @@
   "mode": "m1nd_warm",
   "cold_graph_time_ms": null,
   "warm_graph_time_ms": null,
-  "time_to_first_good_answer_ms": 287.0,
-  "time_to_full_proof_ms": 653.0,
+  "time_to_first_good_answer_ms": 181.0,
+  "time_to_full_proof_ms": 401.0,
   "answer_quality": "high",
   "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
+  "workflow_notes": "validate_plan now carries a compact proof_hint, eliminating the immediate heuristics_surface follow-up for first proof",
   "notes": "",
   "events": [
     {
       "tool_name": "m1nd.validate_plan",
       "query": "apply_batch risky verification proof",
-      "elapsed_ms": 2.1,
-      "payload_chars": 610,
+      "elapsed_ms": 2.0,
+      "payload_chars": 460,
       "surfaced_files": [
         "m1nd-mcp/src/surgical_handlers.rs",
         "m1nd-mcp/src/protocol/surgical.rs"
       ],
+      "notes": "validate_plan now includes a compact proof_hint on heuristic hotspots, so the first proof step does not require a second heuristics_surface call.",
       "event_index": 1,
       "opened_files": []
-    },
-    {
-      "tool_name": "m1nd.heuristics_surface",
-      "target": "m1nd-mcp/src/surgical_handlers.rs",
-      "elapsed_ms": 1.2,
-      "payload_chars": 420,
-      "opened_files": [
-        "m1nd-mcp/src/surgical_handlers.rs"
-      ],
-      "event_index": 2,
-      "surfaced_files": []
     }
   ],
   "files_opened": 2,
-  "repeat_reads": 1,
+  "repeat_reads": 0,
   "search_iterations": 0,
-  "chars_surfaced": 1030,
-  "token_proxy": 258,
+  "chars_surfaced": 460,
+  "token_proxy": 115,
+  "guidance_events": 0,
+  "guidance_followed": 0,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
   "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
   "question": "Prove why an apply_batch change should be considered risky with compact structural evidence.",
   "expected_strength": "strong"
