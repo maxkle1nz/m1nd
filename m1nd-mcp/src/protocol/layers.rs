@@ -463,6 +463,10 @@ pub struct TrailResumeOutput {
     pub reactivated_node_ids: Vec<String>,
     /// Hypotheses that were downgraded due to missing supporting nodes.
     pub hypotheses_downgraded: Vec<String>,
+    /// Strongest node to continue investigating next, if one is available.
+    pub next_focus_node_id: Option<String>,
+    /// Highest-priority open question carried forward from the saved trail.
+    pub next_open_question: Option<String>,
     /// Suggested next prompts or moves for continuing the investigation.
     pub resume_hints: Vec<String>,
     /// The full trail data.

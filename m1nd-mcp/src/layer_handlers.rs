@@ -2271,6 +2271,8 @@ pub fn handle_trail_resume(
     save_trail(state, &trail)?;
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let next_focus_node_id = reactivated_node_ids.first().cloned();
+    let next_open_question = trail.open_questions.first().cloned();
     let resume_hints = trail_resume_hints(&trail, &reactivated_node_ids);
 
     Ok(layers::TrailResumeOutput {
@@ -2282,6 +2284,8 @@ pub fn handle_trail_resume(
         nodes_reactivated,
         reactivated_node_ids,
         hypotheses_downgraded,
+        next_focus_node_id,
+        next_open_question,
         resume_hints,
         trail: trail_to_summary(&trail),
         elapsed_ms,
@@ -7925,6 +7929,14 @@ mod tests {
             .reactivated_node_ids
             .iter()
             .any(|node| node == "file::src/ui.rs"));
+        assert_eq!(
+            resumed.next_focus_node_id.as_deref(),
+            Some("file::src/ui.rs")
+        );
+        assert_eq!(
+            resumed.next_open_question.as_deref(),
+            Some("is there a test?")
+        );
         assert!(resumed
             .resume_hints
             .iter()
