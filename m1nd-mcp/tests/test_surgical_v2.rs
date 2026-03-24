@@ -14,8 +14,8 @@
 // Pattern mirrors tests/test_surgical.rs + tests/perspective_golden.rs.
 
 use m1nd_mcp::protocol::surgical::{
-    ApplyBatchInput, ApplyBatchOutput, BatchEditItem, BatchEditResult, ConnectedFileSource,
-    SurgicalContextV2Input, SurgicalContextV2Output, SurgicalSymbol,
+    ApplyBatchInput, ApplyBatchOutput, ApplyBatchPhase, BatchEditItem, BatchEditResult,
+    ConnectedFileSource, SurgicalContextV2Input, SurgicalContextV2Output, SurgicalSymbol,
 };
 
 // ===========================================================================
@@ -106,6 +106,15 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         reingested,
         total_bytes_written: total_bytes,
         verification: None,
+        status_message: "apply_batch completed".into(),
+        phases: vec![ApplyBatchPhase {
+            phase: "done".into(),
+            status: "completed".into(),
+            files_completed: files_written,
+            files_total,
+            elapsed_ms: 20.0,
+            message: "batch completed".into(),
+        }],
         elapsed_ms: 20.0,
     }
 }
@@ -829,6 +838,15 @@ fn test_batch_empty_edits_noop() {
         reingested: false,
         total_bytes_written: 0,
         verification: None,
+        status_message: "apply_batch noop: no edits provided".into(),
+        phases: vec![ApplyBatchPhase {
+            phase: "done".into(),
+            status: "completed".into(),
+            files_completed: 0,
+            files_total: 0,
+            elapsed_ms: 0.1,
+            message: "No edits were provided.".into(),
+        }],
         elapsed_ms: 0.1,
     };
 
@@ -850,6 +868,12 @@ fn test_batch_empty_edits_noop() {
         out.total_bytes_written, 0,
         "no bytes written for empty batch"
     );
+    assert!(
+        out.status_message.contains("no edits"),
+        "no-op output should explain why nothing happened"
+    );
+    assert_eq!(out.phases.len(), 1, "no-op should still expose a done phase");
+    assert_eq!(out.phases[0].phase, "done");
     assert!(out.elapsed_ms >= 0.0, "elapsed_ms must be >= 0");
 
     // Verify round-trip serialization

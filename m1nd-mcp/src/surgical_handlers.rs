@@ -2105,6 +2105,7 @@ pub fn handle_apply_batch(
     input: surgical::ApplyBatchInput,
 ) -> M1ndResult<surgical::ApplyBatchOutput> {
     let start = Instant::now();
+    let mut phases: Vec<surgical::ApplyBatchPhase> = Vec::new();
 
     // Step 1: Empty edits = fast-path no-op
     if input.edits.is_empty() {
@@ -2116,6 +2117,15 @@ pub fn handle_apply_batch(
             reingested: false,
             total_bytes_written: 0,
             verification: None,
+            status_message: "apply_batch noop: no edits provided".into(),
+            phases: vec![surgical::ApplyBatchPhase {
+                phase: "done".into(),
+                status: "completed".into(),
+                files_completed: 0,
+                files_total: 0,
+                elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+                message: "No edits were provided.".into(),
+            }],
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -2129,6 +2139,14 @@ pub fn handle_apply_batch(
         let old_content = std::fs::read_to_string(&validated).unwrap_or_default();
         resolved_edits.push((validated, edit, old_content));
     }
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "validate".into(),
+        status: "completed".into(),
+        files_completed: 0,
+        files_total: input.edits.len(),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!("Validated {} edit targets.", input.edits.len()),
+    });
 
     // Pre-write snapshot: capture graph nodes BEFORE writing (for verify graph-diff)
     let pre_nodes: std::collections::HashMap<String, HashSet<String>> = if input.verify {
@@ -2328,6 +2346,22 @@ pub fn handle_apply_batch(
             }
         }
     }
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "write".into(),
+        status: if results.iter().all(|r| r.success) {
+            "completed".into()
+        } else {
+            "failed".into()
+        },
+        files_completed: results.iter().filter(|r| r.success).count(),
+        files_total: input.edits.len(),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!(
+            "Wrote {} of {} files.",
+            results.iter().filter(|r| r.success).count(),
+            input.edits.len()
+        ),
+    });
 
     // Step 7: Bulk re-ingest (single pass covering all successfully written files)
     let files_written = results.iter().filter(|r| r.success).count();
@@ -2367,6 +2401,30 @@ pub fn handle_apply_batch(
     } else {
         false
     };
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "reingest".into(),
+        status: if input.reingest {
+            if reingested {
+                "completed".into()
+            } else {
+                "failed".into()
+            }
+        } else {
+            "skipped".into()
+        },
+        files_completed: files_written,
+        files_total: input.edits.len(),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if input.reingest {
+            if reingested {
+                format!("Re-ingested {} written files.", files_written)
+            } else {
+                "Re-ingest did not complete successfully.".into()
+            }
+        } else {
+            "Re-ingest skipped.".into()
+        },
+    });
 
     // Step 8: Post-write verification via GRAPH DIFF (verify=true)
     // Compares pre-write graph nodes vs post-write to find what ACTUALLY changed structurally.
@@ -2855,9 +2913,64 @@ pub fn handle_apply_batch(
     } else {
         None
     };
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "verify".into(),
+        status: if input.verify {
+            if verification.is_some() {
+                "completed".into()
+            } else {
+                "skipped".into()
+            }
+        } else {
+            "skipped".into()
+        },
+        files_completed: files_written,
+        files_total: input.edits.len(),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if let Some(report) = verification.as_ref() {
+            format!("Verification finished with verdict {}.", report.verdict)
+        } else if input.verify {
+            "Verification could not run because writes or re-ingest did not complete.".into()
+        } else {
+            "Verification skipped.".into()
+        },
+    });
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
+    let status_message = if all_succeeded {
+        if let Some(report) = verification.as_ref() {
+            format!(
+                "apply_batch completed: wrote {} files, verification verdict {}.",
+                files_written, report.verdict
+            )
+        } else if reingested {
+            format!(
+                "apply_batch completed: wrote {} files and re-ingested successfully.",
+                files_written
+            )
+        } else {
+            format!("apply_batch completed: wrote {} files.", files_written)
+        }
+    } else {
+        format!(
+            "apply_batch finished with partial success: wrote {} of {} files.",
+            files_written,
+            input.edits.len()
+        )
+    };
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "done".into(),
+        status: if all_succeeded {
+            "completed".into()
+        } else {
+            "failed".into()
+        },
+        files_completed: files_written,
+        files_total: input.edits.len(),
+        elapsed_ms,
+        message: status_message.clone(),
+    });
 
     Ok(surgical::ApplyBatchOutput {
         all_succeeded,
@@ -2867,6 +2980,8 @@ pub fn handle_apply_batch(
         reingested,
         total_bytes_written,
         verification,
+        status_message,
+        phases,
         elapsed_ms,
     })
 }

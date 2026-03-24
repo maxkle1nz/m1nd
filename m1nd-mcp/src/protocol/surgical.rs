@@ -434,8 +434,29 @@ pub struct ApplyBatchOutput {
     /// Post-write verification report (populated when verify=true).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<VerificationReport>,
+    /// Human-readable final status for shells/UIs.
+    pub status_message: String,
+    /// Structured phase history for UI progress rendering and future streaming.
+    pub phases: Vec<ApplyBatchPhase>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
+}
+
+/// A completed or in-progress phase within apply_batch execution.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApplyBatchPhase {
+    /// Phase key: validate, write, reingest, verify, done.
+    pub phase: String,
+    /// Phase status: completed, skipped, failed.
+    pub status: String,
+    /// Files completed by the time this phase finished.
+    pub files_completed: usize,
+    /// Total files in the batch.
+    pub files_total: usize,
+    /// Elapsed milliseconds at the end of this phase.
+    pub elapsed_ms: f64,
+    /// Short status line for user-visible progress.
+    pub message: String,
 }
 
 /// Post-write verification report for apply/apply_batch.
