@@ -311,6 +311,23 @@ Interpretation:
 - this is a stateful recovery benchmark, not a raw retrieval benchmark
 - the value is that a stale navigation state now teaches the exact repair path
 - the agent stays inside the perspective workflow instead of rebuilding state by hand
+
+`warm_edit_preview_source_modified_recovery`
+
+- manual token proxy: `303`
+- `m1nd_warm` token proxy: `255`
+- savings: `15.84%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is a write-safety recovery benchmark
+- the token win is modest, but the workflow win is strong
+- the key benefit is that stale preview failure now teaches the safe retry path
+  instead of nudging the agent toward a risky blind commit or a manual diff loop
 - `live_progress_events`
 - `replay_progress_events`
 - `snapshot_progress_events`

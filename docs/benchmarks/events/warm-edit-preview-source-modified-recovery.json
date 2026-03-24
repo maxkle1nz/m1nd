@@ -1,0 +1,35 @@
+[
+  {
+    "tool_name": "m1nd.edit_commit",
+    "query": "commit stale preview after source changed",
+    "elapsed_ms": 1.0,
+    "payload_chars": 240,
+    "hint": "Re-run edit_preview against the current on-disk file to refresh the source hash, then retry edit_commit.",
+    "suggested_next_step": "Call edit_preview again for the same file before retrying edit_commit.",
+    "next_suggested_tool": "edit_preview",
+    "next_tool_used": "edit_preview",
+    "recovery_followed": true,
+    "notes": "source_modified no longer ends the flow; it teaches the exact safe recovery path."
+  },
+  {
+    "tool_name": "m1nd.edit_preview",
+    "query": "refresh preview after source drift",
+    "elapsed_ms": 1.5,
+    "payload_chars": 460,
+    "surfaced_files": [
+      "m1nd-mcp/tests/test_edit_preview.rs"
+    ],
+    "next_suggested_tool": "edit_commit",
+    "next_tool_used": "edit_commit",
+    "notes": "fresh preview is minted against current file state"
+  },
+  {
+    "tool_name": "m1nd.edit_commit",
+    "query": "retry commit with fresh preview",
+    "elapsed_ms": 1.3,
+    "payload_chars": 320,
+    "opened_files": [
+      "m1nd-mcp/tests/test_edit_preview.rs"
+    ]
+  }
+]

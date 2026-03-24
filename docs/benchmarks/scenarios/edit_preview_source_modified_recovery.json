@@ -1,0 +1,12 @@
+{
+  "scenario_id": "warm_edit_preview_source_modified_recovery",
+  "scenario_name": "Warm recovery from edit_commit source_modified drift",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "surgical",
+    "edit-preview"
+  ],
+  "question": "Recover from an edit_commit failure caused by source drift and continue safely with a fresh preview instead of forcing the stale commit.",
+  "expected_strength": "strong"
+}
