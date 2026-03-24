@@ -900,23 +900,9 @@ struct GitCommitRecord {
 impl GitCommitRecord {
     /// Return (added, deleted) for a specific file in this commit.
     fn churn_for_file(&self, target: &str) -> (u32, u32) {
-        // Normalise for --follow renames: compare by basename if full path fails
+        let normalized_target = l6_normalize_path(target);
         for f in &self.files_changed {
-            if f.path == target {
-                return (f.added, f.deleted);
-            }
-        }
-        // Fallback: match by filename only (handles git --follow renames)
-        let target_name = Path::new(target)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        for f in &self.files_changed {
-            let fname = Path::new(&f.path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            if fname == target_name && !target_name.is_empty() {
+            if timeline_paths_match(&f.path, &normalized_target) {
                 return (f.added, f.deleted);
             }
         }
@@ -933,6 +919,31 @@ impl GitCommitRecord {
 /// creating false coupling. They are excluded from co-change analysis.
 fn is_auto_sync_commit(subject: &str) -> bool {
     subject.starts_with("auto-sync from ")
+}
+
+fn timeline_paths_match(candidate: &str, normalized_target: &str) -> bool {
+    let normalized_candidate = l6_normalize_path(candidate);
+    if normalized_candidate == normalized_target {
+        return true;
+    }
+
+    if !normalized_target.is_empty()
+        && (normalized_candidate.ends_with(normalized_target)
+            || normalized_target.ends_with(&normalized_candidate))
+    {
+        return true;
+    }
+
+    let target_name = Path::new(normalized_target)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let candidate_name = Path::new(&normalized_candidate)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    !target_name.is_empty() && target_name == candidate_name
 }
 
 /// Convert a node external_id (e.g. "file::backend/chat_handler.py") to a
@@ -8004,6 +8015,34 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         assert_eq!(commits.len(), 2);
         assert_eq!(commits[0].subject, "fix: harden timeline proof path");
         assert_eq!(commits[1].subject, "feat: add benchmark harness");
+    }
+
+    #[test]
+    fn churn_for_file_matches_repo_relative_suffix_before_basename_fallback() {
+        let commit = super::GitCommitRecord {
+            hash: "abc1234".into(),
+            date: "2026-03-24 10:00:00 +0000".into(),
+            author: "max kle1nz".into(),
+            subject: "fix: preserve recent proof".into(),
+            files_changed: vec![
+                super::FileChurn {
+                    path: "m1nd-mcp/src/layer_handlers.rs".into(),
+                    added: 17,
+                    deleted: 2,
+                },
+                super::FileChurn {
+                    path: "other/src/layer_handlers.rs".into(),
+                    added: 99,
+                    deleted: 1,
+                },
+            ],
+        };
+
+        assert_eq!(
+            commit.churn_for_file("src/layer_handlers.rs"),
+            (17, 2),
+            "timeline should prefer the repo-relative suffix match over a same-basename distractor"
+        );
     }
 
     #[test]
