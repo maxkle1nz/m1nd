@@ -352,6 +352,7 @@ Implemented so far:
 - `trail_save` now auto-derives structural boosts from visited nodes, hypotheses, and conclusions
 - `trail_resume` now reactivates that derived structural memory without requiring explicit manual boosts
 - `trail_resume` now returns `reactivated_node_ids` and `resume_hints` so the next useful move is explicit
+- `trail_resume` now supports compact output limits for reactivated-node previews and resume hints
 - literal search now demotes fixture-like hardcoded identity noise in continuity-style queries
 - a first benchmark harness now exists under `scripts/benchmark/run_benchmark.py` with scenario and run JSON support
 - the harness now records workflow metadata such as `false_start_count`, `tests_identified_before_edit`, and `workflow_notes`
@@ -383,10 +384,10 @@ Current harness-backed comparison set:
 Current aggregate from those recorded runs:
 
 - manual token proxy: `4751`
-- warm `m1nd` token proxy: `1876`
-- aggregate token savings: `60.51%`
+- warm `m1nd` token proxy: `1771`
+- aggregate token savings: `62.72%`
 - manual first good answer total: `240.315ms`
-- warm `m1nd` first good answer total: `5840.6ms`
+- warm `m1nd` first good answer total: `5839.8ms`
 - manual search iterations: `6`
 - warm `m1nd` search iterations: `4`
 - manual repeat reads: `9`
@@ -410,12 +411,13 @@ useful question instead of merely restoring latent graph state.
 
 | Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
 |---|---:|---:|---:|---|
-| Actionable continuity resume | 1340 | 250 | 81.34% | Search iterations drop from `2` to `0`; repeat reads drop from `3` to `1`; false starts drop from `1` to `0` |
+| Actionable continuity resume | 1340 | 145 | 89.18% | Search iterations drop from `2` to `0`; repeat reads drop from `3` to `1`; false starts drop from `1` to `0` |
 
 Interpretation:
 
 - this is the first continuity scenario in the harness that looks like a public-quality `m1nd` win
 - the main benefit is reduced rediscovery, not a broad universal speed claim
+- the compact resume limits make that win cheaper in payload without changing the shape of the workflow
 - this makes continuity a more defensible `m1nd` value surface for docs and release notes
 
 ### Priority 1
