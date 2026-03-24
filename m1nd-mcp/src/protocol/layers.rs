@@ -86,6 +86,21 @@ pub struct SeekOutput {
     pub elapsed_ms: f64,
 }
 
+/// Shared heuristic metadata exposed by tools that apply trust/tremor priors.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HeuristicSignals {
+    pub heuristic_factor: f32,
+    pub trust_score: f32,
+    pub trust_risk_multiplier: f32,
+    pub trust_tier: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tremor_magnitude: Option<f32>,
+    pub tremor_observation_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tremor_risk_level: Option<String>,
+    pub reason: String,
+}
+
 /// A single seek result entry.
 #[derive(Clone, Debug, Serialize)]
 pub struct SeekResultEntry {
@@ -96,6 +111,8 @@ pub struct SeekResultEntry {
     /// Combined score: embedding * 0.5 + graph * 0.3 + temporal * 0.2.
     pub score: f32,
     pub score_breakdown: SeekScoreBreakdown,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_signals: Option<HeuristicSignals>,
     /// Heuristic intent summary generated during ingest.
     pub intent_summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -860,6 +877,8 @@ pub struct ValidatePlanOutput {
     /// Suggested additions to the plan.
     pub suggested_additions: Vec<PlanSuggestedAction>,
     pub blast_radius_total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_summary: Option<PlanHeuristicSummary>,
     pub elapsed_ms: f64,
 }
 
@@ -872,6 +891,11 @@ pub struct PlanGap {
     /// "critical" | "warning" | "info"
     pub severity: String,
     pub signal_strength: f32,
+    pub antibody_hits: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_signals: Option<HeuristicSignals>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristics_surface_ref: Option<HeuristicsSurfaceRef>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -888,6 +912,33 @@ pub struct PlanSuggestedAction {
     pub action_type: String,
     pub file_path: String,
     pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PlanHeuristicSummary {
+    pub heuristic_risk: f32,
+    pub hotspot_count: usize,
+    pub low_trust_hotspots: usize,
+    pub tremor_hotspots: usize,
+    pub antibody_hotspots: usize,
+    pub hotspots: Vec<PlanHeuristicHotspot>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PlanHeuristicHotspot {
+    pub file_path: String,
+    pub node_id: String,
+    /// "planned" | "gap"
+    pub role: String,
+    pub antibody_hits: usize,
+    pub heuristic_signals: HeuristicSignals,
+    pub heuristics_surface_ref: HeuristicsSurfaceRef,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HeuristicsSurfaceRef {
+    pub node_id: String,
+    pub file_path: String,
 }
 
 // =========================================================================
@@ -1573,8 +1624,12 @@ pub struct SearchInput {
     /// and patterns can span multiple lines.
     #[serde(default)]
     pub multiline: bool,
-    /// If a file in scope is not yet in the graph, ingest it first then search.
-    /// Default: false. (Reserved for future implementation.)
+    /// If `scope` resolves to exactly one path outside current ingest roots, ingest
+    /// that path first so search can operate over the requested tree.
+    /// Relative scopes are resolved against existing ingest roots (in order), then
+    /// workspace_root. Ambiguous results return an error whose detail includes the
+    /// candidate paths so the caller can refine scope.
+    /// Default: false.
     #[serde(default)]
     pub auto_ingest: bool,
     /// Glob pattern to filter filenames (e.g. "*.rs", "test_*.py").
@@ -1621,6 +1676,8 @@ pub struct SearchResultEntry {
     pub label: String,
     #[serde(rename = "type")]
     pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
     pub file_path: String,
     pub line_number: u32,
     /// The matched line text.
@@ -1631,6 +1688,8 @@ pub struct SearchResultEntry {
     pub context_after: Vec<String>,
     /// Whether the node_id is linked in the graph.
     pub graph_linked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_signals: Option<HeuristicSignals>,
 }
 
 // =========================================================================
@@ -1756,6 +1815,15 @@ pub struct ReportQueryEntry {
     pub m1nd_answered: bool,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct ReportHeuristicHotspot {
+    pub node_id: String,
+    pub file_path: String,
+    pub risk_level: String,
+    pub risk_score: f32,
+    pub heuristic_signals: HeuristicSignals,
+}
+
 /// Output for m1nd.report — session statistics and token savings.
 #[derive(Clone, Debug, Serialize)]
 pub struct ReportOutput {
@@ -1772,6 +1840,8 @@ pub struct ReportOutput {
     pub co2_saved_grams: f64,
     /// Recent query log (last 10).
     pub recent_queries: Vec<ReportQueryEntry>,
+    /// Highest-risk heuristic hotspots visible in the current graph.
+    pub heuristic_hotspots: Vec<ReportHeuristicHotspot>,
     /// Markdown-formatted summary for display.
     pub markdown_summary: String,
 }

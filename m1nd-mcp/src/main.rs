@@ -88,6 +88,8 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         })
         .unwrap_or_else(|| PathBuf::from("./plasticity_state.json"));
 
+    let runtime_dir = std::env::var("M1ND_RUNTIME_DIR").ok().map(PathBuf::from);
+
     let xlr_enabled = std::env::var("M1ND_XLR_ENABLED")
         .map(|v| v != "0" && v != "false")
         .unwrap_or(true);
@@ -100,6 +102,7 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
     McpConfig {
         graph_source,
         plasticity_state,
+        runtime_dir,
         xlr_enabled,
         domain,
         ..McpConfig::default()

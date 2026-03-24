@@ -8,7 +8,35 @@
 //   - All inputs require `agent_id: String`
 //   - Optional params use Option<T> or serde default helpers
 
+use crate::protocol::layers::HeuristicSignals;
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// m1nd.heuristics_surface
+// ---------------------------------------------------------------------------
+
+/// Input for m1nd.heuristics_surface.
+///
+/// Returns an explicit explainability surface for a code target using the
+/// same heuristic substrate as surgical_context/apply_batch.
+#[derive(Clone, Debug, Deserialize)]
+pub struct HeuristicsSurfaceInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub file_path: Option<String>,
+}
+
+/// Output for m1nd.heuristics_surface.
+#[derive(Clone, Debug, Serialize)]
+pub struct HeuristicsSurfaceOutput {
+    pub node_id: String,
+    pub file_path: String,
+    pub resolved_by: String,
+    pub heuristic_summary: SurgicalHeuristicSummary,
+    pub elapsed_ms: f64,
+}
 
 // ---------------------------------------------------------------------------
 // m1nd.surgical_context
@@ -65,8 +93,30 @@ pub struct SurgicalContextOutput {
     pub callees: Vec<SurgicalNeighbour>,
     /// Neighbourhood: test files that cover this file.
     pub tests: Vec<SurgicalNeighbour>,
+    /// Heuristic explanation for why this file may be risky to patch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_summary: Option<SurgicalHeuristicSummary>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
+}
+
+/// Heuristic risk summary for a surgical editing target.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SurgicalHeuristicSummary {
+    /// Risk level derived from heuristic priors + blast radius.
+    pub risk_level: String,
+    /// 0.0-1.0 normalized heuristic risk score.
+    pub risk_score: f32,
+    /// Approximate number of reachable files within the blast-radius pass.
+    pub blast_radius_files: usize,
+    /// Human-readable blast radius severity.
+    pub blast_radius_risk: String,
+    /// Top affected file node IDs from blast-radius traversal.
+    pub top_affected: Vec<String>,
+    /// Number of recurring antibodies that reference this file/node.
+    pub antibody_hits: usize,
+    /// Shared trust/tremor heuristic signals.
+    pub heuristic_signals: HeuristicSignals,
 }
 
 /// A symbol (function, struct, class, etc.) within the file.
@@ -264,6 +314,9 @@ pub struct ConnectedFileSource {
     pub excerpt_lines: usize,
     /// True when the file had more lines than max_lines_per_file.
     pub truncated: bool,
+    /// Heuristic explanation for why this connected file may be risky.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_summary: Option<SurgicalHeuristicSummary>,
 }
 
 /// Output for m1nd.surgical_context_v2.
@@ -285,6 +338,9 @@ pub struct SurgicalContextV2Output {
     /// Connected files with source excerpts (callers + callees + tests combined,
     /// capped at max_connected_files, ordered by edge_weight descending).
     pub connected_files: Vec<ConnectedFileSource>,
+    /// Heuristic explanation for why this file may be risky to patch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_summary: Option<SurgicalHeuristicSummary>,
     /// Sum of all lines returned: line_count + sum(excerpt_lines).
     pub total_lines: usize,
     /// Elapsed milliseconds.
@@ -486,4 +542,7 @@ pub struct VerificationImpact {
     pub risk: String,
     /// Top affected node IDs (max 5).
     pub top_affected: Vec<String>,
+    /// Heuristic explanation for why this modified file is risky post-patch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristic_summary: Option<SurgicalHeuristicSummary>,
 }

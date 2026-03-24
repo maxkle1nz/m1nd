@@ -74,6 +74,8 @@ making subsequent queries faster and more relevant.
 blast-radius analysis; activate gives associative exploration.
 7. **Graph persists automatically** every 50 queries and on shutdown. Use `trail_save` \
 for explicit exploration checkpoints.
+8. **Use `boot_memory` for small canonical doctrine/state** that should persist quickly \
+and stay hot in runtime memory without polluting trails or transcripts.
 ";
 
 #[derive(Clone, Copy, Debug)]
@@ -168,6 +170,8 @@ fn write_response<W: Write>(
 pub struct McpConfig {
     pub graph_source: PathBuf,
     pub plasticity_state: PathBuf,
+    #[serde(default)]
+    pub runtime_dir: Option<PathBuf>,
     pub auto_persist_interval: u32,
     pub learning_rate: f32,
     pub decay_rate: f32,
@@ -185,6 +189,7 @@ impl Default for McpConfig {
         Self {
             graph_source: PathBuf::from("./graph_snapshot.json"),
             plasticity_state: PathBuf::from("./plasticity_state.json"),
+            runtime_dir: None,
             auto_persist_interval: 50,
             learning_rate: 0.08,
             decay_rate: 0.005,
@@ -1003,6 +1008,19 @@ pub fn tool_schemas() -> serde_json::Value {
             // Surgical: context + apply
             // =================================================================
             {
+                "name": "heuristics_surface",
+                "description": "Return an explicit explainability surface for a code target, showing why heuristics ranked it as risky or important.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "node_id": { "type": "string", "description": "Graph node ID to inspect" },
+                        "file_path": { "type": "string", "description": "Absolute or workspace-relative path to inspect" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
                 "name": "surgical_context",
                 "description": "Return full context for surgical LLM editing: file contents, symbols, and graph neighbourhood (callers, callees, tests). Use before m1nd.apply.",
                 "inputSchema": {
@@ -1148,7 +1166,7 @@ pub fn tool_schemas() -> serde_json::Value {
                         "invert": { "type": "boolean", "default": false, "description": "Return lines that DON'T match (grep -v)" },
                         "count_only": { "type": "boolean", "default": false, "description": "Return just the count, no results (grep -c)" },
                         "multiline": { "type": "boolean", "default": false, "description": "Enable multiline regex: dot matches newline (rg -U). Only for regex mode." },
-                        "auto_ingest": { "type": "boolean", "default": false, "description": "Auto-ingest scope directory if not in graph (reserved)" },
+                        "auto_ingest": { "type": "boolean", "default": false, "description": "Auto-ingest exactly one resolved scope path outside current ingest roots before searching; ambiguous scopes return an error that lists candidate paths in detail" },
                         "filename_pattern": { "type": "string", "description": "Glob pattern to filter filenames (e.g. '*.rs', 'test_*.py')" }
                     },
                     "required": ["agent_id", "query"]
@@ -1231,6 +1249,22 @@ pub fn tool_schemas() -> serde_json::Value {
                         "action": { "type": "string", "enum": ["save", "load", "checkpoint", "status"], "description": "Action to perform" },
                         "format": { "type": "string", "enum": ["json", "bin"], "default": "json", "description": "Snapshot format" },
                         "path": { "type": "string", "description": "Override snapshot path (optional)" }
+                    },
+                    "required": ["agent_id", "action"]
+                }
+            },
+            {
+                "name": "boot_memory",
+                "description": "Persist a small canonical boot/state memory on disk and keep it hot in runtime cache",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "action": { "type": "string", "enum": ["set", "get", "list", "delete", "status"], "description": "Action to perform" },
+                        "key": { "type": "string", "description": "Canonical boot memory key" },
+                        "value": { "description": "JSON value to persist for the boot memory entry" },
+                        "tags": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional tags for organization" },
+                        "source_refs": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional source references backing this boot memory" }
                     },
                     "required": ["agent_id", "action"]
                 }
@@ -1501,6 +1535,12 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             layer_handlers::handle_trust(state, input)
         }
+        "heuristics_surface" => {
+            let input: surgical::HeuristicsSurfaceInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            let output = surgical_handlers::handle_heuristics_surface(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
         "layers" => {
             let input: layers::LayersInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -1626,6 +1666,11 @@ fn dispatch_core_tool(
             let input: crate::persist_handlers::PersistInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::persist_handlers::handle_persist(state, input)
+        }
+        "boot_memory" => {
+            let input: crate::boot_memory_handlers::BootMemoryInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::boot_memory_handlers::handle_boot_memory(state, input)
         }
         _ => Err(M1ndError::UnknownTool {
             name: tool_name.to_string(),
