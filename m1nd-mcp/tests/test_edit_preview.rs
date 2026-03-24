@@ -174,6 +174,10 @@ fn test_commit_handle_expired() {
         msg.contains("not found") || msg.contains("expired"),
         "error should mention not found/expired, got: {msg}"
     );
+    assert!(
+        msg.contains("Hint:") && msg.contains("edit_preview"),
+        "error should teach recovery via edit_preview, got: {msg}"
+    );
 }
 
 #[test]
@@ -212,6 +216,10 @@ fn test_commit_source_modified() {
         msg.contains("source_modified"),
         "error should mention source_modified, got: {msg}"
     );
+    assert!(
+        msg.contains("Hint:") && msg.contains("edit_preview"),
+        "error should explain that edit_preview must be rerun, got: {msg}"
+    );
 }
 
 #[test]
@@ -247,6 +255,10 @@ fn test_commit_confirm_false() {
         msg.contains("confirm"),
         "error should mention confirm, got: {msg}"
     );
+    assert!(
+        msg.contains("Hint:") && msg.contains("Example:"),
+        "error should explain how to retry with confirm=true, got: {msg}"
+    );
 }
 
 #[test]
@@ -269,5 +281,9 @@ fn test_commit_handle_not_found() {
     assert!(
         msg.contains("not found"),
         "error should mention not found, got: {msg}"
+    );
+    assert!(
+        msg.contains("Hint:") && msg.contains("edit_preview"),
+        "error should explain how to mint a fresh preview, got: {msg}"
     );
 }

@@ -241,6 +241,12 @@ There are plenty of tasks where m1nd is unnecessary and plain tools are faster.
 
 Use `rg`, your editor, logs, `cargo test`, `go test`, `pytest`, or the compiler when execution truth is what matters. m1nd is a navigation and structural context tool, not a replacement for runtime evidence.
 
+Common operational rule:
+
+- when a m1nd tool fails, treat the error as routing guidance first
+- read the returned hint/example/next step before reformulating from scratch
+- switch tools when the error tells you the current tool is a bad fit
+
 ## Choose The Right Tool
 
 This is the part most READMEs skip. If the reader does not know which tool to reach for, the surface feels larger than it is.
@@ -263,6 +269,12 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 | Resume an investigation and get the next likely move | `trail_resume` with `resume_hints`, `next_focus_node_id`, `next_open_question`, `next_suggested_tool` |
 | Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `impact`, `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` |
 | Ask what changed recently and why it matters | `timeline` |
+
+Common failure recovery:
+
+- wrong tool for the question: switch based on the decision guide instead of retrying the same weak call
+- weak structural proof: follow `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
+- thin continuity restore: use `trail_resume` hints as the restart plan instead of reopening every old file
 
 ## Results And Measurements
 
@@ -322,6 +334,7 @@ Use m1nd before broad grep/glob/file-read loops when the task depends on structu
 - use `proof_focused=true` on `surgical_context_v2` when you want a compact edit-proof surface
 - boot_memory for small persistent operational state
 - use `trail_resume` for continuity when you want the next focus node, next open question, and likely next tool
+- when a call fails, read the returned hint/example/next step and reroute before opening more files
 - help when unsure which tool fits
 
 Use plain tools when the task is single-file, exact-text, or runtime/build-truth driven.

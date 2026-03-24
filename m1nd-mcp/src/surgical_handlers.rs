@@ -217,7 +217,9 @@ fn resolve_file_path(file_path: &str, ingest_roots: &[String]) -> PathBuf {
 /// Deny-list: m1nd state files that must never be overwritten by apply/apply_batch.
 const DENIED_FILENAMES: &[&str] = &[
     "graph_snapshot.json",
+    "graph.json",
     "plasticity_state.json",
+    "plasticity.json",
     "antibodies.json",
     "tremor_state.json",
     "trust_state.json",
@@ -233,37 +235,38 @@ const DENIED_FILENAMES: &[&str] = &[
 fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<PathBuf> {
     // BUG FIX (E4): Block all writes when no ingest roots configured
     if ingest_roots.is_empty() {
-        return Err(M1ndError::InvalidParams {
-            tool: "m1nd_apply".into(),
-            detail: format!(
-                "path {} cannot be written: no ingest roots configured (run m1nd.ingest first)",
+        return Err(invalid_params_with_hint(
+            "m1nd_apply",
+            format!(
+                "path {} cannot be written: no ingest roots configured",
                 resolved.display()
             ),
-        });
+            "Run m1nd.ingest on the workspace first, then retry apply/apply_batch inside that ingested root.",
+        ));
     }
 
     // Canonicalize the resolved path (follows symlinks, resolves ..)
     // For new files that don't exist yet, canonicalize the parent directory
     let canonical = if resolved.exists() {
-        resolved
-            .canonicalize()
-            .map_err(|e| M1ndError::InvalidParams {
-                tool: "m1nd_apply".into(),
-                detail: format!("cannot resolve path {}: {}", resolved.display(), e),
-            })?
+        resolved.canonicalize().map_err(|e| {
+            invalid_params_with_hint(
+                "m1nd_apply",
+                format!("cannot resolve path {}: {}", resolved.display(), e),
+                "Pass an absolute file path or a path relative to an ingested workspace root.",
+            )
+        })?
     } else {
         // File doesn't exist yet: canonicalize parent + append filename
         let parent = resolved.parent().unwrap_or(Path::new("."));
         let filename = resolved.file_name().unwrap_or_default();
         let parent_canonical = parent
             .canonicalize()
-            .map_err(|e| M1ndError::InvalidParams {
-                tool: "m1nd_apply".into(),
-                detail: format!(
-                    "cannot resolve parent directory {}: {}",
-                    parent.display(),
-                    e
-                ),
+            .map_err(|e| {
+                invalid_params_with_hint(
+                    "m1nd_apply",
+                    format!("cannot resolve parent directory {}: {}", parent.display(), e),
+                    "Create the parent directory under an ingested workspace root, or choose a file_path that already lives inside one.",
+                )
             })?;
         parent_canonical.join(filename)
     };
@@ -271,13 +274,14 @@ fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<
     // BUG FIX (E3): Deny-list for m1nd state files
     if let Some(filename) = canonical.file_name().and_then(|f| f.to_str()) {
         if DENIED_FILENAMES.contains(&filename) {
-            return Err(M1ndError::InvalidParams {
-                tool: "m1nd_apply".into(),
-                detail: format!(
+            return Err(invalid_params_with_hint(
+                "m1nd_apply",
+                format!(
                     "path {} is a protected m1nd state file and cannot be overwritten",
                     resolved.display()
                 ),
-            });
+                "Write to a source file in your workspace instead. m1nd runtime files like graph/plasticity state are intentionally protected.",
+            ));
         }
     }
 
@@ -290,13 +294,14 @@ fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<
         }
     }
 
-    Err(M1ndError::InvalidParams {
-        tool: "m1nd_apply".into(),
-        detail: format!(
+    Err(invalid_params_with_hint(
+        "m1nd_apply",
+        format!(
             "path {} is outside allowed workspace roots",
             resolved.display()
         ),
-    })
+        "Retry with a file_path under one of the ingested workspace roots, or ingest the intended workspace before writing.",
+    ))
 }
 
 /// Simple line-based diff summary: count added and removed lines.
@@ -315,6 +320,35 @@ fn content_hash(content: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     content.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+fn invalid_params(tool: &str, detail: impl Into<String>) -> M1ndError {
+    M1ndError::InvalidParams {
+        tool: tool.into(),
+        detail: detail.into(),
+    }
+}
+
+fn invalid_params_with_hint(
+    tool: &str,
+    detail: impl Into<String>,
+    hint: impl AsRef<str>,
+) -> M1ndError {
+    let detail = detail.into();
+    let hint = hint.as_ref();
+    invalid_params(tool, format!("{detail} Hint: {hint}"))
+}
+
+fn invalid_params_with_hint_and_example(
+    tool: &str,
+    detail: impl Into<String>,
+    hint: impl AsRef<str>,
+    example: impl AsRef<str>,
+) -> M1ndError {
+    let detail = detail.into();
+    let hint = hint.as_ref();
+    let example = example.as_ref();
+    invalid_params(tool, format!("{detail} Hint: {hint} Example: {example}"))
 }
 
 fn unified_diff_preview(old: &str, new: &str) -> String {
@@ -1300,9 +1334,13 @@ pub fn handle_heuristics_surface(
         let graph = state.graph.read();
         let node = graph
             .resolve_id(node_id)
-            .ok_or_else(|| M1ndError::InvalidParams {
-                tool: "heuristics_surface".into(),
-                detail: format!("node not found: {}", node_id),
+            .ok_or_else(|| {
+                invalid_params_with_hint_and_example(
+                    "heuristics_surface",
+                    format!("node not found: {}", node_id),
+                    "Retry with a file-backed node_id, or pass file_path if you want file-level heuristics without resolving a node first.",
+                    r#"{"agent_id":"dev","file_path":"src/auth.rs"}"#,
+                )
             })?;
         let provenance = graph.resolve_node_provenance(node);
         let resolved_path = provenance
@@ -1312,9 +1350,13 @@ pub fn handle_heuristics_surface(
                     .strip_prefix("file::")
                     .map(|value| value.to_string())
             })
-            .ok_or_else(|| M1ndError::InvalidParams {
-                tool: "heuristics_surface".into(),
-                detail: format!("node has no file provenance: {}", node_id),
+            .ok_or_else(|| {
+                invalid_params_with_hint_and_example(
+                    "heuristics_surface",
+                    format!("node has no file provenance: {}", node_id),
+                    "Use file_path for file-level heuristics, or choose a node_id whose provenance points to a source file.",
+                    r#"{"agent_id":"dev","file_path":"src/auth.rs"}"#,
+                )
             })?;
         (node_id.clone(), resolved_path, "node_id".to_string())
     } else if let Some(file_path) = input.file_path.as_ref().filter(|value| !value.is_empty()) {
@@ -1340,10 +1382,12 @@ pub fn handle_heuristics_surface(
         .unwrap_or_else(|| format!("file::{}", resolved_path));
         (node_id, resolved_path, "file_path".to_string())
     } else {
-        return Err(M1ndError::InvalidParams {
-            tool: "heuristics_surface".into(),
-            detail: "provide node_id or file_path".into(),
-        });
+        return Err(invalid_params_with_hint_and_example(
+            "heuristics_surface",
+            "provide node_id or file_path",
+            "Pass exactly one target so m1nd knows which file or node to explain.",
+            r#"{"agent_id":"dev","file_path":"src/auth.rs"}"#,
+        ));
     };
 
     let heuristic_summary = build_surgical_heuristic_summary(state, &target.0, &target.1);
@@ -1381,9 +1425,12 @@ pub fn handle_surgical_context(
     // Step 1: Resolve and read the file
     let resolved_path = resolve_file_path(&input.file_path, &state.ingest_roots);
     let file_contents =
-        std::fs::read_to_string(&resolved_path).map_err(|e| M1ndError::InvalidParams {
-            tool: "m1nd_surgical_context".into(),
-            detail: format!("cannot read file {}: {}", resolved_path.display(), e),
+        std::fs::read_to_string(&resolved_path).map_err(|e| {
+            invalid_params_with_hint(
+                "m1nd_surgical_context",
+                format!("cannot read file {}: {}", resolved_path.display(), e),
+                "Pass an existing file_path under an ingested workspace root, or use view(auto_ingest=true) first if you are probing a file that is not in the graph yet.",
+            )
         })?;
 
     let line_count = file_contents.lines().count() as u32;
@@ -1549,11 +1596,12 @@ pub fn handle_edit_commit(
 
     // Guard: confirm must be true
     if !input.confirm {
-        return Err(M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail: "confirm must be true to commit; set confirm=true after reviewing the preview"
-                .into(),
-        });
+        return Err(invalid_params_with_hint_and_example(
+            "edit_commit",
+            "confirm must be true to commit",
+            "Review the preview first, then resend the same preview_id with confirm=true.",
+            r#"{"preview_id":"preview_dev_001","agent_id":"dev","confirm":true}"#,
+        ));
     }
 
     // Garbage-collect expired previews (TTL = 5 min)
@@ -1570,30 +1618,35 @@ pub fn handle_edit_commit(
         .edit_previews
         .get(&input.preview_id)
         .cloned()
-        .ok_or_else(|| M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail: format!(
-                "preview_id not found or expired (TTL=5min): {}",
-                input.preview_id
-            ),
+        .ok_or_else(|| {
+            invalid_params_with_hint_and_example(
+                "edit_commit",
+                format!(
+                    "preview_id not found or expired (TTL=5min): {}",
+                    input.preview_id
+                ),
+                "Run edit_preview again for the same file to mint a fresh preview_id, then retry edit_commit.",
+                r#"{"file_path":"src/auth.rs","agent_id":"dev","new_content":"..."}"#,
+            )
         })?;
 
     if preview.agent_id != input.agent_id {
-        return Err(M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail: "preview belongs to a different agent".into(),
-        });
+        return Err(invalid_params_with_hint(
+            "edit_commit",
+            "preview belongs to a different agent",
+            "Retry with the same agent_id that created the preview, or create a new preview under this agent before committing.",
+        ));
     }
 
     let current_content = std::fs::read_to_string(&preview.file_path).unwrap_or_default();
     let current_hash = content_hash(&current_content);
     if current_hash != preview.source_hash {
-        return Err(M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail:
-                "source_modified: file changed since preview was created; run edit_preview again"
-                    .into(),
-        });
+        return Err(invalid_params_with_hint_and_example(
+            "edit_commit",
+            "source_modified: file changed since preview was created",
+            "Re-run edit_preview against the current on-disk file to refresh the source hash, then retry edit_commit.",
+            r#"{"file_path":"src/auth.rs","agent_id":"dev","new_content":"..."}"#,
+        ));
     }
 
     let apply_output = handle_apply(
@@ -1660,14 +1713,22 @@ pub fn handle_apply(
     if !parent.exists() {
         std::fs::create_dir_all(parent).map_err(|e| M1ndError::InvalidParams {
             tool: "m1nd_apply".into(),
-            detail: format!("cannot create directory {}: {}", parent.display(), e),
+            detail: format!(
+                "cannot create directory {}: {} Hint: create or choose a parent directory inside an ingested workspace root, then retry apply.",
+                parent.display(),
+                e
+            ),
         })?;
     }
 
     // Write to temp file
     std::fs::write(&temp_path, &input.new_content).map_err(|e| M1ndError::InvalidParams {
         tool: "m1nd_apply".into(),
-        detail: format!("cannot write temp file {}: {}", temp_path.display(), e),
+        detail: format!(
+            "cannot write temp file {}: {} Hint: check write permissions under the workspace root and retry apply.",
+            temp_path.display(),
+            e
+        ),
     })?;
 
     // Rename (atomic on same filesystem)
@@ -1677,7 +1738,7 @@ pub fn handle_apply(
         M1ndError::InvalidParams {
             tool: "m1nd_apply".into(),
             detail: format!(
-                "atomic rename failed {} -> {}: {}",
+                "atomic rename failed {} -> {}: {} Hint: retry apply after checking filesystem permissions and free space in the workspace.",
                 temp_path.display(),
                 validated_path.display(),
                 e
@@ -2294,7 +2355,11 @@ pub fn handle_apply_batch(
                     }
                     return Err(M1ndError::InvalidParams {
                         tool: "m1nd_apply_batch".into(),
-                        detail: format!("cannot create directory {}: {}", parent.display(), e),
+                        detail: format!(
+                            "cannot create directory {}: {} Hint: create or choose a parent directory inside an ingested workspace root, then retry apply_batch.",
+                            parent.display(),
+                            e
+                        ),
                     });
                 }
             }
@@ -2314,7 +2379,7 @@ pub fn handle_apply_batch(
                     return Err(M1ndError::InvalidParams {
                         tool: "m1nd_apply_batch".into(),
                         detail: format!(
-                            "atomic batch failed: cannot write temp file for {}: {}",
+                            "atomic batch failed: cannot write temp file for {}: {} Hint: check write permissions under the workspace root and retry apply_batch.",
                             validated.display(),
                             e
                         ),
@@ -2338,7 +2403,7 @@ pub fn handle_apply_batch(
                 return Err(M1ndError::InvalidParams {
                     tool: "m1nd_apply_batch".into(),
                     detail: format!(
-                        "atomic rename failed {} -> {}: {}",
+                        "atomic rename failed {} -> {}: {} Hint: retry apply_batch after checking filesystem permissions and free space in the workspace.",
                         tmp_path.display(),
                         target_path.display(),
                         e
@@ -3729,6 +3794,45 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_path_safety_no_ingest_roots_has_recovery_hint() {
+        let err = validate_path_safety(Path::new("/tmp/example.rs"), &[]).expect_err("must fail");
+        let msg = format!("{}", err);
+        assert!(msg.contains("no ingest roots configured"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("m1nd.ingest"));
+    }
+
+    #[test]
+    fn test_validate_path_safety_protected_file_has_recovery_hint() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let protected = root.path().join("graph.json");
+        std::fs::write(&protected, "{}").expect("write protected");
+        let roots = vec![root.path().to_string_lossy().to_string()];
+
+        let err = validate_path_safety(&protected, &roots).expect_err("must fail");
+        let msg = format!("{}", err);
+        assert!(msg.contains("protected m1nd state file"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("workspace"));
+    }
+
+    #[test]
+    fn test_validate_path_safety_outside_root_has_recovery_hint() {
+        let root = tempfile::tempdir().expect("root");
+        let other = tempfile::tempdir().expect("other");
+        let path = other.path().join("src/outside.rs");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&path, "pub fn outside() {}\n").expect("write");
+        let roots = vec![root.path().to_string_lossy().to_string()];
+
+        let err = validate_path_safety(&path, &roots).expect_err("must fail");
+        let msg = format!("{}", err);
+        assert!(msg.contains("outside allowed workspace roots"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("ingested workspace roots"));
+    }
+
+    #[test]
     fn test_build_excerpt_truncation() {
         let lines: Vec<&str> = (0..30).map(|_| "code line").collect();
         let excerpt = build_excerpt(&lines, 0, 29);
@@ -3898,6 +4002,31 @@ mod tests {
         assert_eq!(output.node_id, format!("file::{}", file_path_str));
         assert_eq!(output.resolved_by, "node_id");
         assert_eq!(output.file_path, file_path_str);
+    }
+
+    #[test]
+    fn test_heuristics_surface_missing_target_has_recovery_hint() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let file_path = temp.path().join("src/core.rs");
+        std::fs::create_dir_all(file_path.parent().expect("parent")).expect("mk parent");
+        std::fs::write(&file_path, "pub fn core() {}\n").expect("write core");
+        let file_path_str = file_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(temp.path(), &file_path_str);
+
+        let err = handle_heuristics_surface(
+            &mut state,
+            surgical::HeuristicsSurfaceInput {
+                agent_id: "test".into(),
+                node_id: None,
+                file_path: None,
+            },
+        )
+        .expect_err("missing target must fail");
+
+        let msg = format!("{}", err);
+        assert!(msg.contains("provide node_id or file_path"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("Example:"));
     }
 
     #[test]

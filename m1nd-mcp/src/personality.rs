@@ -419,6 +419,43 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
     }
 }
 
+fn error_recovery_notes(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "search" => &[
+            "If search says scope/path is wrong, retry with a graph-relative scope or let auto-ingest resolve the path first.",
+            "If search returns mostly fixture noise, tighten scope before reformulating the query.",
+        ],
+        "seek" => &[
+            "If seek drifts, switch to search when you already know an exact string, or activate when you need neighborhood rather than ranking.",
+            "Treat a weak semantic hit as a hint to inspect, not as proof to edit.",
+        ],
+        "trace" => &[
+            "If trace says the failure text is too weak, pass the full error output instead of only the exception headline.",
+            "If trace cannot ground the path, fall back to view on the top suspect or timeline for historical proof.",
+        ],
+        "impact" => &[
+            "If impact cannot ground the seam, inspect the suggested downstream file before widening the edit plan.",
+            "If the blast set feels too broad, move into validate_plan instead of opening more files blindly.",
+        ],
+        "validate_plan" => &[
+            "If validate_plan says the edit surface is unresolved, gather proof with surgical_context_v2 or seek before retrying.",
+            "If the plan is still proving, treat the returned next_step_hint as the shortest path to a stronger retry.",
+        ],
+        "surgical_context_v2" => &[
+            "If the payload is too wide, retry with proof_focused=true or narrow to a symbol before opening more files.",
+            "If connected tests are missing, use validate_plan to ask for test impact rather than guessing test files manually.",
+        ],
+        "trail_resume" => &[
+            "If the trail is stale or thin, use the resume hints as a compact restart plan instead of rebuilding the whole investigation from scratch.",
+            "If there is no next focus, resume into search or activate rather than reopening every prior file.",
+        ],
+        _ => &[
+            "When a tool fails, look for the hint, example, and next-step guidance before reformulating from scratch.",
+            "If the current tool is a bad fit, switch tools instead of forcing a second weak retry.",
+        ],
+    }
+}
+
 fn benchmark_notes(tool_name: &str) -> &'static [&'static str] {
     match tool_name {
         "trace" => &[
@@ -1679,6 +1716,10 @@ pub fn format_help_index() -> String {
         "{}decision guide: search=text, glob=filenames, seek=intent, trace=errors, validate_plan=edit risk, surgical_context_v2=connected edit prep{}\n",
         ANSI_DIM, ANSI_RESET
     ));
+    out.push_str(&format!(
+        "{}common errors should be treated as reroute hints: read the hint, example, and next-step guidance before retrying.{}\n",
+        ANSI_DIM, ANSI_RESET
+    ));
     out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — m1nd.help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
     out
 }
@@ -1755,6 +1796,18 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
             ANSI_GOLD, ANSI_RESET
         ));
         for line in notes {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let recovery = error_recovery_notes(doc.name);
+    if !recovery.is_empty() {
+        out.push_str(&format!(
+            "{}\u{21BB} ERROR RECOVERY{}\n",
+            ANSI_RED, ANSI_RESET
+        ));
+        for line in recovery {
             out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
         }
         out.push('\n');

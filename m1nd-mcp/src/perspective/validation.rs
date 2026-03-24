@@ -59,6 +59,10 @@ pub enum ValidatedRouteRef {
 
 const VALID_DIMENSIONS: &[&str] = &["structural", "semantic", "temporal", "causal"];
 
+fn valid_dimensions_hint() -> String {
+    VALID_DIMENSIONS.join(", ")
+}
+
 // ---------------------------------------------------------------------------
 // Validation functions
 // ---------------------------------------------------------------------------
@@ -82,7 +86,11 @@ pub fn validate_lens(lens: &PerspectiveLens, graph_node_count: usize) -> M1ndRes
             if !VALID_DIMENSIONS.contains(&lower.as_str()) {
                 return Err(M1ndError::InvalidParams {
                     tool: "perspective".into(),
-                    detail: format!("unknown dimension '{}'. Valid: {:?}", d, VALID_DIMENSIONS),
+                    detail: format!(
+                        "unknown dimension '{}'. Valid dimensions: {}. Retry with one of those values or omit `dimensions` to use the default set.",
+                        d,
+                        valid_dimensions_hint()
+                    ),
                 });
             }
             normalized.push(lower);
@@ -120,7 +128,7 @@ pub fn validate_pagination(
     if page == 0 {
         return Err(M1ndError::InvalidParams {
             tool: "perspective".into(),
-            detail: "page must be >= 1".into(),
+            detail: "invalid page `0`. Pages start at `1`. Retry with `page=1`, or inspect `total_pages` from a prior `perspective_routes` response.".into(),
         });
     }
 
@@ -230,14 +238,22 @@ pub fn validate_route_ref(
 ) -> M1ndResult<ValidatedRouteRef> {
     match (route_id, route_index) {
         (Some(id), None) => Ok(ValidatedRouteRef::ById(id.clone())),
-        (None, Some(idx)) => Ok(ValidatedRouteRef::ByIndex(*idx)),
+        (None, Some(idx)) => {
+            if *idx == 0 {
+                return Err(M1ndError::InvalidParams {
+                    tool: tool.into(),
+                    detail: "invalid `route_index=0`. Route indexes are 1-based. Use the `route_index` returned by `perspective_routes`, or pass `route_id` instead.".into(),
+                });
+            }
+            Ok(ValidatedRouteRef::ByIndex(*idx))
+        }
         (Some(_), Some(_)) => Err(M1ndError::InvalidParams {
             tool: tool.into(),
-            detail: "provide route_id OR route_index, not both".into(),
+            detail: "provide exactly one of `route_id` or `route_index`, not both. Use `perspective_routes` first if you need to discover the current route refs.".into(),
         }),
         (None, None) => Err(M1ndError::InvalidParams {
             tool: tool.into(),
-            detail: "provide route_id or route_index".into(),
+            detail: "provide either `route_id` or `route_index`. Use `perspective_routes` to list the current page of routes first.".into(),
         }),
     }
 }
@@ -264,6 +280,10 @@ mod tests {
         lens.dimensions = vec!["structural".into(), "magic".into()];
         let result = validate_lens(&lens, 100);
         assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("unknown dimension 'magic'"));
+        assert!(err.contains("Valid dimensions: structural, semantic, temporal, causal"));
+        assert!(err.contains("omit `dimensions`"));
     }
 
     #[test]
@@ -294,6 +314,10 @@ mod tests {
     fn validate_pagination_rejects_page_zero() {
         let result = validate_pagination(0, 6, 20);
         assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("invalid page `0`"));
+        assert!(err.contains("Pages start at `1`"));
+        assert!(err.contains("perspective_routes"));
     }
 
     #[test]
@@ -345,12 +369,28 @@ mod tests {
     fn validate_route_ref_rejects_both() {
         let result = validate_route_ref(&Some("R_abc".into()), &Some(1), "test");
         assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("provide exactly one of `route_id` or `route_index`"));
+        assert!(err.contains("perspective_routes"));
     }
 
     #[test]
     fn validate_route_ref_rejects_neither() {
         let result = validate_route_ref(&None, &None, "test");
         assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("provide either `route_id` or `route_index`"));
+        assert!(err.contains("perspective_routes"));
+    }
+
+    #[test]
+    fn validate_route_ref_rejects_zero_index() {
+        let result = validate_route_ref(&None, &Some(0), "test");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("invalid `route_index=0`"));
+        assert!(err.contains("1-based"));
+        assert!(err.contains("perspective_routes"));
     }
 
     #[test]

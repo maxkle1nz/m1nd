@@ -60,6 +60,8 @@ with less catalog-style listing and more decision support.
 
 - help entries now include `WHEN TO USE`, `AVOID WHEN`, benchmark-aware guidance,
   composed workflows, and proof-state handoff cues
+- help and docs now frame common tool failures as short repair loops, with
+  hint/example/next-step guidance that agents can use to self-correct
 - README, examples, and benchmark docs now describe the current guided behavior of
   `apply_batch`, `proof_state`, and long-running progress updates more accurately
 - benchmark research now documents progress observability and delivery modes as part

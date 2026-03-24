@@ -98,6 +98,22 @@ Typical use:
 
 This is usually where m1nd saves the first big chunk of file reads.
 
+## Error recovery pattern
+
+When a tool fails, do not treat that as the end of the workflow.
+
+Use the returned guidance like this:
+
+- `hint`: what was wrong with the current call
+- `example`: the smallest valid retry shape
+- `next_step_hint`: whether to retry, inspect, or switch tools
+
+Operational rule for agents:
+
+- wrong tool -> reroute
+- weak proof -> follow the suggested next seam
+- stale continuity -> resume from hints, not from zero
+
 ## 4. Stacktrace triage
 
 If you already have failure output, use `trace` instead of manually walking top frames.
@@ -231,6 +247,13 @@ Recent behavior:
 - `validate_plan` now exposes `proof_state`
 - `surgical_context_v2` now also exposes `proof_state`, which makes proof-focused edit prep explicit instead of implicit
 - that makes it easier for an agent to tell whether it still needs more proof or can move on to edit prep
+
+If either tool returns guidance that the plan is still unresolved, treat that as a compact repair loop:
+
+- read `proof_hint`
+- follow `next_suggested_tool`
+- inspect `next_suggested_target`
+- retry only after the missing seam is grounded
 
 ## 9. Explain why something looks risky
 

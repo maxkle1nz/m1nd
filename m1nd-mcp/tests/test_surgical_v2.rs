@@ -815,7 +815,7 @@ fn test_batch_path_traversal_blocked() {
         lines_added: 0,
         lines_removed: 0,
         error: Some(format!(
-            "path '{}' is outside allowed workspace roots",
+            "path '{}' is outside allowed workspace roots Hint: retry with a file_path under one of the ingested workspace roots, or ingest the intended workspace before writing.",
             traversal_edit.file_path
         )),
     }];
@@ -828,6 +828,10 @@ fn test_batch_path_traversal_blocked() {
     assert!(
         err.contains("outside"),
         "path traversal error must mention 'outside'"
+    );
+    assert!(
+        err.contains("Hint:"),
+        "path traversal error should include recovery guidance"
     );
 
     // Attempt: absolute system path

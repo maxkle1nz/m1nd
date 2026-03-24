@@ -78,9 +78,20 @@ Run-level metadata can also record:
 - `execution_origin`
 - `source_ref`
 
+When a scenario covers auto-correctible errors, also record whether the run used:
+
+- returned hint text
+- returned example shape
+- returned next-step guidance
+- tool reroute vs same-tool retry
+
 For continuity scenarios, capture whether the run only restored context or also
 surfaced the next move. The actionable-resume scenarios are meant to benchmark
 "resume and continue" behavior, not bookmark restore alone.
+
+For error-recovery scenarios, treat the win as "shorter repair loop" rather than
+"fewer total errors". The benchmark should capture whether the tool taught the
+agent how to recover without falling back to a fresh grep/read sweep.
 
 For proof and planning scenarios, use the same guidance fields when a tool now
 suggests the next surface directly. This lets the corpus measure when one tool

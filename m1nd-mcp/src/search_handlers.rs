@@ -125,6 +125,56 @@ struct AutoIngestSearchState {
     scope_override: Option<String>,
 }
 
+fn search_query_empty_hint(scope: Option<&str>, filename_pattern: Option<&str>) -> String {
+    let mut hints = vec![
+        "query cannot be empty".to_string(),
+        "add exact text/regex to search content".to_string(),
+    ];
+    if scope.is_some() || filename_pattern.is_some() {
+        hints.push("for file/path discovery use m1nd.glob instead".to_string());
+    }
+    hints.push("for natural-language intent use m1nd.seek".to_string());
+    hints.join("; ")
+}
+
+fn invalid_filename_pattern_hint(pat: &str, err: &glob::PatternError) -> String {
+    format!(
+        "invalid filename pattern '{}': {}; use shell-style globs like '*.rs' or '**/*.py'; for exact path text use query+scope, and for file discovery use m1nd.glob",
+        pat, err
+    )
+}
+
+fn invalid_regex_hint(query: &str, err: &regex::Error) -> String {
+    format!(
+        "invalid regex: {}; escape regex metacharacters or switch to mode='literal' for exact text; query='{}'",
+        err, query
+    )
+}
+
+fn ambiguous_auto_ingest_scope_hint(
+    scope: &str,
+    candidates: &[AutoIngestScopeCandidate],
+) -> String {
+    let candidates_list = candidates
+        .iter()
+        .map(|path| path.resolved_path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "scope '{}' resolves to {} candidate paths: [{}]. Use a more specific or absolute scope, or disable auto_ingest if you only want to search current roots",
+        scope,
+        candidates.len(),
+        candidates_list
+    )
+}
+
+fn invalid_glob_pattern_hint(pattern: &str, err: &glob::PatternError) -> String {
+    format!(
+        "invalid glob pattern '{}': {}; use shell-style globs like 'src/**/*.rs' or '*.md'; for content search use m1nd.search instead",
+        pattern, err
+    )
+}
+
 #[derive(Clone, Copy)]
 enum SearchRankingMode {
     Literal,
@@ -140,10 +190,13 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
     let start = Instant::now();
 
     // Validate
-    if input.query.is_empty() {
+    if input.query.trim().is_empty() {
         return Err(M1ndError::InvalidParams {
             tool: "m1nd_search".into(),
-            detail: "query cannot be empty".into(),
+            detail: search_query_empty_hint(
+                input.scope.as_deref(),
+                input.filename_pattern.as_deref(),
+            ),
         });
     }
 
@@ -152,7 +205,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         Some(
             glob::Pattern::new(pat).map_err(|e| M1ndError::InvalidParams {
                 tool: "m1nd_search".into(),
-                detail: format!("invalid filename pattern '{}': {}", pat, e),
+                detail: invalid_filename_pattern_hint(pat, &e),
             })?,
         )
     } else {
@@ -263,7 +316,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             }
             .map_err(|e| M1ndError::InvalidParams {
                 tool: "m1nd_search".into(),
-                detail: format!("invalid regex: {}", e),
+                detail: invalid_regex_hint(&input.query, &e),
             })?;
 
             // Phase 1: Match node labels in graph (non-inverted only)
@@ -447,19 +500,9 @@ fn maybe_auto_ingest_search_scope(
     }
 
     if candidates.len() > 1 {
-        let candidates_list = candidates
-            .iter()
-            .map(|path| path.resolved_path.to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(", ");
         return Err(M1ndError::InvalidParams {
             tool: "m1nd_search".into(),
-            detail: format!(
-                "scope '{}' resolves to {} candidate paths: [{}]. Set a more specific scope.",
-                scope,
-                candidates.len(),
-                candidates_list
-            ),
+            detail: ambiguous_auto_ingest_scope_hint(scope, &candidates),
         });
     }
 
@@ -1238,14 +1281,16 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
     if input.pattern.is_empty() {
         return Err(M1ndError::InvalidParams {
             tool: "m1nd_glob".into(),
-            detail: "pattern cannot be empty".into(),
+            detail:
+                "pattern cannot be empty; use shell-style globs like 'src/**/*.rs'; for content search use m1nd.search"
+                    .into(),
         });
     }
 
     let glob_pattern =
         glob::Pattern::new(&input.pattern).map_err(|e| M1ndError::InvalidParams {
             tool: "m1nd_glob".into(),
-            detail: format!("invalid glob pattern '{}': {}", input.pattern, e),
+            detail: invalid_glob_pattern_hint(&input.pattern, &e),
         })?;
 
     let top_k = (input.top_k as usize).clamp(1, 10_000);
@@ -1707,6 +1752,134 @@ mod tests {
         assert!(err_msg.contains("scope 'overlap/src' resolves to 2 candidate paths"));
         assert!(err_msg.contains("project-a"));
         assert!(err_msg.contains("project-b"));
+        assert!(err_msg.contains("absolute scope"));
+        assert!(err_msg.contains("disable auto_ingest"));
+    }
+
+    #[test]
+    fn search_empty_query_returns_agent_hint() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = SearchInput {
+            agent_id: "jimi-codex".into(),
+            query: "   ".into(),
+            mode: SearchMode::Literal,
+            scope: Some("src".into()),
+            top_k: 10,
+            case_sensitive: false,
+            context_lines: 0,
+            invert: false,
+            count_only: false,
+            multiline: false,
+            auto_ingest: false,
+            filename_pattern: Some("*.rs".into()),
+        };
+
+        let err = handle_search(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("query cannot be empty"));
+        assert!(err.contains("m1nd.glob"));
+        assert!(err.contains("m1nd.seek"));
+    }
+
+    #[test]
+    fn search_invalid_filename_pattern_suggests_glob_usage() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = SearchInput {
+            agent_id: "jimi-codex".into(),
+            query: "needle".into(),
+            mode: SearchMode::Literal,
+            scope: None,
+            top_k: 10,
+            case_sensitive: false,
+            context_lines: 0,
+            invert: false,
+            count_only: false,
+            multiline: false,
+            auto_ingest: false,
+            filename_pattern: Some("[".into()),
+        };
+
+        let err = handle_search(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("invalid filename pattern"));
+        assert!(err.contains("*.rs"));
+        assert!(err.contains("m1nd.glob"));
+    }
+
+    #[test]
+    fn search_invalid_regex_suggests_literal_mode() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = SearchInput {
+            agent_id: "jimi-codex".into(),
+            query: "(".into(),
+            mode: SearchMode::Regex,
+            scope: None,
+            top_k: 10,
+            case_sensitive: false,
+            context_lines: 0,
+            invert: false,
+            count_only: false,
+            multiline: false,
+            auto_ingest: false,
+            filename_pattern: None,
+        };
+
+        let err = handle_search(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("invalid regex"));
+        assert!(err.contains("mode='literal'"));
+        assert!(err.contains("escape regex metacharacters"));
+    }
+
+    #[test]
+    fn glob_empty_pattern_suggests_search_when_needed() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = GlobInput {
+            agent_id: "jimi-codex".into(),
+            pattern: "".into(),
+            scope: None,
+            top_k: 10,
+            sort: GlobSort::Path,
+        };
+
+        let err = handle_glob(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("pattern cannot be empty"));
+        assert!(err.contains("src/**/*.rs"));
+        assert!(err.contains("m1nd.search"));
+    }
+
+    #[test]
+    fn glob_invalid_pattern_suggests_content_search() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = GlobInput {
+            agent_id: "jimi-codex".into(),
+            pattern: "[".into(),
+            scope: None,
+            top_k: 10,
+            sort: GlobSort::Path,
+        };
+
+        let err = handle_glob(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("invalid glob pattern"));
+        assert!(err.contains("src/**/*.rs"));
+        assert!(err.contains("m1nd.search"));
     }
 
     #[test]
@@ -1763,6 +1936,7 @@ mod tests {
         assert!(output.formatted.contains("WHEN TO USE"));
         assert!(output.formatted.contains("AVOID WHEN"));
         assert!(output.formatted.contains("AGENT NOTES"));
+        assert!(output.formatted.contains("ERROR RECOVERY"));
         assert!(output.formatted.contains("BENCHMARK TRUTH"));
         assert!(output.formatted.contains("WORKFLOWS"));
         assert!(output.formatted.contains("STATE HANDOFF"));
@@ -1816,6 +1990,9 @@ mod tests {
         let output = handle_help(&mut state, input).expect("help output");
         assert!(output.found);
         assert!(output.formatted.contains("decision guide"));
+        assert!(output
+            .formatted
+            .contains("common errors should be treated as reroute hints"));
         assert!(output.formatted.contains("search=text"));
         assert!(output.formatted.contains("seek=intent"));
     }
