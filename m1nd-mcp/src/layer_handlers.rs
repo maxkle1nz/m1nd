@@ -1803,6 +1803,39 @@ fn trail_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn trail_upsert_visited_node(
+    visited_nodes: &mut Vec<TrailVisitedNode>,
+    node_external_id: String,
+    annotation: Option<String>,
+    relevance: f32,
+) {
+    let normalized_relevance = relevance.clamp(0.0, 1.0);
+    if let Some(existing) = visited_nodes
+        .iter_mut()
+        .find(|node| node.node_external_id == node_external_id)
+    {
+        existing.relevance = existing.relevance.max(normalized_relevance);
+        if existing.annotation.is_none() {
+            existing.annotation = annotation;
+        }
+        return;
+    }
+
+    visited_nodes.push(TrailVisitedNode {
+        node_external_id,
+        annotation,
+        relevance: normalized_relevance,
+    });
+}
+
+fn trail_seed_boost(boosts: &mut HashMap<String, f32>, node_external_id: &str, weight: f32) {
+    let normalized = weight.clamp(0.0, 1.0);
+    boosts
+        .entry(node_external_id.to_string())
+        .and_modify(|current| *current = current.max(normalized))
+        .or_insert(normalized);
+}
+
 /// Resolve the trails/ directory path from the graph snapshot path.
 /// Creates the directory if it does not exist.
 fn trails_dir(state: &SessionState) -> M1ndResult<PathBuf> {
@@ -1925,28 +1958,54 @@ pub fn handle_trail_save(
     );
 
     // Collect visited nodes — from input or auto-capture from perspective state.
-    let mut visited_nodes: Vec<TrailVisitedNode> = input
-        .visited_nodes
-        .iter()
-        .map(|v| TrailVisitedNode {
-            node_external_id: v.node_external_id.clone(),
-            annotation: v.annotation.clone(),
-            relevance: v.relevance,
-        })
-        .collect();
+    let mut visited_nodes: Vec<TrailVisitedNode> = Vec::new();
+    for node in &input.visited_nodes {
+        trail_upsert_visited_node(
+            &mut visited_nodes,
+            node.node_external_id.clone(),
+            node.annotation.clone(),
+            node.relevance,
+        );
+    }
 
     // If no explicit visited nodes, capture from active perspectives for this agent.
     if visited_nodes.is_empty() {
         for ((agent, _persp_id), persp) in &state.perspectives {
             if agent == &input.agent_id && !persp.visited_nodes.is_empty() {
                 for ext_id in &persp.visited_nodes {
-                    visited_nodes.push(TrailVisitedNode {
-                        node_external_id: ext_id.clone(),
-                        annotation: None,
-                        relevance: 0.5,
-                    });
+                    trail_upsert_visited_node(&mut visited_nodes, ext_id.clone(), None, 0.5);
                 }
             }
+        }
+    }
+
+    for hypothesis in &input.hypotheses {
+        for node in &hypothesis.supporting_nodes {
+            trail_upsert_visited_node(
+                &mut visited_nodes,
+                node.clone(),
+                Some("hypothesis support".into()),
+                hypothesis.confidence.max(0.6),
+            );
+        }
+        for node in &hypothesis.contradicting_nodes {
+            trail_upsert_visited_node(
+                &mut visited_nodes,
+                node.clone(),
+                Some("hypothesis contradiction".into()),
+                (hypothesis.confidence * 0.8).max(0.45),
+            );
+        }
+    }
+
+    for conclusion in &input.conclusions {
+        for node in &conclusion.supporting_nodes {
+            trail_upsert_visited_node(
+                &mut visited_nodes,
+                node.clone(),
+                Some("conclusion support".into()),
+                conclusion.confidence.max(0.7),
+            );
         }
     }
 
@@ -1985,6 +2044,28 @@ pub fn handle_trail_save(
 
     let graph_gen = state.graph_generation;
 
+    let mut activation_boosts = input.activation_boosts.clone();
+    for node in &visited_nodes {
+        trail_seed_boost(
+            &mut activation_boosts,
+            &node.node_external_id,
+            0.2 + node.relevance.clamp(0.0, 1.0) * 0.5,
+        );
+    }
+    for hypothesis in &hypotheses {
+        for node in &hypothesis.supporting_nodes {
+            trail_seed_boost(&mut activation_boosts, node, 0.7);
+        }
+        for node in &hypothesis.contradicting_nodes {
+            trail_seed_boost(&mut activation_boosts, node, 0.45);
+        }
+    }
+    for conclusion in &conclusions {
+        for node in &conclusion.supporting_nodes {
+            trail_seed_boost(&mut activation_boosts, node, 0.8);
+        }
+    }
+
     let trail = TrailData {
         trail_id: trail_id.clone(),
         label: input.label.clone(),
@@ -1996,7 +2077,7 @@ pub fn handle_trail_save(
         open_questions: input.open_questions.clone(),
         tags: input.tags.clone(),
         summary,
-        activation_boosts: input.activation_boosts.clone(),
+        activation_boosts,
         graph_generation: graph_gen,
         created_at_ms: ts,
         last_modified_ms: ts,
@@ -7376,13 +7457,15 @@ fn l7_normalize_layer_scope(scope: Option<&str>, ingest_roots: &[String]) -> Opt
 mod tests {
     use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan};
     use crate::protocol::layers::{
-        LayersInput, PlannedAction, ScanInput, SeekInput, ValidatePlanInput,
+        LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput, TrailResumeInput,
+        TrailSaveInput, TrailVisitedNodeInput, ValidatePlanInput,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+    use std::collections::HashMap;
 
     fn build_layer_state(root: &std::path::Path) -> SessionState {
         let runtime_dir = root.join("runtime");
@@ -7603,6 +7686,95 @@ mod tests {
             },
         )
         .expect("scan should succeed")
+    }
+
+    #[test]
+    fn trail_save_auto_derives_structural_boosts_from_context() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let output = super::handle_trail_save(
+            &mut state,
+            TrailSaveInput {
+                agent_id: "test".into(),
+                label: "dispatch continuity".into(),
+                hypotheses: vec![],
+                conclusions: vec![TrailConclusionInput {
+                    statement: "ui depends on core".into(),
+                    confidence: 0.9,
+                    from_hypotheses: vec![],
+                    supporting_nodes: vec!["file::src/ui.rs".into()],
+                }],
+                open_questions: vec![],
+                tags: vec!["continuity".into()],
+                summary: None,
+                visited_nodes: vec![TrailVisitedNodeInput {
+                    node_external_id: "file::src/core.rs".into(),
+                    annotation: Some("entry file".into()),
+                    relevance: 0.9,
+                }],
+                activation_boosts: HashMap::new(),
+            },
+        )
+        .expect("trail save should succeed");
+
+        let saved = super::load_trail(&state, &output.trail_id).expect("load saved trail");
+        assert_eq!(saved.visited_nodes.len(), 2);
+        assert!(saved
+            .visited_nodes
+            .iter()
+            .any(|node| node.node_external_id == "file::src/ui.rs"));
+        assert!(saved.activation_boosts.contains_key("file::src/core.rs"));
+        assert!(saved.activation_boosts.contains_key("file::src/ui.rs"));
+        assert!(saved.activation_boosts["file::src/ui.rs"] >= 0.8);
+    }
+
+    #[test]
+    fn trail_resume_reactivates_auto_derived_structural_nodes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let saved = super::handle_trail_save(
+            &mut state,
+            TrailSaveInput {
+                agent_id: "test".into(),
+                label: "resume continuity".into(),
+                hypotheses: vec![],
+                conclusions: vec![TrailConclusionInput {
+                    statement: "ui depends on core".into(),
+                    confidence: 0.85,
+                    from_hypotheses: vec![],
+                    supporting_nodes: vec!["file::src/ui.rs".into()],
+                }],
+                open_questions: vec!["is there a test?".into()],
+                tags: vec![],
+                summary: None,
+                visited_nodes: vec![TrailVisitedNodeInput {
+                    node_external_id: "file::src/core.rs".into(),
+                    annotation: None,
+                    relevance: 0.8,
+                }],
+                activation_boosts: HashMap::new(),
+            },
+        )
+        .expect("trail save should succeed");
+
+        let resumed = super::handle_trail_resume(
+            &mut state,
+            TrailResumeInput {
+                agent_id: "test".into(),
+                trail_id: saved.trail_id,
+                force: false,
+            },
+        )
+        .expect("trail resume should succeed");
+
+        assert!(!resumed.stale);
+        assert!(resumed.missing_nodes.is_empty());
+        assert_eq!(resumed.nodes_reactivated, 2);
+        assert_eq!(resumed.trail.node_count, 2);
     }
 
     #[test]

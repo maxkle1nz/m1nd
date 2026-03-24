@@ -27,11 +27,13 @@ Implemented on `codex/benchmark-research-and-timeline-p1`:
 - `surgical_context_v2` prioritization of code neighbors over docs
 - `seek` natural-language tokenization improvements
 - `surgical_context_v2.proof_focused` for smaller connected proof bundles
+- automatic structural boost derivation in `trail_save`
+- structural node reactivation from derived boosts in `trail_resume`
 
 Still open after this pass:
 
 - measure the practical effect of `proof_focused` in warm-graph edit-prep scenarios
-- improve `trail_resume` continuity so saved investigations reduce repeat retrieval
+- deepen `trail_resume` so saved investigations reopen the next useful question, not only the boosted graph state
 - reduce literal-search fixture contamination in continuity flows
 
 ## Priority 1
