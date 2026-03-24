@@ -41,6 +41,7 @@ Still open after this pass:
 - validate whether the new `trail_resume` hints keep winning once timings are captured less synthetically
 - validate whether compact `trail_resume` stays equally useful in longer real investigations, not just the starter continuity scenario
 - measure whether literal-search continuity now needs fewer reformulations in warm-graph runs
+- tune ranking quality of `next_focus_node_id` and `next_suggested_tool` in longer investigations
 - add optional public cost/time-value projections without hardcoding one provider assumption
 
 Harness status update:
@@ -198,36 +199,39 @@ Acceptance criteria:
 
 ### 9. Make `trail_save` and `trail_resume` structurally stronger
 
-Problem:
-- continuity behaves more like a bookmark than a true structural resume unless explicit nodes are supplied
+Status:
+- mostly implemented on this branch
 
-Likely files:
-- `m1nd-mcp/src/layer_handlers.rs`
-- `m1nd-mcp/src/protocol/layers.rs`
+What landed:
+- structural boost derivation in `trail_save`
+- structural node reactivation in `trail_resume`
+- explicit `reactivated_node_ids` and `resume_hints`
+- compact preview limits for resumed output
 
-Expected impact:
-- fewer rediscovery loops
-- stronger continuity value in real agent sessions
+Residual problem:
+- continuity is now structurally stronger, but the ranking quality of the resumed next step still needs more real-session validation
 
 Acceptance criteria:
-- saved trails automatically preserve and reactivate useful structural nodes
-- `trail_resume` can reduce repeat searches in multi-step investigations
+- resumed investigations keep reducing repeat searches in longer, less synthetic runs
+- next-focus and next-tool suggestions stay useful beyond the starter continuity corpus
 
 ### 10. Add a continuity-oriented resume mode
 
-Problem:
-- after resuming, the agent still needs to formulate multiple new searches to continue answering open questions
+Status:
+- partially implemented on this branch
 
-Likely files:
-- `m1nd-mcp/src/server.rs`
-- `m1nd-mcp/src/layer_handlers.rs`
+What landed:
+- `trail_resume` now surfaces `next_focus_node_id`
+- `trail_resume` now surfaces `next_open_question`
+- `trail_resume` now surfaces `next_suggested_tool`
+- temporal follow-ups can now route toward `timeline`
 
-Expected impact:
-- better “continue from where we left off” flow
-- less manual query formulation after resume
+Residual problem:
+- the current resume mode is actionable, but still needs ranking and latency tuning in larger real investigations
 
 Acceptance criteria:
 - a resumed investigation can answer the next open question with fewer retrieval steps
+- the guidance remains compact without losing the right next seam
 
 ### 11. Reduce noisy literal-search fixture contamination
 
@@ -251,7 +255,7 @@ Acceptance criteria:
 3. `validate_plan` noise reduction
 4. `surgical_context_v2` proof-focused mode
 5. `seek` ranking improvements
-6. `trail_resume` structural continuity improvements
+6. `trail_resume` ranking and continuity follow-up improvements
 
 ## Suggested Benchmark Gates
 

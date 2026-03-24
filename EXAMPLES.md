@@ -68,6 +68,18 @@ Use this when you are looking for file names, not meaning.
 
 Use this when you know the job, but not the symbol or file name.
 
+Another good `seek` prompt is:
+
+```jsonc
+{"method":"tools/call","params":{"name":"seek","arguments":{
+  "agent_id":"dev",
+  "query":"which helper canonicalizes alias tool names into dispatch status values",
+  "top_k":5
+}}}
+```
+
+This is the kind of question where plain grep often needs several reformulations before it converges on the right helper.
+
 ## 3. Connected neighborhood around a topic
 
 ```jsonc
@@ -284,13 +296,71 @@ Later:
 ```jsonc
 {"method":"tools/call","params":{"name":"trail_resume","arguments":{
   "agent_id":"dev",
-  "trail_id":"trail-abc123"
+  "trail_id":"trail-abc123",
+  "max_reactivated_nodes":3,
+  "max_resume_hints":2
 }}}
 ```
 
-Use trails when you want continuity across sessions or across agents.
+Illustrative response shape:
 
-## 13. Ingest code and docs together
+```jsonc
+{
+  "trail_id":"trail-abc123",
+  "reactivated_node_ids":[
+    "file::src/auth/session.rs",
+    "fn::src/auth/session.rs::rotate_refresh_token"
+  ],
+  "resume_hints":[
+    "Re-open the refresh token rotation path before editing auth session storage.",
+    "The previous investigation left an open question about recent churn in the rotation helper."
+  ],
+  "next_focus_node_id":"fn::src/auth/session.rs::rotate_refresh_token",
+  "next_open_question":"What changed recently in refresh token rotation and which callers moved with it?",
+  "next_suggested_tool":"timeline"
+}
+```
+
+Use trails when you want continuity across sessions or across agents. The compact limits help when you want just the next move instead of a big resume payload.
+
+## 13. Follow a resumed trail with `timeline`
+
+If the carried-forward question is temporal, `trail_resume` may point you to `timeline` next.
+
+```jsonc
+{"method":"tools/call","params":{"name":"timeline","arguments":{
+  "agent_id":"dev",
+  "node":"file::src/auth/session.rs",
+  "depth":"30d",
+  "include_co_changes":true,
+  "include_churn":true
+}}}
+```
+
+Illustrative response shape:
+
+```jsonc
+{
+  "node":"file::src/auth/session.rs",
+  "changes":[
+    {
+      "commit":"0b2e172",
+      "subject":"route temporal resume questions to timeline",
+      "timestamp":"2026-03-24T10:41:00Z",
+      "lines_added":18,
+      "lines_deleted":2
+    }
+  ],
+  "total_churn":{"added":42,"deleted":11},
+  "co_changes":[
+    {"node":"file::m1nd-mcp/src/layer_handlers.rs","score":0.84}
+  ]
+}
+```
+
+This is the quickest way to turn “what were we doing here?” into recent commit proof plus likely co-changed files.
+
+## 14. Ingest code and docs together
 
 ### Memory adapter
 
@@ -327,7 +397,7 @@ Use trails when you want continuity across sessions or across agents.
 
 This is useful when the right answer lives across implementation and docs, not only in code.
 
-## 14. Honest boundary: when not to use m1nd
+## 15. Honest boundary: when not to use m1nd
 
 Use plain tools when:
 

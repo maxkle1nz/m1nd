@@ -46,6 +46,11 @@ The `--events` file is a JSON array. Each item can contain:
 - `opened_files`
 - `surfaced_files`
 - `notes`
+- `reactivated_node_ids`
+- `resume_hints`
+- `next_focus_node_id`
+- `next_open_question`
+- `next_suggested_tool`
 
 If `payload_chars` is omitted, the runner derives a conservative char count
 from the strings present in the event.
@@ -55,6 +60,10 @@ Run-level metadata can also record:
 - `false_start_count`
 - `tests_identified_before_edit`
 - `workflow_notes`
+
+For continuity scenarios, capture whether the run only restored context or also
+surfaced the next move. The actionable-resume scenarios are meant to benchmark
+"resume and continue" behavior, not bookmark restore alone.
 
 ## Current scenario corpus
 
@@ -66,3 +75,8 @@ Run-level metadata can also record:
 
 These are warm-graph oriented starter scenarios for rerunning the benchmark
 work captured in `docs/BENCHMARK_RESEARCH_2026-03-24.md`.
+
+In particular:
+
+- `continuity_boot_memory.json` captures the older, heavier continuity flow
+- `continuity_actionable_resume.json` captures compact resume plus next-step guidance

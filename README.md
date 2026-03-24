@@ -244,7 +244,7 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 |------|-----|
 | Exact text or regex in code | `search` |
 | Filename/path pattern | `glob` |
-| Natural-language intent like “who owns retry backoff?” | `seek` |
+| Natural-language intent like “who owns retry backoff?” or “which helper canonicalizes dispatch tool names?” | `seek` |
 | Connected neighborhood around a topic | `activate` |
 | Quick file read without graph expansion | `view` |
 | Why something ranked as risky or important | `heuristics_surface` |
@@ -252,8 +252,11 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 | Pre-flight a risky change plan | `validate_plan` |
 | Gather file + callers + callees + tests for an edit | `surgical_context` |
 | Gather the primary file plus connected file sources in one shot | `surgical_context_v2` |
+| Gather a tighter proof-oriented edit surface with less payload | `surgical_context_v2` with `proof_focused=true` |
 | Save small persistent operating state | `boot_memory` |
 | Save or resume an investigation trail | `trail_save`, `trail_resume`, `trail_merge` |
+| Resume an investigation and get the next likely move | `trail_resume` with `resume_hints`, `next_focus_node_id`, `next_open_question`, `next_suggested_tool` |
+| Ask what changed recently and why it matters | `timeline` |
 
 ## Results And Measurements
 
@@ -284,6 +287,15 @@ Criterion micro-benchmarks recorded in current docs:
 
 These numbers matter most when paired with the workflow benefit: fewer round-trips through grep/read loops and less context loading into the model.
 
+Warm-graph benchmark corpus recorded in `docs/benchmarks` now also shows where the newer continuity flow helps:
+
+| Scenario | Manual token proxy | `m1nd_warm` token proxy | Savings |
+|----------|--------------------|-------------------------|---------|
+| Actionable continuity resume | 1340 | 145 | 89.18% |
+| Aggregate warm-graph corpus | 4751 | 1771 | 62.72% |
+
+Those continuity gains come from changes that make `trail_resume` more actionable: compact limits, structural reactivation, next-focus hints, and next-tool suggestions such as routing temporal follow-ups toward `timeline`.
+
 ## Configure Your Agent
 
 m1nd works best when your agent treats it as the first stop for structure and connected context, not the only tool it is allowed to use.
@@ -301,7 +313,9 @@ Use m1nd before broad grep/glob/file-read loops when the task depends on structu
 - heuristics_surface when you need ranking justification
 - validate_plan before broad or coupled changes
 - surgical_context_v2 when preparing a multi-file edit
+- use `proof_focused=true` on `surgical_context_v2` when you want a compact edit-proof surface
 - boot_memory for small persistent operational state
+- use `trail_resume` for continuity when you want the next focus node, next open question, and likely next tool
 - help when unsure which tool fits
 
 Use plain tools when the task is single-file, exact-text, or runtime/build-truth driven.
@@ -321,7 +335,9 @@ Reach for:
 - impact before edits
 - validate_plan before risky changes
 - surgical_context_v2 for multi-file edit prep
+- use `proof_focused=true` when you want the smallest useful connected edit surface
 - heuristics_surface for ranking explanation
+- trail_resume when resuming an investigation and you need the next likely move
 
 Use plain tools for single-file edits, exact-text chores, tests, compiler errors, and runtime logs.
 ```
@@ -335,6 +351,7 @@ Prefer m1nd for repo exploration when structure matters:
 - seek for intent
 - activate for related code
 - impact before edits
+- trail_resume for continuity and `timeline` for recent-change proof
 
 Prefer plain tools for single-file edits, exact string chores, and runtime/build truth.
 ```
@@ -380,7 +397,7 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 
 | Category | Highlights |
 |----------|------------|
-| Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
+| Foundation | ingest, activate, impact, why, learn, drift, timeline, seek, search, glob, view, warmup, federate |
 | Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
@@ -402,6 +419,7 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 | `why` | Shortest path between two nodes | 5-6ms |
 | `learn` | Feedback loop that reinforces useful paths | <1ms |
 | `drift` | What changed since a baseline | 23ms |
+| `timeline` | Git-based temporal history for a node, including commit subjects and file churn | varies |
 | `health` | Server diagnostics | <1ms |
 | `warmup` | Prime the graph for an upcoming task | 82-89ms |
 | `federate` | Unify multiple repos into one graph | 1.3s / 2 repos |
@@ -440,7 +458,7 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 | `validate_plan` | Pre-flight change risk with hotspot references | 0.5-10ms |
 | `predict` | Co-change prediction with ranking justification | <1ms |
 | `trail_save` | Persist investigation state | ~0ms |
-| `trail_resume` | Restore a saved investigation | 0.2ms |
+| `trail_resume` | Restore a saved investigation and suggest the next move | 0.2ms |
 | `trail_merge` | Combine multi-agent investigations | 1.2ms |
 | `trail_list` | Browse saved investigations | ~0ms |
 | `differential` | Structural diff between graph snapshots | varies |

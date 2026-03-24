@@ -353,6 +353,8 @@ Implemented so far:
 - `trail_resume` now reactivates that derived structural memory without requiring explicit manual boosts
 - `trail_resume` now returns `reactivated_node_ids` and `resume_hints` so the next useful move is explicit
 - `trail_resume` now supports compact output limits for reactivated-node previews and resume hints
+- `trail_resume` now returns `next_focus_node_id`, `next_open_question`, and `next_suggested_tool`
+- temporal resume questions can now route toward `timeline`
 - literal search now demotes fixture-like hardcoded identity noise in continuity-style queries
 - a first benchmark harness now exists under `scripts/benchmark/run_benchmark.py` with scenario and run JSON support
 - the harness now records workflow metadata such as `false_start_count`, `tests_identified_before_edit`, and `workflow_notes`
@@ -418,6 +420,7 @@ Interpretation:
 - this is the first continuity scenario in the harness that looks like a public-quality `m1nd` win
 - the main benefit is reduced rediscovery, not a broad universal speed claim
 - the compact resume limits make that win cheaper in payload without changing the shape of the workflow
+- the returned `next_focus_node_id`, `resume_hints`, and `next_suggested_tool` make the continuation seam explicit instead of forcing a fresh search loop
 - this makes continuity a more defensible `m1nd` value surface for docs and release notes
 
 ### Priority 1
@@ -458,12 +461,12 @@ Interpretation:
 
 ### Priority 3
 
-1. Improve `trail_save` and `trail_resume` so structural nodes are preserved and reactivated automatically.
-   Why: continuity currently behaves more like a bookmark than true structural resume unless extra metadata is supplied.
+1. Validate `trail_resume` ranking and usefulness in longer real investigations.
+   Why: structural reactivation and actionable hints now exist, but the next-focus and next-tool guidance still need broader validation outside the starter corpus.
    Likely files: `m1nd-mcp/src/layer_handlers.rs`, `m1nd-mcp/src/protocol/layers.rs`
 
-2. Add a continuity-oriented mode that resumes open questions with minimal proof hops.
-   Why: after resume, the agent still had to formulate fresh searches for environment wiring and MCP registration.
+2. Continue tightening resume latency and payload in continuity-heavy workflows.
+   Why: the actionable continuity scenario is now strong, but the older heavy continuity flow is still the top latency drag in the harness.
    Likely files: `m1nd-mcp/src/server.rs`, `m1nd-mcp/src/layer_handlers.rs`
 
 3. Reduce noisy fixture-style matches inside literal search.
