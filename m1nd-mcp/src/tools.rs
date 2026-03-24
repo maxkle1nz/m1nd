@@ -1,11 +1,13 @@
 // === crates/m1nd-mcp/src/tools.rs ===
 
 use crate::protocol::*;
+use crate::result_shaping::dedupe_ranked;
 use crate::session::SessionState;
 use m1nd_core::error::M1ndResult;
 use m1nd_core::query::QueryConfig;
 use m1nd_core::temporal::ImpactDirection;
 use m1nd_core::types::*;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -20,6 +22,108 @@ fn normalized_ingest_mode(mode: &str) -> &str {
     } else {
         "replace"
     }
+}
+
+fn note_learn_node_effect(
+    weight_deltas: &mut HashMap<NodeId, f32>,
+    edge_events: &mut HashMap<NodeId, u16>,
+    node: NodeId,
+    delta: f32,
+    edge_count: u16,
+) {
+    *weight_deltas.entry(node).or_insert(0.0) += delta;
+    let entry = edge_events.entry(node).or_insert(0);
+    *entry = entry.saturating_add(edge_count);
+}
+
+fn maybe_store_auto_antibody(
+    antibodies: &mut Vec<m1nd_core::antibody::Antibody>,
+    candidate: m1nd_core::antibody::Antibody,
+) -> bool {
+    let is_duplicate = antibodies.iter().any(|existing| {
+        m1nd_core::antibody::pattern_similarity(&existing.pattern, &candidate.pattern)
+            >= m1nd_core::antibody::DUPLICATE_SIMILARITY_THRESHOLD
+    });
+    if is_duplicate {
+        false
+    } else {
+        antibodies.push(candidate);
+        true
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PredictionSourceKind {
+    CoChange,
+    StructuralFallback,
+}
+
+impl PredictionSourceKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::CoChange => "co_change",
+            Self::StructuralFallback => "structural_fallback",
+        }
+    }
+
+    fn score_bias(self) -> f32 {
+        match self {
+            Self::CoChange => 1.02,
+            Self::StructuralFallback => 0.98,
+        }
+    }
+
+    fn reason_fragment(self) -> &'static str {
+        match self {
+            Self::CoChange => "historical co-change",
+            Self::StructuralFallback => "structural coupling",
+        }
+    }
+}
+
+struct RankedPrediction {
+    target: NodeId,
+    external_id: String,
+    label: String,
+    file_path: String,
+    source: PredictionSourceKind,
+    coupling_strength: f32,
+    confidence: f32,
+    final_score: f32,
+    heuristic_factor: f32,
+    trust_score: f32,
+    trust_risk_multiplier: f32,
+    trust_tier: String,
+    tremor_magnitude: Option<f32>,
+    tremor_observation_count: usize,
+    tremor_risk_level: Option<String>,
+    reason: String,
+}
+
+fn dampened_trust_factor(raw_factor: f32) -> f32 {
+    1.0 + (raw_factor - 1.0) * 0.2
+}
+
+fn dampened_tremor_factor(alert: Option<&m1nd_core::tremor::TremorAlert>) -> f32 {
+    1.0 + alert.map_or(0.0, |value| value.magnitude.min(1.0) * 0.1)
+}
+
+fn build_prediction_reason(
+    source: PredictionSourceKind,
+    trust_factor: f32,
+    tremor_factor: f32,
+    tremor_observation_count: usize,
+) -> String {
+    let mut parts = vec![source.reason_fragment().to_string()];
+    if trust_factor > 1.01 {
+        parts.push("low-trust risk prior".to_string());
+    } else if trust_factor < 0.99 {
+        parts.push("high-trust damping".to_string());
+    }
+    if tremor_factor > 1.01 && tremor_observation_count > 0 {
+        parts.push("tremor acceleration".to_string());
+    }
+    parts.join(" + ")
 }
 
 fn finalize_ingest(
@@ -61,8 +165,17 @@ fn finalize_ingest(
 
     state.rebuild_engines()?;
 
-    // Track ingest roots for L3 git discovery
-    if !state.ingest_roots.contains(&input.path) {
+    // Track ingest roots for L3 git discovery.
+    // Keep the vector ordered oldest -> newest so path resolution can prefer
+    // the most recent matching root deterministically.
+    if let Some(pos) = state
+        .ingest_roots
+        .iter()
+        .position(|root| root == &input.path)
+    {
+        let root = state.ingest_roots.remove(pos);
+        state.ingest_roots.push(root);
+    } else {
         state.ingest_roots.push(input.path.clone());
     }
 
@@ -160,6 +273,8 @@ pub fn handle_activate(
             }
         })
         .collect();
+    let seed_count = seeds.len();
+    let seeds = dedupe_ranked(seeds, seed_count);
 
     // Build reverse lookup: NodeId -> external ID string
     let mut node_to_ext: Vec<String> = vec![String::new(); graph.num_nodes() as usize];
@@ -229,6 +344,7 @@ pub fn handle_activate(
             }
         })
         .collect();
+    let activated = dedupe_ranked(activated, input.top_k);
 
     // Map ghost edges
     let ghost_edges: Vec<GhostEdgeOutput> = result
@@ -605,7 +721,12 @@ pub fn handle_warmup(
     let graph = state.graph.read();
 
     // Find seeds related to the task description
-    let seeds = m1nd_core::seed::SeedFinder::find_seeds(&graph, &input.task_description, 50)?;
+    let seeds = m1nd_core::seed::SeedFinder::find_seeds_semantic(
+        &graph,
+        &state.orchestrator.semantic,
+        &input.task_description,
+        50,
+    )?;
 
     let seed_nodes: Vec<NodeId> = seeds.iter().map(|s| s.0).collect();
 
@@ -630,6 +751,7 @@ pub fn handle_warmup(
             })
         })
         .collect();
+    let seed_count = seed_output.len();
 
     let priming_output: Vec<serde_json::Value> = priming
         .iter()
@@ -652,7 +774,7 @@ pub fn handle_warmup(
         "task_description": input.task_description,
         "seeds": seed_output,
         "priming_nodes": priming_output,
-        "total_seeds": seeds.len(),
+        "total_seeds": seed_count,
         "total_priming": priming.len(),
     }))
 }
@@ -783,14 +905,22 @@ pub fn handle_predict(
         }
     };
 
+    let mut node_to_ext: Vec<String> = vec![String::new(); graph.num_nodes() as usize];
+    for (interned, &nid) in &graph.id_to_node {
+        let idx = nid.as_usize();
+        if idx < node_to_ext.len() {
+            node_to_ext[idx] = graph.strings.resolve(*interned).to_string();
+        }
+    }
+
     let co_change_predictions = state.temporal.co_change.predict(node, input.top_k);
+    let co_change_count = co_change_predictions.len();
 
     // --- Structural fallback (Issue 3) ---
     // If co-change returns fewer than top_k results, supplement with
     // structural predictions: nodes connected via imports/calls/references
     // edges, scored by edge weight.  Co-change results rank higher.
-    let mut seen: std::collections::HashSet<NodeId> =
-        co_change_predictions.iter().map(|p| p.target).collect();
+    let mut seen: HashSet<NodeId> = co_change_predictions.iter().map(|p| p.target).collect();
 
     let mut structural_predictions: Vec<m1nd_core::temporal::CoChangeEntry> = Vec::new();
 
@@ -845,19 +975,126 @@ pub fn handle_predict(
         structural_predictions.sort_by(|a, b| b.strength.cmp(&a.strength));
     }
 
-    // Merge: co-change first (higher priority), then structural fill
-    let remaining = input.top_k.saturating_sub(co_change_predictions.len());
-    structural_predictions.truncate(remaining);
-
-    let all_predictions: Vec<&m1nd_core::temporal::CoChangeEntry> = co_change_predictions
-        .iter()
-        .chain(structural_predictions.iter())
-        .collect();
+    let structural_fallback_count = structural_predictions.len();
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
+
+    let mut ranked_predictions: Vec<RankedPrediction> = co_change_predictions
+        .iter()
+        .map(|entry| (PredictionSourceKind::CoChange, entry))
+        .chain(
+            structural_predictions
+                .iter()
+                .map(|entry| (PredictionSourceKind::StructuralFallback, entry)),
+        )
+        .map(|(source, entry)| {
+            let idx = entry.target.as_usize();
+            let label = if idx < graph.num_nodes() as usize {
+                graph.strings.resolve(graph.nodes.label[idx]).to_string()
+            } else {
+                format!("node_{}", idx)
+            };
+            let stable_external_id = node_to_ext.get(idx).cloned().unwrap_or_default();
+            let external_id = if stable_external_id.is_empty() {
+                label.clone()
+            } else {
+                stable_external_id.clone()
+            };
+            let file_path = if idx < graph.num_nodes() as usize {
+                graph
+                    .resolve_node_provenance(entry.target)
+                    .source_path
+                    .or_else(|| {
+                        external_id
+                            .strip_prefix("file::")
+                            .map(|value| value.to_string())
+                    })
+                    .unwrap_or_else(|| external_id.clone())
+            } else {
+                external_id.clone()
+            };
+
+            let trust = state.trust_ledger.compute_trust(&external_id, now);
+            let raw_trust_factor = if stable_external_id.is_empty() {
+                1.0
+            } else {
+                state.trust_ledger.adjust_prior(
+                    1.0,
+                    std::slice::from_ref(&stable_external_id),
+                    false,
+                    now,
+                )
+            };
+            let trust_factor = dampened_trust_factor(raw_trust_factor);
+
+            let tremor_observation_count = if stable_external_id.is_empty() {
+                0
+            } else {
+                state.tremor_registry.observation_count(&stable_external_id)
+            };
+            let tremor_alert = if stable_external_id.is_empty() || tremor_observation_count < 3 {
+                None
+            } else {
+                state
+                    .tremor_registry
+                    .analyze(
+                        m1nd_core::tremor::TremorWindow::All,
+                        0.0,
+                        1,
+                        Some(stable_external_id.as_str()),
+                        now,
+                        0,
+                    )
+                    .tremors
+                    .into_iter()
+                    .next()
+            };
+            let tremor_factor = dampened_tremor_factor(tremor_alert.as_ref());
+
+            let heuristic_factor = source.score_bias() * trust_factor * tremor_factor;
+            let coupling_strength = entry.strength.get();
+            let final_score = (coupling_strength.max(0.0) * heuristic_factor).max(0.0);
+            let reason = build_prediction_reason(
+                source,
+                trust_factor,
+                tremor_factor,
+                tremor_observation_count,
+            );
+
+            RankedPrediction {
+                target: entry.target,
+                external_id,
+                label,
+                file_path,
+                source,
+                coupling_strength,
+                confidence: final_score.clamp(0.0, 1.0),
+                final_score,
+                heuristic_factor,
+                trust_score: trust.trust_score,
+                trust_risk_multiplier: trust.risk_multiplier,
+                trust_tier: format!("{:?}", trust.tier),
+                tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
+                tremor_observation_count,
+                tremor_risk_level: tremor_alert
+                    .as_ref()
+                    .map(|alert| format!("{:?}", alert.risk_level)),
+                reason,
+            }
+        })
+        .collect();
+
+    ranked_predictions.sort_by(|a, b| {
+        b.final_score
+            .partial_cmp(&a.final_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.coupling_strength.total_cmp(&a.coupling_strength))
+            .then_with(|| a.external_id.cmp(&b.external_id))
+    });
+    ranked_predictions.truncate(input.top_k);
 
     let velocity = if input.include_velocity {
         let v = m1nd_core::temporal::VelocityScorer::score_one(&graph, node, now)?;
@@ -869,18 +1106,27 @@ pub fn handle_predict(
         None
     };
 
-    let prediction_output: Vec<serde_json::Value> = all_predictions
+    let prediction_output: Vec<serde_json::Value> = ranked_predictions
         .iter()
-        .map(|p| {
-            let idx = p.target.as_usize();
-            let label = if idx < graph.num_nodes() as usize {
-                graph.strings.resolve(graph.nodes.label[idx]).to_string()
-            } else {
-                format!("node_{}", idx)
-            };
+        .map(|prediction| {
             serde_json::json!({
-                "node_id": label,
-                "coupling_strength": p.strength.get(),
+                "node_id": prediction.external_id,
+                "label": prediction.label,
+                "source": prediction.source.as_str(),
+                "coupling_strength": prediction.coupling_strength,
+                "confidence": prediction.confidence,
+                "heuristic_factor": prediction.heuristic_factor,
+                "trust_score": prediction.trust_score,
+                "trust_risk_multiplier": prediction.trust_risk_multiplier,
+                "trust_tier": prediction.trust_tier,
+                "tremor_magnitude": prediction.tremor_magnitude,
+                "tremor_observation_count": prediction.tremor_observation_count,
+                "tremor_risk_level": prediction.tremor_risk_level,
+                "reason": prediction.reason,
+                "heuristics_surface_ref": {
+                    "node_id": prediction.external_id,
+                    "file_path": prediction.file_path,
+                },
             })
         })
         .collect();
@@ -888,8 +1134,9 @@ pub fn handle_predict(
     Ok(serde_json::json!({
         "changed_node": input.changed_node,
         "predictions": prediction_output,
-        "co_change_count": co_change_predictions.len(),
-        "structural_fallback_count": structural_predictions.len(),
+        "co_change_count": co_change_count,
+        "structural_fallback_count": structural_fallback_count,
+        "heuristic_reranked": true,
         "velocity": velocity,
     }))
 }
@@ -1163,11 +1410,20 @@ pub fn handle_drift(state: &mut SessionState, input: DriftInput) -> M1ndResult<s
 pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<serde_json::Value> {
     let mut graph = state.graph.write();
 
-    let nodes: Vec<NodeId> = input
+    let mut seen_nodes = HashSet::new();
+    let resolved_nodes: Vec<(NodeId, String)> = input
         .node_ids
         .iter()
-        .filter_map(|id| graph.resolve_id(id))
+        .filter_map(|id| {
+            let node = graph.resolve_id(id)?;
+            if seen_nodes.insert(node) {
+                Some((node, id.clone()))
+            } else {
+                None
+            }
+        })
         .collect();
+    let nodes: Vec<NodeId> = resolved_nodes.iter().map(|(node, _)| *node).collect();
 
     if nodes.is_empty() {
         return Ok(serde_json::json!({
@@ -1197,6 +1453,8 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
 
     let strength = input.strength;
     let mut edges_modified = 0u32;
+    let mut node_weight_deltas: HashMap<NodeId, f32> = HashMap::new();
+    let mut node_edge_events: HashMap<NodeId, u16> = HashMap::new();
 
     // Determine which node pairs to strengthen/weaken based on feedback type.
     // "correct"  → strengthen edges between all given nodes (Hebbian: fire together, wire together)
@@ -1284,24 +1542,73 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
 
     // Strengthen pairs
     for &(a, b) in &strengthen_set {
-        edges_modified += apply_delta(&mut graph, a, b, strength);
-        edges_modified += apply_delta(&mut graph, b, a, strength);
+        let forward = apply_delta(&mut graph, a, b, strength);
+        let reverse = apply_delta(&mut graph, b, a, strength);
+        let edge_count = (forward + reverse).min(u16::MAX as u32) as u16;
+        if edge_count > 0 {
+            note_learn_node_effect(
+                &mut node_weight_deltas,
+                &mut node_edge_events,
+                a,
+                strength,
+                edge_count,
+            );
+            note_learn_node_effect(
+                &mut node_weight_deltas,
+                &mut node_edge_events,
+                b,
+                strength,
+                edge_count,
+            );
+        }
+        edges_modified += forward + reverse;
     }
 
     // Weaken pairs
     for &(a, b) in &weaken_set {
-        edges_modified += apply_delta(&mut graph, a, b, -strength);
-        edges_modified += apply_delta(&mut graph, b, a, -strength);
+        let forward = apply_delta(&mut graph, a, b, -strength);
+        let reverse = apply_delta(&mut graph, b, a, -strength);
+        let edge_count = (forward + reverse).min(u16::MAX as u32) as u16;
+        if edge_count > 0 {
+            note_learn_node_effect(
+                &mut node_weight_deltas,
+                &mut node_edge_events,
+                a,
+                -strength,
+                edge_count,
+            );
+            note_learn_node_effect(
+                &mut node_weight_deltas,
+                &mut node_edge_events,
+                b,
+                -strength,
+                edge_count,
+            );
+        }
+        edges_modified += forward + reverse;
     }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let auto_antibody = if input.feedback == "correct" && nodes.len() >= 2 {
+        let antibody_name = format!("auto-learn-{}", now as u64);
+        m1nd_core::antibody::extract_antibody_from_learn(
+            &graph,
+            &nodes,
+            &antibody_name,
+            &input.query,
+            &input.agent_id,
+        )
+    } else {
+        None
+    };
 
     // Drop graph write-lock before accessing temporal (co_change needs &mut self)
     drop(graph);
 
     // Record co-change for all pairs of input nodes (feeds the predict tool).
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0);
     for i in 0..nodes.len() {
         for j in (i + 1)..nodes.len() {
             let _ = state
@@ -1315,6 +1622,33 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
         }
     }
 
+    let mut tremor_observations_recorded = 0u32;
+    for (node, external_id) in &resolved_nodes {
+        match input.feedback.as_str() {
+            "wrong" => state.trust_ledger.record_false_alarm(external_id, now),
+            "partial" => state.trust_ledger.record_partial(external_id, now),
+            _ => state.trust_ledger.record_defect(external_id, now),
+        }
+
+        let weight_delta = node_weight_deltas.get(node).copied().unwrap_or(0.0);
+        let edge_events = node_edge_events.get(node).copied().unwrap_or(0);
+        if edge_events > 0 || weight_delta.abs() > f32::EPSILON {
+            state
+                .tremor_registry
+                .record_observation(external_id, weight_delta, edge_events, now);
+            tremor_observations_recorded += 1;
+        }
+    }
+
+    let antibody_added = auto_antibody
+        .map(|candidate| maybe_store_auto_antibody(&mut state.antibodies, candidate))
+        .unwrap_or(false);
+
+    state.bump_plasticity_generation();
+    state.invalidate_all_perspectives();
+    state.mark_all_lock_baselines_stale();
+    state.notify_watchers(crate::perspective::state::WatchTrigger::Learn);
+
     Ok(serde_json::json!({
         "query": input.query,
         "feedback": input.feedback,
@@ -1322,6 +1656,9 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
         "nodes_expanded": expanded.len(),
         "edges_modified": edges_modified,
         "strength": strength,
+        "trust_records_updated": resolved_nodes.len(),
+        "tremor_observations_recorded": tremor_observations_recorded,
+        "antibody_added": antibody_added,
     }))
 }
 

@@ -10,3 +10,4 @@ smallvec = { version = "1.13", features = ["serde"] }
 parking_lot = "0.12"
 rayon = "1.10"
 static_assertions = "1"
+cargo_metadata = "0.23"

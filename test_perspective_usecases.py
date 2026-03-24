@@ -10,8 +10,9 @@ import sys
 import os
 import tempfile
 
-BINARY = "./target/release/m1nd-mcp"
-INGEST_PATH = "/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd"
+ROOT = os.path.dirname(os.path.abspath(__file__))
+BINARY = os.path.join(ROOT, "target/release/m1nd-mcp")
+INGEST_PATH = ROOT
 PASS = 0
 FAIL = 0
 TOTAL = 0
@@ -21,8 +22,8 @@ workdir = tempfile.mkdtemp(prefix="m1nd_uc_")
 
 def start_server():
     env = os.environ.copy()
-    env["GRAPH_SNAPSHOT_PATH"] = os.path.join(workdir, "graph.json")
-    env["PLASTICITY_STATE_PATH"] = os.path.join(workdir, "plasticity.json")
+    env["M1ND_GRAPH_SOURCE"] = os.path.join(workdir, "graph.json")
+    env["M1ND_PLASTICITY_STATE"] = os.path.join(workdir, "plasticity.json")
     return subprocess.Popen(
         [BINARY],
         stdin=subprocess.PIPE,
@@ -38,6 +39,7 @@ def next_id():
     return MSG_ID
 
 def call(proc, name, args):
+    name = name.replace("m1nd.", "").replace(".", "_")
     msg = json.dumps({
         "jsonrpc": "2.0",
         "method": "tools/call",
@@ -117,7 +119,7 @@ init(proc)
 print("Init OK")
 
 # Ingest
-r = call(proc, "m1nd.ingest", {"agent_id": "uc", "path": INGEST_PATH, "mode": "full"})
+r = call(proc, "m1nd.ingest", {"agent_id": "uc", "path": INGEST_PATH, "mode": "replace"})
 d = xt(r)
 print(f"Ingested: {d.get('node_count', '?')} nodes, {d.get('edge_count', '?')} edges")
 

@@ -5,7 +5,8 @@
 # =============================================================================
 set -euo pipefail
 
-BINARY="./target/release/m1nd-mcp"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BINARY="$SCRIPT_DIR/target/release/m1nd-mcp"
 WORKDIR="/tmp/m1nd_persp_e2e_$$"
 GRAPH_SNAP="$WORKDIR/graph_snapshot.json"
 PLASTICITY="$WORKDIR/plasticity_state.json"
@@ -21,6 +22,8 @@ rpc() {
     local name="$1"
     local args="$2"
     local id="$3"
+    name="${name#m1nd.}"
+    name="${name//./_}"
     printf '{"jsonrpc":"2.0","method":"tools/call","id":%d,"params":{"name":"%s","arguments":%s}}\n' "$id" "$name" "$args"
 }
 
@@ -52,14 +55,7 @@ assert_ok() {
 get_resp() {
     local responses="$1"
     local id=$2
-    echo "$responses" | while IFS= read -r line; do
-        local rid
-        rid=$(echo "$line" | jq -r '.id // empty' 2>/dev/null)
-        if [ "$rid" = "$id" ]; then
-            echo "$line"
-            break
-        fi
-    done
+    echo "$responses" | jq -c --argjson id "$id" 'select(.id == $id)' | head -n 1
 }
 
 if [ ! -x "$BINARY" ]; then
@@ -78,12 +74,12 @@ echo ""
 # ============================================================================
 
 # Use the m1nd source itself for ingest
-INGEST_PATH="$(cd "$(dirname "$0")" && pwd)"
+INGEST_PATH="$SCRIPT_DIR"
 
 echo "--- Phase 1: Ingest + Perspective lifecycle ---"
 
 MSG_01=$(init_msg)
-MSG_02=$(rpc "m1nd.ingest" "{\"path\":\"$INGEST_PATH\",\"agent_id\":\"persp-test\"}" 2)
+MSG_02=$(rpc "m1nd.ingest" "{\"path\":\"$INGEST_PATH\",\"agent_id\":\"persp-test\",\"mode\":\"replace\"}" 2)
 MSG_03=$(rpc "m1nd.health" '{"agent_id":"persp-test"}' 3)
 
 # perspective.start

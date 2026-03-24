@@ -7,8 +7,11 @@
 // Pattern: same as tools.rs / perspective_handlers.rs / lock_handlers.rs.
 
 use crate::protocol::layers;
+use crate::result_shaping::dedupe_ranked;
+use crate::scope::normalize_scope_path;
 use crate::session::SessionState;
 use m1nd_core::error::{M1ndError, M1ndResult};
+use m1nd_core::seed::source_path_bias;
 use m1nd_core::types::*;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -18,6 +21,35 @@ use std::time::Instant;
 // =========================================================================
 // L2: Semantic Search — m1nd.seek + m1nd.scan
 // =========================================================================
+
+fn l2_dampened_trust_factor(raw_factor: f32) -> f32 {
+    1.0 + (raw_factor - 1.0) * 0.2
+}
+
+fn l2_dampened_tremor_factor(alert: Option<&m1nd_core::tremor::TremorAlert>) -> f32 {
+    1.0 + alert.map_or(0.0, |value| value.magnitude.min(1.0) * 0.1)
+}
+
+fn l2_seek_heuristic_reason(
+    trust_factor: f32,
+    tremor_factor: f32,
+    tremor_observation_count: usize,
+) -> String {
+    let mut parts = Vec::new();
+    if trust_factor > 1.01 {
+        parts.push("low-trust risk prior");
+    } else if trust_factor < 0.99 {
+        parts.push("high-trust damping");
+    }
+    if tremor_factor > 1.01 && tremor_observation_count > 0 {
+        parts.push("tremor acceleration");
+    }
+    if parts.is_empty() {
+        "neutral heuristics".to_string()
+    } else {
+        parts.join(" + ")
+    }
+}
 
 /// Handle m1nd.seek -- intent-aware semantic code search.
 /// Finds code by PURPOSE, not text pattern. Combines keyword matching,
@@ -32,6 +64,10 @@ pub fn handle_seek(
 ) -> M1ndResult<layers::SeekOutput> {
     let start = Instant::now();
     let query_tokens = l2_seek_tokenize(&input.query);
+    let normalized_scope = input
+        .scope
+        .as_deref()
+        .map(|scope| l7_normalize_path_hint(scope, &state.ingest_roots));
 
     // Split query tokens further via identifier splitting for better matching
     let mut all_tokens: Vec<String> = query_tokens.clone();
@@ -77,8 +113,8 @@ pub fn handle_seek(
         let nt_str = l2_node_type_str(nt);
 
         // Scope filter: check external_id prefix
-        if let Some(ref scope) = input.scope {
-            let ext = &node_to_ext[i];
+        if let Some(ref scope) = normalized_scope {
+            let ext = l7_normalize_path_hint(&node_to_ext[i], &state.ingest_roots);
             if !ext.is_empty() && !ext.starts_with(scope.as_str()) {
                 continue;
             }
@@ -101,7 +137,6 @@ pub fn handle_seek(
             .and_then(|s| graph.strings.try_resolve(s))
             .unwrap_or("")
             .to_lowercase();
-
         // Keyword match score: fraction of query tokens that match this node
         let mut keyword_hits = 0usize;
         let total_tokens = all_tokens.len().max(1);
@@ -153,15 +188,24 @@ pub fn handle_seek(
 
     // Phase 3: Combine with graph re-ranking.
     // V2 formula: keyword_match * 0.4 + semantic_embedding * 0.3 + graph_activation(PageRank) * 0.2 + trigram * 0.1
+    struct BaseRankedNode {
+        idx: usize,
+        base_score: f32,
+        keyword: f32,
+        graph_act: f32,
+        trigram: f32,
+    }
+
     struct RankedNode {
         idx: usize,
         combined: f32,
         keyword: f32,
         graph_act: f32,
         trigram: f32,
+        heuristic_signals: layers::HeuristicSignals,
     }
 
-    let mut ranked: Vec<RankedNode> = Vec::new();
+    let mut base_ranked: Vec<BaseRankedNode> = Vec::new();
     for i in 0..n {
         let kw = keyword_scores[i];
         let tri = trigram_scores[i];
@@ -176,11 +220,21 @@ pub fn handle_seek(
             0.0
         };
 
-        let combined = kw * 0.4 + sem * 0.3 + graph_activation * 0.2 + tri * 0.1;
-        if combined >= input.min_score {
-            ranked.push(RankedNode {
+        let source_path_lower = graph.nodes.provenance[i]
+            .source_path
+            .and_then(|s| graph.strings.try_resolve(s))
+            .unwrap_or("")
+            .to_lowercase();
+
+        let base_score = kw * 0.4
+            + sem * 0.3
+            + graph_activation * 0.2
+            + tri * 0.1
+            + source_path_bias(Some(source_path_lower.as_str()), &all_tokens);
+        if base_score >= input.min_score {
+            base_ranked.push(BaseRankedNode {
                 idx: i,
-                combined,
+                base_score,
                 keyword: kw,
                 graph_act: graph_activation,
                 trigram: tri,
@@ -188,16 +242,107 @@ pub fn handle_seek(
         }
     }
 
+    base_ranked.sort_by(|a, b| {
+        b.base_score
+            .partial_cmp(&a.base_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let heuristic_window = input.top_k.saturating_mul(4).max(input.top_k).min(128);
+    base_ranked.truncate(heuristic_window);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+
+    let mut ranked: Vec<RankedNode> = base_ranked
+        .into_iter()
+        .map(|entry| {
+            let stable_external_id = node_to_ext.get(entry.idx).cloned().unwrap_or_default();
+            let external_id = if stable_external_id.is_empty() {
+                graph
+                    .strings
+                    .resolve(graph.nodes.label[entry.idx])
+                    .to_string()
+            } else {
+                stable_external_id.clone()
+            };
+            let trust = state.trust_ledger.compute_trust(&external_id, now);
+            let raw_trust_factor = if stable_external_id.is_empty() {
+                1.0
+            } else {
+                state.trust_ledger.adjust_prior(
+                    1.0,
+                    std::slice::from_ref(&stable_external_id),
+                    false,
+                    now,
+                )
+            };
+            let trust_factor = l2_dampened_trust_factor(raw_trust_factor);
+
+            let tremor_observation_count = if stable_external_id.is_empty() {
+                0
+            } else {
+                state.tremor_registry.observation_count(&stable_external_id)
+            };
+            let tremor_alert = if stable_external_id.is_empty() || tremor_observation_count < 3 {
+                None
+            } else {
+                state
+                    .tremor_registry
+                    .analyze(
+                        m1nd_core::tremor::TremorWindow::All,
+                        0.0,
+                        1,
+                        Some(stable_external_id.as_str()),
+                        now,
+                        0,
+                    )
+                    .tremors
+                    .into_iter()
+                    .next()
+            };
+            let tremor_factor = l2_dampened_tremor_factor(tremor_alert.as_ref());
+            let heuristic_factor = trust_factor * tremor_factor;
+
+            RankedNode {
+                idx: entry.idx,
+                combined: (entry.base_score * heuristic_factor).max(0.0),
+                keyword: entry.keyword,
+                graph_act: entry.graph_act,
+                trigram: entry.trigram,
+                heuristic_signals: layers::HeuristicSignals {
+                    heuristic_factor,
+                    trust_score: trust.trust_score,
+                    trust_risk_multiplier: trust.risk_multiplier,
+                    trust_tier: format!("{:?}", trust.tier),
+                    tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
+                    tremor_observation_count,
+                    tremor_risk_level: tremor_alert
+                        .as_ref()
+                        .map(|alert| format!("{:?}", alert.risk_level)),
+                    reason: l2_seek_heuristic_reason(
+                        trust_factor,
+                        tremor_factor,
+                        tremor_observation_count,
+                    ),
+                },
+            }
+        })
+        .collect();
+
     ranked.sort_by(|a, b| {
         b.combined
             .partial_cmp(&a.combined)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.graph_act.total_cmp(&a.graph_act))
+            .then_with(|| a.idx.cmp(&b.idx))
     });
     ranked.truncate(input.top_k);
 
-    // Phase 3: Build output
+    // Phase 4: Build output
     let results: Vec<layers::SeekResultEntry> = ranked
-        .iter()
+        .into_iter()
         .map(|r| {
             let i = r.idx;
             let nid = NodeId::new(i as u32);
@@ -251,6 +396,7 @@ pub fn handle_seek(
                     graph_activation: r.graph_act,
                     temporal_recency: r.trigram, // V1: trigram fills recency slot. V2: real recency.
                 },
+                heuristic_signals: Some(r.heuristic_signals),
                 intent_summary: l2_intent_summary(&label, nt, &tags),
                 file_path: prov.source_path,
                 line_start: prov.line_start,
@@ -260,6 +406,7 @@ pub fn handle_seek(
             }
         })
         .collect();
+    let results = dedupe_ranked(results, input.top_k);
 
     drop(graph);
 
@@ -292,6 +439,10 @@ pub fn handle_scan(
     let start = Instant::now();
     let graph = state.graph.read();
     let n = graph.num_nodes() as usize;
+    let normalized_scope = input
+        .scope
+        .as_deref()
+        .map(|scope| l7_normalize_path_hint(scope, &state.ingest_roots));
 
     if n == 0 {
         return Ok(layers::ScanOutput {
@@ -352,8 +503,8 @@ pub fn handle_scan(
 
     #[allow(clippy::needless_range_loop)]
     for i in 0..n {
-        if let Some(ref scope) = input.scope {
-            let ext = &node_to_ext[i];
+        if let Some(ref scope) = normalized_scope {
+            let ext = l7_normalize_path_hint(&node_to_ext[i], &state.ingest_roots);
             if !ext.is_empty() && !ext.starts_with(scope.as_str()) {
                 continue;
             }
@@ -605,11 +756,15 @@ pub fn handle_diverge(
 ) -> M1ndResult<layers::DivergeOutput> {
     let start = Instant::now();
     let repo_root = discover_git_root(state)?;
+    let normalized_scope = input
+        .scope
+        .as_deref()
+        .map(|scope| l7_normalize_path_hint(scope, &state.ingest_roots));
 
     // --- Collect current graph node set (file-type nodes only) ---
     let current_files: HashMap<String, u32> = {
         let graph = state.graph.read();
-        collect_file_nodes(&graph, input.scope.as_deref())
+        collect_file_nodes(&graph, normalized_scope.as_deref())
     };
 
     // --- Resolve baseline file set ---
@@ -617,7 +772,7 @@ pub fn handle_diverge(
         &repo_root,
         &input.baseline,
         &state.graph_path,
-        input.scope.as_deref(),
+        normalized_scope.as_deref(),
     )?;
 
     // --- Compute structural drift = 1.0 - jaccard(baseline, current) ---
@@ -648,7 +803,7 @@ pub fn handle_diverge(
 
     // --- Modified nodes: in both, compute size delta via git ---
     let modified_nodes: Vec<layers::DivergeModifiedNode> = if input.baseline != "last_session" {
-        compute_modified_nodes(&repo_root, &input.baseline, input.scope.as_deref())
+        compute_modified_nodes(&repo_root, &input.baseline, normalized_scope.as_deref())
     } else {
         // For last_session, use git diff against the snapshot's recorded state.
         // Fallback: report all files as unmodified.
@@ -657,7 +812,7 @@ pub fn handle_diverge(
 
     // --- Coupling changes ---
     let coupling_changes: Vec<layers::CouplingChange> = if input.include_coupling_changes {
-        compute_coupling_changes(&repo_root, &input.baseline, input.scope.as_deref())
+        compute_coupling_changes(&repo_root, &input.baseline, normalized_scope.as_deref())
     } else {
         vec![]
     };
@@ -683,7 +838,7 @@ pub fn handle_diverge(
     Ok(layers::DivergeOutput {
         baseline: input.baseline,
         baseline_commit,
-        scope: input.scope,
+        scope: normalized_scope,
         structural_drift,
         new_nodes,
         removed_nodes,
@@ -1054,12 +1209,13 @@ fn collect_file_nodes(
 
 /// Check if a path/external_id matches a given scope prefix.
 fn path_matches_scope(ext_id: &str, scope: &str) -> bool {
-    let path = if let Some(rest) = ext_id.strip_prefix("file::") {
-        rest
-    } else {
-        ext_id
-    };
-    path.starts_with(scope)
+    let path = normalize_scope_path(Some(ext_id), &[]);
+    let scope = normalize_scope_path(Some(scope), &[]);
+
+    match (path, scope) {
+        (Some(path), Some(scope)) => path.starts_with(&scope),
+        _ => false,
+    }
 }
 
 /// Resolve baseline file set for diverge analysis.
@@ -1205,7 +1361,7 @@ fn compute_modified_nodes(
         let file = normalize_numstat_path(parts[2]);
 
         if let Some(s) = scope {
-            if !file.starts_with(s) {
+            if !path_matches_scope(&format!("file::{}", file), s) {
                 continue;
             }
         }
@@ -1351,7 +1507,7 @@ fn build_coupling_map(
             .files_changed
             .iter()
             .map(|f| f.path.as_str())
-            .filter(|p| scope.is_none_or(|s| p.starts_with(s)))
+            .filter(|p| scope.is_none_or(|s| path_matches_scope(&format!("file::{}", p), s)))
             .collect();
 
         let mut seen = std::collections::HashSet::new();
@@ -3133,6 +3289,7 @@ pub fn handle_validate_plan(
     input: layers::ValidatePlanInput,
 ) -> M1ndResult<layers::ValidatePlanOutput> {
     let start = Instant::now();
+    l6_vp_autowarm_plan_files(state, &input);
     let graph = state.graph.read();
     let n = graph.num_nodes() as usize;
 
@@ -3153,6 +3310,7 @@ pub fn handle_validate_plan(
             },
             suggested_additions: vec![],
             blast_radius_total: 0,
+            heuristic_summary: None,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -3161,23 +3319,24 @@ pub fn handle_validate_plan(
     let plan_files: std::collections::HashSet<String> = input
         .actions
         .iter()
-        .map(|a| l6_vp_normalize_path(&a.file_path))
+        .map(|a| l6_vp_normalize_path(&a.file_path, &state.ingest_roots))
         .collect();
 
     // --- 2. Resolve each action to a graph node ---
     let mut actions_resolved = 0usize;
     let mut actions_unresolved = 0usize;
-    let mut resolved_nodes: Vec<(NodeId, String)> = Vec::new();
+    let mut resolved_nodes: Vec<(NodeId, String, String)> = Vec::new();
     let mut modified_file_paths: Vec<String> = Vec::new();
 
     for action in &input.actions {
-        let norm_path = l6_vp_normalize_path(&action.file_path);
-        let node_id = l6_vp_resolve_file(&graph, &norm_path);
+        let norm_path = l6_vp_normalize_path(&action.file_path, &state.ingest_roots);
+        let node_id = l6_vp_resolve_file(&graph, &action.file_path, &state.ingest_roots)
+            .or_else(|| l6_vp_resolve_file(&graph, &norm_path, &state.ingest_roots));
 
         match node_id {
             Some(nid) => {
                 actions_resolved += 1;
-                resolved_nodes.push((nid, norm_path.clone()));
+                resolved_nodes.push((nid, norm_path.clone(), action.action_type.clone()));
                 if action.action_type != "test" {
                     modified_file_paths.push(norm_path);
                 }
@@ -3196,7 +3355,7 @@ pub fn handle_validate_plan(
     let mut direct_deps: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut blast_radius_total = 0usize;
 
-    for &(nid, ref _file_path) in &resolved_nodes {
+    for &(nid, ref _file_path, ref _action_type) in &resolved_nodes {
         let mut visited = vec![false; n];
         visited[nid.as_usize()] = true;
         let mut frontier = vec![nid];
@@ -3218,6 +3377,7 @@ pub fn handle_validate_plan(
                             &plan_files,
                             &mut blast_files,
                             &mut direct_deps,
+                            &state.ingest_roots,
                             hop,
                         );
                     }
@@ -3236,6 +3396,7 @@ pub fn handle_validate_plan(
                             &plan_files,
                             &mut blast_files,
                             &mut direct_deps,
+                            &state.ingest_roots,
                             hop,
                         );
                     }
@@ -3248,17 +3409,25 @@ pub fn handle_validate_plan(
         }
     }
 
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let mut heuristic_hotspots: Vec<(layers::PlanHeuristicHotspot, f32)> = resolved_nodes
+        .iter()
+        .filter(|(_, _, action_type)| action_type != "test")
+        .map(|(nid, file_path, _)| {
+            let external_id =
+                l6_find_external_id(&graph, *nid).unwrap_or_else(|| format!("file::{}", file_path));
+            l6_vp_build_heuristic_hotspot(state, file_path, &external_id, "planned", now)
+        })
+        .collect();
+
     // --- 4. Compute gaps ---
     let mut gaps: Vec<layers::PlanGap> = Vec::new();
 
     for gap_file in &blast_files {
-        let severity = if direct_deps.contains(gap_file) {
-            "critical"
-        } else {
-            "warning"
-        };
-
-        let gap_node = l6_vp_resolve_file(&graph, gap_file);
+        let gap_node = l6_vp_resolve_file(&graph, gap_file, &state.ingest_roots);
         let (node_id_str, signal) = match gap_node {
             Some(nid) => {
                 let ext = l6_find_external_id(&graph, nid)
@@ -3267,20 +3436,45 @@ pub fn handle_validate_plan(
             }
             None => (format!("file::{}", gap_file), 0.0),
         };
+        let (hotspot, hotspot_risk) =
+            l6_vp_build_heuristic_hotspot(state, gap_file, &node_id_str, "gap", now);
+        let severity = if direct_deps.contains(gap_file)
+            || hotspot.antibody_hits > 0
+            || hotspot_risk >= 0.55
+        {
+            "critical"
+        } else if hotspot_risk >= 0.25 {
+            "warning"
+        } else {
+            "info"
+        };
 
-        let reason = if direct_deps.contains(gap_file) {
+        let mut reason: String = if direct_deps.contains(gap_file) {
             "directly connected to modified file in plan".into()
         } else {
             "in blast radius of planned changes".into()
         };
+        if hotspot.antibody_hits > 0 {
+            reason.push_str(&format!(
+                "; immune memory found {} relevant antibody match(es)",
+                hotspot.antibody_hits
+            ));
+        }
+        if hotspot.heuristic_signals.reason != "neutral heuristics" {
+            reason.push_str(&format!("; {}", hotspot.heuristic_signals.reason));
+        }
 
         gaps.push(layers::PlanGap {
             file_path: gap_file.clone(),
             node_id: node_id_str,
             reason,
             severity: severity.into(),
-            signal_strength: signal,
+            signal_strength: (signal * hotspot.heuristic_signals.heuristic_factor).max(signal),
+            antibody_hits: hotspot.antibody_hits,
+            heuristic_signals: Some(hotspot.heuristic_signals.clone()),
+            heuristics_surface_ref: Some(hotspot.heuristics_surface_ref.clone()),
         });
+        heuristic_hotspots.push((hotspot, hotspot_risk));
     }
 
     // Sort: critical first, then by signal_strength descending
@@ -3307,6 +3501,45 @@ pub fn handle_validate_plan(
     };
 
     // --- 6. Compute risk score ---
+    heuristic_hotspots.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.file_path.cmp(&b.0.file_path))
+    });
+
+    let heuristic_risk = heuristic_hotspots
+        .iter()
+        .take(3)
+        .map(|(_, risk)| *risk)
+        .fold(0.0_f32, f32::max);
+    let heuristic_summary = if heuristic_hotspots.is_empty() {
+        None
+    } else {
+        Some(layers::PlanHeuristicSummary {
+            heuristic_risk,
+            hotspot_count: heuristic_hotspots.len(),
+            low_trust_hotspots: heuristic_hotspots
+                .iter()
+                .filter(|(hotspot, _)| hotspot.heuristic_signals.trust_risk_multiplier > 1.05)
+                .count(),
+            tremor_hotspots: heuristic_hotspots
+                .iter()
+                .filter(|(hotspot, _)| {
+                    hotspot.heuristic_signals.tremor_magnitude.unwrap_or(0.0) > 0.0
+                })
+                .count(),
+            antibody_hotspots: heuristic_hotspots
+                .iter()
+                .filter(|(hotspot, _)| hotspot.antibody_hits > 0)
+                .count(),
+            hotspots: heuristic_hotspots
+                .iter()
+                .take(10)
+                .map(|(hotspot, _)| hotspot.clone())
+                .collect(),
+        })
+    };
+
     let (risk_score, risk_level) = if input.include_risk_score {
         let critical_gaps = gaps.iter().filter(|g| g.severity == "critical").count();
         let untested_ratio = if test_coverage.modified_files > 0 {
@@ -3320,9 +3553,12 @@ pub fn handle_validate_plan(
             0.0
         };
 
-        let score =
-            ((critical_gaps as f32 * 0.1).min(1.0) * 0.4 + untested_ratio * 0.3 + blast_norm * 0.3)
-                .min(1.0);
+        let critical_gap_ratio = ((critical_gaps as f32) * 0.1).min(1.0);
+        let score = (critical_gap_ratio * 0.30
+            + untested_ratio * 0.25
+            + blast_norm * 0.20
+            + heuristic_risk * 0.25)
+            .min(1.0);
 
         let level = match score {
             s if s >= 0.8 => "critical",
@@ -3365,8 +3601,42 @@ pub fn handle_validate_plan(
         test_coverage,
         suggested_additions,
         blast_radius_total,
+        heuristic_summary,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidatePlanInput) {
+    for action in &input.actions {
+        if action.action_type == "create" || action.action_type == "delete" {
+            continue;
+        }
+
+        let resolved_path = l6_vp_resolve_disk_path(&action.file_path, &state.ingest_roots);
+        if !resolved_path.exists() {
+            continue;
+        }
+
+        let resolved_path_str = resolved_path.to_string_lossy().to_string();
+        let already_present = {
+            let graph = state.graph.read();
+            l6_vp_resolve_file(&graph, &resolved_path_str, &state.ingest_roots).is_some()
+        };
+
+        if already_present {
+            continue;
+        }
+
+        let ingest_input = crate::protocol::IngestInput {
+            path: resolved_path_str,
+            agent_id: input.agent_id.clone(),
+            mode: "merge".to_string(),
+            incremental: true,
+            adapter: "code".to_string(),
+            namespace: None,
+        };
+        let _ = crate::tools::handle_ingest(state, ingest_input);
+    }
 }
 
 // =========================================================================
@@ -3807,26 +4077,109 @@ fn l6_quick_blast_radius(
 // L6 Validate Plan Helpers
 // =========================================================================
 
+/// Normalize path-like input for scope and plan validation.
+///
+/// This accepts relative paths, absolute paths under an ingest root, and
+/// `file::...` forms. It also collapses common repo prefixes via
+/// `l6_normalize_path` so equivalent path shapes land on the same graph node.
+fn l7_normalize_path_hint(path_like: &str, ingest_roots: &[String]) -> String {
+    normalize_scope_path(Some(path_like), ingest_roots).unwrap_or_else(|| {
+        path_like
+            .trim()
+            .strip_prefix("file::")
+            .unwrap_or(path_like.trim())
+            .strip_prefix("./")
+            .unwrap_or(path_like.trim())
+            .trim_matches('/')
+            .to_string()
+    })
+}
+
 /// Normalize path for plan validation.
-fn l6_vp_normalize_path(path: &str) -> String {
-    path.trim()
-        .strip_prefix("./")
-        .unwrap_or(path.trim())
-        .to_string()
+fn l6_vp_normalize_path(path: &str, ingest_roots: &[String]) -> String {
+    l7_normalize_path_hint(path, ingest_roots)
+}
+
+fn l6_vp_resolve_disk_path(path: &str, ingest_roots: &[String]) -> std::path::PathBuf {
+    let trimmed = path.trim().strip_prefix("file::").unwrap_or(path.trim());
+    let candidate = std::path::Path::new(trimmed);
+    if candidate.is_absolute() {
+        return candidate.to_path_buf();
+    }
+
+    for root in ingest_roots.iter().rev() {
+        let joined = std::path::Path::new(root).join(trimmed);
+        if joined.exists() {
+            return joined;
+        }
+    }
+
+    if let Some(root) = ingest_roots.last() {
+        return std::path::Path::new(root).join(trimmed);
+    }
+
+    candidate.to_path_buf()
 }
 
 /// Resolve a file path to its graph node.
-fn l6_vp_resolve_file(graph: &m1nd_core::graph::Graph, path: &str) -> Option<NodeId> {
-    let ext = format!("file::{}", path);
-    if let Some(nid) = graph.resolve_id(&ext) {
-        return Some(nid);
+fn l6_vp_resolve_file(
+    graph: &m1nd_core::graph::Graph,
+    path: &str,
+    ingest_roots: &[String],
+) -> Option<NodeId> {
+    let normalized = l7_normalize_path_hint(path, ingest_roots);
+    let normalized_fallback = l6_normalize_path(&normalized);
+    let raw_trimmed = path.trim();
+    let raw_slash_trimmed = raw_trimmed.trim_matches('/');
+    let normalized_slash_trimmed = normalized.trim_matches('/');
+    let normalized_fallback_slash_trimmed = normalized_fallback.trim_matches('/');
+
+    for candidate in [
+        normalized.as_str(),
+        normalized_fallback.as_str(),
+        normalized_slash_trimmed,
+        normalized_fallback_slash_trimmed,
+        raw_trimmed,
+        raw_slash_trimmed,
+    ] {
+        if candidate.is_empty() {
+            continue;
+        }
+        if let Some(nid) = graph.resolve_id(&format!("file::{}", candidate)) {
+            return Some(nid);
+        }
+        if let Some(nid) = graph.resolve_id(candidate) {
+            return Some(nid);
+        }
     }
-    let norm = l6_normalize_path(path);
-    let ext2 = format!("file::{}", norm);
-    if let Some(nid) = graph.resolve_id(&ext2) {
-        return Some(nid);
+
+    // Fallback: resolve through node provenance, matching equivalent absolute
+    // and repo-relative path suffixes the same way other file-centric handlers do.
+    let n = graph.num_nodes() as usize;
+    let mut first_match: Option<NodeId> = None;
+    for i in 0..n {
+        let nid = NodeId::new(i as u32);
+        let prov = &graph.nodes.provenance[i];
+        if let Some(sp) = prov.source_path {
+            if let Some(source_str) = graph.strings.try_resolve(sp) {
+                let source_norm = l6_normalize_path(source_str);
+                let paths_match = source_norm == normalized_fallback
+                    || source_norm.ends_with(&normalized_fallback)
+                    || normalized_fallback.ends_with(&source_norm)
+                    || source_norm == normalized
+                    || source_norm.ends_with(&normalized)
+                    || normalized.ends_with(&source_norm);
+                if paths_match {
+                    if graph.nodes.node_type[i] == m1nd_core::types::NodeType::File {
+                        return Some(nid);
+                    }
+                    first_match.get_or_insert(nid);
+                }
+            }
+        }
     }
-    graph.resolve_id(path)
+
+    first_match
 }
 
 /// Record a blast radius file if it's not already in the plan.
@@ -3836,11 +4189,15 @@ fn l6_vp_record_blast_file(
     plan_files: &std::collections::HashSet<String>,
     blast_files: &mut std::collections::HashSet<String>,
     direct_deps: &mut std::collections::HashSet<String>,
+    ingest_roots: &[String],
     hop: u32,
 ) {
     let prov = graph.resolve_node_provenance(node);
     if let Some(ref sp) = prov.source_path {
-        let norm = l6_vp_normalize_path(sp);
+        let norm = l6_vp_normalize_path(sp, ingest_roots);
+        if norm.is_empty() {
+            return;
+        }
         if !plan_files.contains(&norm) {
             blast_files.insert(norm.clone());
             if hop == 0 {
@@ -3961,6 +4318,132 @@ fn l6_vp_suggest_test_path(source_file: &str) -> String {
         return format!("{}tests/{}.rs", dir, stem);
     }
     format!("{}test_{}", dir, basename)
+}
+
+fn l6_vp_antibody_hits(state: &SessionState, external_id: &str, normalized_path: &str) -> usize {
+    let file_external_id = if external_id.starts_with("file::") {
+        external_id.to_string()
+    } else {
+        format!("file::{}", normalized_path)
+    };
+
+    state
+        .antibodies
+        .iter()
+        .filter(|antibody| antibody.enabled)
+        .filter(|antibody| {
+            antibody.source_nodes.iter().any(|source| {
+                source == external_id
+                    || source == &file_external_id
+                    || source.strip_prefix("file::") == Some(normalized_path)
+                    || source.ends_with(normalized_path)
+            })
+        })
+        .count()
+}
+
+fn l6_vp_heuristic_reason(
+    trust_factor: f32,
+    tremor_factor: f32,
+    tremor_observation_count: usize,
+    antibody_hits: usize,
+) -> String {
+    let mut parts = Vec::new();
+    if trust_factor > 1.01 {
+        parts.push("low-trust risk prior".to_string());
+    } else if trust_factor < 0.99 {
+        parts.push("high-trust damping".to_string());
+    }
+    if tremor_factor > 1.01 && tremor_observation_count > 0 {
+        parts.push("tremor acceleration".to_string());
+    }
+    if antibody_hits > 0 {
+        parts.push(format!("immune-memory recurrence x{}", antibody_hits));
+    }
+    if parts.is_empty() {
+        "neutral heuristics".to_string()
+    } else {
+        parts.join(" + ")
+    }
+}
+
+fn l6_vp_build_heuristic_hotspot(
+    state: &SessionState,
+    file_path: &str,
+    external_id: &str,
+    role: &str,
+    now: f64,
+) -> (layers::PlanHeuristicHotspot, f32) {
+    let trust = state.trust_ledger.compute_trust(external_id, now);
+    let raw_trust_factor = state.trust_ledger.adjust_prior(
+        1.0,
+        std::slice::from_ref(&external_id.to_string()),
+        false,
+        now,
+    );
+    let trust_factor = l2_dampened_trust_factor(raw_trust_factor);
+
+    let tremor_observation_count = state.tremor_registry.observation_count(external_id);
+    let tremor_alert = if tremor_observation_count < 3 {
+        None
+    } else {
+        state
+            .tremor_registry
+            .analyze(
+                m1nd_core::tremor::TremorWindow::All,
+                0.0,
+                1,
+                Some(external_id),
+                now,
+                0,
+            )
+            .tremors
+            .into_iter()
+            .next()
+    };
+    let tremor_factor = l2_dampened_tremor_factor(tremor_alert.as_ref());
+    let antibody_hits = l6_vp_antibody_hits(state, external_id, file_path);
+    let antibody_factor = 1.0 + (antibody_hits.min(3) as f32 * 0.05);
+    let heuristic_factor = trust_factor * tremor_factor * antibody_factor;
+
+    let trust_risk = ((trust.risk_multiplier - 1.0) / 2.0).clamp(0.0, 1.0);
+    let tremor_risk = tremor_alert
+        .as_ref()
+        .map(|alert| alert.magnitude.clamp(0.0, 1.0))
+        .unwrap_or(0.0);
+    let antibody_risk = (antibody_hits.min(3) as f32 / 3.0).clamp(0.0, 1.0);
+    let hotspot_risk = (trust_risk * 0.5 + tremor_risk * 0.3 + antibody_risk * 0.2).min(1.0);
+
+    (
+        layers::PlanHeuristicHotspot {
+            file_path: file_path.to_string(),
+            node_id: external_id.to_string(),
+            role: role.to_string(),
+            antibody_hits,
+            heuristic_signals: layers::HeuristicSignals {
+                heuristic_factor,
+                trust_score: trust.trust_score,
+                trust_risk_multiplier: trust.risk_multiplier,
+                trust_tier: format!("{:?}", trust.tier),
+                tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
+                tremor_observation_count,
+                tremor_risk_level: tremor_alert
+                    .as_ref()
+                    .map(|alert| format!("{:?}", alert.risk_level)),
+                reason: l6_vp_heuristic_reason(
+                    trust_factor,
+                    tremor_factor,
+                    tremor_observation_count,
+                    antibody_hits,
+                ),
+            },
+            heuristics_surface_ref: layers::HeuristicsSurfaceRef {
+                node_id: external_id.to_string(),
+                file_path: file_path.to_string(),
+            },
+        },
+        hotspot_risk,
+    )
 }
 
 /// Map severity string to sort order (lower = higher priority).
@@ -6368,12 +6851,14 @@ pub fn handle_layers(
         .filter_map(|t| layer_parse_node_type(t))
         .collect();
 
+    let normalized_scope = l7_normalize_layer_scope(input.scope.as_deref(), &state.ingest_roots);
+
     // Run layer detection
     let detector =
         m1nd_core::layer::LayerDetector::new(input.max_layers, input.min_nodes_per_layer);
     let result = detector.detect(
         &graph,
-        input.scope.as_deref(),
+        normalized_scope.as_deref(),
         &node_type_filter,
         input.exclude_tests,
         &input.naming_strategy,
@@ -6536,6 +7021,8 @@ pub fn handle_layer_inspect(
         return Err(M1ndError::EmptyGraph);
     }
 
+    let normalized_scope = l7_normalize_layer_scope(input.scope.as_deref(), &state.ingest_roots);
+
     // Parse node type filters from scope
     let node_type_filter: Vec<NodeType> = Vec::new();
 
@@ -6543,7 +7030,7 @@ pub fn handle_layer_inspect(
     let detector = m1nd_core::layer::LayerDetector::with_defaults();
     let result = detector.detect(
         &graph,
-        input.scope.as_deref(),
+        normalized_scope.as_deref(),
         &node_type_filter,
         false,
         "auto",
@@ -6751,5 +7238,456 @@ fn layer_node_type_str(nt: &NodeType) -> &'static str {
         NodeType::System => "system",
         NodeType::Cost => "cost",
         NodeType::Custom(_) => "custom",
+    }
+}
+
+fn l7_normalize_layer_scope(scope: Option<&str>, ingest_roots: &[String]) -> Option<String> {
+    normalize_scope_path(scope, ingest_roots).map(|scope| format!("file::{}", scope))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan};
+    use crate::protocol::layers::{
+        LayersInput, PlannedAction, ScanInput, SeekInput, ValidatePlanInput,
+    };
+    use crate::server::McpConfig;
+    use crate::session::SessionState;
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::Graph;
+    use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+
+    fn build_layer_state(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let a = graph
+            .add_node(
+                "file::src/core.rs",
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add core node");
+        let b = graph
+            .add_node("file::src/ui.rs", "ui.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add ui node");
+        graph
+            .add_edge(
+                a,
+                b,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    fn run_seek(
+        state: &mut SessionState,
+        scope: Option<String>,
+    ) -> crate::protocol::layers::SeekOutput {
+        handle_seek(
+            state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "test".into(),
+                top_k: 10,
+                scope,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+            },
+        )
+        .expect("seek should succeed")
+    }
+
+    fn run_validate_plan(
+        state: &mut SessionState,
+        file_path: String,
+    ) -> crate::protocol::layers::ValidatePlanOutput {
+        handle_validate_plan(
+            state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path,
+                    description: Some("equivalence check".into()),
+                    depends_on: vec![],
+                }],
+                include_test_impact: false,
+                include_risk_score: false,
+            },
+        )
+        .expect("validate_plan should succeed")
+    }
+
+    fn run_scan(
+        state: &mut SessionState,
+        scope: Option<String>,
+    ) -> crate::protocol::layers::ScanOutput {
+        handle_scan(
+            state,
+            ScanInput {
+                agent_id: "test".into(),
+                pattern: "core".into(),
+                scope,
+                limit: 10,
+                severity_min: 0.0,
+                graph_validate: false,
+            },
+        )
+        .expect("scan should succeed")
+    }
+
+    #[test]
+    fn normalize_path_hint_equates_relative_absolute_and_file_forms() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let absolute = root.join("src/core.rs").to_string_lossy().to_string();
+        assert_eq!(
+            super::l6_vp_normalize_path("src/core.rs", &state.ingest_roots),
+            "src/core.rs"
+        );
+        assert_eq!(
+            super::l6_vp_normalize_path(&absolute, &state.ingest_roots),
+            "src/core.rs"
+        );
+        assert_eq!(
+            super::l6_vp_normalize_path("file::src/core.rs", &state.ingest_roots),
+            "src/core.rs"
+        );
+        assert_eq!(
+            super::l7_normalize_path_hint("src/core.rs", &state.ingest_roots),
+            "src/core.rs"
+        );
+        assert_eq!(
+            super::l7_normalize_path_hint(&absolute, &state.ingest_roots),
+            "src/core.rs"
+        );
+        assert_eq!(
+            super::l7_normalize_path_hint("file::src/core.rs", &state.ingest_roots),
+            "src/core.rs"
+        );
+    }
+
+    #[test]
+    fn seek_normalizes_relative_absolute_and_file_scopes_equivalently() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let file_scope = run_seek(&mut state, Some("file::src".into()));
+        let absolute_scope = run_seek(
+            &mut state,
+            Some(root.join("src").to_string_lossy().to_string()),
+        );
+        let relative_scope = run_seek(&mut state, Some("src".into()));
+
+        for output in [&file_scope, &absolute_scope, &relative_scope] {
+            assert_eq!(output.results.len(), 1, "seek should narrow to one result");
+            assert_eq!(output.results[0].node_id, "file::src/core.rs");
+            assert_eq!(output.results[0].label, "core.rs");
+            assert_eq!(output.total_candidates_scanned, 2);
+            assert!(
+                output.results[0].heuristic_signals.is_some(),
+                "seek should surface heuristic metadata"
+            );
+        }
+
+        assert_eq!(
+            file_scope.results[0].node_id,
+            absolute_scope.results[0].node_id
+        );
+        assert_eq!(
+            file_scope.results[0].node_id,
+            relative_scope.results[0].node_id
+        );
+        assert_eq!(file_scope.results[0].score, absolute_scope.results[0].score);
+        assert_eq!(file_scope.results[0].score, relative_scope.results[0].score);
+    }
+
+    #[test]
+    fn scan_normalizes_relative_absolute_and_file_scopes_equivalently() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let file_scope = run_scan(&mut state, Some("file::src".into()));
+        let absolute_scope = run_scan(
+            &mut state,
+            Some(root.join("src").to_string_lossy().to_string()),
+        );
+        let relative_scope = run_scan(&mut state, Some("src".into()));
+
+        for output in [&file_scope, &absolute_scope, &relative_scope] {
+            assert_eq!(output.total_matches_raw, 1);
+            assert_eq!(output.findings.len(), 1);
+            assert_eq!(output.findings[0].node_id, "file::src/core.rs");
+        }
+    }
+
+    #[test]
+    fn validate_plan_normalizes_relative_absolute_and_file_paths_equivalently() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let relative_path = run_validate_plan(&mut state, "src/core.rs".into());
+        let absolute_path = run_validate_plan(
+            &mut state,
+            root.join("src/core.rs").to_string_lossy().to_string(),
+        );
+        let file_uri_path = run_validate_plan(&mut state, "file::src/core.rs".into());
+
+        for output in [&relative_path, &absolute_path, &file_uri_path] {
+            assert_eq!(output.actions_analyzed, 1);
+            assert_eq!(output.actions_resolved, 1);
+            assert_eq!(output.actions_unresolved, 0);
+        }
+
+        assert_eq!(relative_path.gaps.len(), absolute_path.gaps.len());
+        assert_eq!(relative_path.gaps.len(), file_uri_path.gaps.len());
+        assert_eq!(
+            relative_path.blast_radius_total,
+            absolute_path.blast_radius_total
+        );
+        assert_eq!(
+            relative_path.blast_radius_total,
+            file_uri_path.blast_radius_total
+        );
+        assert!((relative_path.risk_score - absolute_path.risk_score).abs() < f32::EPSILON);
+        assert!((relative_path.risk_score - file_uri_path.risk_score).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn layers_normalize_absolute_scope_under_ingest_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+        assert_eq!(
+            state.graph.read().num_nodes(),
+            2,
+            "test graph must be populated"
+        );
+        assert!(state.graph.read().finalized, "test graph must be finalized");
+        let detector = m1nd_core::layer::LayerDetector::with_defaults();
+        assert!(
+            detector
+                .detect(&state.graph.read(), None, &[], false, "auto")
+                .is_ok(),
+            "unscoped detector should succeed on a populated graph"
+        );
+        let normalized_scope = super::l7_normalize_layer_scope(
+            Some(&root.join("src").to_string_lossy()),
+            &state.ingest_roots,
+        )
+        .expect("normalized scope");
+        assert_eq!(normalized_scope, "file::src");
+
+        let input = LayersInput {
+            agent_id: "test".into(),
+            scope: Some(root.join("src").to_string_lossy().to_string()),
+            max_layers: 8,
+            include_violations: true,
+            min_nodes_per_layer: 2,
+            node_types: vec![],
+            naming_strategy: "auto".into(),
+            exclude_tests: false,
+            violation_limit: 10,
+        };
+
+        let output = handle_layers(&mut state, input).expect("layers should succeed");
+        let layers = output
+            .get("layers")
+            .and_then(|v| v.as_array())
+            .expect("layers array");
+        assert!(
+            !layers.is_empty(),
+            "absolute scope under ingest root should resolve to populated layers"
+        );
+        let summary = output.get("summary").expect("summary");
+        assert!(
+            summary
+                .get("total_nodes_classified")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0,
+            "layer summary should classify at least one node"
+        );
+    }
+
+    #[test]
+    fn validate_plan_resolves_absolute_paths_under_ingest_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: root.join("src/core.rs").to_string_lossy().to_string(),
+                    description: Some("absolute path should normalize".into()),
+                    depends_on: vec![],
+                }],
+                include_test_impact: false,
+                include_risk_score: false,
+            },
+        )
+        .expect("validate_plan should succeed");
+
+        assert_eq!(output.actions_resolved, 1);
+        assert_eq!(output.actions_unresolved, 0);
+    }
+
+    #[test]
+    fn validate_plan_resolves_absolute_paths_via_provenance_suffix_fallback() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: root.join("src/core.rs").to_string_lossy().to_string(),
+                    description: Some("absolute path should resolve from provenance".into()),
+                    depends_on: vec![],
+                }],
+                include_test_impact: true,
+                include_risk_score: true,
+            },
+        )
+        .expect("validate_plan should succeed");
+
+        assert_eq!(output.actions_resolved, 1);
+        assert_eq!(output.actions_unresolved, 0);
+        assert!(
+            output.heuristic_summary.is_some(),
+            "resolved plan should emit heuristic summary"
+        );
+    }
+
+    #[test]
+    fn validate_plan_surfaces_heuristic_hotspots_for_risky_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+        let now = 10_000.0;
+
+        state
+            .trust_ledger
+            .record_defect("file::src/core.rs", now - 500.0);
+        state
+            .trust_ledger
+            .record_defect("file::src/core.rs", now - 250.0);
+        state
+            .tremor_registry
+            .record_observation("file::src/core.rs", 0.8, 3, now - 300.0);
+        state
+            .tremor_registry
+            .record_observation("file::src/core.rs", 1.0, 4, now - 200.0);
+        state
+            .tremor_registry
+            .record_observation("file::src/core.rs", 1.3, 5, now - 100.0);
+        state.antibodies.push(m1nd_core::antibody::Antibody {
+            id: "ab_test_core".into(),
+            name: "core-risk".into(),
+            description: "Test antibody for core.rs".into(),
+            pattern: m1nd_core::antibody::AntibodyPattern {
+                nodes: vec![m1nd_core::antibody::PatternNode {
+                    role: "file".into(),
+                    node_type: Some("file".into()),
+                    required_tags: vec![],
+                    label_contains: Some("core".into()),
+                }],
+                edges: vec![],
+                negative_edges: vec![],
+            },
+            severity: m1nd_core::antibody::AntibodySeverity::Warning,
+            match_count: 0,
+            created_at: now,
+            last_match_at: None,
+            created_by: "test".into(),
+            source_query: "core".into(),
+            source_nodes: vec!["file::src/core.rs".into()],
+            enabled: true,
+            specificity: 0.8,
+        });
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: "src/core.rs".into(),
+                    description: Some("heuristic hotspot".into()),
+                    depends_on: vec![],
+                }],
+                include_test_impact: true,
+                include_risk_score: true,
+            },
+        )
+        .expect("validate_plan should succeed");
+
+        let summary = output
+            .heuristic_summary
+            .expect("validate_plan should emit heuristic summary");
+        assert!(
+            summary.heuristic_risk > 0.0,
+            "heuristic risk should contribute to validate_plan"
+        );
+        assert!(
+            summary
+                .hotspots
+                .iter()
+                .any(|hotspot| hotspot.file_path == "src/core.rs"
+                    && hotspot.role == "planned"
+                    && hotspot.antibody_hits == 1),
+            "planned file should surface as a heuristic hotspot"
+        );
+        let hotspot = summary
+            .hotspots
+            .iter()
+            .find(|hotspot| hotspot.file_path == "src/core.rs")
+            .expect("planned hotspot ref");
+        assert_eq!(hotspot.heuristics_surface_ref.node_id, "file::src/core.rs");
+        assert_eq!(hotspot.heuristics_surface_ref.file_path, "src/core.rs");
+        assert!(output
+            .gaps
+            .iter()
+            .all(|gap| gap.heuristics_surface_ref.is_some()));
+        assert!(
+            output.risk_score > 0.0,
+            "risk score should include heuristic contribution"
+        );
     }
 }

@@ -19,6 +19,30 @@ struct EdgeRecord {
     causal_strength: f32,
 }
 
+fn is_valid_relative_file_path(rel_path: &str) -> bool {
+    let trimmed = rel_path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    std::path::Path::new(trimmed)
+        .components()
+        .any(|component| matches!(component, std::path::Component::Normal(_)))
+}
+
+fn is_valid_external_id(external_id: &str) -> bool {
+    let trimmed = external_id.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if let Some(rel_path) = trimmed.strip_prefix("file::") {
+        return is_valid_relative_file_path(rel_path);
+    }
+
+    true
+}
+
 fn node_external_ids(graph: &Graph) -> Vec<String> {
     let mut ids = vec![String::new(); graph.num_nodes() as usize];
     for (interned, &node_id) in &graph.id_to_node {
@@ -71,15 +95,25 @@ fn merge_tags(existing: &[String], incoming: &[String]) -> Vec<String> {
     merged
 }
 
-fn collect_edges(graph: &Graph) -> Vec<EdgeRecord> {
+fn collect_edges(graph: &Graph) -> (Vec<EdgeRecord>, u64) {
     let node_ids = node_external_ids(graph);
     let mut out = Vec::new();
+    let mut skipped_invalid_edges = 0u64;
 
     for src in 0..graph.num_nodes() as usize {
+        if !is_valid_external_id(&node_ids[src]) {
+            continue;
+        }
+
         for edge_idx in graph.csr.out_range(NodeId::new(src as u32)) {
             let target = graph.csr.targets[edge_idx].as_usize();
             let direction = graph.csr.directions[edge_idx];
             if direction == EdgeDirection::Bidirectional && src > target {
+                continue;
+            }
+
+            if !is_valid_external_id(&node_ids[target]) {
+                skipped_invalid_edges += 1;
                 continue;
             }
 
@@ -101,7 +135,7 @@ fn collect_edges(graph: &Graph) -> Vec<EdgeRecord> {
         }
     }
 
-    out
+    (out, skipped_invalid_edges)
 }
 
 pub fn merge_graphs(base: &Graph, overlay: &Graph) -> M1ndResult<Graph> {
@@ -122,6 +156,14 @@ pub fn merge_graphs(base: &Graph, overlay: &Graph) -> M1ndResult<Graph> {
         #[allow(clippy::needless_range_loop)]
         for idx in 0..graph.num_nodes() as usize {
             let external_id = &external_ids[idx];
+            if !is_valid_external_id(external_id) {
+                eprintln!(
+                    "[m1nd-ingest] WARNING: skipping invalid external_id during merge: {:?}",
+                    external_id
+                );
+                continue;
+            }
+
             let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
             let tags: Vec<String> = graph.nodes.tags[idx]
                 .iter()
@@ -181,10 +223,10 @@ pub fn merge_graphs(base: &Graph, overlay: &Graph) -> M1ndResult<Graph> {
     }
 
     let mut edge_records: HashMap<EdgeKey, EdgeRecord> = HashMap::new();
-    for record in collect_edges(base)
-        .into_iter()
-        .chain(collect_edges(overlay))
-    {
+    let (base_edges, skipped_base_edges) = collect_edges(base);
+    let (overlay_edges, skipped_overlay_edges) = collect_edges(overlay);
+
+    for record in base_edges.into_iter().chain(overlay_edges) {
         edge_records
             .entry(record.key.clone())
             .and_modify(|existing| {
@@ -214,6 +256,13 @@ pub fn merge_graphs(base: &Graph, overlay: &Graph) -> M1ndResult<Graph> {
 
     if merged.num_nodes() > 0 {
         merged.finalize()?;
+    }
+
+    if skipped_base_edges > 0 || skipped_overlay_edges > 0 {
+        eprintln!(
+            "[m1nd-ingest] merge hygiene summary: skipped {} invalid base edges, {} invalid overlay edges",
+            skipped_base_edges, skipped_overlay_edges
+        );
     }
 
     Ok(merged)
@@ -300,5 +349,55 @@ mod tests {
             .resolve_id("memory::memory::entry::batman-mode")
             .is_some());
         assert!(merged.num_edges() >= 2);
+    }
+
+    #[test]
+    fn merge_graphs_skips_invalid_external_ids_and_edges() {
+        let mut base = Graph::with_capacity(1, 0);
+        base.add_node(
+            "file::alpha.rs",
+            "alpha.rs",
+            NodeType::File,
+            &["code"],
+            10.0,
+            0.3,
+        )
+        .unwrap();
+        base.finalize().unwrap();
+
+        let mut overlay = Graph::with_capacity(2, 1);
+        let invalid = overlay
+            .add_node("", "broken.rs", NodeType::File, &["code"], 20.0, 0.3)
+            .unwrap();
+        let valid = overlay
+            .add_node(
+                "file::beta.rs",
+                "beta.rs",
+                NodeType::File,
+                &["code"],
+                20.0,
+                0.3,
+            )
+            .unwrap();
+        overlay
+            .add_edge(
+                invalid,
+                valid,
+                "references",
+                FiniteF32::new(0.6),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.2),
+            )
+            .unwrap();
+        overlay.finalize().unwrap();
+
+        let merged = merge_graphs(&base, &overlay).unwrap();
+
+        assert!(merged.resolve_id("").is_none());
+        assert!(merged.resolve_id("file::alpha.rs").is_some());
+        assert!(merged.resolve_id("file::beta.rs").is_some());
+        assert_eq!(merged.num_nodes(), 2);
+        assert_eq!(merged.num_edges(), 0);
     }
 }

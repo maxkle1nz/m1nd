@@ -13,8 +13,9 @@ use m1nd_core::topology::TopologyAnalyzer;
 use m1nd_core::tremor::TremorRegistry;
 use m1nd_core::trust::TrustLedger;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -123,6 +124,21 @@ pub struct GlobalSavingsState {
     pub total_file_reads_avoided: u64,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct BootMemoryState {
+    pub entries: HashMap<String, BootMemoryEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BootMemoryEntry {
+    pub key: String,
+    pub value: Value,
+    pub tags: Vec<String>,
+    pub source_refs: Vec<String>,
+    pub updated_at_ms: u64,
+    pub updated_by_agent: String,
+}
+
 // ---------------------------------------------------------------------------
 // SessionState — all server state in one place
 // Replaces: 03-MCP Section 1.1 server internal state
@@ -191,9 +207,13 @@ pub struct SessionState {
     pub peek_security: PeekSecurityConfig,
 
     /// Ingest root paths for peek allow-list (Theme 6).
+    /// Order is preserved oldest -> newest so path resolution can prefer the
+    /// most recent matching root deterministically.
     pub ingest_roots: Vec<String>,
     /// Last known project root inferred from ingest or graph location.
     pub workspace_root: Option<String>,
+    /// Dedicated runtime root for persisted sidecar state.
+    pub runtime_root: PathBuf,
 
     // --- Superpowers: Antibody state ---
     /// All stored antibodies.
@@ -226,9 +246,65 @@ pub struct SessionState {
     pub session_start_node_count: u32,
     /// Graph edge count at session start.
     pub session_start_edge_count: u64,
+    /// Path to canonical boot memory persisted next to the graph.
+    pub boot_memory_path: PathBuf,
+    /// Hot runtime cache of canonical boot memory entries.
+    pub boot_memory: HashMap<String, BootMemoryEntry>,
 }
 
 impl SessionState {
+    pub fn graph_runtime_summary(&self) -> serde_json::Value {
+        let graph = self.graph.read();
+        serde_json::json!({
+            "node_count": graph.num_nodes(),
+            "edge_count": graph.num_edges(),
+            "finalized": graph.finalized,
+            "graph_generation": self.graph_generation,
+            "plasticity_generation": self.plasticity_generation,
+            "cache_generation": self.cache_generation,
+            "ingest_root_count": self.ingest_roots.len(),
+            "ingest_roots": self.ingest_roots,
+            "workspace_root": self.workspace_root,
+            "runtime_root": self.runtime_root,
+        })
+    }
+
+    pub fn empty_graph_diagnostic(
+        &self,
+        tool: &str,
+        scope: Option<&str>,
+        hint: Option<&str>,
+    ) -> serde_json::Value {
+        let mut next_actions = vec![
+            "run ingest against the intended repository or workspace".to_string(),
+            "confirm the tool is querying the same active graph session used by the latest ingest"
+                .to_string(),
+        ];
+        if scope.is_some() {
+            next_actions.push(
+                "retry with both absolute and graph-relative scope forms to detect normalization drift"
+                    .to_string(),
+            );
+        }
+
+        serde_json::json!({
+            "error": {
+                "code": "empty_graph",
+                "message": format!("{} cannot operate because the active graph has zero nodes", tool),
+                "tool": tool,
+                "scope": scope,
+                "hint": hint,
+                "probable_causes": [
+                    "the latest ingest did not populate the active graph",
+                    "the handler is reading a different graph/session state than the latest ingest",
+                    "scope or path normalization excluded the intended graph region"
+                ],
+                "next_actions": next_actions,
+            },
+            "graph_state": self.graph_runtime_summary(),
+        })
+    }
+
     /// Initialize from a loaded graph. Builds all engines.
     /// Replaces: 03-MCP Section 1.2 startup sequence steps 3-6.
     pub fn initialize(
@@ -247,6 +323,13 @@ impl SessionState {
 
         let shared = Arc::new(parking_lot::RwLock::new(graph));
 
+        let runtime_root = config.runtime_dir.clone().unwrap_or_else(|| {
+            config
+                .graph_source
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf()
+        });
         let ingest_roots = Self::load_ingest_roots(&config.graph_source);
 
         Ok(Self {
@@ -282,70 +365,44 @@ impl SessionState {
                 .graph_source
                 .parent()
                 .map(|p| p.to_string_lossy().to_string()),
+            runtime_root: runtime_root.clone(),
             // Superpowers: Antibody state
             antibodies: {
-                let ab_path = config
-                    .graph_source
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .join("antibodies.json");
+                let ab_path = runtime_root.join("antibodies.json");
                 m1nd_core::antibody::load_antibodies(&ab_path).unwrap_or_default()
             },
-            antibodies_path: config
-                .graph_source
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join("antibodies.json"),
+            antibodies_path: runtime_root.join("antibodies.json"),
             last_antibody_scan_generation: 0,
             // Superpowers: Tremor + Trust state
             tremor_registry: {
-                let tr_path = config
-                    .graph_source
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .join("tremor_state.json");
+                let tr_path = runtime_root.join("tremor_state.json");
                 m1nd_core::tremor::load_tremor_state(&tr_path)
                     .unwrap_or_else(|_| TremorRegistry::with_defaults())
             },
-            tremor_path: config
-                .graph_source
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join("tremor_state.json"),
+            tremor_path: runtime_root.join("tremor_state.json"),
             trust_ledger: {
-                let tl_path = config
-                    .graph_source
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .join("trust_state.json");
+                let tl_path = runtime_root.join("trust_state.json");
                 m1nd_core::trust::load_trust_state(&tl_path).unwrap_or_else(|_| TrustLedger::new())
             },
-            trust_path: config
-                .graph_source
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join("trust_state.json"),
+            trust_path: runtime_root.join("trust_state.json"),
             // v0.4.0: Savings + Query Log
             savings_tracker: SavingsTracker::new(),
             query_log: Vec::new(),
             global_savings: {
-                let sv_path = config
-                    .graph_source
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .join("savings_state.json");
+                let sv_path = runtime_root.join("savings_state.json");
                 std::fs::read_to_string(&sv_path)
                     .ok()
                     .and_then(|s| serde_json::from_str(&s).ok())
                     .unwrap_or_default()
             },
-            savings_path: config
-                .graph_source
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join("savings_state.json"),
+            savings_path: runtime_root.join("savings_state.json"),
             session_start_node_count: 0,
             session_start_edge_count: 0,
+            boot_memory_path: runtime_root.join("boot_memory_state.json"),
+            boot_memory: {
+                let boot_path = runtime_root.join("boot_memory_state.json");
+                Self::load_boot_memory(&boot_path)
+            },
         })
     }
 
@@ -398,16 +455,29 @@ impl SessionState {
             }
         }
 
+        if let Err(e) = m1nd_core::trust::save_trust_state(&self.trust_ledger, &self.trust_path) {
+            eprintln!("[m1nd] WARNING: trust persist failed: {}", e);
+        }
+
+        if let Err(e) =
+            m1nd_core::tremor::save_tremor_state(&self.tremor_registry, &self.tremor_path)
+        {
+            eprintln!("[m1nd] WARNING: tremor persist failed: {}", e);
+        }
+
+        if let Err(e) = self.persist_boot_memory() {
+            eprintln!("[m1nd] WARNING: boot memory persist failed: {}", e);
+        }
+
         self.last_persist_time = Some(Instant::now());
         Ok(())
     }
 
     fn persist_ingest_roots(&mut self) {
-        let workspace_root = self.workspace_root.clone().or_else(|| {
-            self.graph_path
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-        });
+        let workspace_root = self
+            .workspace_root
+            .clone()
+            .or_else(|| Some(self.runtime_root.to_string_lossy().to_string()));
         let Some(root) = workspace_root else {
             return;
         };
@@ -429,6 +499,30 @@ impl SessionState {
             .ok()
             .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
             .unwrap_or_default()
+    }
+
+    pub fn persist_boot_memory(&self) -> M1ndResult<()> {
+        let state = BootMemoryState {
+            entries: self.boot_memory.clone(),
+        };
+        save_json_atomic(&self.boot_memory_path, &state)
+    }
+
+    fn load_boot_memory(path: &Path) -> HashMap<String, BootMemoryEntry> {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<BootMemoryState>(&s).ok())
+            .map(|state| state.entries)
+            .unwrap_or_default()
+    }
+
+    pub fn reload_heuristic_sidecars(&mut self) {
+        self.antibodies =
+            m1nd_core::antibody::load_antibodies(&self.antibodies_path).unwrap_or_default();
+        self.tremor_registry = m1nd_core::tremor::load_tremor_state(&self.tremor_path)
+            .unwrap_or_else(|_| TremorRegistry::with_defaults());
+        self.trust_ledger = m1nd_core::trust::load_trust_state(&self.trust_path)
+            .unwrap_or_else(|_| TrustLedger::new());
     }
 
     /// Rebuild all engines after graph replacement (e.g. after ingest).
@@ -711,4 +805,15 @@ impl SessionState {
             })
             .collect()
     }
+}
+
+fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    let payload = serde_json::to_vec_pretty(value)?;
+    std::fs::write(&tmp, payload)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }

@@ -21,20 +21,196 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
+fn surgical_dampened_trust_factor(raw_factor: f32) -> f32 {
+    1.0 + (raw_factor - 1.0) * 0.2
+}
+
+fn surgical_dampened_tremor_factor(alert: Option<&m1nd_core::tremor::TremorAlert>) -> f32 {
+    1.0 + alert.map_or(0.0, |value| value.magnitude.min(1.0) * 0.1)
+}
+
+fn surgical_antibody_hits(state: &SessionState, external_id: &str, file_path: &str) -> usize {
+    state
+        .antibodies
+        .iter()
+        .filter(|antibody| {
+            antibody.enabled
+                && antibody
+                    .source_nodes
+                    .iter()
+                    .any(|source| source == external_id || source.ends_with(file_path))
+        })
+        .count()
+}
+
+fn surgical_heuristic_reason(
+    trust_factor: f32,
+    tremor_factor: f32,
+    tremor_observation_count: usize,
+    antibody_hits: usize,
+    blast_risk: &str,
+) -> String {
+    let mut parts = Vec::new();
+    if trust_factor > 1.01 {
+        parts.push("low-trust risk prior".to_string());
+    } else if trust_factor < 0.99 {
+        parts.push("high-trust damping".to_string());
+    }
+    if tremor_factor > 1.01 && tremor_observation_count > 0 {
+        parts.push("tremor acceleration".to_string());
+    }
+    if antibody_hits > 0 {
+        parts.push(format!("immune-memory recurrence x{}", antibody_hits));
+    }
+    if blast_risk != "low" {
+        parts.push(format!("{} blast radius", blast_risk));
+    }
+    if parts.is_empty() {
+        "neutral heuristics".to_string()
+    } else {
+        parts.join(" + ")
+    }
+}
+
+pub(crate) fn build_surgical_heuristic_summary(
+    state: &SessionState,
+    external_id: &str,
+    file_path: &str,
+) -> surgical::SurgicalHeuristicSummary {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0);
+    let trust = state.trust_ledger.compute_trust(external_id, now);
+    let raw_trust_factor = state.trust_ledger.adjust_prior(
+        1.0,
+        std::slice::from_ref(&external_id.to_string()),
+        false,
+        now,
+    );
+    let trust_factor = surgical_dampened_trust_factor(raw_trust_factor);
+
+    let tremor_observation_count = state.tremor_registry.observation_count(external_id);
+    let tremor_alert = if tremor_observation_count < 3 {
+        None
+    } else {
+        state
+            .tremor_registry
+            .analyze(
+                m1nd_core::tremor::TremorWindow::All,
+                0.0,
+                1,
+                Some(external_id),
+                now,
+                0,
+            )
+            .tremors
+            .into_iter()
+            .next()
+    };
+    let tremor_factor = surgical_dampened_tremor_factor(tremor_alert.as_ref());
+
+    let antibody_hits = surgical_antibody_hits(state, external_id, file_path);
+    let antibody_factor = 1.0 + (antibody_hits.min(3) as f32 * 0.05);
+
+    let (blast_radius_files, top_affected) = {
+        let graph = state.graph.read();
+        compute_blast_radius(&graph, file_path)
+    };
+    let blast_radius_risk = blast_radius_risk(blast_radius_files).to_string();
+    let blast_factor = match blast_radius_risk.as_str() {
+        "high" => 1.15,
+        "medium" => 1.05,
+        _ => 1.0,
+    };
+
+    let heuristic_factor = trust_factor * tremor_factor * antibody_factor * blast_factor;
+    let trust_risk = ((trust.risk_multiplier - 1.0) / 2.0).clamp(0.0, 1.0);
+    let tremor_risk = tremor_alert
+        .as_ref()
+        .map(|alert| alert.magnitude.clamp(0.0, 1.0))
+        .unwrap_or(0.0);
+    let antibody_risk = (antibody_hits.min(3) as f32 / 3.0).clamp(0.0, 1.0);
+    let blast_risk_score = match blast_radius_risk.as_str() {
+        "high" => 1.0,
+        "medium" => 0.5,
+        _ => 0.0,
+    };
+    let risk_score =
+        (trust_risk * 0.4 + tremor_risk * 0.25 + antibody_risk * 0.15 + blast_risk_score * 0.2)
+            .min(1.0);
+    let risk_level = if risk_score >= 0.75 || blast_radius_risk == "high" {
+        "high"
+    } else if risk_score >= 0.35 || blast_radius_risk == "medium" {
+        "medium"
+    } else {
+        "low"
+    };
+
+    surgical::SurgicalHeuristicSummary {
+        risk_level: risk_level.to_string(),
+        risk_score,
+        blast_radius_files,
+        blast_radius_risk: blast_radius_risk.clone(),
+        top_affected,
+        antibody_hits,
+        heuristic_signals: crate::protocol::layers::HeuristicSignals {
+            heuristic_factor,
+            trust_score: trust.trust_score,
+            trust_risk_multiplier: trust.risk_multiplier,
+            trust_tier: format!("{:?}", trust.tier),
+            tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
+            tremor_observation_count,
+            tremor_risk_level: tremor_alert
+                .as_ref()
+                .map(|alert| format!("{:?}", alert.risk_level)),
+            reason: surgical_heuristic_reason(
+                trust_factor,
+                tremor_factor,
+                tremor_observation_count,
+                antibody_hits,
+                &blast_radius_risk,
+            ),
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Resolve a file_path input to an absolute path.
-/// Handles both absolute paths and workspace-relative paths.
+/// Resolve a file_path input to a concrete path.
+/// Absolute inputs pass through unchanged.
+/// Relative inputs prefer the most recent ingest root that already contains
+/// the file, then fall back to the newest ingest root for new paths.
 fn resolve_file_path(file_path: &str, ingest_roots: &[String]) -> PathBuf {
     let p = Path::new(file_path);
     if p.is_absolute() {
         p.to_path_buf()
-    } else if let Some(root) = ingest_roots.first() {
-        Path::new(root).join(file_path)
     } else {
-        p.to_path_buf()
+        let mut matched_paths: Vec<PathBuf> = Vec::new();
+        for root in ingest_roots.iter().rev() {
+            let candidate = Path::new(root).join(file_path);
+            if candidate.exists() {
+                matched_paths.push(candidate);
+            }
+        }
+
+        if let Some(resolved) = matched_paths.first() {
+            if matched_paths.len() > 1 {
+                eprintln!(
+                    "[m1nd] WARNING: ambiguous relative path '{}' matched {} ingest roots; using most recent match {}",
+                    file_path,
+                    matched_paths.len(),
+                    resolved.display()
+                );
+            }
+            resolved.clone()
+        } else if let Some(root) = ingest_roots.last() {
+            Path::new(root).join(file_path)
+        } else {
+            p.to_path_buf()
+        }
     }
 }
 
@@ -1110,6 +1286,78 @@ fn parse_pytest_output(output: &str) -> (u32, u32, u32) {
 // m1nd.surgical_context
 // ---------------------------------------------------------------------------
 
+/// Handle m1nd.heuristics_surface.
+///
+/// Resolves a target by node_id or file_path and returns the unified
+/// heuristic explanation surface used by surgical_context/apply_batch.
+pub fn handle_heuristics_surface(
+    state: &mut SessionState,
+    input: surgical::HeuristicsSurfaceInput,
+) -> M1ndResult<surgical::HeuristicsSurfaceOutput> {
+    let start = Instant::now();
+
+    let target = if let Some(node_id) = input.node_id.as_ref().filter(|value| !value.is_empty()) {
+        let graph = state.graph.read();
+        let node = graph
+            .resolve_id(node_id)
+            .ok_or_else(|| M1ndError::InvalidParams {
+                tool: "heuristics_surface".into(),
+                detail: format!("node not found: {}", node_id),
+            })?;
+        let provenance = graph.resolve_node_provenance(node);
+        let resolved_path = provenance
+            .source_path
+            .or_else(|| {
+                node_id
+                    .strip_prefix("file::")
+                    .map(|value| value.to_string())
+            })
+            .ok_or_else(|| M1ndError::InvalidParams {
+                tool: "heuristics_surface".into(),
+                detail: format!("node has no file provenance: {}", node_id),
+            })?;
+        (node_id.clone(), resolved_path, "node_id".to_string())
+    } else if let Some(file_path) = input.file_path.as_ref().filter(|value| !value.is_empty()) {
+        let resolved_path = resolve_file_path(file_path, &state.ingest_roots)
+            .to_string_lossy()
+            .to_string();
+        let node_id = {
+            let graph = state.graph.read();
+            find_nodes_for_file(&graph, &resolved_path)
+                .into_iter()
+                .find(|(nid, _)| {
+                    let idx = nid.as_usize();
+                    idx < graph.num_nodes() as usize
+                        && graph.nodes.node_type[idx] == m1nd_core::types::NodeType::File
+                })
+                .or_else(|| {
+                    find_nodes_for_file(&graph, &resolved_path)
+                        .into_iter()
+                        .next()
+                })
+                .map(|(_, ext_id)| ext_id)
+        }
+        .unwrap_or_else(|| format!("file::{}", resolved_path));
+        (node_id, resolved_path, "file_path".to_string())
+    } else {
+        return Err(M1ndError::InvalidParams {
+            tool: "heuristics_surface".into(),
+            detail: "provide node_id or file_path".into(),
+        });
+    };
+
+    let heuristic_summary = build_surgical_heuristic_summary(state, &target.0, &target.1);
+    state.track_agent(&input.agent_id);
+
+    Ok(surgical::HeuristicsSurfaceOutput {
+        node_id: target.0,
+        file_path: target.1,
+        resolved_by: target.2,
+        heuristic_summary,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+    })
+}
+
 /// Handle m1nd.surgical_context.
 ///
 /// Returns everything an LLM needs to edit `file_path` surgically:
@@ -1191,6 +1439,15 @@ pub fn handle_surgical_context(
     });
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let heuristic_summary = if node_id_str.is_empty() {
+        None
+    } else {
+        Some(build_surgical_heuristic_summary(
+            state,
+            &node_id_str,
+            &path_str,
+        ))
+    };
 
     // Track agent session
     state.track_agent(&input.agent_id);
@@ -1205,6 +1462,7 @@ pub fn handle_surgical_context(
         callers,
         callees,
         tests,
+        heuristic_summary,
         elapsed_ms,
     })
 }
@@ -1626,6 +1884,15 @@ pub fn handle_surgical_context_v2(
                     .join("\n");
 
                 total_lines += excerpt_lines;
+                let heuristic_summary = if node_id.is_empty() {
+                    None
+                } else {
+                    Some(build_surgical_heuristic_summary(
+                        state,
+                        node_id,
+                        &resolved.to_string_lossy(),
+                    ))
+                };
 
                 connected_files.push(surgical::ConnectedFileSource {
                     node_id: node_id.clone(),
@@ -1636,6 +1903,7 @@ pub fn handle_surgical_context_v2(
                     source_excerpt,
                     excerpt_lines,
                     truncated,
+                    heuristic_summary,
                 });
             }
             Err(e) => {
@@ -1660,6 +1928,7 @@ pub fn handle_surgical_context_v2(
         symbols: primary.symbols,
         focused_symbol: primary.focused_symbol,
         connected_files,
+        heuristic_summary: primary.heuristic_summary,
         total_lines,
         elapsed_ms,
     })
@@ -2004,6 +2273,15 @@ pub fn handle_apply_batch(
                 }
 
                 let node_id = post_nodes.iter().next().cloned().unwrap_or_default();
+                let heuristic_summary = if node_id.is_empty() {
+                    None
+                } else {
+                    Some(build_surgical_heuristic_summary(
+                        state,
+                        &node_id,
+                        &result.file_path,
+                    ))
+                };
 
                 high_impact_files.push(surgical::VerificationImpact {
                     file_path: result.file_path.clone(),
@@ -2011,6 +2289,7 @@ pub fn handle_apply_batch(
                     affected_count: changed_count,
                     risk: risk.to_string(),
                     top_affected,
+                    heuristic_summary,
                 });
             }
         }
@@ -2223,7 +2502,7 @@ pub fn handle_apply_batch(
             let ws_root = state
                 .workspace_root
                 .clone()
-                .or_else(|| state.ingest_roots.first().cloned());
+                .or_else(|| state.ingest_roots.last().cloned());
 
             if extensions.contains("rs") {
                 let cargo_dir = ws_root.clone().or_else(|| {
@@ -2385,10 +2664,23 @@ pub fn handle_apply_batch(
         let has_antibodies = !antibodies_triggered.is_empty();
         let has_high_risk = high_impact_files.iter().any(|f| f.risk == "high");
         let has_bfs_high = blast_radius_entries.iter().any(|b| b.risk == "high");
+        let has_high_heuristic_risk = high_impact_files.iter().any(|impact| {
+            impact
+                .heuristic_summary
+                .as_ref()
+                .map(|summary| {
+                    summary.risk_level != "low"
+                        || summary.risk_score >= 0.35
+                        || summary.heuristic_signals.tremor_observation_count >= 3
+                        || summary.heuristic_signals.trust_risk_multiplier > 1.1
+                        || summary.antibody_hits > 0
+                })
+                .unwrap_or(false)
+        });
 
         let verdict = if tests_broken || compile_broken || has_violations || has_antibodies {
             "BROKEN".to_string() // compile/test failure or violations = BROKEN
-        } else if has_high_risk || has_bfs_high {
+        } else if has_high_risk || has_bfs_high || has_high_heuristic_risk {
             "RISKY".to_string()
         } else {
             "SAFE".to_string()
@@ -2515,6 +2807,93 @@ pub fn handle_view(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::McpConfig;
+    use m1nd_core::antibody::{Antibody, AntibodyPattern, AntibodySeverity};
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::{Graph, NodeProvenanceInput};
+    use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+
+    fn build_surgical_state(root: &std::path::Path, file_path: &str) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let primary = graph
+            .add_node(
+                &format!("file::{}", file_path),
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add primary node");
+        graph.set_node_provenance(
+            primary,
+            NodeProvenanceInput {
+                source_path: Some(file_path),
+                line_start: Some(1),
+                line_end: Some(12),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        let impacted_path = root.join("src/dependent.rs");
+        std::fs::create_dir_all(impacted_path.parent().expect("dependent parent"))
+            .expect("mk dependent parent");
+        std::fs::write(&impacted_path, "pub fn dependent() {}\n").expect("write dependent file");
+        let impacted_str = impacted_path.to_string_lossy().to_string();
+
+        let impacted = graph
+            .add_node(
+                &format!("file::{}", impacted_str),
+                "dependent.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add impacted node");
+        graph.set_node_provenance(
+            impacted,
+            NodeProvenanceInput {
+                source_path: Some(&impacted_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        graph
+            .add_edge(
+                primary,
+                impacted,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
 
     #[test]
     fn test_extract_identifier() {
@@ -2596,6 +2975,42 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_file_path_prefers_most_recent_matching_root() {
+        let root1 = tempfile::tempdir().expect("root1");
+        let root2 = tempfile::tempdir().expect("root2");
+        let rel = "src/shared.rs";
+
+        let path1 = root1.path().join(rel);
+        let path2 = root2.path().join(rel);
+        std::fs::create_dir_all(path1.parent().expect("parent1")).expect("mkdir root1");
+        std::fs::create_dir_all(path2.parent().expect("parent2")).expect("mkdir root2");
+        std::fs::write(&path1, "one").expect("write root1 file");
+        std::fs::write(&path2, "two").expect("write root2 file");
+
+        let roots = vec![
+            root1.path().to_string_lossy().to_string(),
+            root2.path().to_string_lossy().to_string(),
+        ];
+
+        let resolved = resolve_file_path(rel, &roots);
+        assert_eq!(resolved, path2);
+    }
+
+    #[test]
+    fn test_resolve_file_path_uses_newest_root_for_new_relative_paths() {
+        let root1 = tempfile::tempdir().expect("root1");
+        let root2 = tempfile::tempdir().expect("root2");
+
+        let roots = vec![
+            root1.path().to_string_lossy().to_string(),
+            root2.path().to_string_lossy().to_string(),
+        ];
+
+        let resolved = resolve_file_path("src/new_file.rs", &roots);
+        assert_eq!(resolved, root2.path().join("src/new_file.rs"));
+    }
+
+    #[test]
     fn test_build_excerpt_truncation() {
         let lines: Vec<&str> = (0..30).map(|_| "code line").collect();
         let excerpt = build_excerpt(&lines, 0, 29);
@@ -2609,5 +3024,355 @@ mod tests {
         assert!(!excerpt.contains("truncated"));
         assert!(excerpt.contains("line1"));
         assert!(excerpt.contains("line3"));
+    }
+
+    #[test]
+    fn test_surgical_context_surfaces_heuristic_summary_for_risky_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let file_path = temp.path().join("src/core.rs");
+        std::fs::create_dir_all(file_path.parent().expect("parent")).expect("mk parent");
+        std::fs::write(&file_path, "pub fn core() {\n    dependent();\n}\n").expect("write core");
+        let file_path_str = file_path.to_string_lossy().to_string();
+
+        let mut state = build_surgical_state(temp.path(), &file_path_str);
+        let now = 10_000.0;
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", file_path_str), now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", file_path_str), now - 60.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path_str),
+            0.8,
+            4,
+            now - 30.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path_str),
+            0.9,
+            4,
+            now - 20.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path_str),
+            1.0,
+            4,
+            now - 10.0,
+        );
+        state.antibodies.push(Antibody {
+            id: "ab-surgical-risk".into(),
+            name: "surgical hotspot".into(),
+            description: "Tracks recurring failures in core.rs".into(),
+            pattern: AntibodyPattern {
+                nodes: vec![],
+                edges: vec![],
+                negative_edges: vec![],
+            },
+            severity: AntibodySeverity::Warning,
+            match_count: 0,
+            created_at: now - 5.0,
+            last_match_at: None,
+            created_by: "test".into(),
+            source_query: "core defects".into(),
+            source_nodes: vec![format!("file::{}", file_path_str)],
+            enabled: true,
+            specificity: 0.8,
+        });
+
+        let output = handle_surgical_context(
+            &mut state,
+            surgical::SurgicalContextInput {
+                file_path: file_path_str.clone(),
+                agent_id: "test".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+            },
+        )
+        .expect("surgical context");
+
+        let summary = output
+            .heuristic_summary
+            .expect("heuristic summary should be present");
+        assert_eq!(summary.antibody_hits, 1);
+        assert_eq!(summary.blast_radius_files, 1);
+        assert_eq!(summary.blast_radius_risk, "low");
+        assert!(summary.risk_score > 0.0);
+        assert!(
+            summary
+                .heuristic_signals
+                .reason
+                .contains("immune-memory recurrence")
+                || summary
+                    .heuristic_signals
+                    .reason
+                    .contains("low-trust risk prior")
+        );
+    }
+
+    #[test]
+    fn test_heuristics_surface_resolves_file_path_target() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let file_path = temp.path().join("src/core.rs");
+        std::fs::create_dir_all(file_path.parent().expect("parent")).expect("mk parent");
+        std::fs::write(&file_path, "pub fn core() {}\n").expect("write core");
+        let file_path_str = file_path.to_string_lossy().to_string();
+
+        let mut state = build_surgical_state(temp.path(), &file_path_str);
+        let now = 12_000.0;
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", file_path_str), now - 60.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path_str),
+            0.9,
+            4,
+            now - 30.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path_str),
+            1.0,
+            4,
+            now - 20.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path_str),
+            1.1,
+            4,
+            now - 10.0,
+        );
+
+        let output = handle_heuristics_surface(
+            &mut state,
+            surgical::HeuristicsSurfaceInput {
+                agent_id: "test".into(),
+                node_id: None,
+                file_path: Some(file_path_str.clone()),
+            },
+        )
+        .expect("heuristics surface");
+
+        assert_eq!(output.file_path, file_path_str);
+        assert_eq!(output.resolved_by, "file_path");
+        assert!(output.heuristic_summary.risk_score > 0.0);
+    }
+
+    #[test]
+    fn test_heuristics_surface_resolves_node_id_target() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let file_path = temp.path().join("src/core.rs");
+        std::fs::create_dir_all(file_path.parent().expect("parent")).expect("mk parent");
+        std::fs::write(&file_path, "pub fn core() {}\n").expect("write core");
+        let file_path_str = file_path.to_string_lossy().to_string();
+
+        let mut state = build_surgical_state(temp.path(), &file_path_str);
+        let output = handle_heuristics_surface(
+            &mut state,
+            surgical::HeuristicsSurfaceInput {
+                agent_id: "test".into(),
+                node_id: Some(format!("file::{}", file_path_str)),
+                file_path: None,
+            },
+        )
+        .expect("heuristics surface");
+
+        assert_eq!(output.node_id, format!("file::{}", file_path_str));
+        assert_eq!(output.resolved_by, "node_id");
+        assert_eq!(output.file_path, file_path_str);
+    }
+
+    #[test]
+    fn test_surgical_context_v2_surfaces_connected_file_heuristics() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.rs");
+        let dependent_path = root.join("src/dependent.rs");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "pub fn core() {\n    dependent();\n}\n")
+            .expect("write primary");
+        std::fs::write(&dependent_path, "pub fn dependent() {}\n").expect("write dependent");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let dependent_str = dependent_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let now = 20_000.0;
+
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", dependent_str), now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", dependent_str), now - 60.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", dependent_str),
+            1.1,
+            5,
+            now - 50.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", dependent_str),
+            1.2,
+            5,
+            now - 40.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", dependent_str),
+            1.3,
+            5,
+            now - 30.0,
+        );
+
+        let output = handle_surgical_context_v2(
+            &mut state,
+            surgical::SurgicalContextV2Input {
+                file_path: primary_str,
+                agent_id: "test".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+                max_connected_files: 5,
+                max_lines_per_file: 60,
+            },
+        )
+        .expect("surgical context v2");
+
+        let connected = output
+            .connected_files
+            .iter()
+            .find(|file| file.file_path == dependent_str)
+            .expect("dependent file should be connected");
+        let summary = connected
+            .heuristic_summary
+            .as_ref()
+            .expect("connected file heuristic summary");
+        assert!(summary.risk_score > 0.0);
+        assert!(summary.heuristic_signals.trust_risk_multiplier >= 1.0);
+        assert!(summary.heuristic_signals.tremor_observation_count >= 3);
+    }
+
+    #[test]
+    fn test_apply_batch_verification_surfaces_heuristic_summary_for_modified_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.rs");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "pub fn core() -> i32 {\n    1\n}\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let now = 30_000.0;
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 60.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.0,
+            4,
+            now - 50.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.1,
+            4,
+            now - 40.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.2,
+            4,
+            now - 30.0,
+        );
+
+        let output = handle_apply_batch(
+            &mut state,
+            surgical::ApplyBatchInput {
+                agent_id: "test".into(),
+                edits: vec![surgical::BatchEditItem {
+                    file_path: primary_str.clone(),
+                    new_content: "pub fn core() -> i32 {\n    2\n}\n".into(),
+                    description: Some("update return".into()),
+                }],
+                atomic: true,
+                reingest: true,
+                verify: true,
+            },
+        )
+        .expect("apply batch");
+
+        let verification = output.verification.expect("verification should be present");
+        let impact = verification
+            .high_impact_files
+            .iter()
+            .next()
+            .expect("at least one impact entry should be present");
+        let summary = impact
+            .heuristic_summary
+            .as_ref()
+            .expect("heuristic summary should be present");
+        assert!(summary.risk_score > 0.0);
+        assert!(summary.heuristic_signals.tremor_observation_count >= 3);
+    }
+
+    #[test]
+    fn test_apply_batch_verdict_becomes_risky_for_high_heuristic_hotspot() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let now = 40_000.0;
+
+        for offset in [300.0, 240.0, 180.0, 120.0, 60.0] {
+            state
+                .trust_ledger
+                .record_defect(&format!("file::{}", primary_str), now - offset);
+        }
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.5,
+            6,
+            now - 50.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.6,
+            6,
+            now - 40.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.7,
+            6,
+            now - 30.0,
+        );
+
+        let output = handle_apply_batch(
+            &mut state,
+            surgical::ApplyBatchInput {
+                agent_id: "test".into(),
+                edits: vec![surgical::BatchEditItem {
+                    file_path: primary_str,
+                    new_content: "def core():\n    return 99\n".into(),
+                    description: Some("raise value".into()),
+                }],
+                atomic: true,
+                reingest: true,
+                verify: true,
+            },
+        )
+        .expect("apply batch");
+
+        let verification = output.verification.expect("verification should be present");
+        assert_eq!(verification.verdict, "RISKY");
     }
 }

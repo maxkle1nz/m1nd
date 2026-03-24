@@ -18,9 +18,10 @@ import os
 import tempfile
 import time
 
-BINARY = "./target/release/m1nd-mcp"
-BACKEND_PATH = "/Users/cosmophonix/clawd/roomanizer-os/backend"
-M1ND_PATH = "/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd"
+ROOT = os.path.dirname(os.path.abspath(__file__))
+BINARY = os.path.join(ROOT, "target/release/m1nd-mcp")
+BACKEND_PATH = ROOT
+M1ND_PATH = ROOT
 PASS = 0
 FAIL = 0
 TOTAL = 0
@@ -30,8 +31,8 @@ workdir = tempfile.mkdtemp(prefix="m1nd_adv_")
 
 def start_server():
     env = os.environ.copy()
-    env["GRAPH_SNAPSHOT_PATH"] = os.path.join(workdir, "graph.json")
-    env["PLASTICITY_STATE_PATH"] = os.path.join(workdir, "plasticity.json")
+    env["M1ND_GRAPH_SOURCE"] = os.path.join(workdir, "graph.json")
+    env["M1ND_PLASTICITY_STATE"] = os.path.join(workdir, "plasticity.json")
     return subprocess.Popen(
         [BINARY], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=open(os.path.join(workdir, "stderr.log"), "w"), env=env, bufsize=0)
@@ -40,6 +41,7 @@ def next_id():
     global MSG_ID; MSG_ID += 1; return MSG_ID
 
 def call(proc, name, args):
+    name = name.replace("m1nd.", "").replace(".", "_")
     msg = json.dumps({"jsonrpc":"2.0","method":"tools/call","id":next_id(),"params":{"name":name,"arguments":args}})
     proc.stdin.write((msg + "\n").encode()); proc.stdin.flush()
     return json.loads(proc.stdout.readline().decode().strip())
@@ -73,17 +75,17 @@ proc = start_server()
 print(f"Server PID {proc.pid}")
 init(proc)
 
-# Ingest both codebases
-r = call(proc, "m1nd.ingest", {"agent_id":"adv","path":BACKEND_PATH,"mode":"full"})
+# Ingest the current m1nd checkout
+r = call(proc, "m1nd.ingest", {"agent_id":"adv","path":BACKEND_PATH,"mode":"replace"})
 d = xt(r)
 print(f"Backend: {d.get('node_count','?')} nodes, {d.get('edge_count','?')} edges")
 
 # ============================================================================
-sec("UC1: 'What breaks if I delete chat_handler?' — Counterfactual")
+sec("UC1: 'What breaks if I delete server.rs?' — Counterfactual")
 # Combine m1nd.counterfactual with perspective to visualize impact
 # ============================================================================
 
-r = call(proc, "m1nd.counterfactual", {"agent_id":"adv","node_ids":["file::chat_handler.py"],"include_cascade":True})
+r = call(proc, "m1nd.counterfactual", {"agent_id":"adv","node_ids":["file::m1nd-mcp/src/server.rs"],"include_cascade":True})
 d = xt(r)
 if isinstance(d, dict):
     orphan_count = d.get("orphaned_count", 0)
@@ -92,7 +94,7 @@ if isinstance(d, dict):
     pct_lost = d.get("pct_activation_lost", 0)
     reach_before = d.get("reachability_before", 0)
     reach_after = d.get("reachability_after", 0)
-    print(f"  If chat_handler.py removed:")
+    print(f"  If server.rs removed:")
     print(f"    Orphaned nodes: {orphan_count}")
     print(f"    Cascade depth: {cascade.get('cascade_depth', '?')}, total affected: {total_affected}")
     print(f"    Activation lost: {pct_lost*100:.1f}%")
@@ -108,22 +110,22 @@ else:
 # Now use perspective to explore cascade impact
 if isinstance(d, dict) and total_affected > 0:
     # Explore the most heavily affected depth layer via perspective
-    r2 = call(proc, "m1nd.perspective.start", {"agent_id":"cf","query":"chat_handler"})
+    r2 = call(proc, "m1nd.perspective.start", {"agent_id":"cf","query":"server"})
     d2 = xt(r2)
     if isinstance(d2, dict):
-        print(f"  Exploring cascade from chat_handler: {len(d2.get('routes',[]))} routes")
+        print(f"  Exploring cascade from server: {len(d2.get('routes',[]))} routes")
     call(proc, "m1nd.perspective.close", {"agent_id":"cf","perspective_id":"persp_cf_001"})
 
 # ============================================================================
-sec("UC2: 'What else changes with chat_handler?' — Predict")
+sec("UC2: 'What else changes with server.rs?' — Predict")
 # After modifying a file, what co-changes are expected?
 # ============================================================================
 
-r = call(proc, "m1nd.predict", {"agent_id":"adv","changed_node":"file::chat_handler.py","top_k":15})
+r = call(proc, "m1nd.predict", {"agent_id":"adv","changed_node":"file::m1nd-mcp/src/server.rs","top_k":15})
 d = xt(r)
 if isinstance(d, dict):
     predictions = d.get("predicted_co_changes", d.get("predicted_changes", d.get("predictions", d.get("co_changes", []))))
-    print(f"  Predicted co-changes for chat_handler.py: {len(predictions)}")
+    print(f"  Predicted co-changes for server.rs: {len(predictions)}")
     for p in (predictions if isinstance(predictions, list) else [])[:10]:
         if isinstance(p, dict):
             print(f"    {p.get('target_label', p.get('label', p.get('node', '?')))}: score={p.get('score', p.get('probability', '?'))} source={p.get('source','?')}")
@@ -139,11 +141,11 @@ sec("UC3: Perspective + Activate — Combined Exploration")
 # Use activate to find entry points, then perspective to explore
 # ============================================================================
 
-# 1. Activate to find what's related to "stormender"
-r = call(proc, "m1nd.activate", {"agent_id":"combo","query":"stormender","top_k":10})
+# 1. Activate to find what's related to the MCP server surface
+r = call(proc, "m1nd.activate", {"agent_id":"combo","query":"perspective","top_k":10})
 d = xt(r)
 activated = d.get("activated", []) if isinstance(d, dict) else []
-print(f"  Activate 'stormender': {len(activated)} results")
+print(f"  Activate 'perspective': {len(activated)} results")
 for a in activated[:5]:
     print(f"    {a['label']} ({a['type']}) act={a['activation']:.3f}")
 
@@ -199,19 +201,19 @@ sec("UC4: Lock as Code Ownership Tracker")
 # Multiple agents claim regions, check for overlap
 # ============================================================================
 
-# Agent "frontend" locks UI-related modules
-r = call(proc, "m1nd.lock.create", {"agent_id":"fe","scope":"subgraph","root_nodes":["whatsapp_routes"],"radius":2})
+# Agent "frontend" locks HTTP/UI-related modules
+r = call(proc, "m1nd.lock.create", {"agent_id":"fe","scope":"subgraph","root_nodes":["http_server"],"radius":2})
 fe_d = xt(r)
 fe_lock = fe_d.get("lock_id","") if isinstance(fe_d, dict) else ""
 fe_nodes = fe_d.get("baseline_nodes", 0) if isinstance(fe_d, dict) else 0
-print(f"  Frontend locks whatsapp region: {fe_nodes} nodes")
+print(f"  Frontend locks http_server region: {fe_nodes} nodes")
 
 # Agent "backend" locks core processing
-r = call(proc, "m1nd.lock.create", {"agent_id":"be","scope":"subgraph","root_nodes":["chat_handler"],"radius":2})
+r = call(proc, "m1nd.lock.create", {"agent_id":"be","scope":"subgraph","root_nodes":["server"],"radius":2})
 be_d = xt(r)
 be_lock = be_d.get("lock_id","") if isinstance(be_d, dict) else ""
 be_nodes = be_d.get("baseline_nodes", 0) if isinstance(be_d, dict) else 0
-print(f"  Backend locks chat region: {be_nodes} nodes")
+print(f"  Backend locks server region: {be_nodes} nodes")
 
 ok("ownership: both regions locked", bool(fe_lock) and bool(be_lock),
    f"fe={fe_lock} be={be_lock}")
@@ -225,7 +227,7 @@ sec("UC5: Warmup Before Focused Session")
 # Agent primes the graph for a specific task
 # ============================================================================
 
-r = call(proc, "m1nd.warmup", {"agent_id":"warm","task_description":"refactoring stormender_v2 lifecycle"})
+r = call(proc, "m1nd.warmup", {"agent_id":"warm","task_description":"refactoring perspective and lock lifecycle"})
 d = xt(r)
 if isinstance(d, dict):
     seeds = d.get("seeds", d.get("priming_nodes", d.get("primed_nodes", d.get("warmed", []))))
@@ -241,7 +243,7 @@ else:
     ok("warmup", False, str(d)[:200])
 
 # Now perspective should benefit from warmup (primed nodes get higher scores)
-r = call(proc, "m1nd.perspective.start", {"agent_id":"warm","query":"stormender_v2"})
+r = call(proc, "m1nd.perspective.start", {"agent_id":"warm","query":"lock"})
 d = xt(r)
 if isinstance(d, dict):
     routes = d.get("routes", [])
@@ -255,11 +257,11 @@ sec("UC6: Resonate — Find Deep Structural Patterns")
 # Standing wave analysis to find resonant clusters
 # ============================================================================
 
-r = call(proc, "m1nd.resonate", {"agent_id":"adv","seed":"stormender","depth":3})
+r = call(proc, "m1nd.resonate", {"agent_id":"adv","query":"perspective","top_k":5})
 d = xt(r)
 if isinstance(d, dict):
     harmonics = d.get("harmonics", d.get("resonance", d.get("clusters", [])))
-    print(f"  Resonance from 'stormender': {len(harmonics)} harmonics")
+    print(f"  Resonance from 'perspective': {len(harmonics)} harmonics")
     for h in (harmonics if isinstance(harmonics, list) else [])[:5]:
         if isinstance(h, dict):
             print(f"    freq={h.get('frequency','?')} nodes={h.get('nodes', h.get('node_count','?'))}")
@@ -276,10 +278,10 @@ sec("UC7: Perspective for Code Review")
 # to understand blast radius of a change
 # ============================================================================
 
-print("  Scenario: reviewing changes to stormender_v2_routes.py")
+print("  Scenario: reviewing changes to m1nd-mcp/src/server.rs")
 
 # Step 1: Start perspective on the changed file
-r = call(proc, "m1nd.perspective.start", {"agent_id":"rev","query":"stormender_v2_routes"})
+r = call(proc, "m1nd.perspective.start", {"agent_id":"rev","query":"server"})
 d = xt(r)
 if isinstance(d, dict):
     rsv = d["route_set_version"]
@@ -291,7 +293,7 @@ if isinstance(d, dict):
         print(f"    → {rt['target_label']} [{rt['family']}]")
 
     # Step 2: Lock the review region
-    r = call(proc, "m1nd.lock.create", {"agent_id":"rev","scope":"subgraph","root_nodes":["stormender_v2_routes"],"radius":1})
+    r = call(proc, "m1nd.lock.create", {"agent_id":"rev","scope":"subgraph","root_nodes":["server"],"radius":1})
     ld = xt(r)
     if isinstance(ld, dict):
         rev_lock = ld.get("lock_id","")
@@ -302,7 +304,7 @@ if isinstance(d, dict):
         ok("review lock", False, str(ld)[:200])
 
     # Step 3: Impact analysis — what breaks if this file changes?
-    r = call(proc, "m1nd.impact", {"agent_id":"rev","node_id":"file::stormender_v2_routes.py"})
+    r = call(proc, "m1nd.impact", {"agent_id":"rev","node_id":"file::m1nd-mcp/src/server.rs"})
     id = xt(r)
     if isinstance(id, dict):
         affected = id.get("blast_radius", id.get("affected_nodes", id.get("impacted", [])))
@@ -323,8 +325,8 @@ sec("UC8: Multi-Perspective Comparison — Architecture Decision")
 # ============================================================================
 
 targets = [
-    ("opt_a", "stormender_v2_lifecycle", "Refactor lifecycle"),
-    ("opt_b", "chat_handler", "Refactor chat"),
+    ("opt_a", "server", "Refactor server"),
+    ("opt_b", "perspective_handlers", "Refactor perspective"),
 ]
 
 metrics = {}
@@ -349,7 +351,7 @@ for agent, query, label in targets:
     lock_id = ld.get("lock_id","") if isinstance(ld, dict) else ""
 
     # Impact radius
-    r = call(proc, "m1nd.impact", {"agent_id":agent,"node_id":"file::" + query + ".py"})
+    r = call(proc, "m1nd.impact", {"agent_id":agent,"node_id":"file::m1nd-mcp/src/" + query + ".rs"})
     imp = xt(r)
     impact_count = len(imp.get("blast_radius",imp.get("affected_nodes",imp.get("impacted",[])))) if isinstance(imp, dict) else 0
 

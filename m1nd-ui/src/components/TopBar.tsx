@@ -7,7 +7,7 @@ interface TopBarProps {
 }
 
 export default function TopBar({ onIngestClick }: TopBarProps) {
-  const { nodes, edges, isLoading } = useGraphStore();
+  const { nodes, edges, isLoading, queryHistory } = useGraphStore();
   const [health, setHealth] = useState<{ status: string; node_count: number; edge_count: number } | null>(null);
   const [liveSync, setLiveSync] = useState(false);
 
@@ -27,9 +27,9 @@ export default function TopBar({ onIngestClick }: TopBarProps) {
   useEffect(() => {
     if (!liveSync) return;
     const id = setInterval(() => {
-      const q = useGraphStore.getState().query;
+      const q = useGraphStore.getState().queryHistory[0]?.query;
       if (!q) return;
-      api.callTool('m1nd.activate', { agent_id: 'gui', query: q, top_k: 30 })
+      api.callTool('activate', { agent_id: 'gui', query: q, top_k: 30 })
         .catch(() => {});
     }, 3000);
     return () => clearInterval(id);
@@ -56,6 +56,11 @@ export default function TopBar({ onIngestClick }: TopBarProps) {
           <span><span className="text-slate-300 font-mono">{displayEdges.toLocaleString()}</span><span className="ml-1">edges</span></span>
         </div>
         {isLoading && <span className="text-xs text-m1nd-accent animate-pulse">querying...</span>}
+        {!isLoading && queryHistory[0]?.query && (
+          <span className="hidden md:inline text-xs text-slate-500 truncate max-w-48">
+            last: <span className="text-slate-300">{queryHistory[0].query}</span>
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2">
         <span className="text-[10px] text-slate-600 hidden sm:inline">⌘K to query</span>

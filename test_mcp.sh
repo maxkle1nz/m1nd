@@ -1,6 +1,13 @@
 #!/bin/bash
 # Test m1nd MCP server with various queries
-BINARY="./target/release/m1nd-mcp"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BINARY="$SCRIPT_DIR/target/release/m1nd-mcp"
+
+normalize_tool_name() {
+  local name="$1"
+  name="${name#m1nd.}"
+  printf '%s' "${name//./_}"
+}
 
 echo "=== m1nd MCP Server Stress Test ==="
 echo ""
@@ -15,7 +22,7 @@ echo -e '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersio
 
 echo ""
 echo "--- Test 3: Health check ---"
-echo -e '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}\n{"jsonrpc":"2.0","method":"tools/call","id":3,"params":{"name":"m1nd.status","arguments":{}}}' | timeout 5 $BINARY 2>/dev/null
+echo -e '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}\n{"jsonrpc":"2.0","method":"tools/call","id":3,"params":{"name":"health","arguments":{"agent_id":"test"}}}' | timeout 5 $BINARY 2>/dev/null
 
 echo ""
 echo "=== Tests complete ==="

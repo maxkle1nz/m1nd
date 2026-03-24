@@ -8,6 +8,7 @@ pub mod session;
 pub mod tools;
 
 // Perspective MCP — stateful navigation layer (12-PERSPECTIVE-SYNTHESIS)
+pub mod boot_memory_handlers;
 pub mod engine_ops;
 pub mod layer_handlers;
 pub mod lock_handlers;
@@ -19,6 +20,8 @@ pub mod surgical_handlers;
 // v0.4.0: new tool handlers + personality
 pub mod personality;
 pub mod report_handlers;
+pub mod result_shaping;
+pub mod scope;
 pub mod search_handlers;
 
 // HTTP server + types (feature-gated behind "serve")

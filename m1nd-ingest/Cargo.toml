@@ -8,6 +8,7 @@ default = ["tier2"]
 tier1 = [
     "dep:tree-sitter",
     "dep:tree-sitter-language",
+    "dep:tree-sitter-rust",
     "dep:tree-sitter-c",
     "dep:tree-sitter-cpp",
     "dep:tree-sitter-c-sharp",
@@ -42,10 +43,12 @@ regex = "1"
 walkdir = "2"
 rayon = "1.10"
 serde_json = { workspace = true }
+cargo_metadata = { workspace = true }
 
 # Tree-sitter core (0.25 — all grammar crates must use new-API via tree-sitter-language)
 tree-sitter = { version = "0.25", optional = true }
 tree-sitter-language = { version = "0.1", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
 
 # Tier 1 grammars (14 languages)
 tree-sitter-c = { version = "0.23", optional = true }

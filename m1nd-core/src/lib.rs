@@ -318,6 +318,119 @@ mod tests {
     }
 
     #[test]
+    fn seed_finder_prefers_code_path_over_docs_for_same_label() {
+        let mut g = Graph::new();
+        let code = g
+            .add_node(
+                "code_resolve",
+                "resolve",
+                NodeType::Function,
+                &["m1nd"],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        let docs = g
+            .add_node(
+                "docs_resolve",
+                "resolve",
+                NodeType::File,
+                &["m1nd"],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+
+        g.set_node_provenance(
+            code,
+            NodeProvenanceInput {
+                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/m1nd-core/src/seed.rs"),
+                line_start: Some(1),
+                line_end: Some(4),
+                excerpt: Some("fn resolve()"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        g.set_node_provenance(
+            docs,
+            NodeProvenanceInput {
+                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/docs/wiki/seed.md"),
+                line_start: Some(1),
+                line_end: Some(4),
+                excerpt: Some("resolve"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        g.finalize().unwrap();
+
+        let seeds = SeedFinder::find_seeds(&g, "resolve", 10).unwrap();
+        assert!(!seeds.is_empty());
+        assert_eq!(seeds[0].0, code, "code path should outrank docs path");
+    }
+
+    #[test]
+    fn seed_finder_prefers_multi_token_code_match_over_generic_single_token_hit() {
+        let mut g = Graph::new();
+        let precise = g
+            .add_node(
+                "file::m1nd-ingest/src/resolve.rs::struct::ResolutionStats",
+                "ResolutionStats",
+                NodeType::Struct,
+                &["rust", "m1nd"],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        let generic = g
+            .add_node(
+                "graph_concept",
+                "Graph",
+                NodeType::Concept,
+                &["graph"],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+
+        g.set_node_provenance(
+            precise,
+            NodeProvenanceInput {
+                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/m1nd-ingest/src/resolve.rs"),
+                line_start: Some(1),
+                line_end: Some(4),
+                excerpt: Some("struct ResolutionStats"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        g.set_node_provenance(
+            generic,
+            NodeProvenanceInput {
+                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/docs/wiki/graph.md"),
+                line_start: Some(1),
+                line_end: Some(4),
+                excerpt: Some("Graph overview"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        g.finalize().unwrap();
+
+        let seeds =
+            SeedFinder::find_seeds(&g, "rust extractor impl ownership module resolution", 10)
+                .unwrap();
+        assert!(!seeds.is_empty());
+        assert_eq!(
+            seeds[0].0, precise,
+            "multi-token code symbol should outrank a generic concept hit"
+        );
+    }
+
+    #[test]
     fn bloom_filter_basic() {
         let mut bf = BloomFilter::with_capacity(1000, 0.01);
         bf.insert(NodeId::new(42));

@@ -145,7 +145,12 @@ impl QueryOrchestrator {
         let start = Instant::now();
 
         // Step 1: Find seeds
-        let seeds = SeedFinder::find_seeds(graph, &config.query, config.top_k * 5)?;
+        let seeds = SeedFinder::find_seeds_semantic(
+            graph,
+            &self.semantic,
+            &config.query,
+            config.top_k * 5,
+        )?;
 
         if seeds.is_empty() {
             return Ok(QueryResult {
