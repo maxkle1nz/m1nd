@@ -489,6 +489,29 @@ fn workflow_patterns(tool_name: &str) -> &'static [&'static str] {
     }
 }
 
+fn state_handoffs(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "triaging: inspect the suggested file next; do not patch yet.",
+            "ready_to_edit: rare here; only trust it when the causal path is already strong.",
+        ],
+        "hypothesize" => &[
+            "proving: gather the strongest proof target before turning the claim into an edit plan.",
+            "ready_to_edit: the structural claim is grounded enough to shape a concrete change.",
+        ],
+        "validate_plan" => &[
+            "proving: keep collecting proof on the risky seam before writing.",
+            "ready_to_edit: the plan is grounded enough to execute.",
+        ],
+        "surgical_context_v2" => &[
+            "triaging: you have context, but not enough proof to commit to a coupled edit yet.",
+            "proving: the connected edit surface is grounded; validate or verify before writing.",
+            "ready_to_edit: the edit surface is compact and sufficiently settled for execution.",
+        ],
+        _ => &[],
+    }
+}
+
 /// Get all tool documentation entries.
 pub fn tool_docs() -> Vec<ToolDoc> {
     vec![
@@ -1719,6 +1742,18 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
     if !flows.is_empty() {
         out.push_str(&format!("{}\u{21AA} WORKFLOWS{}\n", ANSI_BLUE, ANSI_RESET));
         for line in flows {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let handoffs = state_handoffs(doc.name);
+    if !handoffs.is_empty() {
+        out.push_str(&format!(
+            "{}\u{21C4} STATE HANDOFF{}\n",
+            ANSI_GREEN, ANSI_RESET
+        ));
+        for line in handoffs {
             out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
         }
         out.push('\n');

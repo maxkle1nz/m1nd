@@ -1765,6 +1765,7 @@ mod tests {
         assert!(output.formatted.contains("AGENT NOTES"));
         assert!(output.formatted.contains("BENCHMARK TRUTH"));
         assert!(output.formatted.contains("WORKFLOWS"));
+        assert!(output.formatted.contains("STATE HANDOFF"));
         assert!(output.formatted.contains("proof_focused=true"));
     }
 
