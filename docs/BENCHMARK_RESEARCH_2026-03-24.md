@@ -393,7 +393,7 @@ Current aggregate from those recorded runs:
 - warm `m1nd` token proxy: `2096`
 - aggregate token savings: `70.57%`
 - manual first good answer total: `306.115ms`
-- warm `m1nd` first good answer total: `206.742ms`
+- warm `m1nd` first good answer total: `203.942ms`
 - manual search iterations: `11`
 - warm `m1nd` search iterations: `2`
 - manual repeat reads: `16`
@@ -419,6 +419,7 @@ Interpretation:
 - the harness now also records `proof_state` where tools expose it, which starts to separate `proving` flows from `ready_to_edit` handoffs inside the same benchmark family
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
 - `apply_batch` now exposes `status_message` and `phases`, so long-running write UX can be benchmarked as an explicit product surface instead of a vague shell wait
+- `surgical_context_v2` now joins that same cognitive surface too: proof-focused edit prep can end in an explicit `proving` handoff instead of leaving stage inference to the agent
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
 ### New structural-claim result: `hypothesize` now guides the proof follow-up
@@ -528,6 +529,21 @@ Interpretation:
 - `validate_plan` now carries enough compact proof to justify the first risky verdict without an immediate second call
 - `validate_plan` now also emits explicit next-step guidance, so the proof flow can be measured as a guided one-step handoff instead of an implicit manual decision
 - this did not fully beat manual in the single-scenario first-answer time, but it materially improved compactness and helped flip the aggregate warm-graph timing result
+
+### Updated edit-prep result: `surgical_context_v2` now carries `proof_state`
+
+The proof-focused edit-prep scenario was rerun after `surgical_context_v2`
+started surfacing an explicit cognitive stage.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Proof-focused edit prep | 1115 | 388 | 65.20% | Guided handoff remains compact, and the run now ends in `proof_state=proving` instead of leaving edit-prep stage implicit |
+
+Interpretation:
+
+- this is still best read as a compact proof handoff into planning, not as an automatic `ready_to_edit` claim
+- the current harness run records `time_to_first_good_answer=4.2ms` and `time_to_full_proof=6.1ms`
+- `guidance_followed=1` still coexists with `search_iterations=1`, so this is a strong compactness and clarity win, not a claim that every guided edit-prep flow eliminates intermediate search
 
 ### Priority 1
 

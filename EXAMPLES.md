@@ -226,6 +226,7 @@ What this saves:
 Recent behavior:
 
 - `validate_plan` now exposes `proof_state`
+- `surgical_context_v2` now also exposes `proof_state`, which makes proof-focused edit prep explicit instead of implicit
 - that makes it easier for an agent to tell whether it still needs more proof or can move on to edit prep
 
 ## 9. Explain why something looks risky
@@ -271,6 +272,7 @@ Recent behavior:
 
 - `apply_batch` now returns a human-readable `status_message`
 - it also returns structured `phases` for `validate`, `write`, `reingest`, `verify`, and `done`
+- each phase now includes `phase_index` and, when useful, `current_file`
 - this makes long-running batch writes easier to surface in shells and UI clients
 
 ## 11. Persist small operating state

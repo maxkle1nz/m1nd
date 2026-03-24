@@ -220,7 +220,7 @@ With m1nd:
 - pull the primary file plus connected files in one call
 - inspect heuristic summaries
 - write with one atomic batch when needed
-- use `proof_state` to distinguish “still proving this edit is risky” from “ready to edit”
+- use `proof_state` from `validate_plan` and `surgical_context_v2` to distinguish “still proving this edit is risky” from “ready to edit”
 
 Practical benefit:
 
@@ -259,7 +259,7 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 | Save small persistent operating state | `boot_memory` |
 | Save or resume an investigation trail | `trail_save`, `trail_resume`, `trail_merge` |
 | Resume an investigation and get the next likely move | `trail_resume` with `resume_hints`, `next_focus_node_id`, `next_open_question`, `next_suggested_tool` |
-| Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `trace`, `hypothesize`, and `validate_plan` |
+| Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` |
 | Ask what changed recently and why it matters | `timeline` |
 
 ## Results And Measurements
@@ -393,7 +393,7 @@ It is not a replacement for an LSP, a compiler, or runtime observability. It giv
 
 **It has write-aware workflows.** `surgical_context_v2`, `edit_preview`, `edit_commit`, and `apply_batch` make more sense as edit-preparation and edit-verification tools than as generic search tools.
 
-**It is starting to expose agent state, not only tool output.** `trace`, `hypothesize`, and `validate_plan` can now surface `proof_state`, and `apply_batch` now returns `status_message` plus structured `phases` so long-running writes are easier to understand and present in shells or UIs.
+**It is starting to expose agent state, not only tool output.** `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` can now surface `proof_state`, and `apply_batch` now returns `status_message` plus structured `phases` so long-running writes are easier to understand and present in shells or UIs.
 
 ## Tool Surface
 
@@ -524,6 +524,7 @@ When `verification.high_impact_files` contains heuristic hotspots, the report ca
 
 - `status_message` for a single human-readable summary
 - `phases` for structured execution progress across `validate`, `write`, `reingest`, `verify`, and `done`
+- each phase now includes `phase_index` and, when useful, `current_file` so shells and UIs can render progress without inferring order or file focus
 
 ```jsonc
 {

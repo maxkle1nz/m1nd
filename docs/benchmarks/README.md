@@ -88,6 +88,10 @@ For long-running write scenarios such as `apply_batch`, benchmark the returned
 `status_message` and `phases` too. This keeps UX/progress work measurable
 instead of leaving it as a subjective shell/UI impression.
 
+For `proof_focused_edit_prep`, treat the scenario as a compact proof handoff
+into planning, not as an automatic `ready_to_edit` claim. In the current corpus
+that flow ends in `proof_state="proving"`, which is the correct public reading.
+
 ## Current scenario corpus
 
 - `semantic_retrieval_dispatch.json`
