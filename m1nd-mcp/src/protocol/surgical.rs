@@ -286,6 +286,9 @@ pub struct SurgicalContextV2Input {
     /// Maximum lines to return per connected file. Default: 60.
     #[serde(default = "default_max_lines_per_file")]
     pub max_lines_per_file: usize,
+    /// When true, prefer a smaller proof set over a wider neighborhood.
+    #[serde(default)]
+    pub proof_focused: bool,
 }
 
 fn default_max_connected_files() -> usize {

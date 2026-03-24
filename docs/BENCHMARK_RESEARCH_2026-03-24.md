@@ -336,6 +336,26 @@ This suggests the main value is not just token savings. It is also:
 
 The warm-graph round produced a useful shortlist of concrete next-patch opportunities.
 
+### Progress update on this benchmark branch
+
+The benchmark loop has already produced direct product changes on
+`codex/benchmark-research-and-timeline-p1`.
+
+Implemented so far:
+
+- `timeline` now canonicalizes equivalent file identities before history lookup
+- `apply_batch` verification now exposes `heuristics_surface_ref` and preserves explanation fallback
+- `validate_plan` suppresses common manifest/artifact noise
+- `surgical_context_v2` now prefers code-bearing neighbors over docs when slots are tight
+- `seek` now handles long natural-language prompts more robustly
+- `surgical_context_v2` now has an opt-in `proof_focused` mode for smaller connected proof sets
+
+Current implication:
+
+- the benchmark work is no longer only observational
+- the repo now contains concrete patches aimed at reducing warm-graph payload and retrieval reformulation
+- the next benchmark pass should explicitly measure `proof_focused` against the previous `surgical_context_v2` behavior
+
 ### Priority 1
 
 1. Fix `timeline` history fidelity for recently changed files.

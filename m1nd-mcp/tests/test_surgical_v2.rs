@@ -130,6 +130,7 @@ fn test_v2_returns_connected_file_sources() {
     assert_eq!(input.agent_id, "test");
     assert_eq!(input.radius, 1); // default
     assert!(input.include_tests); // default
+    assert!(!input.proof_focused); // default
 
     // Build output with two connected files (one caller, one callee)
     let connected = vec![
@@ -238,6 +239,10 @@ fn test_v2_respects_max_connected_files() {
         default_input.max_connected_files, 5,
         "default max_connected_files must be 5"
     );
+    assert!(
+        !default_input.proof_focused,
+        "default proof_focused must be false"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +308,10 @@ fn test_v2_respects_max_lines_per_file() {
     assert_eq!(
         default_input.max_lines_per_file, 60,
         "default max_lines_per_file must be 60"
+    );
+    assert!(
+        !default_input.proof_focused,
+        "proof_focused should remain opt-in"
     );
 }
 

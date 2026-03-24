@@ -16,6 +16,24 @@ Turn benchmark findings into a concrete patch queue that improves:
 
 This is not a release note. It is an execution backlog.
 
+## Progress Snapshot
+
+Implemented on `codex/benchmark-research-and-timeline-p1`:
+
+- `timeline` path canonicalization across equivalent external-id shapes
+- `apply_batch` verification parity via `heuristics_surface_ref`
+- explanation fallback preservation when post-write node resolution is weak
+- `validate_plan` suppression of common manifest/artifact noise
+- `surgical_context_v2` prioritization of code neighbors over docs
+- `seek` natural-language tokenization improvements
+- `surgical_context_v2.proof_focused` for smaller connected proof bundles
+
+Still open after this pass:
+
+- measure the practical effect of `proof_focused` in warm-graph edit-prep scenarios
+- improve `trail_resume` continuity so saved investigations reduce repeat retrieval
+- reduce literal-search fixture contamination in continuity flows
+
 ## Priority 1
 
 ### 1. Fix recent-history fidelity in `timeline`

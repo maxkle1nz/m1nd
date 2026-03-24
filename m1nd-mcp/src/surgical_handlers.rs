@@ -1865,12 +1865,21 @@ pub fn handle_surgical_context_v2(
             .then_with(|| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.0.cmp(&b.0))
     });
-    scored.truncate(input.max_connected_files);
+    let max_connected_files = if input.proof_focused {
+        input.max_connected_files.min(3).max(1)
+    } else {
+        input.max_connected_files
+    };
+    let max_lines = if input.proof_focused {
+        input.max_lines_per_file.min(25).max(8)
+    } else {
+        input.max_lines_per_file
+    };
+    let scored = surgical_v2_select_candidates(scored, max_connected_files, input.proof_focused);
 
     // Step 4: Read each connected file, build ConnectedFileSource
     let mut connected_files: Vec<surgical::ConnectedFileSource> = Vec::new();
     let mut total_lines = primary.line_count as usize;
-    let max_lines = input.max_lines_per_file;
 
     for (path, node_id, label, relation_type, edge_weight) in &scored {
         let resolved = resolve_file_path(path, &state.ingest_roots);
@@ -1940,6 +1949,40 @@ pub fn handle_surgical_context_v2(
         total_lines,
         elapsed_ms,
     })
+}
+
+fn surgical_v2_select_candidates(
+    scored: Vec<(String, String, String, String, f32)>,
+    max_connected_files: usize,
+    proof_focused: bool,
+) -> Vec<(String, String, String, String, f32)> {
+    if !proof_focused || scored.len() <= max_connected_files {
+        return scored.into_iter().take(max_connected_files).collect();
+    }
+
+    let mut selected = Vec::new();
+    let mut used_relations = HashSet::new();
+
+    for candidate in &scored {
+        if used_relations.insert(candidate.3.clone()) {
+            selected.push(candidate.clone());
+            if selected.len() >= max_connected_files {
+                return selected;
+            }
+        }
+    }
+
+    for candidate in scored {
+        if selected.iter().any(|existing| existing.0 == candidate.0) {
+            continue;
+        }
+        selected.push(candidate);
+        if selected.len() >= max_connected_files {
+            break;
+        }
+    }
+
+    selected
 }
 
 fn surgical_v2_relation_rank(relation_type: &str) -> u8 {
@@ -3417,6 +3460,7 @@ mod tests {
                 include_tests: true,
                 max_connected_files: 5,
                 max_lines_per_file: 60,
+                proof_focused: false,
             },
         )
         .expect("surgical context v2");
@@ -3458,6 +3502,7 @@ mod tests {
                 include_tests: true,
                 max_connected_files: 1,
                 max_lines_per_file: 60,
+                proof_focused: false,
             },
         )
         .expect("surgical context v2");
@@ -3468,6 +3513,210 @@ mod tests {
                 .file_path
                 .ends_with("src/dependent.rs"),
             "code neighbor should outrank markdown noise when slots are limited"
+        );
+    }
+
+    #[test]
+    fn test_surgical_context_v2_proof_focused_compacts_connected_payload() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.rs");
+        let caller_path = root.join("src/caller.rs");
+        let callee_path = root.join("src/dependent.rs");
+        let test_path = root.join("tests/core_test.rs");
+        let doc_path = root.join("docs/reference.md");
+
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::create_dir_all(test_path.parent().expect("test parent")).expect("mk test parent");
+        std::fs::create_dir_all(doc_path.parent().expect("doc parent")).expect("mk doc parent");
+
+        let long_source: String = (1..=80).map(|i| format!("line {}\n", i)).collect();
+        std::fs::write(&primary_path, &long_source).expect("write primary");
+        std::fs::write(&caller_path, &long_source).expect("write caller");
+        std::fs::write(&callee_path, &long_source).expect("write callee");
+        std::fs::write(&test_path, &long_source).expect("write test");
+        std::fs::write(&doc_path, "# reference\n").expect("write doc");
+
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let caller_str = caller_path.to_string_lossy().to_string();
+        let callee_str = callee_path.to_string_lossy().to_string();
+        let test_str = test_path.to_string_lossy().to_string();
+        let doc_str = doc_path.to_string_lossy().to_string();
+
+        let mut graph = Graph::new();
+        let primary = graph
+            .add_node(
+                &format!("file::{}", primary_str),
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add primary");
+        let caller = graph
+            .add_node(
+                &format!("file::{}", caller_str),
+                "caller.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add caller");
+        let callee = graph
+            .add_node(
+                &format!("file::{}", callee_str),
+                "dependent.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add callee");
+        let test = graph
+            .add_node(
+                &format!("file::{}", test_str),
+                "core_test.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add test");
+        let doc = graph
+            .add_node(
+                &format!("file::{}", doc_str),
+                "reference.md",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add doc");
+
+        for (node, path) in [
+            (primary, primary_str.as_str()),
+            (caller, caller_str.as_str()),
+            (callee, callee_str.as_str()),
+            (test, test_str.as_str()),
+            (doc, doc_str.as_str()),
+        ] {
+            graph.set_node_provenance(
+                node,
+                NodeProvenanceInput {
+                    source_path: Some(path),
+                    line_start: Some(1),
+                    line_end: Some(80),
+                    excerpt: None,
+                    namespace: None,
+                    canonical: true,
+                },
+            );
+        }
+
+        graph
+            .add_edge(
+                caller,
+                primary,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.9),
+            )
+            .expect("add caller edge");
+        graph
+            .add_edge(
+                primary,
+                callee,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.85),
+            )
+            .expect("add callee edge");
+        graph
+            .add_edge(
+                primary,
+                test,
+                "test-covers",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add test edge");
+        graph
+            .add_edge(
+                primary,
+                doc,
+                "documents",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.95),
+            )
+            .expect("add doc edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+
+        let output = handle_surgical_context_v2(
+            &mut state,
+            surgical::SurgicalContextV2Input {
+                file_path: primary_str.clone(),
+                agent_id: "test".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+                max_connected_files: 8,
+                max_lines_per_file: 60,
+                proof_focused: true,
+            },
+        )
+        .expect("surgical context v2");
+
+        assert_eq!(output.connected_files.len(), 3);
+        assert!(
+            output
+                .connected_files
+                .iter()
+                .all(|file| file.excerpt_lines <= 25),
+            "proof-focused mode should cap connected excerpts aggressively"
+        );
+        assert!(output
+            .connected_files
+            .iter()
+            .any(|file| file.relation_type == "caller"));
+        assert!(output
+            .connected_files
+            .iter()
+            .any(|file| file.relation_type == "callee"));
+        assert!(output
+            .connected_files
+            .iter()
+            .any(|file| file.relation_type == "test"));
+        assert!(
+            output
+                .connected_files
+                .iter()
+                .all(|file| !file.file_path.ends_with("reference.md")),
+            "proof-focused mode should keep proof files over documentation noise"
         );
     }
 
