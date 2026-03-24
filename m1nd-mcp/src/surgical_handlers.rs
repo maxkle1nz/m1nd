@@ -11,7 +11,7 @@
 //
 // Pattern: identical to layer_handlers.rs -- parse typed input -> call engine -> return output.
 
-use crate::protocol::surgical;
+use crate::protocol::{layers, surgical};
 use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
@@ -2272,16 +2272,20 @@ pub fn handle_apply_batch(
                     top_affected.push(format!("-{}", n));
                 }
 
-                let node_id = post_nodes.iter().next().cloned().unwrap_or_default();
-                let heuristic_summary = if node_id.is_empty() {
-                    None
-                } else {
-                    Some(build_surgical_heuristic_summary(
-                        state,
-                        &node_id,
-                        &result.file_path,
-                    ))
-                };
+                let node_id = post_nodes
+                    .iter()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| format!("file::{}", result.file_path));
+                let heuristic_summary = Some(build_surgical_heuristic_summary(
+                    state,
+                    &node_id,
+                    &result.file_path,
+                ));
+                let heuristics_surface_ref = Some(layers::HeuristicsSurfaceRef {
+                    node_id: node_id.clone(),
+                    file_path: result.file_path.clone(),
+                });
 
                 high_impact_files.push(surgical::VerificationImpact {
                     file_path: result.file_path.clone(),
@@ -2290,6 +2294,7 @@ pub fn handle_apply_batch(
                     risk: risk.to_string(),
                     top_affected,
                     heuristic_summary,
+                    heuristics_surface_ref,
                 });
             }
         }
@@ -3317,6 +3322,15 @@ mod tests {
             .expect("heuristic summary should be present");
         assert!(summary.risk_score > 0.0);
         assert!(summary.heuristic_signals.tremor_observation_count >= 3);
+        let surface_ref = impact
+            .heuristics_surface_ref
+            .as_ref()
+            .expect("heuristics surface ref should be present");
+        assert!(
+            surface_ref.file_path.ends_with("src/core.rs"),
+            "surface ref should point at the modified file"
+        );
+        assert_eq!(surface_ref.node_id, impact.node_id);
     }
 
     #[test]

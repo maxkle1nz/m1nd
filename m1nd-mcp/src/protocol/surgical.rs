@@ -8,7 +8,7 @@
 //   - All inputs require `agent_id: String`
 //   - Optional params use Option<T> or serde default helpers
 
-use crate::protocol::layers::HeuristicSignals;
+use crate::protocol::layers::{HeuristicSignals, HeuristicsSurfaceRef};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -545,4 +545,7 @@ pub struct VerificationImpact {
     /// Heuristic explanation for why this modified file is risky post-patch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<SurgicalHeuristicSummary>,
+    /// Explorable reference for `m1nd.heuristics_surface` parity with validate-plan/report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristics_surface_ref: Option<HeuristicsSurfaceRef>,
 }
