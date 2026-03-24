@@ -3545,6 +3545,7 @@ pub fn handle_trace(
             error_message,
             frames_parsed: 0,
             frames_mapped: 0,
+            proof_state: "blocked".into(),
             suspects: vec![],
             co_change_suspects: vec![],
             causal_chain: vec![],
@@ -3737,6 +3738,7 @@ pub fn handle_trace(
 
     // --- 8. Co-change suspects (V1: empty — V2 uses git temporal window) ---
     let co_change_suspects: Vec<layers::TraceCoChangeSuspect> = vec![];
+    let proof_state = l6_trace_proof_state(frames_mapped, &suspects, &causal_chain);
 
     let (next_suggested_tool, next_suggested_target, next_step_hint) =
         if let Some(top) = suspects.first() {
@@ -3756,6 +3758,7 @@ pub fn handle_trace(
         error_message,
         frames_parsed,
         frames_mapped,
+        proof_state,
         suspects,
         co_change_suspects,
         causal_chain,
@@ -3770,6 +3773,26 @@ pub fn handle_trace(
         unmapped_frames: unmapped,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+fn l6_trace_proof_state(
+    frames_mapped: usize,
+    suspects: &[layers::TraceSuspect],
+    causal_chain: &[String],
+) -> String {
+    let Some(top) = suspects.first() else {
+        return "blocked".into();
+    };
+    if frames_mapped == 0 {
+        return "blocked".into();
+    }
+    if top.suspiciousness >= 0.75 && !causal_chain.is_empty() {
+        return "ready_to_edit".into();
+    }
+    if top.suspiciousness >= 0.4 {
+        return "triaging".into();
+    }
+    "proving".into()
 }
 
 /// Handle m1nd.validate_plan — validate a modification plan against the graph.
@@ -8442,6 +8465,41 @@ mod tests {
         assert_eq!(
             super::l5_hypothesize_proof_state("inconclusive", &[], &[], Some(&partial)),
             "proving"
+        );
+    }
+
+    #[test]
+    fn trace_proof_state_tracks_triage_strength() {
+        let suspect = crate::protocol::layers::TraceSuspect {
+            node_id: "file::src/core.rs".into(),
+            label: "core".into(),
+            node_type: "File".into(),
+            suspiciousness: 0.62,
+            signals: crate::protocol::layers::TraceSuspiciousnessSignals {
+                trace_depth_score: 1.0,
+                recency_score: 0.0,
+                centrality_score: 0.4,
+            },
+            file_path: Some("src/core.rs".into()),
+            line_start: None,
+            line_end: None,
+            related_callers: vec![],
+        };
+
+        assert_eq!(
+            super::l6_trace_proof_state(1, std::slice::from_ref(&suspect), &[]),
+            "triaging"
+        );
+        assert_eq!(
+            super::l6_trace_proof_state(
+                1,
+                &[crate::protocol::layers::TraceSuspect {
+                    suspiciousness: 0.81,
+                    ..suspect
+                }],
+                &["core".into(), "leaf".into()]
+            ),
+            "ready_to_edit"
         );
     }
 

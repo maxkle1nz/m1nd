@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T19:25:36.256204+00:00",
+  "recorded_at": "2026-03-24T20:03:27.894392+00:00",
   "scenario_id": "warm_trace_root_cause_triage",
   "scenario_name": "Warm trace-guided root-cause triage",
   "scenario_tags": [
@@ -11,14 +11,14 @@
   "mode": "m1nd_warm",
   "cold_graph_time_ms": null,
   "warm_graph_time_ms": null,
-  "time_to_first_good_answer_ms": 4.0,
-  "time_to_full_proof_ms": 6.4,
+  "time_to_first_good_answer_ms": 2.7,
+  "time_to_full_proof_ms": 4.0,
   "answer_quality": "high",
   "plan_changed": false,
   "false_start_count": 0,
   "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
-  "workflow_notes": "trace now points directly at the top suspect and the guidance is followed immediately",
+  "workflow_notes": "trace maps the stacktrace to the top suspect, marks the run as triaging, and points directly to the next file",
   "notes": "",
   "events": [
     {
@@ -26,6 +26,7 @@
       "query": "Traceback (most recent call last): ... RuntimeError: worker pool closed during submit",
       "elapsed_ms": 2.7,
       "payload_chars": 420,
+      "proof_state": "triaging",
       "next_suggested_tool": "view",
       "next_tool_used": "view",
       "surfaced_files": [
@@ -57,6 +58,10 @@
   "guidance_followed": 1,
   "reactivated_nodes": 0,
   "resume_hints": 0,
+  "proof_states": [
+    "triaging"
+  ],
+  "final_proof_state": "triaging",
   "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
   "question": "Start from a stacktrace, identify the most likely structural suspect, and continue into the right file without manual frame chasing.",
   "expected_strength": "strong"

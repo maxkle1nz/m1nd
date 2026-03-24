@@ -427,6 +427,7 @@ ending at an unstructured verdict.
 
 | Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
 |---|---:|---:|---:|---|
+| Trace-guided root-cause triage | 610 | 170 | 72.13% | Search iterations drop from `1` to `0`; false starts drop from `1` to `0`; guidance followed `1/1`; final proof state `triaging` |
 | Hypothesis-guided structural proof follow-up | 670 | 310 | 53.73% | Search iterations drop from `1` to `0`; repeat reads drop from `2` to `1`; guidance followed `1/1` |
 
 Interpretation:
@@ -461,6 +462,7 @@ living only in the earlier narrative rounds.
 Interpretation:
 
 - `trace` no longer only ranks suspects; it now hands the agent the next concrete move
+- in the harness, `trace` now lands in `triaging`, which is the right state for a strong diagnosis handoff that still needs confirmation before edit
 - that makes stacktrace triage part of the same measurable guidance surface as continuity and proof workflows
 
 ### New continuity result: actionable resume hints

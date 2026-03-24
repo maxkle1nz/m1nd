@@ -790,6 +790,9 @@ pub struct TraceOutput {
     pub frames_parsed: usize,
     /// How many frames matched graph nodes.
     pub frames_mapped: usize,
+    /// Coarse proof stage for agent orchestration:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     /// Ranked suspects: most likely root cause first.
     pub suspects: Vec<TraceSuspect>,
     /// Files modified in the same temporal window as the top suspect.

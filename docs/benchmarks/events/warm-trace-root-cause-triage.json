@@ -4,6 +4,7 @@
     "query": "Traceback (most recent call last): ... RuntimeError: worker pool closed during submit",
     "elapsed_ms": 2.7,
     "payload_chars": 420,
+    "proof_state": "triaging",
     "next_suggested_tool": "view",
     "next_tool_used": "view",
     "surfaced_files": [
