@@ -1,6 +1,6 @@
 {
-  "run_count": 4,
-  "compared_scenarios": 2,
+  "run_count": 8,
+  "compared_scenarios": 4,
   "scenarios": [
     {
       "scenario_id": "warm_continuity_boot_memory",
@@ -30,6 +30,33 @@
       }
     },
     {
+      "scenario_id": "warm_proof_focused_edit_prep",
+      "scenario_name": "Warm proof-focused edit prep for normalized scope changes",
+      "modes_present": [
+        "m1nd_warm",
+        "manual"
+      ],
+      "manual": {
+        "token_proxy": 1115,
+        "time_to_first_good_answer_ms": 12.0,
+        "time_to_full_proof_ms": 20.0,
+        "files_opened": 3,
+        "search_iterations": 1
+      },
+      "m1nd_warm": {
+        "token_proxy": 388,
+        "time_to_first_good_answer_ms": 7.0,
+        "time_to_full_proof_ms": 9.0,
+        "files_opened": 3,
+        "search_iterations": 1
+      },
+      "comparison": {
+        "token_delta": 727,
+        "token_savings_pct": 65.2,
+        "first_good_answer_delta_ms": 5.0
+      }
+    },
+    {
       "scenario_id": "warm_semantic_retrieval_dispatch",
       "scenario_name": "Warm semantic retrieval for normalize_dispatch_tool_name",
       "modes_present": [
@@ -55,15 +82,42 @@
         "token_savings_pct": 37.5,
         "first_good_answer_delta_ms": -726.685
       }
+    },
+    {
+      "scenario_id": "warm_structural_proof_apply_batch",
+      "scenario_name": "Warm structural proof around apply_batch risky verification",
+      "modes_present": [
+        "m1nd_warm",
+        "manual"
+      ],
+      "manual": {
+        "token_proxy": 693,
+        "time_to_first_good_answer_ms": 163.0,
+        "time_to_full_proof_ms": 204.0,
+        "files_opened": 2,
+        "search_iterations": 1
+      },
+      "m1nd_warm": {
+        "token_proxy": 258,
+        "time_to_first_good_answer_ms": 287.0,
+        "time_to_full_proof_ms": 653.0,
+        "files_opened": 2,
+        "search_iterations": 0
+      },
+      "comparison": {
+        "token_delta": 435,
+        "token_savings_pct": 62.77,
+        "first_good_answer_delta_ms": -124.0
+      }
     }
   ],
   "aggregate": {
-    "manual_token_proxy": 1603,
-    "m1nd_warm_token_proxy": 980,
-    "token_delta": 623,
-    "token_savings_pct": 38.86,
-    "manual_first_good_answer_ms": 40.315,
-    "m1nd_warm_first_good_answer_ms": 5542.0,
-    "first_good_answer_delta_ms": -5501.685
+    "manual_token_proxy": 3411,
+    "m1nd_warm_token_proxy": 1626,
+    "token_delta": 1785,
+    "token_savings_pct": 52.33,
+    "manual_first_good_answer_ms": 215.315,
+    "m1nd_warm_first_good_answer_ms": 5836.0,
+    "first_good_answer_delta_ms": -5620.685
   }
 }

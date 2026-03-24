@@ -20,6 +20,8 @@ def dump_json(path: Path, payload):
 def summarize_runs(runs):
     by_scenario = defaultdict(dict)
     for run in runs:
+        if "scenario_id" not in run or "mode" not in run:
+            continue
         by_scenario[run["scenario_id"]][run["mode"]] = run
 
     scenarios = []
@@ -102,7 +104,9 @@ def main():
     args = parser.parse_args()
 
     runs_dir = Path(args.runs_dir)
-    run_files = sorted(runs_dir.glob("*.json"))
+    run_files = sorted(
+        path for path in runs_dir.glob("*.json") if path.name != "summary.json"
+    )
     runs = [load_run(path) for path in run_files]
     summary = summarize_runs(runs)
     dump_json(Path(args.output), summary)

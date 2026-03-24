@@ -1,0 +1,31 @@
+[
+  {
+    "tool_name": "rg",
+    "query": "normalized scope search output connected files tests",
+    "elapsed_ms": 7.6,
+    "payload_chars": 1380,
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs",
+      "m1nd-mcp/src/surgical_handlers.rs",
+      "m1nd-mcp/src/protocol/surgical.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 7.2,
+    "payload_chars": 1660,
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/surgical_handlers.rs",
+    "elapsed_ms": 6.8,
+    "payload_chars": 1420,
+    "opened_files": [
+      "m1nd-mcp/src/surgical_handlers.rs"
+    ]
+  }
+]

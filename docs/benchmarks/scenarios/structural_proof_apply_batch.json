@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_structural_proof_apply_batch",
+  "scenario_name": "Warm structural proof around apply_batch risky verification",
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "Prove why an apply_batch change should be considered risky with compact structural evidence.",
+  "tags": ["warm-graph", "structural-proof", "apply-batch", "validate-plan"],
+  "expected_strength": "strong"
+}

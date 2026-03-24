@@ -372,21 +372,24 @@ Current harness-backed comparison set:
 
 - `warm_semantic_retrieval_dispatch`
 - `warm_continuity_boot_memory`
+- `warm_proof_focused_edit_prep`
+- `warm_structural_proof_apply_batch`
 
 Current aggregate from those recorded runs:
 
-- manual token proxy: `1603`
-- warm `m1nd` token proxy: `980`
-- aggregate token savings: `38.86%`
-- manual first good answer total: `40.315ms`
-- warm `m1nd` first good answer total: `5542.0ms`
+- manual token proxy: `3411`
+- warm `m1nd` token proxy: `1626`
+- aggregate token savings: `52.33%`
+- manual first good answer total: `215.315ms`
+- warm `m1nd` first good answer total: `5836.0ms`
 
 Interpretation:
 
-- the harness already confirms context compression in the starter scenarios
+- the harness now confirms meaningful context compression across retrieval, continuity, edit-prep, and structural proof
 - the recorded time values are not yet a public speed claim
+- `proof_focused` edit prep is currently the strongest harness-backed compactness win in the corpus
 - continuity remains the main drag on first-answer latency, even after the current trail improvements
-- the next useful benchmark step is to rerun continuity and proof-focused edit prep with the harness using stricter event capture and less synthetic timing
+- the next useful benchmark step is to rerun continuity and semantic retrieval with stricter event capture and less synthetic timing overhead
 
 ### Priority 1
 

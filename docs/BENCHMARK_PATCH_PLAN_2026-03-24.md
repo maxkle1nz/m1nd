@@ -43,7 +43,8 @@ Harness status update:
 
 - run recording exists
 - aggregate summarization now exists
-- next missing step is a less synthetic corpus with repeatable event capture for continuity and edit-prep
+- starter corpus now covers retrieval, continuity, edit-prep, and structural proof
+- next missing step is a less synthetic corpus with repeatable event capture for continuity and semantic retrieval timing
 
 ## Priority 1
 
