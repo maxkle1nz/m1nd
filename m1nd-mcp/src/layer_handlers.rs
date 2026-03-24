@@ -713,6 +713,7 @@ pub fn handle_timeline(
             date: c.date.clone(),
             commit: c.hash.clone(),
             author: c.author.clone(),
+            subject: c.subject.clone(),
             delta: format!("+{}/-{}", added, deleted),
             co_changed,
         });
@@ -7987,6 +7988,22 @@ mod tests {
                 "src/core.rs"
             );
         }
+    }
+
+    #[test]
+    fn parse_git_log_output_preserves_commit_subjects() {
+        let raw = "\
+abc1234|2026-03-24 10:00:00 +0000|max kle1nz|fix: harden timeline proof path
+12\t3\tsrc/core.rs
+
+def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
+4\t0\tdocs/benchmarks/README.md
+";
+
+        let commits = super::parse_git_log_output(raw);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].subject, "fix: harden timeline proof path");
+        assert_eq!(commits[1].subject, "feat: add benchmark harness");
     }
 
     #[test]

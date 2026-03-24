@@ -256,6 +256,7 @@ pub struct TimelineChange {
     pub date: String,
     pub commit: String,
     pub author: String,
+    pub subject: String,
     /// "+45/-12" format.
     pub delta: String,
     pub co_changed: Vec<String>,
