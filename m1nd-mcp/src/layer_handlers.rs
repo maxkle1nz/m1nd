@@ -692,6 +692,7 @@ pub fn handle_timeline(
         return Ok(layers::TimelineOutput {
             node: input.node.clone(),
             depth: input.depth.clone(),
+            proof_state: "blocked".into(),
             changes: vec![],
             co_changed_with: vec![],
             velocity: "stable".into(),
@@ -702,6 +703,12 @@ pub fn handle_timeline(
                 lines_deleted: 0,
             },
             commit_count_in_window: 0,
+            next_suggested_tool: Some("view".into()),
+            next_suggested_target: Some(file_path.clone()),
+            next_step_hint: Some(format!(
+                "No git history was found for {} in this window; inspect the current file directly.",
+                file_path
+            )),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -779,10 +786,14 @@ pub fn handle_timeline(
 
     // --- Compute pattern ---
     let pattern = compute_churn_pattern(total_added, total_deleted, commit_count, &velocity);
+    let proof_state = timeline_proof_state(commit_count, &co_changed_with);
+    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+        timeline_next_step(&file_path, commit_count, &co_changed_with);
 
     Ok(layers::TimelineOutput {
         node: input.node,
         depth: input.depth,
+        proof_state,
         changes,
         co_changed_with,
         velocity,
@@ -793,8 +804,61 @@ pub fn handle_timeline(
             lines_deleted: total_deleted,
         },
         commit_count_in_window: commit_count,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+fn timeline_proof_state(
+    commit_count: usize,
+    co_changed_with: &[layers::CoChangePartner],
+) -> String {
+    if commit_count == 0 {
+        return "blocked".into();
+    }
+    if commit_count > 1 || !co_changed_with.is_empty() {
+        return "proving".into();
+    }
+    "triaging".into()
+}
+
+fn timeline_next_step(
+    file_path: &str,
+    commit_count: usize,
+    co_changed_with: &[layers::CoChangePartner],
+) -> (Option<String>, Option<String>, Option<String>) {
+    if commit_count == 0 {
+        return (
+            Some("view".into()),
+            Some(file_path.to_string()),
+            Some(format!(
+                "No timeline evidence was found; inspect {} directly to verify the current seam.",
+                file_path
+            )),
+        );
+    }
+
+    if let Some(partner) = co_changed_with.first() {
+        return (
+            Some("view".into()),
+            Some(partner.file.clone()),
+            Some(format!(
+                "Open {} next; it is the strongest co-change partner for {} in this window.",
+                partner.file, file_path
+            )),
+        );
+    }
+
+    (
+        Some("view".into()),
+        Some(file_path.to_string()),
+        Some(format!(
+            "Open {} next and compare it against the recent commit subjects from this timeline.",
+            file_path
+        )),
+    )
 }
 
 /// Handle m1nd.diverge — structural drift between two points in time.
@@ -8501,6 +8565,38 @@ mod tests {
             ),
             "ready_to_edit"
         );
+    }
+
+    #[test]
+    fn timeline_proof_state_and_next_step_reflect_history_strength() {
+        assert_eq!(super::timeline_proof_state(0, &[]), "blocked");
+        assert_eq!(super::timeline_proof_state(1, &[]), "triaging");
+        assert_eq!(
+            super::timeline_proof_state(
+                3,
+                &[crate::protocol::layers::CoChangePartner {
+                    file: "src/neighbor.rs".into(),
+                    times: 2,
+                    coupling_degree: 0.6,
+                }]
+            ),
+            "proving"
+        );
+
+        let (tool, target, hint) = super::timeline_next_step(
+            "src/core.rs",
+            3,
+            &[crate::protocol::layers::CoChangePartner {
+                file: "src/neighbor.rs".into(),
+                times: 2,
+                coupling_degree: 0.6,
+            }],
+        );
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("src/neighbor.rs"));
+        assert!(hint
+            .as_deref()
+            .is_some_and(|value| value.contains("strongest co-change partner")));
     }
 
     #[test]
