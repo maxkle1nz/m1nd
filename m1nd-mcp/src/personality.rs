@@ -453,6 +453,42 @@ fn benchmark_notes(tool_name: &str) -> &'static [&'static str] {
     }
 }
 
+fn workflow_patterns(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "trace -> view -> surgical_context_v2",
+            "trace -> timeline when the missing piece is historical proof",
+        ],
+        "trail_resume" => &[
+            "trail_resume -> next_suggested_tool",
+            "trail_resume -> timeline for temporal follow-up",
+        ],
+        "validate_plan" => &[
+            "validate_plan -> heuristics_surface -> apply_batch",
+            "validate_plan -> surgical_context_v2 when the edit surface is still too implicit",
+        ],
+        "surgical_context_v2" => &[
+            "surgical_context_v2 -> validate_plan -> apply_batch",
+            "surgical_context_v2(proof_focused=true) -> validate_plan for compact edit proof",
+        ],
+        "seek" => &[
+            "seek -> view on the winning file",
+            "seek -> surgical_context_v2 when the retrieved seam looks coupled",
+        ],
+        "impact" => &[
+            "impact -> view on the strongest downstream target",
+            "impact -> validate_plan before touching a high-blast seam",
+        ],
+        "hypothesize" => &[
+            "hypothesize -> view or timeline on the strongest proof target",
+            "hypothesize -> validate_plan when the claim is strong enough to shape an edit",
+        ],
+        "apply_batch" => &["validate_plan -> heuristics_surface -> apply_batch(verify=true)"],
+        "timeline" => &["trace or trail_resume -> timeline -> view"],
+        _ => &[],
+    }
+}
+
 /// Get all tool documentation entries.
 pub fn tool_docs() -> Vec<ToolDoc> {
     vec![
@@ -1674,6 +1710,15 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
             ANSI_MAGENTA, ANSI_RESET
         ));
         for line in bench {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let flows = workflow_patterns(doc.name);
+    if !flows.is_empty() {
+        out.push_str(&format!("{}\u{21AA} WORKFLOWS{}\n", ANSI_BLUE, ANSI_RESET));
+        for line in flows {
             out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
         }
         out.push('\n');
