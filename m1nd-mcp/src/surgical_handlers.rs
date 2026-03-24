@@ -1940,6 +1940,13 @@ pub fn handle_surgical_context_v2(
         &connected_files,
         input.proof_focused,
     );
+    let proof_state = surgical_v2_proof_state(
+        &primary.file_contents,
+        primary.heuristic_summary.as_ref(),
+        &connected_files,
+        next_suggested_tool.as_deref(),
+        input.proof_focused,
+    );
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
@@ -1956,6 +1963,7 @@ pub fn handle_surgical_context_v2(
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
+        proof_state,
         total_lines,
         elapsed_ms,
     })
@@ -2029,6 +2037,36 @@ fn surgical_v2_select_candidates(
     }
 
     selected
+}
+
+fn surgical_v2_proof_state(
+    file_contents: &str,
+    heuristic_summary: Option<&surgical::SurgicalHeuristicSummary>,
+    connected_files: &[surgical::ConnectedFileSource],
+    next_suggested_tool: Option<&str>,
+    proof_focused: bool,
+) -> String {
+    if file_contents.trim().is_empty() {
+        return "blocked".into();
+    }
+
+    let risky = heuristic_summary
+        .map(|summary| {
+            summary.risk_level == "high"
+                || summary.risk_score >= 0.35
+                || summary.blast_radius_files > 0
+        })
+        .unwrap_or(false);
+
+    if proof_focused || next_suggested_tool == Some("validate_plan") || risky {
+        return "proving".into();
+    }
+
+    if !connected_files.is_empty() || heuristic_summary.is_some() {
+        return "triaging".into();
+    }
+
+    "ready_to_edit".into()
 }
 
 fn surgical_v2_relation_rank(relation_type: &str) -> u8 {
@@ -3884,6 +3922,7 @@ mod tests {
             output.next_suggested_target.as_deref(),
             Some(primary_str.as_str())
         );
+        assert_eq!(output.proof_state, "proving");
         assert!(output
             .next_step_hint
             .as_deref()

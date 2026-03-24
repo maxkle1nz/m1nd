@@ -60,6 +60,7 @@ fn build_v2_output(
         next_suggested_tool: None,
         next_suggested_target: None,
         next_step_hint: None,
+        proof_state: "ready_to_edit".into(),
         total_lines,
         elapsed_ms: 3.0,
     }

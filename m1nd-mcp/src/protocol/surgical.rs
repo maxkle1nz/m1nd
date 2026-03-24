@@ -353,6 +353,8 @@ pub struct SurgicalContextV2Output {
     /// Short next-step hint for the agent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_step_hint: Option<String>,
+    /// Coarse cognitive stage for edit preparation.
+    pub proof_state: String,
     /// Sum of all lines returned: line_count + sum(excerpt_lines).
     pub total_lines: usize,
     /// Elapsed milliseconds.
