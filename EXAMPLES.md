@@ -807,6 +807,36 @@ m1nd.impact(node_id="file::ws_relay.py", direction="forward")
 
 **Savings**: 2 queries vs manually tracing all consumers of each module. **~80K tokens saved.**
 
+## Example: Search With `auto_ingest`
+
+When a project lives outside the current `ingest_roots`, `m1nd.search` can now ingest that scope on demand before searching.
+
+```python
+m1nd.search(
+  query="madeinitalycars.com",
+  mode="literal",
+  scope="/Users/cosmophonix/clawd/madeinitalycars",
+  auto_ingest=True,
+  filename_pattern="*.rs"
+)
+```
+
+If the scope resolves to exactly one path, m1nd ingests it first and returns search results with:
+
+```json
+{
+  "auto_ingested": true,
+  "auto_ingested_paths": ["/Users/cosmophonix/clawd/madeinitalycars"]
+}
+```
+
+Relative scopes also work. Resolution order is:
+
+1. existing `ingest_roots`
+2. `workspace_root`
+
+If a relative scope resolves to more than one path, m1nd refuses the ingest and returns an error whose `detail` lists the candidate paths so the caller can refine `scope`.
+
 ### Final Results (6 rounds, 46 queries)
 
 - **28 real bugs** found and fixed (3 critical, 11 high, 9 medium, 5 low)

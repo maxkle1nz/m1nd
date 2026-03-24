@@ -4,15 +4,15 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Stop letting AI grep your codebase. Give it a neuro-symbolic Connectome.</h3>
+<h3 align="center">A local code graph engine for MCP agents.</h3>
 
 <p align="center">
-  m1nd simulates counterfactual node removals, epidemic defect spread, and standing wave harmonics to find bugs LLMs can't see.<br/>
-  <em>(Local execution. 84% fewer tokens. Your code as a 4D living graph with Hebbian plasticity.)</em>
+  m1nd ingests code into a graph, exposes it through MCP, and helps agents navigate structure, impact, history, and connected context without treating the repo like raw text.<br/>
+  <em>Local execution. Graph-first navigation. MCP transport over stdio, with an optional HTTP/UI surface in the current default build.</em>
 </p>
 
 <p align="center">
-  <strong>39 missing bugs found in one session &middot; 89% hypothesis accuracy &middot; Saves 84% in LLM context costs</strong>
+  <strong>Grounded in current code, tests, and shipped tool surfaces.</strong>
 </p>
 
 <p align="center">
@@ -23,11 +23,11 @@
 </p>
 
 <p align="center">
-  <a href="#why-this-changes-everything">Why This Changes Everything</a> &middot;
+  <a href="#what-m1nd-does">What m1nd Does</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#configure-your-agent">Configure Your Agent</a> &middot;
-  <a href="#proven-results">Results</a> &middot;
-  <a href="#the-63-tools">Tools</a> &middot;
+  <a href="#results-and-measurements">Results</a> &middot;
+  <a href="#tool-surface">Tools</a> &middot;
   <a href="https://github.com/maxkle1nz/m1nd/wiki">Wiki</a> &middot;
   <a href="EXAMPLES.md">Examples</a>
 </p>
@@ -53,42 +53,51 @@
   <img src=".github/demo-cinema.gif" alt="m1nd — 5 real queries, 1.9 seconds, zero tokens, 8 invisible bugs" width="720" />
 </p>
 
-## Architecture & Paradigm Shift
+## What m1nd Does
 
-Until now, AI agents have navigated code like humans using a terminal: searching for text (`grep`), listing files (`ls`), or relying on static RAG vectors that don't understand causality. 
+m1nd is a local Rust workspace with three main parts:
 
-**m1nd replaces text search with physics and epidemiology.**
+- `m1nd-core`: the graph engine
+- `m1nd-ingest`: repo walking, extraction, reference resolution, and graph construction
+- `m1nd-mcp`: the MCP server over stdio, plus an HTTP/UI surface in the current default build
 
-When an AI agent uses m1nd's 63 MCP tools across your codebase, it's not searching text. It's injecting a signal into a **living graph** and watching it propagate across structural, semantic, temporal, and causal dimensions.
+The project is strongest at structural grounding:
 
-* **84% Fewer Tokens:** Stop shoving entire files into the context window. m1nd surgically extracts only the topologically relevant paths, slashing token costs and preventing context exhaustion. Instead of 210 `grep` operations reading 80,000 lines, m1nd gives the agent the exact graph node in 3 milliseconds using 0 tokens.
-* **Epidemic Bug Detection:** m1nd uses the SIR epidemiological model to predict where the next bug will spawn based on the infection rate of connected modules.
-* **Counterfactual Simulation:** "What happens if I remove this node?" m1nd simulates the blast radius before the AI even touches the file. It finds synergistic failures that LLMs simply cannot see.
-* **Hebbian Plasticity:** The graph learns. When the AI gets a correct answer, the neural pathways forming that connection physically strengthen. The next query is radically faster and smarter.
-* **Context Efficiency:** Paradoxically, m1nd has the capacity to make smaller, less intelligent models perform like frontier models. By feeding the LLM only the exact, causal, and structurally relevant nodes instead of dumping files into context, small open-source models succeed where large proprietary models drown in noise.
-* **Neuro-Symbolic Editing:** `grep` just searches text. `m1nd` applies edits atomically and instantly runs a topological graph verification (`verify=true`). It re-ingests the changed files to mathematically prove whether the agent's code broke dependencies, introduced syntax errors, or worsened the graph's coherence before the AI takes another step.
-* **Sub-Millisecond Speed:** Pure Rust. Codebases with tens of thousands of nodes compute activations in microseconds. In one real case, a memory pool of 259,000 nodes was queryable via RAM in under 1ms.
+- ingesting code into a graph instead of navigating only by text search
+- resolving relationships between files, functions, types, modules, and graph neighborhoods
+- exposing that graph through MCP tools for navigation, impact analysis, tracing, prediction, and editing workflows
+- merging code with markdown or structured memory graphs when needed
+- retaining heuristic memory over time so feedback can shape future retrieval through `learn`, `trust`, `tremor`, and `antibody` sidecars
+- surfacing why a result was ranked, not just what matched
 
-```
-335 files -> 9,767 nodes -> 26,557 edges in 0.91 seconds.
-Then: activate in 31ms. impact in 5ms. trace in 3.5ms. learn in <1ms.
-```
+Today it ships with:
 
-## Proven Results
+- native/manual extractors for Python, TypeScript/JavaScript, Rust, Go, and Java
+- 22 additional tree-sitter-backed languages across Tier 1 and Tier 2
+- a generic fallback extractor for unsupported file types
+- reference resolution in the live ingest path
+- Cargo workspace enrichment for Rust repos
+- inspectable heuristic signals on higher-level retrieval paths, so `seek` and `predict` can expose more than a raw score
 
-Live audit on a production Python/FastAPI codebase (52K lines, 380 files):
+Language breadth is broad, but semantic depth varies by language. Python and Rust currently have more specialized handling than many of the tree-sitter-backed languages.
+
+## Results And Measurements
+
+The numbers below are observed examples from the current repo docs and tests. Treat them as reference points, not hard guarantees for every codebase.
+
+Case-study audit on a Python/FastAPI codebase:
 
 | Metric | Result |
 |--------|--------|
 | **Bugs found in one session** | 39 (28 confirmed fixed + 9 high-confidence) |
 | **Invisible to grep** | 8 of 28 (28.5%) -- required structural analysis |
 | **Hypothesis accuracy** | 89% over 10 live claims |
-| **Post-write verify accuracy** | 100% — 12/12 scenarios (SAFE/RISKY/BROKEN) |
+| **Post-write validation set** | 12/12 scenarios classified correctly in the documented sample |
 | **LLM tokens consumed** | 0 -- pure Rust, local binary |
 | **m1nd queries vs grep ops** | 46 vs ~210 |
 | **Total query latency** | ~3.1 seconds vs ~35 minutes estimated |
 
-Criterion micro-benchmarks (real hardware):
+Criterion micro-benchmarks (recorded in current docs):
 
 | Operation | Time |
 |-----------|------|
@@ -138,25 +147,25 @@ Add to Claude Code (`~/.claude.json`):
 }
 ```
 
-Works with any MCP client: Antigravity, Claude Code, Codex, Cursor, Windsurf, Zed, or your own.
+Works with any MCP client that can connect to an MCP server: Claude Code, Codex, Cursor, Windsurf, Zed, or your own.
 
 **For large codebases, see [Deployment & Production Setup](docs/deployment.md) for how to run m1nd as a persistent server with smart namespace ingest and near-zero latency.**
 
 ---
 
-### The Context Window Is Not Intelligence
+### Graph-First Instead Of Text-First
 
-The dominant approach in AI-assisted development treats the context window as a substitute for understanding: inject raw files, search by text pattern, let the LLM infer structure. This works at small scale and fails at the scale of real codebases.
+Most AI coding workflows still spend a lot of time on navigation: grep, glob, file reads, and repeated context loading. m1nd takes a different approach by precomputing a graph and exposing that graph through MCP.
 
-`m1nd` is built on a different premise: **code structure is a graph problem, not a text problem.**
+That changes the shape of the question. Instead of asking the model to reconstruct repo structure from raw files every time, the agent can ask for:
 
-A neuro-symbolic connectome — built in pure Rust, running locally, persisted across sessions — encodes every function, module, type, and file as a node with weighted edges. Spreading activation, Hebbian plasticity, and structural hole detection replace grep, glob, and linear file reads.
+- related code paths
+- blast radius
+- structural holes
+- graph paths between nodes
+- connected context for an edit
 
-The practical consequences are measurable: 84% fewer tokens consumed per session, sub-millisecond graph traversal, and the detection of bugs that exist in the *absence* of code — structural holes that no text search engine can find because there is no text to match.
-
-We designed m1nd after observing that the context window paradigm, while commercially convenient, architecturally penalizes agents for understanding codebases. Every file loaded is a cost. Every grep is an approximation. `m1nd` removes both constraints.
-
-> If you believe code intelligence should be mathematically rigorous — graph topology over pattern matching, structural truth over probabilistic guessing — build on this. Star the repo, open issues, contribute. The architecture is open.
+This does not replace an LSP, a compiler, or a dataflow analyzer. It gives an agent a structural map of the repo so it can spend less time on navigation and more time on the task itself.
 
 ---
 
@@ -177,8 +186,11 @@ m1nd is designed to replace grep, glob, and blind file reads for AI agents.
 ```
 CRITICAL RULE: You have m1nd available via MCP. You MUST use m1nd BEFORE falling back to traditional tools like grep, glob, or file reads.
 - m1nd.search(mode="literal") replaces grep — finds exact strings with graph context
+  Use `auto_ingest=true` when `scope` points to a real path outside current ingest roots. It only auto-ingests when scope resolves to exactly one path.
 - m1nd.activate replaces glob — finds related code by meaning, not filename
-- m1nd.surgical_context_v2 replaces Read — returns source + all connected files in one call
+- m1nd.heuristics_surface explains why a node or file ranked as risky or important
+- m1nd.validate_plan attaches `heuristics_surface_ref` to hotspots and gaps so the agent can jump straight into the explanation
+- m1nd.surgical_context_v2 replaces Read — returns source + all connected files in one call, with `heuristic_summary` on the primary file and each connected file for trust/tremor/antibody/blast-radius risk
 - m1nd.impact replaces manual dependency checking — shows blast radius before edits
 - m1nd.apply replaces Edit — writes code and auto-updates the graph
 - m1nd.apply_batch(verify=true) — write multiple files + 5-layer post-write verification
@@ -192,9 +204,12 @@ Copy-paste into your project's `CLAUDE.md`:
 ```markdown
 ## Code Intelligence
 m1nd is your primary code navigation tool. Use it before grep/glob/Read.
-Key tools: search (grep replacement), activate (find related), surgical_context_v2 (full context),
-impact (blast radius), apply (edit + re-ingest), apply_batch(verify=true) (batch edit + verification),
+Key tools: search (grep replacement), activate (find related), heuristics_surface (why did this rank?),
+surgical_context_v2 (full context + heuristic_summary), impact (blast radius), apply (edit + re-ingest),
+apply_batch(verify=true) (batch edit + verification),
 help (when confused).
+
+Search note: `auto_ingest=true` can ingest a scope outside current roots before searching, but only when the scope resolves to one path. Ambiguous scopes return an error listing candidates.
 ```
 
 ### Cursor (.cursorrules)
@@ -206,6 +221,8 @@ When exploring code, use m1nd MCP tools instead of grep:
 - m1nd.search for finding code
 - m1nd.activate for understanding relationships
 - m1nd.impact before making changes
+
+If `m1nd.search` needs to look outside current ingest roots, prefer an explicit `scope` plus `auto_ingest=true`. If multiple paths match that scope, refine it until only one path resolves.
 ```
 
 ### Generic MCP client
@@ -214,46 +231,38 @@ Any MCP-compatible tool (Windsurf, Zed, Cline, Roo Code, Continue, OpenCode, Ama
 
 ### Why this matters
 
-AI agents waste 80% of their context window navigating code with grep and file reads. m1nd answers the same questions in microseconds at zero token cost. In our testing, switching from grep to m1nd reduced token usage by 84% and found 8 critical bugs that grep could never find -- because they existed in the *absence* of code (Structural Holes), not in its presence.
+m1nd is useful when an agent needs graph-grounded context instead of repeated grep/glob/file-read loops. In the documented audit session, it reduced grep-heavy exploration and surfaced structural findings that plain text search missed.
 
 Instead of paying to read 20,000 lines of code just to "find out how the provider works", the agent asks the connectome. Make m1nd the mandatory first step before any traditional tool usage.
 
 ---
 
-## Why Not Just Use Cursor/RAG/grep?
+## Where m1nd Fits
 
-| Capability | Sourcegraph | Cursor | Aider | RAG | m1nd |
-|------------|-------------|--------|-------|-----|------|
-| Code graph | SCIP (static) | Embeddings | tree-sitter + PageRank | None | CSR + 4D activation |
-| Learns from use | No | No | No | No | **Hebbian plasticity** |
-| Persists investigations | No | No | No | No | **Trail save/resume/merge** |
-| Tests hypotheses | No | No | No | No | **Bayesian on graph paths** |
-| Simulates removal | No | No | No | No | **Counterfactual cascade** |
-| Multi-repo graph | Search only | No | No | No | **Federated graph** |
-| Temporal intelligence | git blame | No | No | No | **Co-change + velocity + decay** |
-| Ingests docs + code | No | No | No | Partial | **Memory adapter (typed graph)** |
-| Bug immune memory | No | No | No | No | **Antibody system** |
-| Pre-failure detection | No | No | No | No | **Tremor + epidemic + trust** |
-| Architectural layers | No | No | No | No | **Auto-detect + violation report** |
-| Post-write verification | No | No | No | No | **5-layer verify (12/12, 100%)** |
-| Cost per query | Hosted SaaS | Subscription | LLM tokens | LLM tokens | **Zero** |
+m1nd is most useful when an agent needs graph-grounded repo context that plain text search does not provide well:
 
-*Comparisons reflect capabilities at time of writing. Each tool excels at its primary use case; m1nd is not a replacement for Sourcegraph's enterprise search or Cursor's editing UX.*
+- persistent graph state instead of one-off search results
+- impact and neighborhood queries before edits
+- saved investigations across sessions
+- structural checks such as hypothesis testing, counterfactual removal, and layer inspection
+- mixed code + documentation graphs through the `memory`, `json`, and `light` adapters
+
+It is not a replacement for an LSP, Sourcegraph, CodeQL, or a compiler. It sits between raw search and heavy static analysis: faster to query than reconstructing structure from text every time, but not a full semantic compiler frontend.
 
 ## What Makes It Different
 
-**The graph learns.** Confirm results are useful -- edge weights strengthen (Hebbian LTP). Mark results wrong -- they weaken (LTD). The graph evolves to match how *your* team thinks about *your* codebase. No other code intelligence tool does this.
+**It keeps a persistent graph, not just search results.** Confirmed paths can be reinforced through `learn`, and later queries can reuse that structure instead of starting from zero.
 
-**The graph tests claims.** "Does worker_pool depend on whatsapp_manager at runtime?" m1nd explores 25,015 paths in 58ms and returns a Bayesian confidence verdict. 89% accuracy across 10 live claims. It confirmed a `session_pool` leak at 99% confidence (3 bugs found) and correctly rejected a circular dependency hypothesis at 1%.
+**It tests structural claims directly.** Tools like `hypothesize`, `why`, `impact`, and `counterfactual` operate on graph relationships rather than on text matches alone.
 
-**The graph ingests documentation and code simultaneously.** m1nd provides four ingest adapters:
+**It can merge code and documentation into the same graph.** m1nd provides four ingest adapters:
 
-- **`code`** (default) — 27+ language parsers. Build the full code connectome from source files.
+- **`code`** (default) — code extractors across 27+ languages/file formats. Build the full code graph from source files.
 - **`json`** — Custom graph descriptors and structured data imports.
 - **`memory`** — Unstructured `.md`/`.txt` corpus as a lightweight knowledge graph.
 - **`light`** — [L1GHT Protocol](docs/wiki-build/l1ght.html): structured markdown with typed YAML frontmatter and inline semantic markers. Transforms specs, design decisions, and knowledge bases into first-class graph nodes with typed edges.
 
-With `mode: "merge"`, these graphs fuse: `activate("payment auth")` returns both `payment_handler.rs` and `payment-spec.md`. `missing("refund flow")` detects specs without any implementation counterpart. Cross-domain structural hole detection across the full knowledge graph.
+With `mode: "merge"`, these graphs can be queried together. That means a query can return both implementation files and related markdown/spec nodes from the same graph.
 
 ```
 # Example L1GHT document (any .md file)
@@ -281,30 +290,32 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 ```
 
 
-**The graph detects bugs before they happen.** Five engines beyond structural analysis:
-- **Antibody System** -- remembers bug patterns, scans for recurrence on every ingest
-- **Epidemic Engine** -- SIR propagation predicts which modules harbor undiscovered bugs
-- **Tremor Detection** -- change *acceleration* (second derivative) precedes bugs, not just churn
-- **Trust Ledger** -- per-module actuarial risk scores from defect history
-- **Layer Detection** -- auto-detects architectural layers, reports dependency violations
+**It exposes additional analysis layers** beyond basic traversal:
+- antibody scanning for known bug patterns
+- epidemic-style propagation for neighboring risk
+- tremor/trust signals from change history
+- layer detection for architectural violations
 
-**The graph verifies writes.** `apply_batch(verify=true)` runs 5 independent layers of analysis on every file you write -- before your CI pipeline ever runs. 12/12 accuracy across all severity scenarios (SAFE / RISKY / BROKEN). See [Post-Write Verification](#post-write-verification).
+**It verifies writes.** `apply_batch(verify=true)` runs multiple post-write checks and returns a SAFE / RISKY / BROKEN-style verdict. See [Post-Write Verification](#post-write-verification).
 
-**The graph saves investigations.** `trail.save` -> `trail.resume` days later from the exact same cognitive position. Two agents on the same bug? `trail.merge` -- automatic conflict detection on shared nodes.
+**It can persist investigations.** `trail.save`, `trail.resume`, and `trail.merge` let agents keep and combine graph-grounded investigation state.
 
-## The 63 Tools
+## Tool Surface
 
-| Category | Count | Highlights |
-|----------|-------|------------|
-| **Foundation** | 13 | ingest, activate, impact, why, learn, drift, seek, scan, warmup, federate |
-| **Perspective Navigation** | 12 | Navigate the graph like a filesystem -- start, follow, peek, branch, compare |
-| **Lock System** | 5 | Pin subgraph regions, watch for changes (lock.diff: 0.08&micro;s) |
-| **Superpowers** | 13 | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
-| **Superpowers Extended** | 9 | antibody, flow_simulate, epidemic, tremor, trust, layers |
-| **Surgical** | 11 | surgical_context, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
+The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **64 MCP tools**. The categories below are more stable than the exact count, but the count itself is now grounded in the live registry.
+
+| Category | Highlights |
+|----------|------------|
+| **Foundation** | ingest, activate, impact, why, learn, drift, seek, scan, warmup, federate |
+| **Perspective Navigation** | start, follow, peek, branch, compare, inspect, suggest |
+| **Lock System** | pin subgraph regions, watch for changes, diff locked state |
+| **Graph Analysis** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
+| **Extended Analysis** | antibody, flow_simulate, epidemic, tremor, trust, layers |
+| **Reporting** | report, savings |
+| **Surgical** | surgical_context, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
 
 <details>
-<summary><strong>Foundation (13 tools)</strong></summary>
+<summary><strong>Foundation</strong></summary>
 
 | Tool | What It Does | Speed |
 |------|-------------|-------|
@@ -324,7 +335,7 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 </details>
 
 <details>
-<summary><strong>Perspective Navigation (12 tools)</strong></summary>
+<summary><strong>Perspective Navigation</strong></summary>
 
 | Tool | Purpose |
 |------|---------|
@@ -343,7 +354,7 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 </details>
 
 <details>
-<summary><strong>Lock System (5 tools)</strong></summary>
+<summary><strong>Lock System</strong></summary>
 
 | Tool | Purpose | Speed |
 |------|---------|-------|
@@ -355,7 +366,7 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 </details>
 
 <details>
-<summary><strong>Superpowers (13 tools)</strong></summary>
+<summary><strong>Graph Analysis</strong></summary>
 
 | Tool | What It Does | Speed |
 |------|-------------|-------|
@@ -365,8 +376,8 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 | `resonate` | Standing wave analysis -- find structural hubs | 37-52ms |
 | `fingerprint` | Find structural twins by topology | 1-107ms |
 | `trace` | Map stacktraces to root causes | 3.5-5.8ms |
-| `validate_plan` | Pre-flight risk assessment for changes | 0.5-10ms |
-| `predict` | Co-change prediction | <1ms |
+| `validate_plan` | Pre-flight risk assessment for changes with heuristic-memory signals and direct `heuristics_surface_ref` pointers | 0.5-10ms |
+| `predict` | Co-change prediction with `heuristics_surface_ref` pointers for ranking justification | <1ms |
 | `trail.save` | Persist investigation state | ~0ms |
 | `trail.resume` | Restore exact investigation context | 0.2ms |
 | `trail.merge` | Combine multi-agent investigations | 1.2ms |
@@ -375,7 +386,7 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 </details>
 
 <details>
-<summary><strong>Superpowers Extended (9 tools)</strong></summary>
+<summary><strong>Extended Analysis</strong></summary>
 
 | Tool | What It Does | Speed |
 |------|-------------|-------|
@@ -391,17 +402,27 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 </details>
 
 <details>
-<summary><strong>Surgical (6 tools)</strong></summary>
+<summary><strong>Surgical</strong></summary>
 
 | Tool | What It Does | Speed |
 |------|-------------|-------|
-| `surgical_context` | Complete context for a code node: source, callers, callees, tests, trust score, blast radius — in one call | varies |
-| `surgical_context_v2` | All connected files with source code in ONE call — complete dependency context without multiple round-trips | 1.3ms |
+| `surgical_context` | Complete context for a code node: source, callers, callees, tests, plus `heuristic_summary` with trust/tremor/antibody/blast radius — in one call | varies |
+| `heuristics_surface` | Explain why a node or file ranked as risky or important using the same heuristic substrate as surgical_context and apply_batch | varies |
+| `surgical_context_v2` | All connected files with source code in ONE call, plus `heuristic_summary` on the primary file and each connected file — complete dependency context without multiple round-trips | 1.3ms |
 | `edit_preview` | **Preview a code change without writing to disk** — returns diff, snapshot, validation. Two-phase safety: see before you write | <1ms |
 | `edit_commit` | **Commit a previewed change** — requires explicit `confirm=true`, TTL 5min, source hash verification. Prevents stale/tampered writes | <1ms + apply |
 | `apply` | Write edited code back to file, atomic write, re-ingest graph, run predict | 3.5ms |
 | `apply_batch` | Write multiple files atomically, single re-ingest pass, returns per-file diffs | 165ms |
-| `apply_batch(verify=true)` | All of the above + **5-layer post-write verification** (pattern detection, compile check, graph BFS impact, test execution, anti-pattern analysis) — verdict: SAFE / RISKY / BROKEN | 165ms + verify |
+| `apply_batch(verify=true)` | All of the above + **5-layer post-write verification** (pattern detection, compile check, graph BFS impact, test execution, anti-pattern analysis) with `heuristic_summary` on `verification.high_impact_files`; heuristic hotspots can promote the verdict to `RISKY` | 165ms + verify |
+</details>
+
+<details>
+<summary><strong>Reporting</strong></summary>
+
+| Tool | What It Does | Speed |
+|------|-------------|-------|
+| `report` | Session report with recent queries, savings, graph stats, and top heuristic hotspots; markdown summary includes `### Heuristic Hotspots` | ~0ms |
+| `savings` | Session/global token, CO2, and cost savings summary | ~0ms |
 </details>
 
 [Full API reference with examples ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
@@ -410,7 +431,9 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 
 `apply_batch` with `verify=true` runs 5 independent verification layers on every file written,
 returning a single `VerificationReport` with a SAFE / RISKY / BROKEN verdict.
-**12/12 scenarios correctly classified. 100% accuracy.**
+When `verification.high_impact_files` carries heuristic hotspots, the report can be
+promoted to `RISKY` even if the structural blast radius alone would have stayed lower.
+In the documented validation sample, 12/12 scenarios were classified correctly.
 
 ```jsonc
 // Write multiple files + verify everything in one call
@@ -434,6 +457,7 @@ returning a single `VerificationReport` with a SAFE / RISKY / BROKEN verdict.
 //        "verdict": "RISKY",
 //        "total_affected_nodes": 14,
 //        "blast_radius": [{ "file_path": "auth.py", "reachable_files": 7, "risk": "high" }],
+//        "high_impact_files": [{ "file_path": "auth.py", "risk": "high", "heuristic_summary": { "...": "..." } }],
 //        "antibodies_triggered": ["bare-except-swallow"],
 //        "layer_violations": [],
 //        "compile_check": "ok",
@@ -453,27 +477,28 @@ returning a single `VerificationReport` with a SAFE / RISKY / BROKEN verdict.
 | **D — Test execution** | Detects project type (Rust/Go/Python) and runs the relevant test suite (`cargo test` / `go test` / `pytest`) scoped to affected modules | BROKEN if any test fails |
 | **E — Compile check** | Runs `cargo check` / `go build` / `python -m py_compile` on the project after writes | BROKEN if compilation fails |
 
-Verdict rules: any BROKEN layer → overall BROKEN. Any RISKY layer → overall RISKY. All clear → SAFE.
+Verdict rules: any BROKEN layer → overall BROKEN. Any RISKY layer or heuristic hotspot
+in `verification.high_impact_files` → overall RISKY. All clear → SAFE.
 All 5 layers run in parallel where possible. Verification adds ~340ms median on a 52K-line codebase.
 
 ---
 
 ## Architecture
 
-Three Rust crates. No runtime dependencies. No LLM calls. No API keys. ~8MB binary.
+Three Rust crates. Local execution. No API keys required for the core server path.
 
 ```
 m1nd-core/     Graph engine, spreading activation, Hebbian plasticity, hypothesis engine,
                antibody system, flow simulator, epidemic, tremor, trust, layer detection
-m1nd-ingest/   Language extractors (27+ languages), memory adapter, JSON adapter,
+m1nd-ingest/   Language extractors, memory adapter, JSON adapter,
                git enrichment, cross-file resolver, incremental diff
-m1nd-mcp/      MCP server, 63 tool handlers, JSON-RPC over stdio, HTTP server + GUI
+m1nd-mcp/      MCP server, JSON-RPC over stdio, plus HTTP/UI support in the current default build
 ```
 
 ```mermaid
 graph LR
     subgraph Ingest
-        A[Code / 27+ langs] --> R[Reference Resolver]
+        A[Code / 27+ languages] --> R[Reference Resolver]
         MA[Memory adapter] --> R
         JA[JSON adapter] --> R
         R --> GD[Git enrichment]
@@ -487,19 +512,23 @@ graph LR
         SA --> XLR[XLR Noise Cancel]
     end
     subgraph MCP
-        XLR --> T[61 Tools]
+        XLR --> T[Tool Surface]
         HP --> T
         HY --> T
         SX --> T
         T --> IO[JSON-RPC stdio]
-        T --> HTTP[HTTP API + GUI]
+        T --> HTTP[HTTP API + UI]
     end
     IO --> C[Claude Code / Cursor / any MCP]
     HTTP --> B[Browser on localhost:1337]
 ```
 
-27+ languages via tree-sitter across two tiers. Default build includes Tier 2 (8 langs).
-Add `--features tier1` for all 27+. [Language details ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
+27+ languages/file formats total.
+Today that means 5 native/manual extractors (`Python`, `TypeScript/JavaScript`, `Rust`, `Go`, `Java`) plus 22 tree-sitter-backed languages across Tier 1 + Tier 2.
+Default build already includes Tier 2, which includes both tree-sitter tiers.
+Language count is broad, but depth varies by language. [Language details ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
+
+The current default build also includes an HTTP/UI surface. Keep it bound to localhost unless you intentionally want remote access; there is no built-in authentication layer for arbitrary public exposure.
 
 ## When NOT to Use m1nd
 
@@ -512,7 +541,7 @@ Add `--features tier1` for all 27+. [Language details ->](https://github.com/max
 ## Use Cases
 
 **Bug hunt:** `hypothesize` -> `missing` -> `flow_simulate` -> `trace`.
-Zero grep. The graph navigates to the bug. [39 bugs found in one session.](EXAMPLES.md)
+In the documented audit session, this reduced grep-heavy exploration and surfaced issues plain text search missed. [Case study ->](EXAMPLES.md)
 
 **Pre-deploy gate:** `antibody_scan` -> `validate_plan` -> `epidemic`.
 Scans for known bug shapes, assesses blast radius, predicts infection spread.
