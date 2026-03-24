@@ -56,6 +56,7 @@ fn build_v2_output(
         }],
         focused_symbol: None,
         connected_files: connected,
+        heuristic_summary: None,
         total_lines,
         elapsed_ms: 3.0,
     }
@@ -80,6 +81,7 @@ fn make_connected(
         source_excerpt: excerpt,
         excerpt_lines: lines,
         truncated,
+        heuristic_summary: None,
     }
 }
 

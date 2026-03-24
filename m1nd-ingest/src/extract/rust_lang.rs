@@ -506,6 +506,7 @@ impl RustExtractor {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn walk_semantic(
         &self,
         node: Node<'_>,

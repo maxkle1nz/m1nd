@@ -121,7 +121,7 @@ impl SeedFinder {
 
     fn split_identifier(ident: &str) -> Vec<String> {
         let mut tokens = Vec::new();
-        for part in ident.split(|c: char| matches!(c, '_' | '-' | '/' | '\\' | ':')) {
+        for part in ident.split(['_', '-', '/', '\\', ':']) {
             if part.is_empty() {
                 continue;
             }
@@ -174,7 +174,7 @@ impl SeedFinder {
 
         if let Some(source_path_lower) = source_path_lower {
             if source_path_lower
-                .split(|c: char| matches!(c, '/' | '_' | '-' | '.'))
+                .split(['/', '_', '-', '.'])
                 .any(|part| part == token)
             {
                 return 0.82;
@@ -324,7 +324,7 @@ impl SeedFinder {
             }
 
             if matched_tokens == 0 {
-                relevance[i] = (source_path_bias(source_path.as_deref(), &tokens)
+                relevance[i] = (source_path_bias(source_path, &tokens)
                     + Self::node_type_bias(&graph.nodes.node_type[i]))
                 .max(0.0);
                 continue;
@@ -338,7 +338,7 @@ impl SeedFinder {
             }
             let aggregate = avg_match * 0.5 + coverage * 0.35 + best * 0.15;
             relevance[i] = (aggregate
-                + source_path_bias(source_path.as_deref(), &tokens)
+                + source_path_bias(source_path, &tokens)
                 + Self::node_type_bias(&graph.nodes.node_type[i]))
             .clamp(0.0, 1.0);
         }
@@ -356,12 +356,11 @@ impl SeedFinder {
             let source_path = graph.nodes.provenance[i]
                 .source_path
                 .and_then(|s| graph.strings.try_resolve(s));
-            let family_key =
-                Self::family_key(label, &graph.nodes.node_type[i], source_path.as_deref());
+            let family_key = Self::family_key(label, &graph.nodes.node_type[i], source_path);
             let specificity = Self::node_specificity_bias(
                 label,
                 &graph.nodes.node_type[i],
-                source_path.as_deref(),
+                source_path,
             );
 
             best_by_family
