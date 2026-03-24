@@ -1898,6 +1898,17 @@ fn trail_resume_suggested_tool(
     next_focus_node_id: Option<&String>,
     next_open_question: Option<&String>,
 ) -> Option<String> {
+    if let Some(question) = next_open_question {
+        let lower = question.to_lowercase();
+        if ["changed", "change", "last", "history", "recent", "commit"]
+            .iter()
+            .any(|term| lower.contains(term))
+        {
+            if next_focus_node_id.is_some() {
+                return Some("timeline".into());
+            }
+        }
+    }
     if next_focus_node_id.is_some() {
         return Some("view".into());
     }
@@ -2300,10 +2311,8 @@ pub fn handle_trail_resume(
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     let next_focus_node_id = reactivated_node_ids.first().cloned();
     let next_open_question = trail.open_questions.first().cloned();
-    let next_suggested_tool = trail_resume_suggested_tool(
-        next_focus_node_id.as_ref(),
-        next_open_question.as_ref(),
-    );
+    let next_suggested_tool =
+        trail_resume_suggested_tool(next_focus_node_id.as_ref(), next_open_question.as_ref());
     let resume_hints = trail_resume_hints(&trail, &reactivated_node_ids, hint_limit);
 
     Ok(layers::TrailResumeOutput {
@@ -8033,6 +8042,16 @@ mod tests {
         assert_eq!(resumed.reactivated_node_ids.len(), 1);
         assert_eq!(resumed.resume_hints.len(), 1);
         assert_eq!(resumed.next_suggested_tool.as_deref(), Some("view"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_timeline_for_temporal_follow_up_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            Some(&"file::src/core.rs".to_string()),
+            Some(&"what changed last in this file?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("timeline"));
     }
 
     #[test]
