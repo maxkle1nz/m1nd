@@ -1864,6 +1864,9 @@ fn trail_seed_boost(boosts: &mut HashMap<String, f32>, node_external_id: &str, w
 fn trail_resume_hints(
     trail: &TrailData,
     strongest_nodes: &[String],
+    next_focus_node_id: Option<&String>,
+    next_open_question: Option<&String>,
+    next_suggested_tool: Option<&str>,
     max_hints: usize,
 ) -> Vec<String> {
     if max_hints == 0 {
@@ -1872,22 +1875,51 @@ fn trail_resume_hints(
 
     let mut hints = Vec::new();
 
+    match (next_suggested_tool, next_focus_node_id, next_open_question) {
+        (Some("timeline"), Some(node), Some(question)) => hints.push(format!(
+            "Use timeline on {} to answer the carried-forward question: {}",
+            node, question
+        )),
+        (Some("impact"), Some(node), Some(question)) => hints.push(format!(
+            "Use impact on {} before changing it: {}",
+            node, question
+        )),
+        (Some("hypothesize"), _, Some(question)) => hints.push(format!(
+            "Use hypothesize to test the carried-forward structural claim: {}",
+            question
+        )),
+        (Some("seek"), _, Some(question)) => hints.push(format!(
+            "Use seek to relocate the answer path for: {}",
+            question
+        )),
+        (Some("view"), Some(node), _) => {
+            hints.push(format!("Re-open the current focus before branching: {}", node))
+        }
+        _ => {}
+    }
+
     for question in trail.open_questions.iter().take(max_hints.min(2)) {
-        hints.push(format!("Continue with open question: {}", question));
+        let hint = format!("Continue with open question: {}", question);
+        if !hints.iter().any(|existing| existing == &hint) {
+            hints.push(hint);
+        }
     }
 
     for node in strongest_nodes
         .iter()
         .take(max_hints.saturating_sub(hints.len()).min(2))
     {
-        hints.push(format!("Inspect neighborhood around {}", node));
+        let hint = format!("Inspect neighborhood around {}", node);
+        if !hints.iter().any(|existing| existing == &hint) {
+            hints.push(hint);
+        }
     }
 
     if hints.len() < max_hints && !trail.hypotheses.is_empty() {
-        hints.push(format!(
-            "Re-test hypothesis: {}",
-            trail.hypotheses[0].statement
-        ));
+        let hint = format!("Re-test hypothesis: {}", trail.hypotheses[0].statement);
+        if !hints.iter().any(|existing| existing == &hint) {
+            hints.push(hint);
+        }
     }
 
     hints.truncate(max_hints);
@@ -1907,6 +1939,36 @@ fn trail_resume_suggested_tool(
             if next_focus_node_id.is_some() {
                 return Some("timeline".into());
             }
+        }
+        if next_focus_node_id.is_some()
+            && ["impact", "blast", "break", "affected", "touch"]
+                .iter()
+                .any(|term| lower.contains(term))
+        {
+            return Some("impact".into());
+        }
+        if [
+            "why", "proof", "prove", "evidence", "violation", "missing", "guard",
+        ]
+        .iter()
+        .any(|term| lower.contains(term))
+        {
+            return Some("hypothesize".into());
+        }
+        if [
+            "where",
+            "which",
+            "owner",
+            "helper",
+            "normalize",
+            "canonical",
+            "dispatch",
+            "route",
+        ]
+        .iter()
+        .any(|term| lower.contains(term))
+        {
+            return Some("seek".into());
         }
     }
     if next_focus_node_id.is_some() {
@@ -2313,7 +2375,14 @@ pub fn handle_trail_resume(
     let next_open_question = trail.open_questions.first().cloned();
     let next_suggested_tool =
         trail_resume_suggested_tool(next_focus_node_id.as_ref(), next_open_question.as_ref());
-    let resume_hints = trail_resume_hints(&trail, &reactivated_node_ids, hint_limit);
+    let resume_hints = trail_resume_hints(
+        &trail,
+        &reactivated_node_ids,
+        next_focus_node_id.as_ref(),
+        next_open_question.as_ref(),
+        next_suggested_tool.as_deref(),
+        hint_limit,
+    );
 
     Ok(layers::TrailResumeOutput {
         trail_id: trail.trail_id.clone(),
@@ -7624,7 +7693,7 @@ fn l7_normalize_layer_scope(scope: Option<&str>, ingest_roots: &[String]) -> Opt
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan};
+    use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData};
     use crate::protocol::layers::{
         LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput, TrailResumeInput,
         TrailSaveInput, TrailVisitedNodeInput, ValidatePlanInput,
@@ -7988,6 +8057,10 @@ mod tests {
         assert!(resumed
             .resume_hints
             .iter()
+            .any(|hint| hint.contains("Re-open the current focus")));
+        assert!(resumed
+            .resume_hints
+            .iter()
             .any(|hint| hint.contains("file::src")));
     }
 
@@ -8052,6 +8125,69 @@ mod tests {
         );
 
         assert_eq!(suggested.as_deref(), Some("timeline"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_impact_for_blast_radius_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            Some(&"file::src/core.rs".to_string()),
+            Some(&"what breaks if we touch this file?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("impact"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_hypothesize_for_structural_proof_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            Some(&"file::src/core.rs".to_string()),
+            Some(&"why is this missing validation guard?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("hypothesize"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_seek_for_locator_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            None,
+            Some(&"which helper canonicalizes dispatch aliases?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("seek"));
+    }
+
+    #[test]
+    fn trail_resume_hints_start_with_tool_specific_next_move() {
+        let hints = super::trail_resume_hints(
+            &TrailData {
+                trail_id: "trail-1".into(),
+                label: "continuity".into(),
+                agent_id: "test".into(),
+                status: "saved".into(),
+                visited_nodes: vec![],
+                activation_boosts: HashMap::new(),
+                graph_generation: 1,
+                created_at_ms: 0,
+                last_modified_ms: 0,
+                hypotheses: vec![],
+                conclusions: vec![],
+                open_questions: vec!["what changed last in this file?".into()],
+                tags: vec![],
+                summary: None,
+                source_trails: vec![],
+            },
+            &["file::src/core.rs".into()],
+            Some(&"file::src/core.rs".into()),
+            Some(&"what changed last in this file?".into()),
+            Some("timeline"),
+            3,
+        );
+
+        assert_eq!(
+            hints.first().map(String::as_str),
+            Some("Use timeline on file::src/core.rs to answer the carried-forward question: what changed last in this file?")
+        );
     }
 
     #[test]
