@@ -226,18 +226,31 @@ pub fn handle_seek(
         } else {
             0.0
         };
+        let label_lower = graph.strings.resolve(graph.nodes.label[i]).to_lowercase();
+        let nt_str = l2_node_type_str(&graph.nodes.node_type[i]);
 
         let source_path_lower = graph.nodes.provenance[i]
             .source_path
             .and_then(|s| graph.strings.try_resolve(s))
             .unwrap_or("")
             .to_lowercase();
+        let tag_terms: Vec<String> = graph.nodes.tags[i]
+            .iter()
+            .map(|&ti| graph.strings.resolve(ti).to_lowercase())
+            .collect();
 
         let base_score = kw * 0.4
             + sem * 0.3
             + graph_activation * 0.2
             + tri * 0.1
-            + source_path_bias(Some(source_path_lower.as_str()), &all_tokens);
+            + source_path_bias(Some(source_path_lower.as_str()), &all_tokens)
+            + l2_seek_anchor_bias(
+                &all_tokens,
+                &label_lower,
+                source_path_lower.as_str(),
+                &tag_terms,
+                nt_str,
+            );
         if base_score >= input.min_score {
             base_ranked.push(BaseRankedNode {
                 idx: i,
@@ -5419,6 +5432,60 @@ fn l2_split_identifier(ident: &str) -> Vec<String> {
     tokens
 }
 
+fn l2_seek_anchor_bias(
+    query_tokens: &[String],
+    label_lower: &str,
+    source_path_lower: &str,
+    tag_terms: &[String],
+    node_type: &str,
+) -> f32 {
+    const DISPATCH_CLUSTER: &[&str] = &["alias", "canonical", "dispatch", "status", "tool", "name"];
+
+    let query_anchor_hits: Vec<&str> = DISPATCH_CLUSTER
+        .iter()
+        .copied()
+        .filter(|term| query_tokens.iter().any(|token| token == term))
+        .collect();
+    if query_anchor_hits.len() < 3 {
+        return 0.0;
+    }
+
+    let mut matched = 0usize;
+    for term in &query_anchor_hits {
+        let tag_match = tag_terms
+            .iter()
+            .any(|tag| tag == term || tag.contains(term));
+        if label_lower.contains(term) || source_path_lower.contains(term) || tag_match {
+            matched += 1;
+        }
+    }
+
+    if matched == 0 {
+        return 0.0;
+    }
+
+    let coverage = matched as f32 / query_anchor_hits.len() as f32;
+    let type_bias = match node_type {
+        "function" => 0.06,
+        "module" | "file" => 0.03,
+        _ => 0.0,
+    };
+    let code_path_bias =
+        if source_path_lower.contains("/src/") || source_path_lower.contains("src/") {
+            0.02
+        } else {
+            0.0
+        };
+    let docs_penalty = if source_path_lower.contains("/docs/") || source_path_lower.ends_with(".md")
+    {
+        -0.04
+    } else {
+        0.0
+    };
+
+    (coverage * 0.12 + type_bias + code_path_bias + docs_penalty).max(0.0)
+}
+
 /// Trigram cosine similarity between two strings.
 fn l2_trigram_similarity(a: &str, b: &str) -> f32 {
     let al = a.to_lowercase();
@@ -7655,6 +7722,16 @@ mod tests {
                 0.0,
             )
             .expect("add docs node");
+        let distractor = graph
+            .add_node(
+                "file::m1nd-mcp/src/server.rs::fn::format_dispatch_status",
+                "format_dispatch_status",
+                NodeType::Function,
+                &["dispatch", "status", "format"],
+                0.0,
+                0.0,
+            )
+            .expect("add distractor node");
         graph
             .add_edge(
                 dispatch,
@@ -7666,6 +7743,17 @@ mod tests {
                 FiniteF32::new(0.4),
             )
             .expect("add dispatch->docs edge");
+        graph
+            .add_edge(
+                dispatch,
+                distractor,
+                "related",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.3),
+            )
+            .expect("add dispatch->distractor edge");
         graph.finalize().expect("finalize graph");
 
         let mut state =
@@ -7987,6 +8075,44 @@ mod tests {
             "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name"
         );
         assert_eq!(output.results[0].node_type, "function");
+    }
+
+    #[test]
+    fn seek_biases_alias_canonical_dispatch_cluster_toward_normalization_helper() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_seek_natural_language_state(root);
+
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "Which helper maps alias tool names into canonical dispatch status values before execution?"
+                    .into(),
+                agent_id: "test".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+            },
+        )
+        .expect("seek should succeed");
+
+        assert!(
+            !output.results.is_empty(),
+            "seek should find a dispatch helper"
+        );
+        assert_eq!(
+            output.results[0].node_id,
+            "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name"
+        );
+        assert!(
+            output
+                .results
+                .iter()
+                .any(|result| result.node_id == "file::docs/dispatch-aliases.md"),
+            "docs distractor should remain visible in the candidate set"
+        );
     }
 
     #[test]
