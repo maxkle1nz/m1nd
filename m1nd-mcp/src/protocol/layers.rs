@@ -444,6 +444,12 @@ pub struct TrailResumeInput {
     /// Resume even if trail is stale (>50% missing nodes). Default: false.
     #[serde(default)]
     pub force: bool,
+    /// Max reactivated node previews to return. Default: 5.
+    #[serde(default = "default_top_k_5")]
+    pub max_reactivated_nodes: usize,
+    /// Max resume hints to return. Default: 4.
+    #[serde(default = "default_top_k_4")]
+    pub max_resume_hints: usize,
 }
 
 /// Output for m1nd.trail.resume.
@@ -1038,6 +1044,12 @@ pub struct FederateCrossRepoEdge {
 
 fn default_top_k() -> usize {
     20
+}
+fn default_top_k_5() -> usize {
+    5
+}
+fn default_top_k_4() -> usize {
+    4
 }
 fn default_top_k_10() -> usize {
     10
@@ -2028,6 +2040,8 @@ mod tests {
         let input: TrailResumeInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.trail_id, "trail_jimi_001_abc");
         assert!(!input.force);
+        assert_eq!(input.max_reactivated_nodes, 5);
+        assert_eq!(input.max_resume_hints, 4);
     }
 
     #[test]

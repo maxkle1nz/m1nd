@@ -1861,24 +1861,36 @@ fn trail_seed_boost(boosts: &mut HashMap<String, f32>, node_external_id: &str, w
         .or_insert(normalized);
 }
 
-fn trail_resume_hints(trail: &TrailData, strongest_nodes: &[String]) -> Vec<String> {
+fn trail_resume_hints(
+    trail: &TrailData,
+    strongest_nodes: &[String],
+    max_hints: usize,
+) -> Vec<String> {
+    if max_hints == 0 {
+        return Vec::new();
+    }
+
     let mut hints = Vec::new();
 
-    for question in trail.open_questions.iter().take(2) {
+    for question in trail.open_questions.iter().take(max_hints.min(2)) {
         hints.push(format!("Continue with open question: {}", question));
     }
 
-    for node in strongest_nodes.iter().take(2) {
+    for node in strongest_nodes
+        .iter()
+        .take(max_hints.saturating_sub(hints.len()).min(2))
+    {
         hints.push(format!("Inspect neighborhood around {}", node));
     }
 
-    if hints.is_empty() && !trail.hypotheses.is_empty() {
+    if hints.len() < max_hints && !trail.hypotheses.is_empty() {
         hints.push(format!(
             "Re-test hypothesis: {}",
             trail.hypotheses[0].statement
         ));
     }
 
+    hints.truncate(max_hints);
     hints
 }
 
@@ -2158,6 +2170,8 @@ pub fn handle_trail_resume(
     input: layers::TrailResumeInput,
 ) -> M1ndResult<layers::TrailResumeOutput> {
     let start = Instant::now();
+    let reactivated_limit = input.max_reactivated_nodes.clamp(0, 10);
+    let hint_limit = input.max_resume_hints.clamp(0, 8);
 
     let mut trail = load_trail(state, &input.trail_id)?;
 
@@ -2239,7 +2253,7 @@ pub fn handle_trail_resume(
     let reactivated_node_ids: Vec<String> = reactivated_nodes
         .iter()
         .map(|(node_id, _)| node_id.clone())
-        .take(5)
+        .take(reactivated_limit)
         .collect();
 
     // Check hypotheses — downgrade those whose supporting nodes are mostly missing
@@ -2273,7 +2287,7 @@ pub fn handle_trail_resume(
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     let next_focus_node_id = reactivated_node_ids.first().cloned();
     let next_open_question = trail.open_questions.first().cloned();
-    let resume_hints = trail_resume_hints(&trail, &reactivated_node_ids);
+    let resume_hints = trail_resume_hints(&trail, &reactivated_node_ids, hint_limit);
 
     Ok(layers::TrailResumeOutput {
         trail_id: trail.trail_id.clone(),
@@ -7916,6 +7930,8 @@ mod tests {
                 agent_id: "test".into(),
                 trail_id: saved.trail_id,
                 force: false,
+                max_reactivated_nodes: 5,
+                max_resume_hints: 4,
             },
         )
         .expect("trail resume should succeed");
@@ -7945,6 +7961,58 @@ mod tests {
             .resume_hints
             .iter()
             .any(|hint| hint.contains("file::src")));
+    }
+
+    #[test]
+    fn trail_resume_respects_output_compaction_limits() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let saved = super::handle_trail_save(
+            &mut state,
+            TrailSaveInput {
+                agent_id: "test".into(),
+                label: "compact continuity".into(),
+                hypotheses: vec![crate::protocol::layers::TrailHypothesisInput {
+                    statement: "core reaches ui".into(),
+                    confidence: 0.7,
+                    supporting_nodes: vec!["file::src/core.rs".into()],
+                    contradicting_nodes: vec![],
+                }],
+                conclusions: vec![TrailConclusionInput {
+                    statement: "ui depends on core".into(),
+                    confidence: 0.85,
+                    from_hypotheses: vec![],
+                    supporting_nodes: vec!["file::src/ui.rs".into()],
+                }],
+                open_questions: vec!["is there a test?".into(), "what changed last?".into()],
+                tags: vec![],
+                summary: None,
+                visited_nodes: vec![TrailVisitedNodeInput {
+                    node_external_id: "file::src/core.rs".into(),
+                    annotation: None,
+                    relevance: 0.8,
+                }],
+                activation_boosts: HashMap::new(),
+            },
+        )
+        .expect("trail save should succeed");
+
+        let resumed = super::handle_trail_resume(
+            &mut state,
+            TrailResumeInput {
+                agent_id: "test".into(),
+                trail_id: saved.trail_id,
+                force: false,
+                max_reactivated_nodes: 1,
+                max_resume_hints: 1,
+            },
+        )
+        .expect("trail resume should succeed");
+
+        assert_eq!(resumed.reactivated_node_ids.len(), 1);
+        assert_eq!(resumed.resume_hints.len(), 1);
     }
 
     #[test]
