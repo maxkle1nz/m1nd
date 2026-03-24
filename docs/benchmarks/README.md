@@ -51,6 +51,7 @@ The `--events` file is a JSON array. Each item can contain:
 - `next_focus_node_id`
 - `next_open_question`
 - `next_suggested_tool`
+- `next_tool_used`
 
 If `payload_chars` is omitted, the runner derives a conservative char count
 from the strings present in the event.
@@ -72,6 +73,7 @@ surfaced the next move. The actionable-resume scenarios are meant to benchmark
 - `proof_focused_edit_prep.json`
 - `structural_proof_apply_batch.json`
 - `continuity_actionable_resume.json`
+- `continuity_temporal_resume.json`
 
 These are warm-graph oriented starter scenarios for rerunning the benchmark
 work captured in `docs/BENCHMARK_RESEARCH_2026-03-24.md`.
@@ -80,3 +82,4 @@ In particular:
 
 - `continuity_boot_memory.json` captures the older, heavier continuity flow
 - `continuity_actionable_resume.json` captures compact resume plus next-step guidance
+- `continuity_temporal_resume.json` captures compact resume that routes directly into `timeline`

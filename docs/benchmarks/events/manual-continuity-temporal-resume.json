@@ -1,0 +1,42 @@
+[
+  {
+    "tool_name": "rg",
+    "query": "trail resume temporal change history",
+    "elapsed_ms": 3.8,
+    "payload_chars": 310,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "Manual pass starts by rediscovering where trail resume decides the next move."
+  },
+  {
+    "tool_name": "sed",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 4.2,
+    "payload_chars": 540,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "Manual inspection confirms trail resume logic and spots temporal wording."
+  },
+  {
+    "tool_name": "rg",
+    "query": "timeline commit subject churn",
+    "elapsed_ms": 3.1,
+    "payload_chars": 290,
+    "opened_files": [
+      "m1nd-mcp/src/protocol/layers.rs"
+    ],
+    "notes": "Second search reformulates toward timeline details."
+  },
+  {
+    "tool_name": "sed",
+    "target": "m1nd-mcp/src/protocol/layers.rs",
+    "elapsed_ms": 4.4,
+    "payload_chars": 620,
+    "opened_files": [
+      "m1nd-mcp/src/protocol/layers.rs"
+    ],
+    "notes": "Manual path reaches the proof surface after two searches and two file reads."
+  }
+]

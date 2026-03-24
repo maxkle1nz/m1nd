@@ -35,6 +35,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
     aggregate_warm_repeat_reads = 0
     aggregate_manual_false_starts = 0
     aggregate_warm_false_starts = 0
+    aggregate_manual_guidance_events = 0
+    aggregate_warm_guidance_events = 0
+    aggregate_manual_guidance_followed = 0
+    aggregate_warm_guidance_followed = 0
     compared = 0
 
     for scenario_id, modes in sorted(by_scenario.items()):
@@ -54,6 +58,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "repeat_reads": manual["repeat_reads"],
                 "search_iterations": manual["search_iterations"],
                 "false_start_count": manual.get("false_start_count", 0),
+                "guidance_events": manual.get("guidance_events", 0),
+                "guidance_followed": manual.get("guidance_followed", 0),
             }
         if warm:
             entry["m1nd_warm"] = {
@@ -64,6 +70,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "repeat_reads": warm["repeat_reads"],
                 "search_iterations": warm["search_iterations"],
                 "false_start_count": warm.get("false_start_count", 0),
+                "guidance_events": warm.get("guidance_events", 0),
+                "guidance_followed": warm.get("guidance_followed", 0),
             }
         if manual and warm:
             token_delta = manual["token_proxy"] - warm["token_proxy"]
@@ -78,6 +86,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "repeat_read_delta": manual["repeat_reads"] - warm["repeat_reads"],
                 "false_start_delta": manual.get("false_start_count", 0)
                 - warm.get("false_start_count", 0),
+                "guidance_event_delta": manual.get("guidance_events", 0)
+                - warm.get("guidance_events", 0),
+                "guidance_followed_delta": manual.get("guidance_followed", 0)
+                - warm.get("guidance_followed", 0),
             }
             aggregate_manual += manual["token_proxy"]
             aggregate_warm += warm["token_proxy"]
@@ -89,6 +101,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             aggregate_warm_repeat_reads += warm["repeat_reads"]
             aggregate_manual_false_starts += manual.get("false_start_count", 0)
             aggregate_warm_false_starts += warm.get("false_start_count", 0)
+            aggregate_manual_guidance_events += manual.get("guidance_events", 0)
+            aggregate_warm_guidance_events += warm.get("guidance_events", 0)
+            aggregate_manual_guidance_followed += manual.get("guidance_followed", 0)
+            aggregate_warm_guidance_followed += warm.get("guidance_followed", 0)
             compared += 1
         scenarios.append(entry)
 
@@ -124,6 +140,14 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             "m1nd_warm_false_starts": aggregate_warm_false_starts,
             "false_start_delta": aggregate_manual_false_starts
             - aggregate_warm_false_starts,
+            "manual_guidance_events": aggregate_manual_guidance_events,
+            "m1nd_warm_guidance_events": aggregate_warm_guidance_events,
+            "guidance_event_delta": aggregate_manual_guidance_events
+            - aggregate_warm_guidance_events,
+            "manual_guidance_followed": aggregate_manual_guidance_followed,
+            "m1nd_warm_guidance_followed": aggregate_warm_guidance_followed,
+            "guidance_followed_delta": aggregate_manual_guidance_followed
+            - aggregate_warm_guidance_followed,
         }
         if input_price_per_1m is not None:
             summary["aggregate"]["input_price_per_1m"] = input_price_per_1m

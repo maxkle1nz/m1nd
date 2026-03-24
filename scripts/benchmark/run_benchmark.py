@@ -49,12 +49,28 @@ def summarize_events(events):
     files_open_sequence = []
     search_iterations = 0
     chars_surfaced = 0
+    guidance_events = 0
+    guidance_followed = 0
+    reactivated_nodes = 0
+    resume_hints = 0
 
     for event in events:
         chars_surfaced += event["payload_chars"]
         tool_name = str(event.get("tool_name", "")).lower()
         if any(token in tool_name for token in ("search", "seek", "grep", "glob", "rg")):
             search_iterations += 1
+        suggested_tool = event.get("next_suggested_tool")
+        if isinstance(suggested_tool, str) and suggested_tool:
+            guidance_events += 1
+            next_tool_used = str(event.get("next_tool_used", "")).strip()
+            if next_tool_used and next_tool_used == suggested_tool:
+                guidance_followed += 1
+        reactivated = event.get("reactivated_node_ids")
+        if isinstance(reactivated, list):
+            reactivated_nodes += len(reactivated)
+        hints = event.get("resume_hints")
+        if isinstance(hints, list):
+            resume_hints += len(hints)
         for key in ("opened_files", "surfaced_files"):
             for path in event.get(key, []):
                 files_open_sequence.append(str(path))
@@ -68,6 +84,10 @@ def summarize_events(events):
         "search_iterations": search_iterations,
         "chars_surfaced": chars_surfaced,
         "token_proxy": math.ceil(chars_surfaced / 4) if chars_surfaced else 0,
+        "guidance_events": guidance_events,
+        "guidance_followed": guidance_followed,
+        "reactivated_nodes": reactivated_nodes,
+        "resume_hints": resume_hints,
     }
 
 
@@ -105,6 +125,10 @@ def build_run(args):
         "search_iterations": derived["search_iterations"],
         "chars_surfaced": derived["chars_surfaced"],
         "token_proxy": derived["token_proxy"],
+        "guidance_events": derived["guidance_events"],
+        "guidance_followed": derived["guidance_followed"],
+        "reactivated_nodes": derived["reactivated_nodes"],
+        "resume_hints": derived["resume_hints"],
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),
@@ -145,6 +169,8 @@ def main():
             "files_opened": run["files_opened"],
             "repeat_reads": run["repeat_reads"],
             "search_iterations": run["search_iterations"],
+            "guidance_events": run["guidance_events"],
+            "guidance_followed": run["guidance_followed"],
             "output": str(Path(args.output)),
         },
         indent=2,

@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_continuity_temporal_resume",
+  "scenario_name": "Warm continuity resume with temporal follow-up routing",
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "Resume a saved investigation whose next open question is temporal and continue straight into recent-change proof.",
+  "tags": ["warm-graph", "continuity", "trail-resume", "timeline", "temporal"],
+  "expected_strength": "strong"
+}

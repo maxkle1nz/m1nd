@@ -382,20 +382,22 @@ Current harness-backed comparison set:
 - `warm_proof_focused_edit_prep`
 - `warm_structural_proof_apply_batch`
 - `warm_continuity_actionable_resume`
+- `warm_continuity_temporal_resume`
 
 Current aggregate from those recorded runs:
 
-- manual token proxy: `4751`
-- warm `m1nd` token proxy: `1771`
-- aggregate token savings: `62.72%`
-- manual first good answer total: `240.315ms`
-- warm `m1nd` first good answer total: `5839.8ms`
-- manual search iterations: `6`
+- manual token proxy: `5191`
+- warm `m1nd` token proxy: `1946`
+- aggregate token savings: `62.51%`
+- manual first good answer total: `251.715ms`
+- warm `m1nd` first good answer total: `5844.9ms`
+- manual search iterations: `8`
 - warm `m1nd` search iterations: `4`
-- manual repeat reads: `9`
-- warm `m1nd` repeat reads: `7`
-- manual false starts: `1`
+- manual repeat reads: `11`
+- warm `m1nd` repeat reads: `8`
+- manual false starts: `2`
 - warm `m1nd` false starts: `0`
+- warm `m1nd` guidance-followed count: `1`
 
 Interpretation:
 
@@ -403,6 +405,7 @@ Interpretation:
 - the recorded time values are not yet a public speed claim
 - `proof_focused` edit prep is currently the strongest harness-backed compactness win in the corpus
 - the new actionable continuity scenario is a strong workflow win: fewer searches, fewer rereads, and no false start before the next concrete move
+- the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
 - the older `warm_continuity_boot_memory` scenario remains the main drag on first-answer latency, which keeps continuity as the top latency candidate for a future patch
 - the next useful benchmark step is to rerun continuity and semantic retrieval with stricter event capture and less synthetic timing overhead
 
@@ -422,6 +425,22 @@ Interpretation:
 - the compact resume limits make that win cheaper in payload without changing the shape of the workflow
 - the returned `next_focus_node_id`, `resume_hints`, and `next_suggested_tool` make the continuation seam explicit instead of forcing a fresh search loop
 - this makes continuity a more defensible `m1nd` value surface for docs and release notes
+
+### New continuity result: temporal resume routed into `timeline`
+
+The newest follow-up scenario tests a narrower but important claim: when the
+carried-forward question is temporal, can `trail_resume` route the agent
+directly into the right proof tool instead of forcing another discovery loop?
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Temporal continuity resume | 440 | 175 | 60.23% | Search iterations drop from `2` to `0`; false starts drop from `1` to `0`; guidance followed `1/1` |
+
+Interpretation:
+
+- this is the first harness-backed proof that `trail_resume` can route directly into `timeline`
+- the main win is not just compression; it is eliminating the intermediate rediscovery step
+- this makes `next_suggested_tool` measurable instead of anecdotal inside the benchmark corpus
 
 ### Priority 1
 
