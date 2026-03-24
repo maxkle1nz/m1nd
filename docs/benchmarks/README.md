@@ -169,6 +169,7 @@ In particular:
 - `perspective_stale_route_recovery.json` captures a stateful recovery loop where a stale `route_set_version` points the agent to `perspective_routes`, then back into a fresh `perspective_follow` without restarting the investigation
 - `edit_preview_source_modified_recovery.json` captures a write-safety recovery loop where `edit_commit` rejects a stale preview, teaches the agent to rerun `edit_preview`, and keeps the edit flow safe without forcing a blind write
 - `apply_batch_path_safety_recovery.json` captures a long-running write-safety recovery loop where `apply_batch` rejects an out-of-root target, teaches the agent to retry inside the ingested workspace, and preserves progress plus handoff on the successful retry
+- `apply_batch_protected_state_recovery.json` captures a runtime-safety recovery loop where `apply_batch` rejects a protected `graph/plasticity` state file, redirects the agent back to a source file, and preserves the proof handoff after the safe retry
 - `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`, detailed `progress_events`, and the post-batch handoff into the next proof surface
 - `structural_proof_apply_batch.json` currently marks `apply_batch` progress as `live`, which reflects the current serve-mode behavior rather than the older replay-only contract
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone

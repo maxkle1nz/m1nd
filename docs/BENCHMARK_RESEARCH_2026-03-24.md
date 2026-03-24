@@ -348,6 +348,26 @@ Interpretation:
   manual workspace debugging
 - the repair loop stays inside `apply_batch`, preserves progress visibility, and
   lands in a clean in-workspace retry with an explicit next step
+
+`warm_apply_batch_protected_state_recovery`
+
+- manual token proxy: `240`
+- `m1nd_warm` token proxy: `244`
+- savings: `-1.67%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is a runtime-safety recovery benchmark
+- the token story is again flat because the successful batch still has to run in
+  both paths
+- the real gain is that the guard rail prevents the agent from writing into the
+  system's own graph/plasticity state and redirects it back into source code
+- this is the kind of organism-level safety improvement that matters more than a
+  small token delta
 - `live_progress_events`
 - `replay_progress_events`
 - `snapshot_progress_events`
@@ -359,21 +379,21 @@ not only explain the batch after it ends.
 ## Current Warm-Graph Corpus Snapshot
 
 The current versioned corpus lives under `docs/benchmarks/` and currently compares
-thirteen warm-graph scenarios.
+fourteen warm-graph scenarios.
 
 At the current branch tip, the aggregate summary is:
 
-- manual token proxy: `8,352`
-- `m1nd_warm` token proxy: `3,252`
-- aggregate token savings: `61.06%`
+- manual token proxy: `8,592`
+- `m1nd_warm` token proxy: `3,496`
+- aggregate token savings: `59.31%`
 - manual guidance events: `0`
-- `m1nd_warm` guidance events: `17`
-- manual progress events: `5`
-- `m1nd_warm` progress events: `10`
-- manual false starts: `7`
+- `m1nd_warm` guidance events: `19`
+- manual progress events: `10`
+- `m1nd_warm` progress events: `15`
+- manual false starts: `8`
 - `m1nd_warm` false starts: `0`
 - manual recovery events: `0`
-- `m1nd_warm` recovery events: `4`
+- `m1nd_warm` recovery events: `5`
 
 The important new truth is not just “there are progress events.” It is that the
 benchmark harness can now distinguish:
