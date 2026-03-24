@@ -12,5 +12,21 @@
       "m1nd-mcp/src/protocol/surgical.rs"
     ],
     "notes": "validate_plan now includes a compact proof_hint and suggests the next surface directly, so first proof no longer needs an extra discovery step."
+  },
+  {
+    "tool_name": "m1nd.apply_batch",
+    "target": "m1nd-mcp/src/surgical_handlers.rs",
+    "elapsed_ms": 165.0,
+    "payload_chars": 220,
+    "active_phase": "done",
+    "completed_phase_count": 5,
+    "phase_count": 5,
+    "remaining_phase_count": 0,
+    "progress_pct": 100.0,
+    "next_phase": null,
+    "surfaced_files": [
+      "m1nd-mcp/src/surgical_handlers.rs"
+    ],
+    "notes": "apply_batch now exposes global progress metadata so shells and UIs can show both the current stage and what remains without reconstructing the whole phase timeline."
   }
 ]

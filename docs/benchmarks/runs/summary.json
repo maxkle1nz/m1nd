@@ -19,7 +19,9 @@
         "false_start_count": 1,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 145,
@@ -31,7 +33,9 @@
         "false_start_count": 0,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 1195,
@@ -41,7 +45,8 @@
         "repeat_read_delta": 2,
         "false_start_delta": 1,
         "guidance_event_delta": 0,
-        "guidance_followed_delta": 0
+        "guidance_followed_delta": 0,
+        "progress_event_delta": 0
       }
     },
     {
@@ -61,7 +66,9 @@
         "false_start_count": 0,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 148,
@@ -73,7 +80,9 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 895,
@@ -83,7 +92,8 @@
         "repeat_read_delta": 1,
         "false_start_delta": 0,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": 0
       }
     },
     {
@@ -103,7 +113,9 @@
         "false_start_count": 1,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 175,
@@ -115,7 +127,9 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 265,
@@ -125,7 +139,8 @@
         "repeat_read_delta": 1,
         "false_start_delta": 1,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": 0
       }
     },
     {
@@ -145,7 +160,9 @@
         "false_start_count": 0,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 310,
@@ -157,7 +174,9 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": "ready_to_edit"
+        "final_proof_state": "ready_to_edit",
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 360,
@@ -167,7 +186,8 @@
         "repeat_read_delta": 1,
         "false_start_delta": 0,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": 0
       }
     },
     {
@@ -187,7 +207,9 @@
         "false_start_count": 0,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 295,
@@ -199,7 +221,9 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": "proving"
+        "final_proof_state": "proving",
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 355,
@@ -209,7 +233,8 @@
         "repeat_read_delta": 1,
         "false_start_delta": 0,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": 0
       }
     },
     {
@@ -229,7 +254,9 @@
         "false_start_count": 0,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 388,
@@ -241,7 +268,9 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": "proving"
+        "final_proof_state": "proving",
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 727,
@@ -251,7 +280,8 @@
         "repeat_read_delta": 1,
         "false_start_delta": 0,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": 0
       }
     },
     {
@@ -271,7 +301,9 @@
         "false_start_count": 0,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 350,
@@ -283,7 +315,9 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 210,
@@ -293,7 +327,8 @@
         "repeat_read_delta": 0,
         "false_start_delta": 0,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": 0
       }
     },
     {
@@ -313,29 +348,34 @@
         "false_start_count": 0,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
-        "token_proxy": 115,
+        "token_proxy": 170,
         "time_to_first_good_answer_ms": 181.0,
         "time_to_full_proof_ms": 401.0,
         "files_opened": 2,
-        "repeat_reads": 0,
+        "repeat_reads": 1,
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": "proving"
+        "final_proof_state": "proving",
+        "progress_events": 1,
+        "max_progress_pct": 100.0
       },
       "comparison": {
-        "token_delta": 578,
-        "token_savings_pct": 83.41,
+        "token_delta": 523,
+        "token_savings_pct": 75.47,
         "first_good_answer_delta_ms": -18.0,
         "search_iteration_delta": 1,
-        "repeat_read_delta": 1,
+        "repeat_read_delta": 0,
         "false_start_delta": 0,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": -1
       }
     },
     {
@@ -355,7 +395,9 @@
         "false_start_count": 1,
         "guidance_events": 0,
         "guidance_followed": 0,
-        "final_proof_state": null
+        "final_proof_state": null,
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "m1nd_warm": {
         "token_proxy": 170,
@@ -367,7 +409,9 @@
         "false_start_count": 0,
         "guidance_events": 1,
         "guidance_followed": 1,
-        "final_proof_state": "triaging"
+        "final_proof_state": "triaging",
+        "progress_events": 0,
+        "max_progress_pct": 0.0
       },
       "comparison": {
         "token_delta": 440,
@@ -377,15 +421,16 @@
         "repeat_read_delta": 0,
         "false_start_delta": 1,
         "guidance_event_delta": -1,
-        "guidance_followed_delta": -1
+        "guidance_followed_delta": -1,
+        "progress_event_delta": 0
       }
     }
   ],
   "aggregate": {
     "manual_token_proxy": 7121,
-    "m1nd_warm_token_proxy": 2096,
-    "token_delta": 5025,
-    "token_savings_pct": 70.57,
+    "m1nd_warm_token_proxy": 2151,
+    "token_delta": 4970,
+    "token_savings_pct": 69.79,
     "manual_first_good_answer_ms": 306.115,
     "m1nd_warm_first_good_answer_ms": 203.942,
     "first_good_answer_delta_ms": 102.173,
@@ -393,8 +438,8 @@
     "m1nd_warm_search_iterations": 2,
     "search_iteration_delta": 9,
     "manual_repeat_reads": 16,
-    "m1nd_warm_repeat_reads": 8,
-    "repeat_read_delta": 8,
+    "m1nd_warm_repeat_reads": 9,
+    "repeat_read_delta": 7,
     "manual_false_starts": 3,
     "m1nd_warm_false_starts": 0,
     "false_start_delta": 3,
@@ -403,6 +448,9 @@
     "guidance_event_delta": -8,
     "manual_guidance_followed": 0,
     "m1nd_warm_guidance_followed": 8,
-    "guidance_followed_delta": -8
+    "guidance_followed_delta": -8,
+    "manual_progress_events": 0,
+    "m1nd_warm_progress_events": 1,
+    "progress_event_delta": -1
   }
 }

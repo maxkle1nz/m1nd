@@ -54,6 +54,10 @@ def summarize_events(events):
     reactivated_nodes = 0
     resume_hints = 0
     proof_states = []
+    progress_events = 0
+    max_progress_pct = 0.0
+    active_phases = []
+    next_phases = []
 
     for event in events:
         chars_surfaced += event["payload_chars"]
@@ -75,6 +79,16 @@ def summarize_events(events):
         proof_state = event.get("proof_state")
         if isinstance(proof_state, str) and proof_state:
             proof_states.append(proof_state)
+        progress_pct = event.get("progress_pct")
+        if isinstance(progress_pct, (int, float)):
+            progress_events += 1
+            max_progress_pct = max(max_progress_pct, float(progress_pct))
+        active_phase = event.get("active_phase")
+        if isinstance(active_phase, str) and active_phase:
+            active_phases.append(active_phase)
+        next_phase = event.get("next_phase")
+        if isinstance(next_phase, str) and next_phase:
+            next_phases.append(next_phase)
         for key in ("opened_files", "surfaced_files"):
             for path in event.get(key, []):
                 files_open_sequence.append(str(path))
@@ -93,6 +107,10 @@ def summarize_events(events):
         "reactivated_nodes": reactivated_nodes,
         "resume_hints": resume_hints,
         "proof_states": proof_states,
+        "progress_events": progress_events,
+        "max_progress_pct": round(max_progress_pct, 2),
+        "active_phases": active_phases,
+        "next_phases": next_phases,
     }
 
 
@@ -136,6 +154,10 @@ def build_run(args):
         "resume_hints": derived["resume_hints"],
         "proof_states": derived["proof_states"],
         "final_proof_state": derived["proof_states"][-1] if derived["proof_states"] else None,
+        "progress_events": derived["progress_events"],
+        "max_progress_pct": derived["max_progress_pct"],
+        "active_phases": derived["active_phases"],
+        "next_phases": derived["next_phases"],
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),
@@ -178,6 +200,8 @@ def main():
             "search_iterations": run["search_iterations"],
             "guidance_events": run["guidance_events"],
             "guidance_followed": run["guidance_followed"],
+            "progress_events": run["progress_events"],
+            "max_progress_pct": run["max_progress_pct"],
             "output": str(Path(args.output)),
         },
         indent=2,

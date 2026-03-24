@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-24T19:58:52.096803+00:00",
+  "recorded_at": "2026-03-24T22:01:07.488345+00:00",
   "scenario_id": "warm_structural_proof_apply_batch",
   "scenario_name": "Warm structural proof around apply_batch risky verification",
   "scenario_tags": [
@@ -18,7 +18,7 @@
   "false_start_count": 0,
   "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
-  "workflow_notes": "validate_plan now carries a compact proof_hint and explicit next-step guidance for structural proof",
+  "workflow_notes": "validate_plan now carries a compact proof hint while apply_batch exposes measurable batch progress metadata for the execution handoff",
   "notes": "",
   "events": [
     {
@@ -36,13 +36,31 @@
       "notes": "validate_plan now includes a compact proof_hint and suggests the next surface directly, so first proof no longer needs an extra discovery step.",
       "event_index": 1,
       "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.apply_batch",
+      "target": "m1nd-mcp/src/surgical_handlers.rs",
+      "elapsed_ms": 165.0,
+      "payload_chars": 220,
+      "active_phase": "done",
+      "completed_phase_count": 5,
+      "phase_count": 5,
+      "remaining_phase_count": 0,
+      "progress_pct": 100.0,
+      "next_phase": null,
+      "surfaced_files": [
+        "m1nd-mcp/src/surgical_handlers.rs"
+      ],
+      "notes": "apply_batch now exposes global progress metadata so shells and UIs can show both the current stage and what remains without reconstructing the whole phase timeline.",
+      "event_index": 2,
+      "opened_files": []
     }
   ],
   "files_opened": 2,
-  "repeat_reads": 0,
+  "repeat_reads": 1,
   "search_iterations": 0,
-  "chars_surfaced": 460,
-  "token_proxy": 115,
+  "chars_surfaced": 680,
+  "token_proxy": 170,
   "guidance_events": 1,
   "guidance_followed": 1,
   "reactivated_nodes": 0,
@@ -51,6 +69,12 @@
     "proving"
   ],
   "final_proof_state": "proving",
+  "progress_events": 1,
+  "max_progress_pct": 100.0,
+  "active_phases": [
+    "done"
+  ],
+  "next_phases": [],
   "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
   "question": "Prove why an apply_batch change should be considered risky with compact structural evidence.",
   "expected_strength": "strong"

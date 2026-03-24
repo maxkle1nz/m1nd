@@ -120,5 +120,5 @@ In particular:
 - `hypothesize_structural_claim_follow_up.json` captures `hypothesize` plus guided follow-up into the strongest proof target
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
-- `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan`
+- `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone
