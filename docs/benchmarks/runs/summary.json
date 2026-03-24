@@ -1,6 +1,6 @@
 {
-  "run_count": 12,
-  "compared_scenarios": 6,
+  "run_count": 14,
+  "compared_scenarios": 7,
   "scenarios": [
     {
       "scenario_id": "warm_continuity_actionable_resume",
@@ -241,34 +241,74 @@
         "guidance_event_delta": -1,
         "guidance_followed_delta": -1
       }
+    },
+    {
+      "scenario_id": "warm_trace_root_cause_triage",
+      "scenario_name": "Warm trace-guided root-cause triage",
+      "modes_present": [
+        "m1nd_warm",
+        "manual"
+      ],
+      "manual": {
+        "token_proxy": 610,
+        "time_to_first_good_answer_ms": 15.7,
+        "time_to_full_proof_ms": 23.4,
+        "files_opened": 2,
+        "repeat_reads": 1,
+        "search_iterations": 1,
+        "false_start_count": 1,
+        "guidance_events": 0,
+        "guidance_followed": 0
+      },
+      "m1nd_warm": {
+        "token_proxy": 170,
+        "time_to_first_good_answer_ms": 4.0,
+        "time_to_full_proof_ms": 6.4,
+        "files_opened": 1,
+        "repeat_reads": 1,
+        "search_iterations": 0,
+        "false_start_count": 0,
+        "guidance_events": 1,
+        "guidance_followed": 1
+      },
+      "comparison": {
+        "token_delta": 440,
+        "token_savings_pct": 72.13,
+        "first_good_answer_delta_ms": 11.7,
+        "search_iteration_delta": 1,
+        "repeat_read_delta": 0,
+        "false_start_delta": 1,
+        "guidance_event_delta": -1,
+        "guidance_followed_delta": -1
+      }
     }
   ],
   "aggregate": {
-    "manual_token_proxy": 5191,
-    "m1nd_warm_token_proxy": 1321,
-    "token_delta": 3870,
-    "token_savings_pct": 74.55,
-    "manual_first_good_answer_ms": 251.715,
-    "m1nd_warm_first_good_answer_ms": 201.342,
-    "first_good_answer_delta_ms": 50.373,
-    "manual_search_iterations": 8,
+    "manual_token_proxy": 5801,
+    "m1nd_warm_token_proxy": 1491,
+    "token_delta": 4310,
+    "token_savings_pct": 74.3,
+    "manual_first_good_answer_ms": 267.415,
+    "m1nd_warm_first_good_answer_ms": 205.342,
+    "first_good_answer_delta_ms": 62.073,
+    "manual_search_iterations": 9,
     "m1nd_warm_search_iterations": 2,
-    "search_iteration_delta": 6,
-    "manual_repeat_reads": 11,
-    "m1nd_warm_repeat_reads": 5,
+    "search_iteration_delta": 7,
+    "manual_repeat_reads": 12,
+    "m1nd_warm_repeat_reads": 6,
     "repeat_read_delta": 6,
-    "manual_false_starts": 2,
+    "manual_false_starts": 3,
     "m1nd_warm_false_starts": 0,
-    "false_start_delta": 2,
+    "false_start_delta": 3,
     "manual_guidance_events": 0,
-    "m1nd_warm_guidance_events": 4,
-    "guidance_event_delta": -4,
+    "m1nd_warm_guidance_events": 5,
+    "guidance_event_delta": -5,
     "manual_guidance_followed": 0,
-    "m1nd_warm_guidance_followed": 4,
-    "guidance_followed_delta": -4,
+    "m1nd_warm_guidance_followed": 5,
+    "guidance_followed_delta": -5,
     "input_price_per_1m": 5.0,
-    "estimated_input_cost_saved_usd": 0.01935,
+    "estimated_input_cost_saved_usd": 0.02155,
     "time_value_per_hour_usd": 100.0,
-    "estimated_time_value_saved_usd": 0.001399
+    "estimated_time_value_saved_usd": 0.001724
   }
 }

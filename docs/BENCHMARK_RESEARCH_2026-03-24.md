@@ -383,21 +383,22 @@ Current harness-backed comparison set:
 - `warm_structural_proof_apply_batch`
 - `warm_continuity_actionable_resume`
 - `warm_continuity_temporal_resume`
+- `warm_trace_root_cause_triage`
 
 Current aggregate from those recorded runs:
 
-- manual token proxy: `5191`
-- warm `m1nd` token proxy: `1321`
-- aggregate token savings: `74.55%`
-- manual first good answer total: `251.715ms`
-- warm `m1nd` first good answer total: `201.342ms`
-- manual search iterations: `8`
+- manual token proxy: `5801`
+- warm `m1nd` token proxy: `1491`
+- aggregate token savings: `74.3%`
+- manual first good answer total: `267.415ms`
+- warm `m1nd` first good answer total: `205.342ms`
+- manual search iterations: `9`
 - warm `m1nd` search iterations: `2`
-- manual repeat reads: `11`
+- manual repeat reads: `12`
 - warm `m1nd` repeat reads: `6`
-- manual false starts: `2`
+- manual false starts: `3`
 - warm `m1nd` false starts: `0`
-- warm `m1nd` guidance-followed count: `4`
+- warm `m1nd` guidance-followed count: `5`
 
 Interpretation:
 
@@ -410,7 +411,22 @@ Interpretation:
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
 - guidance-followed is now measurable in continuity, structural-proof, and edit-prep flows, not only resume scenarios
+- `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
+
+### New triage result: `trace` now guides the next move
+
+The trace/root-cause scenario is now part of the harness corpus instead of
+living only in the earlier narrative rounds.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Trace-guided root-cause triage | 610 | 170 | 72.13% | Search iterations drop from `1` to `0`; false starts drop from `1` to `0`; guidance followed `1/1` |
+
+Interpretation:
+
+- `trace` no longer only ranks suspects; it now hands the agent the next concrete move
+- that makes stacktrace triage part of the same measurable guidance surface as continuity and proof workflows
 
 ### New continuity result: actionable resume hints
 

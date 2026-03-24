@@ -1,0 +1,62 @@
+{
+  "recorded_at": "2026-03-24T19:25:36.224962+00:00",
+  "scenario_id": "warm_trace_root_cause_triage",
+  "scenario_name": "Warm trace-guided root-cause triage",
+  "scenario_tags": [
+    "warm-graph",
+    "trace",
+    "triage",
+    "root-cause"
+  ],
+  "mode": "manual",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 15.7,
+  "time_to_full_proof_ms": 23.4,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 1,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "manual triage requires search plus handler inspection before landing on the suspect file",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "rg",
+      "query": "worker pool closed during submit runtimeerror stacktrace json adapter",
+      "elapsed_ms": 8.6,
+      "payload_chars": 1260,
+      "surfaced_files": [
+        "m1nd-mcp/src/layer_handlers.rs",
+        "m1nd-mcp/src/protocol/layers.rs"
+      ],
+      "notes": "Manual pass starts by searching for the failure text and likely parser locations.",
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "read_file",
+      "target": "m1nd-mcp/src/layer_handlers.rs",
+      "elapsed_ms": 7.1,
+      "payload_chars": 1180,
+      "opened_files": [
+        "m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "notes": "Manual inspection walks the trace handler implementation to find the suspect path.",
+      "event_index": 2,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 2,
+  "repeat_reads": 1,
+  "search_iterations": 1,
+  "chars_surfaced": 2440,
+  "token_proxy": 610,
+  "guidance_events": 0,
+  "guidance_followed": 0,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "question": "Start from a stacktrace, identify the most likely structural suspect, and continue into the right file without manual frame chasing.",
+  "expected_strength": "strong"
+}
