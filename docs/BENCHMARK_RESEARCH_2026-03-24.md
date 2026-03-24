@@ -351,12 +351,14 @@ Implemented so far:
 - `surgical_context_v2` now has an opt-in `proof_focused` mode for smaller connected proof sets
 - `trail_save` now auto-derives structural boosts from visited nodes, hypotheses, and conclusions
 - `trail_resume` now reactivates that derived structural memory without requiring explicit manual boosts
+- literal search now demotes fixture-like hardcoded identity noise in continuity-style queries
 
 Current implication:
 
 - the benchmark work is no longer only observational
 - the repo now contains concrete patches aimed at reducing warm-graph payload and retrieval reformulation
 - continuity is now less dependent on perfect caller-side bookkeeping
+- continuity lookup should surface fewer false seams from test fixtures and mock paths
 - the next benchmark pass should explicitly measure `proof_focused` against the previous `surgical_context_v2` behavior
 
 ### Priority 1

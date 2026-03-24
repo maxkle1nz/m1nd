@@ -29,12 +29,13 @@ Implemented on `codex/benchmark-research-and-timeline-p1`:
 - `surgical_context_v2.proof_focused` for smaller connected proof bundles
 - automatic structural boost derivation in `trail_save`
 - structural node reactivation from derived boosts in `trail_resume`
+- literal search demotion of fixture-like hardcoded identity noise
 
 Still open after this pass:
 
 - measure the practical effect of `proof_focused` in warm-graph edit-prep scenarios
 - deepen `trail_resume` so saved investigations reopen the next useful question, not only the boosted graph state
-- reduce literal-search fixture contamination in continuity flows
+- measure whether literal-search continuity now needs fewer reformulations in warm-graph runs
 
 ## Priority 1
 

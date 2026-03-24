@@ -1068,8 +1068,50 @@ fn result_rank(entry: &SearchResultEntry, query_lower: &str, mode: SearchRanking
     if matches!(mode, SearchRankingMode::Semantic) {
         score += 10;
     }
+    if matches!(mode, SearchRankingMode::Literal) {
+        score -= fixture_noise_penalty(entry, query_lower);
+    }
 
     score
+}
+
+fn fixture_noise_penalty(entry: &SearchResultEntry, query_lower: &str) -> i32 {
+    let file_path = entry.file_path.to_lowercase();
+    let matched_line = entry.matched_line.to_lowercase();
+
+    let fixture_like_path = [
+        "/tests/",
+        "/test/",
+        "/fixtures/",
+        "/fixture/",
+        "/mocks/",
+        "/mock/",
+        "/examples/",
+        "/docs/",
+        "/samples/",
+    ]
+    .iter()
+    .any(|needle| file_path.contains(needle))
+        || file_path.ends_with("_test.rs")
+        || file_path.ends_with("_test.py")
+        || file_path.contains("fixture")
+        || file_path.contains("mock");
+
+    if !fixture_like_path {
+        return 0;
+    }
+
+    let hardcoded_identity_like = matched_line.contains("file::")
+        || matched_line.contains("node_")
+        || matched_line.contains("/src/")
+        || matched_line.contains("::fn::")
+        || matched_line.contains("::class::");
+
+    if hardcoded_identity_like && matched_line.contains(query_lower) {
+        260
+    } else {
+        80
+    }
 }
 
 fn exact_token_match(haystack: &str, needle: &str) -> bool {
@@ -1869,5 +1911,47 @@ mod tests {
             results[0].node_id,
             "file::m1nd/m1nd-mcp/src/boot_memory_handlers.rs"
         );
+    }
+
+    #[test]
+    fn ranking_demotes_fixture_like_literal_identity_noise() {
+        let mut results = vec![
+            SearchResultEntry {
+                node_id: "file::tests/fixtures/continuity_fixture.rs".into(),
+                label: "tests/fixtures/continuity_fixture.rs".into(),
+                node_type: "FileContent".into(),
+                score: None,
+                file_path: "/abs/tests/fixtures/continuity_fixture.rs".into(),
+                line_number: 18,
+                matched_line:
+                    "let saved = \"file::m1nd/m1nd-mcp/src/session.rs::fn::persist_boot_memory\";"
+                        .into(),
+                context_before: vec![],
+                context_after: vec![],
+                graph_linked: false,
+                heuristic_signals: None,
+            },
+            SearchResultEntry {
+                node_id: "file::m1nd/m1nd-mcp/src/session.rs".into(),
+                label: "session.rs".into(),
+                node_type: "FileContent".into(),
+                score: None,
+                file_path: "/abs/m1nd/m1nd-mcp/src/session.rs".into(),
+                line_number: 42,
+                matched_line: "pub fn persist_boot_memory(state: &SessionState) {".into(),
+                context_before: vec![],
+                context_after: vec![],
+                graph_linked: true,
+                heuristic_signals: None,
+            },
+        ];
+
+        rank_search_results(
+            "persist_boot_memory",
+            SearchRankingMode::Literal,
+            &mut results,
+        );
+
+        assert_eq!(results[0].node_id, "file::m1nd/m1nd-mcp/src/session.rs");
     }
 }
