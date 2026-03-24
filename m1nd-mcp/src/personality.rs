@@ -405,6 +405,54 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
     }
 }
 
+fn benchmark_notes(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "Usually strong for warm-graph triage and fast first-good-answer on failure text.",
+            "Not a replacement for compiler/runtime truth; use it to narrow the next file fast.",
+        ],
+        "trail_resume" => &[
+            "Usually one of the strongest continuity wins in the benchmark corpus.",
+            "Best when avoiding rediscovery matters more than replaying every old thought exactly.",
+        ],
+        "validate_plan" => &[
+            "Usually strong for compact proof handoff before risky edits.",
+            "Best read as planning/proof guidance, not as a universal speed win on tiny edits.",
+        ],
+        "surgical_context_v2" => &[
+            "Usually strong for compact connected edit prep, especially with proof_focused=true.",
+            "Benchmark wins here are mostly about payload quality and clarity, not always zero search steps.",
+        ],
+        "seek" => &[
+            "Usually strong when intent is known but exact text is not.",
+            "Use search instead when exact text or regex is already obvious.",
+        ],
+        "impact" => &[
+            "Usually useful for guided blast-radius follow-up and downstream seam selection.",
+            "The main win is better follow-up targeting, not proving every dependency alone.",
+        ],
+        "hypothesize" => &[
+            "Usually strong for structural yes-or-no questions and proof-target handoff.",
+            "Best when grep would require several manual path checks to settle the claim.",
+        ],
+        "apply_batch" => &[
+            "Benchmark value here is mostly safety, verification, and better progress UX.",
+            "Use after discovery and proof; this is execution, not exploration.",
+        ],
+        "timeline" => &[
+            "Usually strongest when historical proof is the missing piece after localization.",
+            "Less useful when the question is current code shape rather than git history.",
+        ],
+        "search" => &[
+            "Usually best for exact text and cheap confirmation, not as a headline m1nd differentiator.",
+        ],
+        "glob" => &[
+            "Usually best as a cheap narrowing step before more semantic or structural tools.",
+        ],
+        _ => &[],
+    }
+}
+
 /// Get all tool documentation entries.
 pub fn tool_docs() -> Vec<ToolDoc> {
     vec![
@@ -1614,6 +1662,18 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
             ANSI_GOLD, ANSI_RESET
         ));
         for line in notes {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let bench = benchmark_notes(doc.name);
+    if !bench.is_empty() {
+        out.push_str(&format!(
+            "{}\u{25C8} BENCHMARK TRUTH{}\n",
+            ANSI_MAGENTA, ANSI_RESET
+        ));
+        for line in bench {
             out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
         }
         out.push('\n');

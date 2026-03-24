@@ -1763,6 +1763,7 @@ mod tests {
         assert!(output.formatted.contains("WHEN TO USE"));
         assert!(output.formatted.contains("AVOID WHEN"));
         assert!(output.formatted.contains("AGENT NOTES"));
+        assert!(output.formatted.contains("BENCHMARK TRUTH"));
         assert!(output.formatted.contains("proof_focused=true"));
     }
 
