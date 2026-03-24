@@ -1,0 +1,182 @@
+{
+  "recorded_at": "2026-03-24T23:55:00.996895+00:00",
+  "scenario_id": "warm_apply_batch_path_safety_recovery",
+  "scenario_name": "Warm recovery from apply_batch path safety rejection",
+  "scenario_tags": [
+    "warm-graph",
+    "recovery",
+    "surgical",
+    "apply-batch",
+    "write-safety"
+  ],
+  "mode": "manual",
+  "execution_origin": "replay",
+  "source_ref": "docs/benchmarks/events/manual-apply-batch-path-safety-recovery.json",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 4.0,
+  "time_to_full_proof_ms": 150.0,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 1,
+  "tests_identified_before_edit": 1,
+  "public_claim_worthy": true,
+  "workflow_notes": "Manual recovery requires a side trip to rediscover a safe in-workspace file before the batch can run.",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "shell.notes",
+      "query": "apply_batch rejected an unsafe target path; inspect workspace roots and choose a file path under the repo manually",
+      "elapsed_ms": 1.4,
+      "payload_chars": 250,
+      "event_index": 1,
+      "opened_files": [],
+      "surfaced_files": []
+    },
+    {
+      "tool_name": "shell.rg",
+      "query": "rg -n \"apply_batch\" m1nd-mcp/tests/test_surgical_v2.rs",
+      "elapsed_ms": 1.2,
+      "payload_chars": 390,
+      "surfaced_files": [
+        "m1nd-mcp/tests/test_surgical_v2.rs"
+      ],
+      "event_index": 2,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.apply_batch",
+      "query": "retry apply_batch inside workspace root",
+      "target": "m1nd-mcp/tests/test_surgical_v2.rs",
+      "elapsed_ms": 150.0,
+      "payload_chars": 360,
+      "proof_state": "ready_to_edit",
+      "active_phase": "done",
+      "completed_phase_count": 5,
+      "phase_count": 5,
+      "remaining_phase_count": 0,
+      "progress_pct": 100.0,
+      "next_phase": null,
+      "progress_delivery": "live",
+      "progress_events": [
+        {
+          "event_type": "phase_completed",
+          "progress_delivery": "live",
+          "phase": "validate",
+          "phase_index": 1,
+          "progress_pct": 20.0,
+          "current_file": "m1nd-mcp/tests/test_surgical_v2.rs",
+          "next_phase": "write",
+          "elapsed_ms": 3.0,
+          "message": "Validation completed."
+        },
+        {
+          "event_type": "phase_completed",
+          "progress_delivery": "live",
+          "phase": "write",
+          "phase_index": 2,
+          "progress_pct": 40.0,
+          "current_file": "m1nd-mcp/tests/test_surgical_v2.rs",
+          "next_phase": "reingest",
+          "elapsed_ms": 7.0,
+          "message": "Batch write completed."
+        },
+        {
+          "event_type": "phase_completed",
+          "progress_delivery": "live",
+          "phase": "reingest",
+          "phase_index": 3,
+          "progress_pct": 60.0,
+          "current_file": "m1nd-mcp/tests/test_surgical_v2.rs",
+          "next_phase": "verify",
+          "elapsed_ms": 95.0,
+          "message": "Re-ingest completed."
+        },
+        {
+          "event_type": "phase_completed",
+          "progress_delivery": "live",
+          "phase": "verify",
+          "phase_index": 4,
+          "progress_pct": 80.0,
+          "current_file": "m1nd-mcp/tests/test_surgical_v2.rs",
+          "next_phase": "done",
+          "elapsed_ms": 130.0,
+          "message": "Verification completed."
+        },
+        {
+          "event_type": "batch_completed",
+          "progress_delivery": "live",
+          "phase": "done",
+          "phase_index": 5,
+          "progress_pct": 100.0,
+          "current_file": "m1nd-mcp/tests/test_surgical_v2.rs",
+          "next_phase": null,
+          "proof_state": "ready_to_edit",
+          "next_suggested_tool": "view",
+          "next_suggested_target": "m1nd-mcp/tests/test_surgical_v2.rs",
+          "next_step_hint": "Open the edited file next to confirm the safe in-workspace retry landed correctly.",
+          "elapsed_ms": 150.0,
+          "message": "Batch edit completed."
+        }
+      ],
+      "opened_files": [
+        "m1nd-mcp/tests/test_surgical_v2.rs"
+      ],
+      "event_index": 3,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 1,
+  "search_iterations": 1,
+  "chars_surfaced": 1000,
+  "token_proxy": 250,
+  "guidance_events": 0,
+  "guidance_followed": 0,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [
+    "ready_to_edit",
+    "ready_to_edit"
+  ],
+  "final_proof_state": "ready_to_edit",
+  "progress_events": 5,
+  "max_progress_pct": 100.0,
+  "active_phases": [
+    "validate",
+    "write",
+    "reingest",
+    "verify",
+    "done"
+  ],
+  "next_phases": [
+    "write",
+    "reingest",
+    "verify",
+    "done"
+  ],
+  "progress_event_types": [
+    "phase_completed",
+    "phase_completed",
+    "phase_completed",
+    "phase_completed",
+    "batch_completed"
+  ],
+  "progress_delivery_modes": [
+    "live",
+    "live",
+    "live",
+    "live",
+    "live"
+  ],
+  "live_progress_events": 5,
+  "replay_progress_events": 0,
+  "snapshot_progress_events": 0,
+  "progress_guidance_events": 1,
+  "progress_guidance_followed": 0,
+  "recovery_events": 0,
+  "recovery_followed": 0,
+  "repo_path": null,
+  "question": "Recover from an apply_batch write that targets a path outside the ingested workspace roots, then retry safely inside the workspace without restarting the proof flow.",
+  "expected_strength": "strong"
+}

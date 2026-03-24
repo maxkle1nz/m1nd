@@ -328,6 +328,26 @@ Interpretation:
 - the token win is modest, but the workflow win is strong
 - the key benefit is that stale preview failure now teaches the safe retry path
   instead of nudging the agent toward a risky blind commit or a manual diff loop
+
+`warm_apply_batch_path_safety_recovery`
+
+- manual token proxy: `250`
+- `m1nd_warm` token proxy: `253`
+- savings: `-1.2%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is a long-running write-safety recovery benchmark
+- the token story is effectively flat because both paths still need the batch
+  itself, and the warm path carries one extra recovery event before the retry
+- the value is operational: the first failure no longer dumps the agent into
+  manual workspace debugging
+- the repair loop stays inside `apply_batch`, preserves progress visibility, and
+  lands in a clean in-workspace retry with an explicit next step
 - `live_progress_events`
 - `replay_progress_events`
 - `snapshot_progress_events`
@@ -339,17 +359,21 @@ not only explain the batch after it ends.
 ## Current Warm-Graph Corpus Snapshot
 
 The current versioned corpus lives under `docs/benchmarks/` and currently compares
-nine warm-graph scenarios.
+thirteen warm-graph scenarios.
 
 At the current branch tip, the aggregate summary is:
 
-- manual token proxy: `7,121`
-- `m1nd_warm` token proxy: `2,151`
-- aggregate token savings: `69.79%`
+- manual token proxy: `8,352`
+- `m1nd_warm` token proxy: `3,252`
+- aggregate token savings: `61.06%`
 - manual guidance events: `0`
-- `m1nd_warm` guidance events: `9`
-- manual progress events: `0`
-- `m1nd_warm` progress events: `5`
+- `m1nd_warm` guidance events: `17`
+- manual progress events: `5`
+- `m1nd_warm` progress events: `10`
+- manual false starts: `7`
+- `m1nd_warm` false starts: `0`
+- manual recovery events: `0`
+- `m1nd_warm` recovery events: `4`
 
 The important new truth is not just “there are progress events.” It is that the
 benchmark harness can now distinguish:
