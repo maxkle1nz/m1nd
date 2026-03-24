@@ -782,6 +782,12 @@ pub struct TraceOutput {
     /// Causal chain from suspected root cause to error site.
     pub causal_chain: Vec<String>,
     pub fix_scope: TraceFixScope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
     /// Frames that could not be mapped to graph nodes.
     pub unmapped_frames: Vec<TraceUnmappedFrame>,
     pub elapsed_ms: f64,

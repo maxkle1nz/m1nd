@@ -3426,6 +3426,9 @@ pub fn handle_trace(
                 estimated_blast_radius: 0,
                 risk_level: "low".into(),
             },
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
             unmapped_frames: vec![],
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
@@ -3608,6 +3611,21 @@ pub fn handle_trace(
     // --- 8. Co-change suspects (V1: empty — V2 uses git temporal window) ---
     let co_change_suspects: Vec<layers::TraceCoChangeSuspect> = vec![];
 
+    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+        if let Some(top) = suspects.first() {
+            let target = top
+                .file_path
+                .clone()
+                .unwrap_or_else(|| top.node_id.clone());
+            let hint = format!(
+                "Open the top suspect next: {} (suspiciousness {:.2})",
+                target, top.suspiciousness
+            );
+            (Some("view".into()), Some(target), Some(hint))
+        } else {
+            (None, None, None)
+        };
+
     Ok(layers::TraceOutput {
         language_detected: language,
         error_type,
@@ -3622,6 +3640,9 @@ pub fn handle_trace(
             estimated_blast_radius,
             risk_level,
         },
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
         unmapped_frames: unmapped,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
