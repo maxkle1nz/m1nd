@@ -30,6 +30,13 @@ fn l2_dampened_tremor_factor(alert: Option<&m1nd_core::tremor::TremorAlert>) -> 
     1.0 + alert.map_or(0.0, |value| value.magnitude.min(1.0) * 0.1)
 }
 
+const L2_SEEK_STOPWORDS: &[&str] = &[
+    "the", "and", "for", "with", "this", "that", "from", "into", "its", "own", "codebase", "task",
+    "validate", "using", "focus", "around", "where", "when", "what", "which", "how", "why", "does",
+    "should", "could", "would", "about", "need", "needs", "want", "wants", "show", "tell", "there",
+    "here", "really", "just", "like",
+];
+
 fn l2_seek_heuristic_reason(
     trust_factor: f32,
     tremor_factor: f32,
@@ -5237,20 +5244,37 @@ fn l7_detect_mcp_contract(
 
 /// Tokenize a query: lowercase, split on whitespace/punctuation, filter short tokens.
 fn l2_seek_tokenize(query: &str) -> Vec<String> {
-    query
-        .to_lowercase()
-        .split(|c: char| {
-            c.is_whitespace() || matches!(c, '?' | '!' | '.' | ',' | ':' | '(' | ')' | '{' | '}')
-        })
-        .filter(|t| t.len() > 1)
-        .map(|t| t.to_string())
-        .collect()
+    let mut tokens = Vec::new();
+    for raw in query.to_lowercase().split(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '?' | '!' | '.' | ',' | ':' | ';' | '(' | ')' | '{' | '}' | '[' | ']'
+            )
+    }) {
+        let trimmed = raw.trim_matches(|c: char| matches!(c, '"' | '\'' | '`'));
+        if trimmed.len() <= 2 || L2_SEEK_STOPWORDS.contains(&trimmed) {
+            continue;
+        }
+        if !tokens.iter().any(|existing| existing == trimmed) {
+            tokens.push(trimmed.to_string());
+        }
+        for part in l2_split_identifier(trimmed) {
+            if part.len() > 2
+                && !L2_SEEK_STOPWORDS.contains(&part.as_str())
+                && !tokens.iter().any(|existing| existing == &part)
+            {
+                tokens.push(part);
+            }
+        }
+    }
+    tokens
 }
 
 /// Split a camelCase/snake_case identifier into lowercase sub-tokens.
 fn l2_split_identifier(ident: &str) -> Vec<String> {
     let mut tokens = Vec::new();
-    for part in ident.split('_') {
+    for part in ident.split(['_', '-', '/', '\\', ':']) {
         if part.is_empty() {
             continue;
         }
@@ -7471,6 +7495,58 @@ mod tests {
         state
     }
 
+    fn build_seek_natural_language_state(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let dispatch = graph
+            .add_node(
+                "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name",
+                "normalize_dispatch_tool_name",
+                NodeType::Function,
+                &["dispatch", "alias", "canonical", "status"],
+                0.0,
+                0.0,
+            )
+            .expect("add dispatch node");
+        let docs = graph
+            .add_node(
+                "file::docs/dispatch-aliases.md",
+                "dispatch aliases",
+                NodeType::File,
+                &["dispatch", "alias", "docs"],
+                0.0,
+                0.0,
+            )
+            .expect("add docs node");
+        graph
+            .add_edge(
+                dispatch,
+                docs,
+                "documents",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.4),
+            )
+            .expect("add dispatch->docs edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
     fn run_seek(
         state: &mut SessionState,
         scope: Option<String>,
@@ -7596,6 +7672,26 @@ mod tests {
     }
 
     #[test]
+    fn seek_tokenize_dedupes_stopwords_and_identifier_parts() {
+        let tokens = super::l2_seek_tokenize(
+            "Where do we normalize `dispatch_aliases` into canonical dispatch status names?",
+        );
+
+        assert!(!tokens.iter().any(|token| token == "where"));
+        assert!(!tokens.iter().any(|token| token == "do"));
+        assert_eq!(
+            tokens
+                .iter()
+                .filter(|token| token.as_str() == "dispatch")
+                .count(),
+            1
+        );
+        assert!(tokens.iter().any(|token| token == "aliases"));
+        assert!(tokens.iter().any(|token| token == "canonical"));
+        assert!(tokens.iter().any(|token| token == "status"));
+    }
+
+    #[test]
     fn seek_normalizes_relative_absolute_and_file_scopes_equivalently() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
@@ -7629,6 +7725,38 @@ mod tests {
         );
         assert_eq!(file_scope.results[0].score, absolute_scope.results[0].score);
         assert_eq!(file_scope.results[0].score, relative_scope.results[0].score);
+    }
+
+    #[test]
+    fn seek_handles_natural_language_query_for_dispatch_alias_normalization() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_seek_natural_language_state(root);
+
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "Where do we normalize alias tool names into the canonical dispatch status name?"
+                    .into(),
+                agent_id: "test".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+            },
+        )
+        .expect("seek should succeed");
+
+        assert!(
+            !output.results.is_empty(),
+            "seek should find a dispatch target"
+        );
+        assert_eq!(
+            output.results[0].node_id,
+            "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name"
+        );
+        assert_eq!(output.results[0].node_type, "function");
     }
 
     #[test]
