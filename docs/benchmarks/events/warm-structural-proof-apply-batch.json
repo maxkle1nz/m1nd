@@ -4,6 +4,7 @@
     "query": "apply_batch risky verification proof",
     "elapsed_ms": 2.0,
     "payload_chars": 460,
+    "proof_state": "proving",
     "next_suggested_tool": "heuristics_surface",
     "next_tool_used": "heuristics_surface",
     "surfaced_files": [

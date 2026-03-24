@@ -53,6 +53,7 @@ def summarize_events(events):
     guidance_followed = 0
     reactivated_nodes = 0
     resume_hints = 0
+    proof_states = []
 
     for event in events:
         chars_surfaced += event["payload_chars"]
@@ -71,6 +72,9 @@ def summarize_events(events):
         hints = event.get("resume_hints")
         if isinstance(hints, list):
             resume_hints += len(hints)
+        proof_state = event.get("proof_state")
+        if isinstance(proof_state, str) and proof_state:
+            proof_states.append(proof_state)
         for key in ("opened_files", "surfaced_files"):
             for path in event.get(key, []):
                 files_open_sequence.append(str(path))
@@ -88,6 +92,7 @@ def summarize_events(events):
         "guidance_followed": guidance_followed,
         "reactivated_nodes": reactivated_nodes,
         "resume_hints": resume_hints,
+        "proof_states": proof_states,
     }
 
 
@@ -129,6 +134,8 @@ def build_run(args):
         "guidance_followed": derived["guidance_followed"],
         "reactivated_nodes": derived["reactivated_nodes"],
         "resume_hints": derived["resume_hints"],
+        "proof_states": derived["proof_states"],
+        "final_proof_state": derived["proof_states"][-1] if derived["proof_states"] else None,
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),

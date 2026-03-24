@@ -18,7 +18,8 @@
         "search_iterations": 2,
         "false_start_count": 1,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 145,
@@ -29,7 +30,8 @@
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "comparison": {
         "token_delta": 1195,
@@ -58,7 +60,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 148,
@@ -69,7 +72,8 @@
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": null
       },
       "comparison": {
         "token_delta": 895,
@@ -98,7 +102,8 @@
         "search_iterations": 2,
         "false_start_count": 1,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 175,
@@ -109,7 +114,8 @@
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": null
       },
       "comparison": {
         "token_delta": 265,
@@ -138,7 +144,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 310,
@@ -149,7 +156,8 @@
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": "ready_to_edit"
       },
       "comparison": {
         "token_delta": 360,
@@ -178,7 +186,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 295,
@@ -189,7 +198,8 @@
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": null
       },
       "comparison": {
         "token_delta": 355,
@@ -218,7 +228,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 388,
@@ -229,7 +240,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": null
       },
       "comparison": {
         "token_delta": 727,
@@ -258,7 +270,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 350,
@@ -269,7 +282,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": null
       },
       "comparison": {
         "token_delta": 210,
@@ -298,7 +312,8 @@
         "search_iterations": 1,
         "false_start_count": 0,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 115,
@@ -309,7 +324,8 @@
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": "proving"
       },
       "comparison": {
         "token_delta": 578,
@@ -338,7 +354,8 @@
         "search_iterations": 1,
         "false_start_count": 1,
         "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_followed": 0,
+        "final_proof_state": null
       },
       "m1nd_warm": {
         "token_proxy": 170,
@@ -349,7 +366,8 @@
         "search_iterations": 0,
         "false_start_count": 0,
         "guidance_events": 1,
-        "guidance_followed": 1
+        "guidance_followed": 1,
+        "final_proof_state": null
       },
       "comparison": {
         "token_delta": 440,

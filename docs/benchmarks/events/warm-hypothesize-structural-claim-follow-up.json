@@ -4,6 +4,7 @@
     "query": "why is this missing validation guard?",
     "elapsed_ms": 1.486,
     "payload_chars": 460,
+    "proof_state": "ready_to_edit",
     "surfaced_files": [
       "m1nd-mcp/src/server.rs"
     ],

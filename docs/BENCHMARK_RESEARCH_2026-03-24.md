@@ -416,6 +416,7 @@ Interpretation:
 - structural-claim proof joins the same family too: `hypothesize` can now point directly at the strongest evidence target instead of stopping at a verdict blob
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
 - guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, triage, blast-radius, and structural-claim flows
+- the harness now also records `proof_state` where tools expose it, which starts to separate `proving` flows from `ready_to_edit` handoffs inside the same benchmark family
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
@@ -431,6 +432,7 @@ ending at an unstructured verdict.
 Interpretation:
 
 - `hypothesize` no longer only emits verdict/evidence; it now points to the best next proof target
+- in the benchmark run, it now lands in `ready_to_edit`, which is the right end-state for a strong structural proof handoff
 - that makes structural-claim testing part of the same guided workflow family as `seek`, `impact`, `trace`, `trail_resume`, and `validate_plan`
 
 ### New blast-radius result: `impact` now guides the first follow-up

@@ -60,6 +60,7 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "false_start_count": manual.get("false_start_count", 0),
                 "guidance_events": manual.get("guidance_events", 0),
                 "guidance_followed": manual.get("guidance_followed", 0),
+                "final_proof_state": manual.get("final_proof_state"),
             }
         if warm:
             entry["m1nd_warm"] = {
@@ -72,6 +73,7 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "false_start_count": warm.get("false_start_count", 0),
                 "guidance_events": warm.get("guidance_events", 0),
                 "guidance_followed": warm.get("guidance_followed", 0),
+                "final_proof_state": warm.get("final_proof_state"),
             }
         if manual and warm:
             token_delta = manual["token_proxy"] - warm["token_proxy"]

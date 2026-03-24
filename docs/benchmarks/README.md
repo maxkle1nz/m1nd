@@ -70,6 +70,14 @@ For proof and planning scenarios, use the same guidance fields when a tool now
 suggests the next surface directly. This lets the corpus measure when one tool
 collapses both explanation and next-step routing into a single step.
 
+Where the tool supports it, benchmark events may also include `proof_state`.
+Current states:
+
+- `blocked`
+- `triaging`
+- `proving`
+- `ready_to_edit`
+
 ## Current scenario corpus
 
 - `semantic_retrieval_dispatch.json`
