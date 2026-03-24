@@ -458,8 +458,12 @@ pub struct TrailResumeOutput {
     pub missing_nodes: Vec<String>,
     /// Number of nodes successfully re-activated via boost injection.
     pub nodes_reactivated: usize,
+    /// Preview of the strongest nodes reactivated into the graph state.
+    pub reactivated_node_ids: Vec<String>,
     /// Hypotheses that were downgraded due to missing supporting nodes.
     pub hypotheses_downgraded: Vec<String>,
+    /// Suggested next prompts or moves for continuing the investigation.
+    pub resume_hints: Vec<String>,
     /// The full trail data.
     pub trail: TrailSummaryOutput,
     pub elapsed_ms: f64,

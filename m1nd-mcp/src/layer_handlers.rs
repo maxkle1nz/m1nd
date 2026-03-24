@@ -1836,6 +1836,27 @@ fn trail_seed_boost(boosts: &mut HashMap<String, f32>, node_external_id: &str, w
         .or_insert(normalized);
 }
 
+fn trail_resume_hints(trail: &TrailData, strongest_nodes: &[String]) -> Vec<String> {
+    let mut hints = Vec::new();
+
+    for question in trail.open_questions.iter().take(2) {
+        hints.push(format!("Continue with open question: {}", question));
+    }
+
+    for node in strongest_nodes.iter().take(2) {
+        hints.push(format!("Inspect neighborhood around {}", node));
+    }
+
+    if hints.is_empty() && !trail.hypotheses.is_empty() {
+        hints.push(format!(
+            "Re-test hypothesis: {}",
+            trail.hypotheses[0].statement
+        ));
+    }
+
+    hints
+}
+
 /// Resolve the trails/ directory path from the graph snapshot path.
 /// Creates the directory if it does not exist.
 fn trails_dir(state: &SessionState) -> M1ndResult<PathBuf> {
@@ -2156,6 +2177,7 @@ pub fn handle_trail_resume(
 
     // Re-inject activation boosts for nodes that still exist.
     let mut nodes_reactivated: usize = 0;
+    let mut reactivated_nodes: Vec<(String, f32)> = Vec::new();
     if !trail.activation_boosts.is_empty() {
         let mut graph = state.graph.write();
         let n = graph.num_nodes() as usize;
@@ -2168,12 +2190,32 @@ pub fn handle_trail_resume(
                     let new_val = (current + boost).min(1.0);
                     graph.nodes.activation[idx][0] = FiniteF32::new(new_val);
                     nodes_reactivated += 1;
+                    reactivated_nodes.push((ext_id.clone(), boost));
                 }
             }
         }
     } else {
         nodes_reactivated = resolved_count;
+        for vn in &trail.visited_nodes {
+            if !missing_nodes
+                .iter()
+                .any(|missing| missing == &vn.node_external_id)
+            {
+                reactivated_nodes.push((vn.node_external_id.clone(), vn.relevance));
+            }
+        }
     }
+
+    reactivated_nodes.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    let reactivated_node_ids: Vec<String> = reactivated_nodes
+        .iter()
+        .map(|(node_id, _)| node_id.clone())
+        .take(5)
+        .collect();
 
     // Check hypotheses — downgrade those whose supporting nodes are mostly missing
     let mut hypotheses_downgraded: Vec<String> = Vec::new();
@@ -2204,6 +2246,7 @@ pub fn handle_trail_resume(
     save_trail(state, &trail)?;
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let resume_hints = trail_resume_hints(&trail, &reactivated_node_ids);
 
     Ok(layers::TrailResumeOutput {
         trail_id: trail.trail_id.clone(),
@@ -2212,7 +2255,9 @@ pub fn handle_trail_resume(
         generations_behind,
         missing_nodes,
         nodes_reactivated,
+        reactivated_node_ids,
         hypotheses_downgraded,
+        resume_hints,
         trail: trail_to_summary(&trail),
         elapsed_ms,
     })
@@ -7775,6 +7820,19 @@ mod tests {
         assert!(resumed.missing_nodes.is_empty());
         assert_eq!(resumed.nodes_reactivated, 2);
         assert_eq!(resumed.trail.node_count, 2);
+        assert_eq!(resumed.reactivated_node_ids.len(), 2);
+        assert!(resumed
+            .reactivated_node_ids
+            .iter()
+            .any(|node| node == "file::src/ui.rs"));
+        assert!(resumed
+            .resume_hints
+            .iter()
+            .any(|hint| hint.contains("open question")));
+        assert!(resumed
+            .resume_hints
+            .iter()
+            .any(|hint| hint.contains("file::src")));
     }
 
     #[test]
