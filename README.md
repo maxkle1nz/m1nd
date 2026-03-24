@@ -395,7 +395,7 @@ It is not a replacement for an LSP, a compiler, or runtime observability. It giv
 
 **It has write-aware workflows.** `surgical_context_v2`, `edit_preview`, `edit_commit`, and `apply_batch` make more sense as edit-preparation and edit-verification tools than as generic search tools.
 
-**It is starting to expose agent state, not only tool output.** `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` can now surface `proof_state`, and `apply_batch` now returns `status_message` plus structured `phases` so long-running writes are easier to understand and present in shells or UIs.
+**It is starting to expose agent state, not only tool output.** `impact`, `trace`, `hypothesize`, `validate_plan`, `timeline`, and `surgical_context_v2` can now surface `proof_state`, and `apply_batch` now returns `status_message`, coarse progress fields, and structured `phases` so long-running writes are easier to understand and present in shells or UIs.
 
 ## Tool Surface
 
@@ -525,6 +525,7 @@ When `verification.high_impact_files` contains heuristic hotspots, the report ca
 `apply_batch` now also returns:
 
 - `status_message` for a single human-readable summary
+- coarse progress fields: `active_phase`, `completed_phase_count`, `phase_count`, and `progress_pct`
 - `phases` for structured execution progress across `validate`, `write`, `reingest`, `verify`, and `done`
 - each phase now includes `phase_index` and, when useful, `current_file` so shells and UIs can render progress without inferring order or file focus
 

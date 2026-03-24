@@ -108,6 +108,10 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         total_bytes_written: total_bytes,
         verification: None,
         status_message: "apply_batch completed".into(),
+        active_phase: "done".into(),
+        completed_phase_count: 1,
+        phase_count: 5,
+        progress_pct: 100.0,
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
             phase_index: 4,
@@ -842,6 +846,10 @@ fn test_batch_empty_edits_noop() {
         total_bytes_written: 0,
         verification: None,
         status_message: "apply_batch noop: no edits provided".into(),
+        active_phase: "done".into(),
+        completed_phase_count: 1,
+        phase_count: 5,
+        progress_pct: 100.0,
         phases: vec![ApplyBatchPhase {
             phase: "done".into(),
             phase_index: 0,
@@ -877,6 +885,10 @@ fn test_batch_empty_edits_noop() {
         out.status_message.contains("no edits"),
         "no-op output should explain why nothing happened"
     );
+    assert_eq!(out.active_phase, "done");
+    assert_eq!(out.completed_phase_count, 1);
+    assert_eq!(out.phase_count, 5);
+    assert_eq!(out.progress_pct, 100.0);
     assert_eq!(
         out.phases.len(),
         1,

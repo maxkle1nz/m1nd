@@ -2144,6 +2144,7 @@ pub fn handle_apply_batch(
 ) -> M1ndResult<surgical::ApplyBatchOutput> {
     let start = Instant::now();
     let mut phases: Vec<surgical::ApplyBatchPhase> = Vec::new();
+    let phase_count = 5usize;
 
     // Step 1: Empty edits = fast-path no-op
     if input.edits.is_empty() {
@@ -2156,6 +2157,10 @@ pub fn handle_apply_batch(
             total_bytes_written: 0,
             verification: None,
             status_message: "apply_batch noop: no edits provided".into(),
+            active_phase: "done".into(),
+            completed_phase_count: 1,
+            phase_count,
+            progress_pct: 100.0,
             phases: vec![surgical::ApplyBatchPhase {
                 phase: "done".into(),
                 phase_index: 0,
@@ -3049,6 +3054,10 @@ pub fn handle_apply_batch(
         total_bytes_written,
         verification,
         status_message,
+        active_phase: "done".into(),
+        completed_phase_count: phases.len(),
+        phase_count,
+        progress_pct: ((phases.len() as f32 / phase_count as f32) * 100.0).min(100.0),
         phases,
         elapsed_ms,
     })

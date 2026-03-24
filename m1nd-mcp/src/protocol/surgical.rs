@@ -438,6 +438,14 @@ pub struct ApplyBatchOutput {
     pub verification: Option<VerificationReport>,
     /// Human-readable final status for shells/UIs.
     pub status_message: String,
+    /// Final phase key reached by the batch lifecycle.
+    pub active_phase: String,
+    /// Completed phases out of the known lifecycle phases.
+    pub completed_phase_count: usize,
+    /// Total lifecycle phases in the batch contract.
+    pub phase_count: usize,
+    /// Final coarse-grained progress percentage for shells/UIs.
+    pub progress_pct: f32,
     /// Structured phase history for UI progress rendering and future streaming.
     pub phases: Vec<ApplyBatchPhase>,
     /// Elapsed milliseconds.

@@ -85,7 +85,7 @@ Current states:
 - `ready_to_edit`
 
 For long-running write scenarios such as `apply_batch`, benchmark the returned
-`status_message` and `phases` too. This keeps UX/progress work measurable
+`status_message`, coarse progress fields, and `phases` too. This keeps UX/progress work measurable
 instead of leaving it as a subjective shell/UI impression.
 
 For `proof_focused_edit_prep`, treat the scenario as a compact proof handoff
