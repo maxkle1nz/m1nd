@@ -872,7 +872,11 @@ fn test_batch_empty_edits_noop() {
         out.status_message.contains("no edits"),
         "no-op output should explain why nothing happened"
     );
-    assert_eq!(out.phases.len(), 1, "no-op should still expose a done phase");
+    assert_eq!(
+        out.phases.len(),
+        1,
+        "no-op should still expose a done phase"
+    );
     assert_eq!(out.phases[0].phase, "done");
     assert!(out.elapsed_ms >= 0.0, "elapsed_ms must be >= 0");
 

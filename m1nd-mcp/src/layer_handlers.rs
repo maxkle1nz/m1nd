@@ -2812,6 +2812,7 @@ pub fn handle_hypothesize(
             object_nodes: vec![],
             verdict: "inconclusive".into(),
             confidence: 0.5,
+            proof_state: "blocked".into(),
             supporting_evidence: vec![],
             contradicting_evidence: vec![],
             partial_reach: None,
@@ -2851,6 +2852,7 @@ pub fn handle_hypothesize(
             },
             verdict: "inconclusive".into(),
             confidence: 0.5,
+            proof_state: "blocked".into(),
             supporting_evidence: vec![],
             contradicting_evidence: vec![layers::HypothesisEvidence {
                 evidence_type: "no_path".into(),
@@ -3291,6 +3293,12 @@ pub fn handle_hypothesize(
     } else {
         Some(partial_reach_entries)
     };
+    let proof_state = l5_hypothesize_proof_state(
+        verdict,
+        &supporting,
+        &contradicting,
+        partial_reach.as_deref(),
+    );
     let (next_suggested_tool, next_suggested_target, next_step_hint) = l5_hypothesize_next_step(
         verdict,
         &supporting,
@@ -3305,6 +3313,7 @@ pub fn handle_hypothesize(
         object_nodes: object_labels,
         verdict: verdict.into(),
         confidence,
+        proof_state,
         supporting_evidence: supporting,
         contradicting_evidence: contradicting,
         partial_reach,
@@ -3314,6 +3323,29 @@ pub fn handle_hypothesize(
         next_suggested_target,
         next_step_hint,
     })
+}
+
+fn l5_hypothesize_proof_state(
+    verdict: &str,
+    supporting: &[layers::HypothesisEvidence],
+    contradicting: &[layers::HypothesisEvidence],
+    partial_reach: Option<&[layers::PartialReachEntry]>,
+) -> String {
+    if verdict == "likely_true" || verdict == "likely_false" {
+        if !supporting.is_empty() || !contradicting.is_empty() {
+            return "ready_to_edit".into();
+        }
+    }
+    if partial_reach
+        .map(|entries| !entries.is_empty())
+        .unwrap_or(false)
+    {
+        return "proving".into();
+    }
+    if !supporting.is_empty() || !contradicting.is_empty() {
+        return "triaging".into();
+    }
+    "blocked".into()
 }
 
 fn l5_hypothesize_next_step(
@@ -3767,6 +3799,7 @@ pub fn handle_validate_plan(
             gaps: vec![],
             risk_score: 0.0,
             risk_level: "low".into(),
+            proof_state: "blocked".into(),
             test_coverage: layers::PlanTestCoverage {
                 modified_files: 0,
                 tested_files: 0,
@@ -4084,6 +4117,13 @@ pub fn handle_validate_plan(
         } else {
             (None, None, None)
         };
+    let proof_state = l6_vp_proof_state(
+        actions_resolved,
+        actions_unresolved,
+        &gaps,
+        heuristic_summary.as_ref(),
+        &next_suggested_tool,
+    );
 
     Ok(layers::ValidatePlanOutput {
         actions_analyzed,
@@ -4092,6 +4132,7 @@ pub fn handle_validate_plan(
         gaps,
         risk_score,
         risk_level,
+        proof_state,
         test_coverage,
         suggested_additions,
         blast_radius_total,
@@ -4101,6 +4142,29 @@ pub fn handle_validate_plan(
         next_step_hint,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+fn l6_vp_proof_state(
+    actions_resolved: usize,
+    actions_unresolved: usize,
+    gaps: &[layers::PlanGap],
+    heuristic_summary: Option<&layers::PlanHeuristicSummary>,
+    next_suggested_tool: &Option<String>,
+) -> String {
+    if actions_resolved == 0 && actions_unresolved > 0 {
+        return "blocked".into();
+    }
+    if gaps.iter().any(|gap| gap.severity == "critical")
+        || heuristic_summary
+            .map(|summary| !summary.hotspots.is_empty())
+            .unwrap_or(false)
+    {
+        return "proving".into();
+    }
+    if next_suggested_tool.is_some() {
+        return "triaging".into();
+    }
+    "ready_to_edit".into()
 }
 
 fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidatePlanInput) {
@@ -8349,6 +8413,10 @@ mod tests {
                 .contains("strongest hypothesis evidence"),
             "hypothesize should guide the agent into the strongest evidence target"
         );
+        assert_eq!(
+            super::l5_hypothesize_proof_state("likely_true", &supporting, &[], None),
+            "ready_to_edit"
+        );
     }
 
     #[test]
@@ -8370,6 +8438,10 @@ mod tests {
                 .unwrap_or_default()
                 .contains("partial-reach"),
             "hypothesize should still guide the next step when only partial reach exists"
+        );
+        assert_eq!(
+            super::l5_hypothesize_proof_state("inconclusive", &[], &[], Some(&partial)),
+            "proving"
         );
     }
 
@@ -8922,6 +8994,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             Some("heuristics_surface")
         );
         assert_eq!(output.next_suggested_target.as_deref(), Some("src/core.rs"));
+        assert_eq!(output.proof_state, "proving");
         assert!(output
             .next_step_hint
             .as_deref()

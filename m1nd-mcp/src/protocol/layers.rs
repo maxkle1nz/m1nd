@@ -642,6 +642,9 @@ pub struct HypothesizeOutput {
     pub verdict: String,
     /// Bayesian posterior confidence [0.01, 0.99].
     pub confidence: f32,
+    /// Coarse proof stage for agent orchestration:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     pub supporting_evidence: Vec<HypothesisEvidence>,
     pub contradicting_evidence: Vec<HypothesisEvidence>,
     /// Partial flow: how far the search reached before stopping.
@@ -908,6 +911,9 @@ pub struct ValidatePlanOutput {
     pub risk_score: f32,
     /// "low" (<0.3) | "medium" (<0.6) | "high" (<0.8) | "critical" (>=0.8)
     pub risk_level: String,
+    /// Coarse proof stage for agent orchestration:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     pub test_coverage: PlanTestCoverage,
     /// Suggested additions to the plan.
     pub suggested_additions: Vec<PlanSuggestedAction>,
