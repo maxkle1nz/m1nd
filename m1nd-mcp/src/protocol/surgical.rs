@@ -473,6 +473,11 @@ pub struct ApplyBatchPhase {
     /// Representative file for this phase when one file best explains the work.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_file: Option<String>,
+    /// Coarse progress percentage when this phase finished.
+    pub progress_pct: f32,
+    /// Next expected phase after this one when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_phase: Option<String>,
     /// Elapsed milliseconds at the end of this phase.
     pub elapsed_ms: f64,
     /// Short status line for user-visible progress.

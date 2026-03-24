@@ -275,7 +275,7 @@ Recent behavior:
 
 - `apply_batch` now returns a human-readable `status_message`
 - it also returns coarse progress fields like `active_phase`, `completed_phase_count`, `phase_count`, `remaining_phase_count`, `progress_pct`, and `next_phase`
-- it also returns structured `phases` for `validate`, `write`, `reingest`, `verify`, and `done`
+- it also returns structured `phases` for `validate`, `write`, `reingest`, `verify`, and `done`, with per-phase `progress_pct` and `next_phase`
 - each phase now includes `phase_index` and, when useful, `current_file`
 - this makes long-running batch writes easier to surface in shells and UI clients
 

@@ -2145,6 +2145,7 @@ pub fn handle_apply_batch(
     let start = Instant::now();
     let mut phases: Vec<surgical::ApplyBatchPhase> = Vec::new();
     let phase_count = 5usize;
+    let phase_names = ["validate", "write", "reingest", "verify", "done"];
 
     // Step 1: Empty edits = fast-path no-op
     if input.edits.is_empty() {
@@ -2170,6 +2171,8 @@ pub fn handle_apply_batch(
                 files_completed: 0,
                 files_total: 0,
                 current_file: None,
+                progress_pct: 100.0,
+                next_phase: None,
                 elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
                 message: "No edits were provided.".into(),
             }],
@@ -2195,6 +2198,8 @@ pub fn handle_apply_batch(
         current_file: resolved_edits
             .first()
             .map(|(path, _, _)| path.to_string_lossy().to_string()),
+        progress_pct: 20.0,
+        next_phase: Some(phase_names[1].into()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!("Validated {} edit targets.", input.edits.len()),
     });
@@ -2408,6 +2413,8 @@ pub fn handle_apply_batch(
         files_completed: results.iter().filter(|r| r.success).count(),
         files_total: input.edits.len(),
         current_file: results.last().map(|result| result.file_path.clone()),
+        progress_pct: 40.0,
+        next_phase: Some(phase_names[2].into()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!(
             "Wrote {} of {} files.",
@@ -2472,6 +2479,8 @@ pub fn handle_apply_batch(
             .iter()
             .find(|result| result.success)
             .map(|result| result.file_path.clone()),
+        progress_pct: 60.0,
+        next_phase: Some(phase_names[3].into()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if input.reingest {
             if reingested {
@@ -2999,6 +3008,8 @@ pub fn handle_apply_batch(
                     .find(|result| result.success)
                     .map(|r| r.file_path.clone())
             }),
+        progress_pct: 80.0,
+        next_phase: Some(phase_names[4].into()),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if let Some(report) = verification.as_ref() {
             format!("Verification finished with verdict {}.", report.verdict)
@@ -3043,6 +3054,8 @@ pub fn handle_apply_batch(
         files_completed: files_written,
         files_total: input.edits.len(),
         current_file: None,
+        progress_pct: 100.0,
+        next_phase: None,
         elapsed_ms,
         message: status_message.clone(),
     });
