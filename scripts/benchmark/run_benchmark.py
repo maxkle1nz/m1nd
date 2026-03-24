@@ -45,6 +45,48 @@ def normalize_event(index, event):
     return normalized
 
 
+def iter_progress_entries(event):
+    entries = event.get("progress_events")
+    if isinstance(entries, list) and entries:
+        normalized = []
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            normalized.append(
+                {
+                    "event_type": item.get("event_type"),
+                    "phase": item.get("phase") or event.get("active_phase"),
+                    "phase_index": item.get("phase_index"),
+                    "progress_pct": item.get("progress_pct"),
+                    "current_file": item.get("current_file"),
+                    "next_phase": item.get("next_phase"),
+                    "elapsed_ms": item.get("elapsed_ms"),
+                    "message": item.get("message"),
+                }
+            )
+        if normalized:
+            return normalized
+
+    progress_pct = event.get("progress_pct")
+    active_phase = event.get("active_phase")
+    next_phase = event.get("next_phase")
+    if isinstance(progress_pct, (int, float)) or isinstance(active_phase, str):
+        return [
+            {
+                "event_type": "snapshot",
+                "phase": active_phase,
+                "phase_index": event.get("completed_phase_count"),
+                "progress_pct": progress_pct,
+                "current_file": event.get("current_file"),
+                "next_phase": next_phase,
+                "elapsed_ms": event.get("elapsed_ms"),
+                "message": event.get("status_message") or event.get("notes"),
+            }
+        ]
+
+    return []
+
+
 def summarize_events(events):
     files_open_sequence = []
     search_iterations = 0
@@ -58,6 +100,7 @@ def summarize_events(events):
     max_progress_pct = 0.0
     active_phases = []
     next_phases = []
+    progress_event_types = []
 
     for event in events:
         chars_surfaced += event["payload_chars"]
@@ -79,16 +122,20 @@ def summarize_events(events):
         proof_state = event.get("proof_state")
         if isinstance(proof_state, str) and proof_state:
             proof_states.append(proof_state)
-        progress_pct = event.get("progress_pct")
-        if isinstance(progress_pct, (int, float)):
+        for progress_entry in iter_progress_entries(event):
             progress_events += 1
-            max_progress_pct = max(max_progress_pct, float(progress_pct))
-        active_phase = event.get("active_phase")
-        if isinstance(active_phase, str) and active_phase:
-            active_phases.append(active_phase)
-        next_phase = event.get("next_phase")
-        if isinstance(next_phase, str) and next_phase:
-            next_phases.append(next_phase)
+            progress_pct = progress_entry.get("progress_pct")
+            if isinstance(progress_pct, (int, float)):
+                max_progress_pct = max(max_progress_pct, float(progress_pct))
+            active_phase = progress_entry.get("phase")
+            if isinstance(active_phase, str) and active_phase:
+                active_phases.append(active_phase)
+            next_phase = progress_entry.get("next_phase")
+            if isinstance(next_phase, str) and next_phase:
+                next_phases.append(next_phase)
+            event_type = progress_entry.get("event_type")
+            if isinstance(event_type, str) and event_type:
+                progress_event_types.append(event_type)
         for key in ("opened_files", "surfaced_files"):
             for path in event.get(key, []):
                 files_open_sequence.append(str(path))
@@ -111,6 +158,7 @@ def summarize_events(events):
         "max_progress_pct": round(max_progress_pct, 2),
         "active_phases": active_phases,
         "next_phases": next_phases,
+        "progress_event_types": progress_event_types,
     }
 
 
@@ -158,6 +206,7 @@ def build_run(args):
         "max_progress_pct": derived["max_progress_pct"],
         "active_phases": derived["active_phases"],
         "next_phases": derived["next_phases"],
+        "progress_event_types": derived["progress_event_types"],
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),

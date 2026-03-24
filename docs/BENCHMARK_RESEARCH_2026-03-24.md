@@ -418,7 +418,7 @@ Interpretation:
 - guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, triage, blast-radius, and structural-claim flows
 - the harness now also records `proof_state` where tools expose it, which starts to separate `proving` flows from `ready_to_edit` handoffs inside the same benchmark family
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
-- `apply_batch` now exposes `status_message`, progress metadata, and `phases`, so long-running write UX can be benchmarked as an explicit product surface instead of a vague shell wait
+- `apply_batch` now exposes `status_message`, progress metadata, `phases`, and `progress_events`, so long-running write UX can be benchmarked as an explicit product surface instead of a vague shell wait
 - `surgical_context_v2` now joins that same cognitive surface too: proof-focused edit prep can end in an explicit `proving` handoff instead of leaving stage inference to the agent
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 
@@ -529,7 +529,7 @@ Interpretation:
 
 - `validate_plan` now carries enough compact proof to justify the first risky verdict without an immediate second call
 - `validate_plan` now also emits explicit next-step guidance, so the proof flow can be measured as a guided one-step handoff instead of an implicit manual decision
-- the same scenario now records `apply_batch` execution progress as benchmark telemetry; the warm run currently captures `progress_events=1` with `max_progress_pct=100.0`
+- the same scenario now records `apply_batch` execution progress as benchmark telemetry; the warm run now captures the full event stream shape (`phase_completed` plus `batch_completed`) with `max_progress_pct=100.0`
 - this did not fully beat manual in the single-scenario first-answer time, but it materially improved compactness and helped flip the aggregate warm-graph timing result
 
 ### Updated edit-prep result: `surgical_context_v2` now carries `proof_state`

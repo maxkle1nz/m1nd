@@ -58,6 +58,7 @@ The `--events` file is a JSON array. Each item can contain:
 - `next_tool_used`
 - `status_message`
 - `phases`
+- `progress_events`
 
 If `payload_chars` is omitted, the runner derives a conservative char count
 from the strings present in the event.
@@ -85,8 +86,8 @@ Current states:
 - `ready_to_edit`
 
 For long-running write scenarios such as `apply_batch`, benchmark the returned
-`status_message`, coarse progress fields, and `phases` too. This keeps UX/progress work measurable
-instead of leaving it as a subjective shell/UI impression.
+`status_message`, coarse progress fields, `phases`, and `progress_events` too.
+This keeps UX/progress work measurable instead of leaving it as a subjective shell/UI impression.
 
 For `proof_focused_edit_prep`, treat the scenario as a compact proof handoff
 into planning, not as an automatic `ready_to_edit` claim. In the current corpus
@@ -120,5 +121,5 @@ In particular:
 - `hypothesize_structural_claim_follow_up.json` captures `hypothesize` plus guided follow-up into the strongest proof target
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
-- `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`
+- `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct` and detailed `progress_events`
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone

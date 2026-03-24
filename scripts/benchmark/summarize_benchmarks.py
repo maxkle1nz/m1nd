@@ -41,6 +41,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
     aggregate_warm_guidance_followed = 0
     aggregate_manual_progress_events = 0
     aggregate_warm_progress_events = 0
+    aggregate_manual_progress_event_types = set()
+    aggregate_warm_progress_event_types = set()
     compared = 0
 
     for scenario_id, modes in sorted(by_scenario.items()):
@@ -65,6 +67,7 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "final_proof_state": manual.get("final_proof_state"),
                 "progress_events": manual.get("progress_events", 0),
                 "max_progress_pct": manual.get("max_progress_pct", 0.0),
+                "progress_event_types": manual.get("progress_event_types", []),
             }
         if warm:
             entry["m1nd_warm"] = {
@@ -80,6 +83,7 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "final_proof_state": warm.get("final_proof_state"),
                 "progress_events": warm.get("progress_events", 0),
                 "max_progress_pct": warm.get("max_progress_pct", 0.0),
+                "progress_event_types": warm.get("progress_event_types", []),
             }
         if manual and warm:
             token_delta = manual["token_proxy"] - warm["token_proxy"]
@@ -117,6 +121,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             aggregate_warm_guidance_followed += warm.get("guidance_followed", 0)
             aggregate_manual_progress_events += manual.get("progress_events", 0)
             aggregate_warm_progress_events += warm.get("progress_events", 0)
+            aggregate_manual_progress_event_types.update(manual.get("progress_event_types", []))
+            aggregate_warm_progress_event_types.update(warm.get("progress_event_types", []))
             compared += 1
         scenarios.append(entry)
 
@@ -164,6 +170,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             "m1nd_warm_progress_events": aggregate_warm_progress_events,
             "progress_event_delta": aggregate_manual_progress_events
             - aggregate_warm_progress_events,
+            "manual_progress_event_types": sorted(aggregate_manual_progress_event_types),
+            "m1nd_warm_progress_event_types": sorted(aggregate_warm_progress_event_types),
         }
         if input_price_per_1m is not None:
             summary["aggregate"]["input_price_per_1m"] = input_price_per_1m
