@@ -84,6 +84,12 @@ pub struct SeekOutput {
     /// Whether embeddings were used (false = fallback to trigram/semantic engine).
     pub embeddings_used: bool,
     pub elapsed_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 /// Shared heuristic metadata exposed by tools that apply trust/tremor priors.

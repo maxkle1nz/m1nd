@@ -188,8 +188,8 @@
         "repeat_reads": 1,
         "search_iterations": 1,
         "false_start_count": 0,
-        "guidance_events": 0,
-        "guidance_followed": 0
+        "guidance_events": 1,
+        "guidance_followed": 1
       },
       "comparison": {
         "token_delta": 210,
@@ -198,8 +198,8 @@
         "search_iteration_delta": 0,
         "repeat_read_delta": 0,
         "false_start_delta": 0,
-        "guidance_event_delta": 0,
-        "guidance_followed_delta": 0
+        "guidance_event_delta": -1,
+        "guidance_followed_delta": -1
       }
     },
     {
@@ -301,14 +301,10 @@
     "m1nd_warm_false_starts": 0,
     "false_start_delta": 3,
     "manual_guidance_events": 0,
-    "m1nd_warm_guidance_events": 5,
-    "guidance_event_delta": -5,
+    "m1nd_warm_guidance_events": 6,
+    "guidance_event_delta": -6,
     "manual_guidance_followed": 0,
-    "m1nd_warm_guidance_followed": 5,
-    "guidance_followed_delta": -5,
-    "input_price_per_1m": 5.0,
-    "estimated_input_cost_saved_usd": 0.02155,
-    "time_value_per_hour_usd": 100.0,
-    "estimated_time_value_saved_usd": 0.001724
+    "m1nd_warm_guidance_followed": 6,
+    "guidance_followed_delta": -6
   }
 }

@@ -398,7 +398,7 @@ Current aggregate from those recorded runs:
 - warm `m1nd` repeat reads: `6`
 - manual false starts: `3`
 - warm `m1nd` false starts: `0`
-- warm `m1nd` guidance-followed count: `5`
+- warm `m1nd` guidance-followed count: `6`
 
 Interpretation:
 
@@ -409,8 +409,9 @@ Interpretation:
 - the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
 - the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
+- semantic retrieval now joins the guided-flow set too: `seek` can hand off directly into `view` on the winning file
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
-- guidance-followed is now measurable in continuity, structural-proof, and edit-prep flows, not only resume scenarios
+- guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, and triage flows
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
 - the next useful benchmark step is to tighten mixed proof flows and remove the remaining synthetic timing noise
 

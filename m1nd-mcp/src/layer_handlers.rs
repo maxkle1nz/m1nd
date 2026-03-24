@@ -96,6 +96,9 @@ pub fn handle_seek(
             total_candidates_scanned: 0,
             embeddings_used: false,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
         });
     }
 
@@ -435,13 +438,42 @@ pub fn handle_seek(
         let _ = state.persist();
     }
 
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = l2_seek_next_step(&results);
+
     Ok(layers::SeekOutput {
         query: input.query,
         results,
         total_candidates_scanned: candidates_scanned,
         embeddings_used: semantic_used,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     })
+}
+
+fn l2_seek_next_step(
+    results: &[layers::SeekResultEntry],
+) -> (Option<String>, Option<String>, Option<String>) {
+    let Some(top) = results.first() else {
+        return (None, None, None);
+    };
+    let path = top
+        .file_path
+        .clone()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| node_to_file_path(&top.node_id));
+    let target = if path.is_empty() {
+        top.node_id.clone()
+    } else {
+        path.clone()
+    };
+    let hint = if !path.is_empty() {
+        format!("Open the top seek result next: {} in {}.", top.label, path)
+    } else {
+        format!("Open the top seek result next: {}.", top.label)
+    };
+    (Some("view".into()), Some(target), Some(hint))
 }
 
 /// Handle m1nd.scan -- pattern-aware structural code analysis.
@@ -1892,9 +1924,10 @@ fn trail_resume_hints(
             "Use seek to relocate the answer path for: {}",
             question
         )),
-        (Some("view"), Some(node), _) => {
-            hints.push(format!("Re-open the current focus before branching: {}", node))
-        }
+        (Some("view"), Some(node), _) => hints.push(format!(
+            "Re-open the current focus before branching: {}",
+            node
+        )),
         _ => {}
     }
 
@@ -1948,7 +1981,13 @@ fn trail_resume_suggested_tool(
             return Some("impact".into());
         }
         if [
-            "why", "proof", "prove", "evidence", "violation", "missing", "guard",
+            "why",
+            "proof",
+            "prove",
+            "evidence",
+            "violation",
+            "missing",
+            "guard",
         ]
         .iter()
         .any(|term| lower.contains(term))
@@ -3613,10 +3652,7 @@ pub fn handle_trace(
 
     let (next_suggested_tool, next_suggested_target, next_step_hint) =
         if let Some(top) = suspects.first() {
-            let target = top
-                .file_path
-                .clone()
-                .unwrap_or_else(|| top.node_id.clone());
+            let target = top.file_path.clone().unwrap_or_else(|| top.node_id.clone());
             let hint = format!(
                 "Open the top suspect next: {} (suspiciousness {:.2})",
                 target, top.suspiciousness
@@ -3970,29 +4006,28 @@ pub fn handle_validate_plan(
     let top_hotspot = heuristic_summary
         .as_ref()
         .and_then(|summary| summary.hotspots.first());
-    let (next_suggested_tool, next_suggested_target, next_step_hint) = if let Some(hotspot) =
-        top_hotspot
-    {
-        (
-            Some("heuristics_surface".into()),
-            Some(hotspot.file_path.clone()),
-            Some(format!(
-                "Inspect {} next: {}",
-                hotspot.file_path, hotspot.proof_hint
-            )),
-        )
-    } else if let Some(gap) = gaps.iter().find(|gap| gap.severity == "critical") {
-        (
-            Some("view".into()),
-            Some(gap.file_path.clone()),
-            Some(format!(
-                "Open {} next because it is a critical gap: {}",
-                gap.file_path, gap.reason
-            )),
-        )
-    } else {
-        (None, None, None)
-    };
+    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+        if let Some(hotspot) = top_hotspot {
+            (
+                Some("heuristics_surface".into()),
+                Some(hotspot.file_path.clone()),
+                Some(format!(
+                    "Inspect {} next: {}",
+                    hotspot.file_path, hotspot.proof_hint
+                )),
+            )
+        } else if let Some(gap) = gaps.iter().find(|gap| gap.severity == "critical") {
+            (
+                Some("view".into()),
+                Some(gap.file_path.clone()),
+                Some(format!(
+                    "Open {} next because it is a critical gap: {}",
+                    gap.file_path, gap.reason
+                )),
+            )
+        } else {
+            (None, None, None)
+        };
 
     Ok(layers::ValidatePlanOutput {
         actions_analyzed,
@@ -4796,9 +4831,17 @@ fn l6_vp_heuristic_reason(
     }
 }
 
-fn l6_vp_proof_hint(file_path: &str, role: &str, heuristic_reason: &str, antibody_hits: usize) -> String {
+fn l6_vp_proof_hint(
+    file_path: &str,
+    role: &str,
+    heuristic_reason: &str,
+    antibody_hits: usize,
+) -> String {
     let mut hint = match role {
-        "planned" => format!("{} is already in the plan and carries heuristic risk", file_path),
+        "planned" => format!(
+            "{} is already in the plan and carries heuristic risk",
+            file_path
+        ),
         "gap" => format!("{} is outside the plan but structurally risky", file_path),
         _ => format!("{} surfaced as a risky proof seam", file_path),
     };
@@ -8495,6 +8538,19 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .any(|result| result.node_id == "file::docs/dispatch-aliases.md"),
             "docs distractor should remain visible in the candidate set"
         );
+        assert_eq!(output.next_suggested_tool.as_deref(), Some("view"));
+        assert_eq!(
+            output.next_suggested_target.as_deref(),
+            Some("m1nd-mcp/src/server.rs")
+        );
+        assert!(
+            output
+                .next_step_hint
+                .as_deref()
+                .unwrap_or_default()
+                .contains("normalize_dispatch_tool_name"),
+            "seek should suggest opening the strongest result next"
+        );
     }
 
     #[test]
@@ -8748,7 +8804,9 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             .find(|hotspot| hotspot.file_path == "src/core.rs")
             .expect("planned hotspot ref");
         assert!(
-            hotspot.proof_hint.contains("src/core.rs is already in the plan"),
+            hotspot
+                .proof_hint
+                .contains("src/core.rs is already in the plan"),
             "validate_plan should emit a compact proof hint with the hotspot"
         );
         assert!(
@@ -8761,10 +8819,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             output.next_suggested_tool.as_deref(),
             Some("heuristics_surface")
         );
-        assert_eq!(
-            output.next_suggested_target.as_deref(),
-            Some("src/core.rs")
-        );
+        assert_eq!(output.next_suggested_target.as_deref(), Some("src/core.rs"));
         assert!(output
             .next_step_hint
             .as_deref()

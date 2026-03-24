@@ -1934,13 +1934,12 @@ pub fn handle_surgical_context_v2(
         }
     }
 
-    let (next_suggested_tool, next_suggested_target, next_step_hint) =
-        surgical_v2_next_step(
-            &primary.file_path,
-            primary.heuristic_summary.as_ref(),
-            &connected_files,
-            input.proof_focused,
-        );
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = surgical_v2_next_step(
+        &primary.file_path,
+        primary.heuristic_summary.as_ref(),
+        &connected_files,
+        input.proof_focused,
+    );
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
@@ -3766,7 +3765,10 @@ mod tests {
             "proof-focused mode should keep proof files over documentation noise"
         );
         assert_eq!(output.next_suggested_tool.as_deref(), Some("validate_plan"));
-        assert_eq!(output.next_suggested_target.as_deref(), Some(primary_str.as_str()));
+        assert_eq!(
+            output.next_suggested_target.as_deref(),
+            Some(primary_str.as_str())
+        );
         assert!(output
             .next_step_hint
             .as_deref()
