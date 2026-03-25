@@ -261,6 +261,29 @@ fn tool_usage_hint(tool_name: &str) -> Option<&'static str> {
     }
 }
 
+fn invalid_params_recovery(tool: &str, detail: &str) -> Option<serde_json::Value> {
+    if tool == "trail.resume" && detail.contains("Use force=true to resume.") {
+        return Some(serde_json::json!({
+            "hint": "This saved trail has drifted too far from the current graph for a normal resume. If partial continuity is still useful, retry with `force=true`.",
+            "suggested_next_step": "Retry `trail_resume` with `force=true` to recover degraded continuity, or start a new investigation if the trail is no longer trustworthy.",
+            "workflow_hint": "Typical recovery flow: `trail_resume(force=true) -> inspect next_focus / resume_hints -> continue or restart`.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "trail_resume",
+                    "arguments": {
+                        "agent_id": "dev",
+                        "trail_id": "trail_123",
+                        "force": true
+                    }
+                }
+            }
+        }));
+    }
+
+    None
+}
+
 pub(crate) fn tool_error_payload(error: &M1ndError) -> serde_json::Value {
     match error {
         M1ndError::UnknownTool { name } => serde_json::json!({
@@ -290,6 +313,20 @@ pub(crate) fn tool_error_payload(error: &M1ndError) -> serde_json::Value {
             }
             if let Some(usage_hint) = tool_usage_hint(tool) {
                 payload["usage_hint"] = serde_json::json!(usage_hint);
+            }
+            if let Some(recovery) = invalid_params_recovery(tool, detail) {
+                if let Some(hint) = recovery.get("hint") {
+                    payload["hint"] = hint.clone();
+                }
+                if let Some(step) = recovery.get("suggested_next_step") {
+                    payload["suggested_next_step"] = step.clone();
+                }
+                if let Some(workflow_hint) = recovery.get("workflow_hint") {
+                    payload["workflow_hint"] = workflow_hint.clone();
+                }
+                if let Some(example) = recovery.get("example") {
+                    payload["example"] = example.clone();
+                }
             }
             payload
         }
@@ -2455,6 +2492,28 @@ mod tests {
         assert!(required_fields.iter().any(|value| value == "agent_id"));
         assert!(required_fields.iter().any(|value| value == "error_text"));
         assert_eq!(payload["example"]["params"]["name"], "trace");
+    }
+
+    #[test]
+    fn stale_trail_resume_invalid_params_payload_teaches_force_recovery() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "trail.resume".into(),
+            detail:
+                "Trail trail_123 is stale: 8 of 12 nodes missing (67%). Use force=true to resume."
+                    .into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "trail.resume");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("force=true"));
+        assert!(payload["workflow_hint"]
+            .as_str()
+            .expect("workflow hint")
+            .contains("trail_resume(force=true)"));
+        assert_eq!(payload["example"]["params"]["name"], "trail_resume");
+        assert_eq!(payload["example"]["params"]["arguments"]["force"], true);
     }
 
     #[test]
