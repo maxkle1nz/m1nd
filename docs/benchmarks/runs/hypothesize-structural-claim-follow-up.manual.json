@@ -65,7 +65,7 @@
   "guidance_followed": 0,
   "reactivated_nodes": 0,
   "resume_hints": 0,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Why is this dispatch path missing a validation guard, and what file should I inspect next?",
   "expected_strength": "strong"
 }

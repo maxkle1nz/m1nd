@@ -302,7 +302,7 @@ def build_run(args):
         "recovery_followthrough_rate": safe_rate(
             derived["recovery_followed"], derived["recovery_events"]
         ),
-        "repo_path": scenario.get("repo_path"),
+        "repo_path": "." if scenario.get("repo_path") else None,
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),
     }

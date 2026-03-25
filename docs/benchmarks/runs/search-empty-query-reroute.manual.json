@@ -75,7 +75,7 @@
   "recovery_events": 0,
   "recovery_followed": 0,
   "recovery_followthrough_rate": null,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Recover from calling search with an empty query when the real task is to find matching Rust files under a scope, then reroute into glob instead of starting a fresh shell file-discovery sweep.",
   "expected_strength": "strong"
 }

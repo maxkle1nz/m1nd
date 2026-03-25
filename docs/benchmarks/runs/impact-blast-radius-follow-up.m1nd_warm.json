@@ -62,7 +62,7 @@
     "proving"
   ],
   "final_proof_state": "proving",
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "What downstream node should I inspect first before changing search scope normalization?",
   "expected_strength": "strong"
 }

@@ -98,7 +98,7 @@
   "recovery_events": 0,
   "recovery_followed": 0,
   "recovery_followthrough_rate": null,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Recover from a broad semantic seek that lands in the right subsystem but not the exact helper name, then narrow into `l2_seek_proof_state` and confirm the output contract instead of guessing files.",
   "expected_strength": "strong"
 }

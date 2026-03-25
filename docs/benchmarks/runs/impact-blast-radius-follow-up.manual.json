@@ -65,7 +65,7 @@
   "guidance_followed": 0,
   "reactivated_nodes": 0,
   "resume_hints": 0,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "What downstream node should I inspect first before changing search scope normalization?",
   "expected_strength": "strong"
 }

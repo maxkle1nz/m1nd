@@ -80,7 +80,7 @@
   "guidance_followed": 0,
   "reactivated_nodes": 0,
   "resume_hints": 0,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Resume a saved investigation whose next open question is temporal and continue straight into recent-change proof.",
   "expected_strength": "strong"
 }

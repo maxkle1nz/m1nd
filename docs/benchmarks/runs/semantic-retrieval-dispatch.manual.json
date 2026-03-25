@@ -47,7 +47,7 @@
   "search_iterations": 1,
   "chars_surfaced": 2240,
   "token_proxy": 560,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Where do we normalize alias tool names into the canonical dispatch status name?",
   "expected_strength": "strong"
 }

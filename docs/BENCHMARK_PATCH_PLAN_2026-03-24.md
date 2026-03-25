@@ -1,7 +1,7 @@
 # m1nd Next Patch Plan
 
 Date: 2026-03-24
-Repo: `/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone`
+Repo: `<path-to-local-m1nd-repo>`
 Source: benchmark findings from `docs/BENCHMARK_RESEARCH_2026-03-24.md`
 
 ## Goal

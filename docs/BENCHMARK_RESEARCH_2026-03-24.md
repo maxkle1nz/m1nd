@@ -1,7 +1,7 @@
 # m1nd Benchmark Research
 
 Date: 2026-03-24
-Repo: `/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone`
+Repo: `<path-to-local-m1nd-repo>`
 Status: working research log, not marketing copy
 
 ## Purpose

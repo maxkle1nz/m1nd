@@ -62,7 +62,7 @@
     "triaging"
   ],
   "final_proof_state": "triaging",
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Start from a stacktrace, identify the most likely structural suspect, and continue into the right file without manual frame chasing.",
   "expected_strength": "strong"
 }

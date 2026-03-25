@@ -1,7 +1,7 @@
 {
   "scenario_id": "warm_continuity_actionable_resume",
   "scenario_name": "Warm continuity resume with actionable next-step hints",
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Resume a saved investigation and continue directly from the next useful question instead of rediscovering the path by hand.",
   "tags": ["warm-graph", "continuity", "trail-resume", "resume-hints"],
   "expected_strength": "strong"

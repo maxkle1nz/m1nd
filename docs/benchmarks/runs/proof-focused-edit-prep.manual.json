@@ -59,7 +59,7 @@
   "search_iterations": 1,
   "chars_surfaced": 4460,
   "token_proxy": 1115,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Prepare a compact multi-file edit plan for normalized scope changes without flooding the agent with neighborhood payload.",
   "expected_strength": "strong"
 }

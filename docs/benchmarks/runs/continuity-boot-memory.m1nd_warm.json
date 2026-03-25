@@ -67,7 +67,7 @@
   "guidance_followed": 1,
   "reactivated_nodes": 2,
   "resume_hints": 2,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Resume a boot-memory investigation without rediscovering the structural path from scratch.",
   "expected_strength": "mixed"
 }

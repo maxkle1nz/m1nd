@@ -78,7 +78,7 @@
   "search_iterations": 2,
   "chars_surfaced": 5360,
   "token_proxy": 1340,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Resume a saved investigation and continue directly from the next useful question instead of rediscovering the path by hand.",
   "expected_strength": "strong"
 }

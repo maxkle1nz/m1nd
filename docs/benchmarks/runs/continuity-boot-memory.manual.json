@@ -59,7 +59,7 @@
   "search_iterations": 1,
   "chars_surfaced": 4170,
   "token_proxy": 1043,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Resume a boot-memory investigation without rediscovering the structural path from scratch.",
   "expected_strength": "mixed"
 }

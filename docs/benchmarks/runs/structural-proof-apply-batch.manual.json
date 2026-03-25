@@ -47,7 +47,7 @@
   "search_iterations": 1,
   "chars_surfaced": 2770,
   "token_proxy": 693,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Prove why an apply_batch change should be considered risky with compact structural evidence.",
   "expected_strength": "strong"
 }

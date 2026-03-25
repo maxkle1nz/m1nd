@@ -1,7 +1,7 @@
 {
   "scenario_id": "warm_search_empty_query_reroute",
   "scenario_name": "Warm reroute from empty search query into glob-based file discovery",
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Recover from calling search with an empty query when the real task is to find matching Rust files under a scope, then reroute into glob instead of starting a fresh shell file-discovery sweep.",
   "tags": ["warm-graph", "recovery", "search", "glob", "wrong-tool-reroute"],
   "expected_strength": "strong"

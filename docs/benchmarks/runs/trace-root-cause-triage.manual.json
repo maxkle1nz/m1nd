@@ -56,7 +56,7 @@
   "guidance_followed": 0,
   "reactivated_nodes": 0,
   "resume_hints": 0,
-  "repo_path": "/Users/cosmophonix/SISTEMA/.codex-tmp/m1nd-standalone",
+  "repo_path": ".",
   "question": "Start from a stacktrace, identify the most likely structural suspect, and continue into the right file without manual frame chasing.",
   "expected_strength": "strong"
 }
