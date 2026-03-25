@@ -259,6 +259,9 @@ Das ist der Teil, den die meisten READMEs auslassen. Wenn der Leser nicht weiß,
 | Die primäre Datei plus verbundene Dateiquellen in einem Zug laden | `surgical_context_v2` |
 | Kleinen persistenten Betriebszustand speichern | `boot_memory` |
 | Eine Untersuchungsspur speichern oder fortsetzen | `trail_save`, `trail_resume`, `trail_merge` |
+| Eine Untersuchung fortsetzen und den nächsten wahrscheinlichen Schritt erhalten | `trail_resume` mit `resume_hints`, `next_focus_node_id`, `next_open_question` und `next_suggested_tool` |
+| Verstehen, ob ein Tool noch triagiert, beweist oder bereits editierbar ist | `proof_state` auf `impact`, `trace`, `hypothesize`, `validate_plan` und `surgical_context_v2` |
+| Wenn unklar ist, welches Tool passt oder wie man sich von einem Fehlaufruf erholt | `help` |
 
 <a id="results-and-measurements"></a>
 ## Ergebnisse und Messungen
@@ -290,6 +293,8 @@ Mikro-Benchmarks nach Kriterium, die in den aktuellen Dokus erfasst wurden:
 
 Diese Zahlen sind vor allem dann wichtig, wenn sie mit dem Workflow-Nutzen zusammengedacht werden: weniger Hin-und-her zwischen grep/read-Loops und weniger Kontext, der in das Modell geladen werden muss.
 
+Im heute dokumentierten aggregierten Warm-Graph-Korpus sinkt `m1nd_warm` von `10518` auf `5182` Proxy-Tokens (`50.73%` Ersparnis), reduziert `false_starts` von `14` auf `0`, verzeichnet `31` guided follow-throughs und `12` erfolgreich befolgte recovery loops.
+
 <a id="configure-your-agent"></a>
 ## Den Agenten konfigurieren
 
@@ -298,39 +303,41 @@ m1nd funktioniert am besten, wenn dein Agent es als erste Anlaufstelle für Stru
 ### Was du dem System-Prompt deines Agenten hinzufügen solltest
 
 ```text
-Use m1nd before broad grep/glob/file-read loops when the task depends on structure, impact, connected context, or cross-file reasoning.
+Nutze m1nd vor breiten grep/glob/Dateilese-Loops, wenn die Aufgabe von Struktur, Impact, verbundenem Kontext oder dateiübergreifendem Reasoning abhängt.
 
-- search for exact text or regex with graph-aware scope handling
-- glob for filename/path patterns
-- seek for natural-language intent
-- activate for connected neighborhoods
-- impact before risky edits
-- heuristics_surface when you need ranking justification
-- validate_plan before broad or coupled changes
-- surgical_context_v2 when preparing a multi-file edit
-- boot_memory for small persistent operational state
-- help when unsure which tool fits
+- nutze `search` für exakten Text oder Regex mit graphbewusstem Scope
+- nutze `glob` für Dateinamen- und Pfadmuster
+- nutze `seek` für Intention in natürlicher Sprache
+- nutze `activate` für verbundene Nachbarschaften
+- nutze `impact` vor riskanten Änderungen
+- nutze `heuristics_surface`, wenn du eine Ranking-Begründung brauchst
+- nutze `validate_plan` vor breiten oder gekoppelten Änderungen
+- nutze `surgical_context_v2`, wenn du einen Multi-Datei-Edit vorbereitest
+- nutze `boot_memory` für kleinen persistenten Betriebszustand
+- nutze `help`, wenn du nicht sicher bist, welches Tool passt
 
-Use plain tools when the task is single-file, exact-text, or runtime/build-truth driven.
+Nutze einfache Tools, wenn die Aufgabe single-file, textgenau oder von Runtime-/Build-Wahrheit getrieben ist.
 ```
 
 ### Claude Code (`CLAUDE.md`)
 
 ```markdown
 ## Code Intelligence
-Use m1nd before broad grep/glob/file-read loops when the task depends on structure, impact, connected context, or cross-file reasoning.
+Nutze m1nd vor breiten grep/glob/Dateilese-Loops, wenn die Aufgabe von Struktur, Impact, verbundenem Kontext oder dateiübergreifendem Reasoning abhängt.
 
-Reach for:
-- search for exact code/text
-- glob for filename patterns
-- seek for intent
-- activate for related code
-- impact before edits
-- validate_plan before risky changes
-- surgical_context_v2 for multi-file edit prep
-- heuristics_surface for ranking explanation
+Greife zu:
+- `search` für exakten Code/Text
+- `glob` für Dateinamenmuster
+- `seek` für Intention
+- `activate` für verwandten Code
+- `impact` vor Änderungen
+- `validate_plan` vor riskanten Änderungen
+- `surgical_context_v2` zur Vorbereitung von Multi-Datei-Edits
+- `heuristics_surface` zur Ranking-Erklärung
+- `trail_resume` für Kontinuität, wenn du den nächsten wahrscheinlichen Schritt brauchst
+- `help`, um das richtige Tool zu wählen oder dich von einem Fehlaufruf zu erholen
 
-Use plain tools for single-file edits, exact-text chores, tests, compiler errors, and runtime logs.
+Nutze einfache Tools für Single-File-Edits, exakte Textaufgaben, Tests, Compilerfehler und Runtime-Logs.
 ```
 
 ### Cursor (`.cursorrules`)
@@ -448,7 +455,7 @@ Kanonsiche Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `t
 | `validate_plan` | Änderungsrisiko vorab prüfen, inklusive Hotspot-Referenzen | 0.5-10ms |
 | `predict` | Co-Change-Vorhersage mit Ranking-Begründung | <1ms |
 | `trail_save` | Untersuchungszustand persistieren | ~0ms |
-| `trail_resume` | Eine gespeicherte Untersuchung wiederherstellen | 0.2ms |
+| `trail_resume` | Eine gespeicherte Untersuchung wiederherstellen und den nächsten Schritt vorschlagen | 0.2ms |
 | `trail_merge` | Mehragenten-Untersuchungen zusammenführen | 1.2ms |
 | `trail_list` | Gespeicherte Untersuchungen durchsuchen | ~0ms |
 | `differential` | Strukturelles Diff zwischen Graph-Snapshots | variiert |
@@ -503,6 +510,14 @@ Kanonsiche Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `t
 `apply_batch` mit `verify=true` führt mehrere Verifikationsschichten aus und gibt eine einzige SAFE-/RISKY-/BROKEN-artige Bewertung zurück.
 
 Wenn `verification.high_impact_files` Heuristik-Hotspots enthält, kann der Bericht auf `RISKY` hochgestuft werden, selbst wenn der reine Auswirkungsradius niedriger geblieben wäre.
+
+`apply_batch` liefert jetzt außerdem:
+
+- `status_message` und grobe Fortschrittsfelder
+- `proof_state` plus `next_suggested_tool`, `next_suggested_target` und `next_step_hint`
+- `phases` als strukturierte Timeline von `validate`, `write`, `reingest`, `verify` und `done`
+- `progress_events` als streaming-freundliches Protokoll desselben Zyklus
+- im HTTP/UI-Transport Live-SSE-Fortschritt über `apply_batch_progress`, gefolgt von einem semantischen Handoff am Batch-Ende
 
 ```jsonc
 {

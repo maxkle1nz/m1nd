@@ -284,46 +284,50 @@ Criterion micro-benchmark registrati nella documentazione attuale:
 
 Questi numeri contano soprattutto se affiancati al beneficio di workflow: meno round-trip nei loop grep/lettura e meno contesto da caricare nel modello.
 
-## Configure Your Agent
+Nel corpus warm-graph aggregato documentato oggi, `m1nd_warm` scende da `10518` a `5182` token proxy (`50.73%` di risparmio), riduce i `false_starts` da `14` a `0`, registra `31` guided follow-throughs e `12` recovery loops seguiti con successo.
+
+## Configura il tuo agente
 
 m1nd funziona al meglio quando il tuo agente lo tratta come prima fermata per struttura e contesto connesso, non come l'unico strumento che è autorizzato a usare.
 
-### What to add to your agent's system prompt
+### Cosa aggiungere al system prompt del tuo agente
 
 ```text
-Use m1nd before broad grep/glob/file-read loops when the task depends on structure, impact, connected context, or cross-file reasoning.
+Usa m1nd prima di loop ampi di grep/glob/lettura file quando il compito dipende da struttura, impatto, contesto connesso o ragionamento cross-file.
 
-- search for exact text or regex with graph-aware scope handling
-- glob for filename/path patterns
-- seek for natural-language intent
-- activate for connected neighborhoods
-- impact before risky edits
-- heuristics_surface when you need ranking justification
-- validate_plan before broad or coupled changes
-- surgical_context_v2 when preparing a multi-file edit
-- boot_memory for small persistent operational state
-- help when unsure which tool fits
+- usa `search` per testo esatto o regex con scope consapevole del grafo
+- usa `glob` per pattern di nome/percorso
+- usa `seek` per intenzione in linguaggio naturale
+- usa `activate` per vicinati connessi
+- usa `impact` prima di modifiche rischiose
+- usa `heuristics_surface` quando ti serve giustificare il ranking
+- usa `validate_plan` prima di cambi ampi o accoppiati
+- usa `surgical_context_v2` quando prepari una modifica multi-file
+- usa `boot_memory` per piccolo stato operativo persistente
+- usa `help` quando non sei sicuro di quale tool usare
 
-Use plain tools when the task is single-file, exact-text, or runtime/build-truth driven.
+Usa strumenti semplici quando il compito è single-file, a testo esatto o guidato dalla verità di runtime/build.
 ```
 
 ### Claude Code (`CLAUDE.md`)
 
 ```markdown
 ## Code Intelligence
-Use m1nd before broad grep/glob/file-read loops when the task depends on structure, impact, connected context, or cross-file reasoning.
+Usa m1nd prima di loop ampi di grep/glob/lettura file quando il compito dipende da struttura, impatto, contesto connesso o ragionamento cross-file.
 
-Reach for:
-- search for exact code/text
-- glob for filename patterns
-- seek for intent
-- activate for related code
-- impact before edits
-- validate_plan before risky changes
-- surgical_context_v2 for multi-file edit prep
-- heuristics_surface for ranking explanation
+Preferisci:
+- `search` per codice/testo esatto
+- `glob` per pattern di nome file
+- `seek` per intenzione
+- `activate` per codice correlato
+- `impact` prima delle modifiche
+- `validate_plan` prima di cambi rischiosi
+- `surgical_context_v2` per preparare modifiche multi-file
+- `heuristics_surface` per spiegare il ranking
+- `trail_resume` per continuità quando ti serve la prossima mossa probabile
+- `help` per scegliere il tool giusto o recuperare da una chiamata sbagliata
 
-Use plain tools for single-file edits, exact-text chores, tests, compiler errors, and runtime logs.
+Usa strumenti semplici per modifiche a singolo file, compiti a testo esatto, test, errori del compilatore e log di runtime.
 ```
 
 ### Cursor (`.cursorrules`)
@@ -390,7 +394,7 @@ I nomi canonici degli strumenti nello schema MCP esportato usano underscore, com
 <details>
 <summary><strong>Foundation</strong></summary>
 
-| Tool | What It Does | Speed |
+| Tool | Cosa fa | Velocità |
 |------|-------------|-------|
 | `ingest` | Analizza un codebase o un corpus nel grafo | 910ms / 335 file |
 | `search` | Testo esatto o regex con gestione dell'ambito basata sul grafo | variabile |
@@ -429,7 +433,7 @@ I nomi canonici degli strumenti nello schema MCP esportato usano underscore, com
 <details>
 <summary><strong>Graph Analysis</strong></summary>
 
-| Tool | What It Does | Speed |
+| Tool | Cosa fa | Velocità |
 |------|-------------|-------|
 | `hypothesize` | Testa un'affermazione strutturale contro il grafo | 28-58ms |
 | `counterfactual` | Simula la rimozione di un nodo e la cascata risultante | 3ms |
@@ -440,7 +444,7 @@ I nomi canonici degli strumenti nello schema MCP esportato usano underscore, com
 | `validate_plan` | Pre-flight del rischio di modifica con riferimenti agli hotspot | 0.5-10ms |
 | `predict` | Predizione dei co-change con giustificazione del ranking | <1ms |
 | `trail_save` | Salva lo stato dell'investigazione | ~0ms |
-| `trail_resume` | Ripristina un'investigazione salvata | 0.2ms |
+| `trail_resume` | Ripristina un'investigazione salvata e suggerisce la prossima mossa | 0.2ms |
 | `trail_merge` | Combina investigazioni multi-agente | 1.2ms |
 | `trail_list` | Sfoglia le investigazioni salvate | ~0ms |
 | `differential` | Diff strutturale tra snapshot del grafo | variabile |
@@ -449,7 +453,7 @@ I nomi canonici degli strumenti nello schema MCP esportato usano underscore, com
 <details>
 <summary><strong>Extended Analysis</strong></summary>
 
-| Tool | What It Does | Speed |
+| Tool | Cosa fa | Velocità |
 |------|-------------|-------|
 | `antibody_scan` | Scansiona il grafo rispetto a pattern di bug memorizzati | 2.68ms |
 | `antibody_list` | Elenca gli antibody memorizzati con cronologia delle corrispondenze | ~0ms |
@@ -465,7 +469,7 @@ I nomi canonici degli strumenti nello schema MCP esportato usano underscore, com
 <details>
 <summary><strong>Surgical</strong></summary>
 
-| Tool | What It Does | Speed |
+| Tool | Cosa fa | Velocità |
 |------|-------------|-------|
 | `surgical_context` | File primario più chiamanti, chiamati, test e riepilogo euristico | variabile |
 | `heuristics_surface` | Spiega perché un file o un nodo è stato classificato come rischioso o importante | variabile |
@@ -480,7 +484,7 @@ I nomi canonici degli strumenti nello schema MCP esportato usano underscore, com
 <details>
 <summary><strong>Reporting & State</strong></summary>
 
-| Tool | What It Does | Speed |
+| Tool | Cosa fa | Velocità |
 |------|-------------|-------|
 | `report` | Report di sessione con query recenti, risparmi, statistiche del grafo e hotspot euristici | ~0ms |
 | `savings` | Riepilogo dei risparmi di token, CO2 e costi a livello di sessione/globale | ~0ms |
@@ -488,13 +492,21 @@ I nomi canonici degli strumenti nello schema MCP esportato usano underscore, com
 | `boot_memory` | Salva piccola dottrina canonica o stato operativo e lo mantiene caldo nella memoria di runtime | ~0ms |
 </details>
 
-[Full API reference with examples ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
+[Riferimento API completo con esempi ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
 
 ## Post-Write Verification
 
 `apply_batch` con `verify=true` esegue più layer di verifica e restituisce un unico verdetto in stile SAFE / RISKY / BROKEN.
 
 Quando `verification.high_impact_files` contiene hotspot euristici, il report può essere promosso a `RISKY` anche se il solo blast radius sarebbe rimasto più basso.
+
+`apply_batch` ora restituisce anche:
+
+- `status_message` e campi coarse di progresso
+- `proof_state` più `next_suggested_tool`, `next_suggested_target` e `next_step_hint`
+- `phases` come timeline strutturata di `validate`, `write`, `reingest`, `verify` e `done`
+- `progress_events` come log streaming-friendly dello stesso ciclo
+- nel trasporto HTTP/UI, progresso SSE live come `apply_batch_progress`, seguito da handoff semantico alla fine del batch
 
 ```jsonc
 {
