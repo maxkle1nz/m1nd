@@ -1591,7 +1591,7 @@ mod tests {
         )
         .expect("write file");
 
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
         let input = SearchInput {
             agent_id: "jimi-codex".into(),
             query: "FALLBACK_TOKEN".into(),
@@ -1907,7 +1907,7 @@ mod tests {
     fn help_handler_resolves_aliases_to_canonical_tool_names() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
 
         let input = crate::protocol::layers::HelpInput {
             agent_id: "jimi-codex".into(),
@@ -1924,7 +1924,7 @@ mod tests {
     fn help_handler_surfaces_decision_sections_for_known_tools() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
 
         let input = crate::protocol::layers::HelpInput {
             agent_id: "jimi-codex".into(),
@@ -1947,7 +1947,7 @@ mod tests {
     fn help_handler_updates_impact_and_trace_for_guided_proof_flow() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
 
         let impact = handle_help(
             &mut state,
@@ -1980,7 +1980,7 @@ mod tests {
     fn help_index_includes_short_decision_guide() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
 
         let input = crate::protocol::layers::HelpInput {
             agent_id: "jimi-codex".into(),
@@ -2044,7 +2044,7 @@ mod tests {
         let scopes = [
             "src".to_string(),
             absolute.to_string_lossy().to_string(),
-            format!("file::src"),
+            "file::src".to_string(),
             format!("file::{}", absolute.to_string_lossy()),
         ];
 
@@ -2089,7 +2089,7 @@ mod tests {
         )
         .expect("write file");
 
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
         add_file_node(&mut state, "src/example.rs");
 
         let scopes = vec![
@@ -2109,7 +2109,7 @@ mod tests {
         let src_dir = root.join("src");
         std::fs::create_dir_all(&src_dir).expect("src dir");
 
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
         add_file_node(&mut state, "src/example.rs");
         add_file_node(&mut state, "src/other.txt");
         add_file_node(&mut state, "docs/ignore.rs");

@@ -396,7 +396,7 @@ fn test_surgical_context_includes_trust_score() {
         .trust_score
         .expect("trust_score must be Some when include_trust_score=true and ledger has data");
     assert!(
-        score >= 0.0 && score <= 1.0,
+        (0.0..=1.0).contains(&score),
         "trust_score must be in [0.0, 1.0], got {}",
         score
     );

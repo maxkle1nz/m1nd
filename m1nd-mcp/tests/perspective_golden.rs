@@ -332,12 +332,8 @@ fn golden_04_multi_agent_isolation() {
     perspectives.insert(("agent_B".into(), "persp_agentB_001".into()), state_b);
 
     // Verify isolation: A cannot see B's perspective
-    assert!(perspectives
-        .get(&("agent_A".into(), "persp_agentB_001".into()))
-        .is_none());
-    assert!(perspectives
-        .get(&("agent_B".into(), "persp_agentA_001".into()))
-        .is_none());
+    assert!(!perspectives.contains_key(&("agent_A".into(), "persp_agentB_001".into())));
+    assert!(!perspectives.contains_key(&("agent_B".into(), "persp_agentA_001".into())));
 
     // Verify each agent sees only their own
     let a_persp = perspectives
@@ -566,8 +562,10 @@ fn golden_validation_lens_contract() {
     assert_eq!(validated.dimensions.len(), 4);
 
     // Invalid dimension
-    let mut bad = PerspectiveLens::default();
-    bad.dimensions = vec!["quantum".into()];
+    let bad = PerspectiveLens {
+        dimensions: vec!["quantum".into()],
+        ..PerspectiveLens::default()
+    };
     assert!(validate_lens(&bad, 100).is_err());
 }
 

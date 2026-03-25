@@ -276,8 +276,10 @@ mod tests {
 
     #[test]
     fn validate_lens_rejects_unknown_dimension() {
-        let mut lens = PerspectiveLens::default();
-        lens.dimensions = vec!["structural".into(), "magic".into()];
+        let lens = PerspectiveLens {
+            dimensions: vec!["structural".into(), "magic".into()],
+            ..PerspectiveLens::default()
+        };
         let result = validate_lens(&lens, 100);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -288,24 +290,30 @@ mod tests {
 
     #[test]
     fn validate_lens_normalizes_case() {
-        let mut lens = PerspectiveLens::default();
-        lens.dimensions = vec!["STRUCTURAL".into(), "Semantic".into()];
+        let lens = PerspectiveLens {
+            dimensions: vec!["STRUCTURAL".into(), "Semantic".into()],
+            ..PerspectiveLens::default()
+        };
         let result = validate_lens(&lens, 100).unwrap();
         assert_eq!(result.dimensions, vec!["structural", "semantic"]);
     }
 
     #[test]
     fn validate_lens_clamps_top_k() {
-        let mut lens = PerspectiveLens::default();
-        lens.top_k = 1000;
+        let lens = PerspectiveLens {
+            top_k: 1000,
+            ..PerspectiveLens::default()
+        };
         let result = validate_lens(&lens, 50).unwrap();
         assert_eq!(result.top_k, 50);
     }
 
     #[test]
     fn validate_lens_empty_dimensions_defaults_to_all() {
-        let mut lens = PerspectiveLens::default();
-        lens.dimensions = Vec::new();
+        let lens = PerspectiveLens {
+            dimensions: Vec::new(),
+            ..PerspectiveLens::default()
+        };
         let result = validate_lens(&lens, 100).unwrap();
         assert_eq!(result.dimensions.len(), 4);
     }

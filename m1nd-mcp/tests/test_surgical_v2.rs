@@ -645,7 +645,7 @@ fn test_batch_returns_per_file_diff() {
     // diff format (contains "@@"), and lines_added / lines_removed must be >= 0.
     // Results are in the same order as the input edits.
 
-    let edits = vec![
+    let edits = [
         BatchEditItem {
             file_path: "/project/a.py".into(),
             new_content: "def a(): return 42\n".into(),

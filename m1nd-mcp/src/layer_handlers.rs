@@ -2060,10 +2060,9 @@ fn trail_resume_suggested_tool(
         if ["changed", "change", "last", "history", "recent", "commit"]
             .iter()
             .any(|term| lower.contains(term))
+            && next_focus_node_id.is_some()
         {
-            if next_focus_node_id.is_some() {
-                return Some("timeline".into());
-            }
+            return Some("timeline".into());
         }
         if next_focus_node_id.is_some()
             && ["impact", "blast", "break", "affected", "touch"]
@@ -3423,10 +3422,10 @@ fn l5_hypothesize_proof_state(
     contradicting: &[layers::HypothesisEvidence],
     partial_reach: Option<&[layers::PartialReachEntry]>,
 ) -> String {
-    if verdict == "likely_true" || verdict == "likely_false" {
-        if !supporting.is_empty() || !contradicting.is_empty() {
-            return "ready_to_edit".into();
-        }
+    if (verdict == "likely_true" || verdict == "likely_false")
+        && (!supporting.is_empty() || !contradicting.is_empty())
+    {
+        return "ready_to_edit".into();
     }
     if partial_reach
         .map(|entries| !entries.is_empty())

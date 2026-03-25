@@ -1927,12 +1927,12 @@ pub fn handle_surgical_context_v2(
             .then_with(|| a.0.cmp(&b.0))
     });
     let max_connected_files = if input.proof_focused {
-        input.max_connected_files.min(3).max(1)
+        input.max_connected_files.clamp(1, 3)
     } else {
         input.max_connected_files
     };
     let max_lines = if input.proof_focused {
-        input.max_lines_per_file.min(25).max(8)
+        input.max_lines_per_file.clamp(8, 25)
     } else {
         input.max_lines_per_file
     };
@@ -4407,8 +4407,7 @@ mod tests {
         let verification = output.verification.expect("verification should be present");
         let impact = verification
             .high_impact_files
-            .iter()
-            .next()
+            .first()
             .expect("at least one impact entry should be present");
         let summary = impact
             .heuristic_summary

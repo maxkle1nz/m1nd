@@ -22,9 +22,11 @@ use std::path::{Path, PathBuf};
 // ===========================================================================
 
 fn make_test_state(root: &Path) -> SessionState {
-    let mut config = McpConfig::default();
-    config.graph_source = root.join("graph_snapshot.json");
-    config.plasticity_state = root.join("plasticity_state.json");
+    let config = McpConfig {
+        graph_source: root.join("graph_snapshot.json"),
+        plasticity_state: root.join("plasticity_state.json"),
+        ..McpConfig::default()
+    };
 
     let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
         .expect("SessionState::initialize");
@@ -133,7 +135,7 @@ fn test_commit_happy_path() {
     let on_disk = std::fs::read_to_string(&path).unwrap();
     assert_eq!(on_disk, new_content);
     // Handle consumed — second commit must fail.
-    assert!(state.edit_previews.get(&preview.preview_id).is_none());
+    assert!(!state.edit_previews.contains_key(&preview.preview_id));
 }
 
 #[test]
