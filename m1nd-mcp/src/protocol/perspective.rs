@@ -40,6 +40,13 @@ pub struct PerspectiveStartOutput {
     pub route_set_version: u64,
     pub cache_generation: u64,
     pub suggested: Option<String>, // e.g. "inspect R03"
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +94,13 @@ pub struct PerspectiveRoutesOutput {
     /// Whether page_size was clamped.
     #[serde(default)]
     pub page_size_clamped: bool,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +144,13 @@ pub struct PerspectiveInspectOutput {
     pub affinity_candidates: Vec<AffinityCandidate>,
     /// Total chars in this response (for Theme 5 cap enforcement).
     pub response_chars: usize,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -174,6 +195,13 @@ pub struct PerspectivePeekOutput {
     pub target_node: String,
     /// Security-checked peek content.
     pub content: PeekContent,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +238,13 @@ pub struct PerspectiveFollowOutput {
     pub suggested: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<Diagnostic>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +265,13 @@ pub struct PerspectiveSuggestOutput {
     pub suggestion: SuggestResult,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<Diagnostic>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +301,13 @@ pub struct PerspectiveAffinityOutput {
     pub candidates: Vec<AffinityCandidate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<Diagnostic>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +330,13 @@ pub struct PerspectiveBranchOutput {
     pub branch_perspective_id: String,
     pub branch_name: String,
     pub branched_from_focus: Option<String>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +361,13 @@ pub struct PerspectiveBackOutput {
     pub total_pages: u32,
     pub route_set_version: u64,
     pub cache_generation: u64,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +398,13 @@ pub struct PerspectiveCompareOutput {
     /// Warning if comparing across different generations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_mismatch_warning: Option<String>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -359,6 +429,13 @@ pub struct PerspectiveListOutput {
     pub agent_id: String,
     pub perspectives: Vec<PerspectiveSummary>,
     pub total_memory_bytes: usize,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -389,6 +466,13 @@ pub struct PerspectiveCloseOutput {
     pub closed: bool,
     /// Locks that were cascade-released (Theme 5).
     pub locks_released: Vec<String>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

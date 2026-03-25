@@ -421,6 +421,10 @@ fn affinity_01_isolated_node_empty_candidates() {
                 edge_count: 0,
             },
         }),
+        proof_state: "blocked".into(),
+        next_suggested_tool: Some("perspective_inspect".into()),
+        next_suggested_target: Some("R_abc123".into()),
+        next_step_hint: Some("Inspect the route directly while affinity is under-indexed.".into()),
     };
 
     assert!(output.candidates.is_empty());
@@ -710,6 +714,10 @@ fn cross_01_suggest_output_structure() {
             ],
         },
         diagnostic: None,
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("perspective_follow".into()),
+        next_suggested_target: Some("R_abc123".into()),
+        next_step_hint: Some("Follow the top suggested route.".into()),
     };
 
     // Serialize and verify structure
@@ -755,6 +763,10 @@ fn cross_02_affinity_output_structure_with_candidates() {
             },
         }],
         diagnostic: None,
+        proof_state: "proving".into(),
+        next_suggested_tool: Some("perspective_follow".into()),
+        next_suggested_target: Some("R_abc123".into()),
+        next_step_hint: Some("Inspect or follow the route to validate the probable connection.".into()),
     };
 
     // Serialize and verify

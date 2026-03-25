@@ -967,6 +967,10 @@ fn test_perspective_routes_populated() {
         route_set_version: 1710000000000,
         cache_generation: 1,
         suggested: Some("routes to see available navigation options".into()),
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("perspective_inspect".into()),
+        next_suggested_target: Some("R_abc123".into()),
+        next_step_hint: Some("Inspect the top route from the seeded focus.".into()),
     };
 
     assert!(
@@ -1026,6 +1030,10 @@ fn test_perspective_follow_works() {
         family_diversity_warning: None,
         dominant_family: None,
         page_size_clamped: false,
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("perspective_inspect".into()),
+        next_suggested_target: Some("R_abc123".into()),
+        next_step_hint: Some("Inspect the leading route before following it.".into()),
     };
 
     assert!(

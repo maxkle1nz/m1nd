@@ -117,6 +117,10 @@ fn golden_01_happy_path_types_compile() {
         route_set_version: 1710000000000,
         cache_generation: 0,
         suggested: Some("inspect R01".into()),
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("perspective_inspect".into()),
+        next_suggested_target: Some("R01".into()),
+        next_step_hint: Some("Inspect the top route first.".into()),
     };
 
     // 2. routes

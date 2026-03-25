@@ -52,6 +52,156 @@ fn route_not_found_error(tool: &str, perspective_id: &str, route_ref: &str) -> M
     }
 }
 
+fn perspective_route_contract(
+    routes: &[Route],
+    focus_node: Option<&str>,
+    perspective_id: &str,
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if let Some(route) = routes.first() {
+        return (
+            "triaging".into(),
+            Some("perspective_inspect".into()),
+            Some(route.route_id.clone()),
+            Some(format!(
+                "Inspect route {} to validate the next hop from `{}`.",
+                route.route_id, route.target_label
+            )),
+        );
+    }
+
+    if focus_node.is_some() {
+        return (
+            "blocked".into(),
+            Some("perspective_suggest".into()),
+            Some(perspective_id.into()),
+            Some(
+                "This perspective has no live routes. Ask `perspective_suggest` whether to backtrack or close it."
+                    .into(),
+            ),
+        );
+    }
+
+    (
+        "blocked".into(),
+        Some("seek".into()),
+        None,
+        Some(
+            "No focus node was resolved for this perspective. Use `seek` or restart with a stronger anchor."
+                .into(),
+        ),
+    )
+}
+
+fn perspective_inspect_contract(
+    route: &Route,
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if route.peek_available {
+        (
+            "proving".into(),
+            Some("perspective_peek".into()),
+            Some(route.route_id.clone()),
+            Some(format!(
+                "Peek route {} to inspect source evidence before moving the focus.",
+                route.route_id
+            )),
+        )
+    } else {
+        (
+            "triaging".into(),
+            Some("perspective_follow".into()),
+            Some(route.route_id.clone()),
+            Some(format!(
+                "Route {} has no peekable source. Follow it to keep the investigation moving.",
+                route.route_id
+            )),
+        )
+    }
+}
+
+fn perspective_suggestion_contract(
+    perspective_id: &str,
+    suggestion: &SuggestResult,
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if let Some(route_id) = suggestion.recommended_action.strip_prefix("follow ") {
+        return (
+            "triaging".into(),
+            Some("perspective_follow".into()),
+            Some(route_id.to_string()),
+            Some(suggestion.why.clone()),
+        );
+    }
+
+    match suggestion.recommended_action.as_str() {
+        "perspective.back" => (
+            "blocked".into(),
+            Some("perspective_back".into()),
+            Some(perspective_id.into()),
+            Some(suggestion.why.clone()),
+        ),
+        "perspective.close" => (
+            "blocked".into(),
+            Some("perspective_close".into()),
+            Some(perspective_id.into()),
+            Some(suggestion.why.clone()),
+        ),
+        _ => ("triaging".into(), None, None, Some(suggestion.why.clone())),
+    }
+}
+
+fn perspective_affinity_contract(
+    perspective_id: &str,
+    route: &Route,
+    candidates: &[AffinityCandidate],
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if candidates.is_empty() {
+        (
+            "blocked".into(),
+            Some("perspective_inspect".into()),
+            Some(route.route_id.clone()),
+            Some(format!(
+                "Affinity is under-indexed here. Inspect route {} directly or peek its source before branching wider.",
+                route.route_id
+            )),
+        )
+    } else {
+        (
+            "proving".into(),
+            Some("perspective_follow".into()),
+            Some(route.route_id.clone()),
+            Some(format!(
+                "Affinity found probable continuations from `{}`. Follow the route or inspect it more deeply first.",
+                perspective_id
+            )),
+        )
+    }
+}
+
+fn perspective_list_contract(
+    perspectives: &[PerspectiveSummary],
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if let Some(first) = perspectives.first() {
+        (
+            "triaging".into(),
+            Some("perspective_routes".into()),
+            Some(first.perspective_id.clone()),
+            Some(format!(
+                "Resume navigation in `{}` before opening another perspective.",
+                first.perspective_id
+            )),
+        )
+    } else {
+        (
+            "blocked".into(),
+            Some("perspective_start".into()),
+            None,
+            Some(
+                "No active perspectives are open. Start one with a seed query or anchor node."
+                    .into(),
+            ),
+        )
+    }
+}
+
 /// Check perspective ownership and return reference, or error.
 fn require_perspective<'a>(
     state: &'a SessionState,
@@ -399,6 +549,8 @@ pub fn handle_perspective_start(
     let suggested = page_routes
         .first()
         .map(|r| format!("inspect {}", r.route_id));
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        perspective_route_contract(&page_routes, focus_node.as_deref(), &perspective_id);
 
     // Create perspective state
     let persp_state = PerspectiveState {
@@ -451,6 +603,10 @@ pub fn handle_perspective_start(
         route_set_version: version,
         cache_generation: state.cache_generation,
         suggested,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -578,6 +734,8 @@ pub fn handle_perspective_routes(
         persp.lens.top_k,
         persp.lens.xlr,
     );
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        perspective_route_contract(&routes, persp.focus_node.as_deref(), &input.perspective_id);
 
     let output = PerspectiveRoutesOutput {
         perspective_id: input.perspective_id.clone(),
@@ -597,6 +755,10 @@ pub fn handle_perspective_routes(
         family_diversity_warning: None,
         dominant_family: None,
         page_size_clamped: pagination.page_size_clamped,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
 
     // Update last_accessed
@@ -663,6 +825,8 @@ pub fn handle_perspective_inspect(
         namespace: None,
         provenance_stale: false,
     });
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        perspective_inspect_contract(route);
 
     let output = PerspectiveInspectOutput {
         route_id: route.route_id.clone(),
@@ -702,6 +866,10 @@ pub fn handle_perspective_inspect(
         peek_available: route.peek_available,
         affinity_candidates: vec![],
         response_chars: 0, // filled after serialization
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
 
     if let Some(p) = state.get_perspective_mut(&input.agent_id, &input.perspective_id) {
@@ -784,12 +952,22 @@ pub fn handle_perspective_peek(
         line_hint,
         None,
     )?;
+    let next_suggested_tool = Some("perspective_follow".into());
+    let next_suggested_target = Some(route.route_id.clone());
+    let next_step_hint = Some(format!(
+        "If this snippet confirms the route, follow {} to move focus to `{}`.",
+        route.route_id, route.target_label
+    ));
 
     let output = PerspectivePeekOutput {
         route_id: route.route_id.clone(),
         route_index: route.route_index,
         target_node: route.target_node.clone(),
         content,
+        proof_state: "proving".into(),
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
 
     if let Some(p) = state.get_perspective_mut(&input.agent_id, &input.perspective_id) {
@@ -892,6 +1070,25 @@ pub fn handle_perspective_follow(
     let suggested = page_routes
         .first()
         .map(|r| format!("inspect {}", r.route_id));
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        if let Some(route) = page_routes.first() {
+            (
+                "triaging".into(),
+                Some("perspective_inspect".into()),
+                Some(route.route_id.clone()),
+                Some(format!(
+                    "Inspect route {} to decide the next move from `{}`.",
+                    route.route_id, target_node
+                )),
+            )
+        } else {
+            (
+                "blocked".into(),
+                Some("perspective_back".into()),
+                Some(input.perspective_id.clone()),
+                Some("This follow reached a dead end. Go back or start a sibling branch.".into()),
+            )
+        };
 
     let mode_effective = if mode == PerspectiveMode::Anchored {
         "anchored".into()
@@ -958,6 +1155,10 @@ pub fn handle_perspective_follow(
         cache_generation: state.cache_generation,
         suggested,
         diagnostic,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -1049,11 +1250,17 @@ pub fn handle_perspective_suggest(
     } else {
         None
     };
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        perspective_suggestion_contract(&input.perspective_id, &suggestion);
 
     let output = PerspectiveSuggestOutput {
         perspective_id: input.perspective_id.clone(),
         suggestion,
         diagnostic,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
 
     if let Some(p) = state.get_perspective_mut(&input.agent_id, &input.perspective_id) {
@@ -1114,6 +1321,8 @@ pub fn handle_perspective_affinity(
     // V1: affinity uses simplified computation
     // TODO: Full implementation uses confidence.rs normalization + geometric mean
     let candidates: Vec<AffinityCandidate> = vec![]; // V1: empty until engine_ops ready
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        perspective_affinity_contract(&input.perspective_id, route, &candidates);
 
     let output = PerspectiveAffinityOutput {
         route_id: route.route_id.clone(),
@@ -1125,6 +1334,10 @@ pub fn handle_perspective_affinity(
             "under_indexed",
             "Affinity requires more graph data for meaningful results",
         )),
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
 
     if let Some(p) = state.get_perspective_mut(&input.agent_id, &input.perspective_id) {
@@ -1195,9 +1408,15 @@ pub fn handle_perspective_branch(
 
     let output = PerspectiveBranchOutput {
         perspective_id: input.perspective_id,
-        branch_perspective_id: new_id,
+        branch_perspective_id: new_id.clone(),
         branch_name,
         branched_from_focus: focus,
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("perspective_routes".into()),
+        next_suggested_target: Some(new_id.clone()),
+        next_step_hint: Some(
+            "Open the new branch's routes to continue from the forked state.".into(),
+        ),
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -1294,8 +1513,28 @@ pub fn handle_perspective_back(
         p.route_set_version = version;
     }
 
+    let perspective_id = input.perspective_id;
+    let back_next_tool = if let Some(route) = page_routes.first() {
+        Some("perspective_inspect".into())
+    } else {
+        Some("perspective_suggest".into())
+    };
+    let back_next_target = if let Some(route) = page_routes.first() {
+        Some(route.route_id.clone())
+    } else {
+        Some(perspective_id.clone())
+    };
+    let back_next_hint = if let Some(route) = page_routes.first() {
+        Some(format!(
+            "Inspect route {} after backtracking to re-enter the route set cleanly.",
+            route.route_id
+        ))
+    } else {
+        Some("This checkpoint also has no routes. Ask `perspective_suggest` how to recover.".into())
+    };
+
     let output = PerspectiveBackOutput {
-        perspective_id: input.perspective_id,
+        perspective_id,
         restored_focus,
         restored_mode,
         routes: page_routes,
@@ -1304,6 +1543,14 @@ pub fn handle_perspective_back(
         total_pages,
         route_set_version: version,
         cache_generation: state.cache_generation,
+        proof_state: if total_routes == 0 {
+            "blocked".into()
+        } else {
+            "triaging".into()
+        },
+        next_suggested_tool: back_next_tool,
+        next_suggested_target: back_next_target,
+        next_step_hint: back_next_hint,
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -1363,6 +1610,13 @@ pub fn handle_perspective_compare(
         dimension_deltas: vec![], // V1: requires engine_ops for dimension scoring
         response_chars: 0,
         generation_mismatch_warning: gen_warning,
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("perspective_routes".into()),
+        next_suggested_target: Some(persp_a.perspective_id.clone()),
+        next_step_hint: Some(
+            "Re-open one of the compared perspectives and inspect the route set where the delta looks most promising."
+                .into(),
+        ),
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -1392,11 +1646,17 @@ pub fn handle_perspective_list(
         .collect();
 
     let total_memory = state.perspective_and_lock_memory_bytes();
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        perspective_list_contract(&perspectives);
 
     let output = PerspectiveListOutput {
         agent_id: input.agent_id,
         perspectives,
         total_memory_bytes: total_memory,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -1445,6 +1705,13 @@ pub fn handle_perspective_close(
         perspective_id: input.perspective_id,
         closed: true,
         locks_released: released,
+        proof_state: "ready_to_edit".into(),
+        next_suggested_tool: Some("perspective_list".into()),
+        next_suggested_target: None,
+        next_step_hint: Some(
+            "List active perspectives to continue an existing trail, or start a new one if this investigation is finished."
+                .into(),
+        ),
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -1477,5 +1744,45 @@ mod tests {
         assert!(err.contains("route reference `route_index=4` was not found"));
         assert!(err.contains("perspective_routes"));
         assert!(err.contains("fresh `route_id` or 1-based `route_index`"));
+    }
+
+    #[test]
+    fn perspective_route_contract_prefers_inspect_when_routes_exist() {
+        let route = Route {
+            route_id: "R01".into(),
+            route_index: 1,
+            family: RouteFamily::Structural,
+            target_node: "file::src/lib.rs".into(),
+            target_label: "src/lib.rs".into(),
+            reason: "hot edge".into(),
+            score: 0.82,
+            peek_available: true,
+            provenance: None,
+        };
+
+        let (proof_state, tool, target, hint) =
+            perspective_route_contract(&[route], Some("file::src/main.rs"), "persp-1");
+        assert_eq!(proof_state, "triaging");
+        assert_eq!(tool.as_deref(), Some("perspective_inspect"));
+        assert_eq!(target.as_deref(), Some("R01"));
+        assert!(hint.unwrap().contains("Inspect route R01"));
+    }
+
+    #[test]
+    fn perspective_suggestion_contract_maps_back_recovery() {
+        let suggestion = SuggestResult {
+            recommended_action: "perspective.back".into(),
+            confidence: 0.5,
+            why: "No routes available".into(),
+            based_on: "exhaustion_recovery".into(),
+            alternatives: vec![],
+        };
+
+        let (proof_state, tool, target, hint) =
+            perspective_suggestion_contract("persp-7", &suggestion);
+        assert_eq!(proof_state, "blocked");
+        assert_eq!(tool.as_deref(), Some("perspective_back"));
+        assert_eq!(target.as_deref(), Some("persp-7"));
+        assert_eq!(hint.as_deref(), Some("No routes available"));
     }
 }

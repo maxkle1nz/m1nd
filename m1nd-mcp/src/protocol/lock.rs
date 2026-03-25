@@ -36,6 +36,13 @@ pub struct LockCreateOutput {
     pub baseline_edges: usize,
     pub graph_generation: u64,
     pub created_at_ms: u64,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -57,6 +64,13 @@ pub struct LockWatchOutput {
     /// Previous strategy if one was replaced.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_strategy: Option<WatchStrategy>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +91,13 @@ pub struct LockDiffOutput {
     /// If baseline_stale, suggest lock.rebase.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rebase_suggested: Option<String>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +119,13 @@ pub struct LockRebaseOutput {
     pub baseline_edges: usize,
     /// Watcher config preserved across rebase.
     pub watcher_preserved: bool,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +142,13 @@ pub struct LockReleaseInput {
 pub struct LockReleaseOutput {
     pub lock_id: String,
     pub released: bool,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

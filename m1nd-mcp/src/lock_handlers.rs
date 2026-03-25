@@ -236,6 +236,61 @@ fn capture_baseline(
     (nodes, edges)
 }
 
+fn lock_create_contract(lock_id: &str) -> (String, Option<String>, Option<String>, Option<String>) {
+    (
+        "triaging".into(),
+        Some("lock_diff".into()),
+        Some(lock_id.into()),
+        Some("Capture a diff against this lock after graph activity to see whether the protected region changed.".into()),
+    )
+}
+
+fn lock_diff_contract(
+    diff: &LockDiffResult,
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if diff.baseline_stale {
+        return (
+            "proving".into(),
+            Some("lock_rebase".into()),
+            Some(diff.lock_id.clone()),
+            Some("The baseline is stale. Rebase the lock before trusting this diff.".into()),
+        );
+    }
+
+    if diff.no_changes {
+        return (
+            "ready_to_edit".into(),
+            None,
+            None,
+            Some("The lock scope is unchanged relative to its baseline.".into()),
+        );
+    }
+
+    if let Some(node) = diff
+        .new_nodes
+        .first()
+        .or_else(|| diff.removed_nodes.first())
+        .cloned()
+    {
+        return (
+            "triaging".into(),
+            Some("view".into()),
+            Some(node.clone()),
+            Some(format!(
+                "Inspect `{}` first to understand the most visible structural change inside the lock scope.",
+                node
+            )),
+        );
+    }
+
+    (
+        "proving".into(),
+        Some("lock_rebase".into()),
+        Some(diff.lock_id.clone()),
+        Some("Edge-level changes were detected. Rebase the lock after reviewing whether the scope should be refreshed.".into()),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // lock.create
 // ---------------------------------------------------------------------------
@@ -314,6 +369,9 @@ pub fn handle_lock_create(
 
     state.locks.insert(lock_id.clone(), lock_state);
 
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        lock_create_contract(&lock_id);
+
     let output = LockCreateOutput {
         lock_id,
         scope: input.scope,
@@ -321,6 +379,10 @@ pub fn handle_lock_create(
         baseline_edges,
         graph_generation: state.graph_generation,
         created_at_ms: ts,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -355,11 +417,19 @@ pub fn handle_lock_watch(
         strategy: input.strategy.clone(),
         last_scan_ms: now_ms(),
     });
+    let lock_id = input.lock_id;
 
     let output = LockWatchOutput {
-        lock_id: input.lock_id,
+        lock_id: lock_id.clone(),
         strategy: input.strategy,
         previous_strategy,
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("lock_diff".into()),
+        next_suggested_target: Some(lock_id),
+        next_step_hint: Some(
+            "Watcher armed. Run `lock_diff` after ingest or learn events to inspect the protected scope."
+                .into(),
+        ),
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -413,6 +483,10 @@ pub fn handle_lock_diff(
             diff,
             watcher_events_drained: drained,
             rebase_suggested: None,
+            proof_state: "ready_to_edit".into(),
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: Some("The lock scope is unchanged relative to its baseline.".into()),
         };
         return serde_json::to_value(output).map_err(M1ndError::Serde);
     }
@@ -492,11 +566,17 @@ pub fn handle_lock_diff(
     } else {
         None
     };
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        lock_diff_contract(&diff);
 
     let output = LockDiffOutput {
         diff,
         watcher_events_drained: drained,
         rebase_suggested,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -565,12 +645,19 @@ pub fn handle_lock_rebase(
     lock.watcher = watcher.clone();
 
     let output = LockRebaseOutput {
-        lock_id: input.lock_id,
+        lock_id: input.lock_id.clone(),
         previous_generation,
         new_generation: state.graph_generation,
         baseline_nodes,
         baseline_edges,
         watcher_preserved: watcher.is_some(),
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("lock_diff".into()),
+        next_suggested_target: Some(input.lock_id),
+        next_step_hint: Some(
+            "The lock baseline is fresh again. Diff it after the next structural change to detect drift."
+                .into(),
+        ),
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
@@ -595,6 +682,64 @@ pub fn handle_lock_release(
     let output = LockReleaseOutput {
         lock_id: input.lock_id,
         released: true,
+        proof_state: "ready_to_edit".into(),
+        next_suggested_tool: Some("lock_create".into()),
+        next_suggested_target: None,
+        next_step_hint: Some(
+            "Create a new lock before the next coordinated edit if you still need a guarded region."
+                .into(),
+        ),
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_diff_contract_prefers_rebase_when_baseline_is_stale() {
+        let diff = LockDiffResult {
+            lock_id: "lock-7".into(),
+            no_changes: false,
+            new_nodes: vec![],
+            removed_nodes: vec![],
+            new_edges: vec![],
+            removed_edges: vec![],
+            boundary_edges_added: vec![],
+            boundary_edges_removed: vec![],
+            weight_changes: vec![],
+            baseline_stale: true,
+            elapsed_ms: 1.0,
+        };
+
+        let (proof_state, tool, target, hint) = lock_diff_contract(&diff);
+        assert_eq!(proof_state, "proving");
+        assert_eq!(tool.as_deref(), Some("lock_rebase"));
+        assert_eq!(target.as_deref(), Some("lock-7"));
+        assert!(hint.unwrap().contains("Rebase"));
+    }
+
+    #[test]
+    fn lock_diff_contract_prefers_view_for_changed_nodes() {
+        let diff = LockDiffResult {
+            lock_id: "lock-9".into(),
+            no_changes: false,
+            new_nodes: vec!["file::src/lib.rs".into()],
+            removed_nodes: vec![],
+            new_edges: vec![],
+            removed_edges: vec![],
+            boundary_edges_added: vec![],
+            boundary_edges_removed: vec![],
+            weight_changes: vec![],
+            baseline_stale: false,
+            elapsed_ms: 1.0,
+        };
+
+        let (proof_state, tool, target, hint) = lock_diff_contract(&diff);
+        assert_eq!(proof_state, "triaging");
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("file::src/lib.rs"));
+        assert!(hint.unwrap().contains("file::src/lib.rs"));
+    }
 }
