@@ -1313,7 +1313,7 @@ skip_files: vec![
 <p>Example schema entry:</p>
 <pre><code class="language-json">{
     "name": "m1nd.activate",
-    "description": "Spreading activation query across the connectome",
+    "description": "Spreading activation query across the graph runtime",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -1828,10 +1828,10 @@ node.activation += node.pagerank * PAGERANK_BOOST;
 <p>Over time, as the agent provides feedback via <code>m1nd.learn</code>, the edge weights shift through Hebbian plasticity (see <a href="#hebbian-plasticity-2">Hebbian Plasticity</a>). The paths that led to useful results strengthen. The paths that led to noise weaken. The same query tomorrow will produce better results.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="hebbian-plasticity-2"><a class="header" href="#hebbian-plasticity-2">Hebbian Plasticity</a></h1>
-<p>m1nd’s graph learns. Every query changes the edge weights. Paths that lead to useful results get stronger. Paths that lead to noise get weaker. Over time, the graph evolves to match how <em>your</em> team thinks about <em>your</em> codebase. No other code intelligence tool does this.</p>
+<p>m1nd’s graph adapts. Repeated queries and explicit feedback can strengthen useful paths and weaken noisy ones. Over time, the runtime can reflect how your team actually navigates and validates the codebase instead of staying fixed at ingest-time defaults.</p>
 <h2 id="the-neuroscience-principle"><a class="header" href="#the-neuroscience-principle">The neuroscience principle</a></h2>
 <p>In 1949, Donald Hebb proposed a theory of synaptic learning: <em>“When an axon of cell A is near enough to excite cell B and repeatedly or persistently takes part in firing it, some growth process or metabolic change takes place in one or both cells such that A’s efficiency, as one of the cells firing B, is increased.”</em></p>
-<p>The popular summary: <strong>neurons that fire together wire together.</strong></p>
+<p>The short version: repeated confirmation reinforces useful structure; repeated rejection cools noisy paths.</p>
 <p>The converse is equally important: neurons that fire independently weaken their connections. This bidirectional learning – strengthening co-active pathways, weakening inactive ones – is the foundation of how biological neural networks adapt to experience.</p>
 <p>m1nd applies this principle to code graphs. Nodes are modules. Edges are relationships. “Firing” means being activated by a spreading activation query. When an agent confirms that a result was useful, the edges connecting those activated nodes strengthen. When the agent marks results as wrong, those paths weaken. The graph remembers what worked.</p>
 <h2 id="the-five-step-learning-cycle"><a class="header" href="#the-five-step-learning-cycle">The five-step learning cycle</a></h2>
@@ -2379,7 +2379,7 @@ if fallback {
 <tr><th>Tool</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="#m1ndactivate"><code>m1nd.activate</code></a></td><td>Spreading activation query across the connectome</td></tr>
+<tr><td><a href="#m1ndactivate"><code>m1nd.activate</code></a></td><td>Spreading activation query across the graph runtime</td></tr>
 <tr><td><a href="#m1ndwarmup"><code>m1nd.warmup</code></a></td><td>Task-based warmup and priming</td></tr>
 <tr><td><a href="#m1ndresonate"><code>m1nd.resonate</code></a></td><td>Resonance analysis: harmonics, sympathetic pairs, and resonant frequencies</td></tr>
 </tbody>
@@ -2596,10 +2596,10 @@ if fallback {
 <p>This returns the full schema for all 43 tools with <code>inputSchema</code> for each.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="activation-tools"><a class="header" href="#activation-tools">Activation Tools</a></h1>
-<p>Three tools for querying the connectome through spreading activation, task-based priming, and resonance analysis.</p>
+<p>Three tools for querying the graph runtime through spreading activation, task-based priming, and resonance analysis.</p>
 <hr>
 <h2 id="m1ndactivate"><a class="header" href="#m1ndactivate"><code>m1nd.activate</code></a></h2>
-<p>Spreading activation query across the connectome. The primary search tool – propagates signal from seed nodes through the graph across four dimensions (structural, semantic, temporal, causal), with XLR noise cancellation and optional ghost edge / structural hole detection.</p>
+<p>Spreading activation query across the graph runtime. The primary search tool — propagates signal from seed nodes through the graph across four dimensions (structural, semantic, temporal, causal), with XLR noise cancellation and optional ghost edge / structural hole detection.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -2764,7 +2764,7 @@ if fallback {
 </ul>
 <hr>
 <h2 id="m1ndresonate"><a class="header" href="#m1ndresonate"><code>m1nd.resonate</code></a></h2>
-<p>Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant frequencies in the graph. Identifies nodes that form natural clusters of mutual reinforcement – the “harmonics” of the connectome.</p>
+<p>Resonance analysis: reinforcement patterns, harmonics, sympathetic pairs, and resonant frequencies in the graph. Identifies nodes that form natural clusters of mutual reinforcement across the runtime.</p>
 <h3 id="parameters-2"><a class="header" href="#parameters-2">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -3309,7 +3309,7 @@ if fallback {
 <p>Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management.</p>
 <hr>
 <h2 id="m1ndlearn"><a class="header" href="#m1ndlearn"><code>m1nd.learn</code></a></h2>
-<p>Explicit feedback-based edge adjustment. After using <code>activate</code> or other query tools, call <code>learn</code> to tell m1nd whether the results were correct, wrong, or partial. This applies Hebbian learning to strengthen or weaken edges between the query seeds and the reported nodes.</p>
+<p>Explicit feedback-based edge adjustment. After using <code>activate</code> or other query tools, call <code>learn</code> to tell m1nd whether the results were correct, wrong, or partial. This updates edge weights so future retrieval and route guidance can lean more toward paths that have already proven useful.</p>
 <h3 id="parameters-7"><a class="header" href="#parameters-7">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -6033,7 +6033,7 @@ cargo build --release
 </table>
 </div>
 <p>The graph learned. <code>worker.py</code> fell out of the top results. <code>recovery.py</code>, previously only a ghost edge, got promoted because the strengthened paths through <code>pool.py</code> now carry more signal to its neighborhood.</p>
-<p><strong>This is the core value proposition of m1nd</strong>: every interaction makes the graph smarter. No other code intelligence tool does this.</p>
+<p><strong>This is one of the core value propositions of m1nd</strong>: every interaction can make the graph more useful over time instead of leaving it frozen at static-analysis defaults.</p>
 <h2 id="step-5-structural-hole-detection"><a class="header" href="#step-5-structural-hole-detection">Step 5: Structural Hole Detection</a></h2>
 <p>Ask the graph what is <em>missing</em> around a topic:</p>
 <pre><code class="language-jsonc">{
@@ -6613,7 +6613,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
 <h2 id="general"><a class="header" href="#general">General</a></h2>
 <h3 id="what-is-m1nd"><a class="header" href="#what-is-m1nd">What is m1nd?</a></h3>
-<p>m1nd is a neuro-symbolic connectome engine for code intelligence. It parses your codebase into a weighted graph and provides 43 MCP tools for querying, learning, and navigating it. Built in Rust, it runs locally as an MCP server and works with any MCP-compatible AI agent (Claude Code, Cursor, Windsurf, Zed, etc.).</p>
+<p>m1nd is a local code graph runtime for code intelligence. It parses your codebase into a weighted graph and provides 43 MCP tools for querying, learning, validating, and navigating it. Built in Rust, it runs locally as an MCP server and works with any MCP-compatible AI agent (Claude Code, Cursor, Windsurf, Zed, etc.).</p>
 <p>The key differentiator: the graph <em>learns</em>. When you tell m1nd which results were useful and which were not, it adjusts edge weights via Hebbian plasticity. Over time, the graph adapts to how your team thinks about your codebase.</p>
 <h3 id="how-is-m1nd-different-from-grep--ripgrep"><a class="header" href="#how-is-m1nd-different-from-grep--ripgrep">How is m1nd different from grep / ripgrep?</a></h3>
 <p>Grep finds <em>text</em>. m1nd finds <em>structure and relationships</em>.</p>
@@ -6625,7 +6625,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 <p>RAG is useful for semantic similarity search. m1nd is useful for structural reasoning. They are complementary, not competing.</p>
 <h3 id="how-is-m1nd-different-from-static-analysis-tools-tree-sitter-ast-grep-sourcegraph"><a class="header" href="#how-is-m1nd-different-from-static-analysis-tools-tree-sitter-ast-grep-sourcegraph">How is m1nd different from static analysis tools (tree-sitter, ast-grep, Sourcegraph)?</a></h3>
 <p>Static analysis tools parse code into ASTs and compute call graphs, type hierarchies, and cross-references. These are accurate but frozen – they represent the code at a single point in time and cannot answer “what if?” questions.</p>
-<p>m1nd uses similar structural information as a starting point but adds three things static analysis cannot: (1) Hebbian learning that adapts the graph based on usage, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.</p>
+<p>m1nd uses similar structural information as a starting point but adds three things static analysis usually does not: (1) adaptive graph feedback based on usage, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.</p>
 <p>Sourcegraph is a search engine. m1nd is a reasoning engine.</p>
 <h3 id="do-i-need-an-llm-to-use-m1nd"><a class="header" href="#do-i-need-an-llm-to-use-m1nd">Do I need an LLM to use m1nd?</a></h3>
 <p>No. m1nd makes zero LLM calls. It is pure Rust computation: graph algorithms, spreading activation, Hebbian plasticity. No API keys, no network calls, no token costs.</p>
@@ -6753,8 +6753,8 @@ agent_id: "analyzer-core"  -- performance analysis agent
 </div>
 <hr>
 <h2 id="plasticity-and-learning"><a class="header" href="#plasticity-and-learning">Plasticity and Learning</a></h2>
-<h3 id="how-does-hebbian-learning-work"><a class="header" href="#how-does-hebbian-learning-work">How does Hebbian learning work?</a></h3>
-<p>“Neurons that fire together wire together.” When you call <code>learn</code> with <code>feedback: "correct"</code> and a list of node IDs, m1nd identifies all edges on paths between those nodes and increases their weights (Long-Term Potentiation, LTP). When you call with <code>feedback: "wrong"</code>, it decreases weights on paths leading to the marked nodes (Long-Term Depression, LTD).</p>
+<h3 id="how-does-hebbian-learning-work"><a class="header" href="#how-does-hebbian-learning-work">How does graph learning work?</a></h3>
+<p>When you call <code>learn</code> with <code>feedback: "correct"</code> and a list of node IDs, m1nd identifies edges on the paths that contributed to those results and increases their weights. When you call with <code>feedback: "wrong"</code>, it decreases weights on paths leading to the marked nodes.</p>
 <p>The <code>strength</code> parameter (default 0.2) controls how aggressively weights shift. The <code>learning_rate</code> server configuration (default 0.08) provides a global scaling factor.</p>
 <h3 id="can-i-reset-learned-weights"><a class="header" href="#can-i-reset-learned-weights">Can I reset learned weights?</a></h3>
 <p>Yes. Delete the <code>plasticity_state.json</code> file and restart the server. Alternatively, re-ingest the codebase, which rebuilds the graph from scratch (but does not clear the plasticity state file – you need to delete it separately or pass <code>"incremental": false</code> and delete the plasticity file).</p>
@@ -7017,7 +7017,7 @@ cargo build --release
 <h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
 <p>All notable changes to m1nd are documented here. This project uses <a href="https://semver.org/">Semantic Versioning</a>.</p>
 <h2 id="v010--initial-release"><a class="header" href="#v010--initial-release">v0.1.0 – Initial Release</a></h2>
-<p>The first public release of m1nd: a neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 43 MCP tools. Built in Rust.</p>
+<p>The first public release of m1nd: a local code graph runtime with adaptive graph feedback, spreading activation, and 43 MCP tools. Built in Rust.</p>
 <h3 id="core-engine-m1nd-core"><a class="header" href="#core-engine-m1nd-core">Core Engine (m1nd-core)</a></h3>
 <ul>
 <li><strong>Compressed Sparse Row (CSR) graph</strong> with forward and reverse adjacency</li>
