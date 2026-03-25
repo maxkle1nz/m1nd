@@ -1,0 +1,74 @@
+{
+  "recorded_at": "2026-03-24T19:01:43.402381+00:00",
+  "scenario_id": "warm_continuity_temporal_resume",
+  "scenario_name": "Warm continuity resume with temporal follow-up routing",
+  "scenario_tags": [
+    "warm-graph",
+    "continuity",
+    "trail-resume",
+    "timeline",
+    "temporal"
+  ],
+  "mode": "m1nd_warm",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 5.1,
+  "time_to_full_proof_ms": 8.2,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "trail_resume routes directly to timeline and the suggested tool is followed immediately",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.trail_resume",
+      "query": "resume prior timeline-related investigation and continue from the next temporal question",
+      "elapsed_ms": 2.3,
+      "payload_chars": 360,
+      "reactivated_node_ids": [
+        "file::m1nd-mcp/src/layer_handlers.rs",
+        "file::m1nd-mcp/src/protocol/layers.rs"
+      ],
+      "resume_hints": [
+        "Use timeline on file::m1nd-mcp/src/layer_handlers.rs to answer the carried-forward question: what changed recently in trail resume routing?",
+        "Inspect neighborhood around file::m1nd-mcp/src/protocol/layers.rs"
+      ],
+      "next_focus_node_id": "file::m1nd-mcp/src/layer_handlers.rs",
+      "next_open_question": "what changed recently in trail resume routing?",
+      "next_suggested_tool": "timeline",
+      "next_tool_used": "timeline",
+      "surfaced_files": [
+        "m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "notes": "Resume returns a temporal seam and points directly at timeline.",
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.timeline",
+      "target": "file::m1nd-mcp/src/layer_handlers.rs",
+      "elapsed_ms": 2.8,
+      "payload_chars": 340,
+      "opened_files": [
+        "m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "notes": "Single follow-up timeline query confirms recent commit-proof path.",
+      "event_index": 2,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 1,
+  "search_iterations": 0,
+  "chars_surfaced": 700,
+  "token_proxy": 175,
+  "guidance_events": 1,
+  "guidance_followed": 1,
+  "reactivated_nodes": 2,
+  "resume_hints": 2,
+  "repo_path": ".",
+  "question": "Resume a saved investigation whose next open question is temporal and continue straight into recent-change proof.",
+  "expected_strength": "strong"
+}

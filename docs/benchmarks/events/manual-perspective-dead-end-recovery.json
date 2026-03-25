@@ -1,0 +1,29 @@
+[
+  {
+    "tool_name": "shell.grep",
+    "query": "search perspective dead-end recovery behavior and check whether back navigation is the safe next move",
+    "elapsed_ms": 2.4,
+    "payload_chars": 420,
+    "surfaced_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "notes": "Manual recovery starts with rediscovering how exhausted branches are meant to unwind."
+  },
+  {
+    "tool_name": "shell.notes",
+    "query": "infer that perspective.back is safer than restarting perspective.start after hitting a dead-end branch",
+    "elapsed_ms": 1.6,
+    "payload_chars": 260,
+    "notes": "The operator rebuilds the recovery plan by hand instead of following tool-emitted guidance."
+  },
+  {
+    "tool_name": "m1nd.perspective_back",
+    "query": "manually restore previous focus after exhausted branch",
+    "elapsed_ms": 1.7,
+    "payload_chars": 340,
+    "opened_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "notes": "Back navigation works, but only after a manual rediscovery step."
+  }
+]

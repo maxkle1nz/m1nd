@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_proof_focused_edit_prep",
+  "scenario_name": "Warm proof-focused edit prep for normalized scope changes",
+  "repo_path": ".",
+  "question": "Prepare a compact multi-file edit plan for normalized scope changes without flooding the agent with neighborhood payload.",
+  "tags": ["warm-graph", "edit-prep", "proof-focused", "surgical-context-v2"],
+  "expected_strength": "strong"
+}

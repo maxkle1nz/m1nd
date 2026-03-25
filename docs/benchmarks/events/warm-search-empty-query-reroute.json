@@ -1,0 +1,41 @@
+[
+  {
+    "tool_name": "m1nd.search",
+    "query": "",
+    "elapsed_ms": 0.7,
+    "payload_chars": 300,
+    "hint": "query cannot be empty; add exact text/regex to search content; for file/path discovery use m1nd.glob instead; for natural-language intent use m1nd.seek",
+    "suggested_next_step": "Retry with m1nd.glob using a shell-style pattern like 'm1nd-mcp/src/**/*search*.rs'.",
+    "usage_hint": "Use search for content, glob for file/path discovery, and seek when you know the job but not the symbol name.",
+    "next_suggested_tool": "glob",
+    "next_suggested_target": "m1nd-mcp/src/**/*search*.rs",
+    "next_tool_used": "glob",
+    "recovery_followed": true,
+    "notes": "The error teaches that the tool choice is wrong, not just the input shape."
+  },
+  {
+    "tool_name": "m1nd.glob",
+    "target": "m1nd-mcp/src/**/*search*.rs",
+    "elapsed_ms": 0.8,
+    "payload_chars": 360,
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ],
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ],
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
+    "next_step_hint": "Open the matched handler file next to inspect the recovery path and validation logic.",
+    "next_tool_used": "view"
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 0.5,
+    "payload_chars": 540,
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  }
+]

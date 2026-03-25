@@ -1,0 +1,35 @@
+[
+  {
+    "tool_name": "m1nd.trail_resume",
+    "query": "resume stale trail without force",
+    "elapsed_ms": 1.0,
+    "payload_chars": 220,
+    "hint": "Trail trail_benchmark is stale: 8 of 12 nodes missing (67%). Use force=true to resume.",
+    "suggested_next_step": "Retry trail_resume with force=true if partial continuity is still useful.",
+    "usage_hint": "Use trail_resume to continue a saved investigation. If the trail is stale but still valuable, retry with force=true.",
+    "next_suggested_tool": "trail_resume",
+    "next_tool_used": "trail_resume",
+    "recovery_followed": true,
+    "notes": "The stale gate now teaches when to accept degraded continuity instead of restarting the investigation from zero."
+  },
+  {
+    "tool_name": "m1nd.trail_resume",
+    "query": "retry trail_resume with force=true",
+    "elapsed_ms": 1.4,
+    "payload_chars": 360,
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/layer_handlers.rs",
+    "next_step_hint": "Open the restored focus next to confirm whether the degraded continuity still answers the carried-forward question.",
+    "next_tool_used": "view",
+    "notes": "Forced resume restores partial continuity with explicit next-step guidance."
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 0.7,
+    "payload_chars": 520,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  }
+]

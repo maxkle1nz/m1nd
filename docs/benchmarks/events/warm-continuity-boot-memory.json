@@ -1,0 +1,34 @@
+[
+  {
+    "tool_name": "m1nd.trail_resume",
+    "query": "resume boot memory investigation",
+    "elapsed_ms": 2.4,
+    "payload_chars": 340,
+    "reactivated_node_ids": [
+      "file::m1nd-mcp/src/session.rs",
+      "file::m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "resume_hints": [
+      "Re-open the current focus before branching: file::m1nd-mcp/src/session.rs",
+      "Continue with open question: where is boot memory persisted and read back?"
+    ],
+    "next_focus_node_id": "file::m1nd-mcp/src/session.rs",
+    "next_open_question": "where is boot memory persisted and read back?",
+    "next_suggested_tool": "view",
+    "next_tool_used": "view",
+    "surfaced_files": [
+      "m1nd-mcp/src/session.rs"
+    ],
+    "notes": "Updated continuity flow follows the compact trail_resume guidance instead of rediscovering the seam with search."
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/session.rs",
+    "elapsed_ms": 1.3,
+    "payload_chars": 250,
+    "opened_files": [
+      "m1nd-mcp/src/session.rs"
+    ],
+    "notes": "Single follow-up view confirms the persistence path after the guided resume."
+  }
+]

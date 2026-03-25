@@ -22,18 +22,46 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn perspective_not_found_error(tool: &str, agent_id: &str, perspective_id: &str) -> M1ndError {
+    M1ndError::InvalidParams {
+        tool: tool.into(),
+        detail: format!(
+            "perspective `{}` was not found for agent `{}`. It may have been closed, expired, or belongs to a different agent. Call `perspective_list` to inspect active perspectives, or `perspective_start` to create a new one.",
+            perspective_id, agent_id
+        ),
+    }
+}
+
+fn route_set_stale_error(tool: &str, requested_version: u64, current_version: u64) -> M1ndError {
+    M1ndError::InvalidParams {
+        tool: tool.into(),
+        detail: format!(
+            "stale `route_set_version` {}. Current version is {}. Call `perspective_routes` to refresh the route set, then retry this operation with the new `route_set_version`.",
+            requested_version, current_version
+        ),
+    }
+}
+
+fn route_not_found_error(tool: &str, perspective_id: &str, route_ref: &str) -> M1ndError {
+    M1ndError::InvalidParams {
+        tool: tool.into(),
+        detail: format!(
+            "route reference `{}` was not found in perspective `{}`. Call `perspective_routes` to list the current page of routes, then retry with a fresh `route_id` or 1-based `route_index`.",
+            route_ref, perspective_id
+        ),
+    }
+}
+
 /// Check perspective ownership and return reference, or error.
 fn require_perspective<'a>(
     state: &'a SessionState,
     agent_id: &str,
     perspective_id: &str,
+    tool: &str,
 ) -> M1ndResult<&'a PerspectiveState> {
     state
         .get_perspective(agent_id, perspective_id)
-        .ok_or_else(|| M1ndError::PerspectiveNotFound {
-            perspective_id: perspective_id.into(),
-            agent_id: agent_id.into(),
-        })
+        .ok_or_else(|| perspective_not_found_error(tool, agent_id, perspective_id))
 }
 
 /// Check perspective ownership and return mutable reference, or error.
@@ -41,13 +69,11 @@ fn require_perspective_mut<'a>(
     state: &'a mut SessionState,
     agent_id: &str,
     perspective_id: &str,
+    tool: &str,
 ) -> M1ndResult<&'a mut PerspectiveState> {
     state
         .get_perspective_mut(agent_id, perspective_id)
-        .ok_or_else(|| M1ndError::PerspectiveNotFound {
-            perspective_id: perspective_id.into(),
-            agent_id: agent_id.into(),
-        })
+        .ok_or_else(|| perspective_not_found_error(tool, agent_id, perspective_id))
 }
 
 /// Synthesize routes from graph for a focus node.
@@ -442,7 +468,12 @@ pub fn handle_perspective_routes(
     // creates with focus_node=None and routes never computed, or cache was
     // invalidated between start and routes calls.
 
-    let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.routes",
+    )?;
 
     // Staleness check: instead of erroring, mark as stale and continue
     let mut _stale = false;
@@ -488,7 +519,12 @@ pub fn handle_perspective_routes(
     }
 
     // Re-read perspective after potential re-synthesis
-    let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.routes",
+    )?;
 
     // Validate pagination
     let cached = persp.route_cache.as_ref();
@@ -580,35 +616,44 @@ pub fn handle_perspective_inspect(
     input: PerspectiveInspectInput,
 ) -> M1ndResult<serde_json::Value> {
     let route_ref = validate_route_ref(&input.route_id, &input.route_index, "perspective.inspect")?;
-    let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.inspect",
+    )?;
 
     // Staleness check
     if input.route_set_version != persp.route_set_version {
-        return Err(M1ndError::RouteSetStale {
-            route_set_version: input.route_set_version,
-            current_version: persp.route_set_version,
-        });
+        return Err(route_set_stale_error(
+            "perspective.inspect",
+            input.route_set_version,
+            persp.route_set_version,
+        ));
     }
 
     // Find the route
-    let cached = persp
-        .route_cache
-        .as_ref()
-        .ok_or_else(|| M1ndError::RouteNotFound {
-            route_id: format!("{:?}", route_ref),
-            perspective_id: input.perspective_id.clone(),
-        })?;
+    let cached = persp.route_cache.as_ref().ok_or_else(|| {
+        route_not_found_error(
+            "perspective.inspect",
+            &input.perspective_id,
+            "no cached routes",
+        )
+    })?;
 
     let route = match route_ref {
         ValidatedRouteRef::ById(ref id) => cached.routes.iter().find(|r| &r.route_id == id),
         ValidatedRouteRef::ByIndex(idx) => cached.routes.iter().find(|r| r.route_index == idx),
     }
-    .ok_or_else(|| M1ndError::RouteNotFound {
-        route_id: match &route_ref {
-            ValidatedRouteRef::ById(id) => id.clone(),
-            ValidatedRouteRef::ByIndex(idx) => format!("index_{}", idx),
-        },
-        perspective_id: input.perspective_id.clone(),
+    .ok_or_else(|| {
+        route_not_found_error(
+            "perspective.inspect",
+            &input.perspective_id,
+            &match &route_ref {
+                ValidatedRouteRef::ById(id) => id.clone(),
+                ValidatedRouteRef::ByIndex(idx) => format!("route_index={}", idx),
+            },
+        )
     })?;
 
     let provenance = route.provenance.as_ref().map(|p| InspectProvenance {
@@ -675,30 +720,42 @@ pub fn handle_perspective_peek(
     input: PerspectivePeekInput,
 ) -> M1ndResult<serde_json::Value> {
     let route_ref = validate_route_ref(&input.route_id, &input.route_index, "perspective.peek")?;
-    let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.peek",
+    )?;
 
     if input.route_set_version != persp.route_set_version {
-        return Err(M1ndError::RouteSetStale {
-            route_set_version: input.route_set_version,
-            current_version: persp.route_set_version,
-        });
+        return Err(route_set_stale_error(
+            "perspective.peek",
+            input.route_set_version,
+            persp.route_set_version,
+        ));
     }
 
-    let cached = persp
-        .route_cache
-        .as_ref()
-        .ok_or_else(|| M1ndError::RouteNotFound {
-            route_id: "no cache".into(),
-            perspective_id: input.perspective_id.clone(),
-        })?;
+    let cached = persp.route_cache.as_ref().ok_or_else(|| {
+        route_not_found_error(
+            "perspective.peek",
+            &input.perspective_id,
+            "no cached routes",
+        )
+    })?;
 
     let route = match route_ref {
         ValidatedRouteRef::ById(ref id) => cached.routes.iter().find(|r| &r.route_id == id),
         ValidatedRouteRef::ByIndex(idx) => cached.routes.iter().find(|r| r.route_index == idx),
     }
-    .ok_or_else(|| M1ndError::RouteNotFound {
-        route_id: "not found".into(),
-        perspective_id: input.perspective_id.clone(),
+    .ok_or_else(|| {
+        route_not_found_error(
+            "perspective.peek",
+            &input.perspective_id,
+            &match &route_ref {
+                ValidatedRouteRef::ById(id) => id.clone(),
+                ValidatedRouteRef::ByIndex(idx) => format!("route_index={}", idx),
+            },
+        )
     })?;
 
     if !route.peek_available {
@@ -754,30 +811,42 @@ pub fn handle_perspective_follow(
 
     // First borrow: read-only to validate and extract needed data
     let (target_node, previous_focus, mode, lens, visited, mode_ctx, version_check) = {
-        let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+        let persp = require_perspective(
+            state,
+            &input.agent_id,
+            &input.perspective_id,
+            "perspective.follow",
+        )?;
 
         if input.route_set_version != persp.route_set_version {
-            return Err(M1ndError::RouteSetStale {
-                route_set_version: input.route_set_version,
-                current_version: persp.route_set_version,
-            });
+            return Err(route_set_stale_error(
+                "perspective.follow",
+                input.route_set_version,
+                persp.route_set_version,
+            ));
         }
 
-        let cached = persp
-            .route_cache
-            .as_ref()
-            .ok_or_else(|| M1ndError::RouteNotFound {
-                route_id: "no cache".into(),
-                perspective_id: input.perspective_id.clone(),
-            })?;
+        let cached = persp.route_cache.as_ref().ok_or_else(|| {
+            route_not_found_error(
+                "perspective.follow",
+                &input.perspective_id,
+                "no cached routes",
+            )
+        })?;
 
         let route = match &route_ref {
             ValidatedRouteRef::ById(id) => cached.routes.iter().find(|r| &r.route_id == id),
             ValidatedRouteRef::ByIndex(idx) => cached.routes.iter().find(|r| r.route_index == *idx),
         }
-        .ok_or_else(|| M1ndError::RouteNotFound {
-            route_id: "not found".into(),
-            perspective_id: input.perspective_id.clone(),
+        .ok_or_else(|| {
+            route_not_found_error(
+                "perspective.follow",
+                &input.perspective_id,
+                &match &route_ref {
+                    ValidatedRouteRef::ById(id) => id.clone(),
+                    ValidatedRouteRef::ByIndex(idx) => format!("route_index={}", idx),
+                },
+            )
         })?;
 
         (
@@ -833,7 +902,12 @@ pub fn handle_perspective_follow(
     // Now mutate the perspective state
     let max_checkpoints = state.perspective_limits.max_checkpoints_per_perspective;
     let cache_gen = state.cache_generation;
-    let persp = require_perspective_mut(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective_mut(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.follow",
+    )?;
     let ts = now_ms();
 
     // Save checkpoint before moving
@@ -896,13 +970,19 @@ pub fn handle_perspective_suggest(
     state: &mut SessionState,
     input: PerspectiveSuggestInput,
 ) -> M1ndResult<serde_json::Value> {
-    let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.suggest",
+    )?;
 
     if input.route_set_version != persp.route_set_version {
-        return Err(M1ndError::RouteSetStale {
-            route_set_version: input.route_set_version,
-            current_version: persp.route_set_version,
-        });
+        return Err(route_set_stale_error(
+            "perspective.suggest",
+            input.route_set_version,
+            persp.route_set_version,
+        ));
     }
 
     let cached = persp.route_cache.as_ref();
@@ -993,30 +1073,42 @@ pub fn handle_perspective_affinity(
 ) -> M1ndResult<serde_json::Value> {
     let route_ref =
         validate_route_ref(&input.route_id, &input.route_index, "perspective.affinity")?;
-    let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.affinity",
+    )?;
 
     if input.route_set_version != persp.route_set_version {
-        return Err(M1ndError::RouteSetStale {
-            route_set_version: input.route_set_version,
-            current_version: persp.route_set_version,
-        });
+        return Err(route_set_stale_error(
+            "perspective.affinity",
+            input.route_set_version,
+            persp.route_set_version,
+        ));
     }
 
-    let cached = persp
-        .route_cache
-        .as_ref()
-        .ok_or_else(|| M1ndError::RouteNotFound {
-            route_id: "no cache".into(),
-            perspective_id: input.perspective_id.clone(),
-        })?;
+    let cached = persp.route_cache.as_ref().ok_or_else(|| {
+        route_not_found_error(
+            "perspective.affinity",
+            &input.perspective_id,
+            "no cached routes",
+        )
+    })?;
 
     let route = match route_ref {
         ValidatedRouteRef::ById(ref id) => cached.routes.iter().find(|r| &r.route_id == id),
         ValidatedRouteRef::ByIndex(idx) => cached.routes.iter().find(|r| r.route_index == idx),
     }
-    .ok_or_else(|| M1ndError::RouteNotFound {
-        route_id: "not found".into(),
-        perspective_id: input.perspective_id.clone(),
+    .ok_or_else(|| {
+        route_not_found_error(
+            "perspective.affinity",
+            &input.perspective_id,
+            &match &route_ref {
+                ValidatedRouteRef::ById(id) => id.clone(),
+                ValidatedRouteRef::ByIndex(idx) => format!("route_index={}", idx),
+            },
+        )
     })?;
 
     // V1: affinity uses simplified computation
@@ -1051,7 +1143,12 @@ pub fn handle_perspective_branch(
     input: PerspectiveBranchInput,
 ) -> M1ndResult<serde_json::Value> {
     // Check branch limit
-    let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.branch",
+    )?;
     if persp.branches.len() >= state.perspective_limits.max_branches_per_agent {
         return Err(M1ndError::BranchDepthExceeded {
             perspective_id: input.perspective_id.clone(),
@@ -1083,7 +1180,12 @@ pub fn handle_perspective_branch(
     new_persp.last_accessed_ms = now_ms();
 
     // Record branch in parent
-    let parent = require_perspective_mut(state, &input.agent_id, &input.perspective_id)?;
+    let parent = require_perspective_mut(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.branch",
+    )?;
     parent.branches.push(new_id.clone());
 
     // Insert new perspective
@@ -1110,7 +1212,12 @@ pub fn handle_perspective_back(
 ) -> M1ndResult<serde_json::Value> {
     // Validate and extract data in a scoped borrow
     let (checkpoint, had_checkpoints) = {
-        let persp = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+        let persp = require_perspective(
+            state,
+            &input.agent_id,
+            &input.perspective_id,
+            "perspective.back",
+        )?;
         if persp.checkpoints.is_empty() {
             return Err(M1ndError::NavigationAtRoot {
                 perspective_id: input.perspective_id.clone(),
@@ -1122,7 +1229,12 @@ pub fn handle_perspective_back(
     let checkpoint = checkpoint.unwrap();
 
     // Now mutate
-    let persp = require_perspective_mut(state, &input.agent_id, &input.perspective_id)?;
+    let persp = require_perspective_mut(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.back",
+    )?;
     persp.checkpoints.pop();
     persp.focus_node = checkpoint.focus_node.clone();
     persp.lens = checkpoint.lens.clone();
@@ -1204,8 +1316,18 @@ pub fn handle_perspective_compare(
     state: &mut SessionState,
     input: PerspectiveCompareInput,
 ) -> M1ndResult<serde_json::Value> {
-    let persp_a = require_perspective(state, &input.agent_id, &input.perspective_id_a)?;
-    let persp_b = require_perspective(state, &input.agent_id, &input.perspective_id_b)?;
+    let persp_a = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id_a,
+        "perspective.compare",
+    )?;
+    let persp_b = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id_b,
+        "perspective.compare",
+    )?;
 
     let visited_a: HashSet<&String> = persp_a.visited_nodes.iter().collect();
     let visited_b: HashSet<&String> = persp_b.visited_nodes.iter().collect();
@@ -1288,7 +1410,12 @@ pub fn handle_perspective_close(
     input: PerspectiveCloseInput,
 ) -> M1ndResult<serde_json::Value> {
     // Check it exists
-    let _ = require_perspective(state, &input.agent_id, &input.perspective_id)?;
+    let _ = require_perspective(
+        state,
+        &input.agent_id,
+        &input.perspective_id,
+        "perspective.close",
+    )?;
 
     // Find and release associated locks
     let agent_locks: Vec<String> = state
@@ -1320,4 +1447,35 @@ pub fn handle_perspective_close(
         locks_released: released,
     };
     serde_json::to_value(output).map_err(M1ndError::Serde)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn perspective_not_found_error_teaches_recovery() {
+        let err = perspective_not_found_error("perspective.peek", "agent-1", "persp-9").to_string();
+        assert!(err.contains("perspective `persp-9` was not found"));
+        assert!(err.contains("perspective_list"));
+        assert!(err.contains("perspective_start"));
+    }
+
+    #[test]
+    fn route_set_stale_error_teaches_refresh_flow() {
+        let err = route_set_stale_error("perspective.follow", 7, 11).to_string();
+        assert!(err.contains("stale `route_set_version` 7"));
+        assert!(err.contains("Current version is 11"));
+        assert!(err.contains("perspective_routes"));
+        assert!(err.contains("retry this operation"));
+    }
+
+    #[test]
+    fn route_not_found_error_teaches_route_discovery() {
+        let err =
+            route_not_found_error("perspective.inspect", "persp-2", "route_index=4").to_string();
+        assert!(err.contains("route reference `route_index=4` was not found"));
+        assert!(err.contains("perspective_routes"));
+        assert!(err.contains("fresh `route_id` or 1-based `route_index`"));
+    }
 }

@@ -30,6 +30,13 @@ fn l2_dampened_tremor_factor(alert: Option<&m1nd_core::tremor::TremorAlert>) -> 
     1.0 + alert.map_or(0.0, |value| value.magnitude.min(1.0) * 0.1)
 }
 
+const L2_SEEK_STOPWORDS: &[&str] = &[
+    "the", "and", "for", "with", "this", "that", "from", "into", "its", "own", "codebase", "task",
+    "validate", "using", "focus", "around", "where", "when", "what", "which", "how", "why", "does",
+    "should", "could", "would", "about", "need", "needs", "want", "wants", "show", "tell", "there",
+    "here", "really", "just", "like",
+];
+
 fn l2_seek_heuristic_reason(
     trust_factor: f32,
     tremor_factor: f32,
@@ -88,7 +95,11 @@ pub fn handle_seek(
             results: vec![],
             total_candidates_scanned: 0,
             embeddings_used: false,
+            proof_state: "blocked".into(),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
         });
     }
 
@@ -219,18 +230,31 @@ pub fn handle_seek(
         } else {
             0.0
         };
+        let label_lower = graph.strings.resolve(graph.nodes.label[i]).to_lowercase();
+        let nt_str = l2_node_type_str(&graph.nodes.node_type[i]);
 
         let source_path_lower = graph.nodes.provenance[i]
             .source_path
             .and_then(|s| graph.strings.try_resolve(s))
             .unwrap_or("")
             .to_lowercase();
+        let tag_terms: Vec<String> = graph.nodes.tags[i]
+            .iter()
+            .map(|&ti| graph.strings.resolve(ti).to_lowercase())
+            .collect();
 
         let base_score = kw * 0.4
             + sem * 0.3
             + graph_activation * 0.2
             + tri * 0.1
-            + source_path_bias(Some(source_path_lower.as_str()), &all_tokens);
+            + source_path_bias(Some(source_path_lower.as_str()), &all_tokens)
+            + l2_seek_anchor_bias(
+                &all_tokens,
+                &label_lower,
+                source_path_lower.as_str(),
+                &tag_terms,
+                nt_str,
+            );
         if base_score >= input.min_score {
             base_ranked.push(BaseRankedNode {
                 idx: i,
@@ -415,13 +439,44 @@ pub fn handle_seek(
         let _ = state.persist();
     }
 
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = l2_seek_next_step(&results);
+    let proof_state = l2_seek_proof_state(&results);
+
     Ok(layers::SeekOutput {
         query: input.query,
         results,
         total_candidates_scanned: candidates_scanned,
         embeddings_used: semantic_used,
+        proof_state,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     })
+}
+
+fn l2_seek_next_step(
+    results: &[layers::SeekResultEntry],
+) -> (Option<String>, Option<String>, Option<String>) {
+    let Some(top) = results.first() else {
+        return (None, None, None);
+    };
+    let path = top
+        .file_path
+        .clone()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| node_to_file_path(&top.node_id));
+    let target = if path.is_empty() {
+        top.node_id.clone()
+    } else {
+        path.clone()
+    };
+    let hint = if !path.is_empty() {
+        format!("Open the top seek result next: {} in {}.", top.label, path)
+    } else {
+        format!("Open the top seek result next: {}.", top.label)
+    };
+    (Some("view".into()), Some(target), Some(hint))
 }
 
 /// Handle m1nd.scan -- pattern-aware structural code analysis.
@@ -616,7 +671,7 @@ pub fn handle_timeline(
     let start = Instant::now();
 
     // --- Resolve node to file path ---
-    let file_path = node_to_file_path(&input.node);
+    let file_path = resolve_timeline_file_path(state, &input.node);
     let repo_root = discover_git_root(state)?;
 
     // --- Parse depth into git --after arg ---
@@ -640,6 +695,7 @@ pub fn handle_timeline(
         return Ok(layers::TimelineOutput {
             node: input.node.clone(),
             depth: input.depth.clone(),
+            proof_state: "blocked".into(),
             changes: vec![],
             co_changed_with: vec![],
             velocity: "stable".into(),
@@ -650,6 +706,12 @@ pub fn handle_timeline(
                 lines_deleted: 0,
             },
             commit_count_in_window: 0,
+            next_suggested_tool: Some("view".into()),
+            next_suggested_target: Some(file_path.clone()),
+            next_step_hint: Some(format!(
+                "No git history was found for {} in this window; inspect the current file directly.",
+                file_path
+            )),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -693,6 +755,7 @@ pub fn handle_timeline(
             date: c.date.clone(),
             commit: c.hash.clone(),
             author: c.author.clone(),
+            subject: c.subject.clone(),
             delta: format!("+{}/-{}", added, deleted),
             co_changed,
         });
@@ -726,10 +789,14 @@ pub fn handle_timeline(
 
     // --- Compute pattern ---
     let pattern = compute_churn_pattern(total_added, total_deleted, commit_count, &velocity);
+    let proof_state = timeline_proof_state(commit_count, &co_changed_with);
+    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+        timeline_next_step(&file_path, commit_count, &co_changed_with);
 
     Ok(layers::TimelineOutput {
         node: input.node,
         depth: input.depth,
+        proof_state,
         changes,
         co_changed_with,
         velocity,
@@ -740,8 +807,86 @@ pub fn handle_timeline(
             lines_deleted: total_deleted,
         },
         commit_count_in_window: commit_count,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+fn timeline_proof_state(
+    commit_count: usize,
+    co_changed_with: &[layers::CoChangePartner],
+) -> String {
+    if commit_count == 0 {
+        return "blocked".into();
+    }
+    if commit_count > 1 || !co_changed_with.is_empty() {
+        return "proving".into();
+    }
+    "triaging".into()
+}
+
+fn timeline_next_step(
+    file_path: &str,
+    commit_count: usize,
+    co_changed_with: &[layers::CoChangePartner],
+) -> (Option<String>, Option<String>, Option<String>) {
+    if commit_count == 0 {
+        return (
+            Some("view".into()),
+            Some(file_path.to_string()),
+            Some(format!(
+                "No timeline evidence was found; inspect {} directly to verify the current seam.",
+                file_path
+            )),
+        );
+    }
+
+    if let Some(partner) = co_changed_with.first() {
+        return (
+            Some("view".into()),
+            Some(partner.file.clone()),
+            Some(format!(
+                "Open {} next; it is the strongest co-change partner for {} in this window.",
+                partner.file, file_path
+            )),
+        );
+    }
+
+    (
+        Some("view".into()),
+        Some(file_path.to_string()),
+        Some(format!(
+            "Open {} next and compare it against the recent commit subjects from this timeline.",
+            file_path
+        )),
+    )
+}
+
+fn l2_seek_proof_state(results: &[layers::SeekResultEntry]) -> String {
+    let Some(top) = results.first() else {
+        return "blocked".into();
+    };
+
+    let target_path = top
+        .file_path
+        .clone()
+        .filter(|path| !path.is_empty())
+        .unwrap_or_else(|| node_to_file_path(&top.node_id));
+    let second_score = results.get(1).map(|entry| entry.score).unwrap_or(0.0);
+    let margin = top.score - second_score;
+
+    if target_path.is_empty() {
+        return "triaging".into();
+    }
+    if top.score >= 0.85 && margin >= 0.25 && top.node_type == "file" {
+        return "ready_to_edit".into();
+    }
+    if top.score >= 0.45 && (margin >= 0.02 || results.len() == 1) {
+        return "proving".into();
+    }
+    "triaging".into()
 }
 
 /// Handle m1nd.diverge — structural drift between two points in time.
@@ -879,23 +1024,9 @@ struct GitCommitRecord {
 impl GitCommitRecord {
     /// Return (added, deleted) for a specific file in this commit.
     fn churn_for_file(&self, target: &str) -> (u32, u32) {
-        // Normalise for --follow renames: compare by basename if full path fails
+        let normalized_target = l6_normalize_path(target);
         for f in &self.files_changed {
-            if f.path == target {
-                return (f.added, f.deleted);
-            }
-        }
-        // Fallback: match by filename only (handles git --follow renames)
-        let target_name = Path::new(target)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        for f in &self.files_changed {
-            let fname = Path::new(&f.path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            if fname == target_name && !target_name.is_empty() {
+            if timeline_paths_match(&f.path, &normalized_target) {
                 return (f.added, f.deleted);
             }
         }
@@ -914,17 +1045,122 @@ fn is_auto_sync_commit(subject: &str) -> bool {
     subject.starts_with("auto-sync from ")
 }
 
+fn timeline_paths_match(candidate: &str, normalized_target: &str) -> bool {
+    let normalized_candidate = l6_normalize_path(candidate);
+    if normalized_candidate == normalized_target {
+        return true;
+    }
+
+    if !normalized_target.is_empty()
+        && (normalized_candidate.ends_with(normalized_target)
+            || normalized_target.ends_with(&normalized_candidate))
+    {
+        return true;
+    }
+
+    let target_name = Path::new(normalized_target)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let candidate_name = Path::new(&normalized_candidate)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    !target_name.is_empty() && target_name == candidate_name
+}
+
 /// Convert a node external_id (e.g. "file::backend/chat_handler.py") to a
 /// relative file path (e.g. "backend/chat_handler.py").
 fn node_to_file_path(node_id: &str) -> String {
-    if let Some(rest) = node_id.strip_prefix("file::") {
-        rest.to_string()
-    } else if node_id.contains('/') || node_id.contains('.') {
-        // Looks like a raw path already
-        node_id.to_string()
-    } else {
-        node_id.to_string()
+    let trimmed = node_id.trim();
+    if trimmed.is_empty() {
+        return String::new();
     }
+
+    let candidate = if let Some(idx) = trimmed.find("file::") {
+        &trimmed[idx + "file::".len()..]
+    } else {
+        trimmed
+    };
+
+    let file_like = candidate.split("::").next().unwrap_or(candidate);
+    if file_like.starts_with('/') {
+        file_like.trim_end_matches('/').to_string()
+    } else {
+        file_like.trim_matches('/').to_string()
+    }
+}
+
+/// Resolve a timeline target to the repo-relative file path `git log` expects.
+///
+/// This prefers graph provenance when possible so equivalent identities like:
+/// - `file::src/main.rs`
+/// - `file::src/main.rs::fn::boot`
+/// - `repo::file::src/main.rs::fn::boot`
+/// - `/abs/root/src/main.rs`
+///
+/// all converge on the same repo-relative file path.
+fn resolve_timeline_file_path(state: &SessionState, node_id: &str) -> String {
+    let raw_path = node_to_file_path(node_id);
+    let normalized_hint = l7_normalize_path_hint(&raw_path, &state.ingest_roots);
+    let fallback = if normalized_hint.is_empty() {
+        raw_path.clone()
+    } else {
+        normalized_hint.clone()
+    };
+
+    let graph = state.graph.read();
+
+    for candidate in [
+        node_id.to_string(),
+        raw_path.clone(),
+        fallback.clone(),
+        format!("file::{}", raw_path),
+        format!("file::{}", fallback),
+    ] {
+        if candidate.is_empty() {
+            continue;
+        }
+        if let Some(nid) = graph.resolve_id(&candidate) {
+            let prov = graph.resolve_node_provenance(nid);
+            if let Some(source_path) = prov.source_path {
+                let normalized = l7_normalize_path_hint(&source_path, &state.ingest_roots);
+                if !normalized.is_empty() {
+                    return normalized;
+                }
+            }
+        }
+    }
+
+    let normalized_fallback = l6_normalize_path(&fallback);
+    let mut first_match: Option<String> = None;
+    for i in 0..graph.num_nodes() as usize {
+        let prov = &graph.nodes.provenance[i];
+        if let Some(sp) = prov.source_path {
+            if let Some(source_str) = graph.strings.try_resolve(sp) {
+                let source_norm = l6_normalize_path(source_str);
+                let paths_match = source_norm == normalized_fallback
+                    || source_norm.ends_with(&normalized_fallback)
+                    || normalized_fallback.ends_with(&source_norm);
+                if !paths_match {
+                    continue;
+                }
+
+                let normalized = l7_normalize_path_hint(source_str, &state.ingest_roots);
+                if normalized.is_empty() {
+                    continue;
+                }
+
+                if graph.nodes.node_type[i] == m1nd_core::types::NodeType::File {
+                    return normalized;
+                }
+                first_match.get_or_insert(normalized);
+            }
+        }
+    }
+
+    first_match.unwrap_or(fallback)
 }
 
 /// Walk up from the first ingest root (or graph_path) to find the .git directory.
@@ -1716,6 +1952,164 @@ fn trail_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn trail_upsert_visited_node(
+    visited_nodes: &mut Vec<TrailVisitedNode>,
+    node_external_id: String,
+    annotation: Option<String>,
+    relevance: f32,
+) {
+    let normalized_relevance = relevance.clamp(0.0, 1.0);
+    if let Some(existing) = visited_nodes
+        .iter_mut()
+        .find(|node| node.node_external_id == node_external_id)
+    {
+        existing.relevance = existing.relevance.max(normalized_relevance);
+        if existing.annotation.is_none() {
+            existing.annotation = annotation;
+        }
+        return;
+    }
+
+    visited_nodes.push(TrailVisitedNode {
+        node_external_id,
+        annotation,
+        relevance: normalized_relevance,
+    });
+}
+
+fn trail_seed_boost(boosts: &mut HashMap<String, f32>, node_external_id: &str, weight: f32) {
+    let normalized = weight.clamp(0.0, 1.0);
+    boosts
+        .entry(node_external_id.to_string())
+        .and_modify(|current| *current = current.max(normalized))
+        .or_insert(normalized);
+}
+
+fn trail_resume_hints(
+    trail: &TrailData,
+    strongest_nodes: &[String],
+    next_focus_node_id: Option<&String>,
+    next_open_question: Option<&String>,
+    next_suggested_tool: Option<&str>,
+    max_hints: usize,
+) -> Vec<String> {
+    if max_hints == 0 {
+        return Vec::new();
+    }
+
+    let mut hints = Vec::new();
+
+    match (next_suggested_tool, next_focus_node_id, next_open_question) {
+        (Some("timeline"), Some(node), Some(question)) => hints.push(format!(
+            "Use timeline on {} to answer the carried-forward question: {}",
+            node, question
+        )),
+        (Some("impact"), Some(node), Some(question)) => hints.push(format!(
+            "Use impact on {} before changing it: {}",
+            node, question
+        )),
+        (Some("hypothesize"), _, Some(question)) => hints.push(format!(
+            "Use hypothesize to test the carried-forward structural claim: {}",
+            question
+        )),
+        (Some("seek"), _, Some(question)) => hints.push(format!(
+            "Use seek to relocate the answer path for: {}",
+            question
+        )),
+        (Some("view"), Some(node), _) => hints.push(format!(
+            "Re-open the current focus before branching: {}",
+            node
+        )),
+        _ => {}
+    }
+
+    for question in trail.open_questions.iter().take(max_hints.min(2)) {
+        let hint = format!("Continue with open question: {}", question);
+        if !hints.iter().any(|existing| existing == &hint) {
+            hints.push(hint);
+        }
+    }
+
+    for node in strongest_nodes
+        .iter()
+        .take(max_hints.saturating_sub(hints.len()).min(2))
+    {
+        let hint = format!("Inspect neighborhood around {}", node);
+        if !hints.iter().any(|existing| existing == &hint) {
+            hints.push(hint);
+        }
+    }
+
+    if hints.len() < max_hints && !trail.hypotheses.is_empty() {
+        let hint = format!("Re-test hypothesis: {}", trail.hypotheses[0].statement);
+        if !hints.iter().any(|existing| existing == &hint) {
+            hints.push(hint);
+        }
+    }
+
+    hints.truncate(max_hints);
+    hints
+}
+
+fn trail_resume_suggested_tool(
+    next_focus_node_id: Option<&String>,
+    next_open_question: Option<&String>,
+) -> Option<String> {
+    if let Some(question) = next_open_question {
+        let lower = question.to_lowercase();
+        if ["changed", "change", "last", "history", "recent", "commit"]
+            .iter()
+            .any(|term| lower.contains(term))
+            && next_focus_node_id.is_some()
+        {
+            return Some("timeline".into());
+        }
+        if next_focus_node_id.is_some()
+            && ["impact", "blast", "break", "affected", "touch"]
+                .iter()
+                .any(|term| lower.contains(term))
+        {
+            return Some("impact".into());
+        }
+        if [
+            "why",
+            "proof",
+            "prove",
+            "evidence",
+            "violation",
+            "missing",
+            "guard",
+        ]
+        .iter()
+        .any(|term| lower.contains(term))
+        {
+            return Some("hypothesize".into());
+        }
+        if [
+            "where",
+            "which",
+            "owner",
+            "helper",
+            "normalize",
+            "canonical",
+            "dispatch",
+            "route",
+        ]
+        .iter()
+        .any(|term| lower.contains(term))
+        {
+            return Some("seek".into());
+        }
+    }
+    if next_focus_node_id.is_some() {
+        return Some("view".into());
+    }
+    if next_open_question.is_some() {
+        return Some("search".into());
+    }
+    None
+}
+
 /// Resolve the trails/ directory path from the graph snapshot path.
 /// Creates the directory if it does not exist.
 fn trails_dir(state: &SessionState) -> M1ndResult<PathBuf> {
@@ -1838,28 +2232,54 @@ pub fn handle_trail_save(
     );
 
     // Collect visited nodes — from input or auto-capture from perspective state.
-    let mut visited_nodes: Vec<TrailVisitedNode> = input
-        .visited_nodes
-        .iter()
-        .map(|v| TrailVisitedNode {
-            node_external_id: v.node_external_id.clone(),
-            annotation: v.annotation.clone(),
-            relevance: v.relevance,
-        })
-        .collect();
+    let mut visited_nodes: Vec<TrailVisitedNode> = Vec::new();
+    for node in &input.visited_nodes {
+        trail_upsert_visited_node(
+            &mut visited_nodes,
+            node.node_external_id.clone(),
+            node.annotation.clone(),
+            node.relevance,
+        );
+    }
 
     // If no explicit visited nodes, capture from active perspectives for this agent.
     if visited_nodes.is_empty() {
         for ((agent, _persp_id), persp) in &state.perspectives {
             if agent == &input.agent_id && !persp.visited_nodes.is_empty() {
                 for ext_id in &persp.visited_nodes {
-                    visited_nodes.push(TrailVisitedNode {
-                        node_external_id: ext_id.clone(),
-                        annotation: None,
-                        relevance: 0.5,
-                    });
+                    trail_upsert_visited_node(&mut visited_nodes, ext_id.clone(), None, 0.5);
                 }
             }
+        }
+    }
+
+    for hypothesis in &input.hypotheses {
+        for node in &hypothesis.supporting_nodes {
+            trail_upsert_visited_node(
+                &mut visited_nodes,
+                node.clone(),
+                Some("hypothesis support".into()),
+                hypothesis.confidence.max(0.6),
+            );
+        }
+        for node in &hypothesis.contradicting_nodes {
+            trail_upsert_visited_node(
+                &mut visited_nodes,
+                node.clone(),
+                Some("hypothesis contradiction".into()),
+                (hypothesis.confidence * 0.8).max(0.45),
+            );
+        }
+    }
+
+    for conclusion in &input.conclusions {
+        for node in &conclusion.supporting_nodes {
+            trail_upsert_visited_node(
+                &mut visited_nodes,
+                node.clone(),
+                Some("conclusion support".into()),
+                conclusion.confidence.max(0.7),
+            );
         }
     }
 
@@ -1898,6 +2318,28 @@ pub fn handle_trail_save(
 
     let graph_gen = state.graph_generation;
 
+    let mut activation_boosts = input.activation_boosts.clone();
+    for node in &visited_nodes {
+        trail_seed_boost(
+            &mut activation_boosts,
+            &node.node_external_id,
+            0.2 + node.relevance.clamp(0.0, 1.0) * 0.5,
+        );
+    }
+    for hypothesis in &hypotheses {
+        for node in &hypothesis.supporting_nodes {
+            trail_seed_boost(&mut activation_boosts, node, 0.7);
+        }
+        for node in &hypothesis.contradicting_nodes {
+            trail_seed_boost(&mut activation_boosts, node, 0.45);
+        }
+    }
+    for conclusion in &conclusions {
+        for node in &conclusion.supporting_nodes {
+            trail_seed_boost(&mut activation_boosts, node, 0.8);
+        }
+    }
+
     let trail = TrailData {
         trail_id: trail_id.clone(),
         label: input.label.clone(),
@@ -1909,7 +2351,7 @@ pub fn handle_trail_save(
         open_questions: input.open_questions.clone(),
         tags: input.tags.clone(),
         summary,
-        activation_boosts: input.activation_boosts.clone(),
+        activation_boosts,
         graph_generation: graph_gen,
         created_at_ms: ts,
         last_modified_ms: ts,
@@ -1944,6 +2386,8 @@ pub fn handle_trail_resume(
     input: layers::TrailResumeInput,
 ) -> M1ndResult<layers::TrailResumeOutput> {
     let start = Instant::now();
+    let reactivated_limit = input.max_reactivated_nodes.clamp(0, 10);
+    let hint_limit = input.max_resume_hints.clamp(0, 8);
 
     let mut trail = load_trail(state, &input.trail_id)?;
 
@@ -1988,6 +2432,7 @@ pub fn handle_trail_resume(
 
     // Re-inject activation boosts for nodes that still exist.
     let mut nodes_reactivated: usize = 0;
+    let mut reactivated_nodes: Vec<(String, f32)> = Vec::new();
     if !trail.activation_boosts.is_empty() {
         let mut graph = state.graph.write();
         let n = graph.num_nodes() as usize;
@@ -2000,12 +2445,32 @@ pub fn handle_trail_resume(
                     let new_val = (current + boost).min(1.0);
                     graph.nodes.activation[idx][0] = FiniteF32::new(new_val);
                     nodes_reactivated += 1;
+                    reactivated_nodes.push((ext_id.clone(), boost));
                 }
             }
         }
     } else {
         nodes_reactivated = resolved_count;
+        for vn in &trail.visited_nodes {
+            if !missing_nodes
+                .iter()
+                .any(|missing| missing == &vn.node_external_id)
+            {
+                reactivated_nodes.push((vn.node_external_id.clone(), vn.relevance));
+            }
+        }
     }
+
+    reactivated_nodes.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    let reactivated_node_ids: Vec<String> = reactivated_nodes
+        .iter()
+        .map(|(node_id, _)| node_id.clone())
+        .take(reactivated_limit)
+        .collect();
 
     // Check hypotheses — downgrade those whose supporting nodes are mostly missing
     let mut hypotheses_downgraded: Vec<String> = Vec::new();
@@ -2036,6 +2501,18 @@ pub fn handle_trail_resume(
     save_trail(state, &trail)?;
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let next_focus_node_id = reactivated_node_ids.first().cloned();
+    let next_open_question = trail.open_questions.first().cloned();
+    let next_suggested_tool =
+        trail_resume_suggested_tool(next_focus_node_id.as_ref(), next_open_question.as_ref());
+    let resume_hints = trail_resume_hints(
+        &trail,
+        &reactivated_node_ids,
+        next_focus_node_id.as_ref(),
+        next_open_question.as_ref(),
+        next_suggested_tool.as_deref(),
+        hint_limit,
+    );
 
     Ok(layers::TrailResumeOutput {
         trail_id: trail.trail_id.clone(),
@@ -2044,7 +2521,12 @@ pub fn handle_trail_resume(
         generations_behind,
         missing_nodes,
         nodes_reactivated,
+        reactivated_node_ids,
         hypotheses_downgraded,
+        next_focus_node_id,
+        next_open_question,
+        next_suggested_tool,
+        resume_hints,
         trail: trail_to_summary(&trail),
         elapsed_ms,
     })
@@ -2421,11 +2903,15 @@ pub fn handle_hypothesize(
             object_nodes: vec![],
             verdict: "inconclusive".into(),
             confidence: 0.5,
+            proof_state: "blocked".into(),
             supporting_evidence: vec![],
             contradicting_evidence: vec![],
             partial_reach: None,
             paths_explored: 0,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
         });
     }
 
@@ -2457,6 +2943,7 @@ pub fn handle_hypothesize(
             },
             verdict: "inconclusive".into(),
             confidence: 0.5,
+            proof_state: "blocked".into(),
             supporting_evidence: vec![],
             contradicting_evidence: vec![layers::HypothesisEvidence {
                 evidence_type: "no_path".into(),
@@ -2472,6 +2959,9 @@ pub fn handle_hypothesize(
             partial_reach: None,
             paths_explored: 0,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
         });
     }
 
@@ -2889,6 +3379,24 @@ pub fn handle_hypothesize(
         "inconclusive"
     };
 
+    let partial_reach = if partial_reach_entries.is_empty() {
+        None
+    } else {
+        Some(partial_reach_entries)
+    };
+    let proof_state = l5_hypothesize_proof_state(
+        verdict,
+        &supporting,
+        &contradicting,
+        partial_reach.as_deref(),
+    );
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = l5_hypothesize_next_step(
+        verdict,
+        &supporting,
+        &contradicting,
+        partial_reach.as_deref(),
+    );
+
     Ok(layers::HypothesizeOutput {
         claim: input.claim,
         claim_type: parsed.claim_type.as_str().into(),
@@ -2896,16 +3404,78 @@ pub fn handle_hypothesize(
         object_nodes: object_labels,
         verdict: verdict.into(),
         confidence,
+        proof_state,
         supporting_evidence: supporting,
         contradicting_evidence: contradicting,
-        partial_reach: if partial_reach_entries.is_empty() {
-            None
-        } else {
-            Some(partial_reach_entries)
-        },
+        partial_reach,
         paths_explored,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     })
+}
+
+fn l5_hypothesize_proof_state(
+    verdict: &str,
+    supporting: &[layers::HypothesisEvidence],
+    contradicting: &[layers::HypothesisEvidence],
+    partial_reach: Option<&[layers::PartialReachEntry]>,
+) -> String {
+    if (verdict == "likely_true" || verdict == "likely_false")
+        && (!supporting.is_empty() || !contradicting.is_empty())
+    {
+        return "ready_to_edit".into();
+    }
+    if partial_reach
+        .map(|entries| !entries.is_empty())
+        .unwrap_or(false)
+    {
+        return "proving".into();
+    }
+    if !supporting.is_empty() || !contradicting.is_empty() {
+        return "triaging".into();
+    }
+    "blocked".into()
+}
+
+fn l5_hypothesize_next_step(
+    verdict: &str,
+    supporting: &[layers::HypothesisEvidence],
+    contradicting: &[layers::HypothesisEvidence],
+    partial_reach: Option<&[layers::PartialReachEntry]>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let evidence = if verdict == "likely_false" {
+        contradicting.first()
+    } else {
+        supporting.first().or_else(|| contradicting.first())
+    };
+
+    if let Some(evidence) = evidence {
+        if let Some(target) = evidence.nodes.last() {
+            return (
+                Some("view".into()),
+                Some(target.clone()),
+                Some(format!(
+                    "Open the strongest hypothesis evidence next: {}.",
+                    target
+                )),
+            );
+        }
+    }
+
+    if let Some(partial) = partial_reach.and_then(|entries| entries.first()) {
+        return (
+            Some("view".into()),
+            Some(partial.node_id.clone()),
+            Some(format!(
+                "Open the furthest partial-reach node next: {}.",
+                partial.node_id
+            )),
+        );
+    }
+
+    (None, None, None)
 }
 
 /// Handle m1nd.differential — focused structural diff between two graph snapshots.
@@ -3066,6 +3636,7 @@ pub fn handle_trace(
             error_message,
             frames_parsed: 0,
             frames_mapped: 0,
+            proof_state: "blocked".into(),
             suspects: vec![],
             co_change_suspects: vec![],
             causal_chain: vec![],
@@ -3074,6 +3645,9 @@ pub fn handle_trace(
                 estimated_blast_radius: 0,
                 risk_level: "low".into(),
             },
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
             unmapped_frames: vec![],
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
@@ -3255,6 +3829,19 @@ pub fn handle_trace(
 
     // --- 8. Co-change suspects (V1: empty — V2 uses git temporal window) ---
     let co_change_suspects: Vec<layers::TraceCoChangeSuspect> = vec![];
+    let proof_state = l6_trace_proof_state(frames_mapped, &suspects, &causal_chain);
+
+    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+        if let Some(top) = suspects.first() {
+            let target = top.file_path.clone().unwrap_or_else(|| top.node_id.clone());
+            let hint = format!(
+                "Open the top suspect next: {} (suspiciousness {:.2})",
+                target, top.suspiciousness
+            );
+            (Some("view".into()), Some(target), Some(hint))
+        } else {
+            (None, None, None)
+        };
 
     Ok(layers::TraceOutput {
         language_detected: language,
@@ -3262,6 +3849,7 @@ pub fn handle_trace(
         error_message,
         frames_parsed,
         frames_mapped,
+        proof_state,
         suspects,
         co_change_suspects,
         causal_chain,
@@ -3270,9 +3858,32 @@ pub fn handle_trace(
             estimated_blast_radius,
             risk_level,
         },
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
         unmapped_frames: unmapped,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+fn l6_trace_proof_state(
+    frames_mapped: usize,
+    suspects: &[layers::TraceSuspect],
+    causal_chain: &[String],
+) -> String {
+    let Some(top) = suspects.first() else {
+        return "blocked".into();
+    };
+    if frames_mapped == 0 {
+        return "blocked".into();
+    }
+    if top.suspiciousness >= 0.75 && !causal_chain.is_empty() {
+        return "ready_to_edit".into();
+    }
+    if top.suspiciousness >= 0.4 {
+        return "triaging".into();
+    }
+    "proving".into()
 }
 
 /// Handle m1nd.validate_plan — validate a modification plan against the graph.
@@ -3302,6 +3913,7 @@ pub fn handle_validate_plan(
             gaps: vec![],
             risk_score: 0.0,
             risk_level: "low".into(),
+            proof_state: "blocked".into(),
             test_coverage: layers::PlanTestCoverage {
                 modified_files: 0,
                 tested_files: 0,
@@ -3311,6 +3923,9 @@ pub fn handle_validate_plan(
             suggested_additions: vec![],
             blast_radius_total: 0,
             heuristic_summary: None,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -3591,6 +4206,39 @@ pub fn handle_validate_plan(
         });
     }
 
+    let top_hotspot = heuristic_summary
+        .as_ref()
+        .and_then(|summary| summary.hotspots.first());
+    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+        if let Some(hotspot) = top_hotspot {
+            (
+                Some("heuristics_surface".into()),
+                Some(hotspot.file_path.clone()),
+                Some(format!(
+                    "Inspect {} next: {}",
+                    hotspot.file_path, hotspot.proof_hint
+                )),
+            )
+        } else if let Some(gap) = gaps.iter().find(|gap| gap.severity == "critical") {
+            (
+                Some("view".into()),
+                Some(gap.file_path.clone()),
+                Some(format!(
+                    "Open {} next because it is a critical gap: {}",
+                    gap.file_path, gap.reason
+                )),
+            )
+        } else {
+            (None, None, None)
+        };
+    let proof_state = l6_vp_proof_state(
+        actions_resolved,
+        actions_unresolved,
+        &gaps,
+        heuristic_summary.as_ref(),
+        &next_suggested_tool,
+    );
+
     Ok(layers::ValidatePlanOutput {
         actions_analyzed,
         actions_resolved,
@@ -3598,12 +4246,39 @@ pub fn handle_validate_plan(
         gaps,
         risk_score,
         risk_level,
+        proof_state,
         test_coverage,
         suggested_additions,
         blast_radius_total,
         heuristic_summary,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
+}
+
+fn l6_vp_proof_state(
+    actions_resolved: usize,
+    actions_unresolved: usize,
+    gaps: &[layers::PlanGap],
+    heuristic_summary: Option<&layers::PlanHeuristicSummary>,
+    next_suggested_tool: &Option<String>,
+) -> String {
+    if actions_resolved == 0 && actions_unresolved > 0 {
+        return "blocked".into();
+    }
+    if gaps.iter().any(|gap| gap.severity == "critical")
+        || heuristic_summary
+            .map(|summary| !summary.hotspots.is_empty())
+            .unwrap_or(false)
+    {
+        return "proving".into();
+    }
+    if next_suggested_tool.is_some() {
+        return "triaging".into();
+    }
+    "ready_to_edit".into()
 }
 
 fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidatePlanInput) {
@@ -4198,6 +4873,9 @@ fn l6_vp_record_blast_file(
         if norm.is_empty() {
             return;
         }
+        if l6_vp_should_suppress_gap_candidate(&norm, plan_files) {
+            return;
+        }
         if !plan_files.contains(&norm) {
             blast_files.insert(norm.clone());
             if hop == 0 {
@@ -4205,6 +4883,26 @@ fn l6_vp_record_blast_file(
             }
         }
     }
+}
+
+fn l6_vp_should_suppress_gap_candidate(
+    path: &str,
+    plan_files: &std::collections::HashSet<String>,
+) -> bool {
+    if plan_files.contains(path) {
+        return false;
+    }
+
+    let basename = std::path::Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+
+    matches!(basename, "Cargo.toml" | "Cargo.lock")
+        || (basename.starts_with("test_") && path.ends_with(".md"))
+        || path.contains("/target/")
+        || path.contains("/node_modules/")
+        || path.contains("/dist/")
 }
 
 /// Compute test coverage for modified files.
@@ -4367,6 +5065,29 @@ fn l6_vp_heuristic_reason(
     }
 }
 
+fn l6_vp_proof_hint(
+    file_path: &str,
+    role: &str,
+    heuristic_reason: &str,
+    antibody_hits: usize,
+) -> String {
+    let mut hint = match role {
+        "planned" => format!(
+            "{} is already in the plan and carries heuristic risk",
+            file_path
+        ),
+        "gap" => format!("{} is outside the plan but structurally risky", file_path),
+        _ => format!("{} surfaced as a risky proof seam", file_path),
+    };
+    if heuristic_reason != "neutral heuristics" {
+        hint.push_str(&format!(": {}", heuristic_reason));
+    }
+    if antibody_hits > 0 {
+        hint.push_str(&format!("; antibody hits={}", antibody_hits));
+    }
+    hint
+}
+
 fn l6_vp_build_heuristic_hotspot(
     state: &SessionState,
     file_path: &str,
@@ -4413,6 +5134,12 @@ fn l6_vp_build_heuristic_hotspot(
         .unwrap_or(0.0);
     let antibody_risk = (antibody_hits.min(3) as f32 / 3.0).clamp(0.0, 1.0);
     let hotspot_risk = (trust_risk * 0.5 + tremor_risk * 0.3 + antibody_risk * 0.2).min(1.0);
+    let heuristic_reason = l6_vp_heuristic_reason(
+        trust_factor,
+        tremor_factor,
+        tremor_observation_count,
+        antibody_hits,
+    );
 
     (
         layers::PlanHeuristicHotspot {
@@ -4420,6 +5147,7 @@ fn l6_vp_build_heuristic_hotspot(
             node_id: external_id.to_string(),
             role: role.to_string(),
             antibody_hits,
+            proof_hint: l6_vp_proof_hint(file_path, role, &heuristic_reason, antibody_hits),
             heuristic_signals: layers::HeuristicSignals {
                 heuristic_factor,
                 trust_score: trust.trust_score,
@@ -4430,12 +5158,7 @@ fn l6_vp_build_heuristic_hotspot(
                 tremor_risk_level: tremor_alert
                     .as_ref()
                     .map(|alert| format!("{:?}", alert.risk_level)),
-                reason: l6_vp_heuristic_reason(
-                    trust_factor,
-                    tremor_factor,
-                    tremor_observation_count,
-                    antibody_hits,
-                ),
+                reason: heuristic_reason,
             },
             heuristics_surface_ref: layers::HeuristicsSurfaceRef {
                 node_id: external_id.to_string(),
@@ -5134,20 +5857,37 @@ fn l7_detect_mcp_contract(
 
 /// Tokenize a query: lowercase, split on whitespace/punctuation, filter short tokens.
 fn l2_seek_tokenize(query: &str) -> Vec<String> {
-    query
-        .to_lowercase()
-        .split(|c: char| {
-            c.is_whitespace() || matches!(c, '?' | '!' | '.' | ',' | ':' | '(' | ')' | '{' | '}')
-        })
-        .filter(|t| t.len() > 1)
-        .map(|t| t.to_string())
-        .collect()
+    let mut tokens = Vec::new();
+    for raw in query.to_lowercase().split(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '?' | '!' | '.' | ',' | ':' | ';' | '(' | ')' | '{' | '}' | '[' | ']'
+            )
+    }) {
+        let trimmed = raw.trim_matches(|c: char| matches!(c, '"' | '\'' | '`'));
+        if trimmed.len() <= 2 || L2_SEEK_STOPWORDS.contains(&trimmed) {
+            continue;
+        }
+        if !tokens.iter().any(|existing| existing == trimmed) {
+            tokens.push(trimmed.to_string());
+        }
+        for part in l2_split_identifier(trimmed) {
+            if part.len() > 2
+                && !L2_SEEK_STOPWORDS.contains(&part.as_str())
+                && !tokens.iter().any(|existing| existing == &part)
+            {
+                tokens.push(part);
+            }
+        }
+    }
+    tokens
 }
 
 /// Split a camelCase/snake_case identifier into lowercase sub-tokens.
 fn l2_split_identifier(ident: &str) -> Vec<String> {
     let mut tokens = Vec::new();
-    for part in ident.split('_') {
+    for part in ident.split(['_', '-', '/', '\\', ':']) {
         if part.is_empty() {
             continue;
         }
@@ -5164,6 +5904,60 @@ fn l2_split_identifier(ident: &str) -> Vec<String> {
         }
     }
     tokens
+}
+
+fn l2_seek_anchor_bias(
+    query_tokens: &[String],
+    label_lower: &str,
+    source_path_lower: &str,
+    tag_terms: &[String],
+    node_type: &str,
+) -> f32 {
+    const DISPATCH_CLUSTER: &[&str] = &["alias", "canonical", "dispatch", "status", "tool", "name"];
+
+    let query_anchor_hits: Vec<&str> = DISPATCH_CLUSTER
+        .iter()
+        .copied()
+        .filter(|term| query_tokens.iter().any(|token| token == term))
+        .collect();
+    if query_anchor_hits.len() < 3 {
+        return 0.0;
+    }
+
+    let mut matched = 0usize;
+    for term in &query_anchor_hits {
+        let tag_match = tag_terms
+            .iter()
+            .any(|tag| tag == term || tag.contains(term));
+        if label_lower.contains(term) || source_path_lower.contains(term) || tag_match {
+            matched += 1;
+        }
+    }
+
+    if matched == 0 {
+        return 0.0;
+    }
+
+    let coverage = matched as f32 / query_anchor_hits.len() as f32;
+    let type_bias = match node_type {
+        "function" => 0.06,
+        "module" | "file" => 0.03,
+        _ => 0.0,
+    };
+    let code_path_bias =
+        if source_path_lower.contains("/src/") || source_path_lower.contains("src/") {
+            0.02
+        } else {
+            0.0
+        };
+    let docs_penalty = if source_path_lower.contains("/docs/") || source_path_lower.ends_with(".md")
+    {
+        -0.04
+    } else {
+        0.0
+    };
+
+    (coverage * 0.12 + type_bias + code_path_bias + docs_penalty).max(0.0)
 }
 
 /// Trigram cosine similarity between two strings.
@@ -7247,15 +8041,17 @@ fn l7_normalize_layer_scope(scope: Option<&str>, ingest_roots: &[String]) -> Opt
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan};
+    use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData};
     use crate::protocol::layers::{
-        LayersInput, PlannedAction, ScanInput, SeekInput, ValidatePlanInput,
+        LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput, TrailResumeInput,
+        TrailSaveInput, TrailVisitedNodeInput, ValidatePlanInput,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+    use std::collections::HashMap;
 
     fn build_layer_state(root: &std::path::Path) -> SessionState {
         let runtime_dir = root.join("runtime");
@@ -7293,6 +8089,145 @@ mod tests {
                 FiniteF32::new(0.8),
             )
             .expect("add edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    fn build_layer_state_with_manifest_gap(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let core = graph
+            .add_node(
+                "file::src/core.rs",
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add core node");
+        let ui = graph
+            .add_node("file::src/ui.rs", "ui.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add ui node");
+        let manifest = graph
+            .add_node(
+                "file::Cargo.toml",
+                "Cargo.toml",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add manifest node");
+        graph
+            .add_edge(
+                core,
+                ui,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add core->ui edge");
+        graph
+            .add_edge(
+                core,
+                manifest,
+                "workspace",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.6),
+            )
+            .expect("add core->manifest edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    fn build_seek_natural_language_state(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let dispatch = graph
+            .add_node(
+                "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name",
+                "normalize_dispatch_tool_name",
+                NodeType::Function,
+                &["dispatch", "alias", "canonical", "status"],
+                0.0,
+                0.0,
+            )
+            .expect("add dispatch node");
+        let docs = graph
+            .add_node(
+                "file::docs/dispatch-aliases.md",
+                "dispatch aliases",
+                NodeType::File,
+                &["dispatch", "alias", "docs"],
+                0.0,
+                0.0,
+            )
+            .expect("add docs node");
+        let distractor = graph
+            .add_node(
+                "file::m1nd-mcp/src/server.rs::fn::format_dispatch_status",
+                "format_dispatch_status",
+                NodeType::Function,
+                &["dispatch", "status", "format"],
+                0.0,
+                0.0,
+            )
+            .expect("add distractor node");
+        graph
+            .add_edge(
+                dispatch,
+                docs,
+                "documents",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.4),
+            )
+            .expect("add dispatch->docs edge");
+        graph
+            .add_edge(
+                dispatch,
+                distractor,
+                "related",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.3),
+            )
+            .expect("add dispatch->distractor edge");
         graph.finalize().expect("finalize graph");
 
         let mut state =
@@ -7361,6 +8296,370 @@ mod tests {
     }
 
     #[test]
+    fn trail_save_auto_derives_structural_boosts_from_context() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let output = super::handle_trail_save(
+            &mut state,
+            TrailSaveInput {
+                agent_id: "test".into(),
+                label: "dispatch continuity".into(),
+                hypotheses: vec![],
+                conclusions: vec![TrailConclusionInput {
+                    statement: "ui depends on core".into(),
+                    confidence: 0.9,
+                    from_hypotheses: vec![],
+                    supporting_nodes: vec!["file::src/ui.rs".into()],
+                }],
+                open_questions: vec![],
+                tags: vec!["continuity".into()],
+                summary: None,
+                visited_nodes: vec![TrailVisitedNodeInput {
+                    node_external_id: "file::src/core.rs".into(),
+                    annotation: Some("entry file".into()),
+                    relevance: 0.9,
+                }],
+                activation_boosts: HashMap::new(),
+            },
+        )
+        .expect("trail save should succeed");
+
+        let saved = super::load_trail(&state, &output.trail_id).expect("load saved trail");
+        assert_eq!(saved.visited_nodes.len(), 2);
+        assert!(saved
+            .visited_nodes
+            .iter()
+            .any(|node| node.node_external_id == "file::src/ui.rs"));
+        assert!(saved.activation_boosts.contains_key("file::src/core.rs"));
+        assert!(saved.activation_boosts.contains_key("file::src/ui.rs"));
+        assert!(saved.activation_boosts["file::src/ui.rs"] >= 0.8);
+    }
+
+    #[test]
+    fn trail_resume_reactivates_auto_derived_structural_nodes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let saved = super::handle_trail_save(
+            &mut state,
+            TrailSaveInput {
+                agent_id: "test".into(),
+                label: "resume continuity".into(),
+                hypotheses: vec![],
+                conclusions: vec![TrailConclusionInput {
+                    statement: "ui depends on core".into(),
+                    confidence: 0.85,
+                    from_hypotheses: vec![],
+                    supporting_nodes: vec!["file::src/ui.rs".into()],
+                }],
+                open_questions: vec!["is there a test?".into()],
+                tags: vec![],
+                summary: None,
+                visited_nodes: vec![TrailVisitedNodeInput {
+                    node_external_id: "file::src/core.rs".into(),
+                    annotation: None,
+                    relevance: 0.8,
+                }],
+                activation_boosts: HashMap::new(),
+            },
+        )
+        .expect("trail save should succeed");
+
+        let resumed = super::handle_trail_resume(
+            &mut state,
+            TrailResumeInput {
+                agent_id: "test".into(),
+                trail_id: saved.trail_id,
+                force: false,
+                max_reactivated_nodes: 5,
+                max_resume_hints: 4,
+            },
+        )
+        .expect("trail resume should succeed");
+
+        assert!(!resumed.stale);
+        assert!(resumed.missing_nodes.is_empty());
+        assert_eq!(resumed.nodes_reactivated, 2);
+        assert_eq!(resumed.trail.node_count, 2);
+        assert_eq!(resumed.reactivated_node_ids.len(), 2);
+        assert!(resumed
+            .reactivated_node_ids
+            .iter()
+            .any(|node| node == "file::src/ui.rs"));
+        assert_eq!(
+            resumed.next_focus_node_id.as_deref(),
+            Some("file::src/ui.rs")
+        );
+        assert_eq!(
+            resumed.next_open_question.as_deref(),
+            Some("is there a test?")
+        );
+        assert_eq!(resumed.next_suggested_tool.as_deref(), Some("view"));
+        assert!(resumed
+            .resume_hints
+            .iter()
+            .any(|hint| hint.contains("open question")));
+        assert!(resumed
+            .resume_hints
+            .iter()
+            .any(|hint| hint.contains("Re-open the current focus")));
+        assert!(resumed
+            .resume_hints
+            .iter()
+            .any(|hint| hint.contains("file::src")));
+    }
+
+    #[test]
+    fn trail_resume_respects_output_compaction_limits() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let saved = super::handle_trail_save(
+            &mut state,
+            TrailSaveInput {
+                agent_id: "test".into(),
+                label: "compact continuity".into(),
+                hypotheses: vec![crate::protocol::layers::TrailHypothesisInput {
+                    statement: "core reaches ui".into(),
+                    confidence: 0.7,
+                    supporting_nodes: vec!["file::src/core.rs".into()],
+                    contradicting_nodes: vec![],
+                }],
+                conclusions: vec![TrailConclusionInput {
+                    statement: "ui depends on core".into(),
+                    confidence: 0.85,
+                    from_hypotheses: vec![],
+                    supporting_nodes: vec!["file::src/ui.rs".into()],
+                }],
+                open_questions: vec!["is there a test?".into(), "what changed last?".into()],
+                tags: vec![],
+                summary: None,
+                visited_nodes: vec![TrailVisitedNodeInput {
+                    node_external_id: "file::src/core.rs".into(),
+                    annotation: None,
+                    relevance: 0.8,
+                }],
+                activation_boosts: HashMap::new(),
+            },
+        )
+        .expect("trail save should succeed");
+
+        let resumed = super::handle_trail_resume(
+            &mut state,
+            TrailResumeInput {
+                agent_id: "test".into(),
+                trail_id: saved.trail_id,
+                force: false,
+                max_reactivated_nodes: 1,
+                max_resume_hints: 1,
+            },
+        )
+        .expect("trail resume should succeed");
+
+        assert_eq!(resumed.reactivated_node_ids.len(), 1);
+        assert_eq!(resumed.resume_hints.len(), 1);
+        assert_eq!(resumed.next_suggested_tool.as_deref(), Some("view"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_timeline_for_temporal_follow_up_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            Some(&"file::src/core.rs".to_string()),
+            Some(&"what changed last in this file?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("timeline"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_impact_for_blast_radius_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            Some(&"file::src/core.rs".to_string()),
+            Some(&"what breaks if we touch this file?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("impact"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_hypothesize_for_structural_proof_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            Some(&"file::src/core.rs".to_string()),
+            Some(&"why is this missing validation guard?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("hypothesize"));
+    }
+
+    #[test]
+    fn trail_resume_suggests_seek_for_locator_questions() {
+        let suggested = super::trail_resume_suggested_tool(
+            None,
+            Some(&"which helper canonicalizes dispatch aliases?".to_string()),
+        );
+
+        assert_eq!(suggested.as_deref(), Some("seek"));
+    }
+
+    #[test]
+    fn hypothesize_next_step_prefers_strongest_evidence_target() {
+        let supporting = vec![crate::protocol::layers::HypothesisEvidence {
+            evidence_type: "path_found".into(),
+            description: "path".into(),
+            likelihood_factor: 2.0,
+            nodes: vec!["file::src/a.rs".into(), "file::src/b.rs".into()],
+            relations: vec!["calls".into()],
+            path_weight: Some(0.8),
+        }];
+
+        let (tool, target, hint) =
+            super::l5_hypothesize_next_step("likely_true", &supporting, &[], None);
+
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("file::src/b.rs"));
+        assert!(
+            hint.as_deref()
+                .unwrap_or_default()
+                .contains("strongest hypothesis evidence"),
+            "hypothesize should guide the agent into the strongest evidence target"
+        );
+        assert_eq!(
+            super::l5_hypothesize_proof_state("likely_true", &supporting, &[], None),
+            "ready_to_edit"
+        );
+    }
+
+    #[test]
+    fn hypothesize_next_step_falls_back_to_partial_reach() {
+        let partial = vec![crate::protocol::layers::PartialReachEntry {
+            node_id: "file::src/reachable.rs".into(),
+            label: "reachable".into(),
+            hops_from_source: 2,
+            activation_at_stop: 0.42,
+        }];
+
+        let (tool, target, hint) =
+            super::l5_hypothesize_next_step("inconclusive", &[], &[], Some(&partial));
+
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("file::src/reachable.rs"));
+        assert!(
+            hint.as_deref()
+                .unwrap_or_default()
+                .contains("partial-reach"),
+            "hypothesize should still guide the next step when only partial reach exists"
+        );
+        assert_eq!(
+            super::l5_hypothesize_proof_state("inconclusive", &[], &[], Some(&partial)),
+            "proving"
+        );
+    }
+
+    #[test]
+    fn trace_proof_state_tracks_triage_strength() {
+        let suspect = crate::protocol::layers::TraceSuspect {
+            node_id: "file::src/core.rs".into(),
+            label: "core".into(),
+            node_type: "File".into(),
+            suspiciousness: 0.62,
+            signals: crate::protocol::layers::TraceSuspiciousnessSignals {
+                trace_depth_score: 1.0,
+                recency_score: 0.0,
+                centrality_score: 0.4,
+            },
+            file_path: Some("src/core.rs".into()),
+            line_start: None,
+            line_end: None,
+            related_callers: vec![],
+        };
+
+        assert_eq!(
+            super::l6_trace_proof_state(1, std::slice::from_ref(&suspect), &[]),
+            "triaging"
+        );
+        assert_eq!(
+            super::l6_trace_proof_state(
+                1,
+                &[crate::protocol::layers::TraceSuspect {
+                    suspiciousness: 0.81,
+                    ..suspect
+                }],
+                &["core".into(), "leaf".into()]
+            ),
+            "ready_to_edit"
+        );
+    }
+
+    #[test]
+    fn timeline_proof_state_and_next_step_reflect_history_strength() {
+        assert_eq!(super::timeline_proof_state(0, &[]), "blocked");
+        assert_eq!(super::timeline_proof_state(1, &[]), "triaging");
+        assert_eq!(
+            super::timeline_proof_state(
+                3,
+                &[crate::protocol::layers::CoChangePartner {
+                    file: "src/neighbor.rs".into(),
+                    times: 2,
+                    coupling_degree: 0.6,
+                }]
+            ),
+            "proving"
+        );
+
+        let (tool, target, hint) = super::timeline_next_step(
+            "src/core.rs",
+            3,
+            &[crate::protocol::layers::CoChangePartner {
+                file: "src/neighbor.rs".into(),
+                times: 2,
+                coupling_degree: 0.6,
+            }],
+        );
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("src/neighbor.rs"));
+        assert!(hint
+            .as_deref()
+            .is_some_and(|value| value.contains("strongest co-change partner")));
+    }
+
+    #[test]
+    fn trail_resume_hints_start_with_tool_specific_next_move() {
+        let hints = super::trail_resume_hints(
+            &TrailData {
+                trail_id: "trail-1".into(),
+                label: "continuity".into(),
+                agent_id: "test".into(),
+                status: "saved".into(),
+                visited_nodes: vec![],
+                activation_boosts: HashMap::new(),
+                graph_generation: 1,
+                created_at_ms: 0,
+                last_modified_ms: 0,
+                hypotheses: vec![],
+                conclusions: vec![],
+                open_questions: vec!["what changed last in this file?".into()],
+                tags: vec![],
+                summary: None,
+                source_trails: vec![],
+            },
+            &["file::src/core.rs".into()],
+            Some(&"file::src/core.rs".into()),
+            Some(&"what changed last in this file?".into()),
+            Some("timeline"),
+            3,
+        );
+
+        assert_eq!(
+            hints.first().map(String::as_str),
+            Some("Use timeline on file::src/core.rs to answer the carried-forward question: what changed last in this file?")
+        );
+    }
+
+    #[test]
     fn normalize_path_hint_equates_relative_absolute_and_file_forms() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
@@ -7391,6 +8690,103 @@ mod tests {
             super::l7_normalize_path_hint("file::src/core.rs", &state.ingest_roots),
             "src/core.rs"
         );
+    }
+
+    #[test]
+    fn node_to_file_path_strips_repo_prefixes_and_symbol_suffixes() {
+        assert_eq!(super::node_to_file_path("file::src/core.rs"), "src/core.rs");
+        assert_eq!(
+            super::node_to_file_path("file::src/core.rs::fn::boot"),
+            "src/core.rs"
+        );
+        assert_eq!(
+            super::node_to_file_path("m1nd::file::src/core.rs::fn::boot"),
+            "src/core.rs"
+        );
+    }
+
+    #[test]
+    fn resolve_timeline_file_path_canonicalizes_equivalent_id_shapes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let state = build_layer_state(root);
+        let absolute = root.join("src/core.rs").to_string_lossy().to_string();
+
+        for candidate in [
+            "file::src/core.rs",
+            "file::src/core.rs::fn::boot",
+            "m1nd::file::src/core.rs::fn::boot",
+            absolute.as_str(),
+        ] {
+            assert_eq!(
+                super::resolve_timeline_file_path(&state, candidate),
+                "src/core.rs"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_git_log_output_preserves_commit_subjects() {
+        let raw = "\
+abc1234|2026-03-24 10:00:00 +0000|max kle1nz|fix: harden timeline proof path
+12\t3\tsrc/core.rs
+
+def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
+4\t0\tdocs/benchmarks/README.md
+";
+
+        let commits = super::parse_git_log_output(raw);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].subject, "fix: harden timeline proof path");
+        assert_eq!(commits[1].subject, "feat: add benchmark harness");
+    }
+
+    #[test]
+    fn churn_for_file_matches_repo_relative_suffix_before_basename_fallback() {
+        let commit = super::GitCommitRecord {
+            hash: "abc1234".into(),
+            date: "2026-03-24 10:00:00 +0000".into(),
+            author: "max kle1nz".into(),
+            subject: "fix: preserve recent proof".into(),
+            files_changed: vec![
+                super::FileChurn {
+                    path: "m1nd-mcp/src/layer_handlers.rs".into(),
+                    added: 17,
+                    deleted: 2,
+                },
+                super::FileChurn {
+                    path: "other/src/layer_handlers.rs".into(),
+                    added: 99,
+                    deleted: 1,
+                },
+            ],
+        };
+
+        assert_eq!(
+            commit.churn_for_file("src/layer_handlers.rs"),
+            (17, 2),
+            "timeline should prefer the repo-relative suffix match over a same-basename distractor"
+        );
+    }
+
+    #[test]
+    fn seek_tokenize_dedupes_stopwords_and_identifier_parts() {
+        let tokens = super::l2_seek_tokenize(
+            "Where do we normalize `dispatch_aliases` into canonical dispatch status names?",
+        );
+
+        assert!(!tokens.iter().any(|token| token == "where"));
+        assert!(!tokens.iter().any(|token| token == "do"));
+        assert_eq!(
+            tokens
+                .iter()
+                .filter(|token| token.as_str() == "dispatch")
+                .count(),
+            1
+        );
+        assert!(tokens.iter().any(|token| token == "aliases"));
+        assert!(tokens.iter().any(|token| token == "canonical"));
+        assert!(tokens.iter().any(|token| token == "status"));
     }
 
     #[test]
@@ -7427,6 +8823,90 @@ mod tests {
         );
         assert_eq!(file_scope.results[0].score, absolute_scope.results[0].score);
         assert_eq!(file_scope.results[0].score, relative_scope.results[0].score);
+    }
+
+    #[test]
+    fn seek_handles_natural_language_query_for_dispatch_alias_normalization() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_seek_natural_language_state(root);
+
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "Where do we normalize alias tool names into the canonical dispatch status name?"
+                    .into(),
+                agent_id: "test".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+            },
+        )
+        .expect("seek should succeed");
+
+        assert!(
+            !output.results.is_empty(),
+            "seek should find a dispatch target"
+        );
+        assert_eq!(
+            output.results[0].node_id,
+            "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name"
+        );
+        assert_eq!(output.results[0].node_type, "function");
+    }
+
+    #[test]
+    fn seek_biases_alias_canonical_dispatch_cluster_toward_normalization_helper() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_seek_natural_language_state(root);
+
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "Which helper maps alias tool names into canonical dispatch status values before execution?"
+                    .into(),
+                agent_id: "test".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+            },
+        )
+        .expect("seek should succeed");
+
+        assert!(
+            !output.results.is_empty(),
+            "seek should find a dispatch helper"
+        );
+        assert_eq!(
+            output.results[0].node_id,
+            "file::m1nd-mcp/src/server.rs::fn::normalize_dispatch_tool_name"
+        );
+        assert!(
+            output
+                .results
+                .iter()
+                .any(|result| result.node_id == "file::docs/dispatch-aliases.md"),
+            "docs distractor should remain visible in the candidate set"
+        );
+        assert_eq!(output.next_suggested_tool.as_deref(), Some("view"));
+        assert_eq!(
+            output.next_suggested_target.as_deref(),
+            Some("m1nd-mcp/src/server.rs")
+        );
+        assert!(
+            output
+                .next_step_hint
+                .as_deref()
+                .unwrap_or_default()
+                .contains("normalize_dispatch_tool_name"),
+            "seek should suggest opening the strongest result next"
+        );
+        assert_eq!(output.proof_state, "proving");
     }
 
     #[test]
@@ -7679,8 +9159,28 @@ mod tests {
             .iter()
             .find(|hotspot| hotspot.file_path == "src/core.rs")
             .expect("planned hotspot ref");
+        assert!(
+            hotspot
+                .proof_hint
+                .contains("src/core.rs is already in the plan"),
+            "validate_plan should emit a compact proof hint with the hotspot"
+        );
+        assert!(
+            hotspot.proof_hint.contains("immune-memory recurrence"),
+            "proof hint should carry the main heuristic reason"
+        );
         assert_eq!(hotspot.heuristics_surface_ref.node_id, "file::src/core.rs");
         assert_eq!(hotspot.heuristics_surface_ref.file_path, "src/core.rs");
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("heuristics_surface")
+        );
+        assert_eq!(output.next_suggested_target.as_deref(), Some("src/core.rs"));
+        assert_eq!(output.proof_state, "proving");
+        assert!(output
+            .next_step_hint
+            .as_deref()
+            .is_some_and(|hint| hint.contains("Inspect src/core.rs next")));
         assert!(output
             .gaps
             .iter()
@@ -7688,6 +9188,41 @@ mod tests {
         assert!(
             output.risk_score > 0.0,
             "risk score should include heuristic contribution"
+        );
+    }
+
+    #[test]
+    fn validate_plan_suppresses_manifest_noise_in_gap_suggestions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state_with_manifest_gap(root);
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: "src/core.rs".into(),
+                    description: Some("change core".into()),
+                    depends_on: vec![],
+                }],
+                include_test_impact: false,
+                include_risk_score: true,
+            },
+        )
+        .expect("validate_plan should succeed");
+
+        assert!(
+            output.gaps.iter().all(|gap| gap.file_path != "Cargo.toml"),
+            "validate_plan should suppress manifest-only noise by default"
+        );
+        assert!(
+            output
+                .suggested_additions
+                .iter()
+                .all(|item| item.file_path != "Cargo.toml"),
+            "suggested additions should not reintroduce suppressed manifest noise"
         );
     }
 }

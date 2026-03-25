@@ -8,7 +8,7 @@
 //   - All inputs require `agent_id: String`
 //   - Optional params use Option<T> or serde default helpers
 
-use crate::protocol::layers::HeuristicSignals;
+use crate::protocol::layers::{HeuristicSignals, HeuristicsSurfaceRef};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -286,6 +286,9 @@ pub struct SurgicalContextV2Input {
     /// Maximum lines to return per connected file. Default: 60.
     #[serde(default = "default_max_lines_per_file")]
     pub max_lines_per_file: usize,
+    /// When true, prefer a smaller proof set over a wider neighborhood.
+    #[serde(default)]
+    pub proof_focused: bool,
 }
 
 fn default_max_connected_files() -> usize {
@@ -341,6 +344,17 @@ pub struct SurgicalContextV2Output {
     /// Heuristic explanation for why this file may be risky to patch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<SurgicalHeuristicSummary>,
+    /// Suggested next tool for continuing edit preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    /// Suggested next target for that tool.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    /// Short next-step hint for the agent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
+    /// Coarse cognitive stage for edit preparation.
+    pub proof_state: String,
     /// Sum of all lines returned: line_count + sum(excerpt_lines).
     pub total_lines: usize,
     /// Elapsed milliseconds.
@@ -407,6 +421,8 @@ pub struct ApplyBatchInput {
 /// Output for m1nd.apply_batch.
 #[derive(Clone, Debug, Serialize)]
 pub struct ApplyBatchOutput {
+    /// Stable identifier for correlating final output with live progress events.
+    pub batch_id: String,
     /// True when all files were written successfully.
     pub all_succeeded: bool,
     /// Number of files successfully written.
@@ -422,8 +438,102 @@ pub struct ApplyBatchOutput {
     /// Post-write verification report (populated when verify=true).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<VerificationReport>,
+    /// Suggested next tool after the batch finishes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    /// Suggested target for the next tool when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    /// Short hint for the next step after the batch finishes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
+    /// Cognitive state of the batch result: blocked, triaging, proving, ready_to_edit.
+    pub proof_state: String,
+    /// Human-readable final status for shells/UIs.
+    pub status_message: String,
+    /// Final phase key reached by the batch lifecycle.
+    pub active_phase: String,
+    /// Completed phases out of the known lifecycle phases.
+    pub completed_phase_count: usize,
+    /// Total lifecycle phases in the batch contract.
+    pub phase_count: usize,
+    /// Remaining phases after the current active phase.
+    pub remaining_phase_count: usize,
+    /// Final coarse-grained progress percentage for shells/UIs.
+    pub progress_pct: f32,
+    /// Next expected phase in the lifecycle when not yet done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_phase: Option<String>,
+    /// Streaming-friendly progress events emitted by the batch lifecycle.
+    pub progress_events: Vec<ApplyBatchProgressEvent>,
+    /// Structured phase history for UI progress rendering and future streaming.
+    pub phases: Vec<ApplyBatchPhase>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
+}
+
+/// A completed or in-progress phase within apply_batch execution.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApplyBatchPhase {
+    /// Phase key: validate, write, reingest, verify, done.
+    pub phase: String,
+    /// Stable phase order for shells/UIs that want to render a timeline.
+    pub phase_index: usize,
+    /// Phase status: completed, skipped, failed.
+    pub status: String,
+    /// Files completed by the time this phase finished.
+    pub files_completed: usize,
+    /// Total files in the batch.
+    pub files_total: usize,
+    /// Representative file for this phase when one file best explains the work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_file: Option<String>,
+    /// Coarse progress percentage when this phase finished.
+    pub progress_pct: f32,
+    /// Next expected phase after this one when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_phase: Option<String>,
+    /// Elapsed milliseconds at the end of this phase.
+    pub elapsed_ms: f64,
+    /// Short status line for user-visible progress.
+    pub message: String,
+}
+
+/// A streaming-friendly progress event for apply_batch.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApplyBatchProgressEvent {
+    /// Stable identifier for correlating this event with the parent batch run.
+    pub batch_id: String,
+    /// Event type: phase_completed or batch_completed.
+    pub event_type: String,
+    /// Phase key this event belongs to.
+    pub phase: String,
+    /// Stable phase order.
+    pub phase_index: usize,
+    /// Progress percentage at the time of the event.
+    pub progress_pct: f32,
+    /// Representative file for this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_file: Option<String>,
+    /// Next expected phase after this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_phase: Option<String>,
+    /// Cognitive state at the time of this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_state: Option<String>,
+    /// Suggested next tool once this event carries enough information to hand off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    /// Suggested target for the next tool when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    /// Short hint for the next step after this event when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
+    /// Event timestamp in elapsed milliseconds from batch start.
+    pub elapsed_ms: f64,
+    /// Short status line for user-visible progress.
+    pub message: String,
 }
 
 /// Post-write verification report for apply/apply_batch.
@@ -545,4 +655,7 @@ pub struct VerificationImpact {
     /// Heuristic explanation for why this modified file is risky post-patch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<SurgicalHeuristicSummary>,
+    /// Explorable reference for `m1nd.heuristics_surface` parity with validate-plan/report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heuristics_surface_ref: Option<HeuristicsSurfaceRef>,
 }

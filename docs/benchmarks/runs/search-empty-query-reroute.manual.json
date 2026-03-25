@@ -1,0 +1,81 @@
+{
+  "recorded_at": "2026-03-25T00:10:17.743527+00:00",
+  "scenario_id": "warm_search_empty_query_reroute",
+  "scenario_name": "Warm reroute from empty search query into glob-based file discovery",
+  "scenario_tags": [
+    "warm-graph",
+    "recovery",
+    "search",
+    "glob",
+    "wrong-tool-reroute"
+  ],
+  "mode": "manual",
+  "execution_origin": "replay",
+  "source_ref": "docs/benchmarks/events/manual-search-empty-query-reroute.json",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 1.9,
+  "time_to_full_proof_ms": 2.7,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 1,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "manual recovery falls back to shell file enumeration because the original empty search query teaches nothing by itself",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "shell.rg",
+      "query": "rg --files m1nd-mcp/src | rg 'search.*\\.rs$'",
+      "elapsed_ms": 1.9,
+      "payload_chars": 320,
+      "opened_files": [],
+      "surfaced_files": [
+        "m1nd-mcp/src/search_handlers.rs"
+      ],
+      "event_index": 1
+    },
+    {
+      "tool_name": "shell.view",
+      "target": "m1nd-mcp/src/search_handlers.rs",
+      "elapsed_ms": 0.8,
+      "payload_chars": 860,
+      "opened_files": [
+        "m1nd-mcp/src/search_handlers.rs"
+      ],
+      "event_index": 2,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 1,
+  "search_iterations": 1,
+  "chars_surfaced": 1180,
+  "token_proxy": 295,
+  "guidance_events": 0,
+  "guidance_followed": 0,
+  "guidance_followthrough_rate": null,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [],
+  "final_proof_state": null,
+  "proof_state_counts": {},
+  "progress_events": 0,
+  "max_progress_pct": 0.0,
+  "active_phases": [],
+  "next_phases": [],
+  "progress_event_types": [],
+  "progress_delivery_modes": [],
+  "live_progress_events": 0,
+  "replay_progress_events": 0,
+  "snapshot_progress_events": 0,
+  "progress_guidance_events": 0,
+  "progress_guidance_followed": 0,
+  "progress_guidance_followthrough_rate": null,
+  "recovery_events": 0,
+  "recovery_followed": 0,
+  "recovery_followthrough_rate": null,
+  "repo_path": ".",
+  "question": "Recover from calling search with an empty query when the real task is to find matching Rust files under a scope, then reroute into glob instead of starting a fresh shell file-discovery sweep.",
+  "expected_strength": "strong"
+}

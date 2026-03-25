@@ -1,0 +1,55 @@
+[
+  {
+    "tool_name": "m1nd.seek",
+    "query": "Where does seek recover when a broad natural-language query needs the exact proof-state fallback helper?",
+    "elapsed_ms": 0.9,
+    "payload_chars": 320,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "proof_state": "triaging",
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/layer_handlers.rs",
+    "next_step_hint": "Open the seek helper logic next to confirm how broad semantic matches turn into a proof-state decision.",
+    "next_tool_used": "view"
+  },
+  {
+    "tool_name": "shell.notes",
+    "query": "The semantic pass reached the right subsystem, but the agent still needs the exact helper name to recover cleanly.",
+    "elapsed_ms": 0.6,
+    "payload_chars": 220,
+    "hint": "Recover by exact search on l2_seek_proof_state and l2_seek_next_step before reading the output contract.",
+    "suggested_next_step": "Retry with an exact helper search instead of another broad semantic probe.",
+    "usage_hint": "When seek lands in the right neighborhood, use search to pin the exact helper name and avoid file guessing.",
+    "next_suggested_tool": "search",
+    "next_suggested_target": "m1nd-mcp/src/layer_handlers.rs",
+    "next_tool_used": "search",
+    "recovery_followed": true
+  },
+  {
+    "tool_name": "m1nd.search",
+    "query": "l2_seek_proof_state",
+    "elapsed_ms": 0.8,
+    "payload_chars": 470,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "proof_state": "proving",
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/layer_handlers.rs",
+    "next_step_hint": "Open the helper definition next to confirm how seek grades blocked, triaging, proving, and ready_to_edit.",
+    "next_tool_used": "view"
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 0.5,
+    "payload_chars": 820,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  }
+]

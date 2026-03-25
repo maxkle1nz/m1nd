@@ -14,8 +14,9 @@
 // Pattern mirrors tests/test_surgical.rs + tests/perspective_golden.rs.
 
 use m1nd_mcp::protocol::surgical::{
-    ApplyBatchInput, ApplyBatchOutput, BatchEditItem, BatchEditResult, ConnectedFileSource,
-    SurgicalContextV2Input, SurgicalContextV2Output, SurgicalSymbol,
+    ApplyBatchInput, ApplyBatchOutput, ApplyBatchPhase, ApplyBatchProgressEvent, BatchEditItem,
+    BatchEditResult, ConnectedFileSource, SurgicalContextV2Input, SurgicalContextV2Output,
+    SurgicalSymbol,
 };
 
 // ===========================================================================
@@ -57,6 +58,10 @@ fn build_v2_output(
         focused_symbol: None,
         connected_files: connected,
         heuristic_summary: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        proof_state: "ready_to_edit".into(),
         total_lines,
         elapsed_ms: 3.0,
     }
@@ -96,6 +101,7 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         .sum();
 
     ApplyBatchOutput {
+        batch_id: "batch-test".into(),
         all_succeeded: files_written == files_total,
         files_written,
         files_total,
@@ -103,6 +109,44 @@ fn build_batch_output(results: Vec<BatchEditResult>, reingested: bool) -> ApplyB
         reingested,
         total_bytes_written: total_bytes,
         verification: None,
+        next_suggested_tool: Some("validate_plan".into()),
+        next_suggested_target: Some("/tmp/example.rs".into()),
+        next_step_hint: Some("Run validate_plan before promotion.".into()),
+        proof_state: "triaging".into(),
+        status_message: "apply_batch completed".into(),
+        active_phase: "done".into(),
+        completed_phase_count: 1,
+        phase_count: 5,
+        remaining_phase_count: 0,
+        progress_pct: 100.0,
+        next_phase: None,
+        progress_events: vec![ApplyBatchProgressEvent {
+            batch_id: "batch-test".into(),
+            event_type: "batch_completed".into(),
+            phase: "done".into(),
+            phase_index: 4,
+            progress_pct: 100.0,
+            current_file: None,
+            next_phase: None,
+            proof_state: Some("triaging".into()),
+            next_suggested_tool: Some("validate_plan".into()),
+            next_suggested_target: Some("/tmp/example.rs".into()),
+            next_step_hint: Some("Run validate_plan before promotion.".into()),
+            elapsed_ms: 20.0,
+            message: "batch completed".into(),
+        }],
+        phases: vec![ApplyBatchPhase {
+            phase: "done".into(),
+            phase_index: 4,
+            status: "completed".into(),
+            files_completed: files_written,
+            files_total,
+            current_file: None,
+            progress_pct: 100.0,
+            next_phase: None,
+            elapsed_ms: 20.0,
+            message: "batch completed".into(),
+        }],
         elapsed_ms: 20.0,
     }
 }
@@ -130,6 +174,7 @@ fn test_v2_returns_connected_file_sources() {
     assert_eq!(input.agent_id, "test");
     assert_eq!(input.radius, 1); // default
     assert!(input.include_tests); // default
+    assert!(!input.proof_focused); // default
 
     // Build output with two connected files (one caller, one callee)
     let connected = vec![
@@ -238,6 +283,10 @@ fn test_v2_respects_max_connected_files() {
         default_input.max_connected_files, 5,
         "default max_connected_files must be 5"
     );
+    assert!(
+        !default_input.proof_focused,
+        "default proof_focused must be false"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +352,10 @@ fn test_v2_respects_max_lines_per_file() {
     assert_eq!(
         default_input.max_lines_per_file, 60,
         "default max_lines_per_file must be 60"
+    );
+    assert!(
+        !default_input.proof_focused,
+        "proof_focused should remain opt-in"
     );
 }
 
@@ -592,7 +645,7 @@ fn test_batch_returns_per_file_diff() {
     // diff format (contains "@@"), and lines_added / lines_removed must be >= 0.
     // Results are in the same order as the input edits.
 
-    let edits = vec![
+    let edits = [
         BatchEditItem {
             file_path: "/project/a.py".into(),
             new_content: "def a(): return 42\n".into(),
@@ -762,7 +815,7 @@ fn test_batch_path_traversal_blocked() {
         lines_added: 0,
         lines_removed: 0,
         error: Some(format!(
-            "path '{}' is outside allowed workspace roots",
+            "path '{}' is outside allowed workspace roots Hint: retry with a file_path under one of the ingested workspace roots, or ingest the intended workspace before writing.",
             traversal_edit.file_path
         )),
     }];
@@ -775,6 +828,10 @@ fn test_batch_path_traversal_blocked() {
     assert!(
         err.contains("outside"),
         "path traversal error must mention 'outside'"
+    );
+    assert!(
+        err.contains("Hint:"),
+        "path traversal error should include recovery guidance"
     );
 
     // Attempt: absolute system path
@@ -810,6 +867,7 @@ fn test_batch_empty_edits_noop() {
 
     // Simulate no-op output
     let out = ApplyBatchOutput {
+        batch_id: "batch-noop".into(),
         all_succeeded: true,
         files_written: 0,
         files_total: 0,
@@ -817,6 +875,44 @@ fn test_batch_empty_edits_noop() {
         reingested: false,
         total_bytes_written: 0,
         verification: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        proof_state: "ready_to_edit".into(),
+        status_message: "apply_batch noop: no edits provided".into(),
+        active_phase: "done".into(),
+        completed_phase_count: 1,
+        phase_count: 5,
+        remaining_phase_count: 0,
+        progress_pct: 100.0,
+        next_phase: None,
+        progress_events: vec![ApplyBatchProgressEvent {
+            batch_id: "batch-noop".into(),
+            event_type: "batch_completed".into(),
+            phase: "done".into(),
+            phase_index: 0,
+            progress_pct: 100.0,
+            current_file: None,
+            next_phase: None,
+            proof_state: Some("ready_to_edit".into()),
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
+            elapsed_ms: 0.1,
+            message: "No edits were provided.".into(),
+        }],
+        phases: vec![ApplyBatchPhase {
+            phase: "done".into(),
+            phase_index: 0,
+            status: "completed".into(),
+            files_completed: 0,
+            files_total: 0,
+            current_file: None,
+            progress_pct: 100.0,
+            next_phase: None,
+            elapsed_ms: 0.1,
+            message: "No edits were provided.".into(),
+        }],
         elapsed_ms: 0.1,
     };
 
@@ -838,6 +934,28 @@ fn test_batch_empty_edits_noop() {
         out.total_bytes_written, 0,
         "no bytes written for empty batch"
     );
+    assert!(
+        out.status_message.contains("no edits"),
+        "no-op output should explain why nothing happened"
+    );
+    assert_eq!(out.active_phase, "done");
+    assert_eq!(out.completed_phase_count, 1);
+    assert_eq!(out.phase_count, 5);
+    assert_eq!(out.remaining_phase_count, 0);
+    assert_eq!(out.progress_pct, 100.0);
+    assert_eq!(out.next_phase, None);
+    assert_eq!(out.progress_events.len(), 1);
+    assert_eq!(out.progress_events[0].event_type, "batch_completed");
+    assert_eq!(
+        out.phases.len(),
+        1,
+        "no-op should still expose a done phase"
+    );
+    assert_eq!(out.phases[0].phase, "done");
+    assert_eq!(out.phases[0].phase_index, 0);
+    assert_eq!(out.phases[0].current_file, None);
+    assert_eq!(out.phases[0].progress_pct, 100.0);
+    assert_eq!(out.phases[0].next_phase, None);
     assert!(out.elapsed_ms >= 0.0, "elapsed_ms must be >= 0");
 
     // Verify round-trip serialization

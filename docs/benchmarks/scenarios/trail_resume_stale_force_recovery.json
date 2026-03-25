@@ -1,0 +1,13 @@
+{
+  "scenario_id": "warm_trail_resume_stale_force_recovery",
+  "scenario_name": "Warm recovery from stale trail resume gate",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "trail",
+    "continuity",
+    "stale"
+  ],
+  "question": "Recover from trail_resume rejecting a stale trail with too many missing nodes, then retry with force=true and continue from the degraded but still useful continuity state.",
+  "expected_strength": "strong"
+}

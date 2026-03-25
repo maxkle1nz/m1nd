@@ -140,6 +140,8 @@ Minimal MCP flow:
 {"method":"tools/call","params":{"name":"impact","arguments":{"node_id":"file::src/auth.rs","agent_id":"dev"}}}
 ```
 
+`impact` now works best as a guided handoff: it can expose `proof_state` and point at the downstream file worth opening next.
+
 Add to Claude Code (`~/.claude.json`):
 
 ```json
@@ -179,7 +181,7 @@ Without m1nd:
 With m1nd:
 
 - run `trace`
-- inspect the ranked suspects
+- inspect the ranked suspects and `proof_state`
 - follow connected context with `activate`, `why`, or `perspective_*`
 
 Practical benefit:
@@ -200,6 +202,8 @@ Without m1nd, this usually becomes a long grep-and-read loop with weak stopping 
 
 With m1nd, you can ask directly for structural holes or test a claim against graph paths.
 
+When the claim is strong enough, `hypothesize` can now surface both the next proof target and a coarse `proof_state`, so an agent can tell whether it is still proving something or already ready to move into edit prep.
+
 ### 3. Safe multi-file edits
 
 Use `validate_plan`, `surgical_context_v2`, `heuristics_surface`, and `apply_batch` when you are editing unfamiliar or connected code.
@@ -218,6 +222,7 @@ With m1nd:
 - pull the primary file plus connected files in one call
 - inspect heuristic summaries
 - write with one atomic batch when needed
+- use `proof_state` from `validate_plan` and `surgical_context_v2` to distinguish “still proving this edit is risky” from “ready to edit”
 
 Practical benefit:
 
@@ -236,6 +241,12 @@ There are plenty of tasks where m1nd is unnecessary and plain tools are faster.
 
 Use `rg`, your editor, logs, `cargo test`, `go test`, `pytest`, or the compiler when execution truth is what matters. m1nd is a navigation and structural context tool, not a replacement for runtime evidence.
 
+Common operational rule:
+
+- when a m1nd tool fails, treat the error as routing guidance first
+- read the returned hint/example/next step before reformulating from scratch
+- switch tools when the error tells you the current tool is a bad fit
+
 ## Choose The Right Tool
 
 This is the part most READMEs skip. If the reader does not know which tool to reach for, the surface feels larger than it is.
@@ -244,16 +255,28 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 |------|-----|
 | Exact text or regex in code | `search` |
 | Filename/path pattern | `glob` |
-| Natural-language intent like “who owns retry backoff?” | `seek` |
+| Natural-language intent like “who owns retry backoff?” or “which helper canonicalizes dispatch tool names?” | `seek` |
 | Connected neighborhood around a topic | `activate` |
+| You are unsure which tool fits, or how to recover from a bad call | `help` |
 | Quick file read without graph expansion | `view` |
 | Why something ranked as risky or important | `heuristics_surface` |
 | Blast radius before editing | `impact` |
 | Pre-flight a risky change plan | `validate_plan` |
 | Gather file + callers + callees + tests for an edit | `surgical_context` |
 | Gather the primary file plus connected file sources in one shot | `surgical_context_v2` |
+| Gather a tighter proof-oriented edit surface with less payload | `surgical_context_v2` with `proof_focused=true` |
 | Save small persistent operating state | `boot_memory` |
 | Save or resume an investigation trail | `trail_save`, `trail_resume`, `trail_merge` |
+| Resume an investigation and get the next likely move | `trail_resume` with `resume_hints`, `next_focus_node_id`, `next_open_question`, `next_suggested_tool` |
+| Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `impact`, `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` |
+| Ask what changed recently and why it matters | `timeline` |
+
+Common failure recovery:
+
+- wrong tool for the question: switch based on the decision guide instead of retrying the same weak call
+- weak structural proof: follow `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
+- thin continuity restore: use `trail_resume` hints as the restart plan instead of reopening every old file
+- unclear tool choice: call `help` and use its `WHEN TO USE`, `AVOID WHEN`, `WORKFLOWS`, and recovery guidance before guessing
 
 ## Results And Measurements
 
@@ -284,6 +307,21 @@ Criterion micro-benchmarks recorded in current docs:
 
 These numbers matter most when paired with the workflow benefit: fewer round-trips through grep/read loops and less context loading into the model.
 
+Warm-graph benchmark corpus recorded in `docs/benchmarks` now also shows where the newer continuity flow helps:
+
+| Scenario | Manual token proxy | `m1nd_warm` token proxy | Savings |
+|----------|--------------------|-------------------------|---------|
+| Actionable continuity resume | 1340 | 145 | 89.18% |
+| Aggregate warm-graph corpus | 10518 | 5182 | 50.73% |
+
+Those continuity gains come from changes that make `trail_resume` more actionable: compact limits, structural reactivation, next-focus hints, and next-tool suggestions such as routing temporal follow-ups toward `timeline`.
+
+The same benchmark corpus now also treats recovery loops and guided handoffs as product truth. Across the current recorded corpus, `m1nd_warm` reduces false starts from `14` to `0`, records `31` guided follow-throughs, and records `12` successful recovery loops where manual flows recorded none.
+
+Invalid regex, ambiguous scope, stale route, stale trail, and protected-write failures are benchmarked on whether the tool teaches the agent how to recover with a shorter retry path, not only on whether the tool emitted an error.
+
+Public examples for that recovery layer now live in `EXAMPLES.md`, including `trail_resume(force=true)` for stale continuity and `edit_commit(confirm=true)` reuse of a still-valid preview.
+
 ## Configure Your Agent
 
 m1nd works best when your agent treats it as the first stop for structure and connected context, not the only tool it is allowed to use.
@@ -297,11 +335,14 @@ Use m1nd before broad grep/glob/file-read loops when the task depends on structu
 - glob for filename/path patterns
 - seek for natural-language intent
 - activate for connected neighborhoods
-- impact before risky edits
+- impact before risky edits, especially when you need the next downstream seam and a `triaging` vs `proving` read
 - heuristics_surface when you need ranking justification
 - validate_plan before broad or coupled changes
 - surgical_context_v2 when preparing a multi-file edit
+- use `proof_focused=true` on `surgical_context_v2` when you want a compact edit-proof surface
 - boot_memory for small persistent operational state
+- use `trail_resume` for continuity when you want the next focus node, next open question, and likely next tool
+- when a call fails, read the returned hint/example/next step and reroute before opening more files
 - help when unsure which tool fits
 
 Use plain tools when the task is single-file, exact-text, or runtime/build-truth driven.
@@ -318,10 +359,12 @@ Reach for:
 - glob for filename patterns
 - seek for intent
 - activate for related code
-- impact before edits
+- impact before edits when you need the next file to inspect, not just a blast set
 - validate_plan before risky changes
 - surgical_context_v2 for multi-file edit prep
+- use `proof_focused=true` when you want the smallest useful connected edit surface
 - heuristics_surface for ranking explanation
+- trail_resume when resuming an investigation and you need the next likely move
 
 Use plain tools for single-file edits, exact-text chores, tests, compiler errors, and runtime logs.
 ```
@@ -334,7 +377,8 @@ Prefer m1nd for repo exploration when structure matters:
 - glob for filename/path patterns
 - seek for intent
 - activate for related code
-- impact before edits
+- impact before edits, with `proof_state` to tell whether you are still triaging or already proving the seam
+- trail_resume for continuity and `timeline` for recent-change proof
 
 Prefer plain tools for single-file edits, exact string chores, and runtime/build truth.
 ```
@@ -372,6 +416,10 @@ It is not a replacement for an LSP, a compiler, or runtime observability. It giv
 
 **It has write-aware workflows.** `surgical_context_v2`, `edit_preview`, `edit_commit`, and `apply_batch` make more sense as edit-preparation and edit-verification tools than as generic search tools.
 
+**It is starting to expose agent state, not only tool output.** `seek`, `impact`, `trace`, `hypothesize`, `validate_plan`, `timeline`, and `surgical_context_v2` can now surface `proof_state`, and `apply_batch` now returns `status_message`, coarse progress fields, structured `phases`, and follow-up guidance so long-running writes are easier to understand and present in shells or UIs.
+
+**Its help surface is becoming operational, not decorative.** `help` is now useful when an agent is stuck between tools or recovering from a bad call: it can explain when to use a tool, when to avoid it, what workflow usually follows, and how to reroute after common mistakes.
+
 ## Tool Surface
 
 The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **63 MCP tools**.
@@ -380,7 +428,7 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 
 | Category | Highlights |
 |----------|------------|
-| Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
+| Foundation | ingest, activate, impact, why, learn, drift, timeline, seek, search, glob, view, warmup, federate |
 | Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
@@ -402,6 +450,7 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 | `why` | Shortest path between two nodes | 5-6ms |
 | `learn` | Feedback loop that reinforces useful paths | <1ms |
 | `drift` | What changed since a baseline | 23ms |
+| `timeline` | Git-based temporal history for a node, including commit subjects and file churn | varies |
 | `health` | Server diagnostics | <1ms |
 | `warmup` | Prime the graph for an upcoming task | 82-89ms |
 | `federate` | Unify multiple repos into one graph | 1.3s / 2 repos |
@@ -440,7 +489,7 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 | `validate_plan` | Pre-flight change risk with hotspot references | 0.5-10ms |
 | `predict` | Co-change prediction with ranking justification | <1ms |
 | `trail_save` | Persist investigation state | ~0ms |
-| `trail_resume` | Restore a saved investigation | 0.2ms |
+| `trail_resume` | Restore a saved investigation and suggest the next move | 0.2ms |
 | `trail_merge` | Combine multi-agent investigations | 1.2ms |
 | `trail_list` | Browse saved investigations | ~0ms |
 | `differential` | Structural diff between graph snapshots | varies |
@@ -495,6 +544,18 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 `apply_batch` with `verify=true` runs multiple verification layers and returns a single SAFE / RISKY / BROKEN-style verdict.
 
 When `verification.high_impact_files` contains heuristic hotspots, the report can be promoted to `RISKY` even if blast radius alone would have stayed lower.
+
+`apply_batch` now also returns:
+
+- `batch_id` so the final result can be correlated with live or replayed progress events
+- `proof_state` plus `next_suggested_tool`, `next_suggested_target`, and `next_step_hint` so the batch can hand off the next review or verification move
+- `status_message` for a single human-readable summary
+- coarse progress fields: `active_phase`, `completed_phase_count`, `phase_count`, `remaining_phase_count`, `progress_pct`, and `next_phase`
+- `phases` for structured execution progress across `validate`, `write`, `reingest`, `verify`, and `done`
+- each phase can now carry its own `progress_pct` and `next_phase`
+- `progress_events` as a streaming-friendly event log using the same lifecycle data
+- each phase now includes `phase_index` and, when useful, `current_file` so shells and UIs can render progress without inferring order or file focus
+- on the HTTP/UI transport, `apply_batch` progress now emits onto the SSE bus as live `apply_batch_progress` events while the batch runs, so clients can follow lifecycle updates without waiting for the final result blob
 
 ```jsonc
 {

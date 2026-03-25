@@ -134,9 +134,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let graph_path = tmp.path().join("graph_snapshot.json");
         let plasticity_path = tmp.path().join("plasticity_state.json");
-        let mut config = McpConfig::default();
-        config.graph_source = graph_path;
-        config.plasticity_state = plasticity_path;
+        let config = McpConfig {
+            graph_source: graph_path,
+            plasticity_state: plasticity_path,
+            ..McpConfig::default()
+        };
 
         let graph = Graph::new();
         let domain = DomainConfig::code();

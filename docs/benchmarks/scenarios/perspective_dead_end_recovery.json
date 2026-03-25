@@ -1,0 +1,14 @@
+{
+  "scenario_id": "warm_perspective_dead_end_recovery",
+  "scenario_name": "Warm recovery from exhausted perspective dead end",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "perspective",
+    "stateful-navigation",
+    "dead-end"
+  ],
+  "repo_path": ".",
+  "question": "Recover from a perspective branch that reaches a dead end, then restore the previous checkpoint and continue without restarting the investigation.",
+  "expected_strength": "strong"
+}

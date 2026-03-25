@@ -1,0 +1,13 @@
+{
+  "scenario_id": "warm_apply_batch_protected_state_recovery",
+  "scenario_name": "Warm recovery from apply_batch protected state rejection",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "surgical",
+    "apply-batch",
+    "runtime-safety"
+  ],
+  "question": "Recover from an apply_batch write that targets a protected m1nd runtime state file, then redirect the batch into a real source file without risking runtime corruption.",
+  "expected_strength": "strong"
+}

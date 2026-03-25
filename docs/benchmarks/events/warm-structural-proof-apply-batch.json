@@ -1,0 +1,103 @@
+[
+  {
+    "tool_name": "m1nd.validate_plan",
+    "query": "apply_batch risky verification proof",
+    "elapsed_ms": 2.0,
+    "payload_chars": 460,
+    "proof_state": "proving",
+    "next_suggested_tool": "heuristics_surface",
+    "next_tool_used": "heuristics_surface",
+    "surfaced_files": [
+      "m1nd-mcp/src/surgical_handlers.rs",
+      "m1nd-mcp/src/protocol/surgical.rs"
+    ],
+    "notes": "validate_plan now includes a compact proof_hint and suggests the next surface directly, so first proof no longer needs an extra discovery step."
+  },
+  {
+    "tool_name": "m1nd.apply_batch",
+    "batch_id": "batch-benchmark-live-1",
+    "target": "m1nd-mcp/src/surgical_handlers.rs",
+    "elapsed_ms": 165.0,
+    "payload_chars": 220,
+    "proof_state": "proving",
+    "active_phase": "done",
+    "completed_phase_count": 5,
+    "phase_count": 5,
+    "remaining_phase_count": 0,
+    "progress_pct": 100.0,
+    "next_phase": null,
+    "next_suggested_tool": "heuristics_surface",
+    "next_suggested_target": "m1nd-mcp/src/surgical_handlers.rs",
+    "next_tool_used": "heuristics_surface",
+    "progress_events": [
+      {
+        "batch_id": "batch-benchmark-live-1",
+        "event_type": "phase_completed",
+        "progress_delivery": "live",
+        "phase": "validate",
+        "phase_index": 1,
+        "progress_pct": 20.0,
+        "current_file": "m1nd-mcp/src/surgical_handlers.rs",
+        "next_phase": "write",
+        "elapsed_ms": 2.0,
+        "message": "Validation completed."
+      },
+      {
+        "batch_id": "batch-benchmark-live-1",
+        "event_type": "phase_completed",
+        "progress_delivery": "live",
+        "phase": "write",
+        "phase_index": 2,
+        "progress_pct": 40.0,
+        "current_file": "m1nd-mcp/src/surgical_handlers.rs",
+        "next_phase": "reingest",
+        "elapsed_ms": 3.0,
+        "message": "Batch write completed."
+      },
+      {
+        "batch_id": "batch-benchmark-live-1",
+        "event_type": "phase_completed",
+        "progress_delivery": "live",
+        "phase": "reingest",
+        "phase_index": 3,
+        "progress_pct": 60.0,
+        "current_file": "m1nd-mcp/src/surgical_handlers.rs",
+        "next_phase": "verify",
+        "elapsed_ms": 110.0,
+        "message": "Re-ingest completed."
+      },
+      {
+        "batch_id": "batch-benchmark-live-1",
+        "event_type": "phase_completed",
+        "progress_delivery": "live",
+        "phase": "verify",
+        "phase_index": 4,
+        "progress_pct": 80.0,
+        "current_file": "m1nd-mcp/src/surgical_handlers.rs",
+        "next_phase": "done",
+        "elapsed_ms": 145.0,
+        "message": "Verification completed."
+      },
+      {
+        "batch_id": "batch-benchmark-live-1",
+        "event_type": "batch_completed",
+        "progress_delivery": "live",
+        "phase": "done",
+        "phase_index": 5,
+        "progress_pct": 100.0,
+        "current_file": "m1nd-mcp/src/surgical_handlers.rs",
+        "next_phase": null,
+        "proof_state": "proving",
+        "next_suggested_tool": "heuristics_surface",
+        "next_suggested_target": "m1nd-mcp/src/surgical_handlers.rs",
+        "next_step_hint": "Inspect the highest-impact file with heuristics_surface before promoting this batch.",
+        "elapsed_ms": 165.0,
+        "message": "Batch edit completed."
+      }
+    ],
+    "surfaced_files": [
+      "m1nd-mcp/src/surgical_handlers.rs"
+    ],
+    "notes": "apply_batch now exposes global progress metadata plus a streaming-friendly progress_events log, and it hands off the next hotspot review step directly when verification still ends in a risky proof state."
+  }
+]

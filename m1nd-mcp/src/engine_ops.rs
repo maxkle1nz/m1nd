@@ -540,8 +540,8 @@ mod tests {
         );
         let base = std::env::temp_dir().join(unique);
         let config = McpConfig {
-            graph_source: PathBuf::from(base.join("graph.json")),
-            plasticity_state: PathBuf::from(base.join("plasticity.json")),
+            graph_source: base.join("graph.json"),
+            plasticity_state: base.join("plasticity.json"),
             ..McpConfig::default()
         };
 

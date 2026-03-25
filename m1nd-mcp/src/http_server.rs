@@ -23,8 +23,10 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 use crate::http_types::SubgraphQuery;
-use crate::server::{dispatch_tool, tool_schemas, McpConfig};
-use crate::session::SessionState;
+use crate::server::{
+    dispatch_tool, timeout_error_payload, tool_error_payload, tool_schemas, McpConfig,
+};
+use crate::session::{ApplyBatchProgressSink, SessionState};
 
 // ---------------------------------------------------------------------------
 // Event log: append-only JSON lines file for cross-process SSE (Option B)
@@ -43,6 +45,151 @@ fn append_event_to_log(path: &std::path::Path, event: &SseEvent) {
             let _ = writeln!(f, "{}", line);
         }
     }
+}
+
+fn emit_followup_events(
+    event_tx: &broadcast::Sender<SseEvent>,
+    event_log_path: Option<&std::path::PathBuf>,
+    tool_name: &str,
+    source: &str,
+    agent_id: &str,
+    output: &serde_json::Value,
+) {
+    if tool_name != "apply_batch" {
+        return;
+    }
+
+    let Some(progress_events) = output.get("progress_events").and_then(|v| v.as_array()) else {
+        return;
+    };
+
+    for progress_event in progress_events {
+        let sse_event = SseEvent {
+            event_type: "apply_batch_progress".to_string(),
+            data: serde_json::json!({
+                "tool": tool_name,
+                "source": source,
+                "agent_id": agent_id,
+                "batch_id": progress_event.get("batch_id").cloned().unwrap_or(serde_json::Value::Null),
+                "progress": progress_event,
+                "timestamp_ms": now_ms(),
+            }),
+        };
+        let _ = event_tx.send(sse_event.clone());
+        if let Some(log_path) = event_log_path {
+            append_event_to_log(log_path, &sse_event);
+        }
+    }
+
+    emit_apply_batch_handoff(event_tx, event_log_path, source, agent_id, output);
+}
+
+fn tool_result_summary(tool_name: &str, output: &serde_json::Value) -> serde_json::Value {
+    if tool_name != "apply_batch" {
+        return truncate_json(output, 500);
+    }
+
+    serde_json::json!({
+        "batch_id": output.get("batch_id").cloned().unwrap_or(serde_json::Value::Null),
+        "proof_state": output.get("proof_state").cloned().unwrap_or(serde_json::Value::Null),
+        "active_phase": output.get("active_phase").cloned().unwrap_or(serde_json::Value::Null),
+        "progress_pct": output.get("progress_pct").cloned().unwrap_or(serde_json::Value::Null),
+        "next_suggested_tool": output.get("next_suggested_tool").cloned().unwrap_or(serde_json::Value::Null),
+        "next_suggested_target": output.get("next_suggested_target").cloned().unwrap_or(serde_json::Value::Null),
+        "next_step_hint": output.get("next_step_hint").cloned().unwrap_or(serde_json::Value::Null),
+        "verification_verdict": output
+            .get("verification")
+            .and_then(|value| value.get("verdict"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "progress_event_count": output
+            .get("progress_events")
+            .and_then(|value| value.as_array())
+            .map(|value| value.len())
+            .unwrap_or(0),
+    })
+}
+
+fn emit_apply_batch_handoff(
+    event_tx: &broadcast::Sender<SseEvent>,
+    event_log_path: Option<&std::path::PathBuf>,
+    source: &str,
+    agent_id: &str,
+    output: &serde_json::Value,
+) {
+    let batch_id = output
+        .get("batch_id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let proof_state = output
+        .get("proof_state")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let next_suggested_tool = output
+        .get("next_suggested_tool")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let next_suggested_target = output
+        .get("next_suggested_target")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let next_step_hint = output
+        .get("next_step_hint")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    if batch_id.is_null()
+        && proof_state.is_null()
+        && next_suggested_tool.is_null()
+        && next_suggested_target.is_null()
+        && next_step_hint.is_null()
+    {
+        return;
+    }
+
+    let sse_event = SseEvent {
+        event_type: "apply_batch_handoff".to_string(),
+        data: serde_json::json!({
+            "tool": "apply_batch",
+            "source": source,
+            "agent_id": agent_id,
+            "batch_id": batch_id,
+            "proof_state": proof_state,
+            "next_suggested_tool": next_suggested_tool,
+            "next_suggested_target": next_suggested_target,
+            "next_step_hint": next_step_hint,
+            "timestamp_ms": now_ms(),
+        }),
+    };
+    let _ = event_tx.send(sse_event.clone());
+    if let Some(log_path) = event_log_path {
+        append_event_to_log(log_path, &sse_event);
+    }
+}
+
+fn apply_batch_progress_sink(
+    event_tx: broadcast::Sender<SseEvent>,
+    event_log_path: Option<std::path::PathBuf>,
+    source: String,
+    agent_id: String,
+) -> ApplyBatchProgressSink {
+    Arc::new(move |progress_event| {
+        let sse_event = SseEvent {
+            event_type: "apply_batch_progress".to_string(),
+            data: serde_json::json!({
+                "tool": "apply_batch",
+                "source": source,
+                "agent_id": agent_id,
+                "batch_id": progress_event.batch_id,
+                "progress": progress_event,
+                "timestamp_ms": now_ms(),
+            }),
+        };
+        let _ = event_tx.send(sse_event.clone());
+        if let Some(ref log_path) = event_log_path {
+            append_event_to_log(log_path, &sse_event);
+        }
+    })
 }
 
 /// Watch an event log file and broadcast new events via SSE.
@@ -309,7 +456,21 @@ pub async fn run(
                             .unwrap_or(serde_json::json!({}));
                         let result = {
                             let mut s = stdio_session.lock();
-                            dispatch_tool(&mut s, tool_name, &arguments)
+                            if tool_name == "apply_batch" {
+                                s.apply_batch_progress_sink = Some(apply_batch_progress_sink(
+                                    stdio_event_tx.clone(),
+                                    stdio_event_log.clone(),
+                                    "stdio".to_string(),
+                                    arguments
+                                        .get("agent_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown")
+                                        .to_string(),
+                                ));
+                            }
+                            let result = dispatch_tool(&mut s, tool_name, &arguments);
+                            s.apply_batch_progress_sink = None;
+                            result
                         };
 
                         // Broadcast SSE event for cross-process visibility (Option A)
@@ -336,7 +497,6 @@ pub async fn run(
                         if let Some(ref log_path) = stdio_event_log {
                             append_event_to_log(log_path, &sse_event);
                         }
-
                         let resp = match result {
                             Ok(output) => serde_json::json!({
                                 "jsonrpc": "2.0",
@@ -537,13 +697,26 @@ async fn handle_tool_call(
         .to_string();
     let state = state.clone();
     let tool = tool_name.clone();
+    let progress_event_tx = event_tx.clone();
+    let progress_event_log_path = event_log_path.clone();
+    let progress_agent_id = agent_id_for_event.clone();
 
     // Wrap in timeout (FM-C-004: 30s per tool)
     let result = tokio::time::timeout(
         Duration::from_secs(TOOL_TIMEOUT_SECS),
         tokio::task::spawn_blocking(move || {
             let mut session = state.session.lock();
-            dispatch_tool(&mut session, &tool, &body)
+            if tool == "apply_batch" {
+                session.apply_batch_progress_sink = Some(apply_batch_progress_sink(
+                    progress_event_tx.clone(),
+                    progress_event_log_path.clone(),
+                    "http".to_string(),
+                    progress_agent_id.clone(),
+                ));
+            }
+            let result = dispatch_tool(&mut session, &tool, &body);
+            session.apply_batch_progress_sink = None;
+            result
         }),
     )
     .await;
@@ -568,10 +741,7 @@ async fn handle_tool_call(
 
             (
                 StatusCode::GATEWAY_TIMEOUT,
-                Json(serde_json::json!({
-                    "error": "timeout",
-                    "detail": format!("Tool execution exceeded {}s limit.", TOOL_TIMEOUT_SECS)
-                })),
+                Json(timeout_error_payload(TOOL_TIMEOUT_SECS)),
             )
                 .into_response()
         }
@@ -587,7 +757,7 @@ async fn handle_tool_call(
                     "agent_id": agent_id_for_event,
                     "success": inner.is_ok(),
                     "result_preview": match &inner {
-                        Ok(v) => truncate_json(v, 500),
+                        Ok(v) => tool_result_summary(&tool_for_event, v),
                         Err(e) => serde_json::json!({"error": e.to_string()}),
                     },
                     "timestamp_ms": now_ms(),
@@ -597,7 +767,17 @@ async fn handle_tool_call(
             if let Some(ref log_path) = event_log_path {
                 append_event_to_log(log_path, &sse_event);
             }
-
+            if let Ok(output) = &inner {
+                if tool_for_event == "apply_batch" {
+                    emit_apply_batch_handoff(
+                        &event_tx,
+                        event_log_path.as_ref(),
+                        "http",
+                        &agent_id_for_event,
+                        output,
+                    );
+                }
+            }
             match inner {
                 Ok(output) => (
                     StatusCode::OK,
@@ -617,14 +797,9 @@ async fn handle_tool_call(
                         }
                         _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
                     };
-                    (
-                        status,
-                        Json(serde_json::json!({
-                            "error": error_type,
-                            "detail": e.to_string(),
-                        })),
-                    )
-                        .into_response()
+                    let mut payload = tool_error_payload(&e);
+                    payload["error"] = serde_json::json!(error_type);
+                    (status, Json(payload)).into_response()
                 }
             }
         }
@@ -979,5 +1154,90 @@ async fn serve_embedded_ui(uri: Uri) -> impl IntoResponse {
                 None => (StatusCode::NOT_FOUND, "UI not built").into_response(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::timeout_error_payload;
+
+    #[test]
+    fn emit_followup_events_replays_apply_batch_progress() {
+        let (tx, mut rx) = broadcast::channel::<SseEvent>(16);
+        let output = serde_json::json!({
+            "batch_id": "batch-1",
+            "proof_state": "proving",
+            "next_suggested_tool": "heuristics_surface",
+            "next_suggested_target": "src/core.py",
+            "next_step_hint": "Inspect the hotspot before promotion.",
+            "progress_events": [
+                {
+                    "batch_id": "batch-1",
+                    "event_type": "phase_completed",
+                    "phase": "validate",
+                    "phase_index": 0,
+                    "progress_pct": 20.0
+                },
+                {
+                    "batch_id": "batch-1",
+                    "event_type": "batch_completed",
+                    "phase": "done",
+                    "phase_index": 4,
+                    "progress_pct": 100.0
+                }
+            ]
+        });
+
+        emit_followup_events(&tx, None, "apply_batch", "http", "tester", &output);
+
+        let first = rx.try_recv().expect("first progress event");
+        let second = rx.try_recv().expect("second progress event");
+        let third = rx.try_recv().expect("handoff event");
+        assert_eq!(first.event_type, "apply_batch_progress");
+        assert_eq!(second.event_type, "apply_batch_progress");
+        assert_eq!(third.event_type, "apply_batch_handoff");
+        assert_eq!(first.data["batch_id"].as_str(), Some("batch-1"));
+        assert_eq!(second.data["batch_id"].as_str(), Some("batch-1"));
+        assert_eq!(third.data["batch_id"].as_str(), Some("batch-1"));
+        assert_eq!(
+            third.data["next_suggested_tool"].as_str(),
+            Some("heuristics_surface")
+        );
+        assert_eq!(first.data["progress"]["phase"].as_str(), Some("validate"));
+        assert_eq!(second.data["progress"]["phase"].as_str(), Some("done"));
+    }
+
+    #[test]
+    fn tool_result_summary_compacts_apply_batch_for_sse_consumers() {
+        let output = serde_json::json!({
+            "batch_id": "batch-42",
+            "proof_state": "ready_to_edit",
+            "active_phase": "done",
+            "progress_pct": 100.0,
+            "next_step_hint": "Safe to continue.",
+            "verification": {"verdict": "SAFE"},
+            "progress_events": [{}, {}, {}]
+        });
+
+        let summary = tool_result_summary("apply_batch", &output);
+        assert_eq!(summary["batch_id"], "batch-42");
+        assert_eq!(summary["proof_state"], "ready_to_edit");
+        assert_eq!(summary["verification_verdict"], "SAFE");
+        assert_eq!(summary["progress_event_count"], 3);
+    }
+
+    #[test]
+    fn emit_apply_batch_handoff_skips_empty_payloads() {
+        let (tx, mut rx) = broadcast::channel::<SseEvent>(16);
+        emit_apply_batch_handoff(&tx, None, "http", "tester", &serde_json::json!({}));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn timeout_payload_teaches_how_to_retry() {
+        let payload = timeout_error_payload(30);
+        assert_eq!(payload["error_type"], "timeout");
+        assert!(payload["hint"].as_str().expect("hint").contains("scope"));
     }
 }

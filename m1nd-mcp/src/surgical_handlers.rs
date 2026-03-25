@@ -11,7 +11,7 @@
 //
 // Pattern: identical to layer_handlers.rs -- parse typed input -> call engine -> return output.
 
-use crate::protocol::surgical;
+use crate::protocol::{layers, surgical};
 use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 fn surgical_dampened_trust_factor(raw_factor: f32) -> f32 {
     1.0 + (raw_factor - 1.0) * 0.2
@@ -217,7 +217,9 @@ fn resolve_file_path(file_path: &str, ingest_roots: &[String]) -> PathBuf {
 /// Deny-list: m1nd state files that must never be overwritten by apply/apply_batch.
 const DENIED_FILENAMES: &[&str] = &[
     "graph_snapshot.json",
+    "graph.json",
     "plasticity_state.json",
+    "plasticity.json",
     "antibodies.json",
     "tremor_state.json",
     "trust_state.json",
@@ -233,37 +235,38 @@ const DENIED_FILENAMES: &[&str] = &[
 fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<PathBuf> {
     // BUG FIX (E4): Block all writes when no ingest roots configured
     if ingest_roots.is_empty() {
-        return Err(M1ndError::InvalidParams {
-            tool: "m1nd_apply".into(),
-            detail: format!(
-                "path {} cannot be written: no ingest roots configured (run m1nd.ingest first)",
+        return Err(invalid_params_with_hint(
+            "m1nd_apply",
+            format!(
+                "path {} cannot be written: no ingest roots configured",
                 resolved.display()
             ),
-        });
+            "Run m1nd.ingest on the workspace first, then retry apply/apply_batch inside that ingested root.",
+        ));
     }
 
     // Canonicalize the resolved path (follows symlinks, resolves ..)
     // For new files that don't exist yet, canonicalize the parent directory
     let canonical = if resolved.exists() {
-        resolved
-            .canonicalize()
-            .map_err(|e| M1ndError::InvalidParams {
-                tool: "m1nd_apply".into(),
-                detail: format!("cannot resolve path {}: {}", resolved.display(), e),
-            })?
+        resolved.canonicalize().map_err(|e| {
+            invalid_params_with_hint(
+                "m1nd_apply",
+                format!("cannot resolve path {}: {}", resolved.display(), e),
+                "Pass an absolute file path or a path relative to an ingested workspace root.",
+            )
+        })?
     } else {
         // File doesn't exist yet: canonicalize parent + append filename
         let parent = resolved.parent().unwrap_or(Path::new("."));
         let filename = resolved.file_name().unwrap_or_default();
         let parent_canonical = parent
             .canonicalize()
-            .map_err(|e| M1ndError::InvalidParams {
-                tool: "m1nd_apply".into(),
-                detail: format!(
-                    "cannot resolve parent directory {}: {}",
-                    parent.display(),
-                    e
-                ),
+            .map_err(|e| {
+                invalid_params_with_hint(
+                    "m1nd_apply",
+                    format!("cannot resolve parent directory {}: {}", parent.display(), e),
+                    "Create the parent directory under an ingested workspace root, or choose a file_path that already lives inside one.",
+                )
             })?;
         parent_canonical.join(filename)
     };
@@ -271,13 +274,14 @@ fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<
     // BUG FIX (E3): Deny-list for m1nd state files
     if let Some(filename) = canonical.file_name().and_then(|f| f.to_str()) {
         if DENIED_FILENAMES.contains(&filename) {
-            return Err(M1ndError::InvalidParams {
-                tool: "m1nd_apply".into(),
-                detail: format!(
+            return Err(invalid_params_with_hint(
+                "m1nd_apply",
+                format!(
                     "path {} is a protected m1nd state file and cannot be overwritten",
                     resolved.display()
                 ),
-            });
+                "Write to a source file in your workspace instead. m1nd runtime files like graph/plasticity state are intentionally protected.",
+            ));
         }
     }
 
@@ -290,13 +294,14 @@ fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<
         }
     }
 
-    Err(M1ndError::InvalidParams {
-        tool: "m1nd_apply".into(),
-        detail: format!(
+    Err(invalid_params_with_hint(
+        "m1nd_apply",
+        format!(
             "path {} is outside allowed workspace roots",
             resolved.display()
         ),
-    })
+        "Retry with a file_path under one of the ingested workspace roots, or ingest the intended workspace before writing.",
+    ))
 }
 
 /// Simple line-based diff summary: count added and removed lines.
@@ -315,6 +320,35 @@ fn content_hash(content: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     content.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+fn invalid_params(tool: &str, detail: impl Into<String>) -> M1ndError {
+    M1ndError::InvalidParams {
+        tool: tool.into(),
+        detail: detail.into(),
+    }
+}
+
+fn invalid_params_with_hint(
+    tool: &str,
+    detail: impl Into<String>,
+    hint: impl AsRef<str>,
+) -> M1ndError {
+    let detail = detail.into();
+    let hint = hint.as_ref();
+    invalid_params(tool, format!("{detail} Hint: {hint}"))
+}
+
+fn invalid_params_with_hint_and_example(
+    tool: &str,
+    detail: impl Into<String>,
+    hint: impl AsRef<str>,
+    example: impl AsRef<str>,
+) -> M1ndError {
+    let detail = detail.into();
+    let hint = hint.as_ref();
+    let example = example.as_ref();
+    invalid_params(tool, format!("{detail} Hint: {hint} Example: {example}"))
 }
 
 fn unified_diff_preview(old: &str, new: &str) -> String {
@@ -1300,9 +1334,13 @@ pub fn handle_heuristics_surface(
         let graph = state.graph.read();
         let node = graph
             .resolve_id(node_id)
-            .ok_or_else(|| M1ndError::InvalidParams {
-                tool: "heuristics_surface".into(),
-                detail: format!("node not found: {}", node_id),
+            .ok_or_else(|| {
+                invalid_params_with_hint_and_example(
+                    "heuristics_surface",
+                    format!("node not found: {}", node_id),
+                    "Retry with a file-backed node_id, or pass file_path if you want file-level heuristics without resolving a node first.",
+                    r#"{"agent_id":"dev","file_path":"src/auth.rs"}"#,
+                )
             })?;
         let provenance = graph.resolve_node_provenance(node);
         let resolved_path = provenance
@@ -1312,9 +1350,13 @@ pub fn handle_heuristics_surface(
                     .strip_prefix("file::")
                     .map(|value| value.to_string())
             })
-            .ok_or_else(|| M1ndError::InvalidParams {
-                tool: "heuristics_surface".into(),
-                detail: format!("node has no file provenance: {}", node_id),
+            .ok_or_else(|| {
+                invalid_params_with_hint_and_example(
+                    "heuristics_surface",
+                    format!("node has no file provenance: {}", node_id),
+                    "Use file_path for file-level heuristics, or choose a node_id whose provenance points to a source file.",
+                    r#"{"agent_id":"dev","file_path":"src/auth.rs"}"#,
+                )
             })?;
         (node_id.clone(), resolved_path, "node_id".to_string())
     } else if let Some(file_path) = input.file_path.as_ref().filter(|value| !value.is_empty()) {
@@ -1340,10 +1382,12 @@ pub fn handle_heuristics_surface(
         .unwrap_or_else(|| format!("file::{}", resolved_path));
         (node_id, resolved_path, "file_path".to_string())
     } else {
-        return Err(M1ndError::InvalidParams {
-            tool: "heuristics_surface".into(),
-            detail: "provide node_id or file_path".into(),
-        });
+        return Err(invalid_params_with_hint_and_example(
+            "heuristics_surface",
+            "provide node_id or file_path",
+            "Pass exactly one target so m1nd knows which file or node to explain.",
+            r#"{"agent_id":"dev","file_path":"src/auth.rs"}"#,
+        ));
     };
 
     let heuristic_summary = build_surgical_heuristic_summary(state, &target.0, &target.1);
@@ -1381,9 +1425,12 @@ pub fn handle_surgical_context(
     // Step 1: Resolve and read the file
     let resolved_path = resolve_file_path(&input.file_path, &state.ingest_roots);
     let file_contents =
-        std::fs::read_to_string(&resolved_path).map_err(|e| M1ndError::InvalidParams {
-            tool: "m1nd_surgical_context".into(),
-            detail: format!("cannot read file {}: {}", resolved_path.display(), e),
+        std::fs::read_to_string(&resolved_path).map_err(|e| {
+            invalid_params_with_hint(
+                "m1nd_surgical_context",
+                format!("cannot read file {}: {}", resolved_path.display(), e),
+                "Pass an existing file_path under an ingested workspace root, or use view(auto_ingest=true) first if you are probing a file that is not in the graph yet.",
+            )
         })?;
 
     let line_count = file_contents.lines().count() as u32;
@@ -1549,11 +1596,12 @@ pub fn handle_edit_commit(
 
     // Guard: confirm must be true
     if !input.confirm {
-        return Err(M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail: "confirm must be true to commit; set confirm=true after reviewing the preview"
-                .into(),
-        });
+        return Err(invalid_params_with_hint_and_example(
+            "edit_commit",
+            "confirm must be true to commit",
+            "Review the preview first, then resend the same preview_id with confirm=true.",
+            r#"{"preview_id":"preview_dev_001","agent_id":"dev","confirm":true}"#,
+        ));
     }
 
     // Garbage-collect expired previews (TTL = 5 min)
@@ -1570,30 +1618,35 @@ pub fn handle_edit_commit(
         .edit_previews
         .get(&input.preview_id)
         .cloned()
-        .ok_or_else(|| M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail: format!(
-                "preview_id not found or expired (TTL=5min): {}",
-                input.preview_id
-            ),
+        .ok_or_else(|| {
+            invalid_params_with_hint_and_example(
+                "edit_commit",
+                format!(
+                    "preview_id not found or expired (TTL=5min): {}",
+                    input.preview_id
+                ),
+                "Run edit_preview again for the same file to mint a fresh preview_id, then retry edit_commit.",
+                r#"{"file_path":"src/auth.rs","agent_id":"dev","new_content":"..."}"#,
+            )
         })?;
 
     if preview.agent_id != input.agent_id {
-        return Err(M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail: "preview belongs to a different agent".into(),
-        });
+        return Err(invalid_params_with_hint(
+            "edit_commit",
+            "preview belongs to a different agent",
+            "Retry with the same agent_id that created the preview, or create a new preview under this agent before committing.",
+        ));
     }
 
     let current_content = std::fs::read_to_string(&preview.file_path).unwrap_or_default();
     let current_hash = content_hash(&current_content);
     if current_hash != preview.source_hash {
-        return Err(M1ndError::InvalidParams {
-            tool: "edit_commit".into(),
-            detail:
-                "source_modified: file changed since preview was created; run edit_preview again"
-                    .into(),
-        });
+        return Err(invalid_params_with_hint_and_example(
+            "edit_commit",
+            "source_modified: file changed since preview was created",
+            "Re-run edit_preview against the current on-disk file to refresh the source hash, then retry edit_commit.",
+            r#"{"file_path":"src/auth.rs","agent_id":"dev","new_content":"..."}"#,
+        ));
     }
 
     let apply_output = handle_apply(
@@ -1660,14 +1713,22 @@ pub fn handle_apply(
     if !parent.exists() {
         std::fs::create_dir_all(parent).map_err(|e| M1ndError::InvalidParams {
             tool: "m1nd_apply".into(),
-            detail: format!("cannot create directory {}: {}", parent.display(), e),
+            detail: format!(
+                "cannot create directory {}: {} Hint: create or choose a parent directory inside an ingested workspace root, then retry apply.",
+                parent.display(),
+                e
+            ),
         })?;
     }
 
     // Write to temp file
     std::fs::write(&temp_path, &input.new_content).map_err(|e| M1ndError::InvalidParams {
         tool: "m1nd_apply".into(),
-        detail: format!("cannot write temp file {}: {}", temp_path.display(), e),
+        detail: format!(
+            "cannot write temp file {}: {} Hint: check write permissions under the workspace root and retry apply.",
+            temp_path.display(),
+            e
+        ),
     })?;
 
     // Rename (atomic on same filesystem)
@@ -1677,7 +1738,7 @@ pub fn handle_apply(
         M1ndError::InvalidParams {
             tool: "m1nd_apply".into(),
             detail: format!(
-                "atomic rename failed {} -> {}: {}",
+                "atomic rename failed {} -> {}: {} Hint: retry apply after checking filesystem permissions and free space in the workspace.",
                 temp_path.display(),
                 validated_path.display(),
                 e
@@ -1851,18 +1912,35 @@ pub fn handle_surgical_context_v2(
     // Also exclude primary node_id from connected set (circular guard)
     candidate_map.retain(|_, (nid, _, _, _)| *nid != primary_node_id);
 
-    // Step 3: Sort by edge_weight descending, cap at max_connected_files
+    // Step 3: Prefer code-bearing proof files over docs/manifests/tests when
+    // selecting a bounded connected set. This keeps v2 useful for edit prep
+    // instead of spending precious slots on auxiliary surfaces first.
     let mut scored: Vec<(String, String, String, String, f32)> = candidate_map
         .into_iter()
         .map(|(path, (nid, label, rel, w))| (path, nid, label, rel, w))
         .collect();
-    scored.sort_by(|a, b| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal));
-    scored.truncate(input.max_connected_files);
+    scored.sort_by(|a, b| {
+        surgical_v2_file_kind_rank(&b.0)
+            .cmp(&surgical_v2_file_kind_rank(&a.0))
+            .then_with(|| surgical_v2_relation_rank(&b.3).cmp(&surgical_v2_relation_rank(&a.3)))
+            .then_with(|| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    let max_connected_files = if input.proof_focused {
+        input.max_connected_files.clamp(1, 3)
+    } else {
+        input.max_connected_files
+    };
+    let max_lines = if input.proof_focused {
+        input.max_lines_per_file.clamp(8, 25)
+    } else {
+        input.max_lines_per_file
+    };
+    let scored = surgical_v2_select_candidates(scored, max_connected_files, input.proof_focused);
 
     // Step 4: Read each connected file, build ConnectedFileSource
     let mut connected_files: Vec<surgical::ConnectedFileSource> = Vec::new();
     let mut total_lines = primary.line_count as usize;
-    let max_lines = input.max_lines_per_file;
 
     for (path, node_id, label, relation_type, edge_weight) in &scored {
         let resolved = resolve_file_path(path, &state.ingest_roots);
@@ -1917,6 +1995,20 @@ pub fn handle_surgical_context_v2(
         }
     }
 
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = surgical_v2_next_step(
+        &primary.file_path,
+        primary.heuristic_summary.as_ref(),
+        &connected_files,
+        input.proof_focused,
+    );
+    let proof_state = surgical_v2_proof_state(
+        &primary.file_contents,
+        primary.heuristic_summary.as_ref(),
+        &connected_files,
+        next_suggested_tool.as_deref(),
+        input.proof_focused,
+    );
+
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
 
@@ -1929,9 +2021,163 @@ pub fn handle_surgical_context_v2(
         focused_symbol: primary.focused_symbol,
         connected_files,
         heuristic_summary: primary.heuristic_summary,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        proof_state,
         total_lines,
         elapsed_ms,
     })
+}
+
+fn surgical_v2_next_step(
+    file_path: &str,
+    heuristic_summary: Option<&surgical::SurgicalHeuristicSummary>,
+    connected_files: &[surgical::ConnectedFileSource],
+    proof_focused: bool,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let has_connected_proof = !connected_files.is_empty();
+    let risky = heuristic_summary
+        .map(|summary| summary.risk_score > 0.0 || summary.blast_radius_files > 0)
+        .unwrap_or(false);
+
+    if proof_focused || risky || has_connected_proof {
+        let relation_list = connected_files
+            .iter()
+            .take(3)
+            .map(|file| file.relation_type.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let hint = if relation_list.is_empty() {
+            format!("Run validate_plan next before editing {}", file_path)
+        } else {
+            format!(
+                "Run validate_plan next before editing {} because connected proof includes {}",
+                file_path, relation_list
+            )
+        };
+        return (
+            Some("validate_plan".into()),
+            Some(file_path.to_string()),
+            Some(hint),
+        );
+    }
+
+    (None, None, None)
+}
+
+fn surgical_v2_select_candidates(
+    scored: Vec<(String, String, String, String, f32)>,
+    max_connected_files: usize,
+    proof_focused: bool,
+) -> Vec<(String, String, String, String, f32)> {
+    if !proof_focused || scored.len() <= max_connected_files {
+        return scored.into_iter().take(max_connected_files).collect();
+    }
+
+    let mut selected = Vec::new();
+    let mut used_relations = HashSet::new();
+
+    for candidate in &scored {
+        if used_relations.insert(candidate.3.clone()) {
+            selected.push(candidate.clone());
+            if selected.len() >= max_connected_files {
+                return selected;
+            }
+        }
+    }
+
+    for candidate in scored {
+        if selected.iter().any(|existing| existing.0 == candidate.0) {
+            continue;
+        }
+        selected.push(candidate);
+        if selected.len() >= max_connected_files {
+            break;
+        }
+    }
+
+    selected
+}
+
+fn surgical_v2_proof_state(
+    file_contents: &str,
+    heuristic_summary: Option<&surgical::SurgicalHeuristicSummary>,
+    connected_files: &[surgical::ConnectedFileSource],
+    next_suggested_tool: Option<&str>,
+    proof_focused: bool,
+) -> String {
+    if file_contents.trim().is_empty() {
+        return "blocked".into();
+    }
+
+    let risky = heuristic_summary
+        .map(|summary| {
+            summary.risk_level == "high"
+                || summary.risk_score >= 0.35
+                || summary.blast_radius_files > 0
+        })
+        .unwrap_or(false);
+
+    if proof_focused || next_suggested_tool == Some("validate_plan") || risky {
+        return "proving".into();
+    }
+
+    if !connected_files.is_empty() || heuristic_summary.is_some() {
+        return "triaging".into();
+    }
+
+    "ready_to_edit".into()
+}
+
+fn surgical_v2_relation_rank(relation_type: &str) -> u8 {
+    match relation_type {
+        "caller" | "callee" => 3,
+        "test" => 2,
+        _ => 1,
+    }
+}
+
+fn surgical_v2_file_kind_rank(path: &str) -> u8 {
+    let path_lower = path.to_lowercase();
+    let basename = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if matches!(
+        basename.as_str(),
+        "cargo.toml" | "cargo.lock" | "package.json"
+    ) || path_lower.ends_with(".md")
+        || path_lower.contains("/docs/")
+        || path_lower.contains("/target/")
+        || path_lower.contains("/node_modules/")
+        || path_lower.contains("/dist/")
+    {
+        return 0;
+    }
+
+    if path_lower.contains("/tests/")
+        || basename.starts_with("test_")
+        || path_lower.contains(".test.")
+        || path_lower.contains(".spec.")
+        || path_lower.ends_with("_test.rs")
+    {
+        return 2;
+    }
+
+    if matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or(""),
+        "rs" | "py" | "ts" | "tsx" | "js" | "jsx" | "go" | "java"
+    ) {
+        return 3;
+    }
+
+    1
 }
 
 // ---------------------------------------------------------------------------
@@ -1958,10 +2204,38 @@ pub fn handle_apply_batch(
     input: surgical::ApplyBatchInput,
 ) -> M1ndResult<surgical::ApplyBatchOutput> {
     let start = Instant::now();
+    let batch_id = format!(
+        "batch-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or(0)
+    );
+    let mut phases: Vec<surgical::ApplyBatchPhase> = Vec::new();
+    let mut progress_events: Vec<surgical::ApplyBatchProgressEvent> = Vec::new();
+    let phase_count = 5usize;
+    let phase_names = ["validate", "write", "reingest", "verify", "done"];
 
     // Step 1: Empty edits = fast-path no-op
     if input.edits.is_empty() {
+        let noop_event = surgical::ApplyBatchProgressEvent {
+            batch_id: batch_id.clone(),
+            event_type: "batch_completed".into(),
+            phase: "done".into(),
+            phase_index: 0,
+            progress_pct: 100.0,
+            current_file: None,
+            next_phase: None,
+            proof_state: Some("ready_to_edit".into()),
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
+            elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            message: "No edits were provided.".into(),
+        };
+        emit_apply_batch_progress(state, &noop_event);
         return Ok(surgical::ApplyBatchOutput {
+            batch_id,
             all_succeeded: true,
             files_written: 0,
             files_total: 0,
@@ -1969,6 +2243,30 @@ pub fn handle_apply_batch(
             reingested: false,
             total_bytes_written: 0,
             verification: None,
+            next_suggested_tool: None,
+            next_suggested_target: None,
+            next_step_hint: None,
+            proof_state: "ready_to_edit".into(),
+            status_message: "apply_batch noop: no edits provided".into(),
+            active_phase: "done".into(),
+            completed_phase_count: 1,
+            phase_count,
+            remaining_phase_count: 0,
+            progress_pct: 100.0,
+            next_phase: None,
+            progress_events: vec![noop_event],
+            phases: vec![surgical::ApplyBatchPhase {
+                phase: "done".into(),
+                phase_index: 0,
+                status: "completed".into(),
+                files_completed: 0,
+                files_total: 0,
+                current_file: None,
+                progress_pct: 100.0,
+                next_phase: None,
+                elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+                message: "No edits were provided.".into(),
+            }],
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -1982,6 +2280,39 @@ pub fn handle_apply_batch(
         let old_content = std::fs::read_to_string(&validated).unwrap_or_default();
         resolved_edits.push((validated, edit, old_content));
     }
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "validate".into(),
+        phase_index: 0,
+        status: "completed".into(),
+        files_completed: 0,
+        files_total: input.edits.len(),
+        current_file: resolved_edits
+            .first()
+            .map(|(path, _, _)| path.to_string_lossy().to_string()),
+        progress_pct: 20.0,
+        next_phase: Some(phase_names[1].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!("Validated {} edit targets.", input.edits.len()),
+    });
+    let validate_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
+        event_type: "phase_completed".into(),
+        phase: "validate".into(),
+        phase_index: 0,
+        progress_pct: 20.0,
+        current_file: resolved_edits
+            .first()
+            .map(|(path, _, _)| path.to_string_lossy().to_string()),
+        next_phase: Some(phase_names[1].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!("Validated {} edit targets.", input.edits.len()),
+    };
+    emit_apply_batch_progress(state, &validate_event);
+    progress_events.push(validate_event);
 
     // Pre-write snapshot: capture graph nodes BEFORE writing (for verify graph-diff)
     let pre_nodes: std::collections::HashMap<String, HashSet<String>> = if input.verify {
@@ -2024,7 +2355,11 @@ pub fn handle_apply_batch(
                     }
                     return Err(M1ndError::InvalidParams {
                         tool: "m1nd_apply_batch".into(),
-                        detail: format!("cannot create directory {}: {}", parent.display(), e),
+                        detail: format!(
+                            "cannot create directory {}: {} Hint: create or choose a parent directory inside an ingested workspace root, then retry apply_batch.",
+                            parent.display(),
+                            e
+                        ),
                     });
                 }
             }
@@ -2044,7 +2379,7 @@ pub fn handle_apply_batch(
                     return Err(M1ndError::InvalidParams {
                         tool: "m1nd_apply_batch".into(),
                         detail: format!(
-                            "atomic batch failed: cannot write temp file for {}: {}",
+                            "atomic batch failed: cannot write temp file for {}: {} Hint: check write permissions under the workspace root and retry apply_batch.",
                             validated.display(),
                             e
                         ),
@@ -2068,7 +2403,7 @@ pub fn handle_apply_batch(
                 return Err(M1ndError::InvalidParams {
                     tool: "m1nd_apply_batch".into(),
                     detail: format!(
-                        "atomic rename failed {} -> {}: {}",
+                        "atomic rename failed {} -> {}: {} Hint: retry apply_batch after checking filesystem permissions and free space in the workspace.",
                         tmp_path.display(),
                         target_path.display(),
                         e
@@ -2181,6 +2516,47 @@ pub fn handle_apply_batch(
             }
         }
     }
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "write".into(),
+        phase_index: 1,
+        status: if results.iter().all(|r| r.success) {
+            "completed".into()
+        } else {
+            "failed".into()
+        },
+        files_completed: results.iter().filter(|r| r.success).count(),
+        files_total: input.edits.len(),
+        current_file: results.last().map(|result| result.file_path.clone()),
+        progress_pct: 40.0,
+        next_phase: Some(phase_names[2].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!(
+            "Wrote {} of {} files.",
+            results.iter().filter(|r| r.success).count(),
+            input.edits.len()
+        ),
+    });
+    let write_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
+        event_type: "phase_completed".into(),
+        phase: "write".into(),
+        phase_index: 1,
+        progress_pct: 40.0,
+        current_file: results.last().map(|result| result.file_path.clone()),
+        next_phase: Some(phase_names[2].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: format!(
+            "Wrote {} of {} files.",
+            results.iter().filter(|r| r.success).count(),
+            input.edits.len()
+        ),
+    };
+    emit_apply_batch_progress(state, &write_event);
+    progress_events.push(write_event);
 
     // Step 7: Bulk re-ingest (single pass covering all successfully written files)
     let files_written = results.iter().filter(|r| r.success).count();
@@ -2220,6 +2596,65 @@ pub fn handle_apply_batch(
     } else {
         false
     };
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "reingest".into(),
+        phase_index: 2,
+        status: if input.reingest {
+            if reingested {
+                "completed".into()
+            } else {
+                "failed".into()
+            }
+        } else {
+            "skipped".into()
+        },
+        files_completed: files_written,
+        files_total: input.edits.len(),
+        current_file: results
+            .iter()
+            .find(|result| result.success)
+            .map(|result| result.file_path.clone()),
+        progress_pct: 60.0,
+        next_phase: Some(phase_names[3].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if input.reingest {
+            if reingested {
+                format!("Re-ingested {} written files.", files_written)
+            } else {
+                "Re-ingest did not complete successfully.".into()
+            }
+        } else {
+            "Re-ingest skipped.".into()
+        },
+    });
+    let reingest_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
+        event_type: "phase_completed".into(),
+        phase: "reingest".into(),
+        phase_index: 2,
+        progress_pct: 60.0,
+        current_file: results
+            .iter()
+            .find(|result| result.success)
+            .map(|result| result.file_path.clone()),
+        next_phase: Some(phase_names[3].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if input.reingest {
+            if reingested {
+                format!("Re-ingested {} written files.", files_written)
+            } else {
+                "Re-ingest did not complete successfully.".into()
+            }
+        } else {
+            "Re-ingest skipped.".into()
+        },
+    };
+    emit_apply_batch_progress(state, &reingest_event);
+    progress_events.push(reingest_event);
 
     // Step 8: Post-write verification via GRAPH DIFF (verify=true)
     // Compares pre-write graph nodes vs post-write to find what ACTUALLY changed structurally.
@@ -2272,16 +2707,20 @@ pub fn handle_apply_batch(
                     top_affected.push(format!("-{}", n));
                 }
 
-                let node_id = post_nodes.iter().next().cloned().unwrap_or_default();
-                let heuristic_summary = if node_id.is_empty() {
-                    None
-                } else {
-                    Some(build_surgical_heuristic_summary(
-                        state,
-                        &node_id,
-                        &result.file_path,
-                    ))
-                };
+                let node_id = post_nodes
+                    .iter()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| format!("file::{}", result.file_path));
+                let heuristic_summary = Some(build_surgical_heuristic_summary(
+                    state,
+                    &node_id,
+                    &result.file_path,
+                ));
+                let heuristics_surface_ref = Some(layers::HeuristicsSurfaceRef {
+                    node_id: node_id.clone(),
+                    file_path: result.file_path.clone(),
+                });
 
                 high_impact_files.push(surgical::VerificationImpact {
                     file_path: result.file_path.clone(),
@@ -2290,6 +2729,7 @@ pub fn handle_apply_batch(
                     risk: risk.to_string(),
                     top_affected,
                     heuristic_summary,
+                    heuristics_surface_ref,
                 });
             }
         }
@@ -2703,11 +3143,144 @@ pub fn handle_apply_batch(
     } else {
         None
     };
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "verify".into(),
+        phase_index: 3,
+        status: if input.verify {
+            if verification.is_some() {
+                "completed".into()
+            } else {
+                "skipped".into()
+            }
+        } else {
+            "skipped".into()
+        },
+        files_completed: files_written,
+        files_total: input.edits.len(),
+        current_file: verification
+            .as_ref()
+            .and_then(|report| {
+                report
+                    .high_impact_files
+                    .first()
+                    .map(|impact| impact.file_path.clone())
+            })
+            .or_else(|| {
+                results
+                    .iter()
+                    .find(|result| result.success)
+                    .map(|r| r.file_path.clone())
+            }),
+        progress_pct: 80.0,
+        next_phase: Some(phase_names[4].into()),
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if let Some(report) = verification.as_ref() {
+            format!("Verification finished with verdict {}.", report.verdict)
+        } else if input.verify {
+            "Verification could not run because writes or re-ingest did not complete.".into()
+        } else {
+            "Verification skipped.".into()
+        },
+    });
+    let verify_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
+        event_type: "phase_completed".into(),
+        phase: "verify".into(),
+        phase_index: 3,
+        progress_pct: 80.0,
+        current_file: verification
+            .as_ref()
+            .and_then(|report| {
+                report
+                    .high_impact_files
+                    .first()
+                    .map(|impact| impact.file_path.clone())
+            })
+            .or_else(|| {
+                results
+                    .iter()
+                    .find(|result| result.success)
+                    .map(|r| r.file_path.clone())
+            }),
+        next_phase: Some(phase_names[4].into()),
+        proof_state: None,
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        message: if let Some(report) = verification.as_ref() {
+            format!("Verification finished with verdict {}.", report.verdict)
+        } else if input.verify {
+            "Verification could not run because writes or re-ingest did not complete.".into()
+        } else {
+            "Verification skipped.".into()
+        },
+    };
+    emit_apply_batch_progress(state, &verify_event);
+    progress_events.push(verify_event);
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
+    let status_message = if all_succeeded {
+        if let Some(report) = verification.as_ref() {
+            format!(
+                "apply_batch completed: wrote {} files, verification verdict {}.",
+                files_written, report.verdict
+            )
+        } else if reingested {
+            format!(
+                "apply_batch completed: wrote {} files and re-ingested successfully.",
+                files_written
+            )
+        } else {
+            format!("apply_batch completed: wrote {} files.", files_written)
+        }
+    } else {
+        format!(
+            "apply_batch finished with partial success: wrote {} of {} files.",
+            files_written,
+            input.edits.len()
+        )
+    };
+    phases.push(surgical::ApplyBatchPhase {
+        phase: "done".into(),
+        phase_index: 4,
+        status: if all_succeeded {
+            "completed".into()
+        } else {
+            "failed".into()
+        },
+        files_completed: files_written,
+        files_total: input.edits.len(),
+        current_file: None,
+        progress_pct: 100.0,
+        next_phase: None,
+        elapsed_ms,
+        message: status_message.clone(),
+    });
+    let (next_suggested_tool, next_suggested_target, next_step_hint, proof_state) =
+        apply_batch_next_step(all_succeeded, reingested, verification.as_ref(), &results);
+
+    let done_event = surgical::ApplyBatchProgressEvent {
+        batch_id: batch_id.clone(),
+        event_type: "batch_completed".into(),
+        phase: "done".into(),
+        phase_index: 4,
+        progress_pct: 100.0,
+        current_file: None,
+        next_phase: None,
+        proof_state: Some(proof_state.clone()),
+        next_suggested_tool: next_suggested_tool.clone(),
+        next_suggested_target: next_suggested_target.clone(),
+        next_step_hint: next_step_hint.clone(),
+        elapsed_ms,
+        message: status_message.clone(),
+    };
+    emit_apply_batch_progress(state, &done_event);
+    progress_events.push(done_event);
 
     Ok(surgical::ApplyBatchOutput {
+        batch_id,
         all_succeeded,
         files_written,
         files_total: input.edits.len(),
@@ -2715,8 +3288,97 @@ pub fn handle_apply_batch(
         reingested,
         total_bytes_written,
         verification,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        proof_state,
+        status_message,
+        active_phase: "done".into(),
+        completed_phase_count: phases.len(),
+        phase_count,
+        remaining_phase_count: 0,
+        progress_pct: ((phases.len() as f32 / phase_count as f32) * 100.0).min(100.0),
+        next_phase: None,
+        progress_events,
+        phases,
         elapsed_ms,
     })
+}
+
+fn emit_apply_batch_progress(state: &SessionState, event: &surgical::ApplyBatchProgressEvent) {
+    if let Some(sink) = state.apply_batch_progress_sink.as_ref() {
+        sink(event);
+    }
+}
+
+fn apply_batch_next_step(
+    all_succeeded: bool,
+    reingested: bool,
+    verification: Option<&surgical::VerificationReport>,
+    results: &[surgical::BatchEditResult],
+) -> (Option<String>, Option<String>, Option<String>, String) {
+    let first_written = results
+        .iter()
+        .find(|result| result.success)
+        .map(|result| result.file_path.clone());
+    let first_failed = results
+        .iter()
+        .find(|result| !result.success)
+        .map(|result| result.file_path.clone());
+
+    if !all_succeeded {
+        let target = first_failed.or(first_written);
+        return (
+            Some("view".into()),
+            target,
+            Some("Inspect the failed or partial write target before retrying the batch.".into()),
+            "blocked".into(),
+        );
+    }
+
+    if let Some(report) = verification {
+        let hotspot_target = report
+            .high_impact_files
+            .first()
+            .map(|impact| impact.file_path.clone())
+            .or_else(|| first_written.clone());
+        return match report.verdict.as_str() {
+            "BROKEN" => (
+                Some("view".into()),
+                hotspot_target,
+                Some("Verification found a broken outcome; inspect the leading file before making more edits.".into()),
+                "blocked".into(),
+            ),
+            "RISKY" => (
+                Some("heuristics_surface".into()),
+                hotspot_target,
+                Some("Verification is risky; inspect the highest-impact file before continuing the edit loop.".into()),
+                "proving".into(),
+            ),
+            _ => (
+                None,
+                first_written,
+                Some("Batch verification came back safe; the edit set is ready for follow-up work if needed.".into()),
+                "ready_to_edit".into(),
+            ),
+        };
+    }
+
+    if reingested {
+        return (
+            Some("validate_plan".into()),
+            first_written,
+            Some("The batch wrote successfully, but it still needs a verification pass before promotion.".into()),
+            "triaging".into(),
+        );
+    }
+
+    (
+        Some("view".into()),
+        first_written,
+        Some("The batch wrote files, but re-ingest did not complete; inspect the touched file before trusting graph state.".into()),
+        "blocked".into(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -2812,6 +3474,7 @@ mod tests {
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::{Graph, NodeProvenanceInput};
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+    use std::sync::{Arc, Mutex};
 
     fn build_surgical_state(root: &std::path::Path, file_path: &str) -> SessionState {
         let runtime_dir = root.join("runtime");
@@ -2886,6 +3549,126 @@ mod tests {
                 FiniteF32::new(0.8),
             )
             .expect("add edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    fn build_surgical_state_with_doc_noise(
+        root: &std::path::Path,
+        file_path: &str,
+    ) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let primary = graph
+            .add_node(
+                &format!("file::{}", file_path),
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add primary node");
+        graph.set_node_provenance(
+            primary,
+            NodeProvenanceInput {
+                source_path: Some(file_path),
+                line_start: Some(1),
+                line_end: Some(12),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        let code_path = root.join("src/dependent.rs");
+        std::fs::create_dir_all(code_path.parent().expect("dependent parent"))
+            .expect("mk dependent parent");
+        std::fs::write(&code_path, "pub fn dependent() {}\n").expect("write dependent file");
+        let code_str = code_path.to_string_lossy().to_string();
+        let code = graph
+            .add_node(
+                &format!("file::{}", code_str),
+                "dependent.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add code node");
+        graph.set_node_provenance(
+            code,
+            NodeProvenanceInput {
+                source_path: Some(&code_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        let doc_path = root.join("EXAMPLES.md");
+        std::fs::write(&doc_path, "# examples\n").expect("write doc file");
+        let doc_str = doc_path.to_string_lossy().to_string();
+        let doc = graph
+            .add_node(
+                &format!("file::{}", doc_str),
+                "EXAMPLES.md",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add doc node");
+        graph.set_node_provenance(
+            doc,
+            NodeProvenanceInput {
+                source_path: Some(&doc_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+
+        graph
+            .add_edge(
+                primary,
+                code,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add core->code edge");
+        graph
+            .add_edge(
+                primary,
+                doc,
+                "documents",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.95),
+            )
+            .expect("add core->doc edge");
         graph.finalize().expect("finalize graph");
 
         let mut state =
@@ -3008,6 +3791,45 @@ mod tests {
 
         let resolved = resolve_file_path("src/new_file.rs", &roots);
         assert_eq!(resolved, root2.path().join("src/new_file.rs"));
+    }
+
+    #[test]
+    fn test_validate_path_safety_no_ingest_roots_has_recovery_hint() {
+        let err = validate_path_safety(Path::new("/tmp/example.rs"), &[]).expect_err("must fail");
+        let msg = format!("{}", err);
+        assert!(msg.contains("no ingest roots configured"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("m1nd.ingest"));
+    }
+
+    #[test]
+    fn test_validate_path_safety_protected_file_has_recovery_hint() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let protected = root.path().join("graph.json");
+        std::fs::write(&protected, "{}").expect("write protected");
+        let roots = vec![root.path().to_string_lossy().to_string()];
+
+        let err = validate_path_safety(&protected, &roots).expect_err("must fail");
+        let msg = format!("{}", err);
+        assert!(msg.contains("protected m1nd state file"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("workspace"));
+    }
+
+    #[test]
+    fn test_validate_path_safety_outside_root_has_recovery_hint() {
+        let root = tempfile::tempdir().expect("root");
+        let other = tempfile::tempdir().expect("other");
+        let path = other.path().join("src/outside.rs");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&path, "pub fn outside() {}\n").expect("write");
+        let roots = vec![root.path().to_string_lossy().to_string()];
+
+        let err = validate_path_safety(&path, &roots).expect_err("must fail");
+        let msg = format!("{}", err);
+        assert!(msg.contains("outside allowed workspace roots"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("ingested workspace roots"));
     }
 
     #[test]
@@ -3183,6 +4005,31 @@ mod tests {
     }
 
     #[test]
+    fn test_heuristics_surface_missing_target_has_recovery_hint() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let file_path = temp.path().join("src/core.rs");
+        std::fs::create_dir_all(file_path.parent().expect("parent")).expect("mk parent");
+        std::fs::write(&file_path, "pub fn core() {}\n").expect("write core");
+        let file_path_str = file_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(temp.path(), &file_path_str);
+
+        let err = handle_heuristics_surface(
+            &mut state,
+            surgical::HeuristicsSurfaceInput {
+                agent_id: "test".into(),
+                node_id: None,
+                file_path: None,
+            },
+        )
+        .expect_err("missing target must fail");
+
+        let msg = format!("{}", err);
+        assert!(msg.contains("provide node_id or file_path"));
+        assert!(msg.contains("Hint:"));
+        assert!(msg.contains("Example:"));
+    }
+
+    #[test]
     fn test_surgical_context_v2_surfaces_connected_file_heuristics() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
@@ -3234,6 +4081,7 @@ mod tests {
                 include_tests: true,
                 max_connected_files: 5,
                 max_lines_per_file: 60,
+                proof_focused: false,
             },
         )
         .expect("surgical context v2");
@@ -3250,6 +4098,257 @@ mod tests {
         assert!(summary.risk_score > 0.0);
         assert!(summary.heuristic_signals.trust_risk_multiplier >= 1.0);
         assert!(summary.heuristic_signals.tremor_observation_count >= 3);
+    }
+
+    #[test]
+    fn test_surgical_context_v2_prefers_code_over_doc_noise_when_slots_are_tight() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.rs");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "pub fn core() {\n    dependent();\n}\n")
+            .expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state_with_doc_noise(root, &primary_str);
+
+        let output = handle_surgical_context_v2(
+            &mut state,
+            surgical::SurgicalContextV2Input {
+                file_path: primary_str,
+                agent_id: "test".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+                max_connected_files: 1,
+                max_lines_per_file: 60,
+                proof_focused: false,
+            },
+        )
+        .expect("surgical context v2");
+
+        assert_eq!(output.connected_files.len(), 1);
+        assert!(
+            output.connected_files[0]
+                .file_path
+                .ends_with("src/dependent.rs"),
+            "code neighbor should outrank markdown noise when slots are limited"
+        );
+    }
+
+    #[test]
+    fn test_surgical_context_v2_proof_focused_compacts_connected_payload() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.rs");
+        let caller_path = root.join("src/caller.rs");
+        let callee_path = root.join("src/dependent.rs");
+        let test_path = root.join("tests/core_test.rs");
+        let doc_path = root.join("docs/reference.md");
+
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::create_dir_all(test_path.parent().expect("test parent")).expect("mk test parent");
+        std::fs::create_dir_all(doc_path.parent().expect("doc parent")).expect("mk doc parent");
+
+        let long_source: String = (1..=80).map(|i| format!("line {}\n", i)).collect();
+        std::fs::write(&primary_path, &long_source).expect("write primary");
+        std::fs::write(&caller_path, &long_source).expect("write caller");
+        std::fs::write(&callee_path, &long_source).expect("write callee");
+        std::fs::write(&test_path, &long_source).expect("write test");
+        std::fs::write(&doc_path, "# reference\n").expect("write doc");
+
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let caller_str = caller_path.to_string_lossy().to_string();
+        let callee_str = callee_path.to_string_lossy().to_string();
+        let test_str = test_path.to_string_lossy().to_string();
+        let doc_str = doc_path.to_string_lossy().to_string();
+
+        let mut graph = Graph::new();
+        let primary = graph
+            .add_node(
+                &format!("file::{}", primary_str),
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add primary");
+        let caller = graph
+            .add_node(
+                &format!("file::{}", caller_str),
+                "caller.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add caller");
+        let callee = graph
+            .add_node(
+                &format!("file::{}", callee_str),
+                "dependent.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add callee");
+        let test = graph
+            .add_node(
+                &format!("file::{}", test_str),
+                "core_test.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add test");
+        let doc = graph
+            .add_node(
+                &format!("file::{}", doc_str),
+                "reference.md",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add doc");
+
+        for (node, path) in [
+            (primary, primary_str.as_str()),
+            (caller, caller_str.as_str()),
+            (callee, callee_str.as_str()),
+            (test, test_str.as_str()),
+            (doc, doc_str.as_str()),
+        ] {
+            graph.set_node_provenance(
+                node,
+                NodeProvenanceInput {
+                    source_path: Some(path),
+                    line_start: Some(1),
+                    line_end: Some(80),
+                    excerpt: None,
+                    namespace: None,
+                    canonical: true,
+                },
+            );
+        }
+
+        graph
+            .add_edge(
+                caller,
+                primary,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.9),
+            )
+            .expect("add caller edge");
+        graph
+            .add_edge(
+                primary,
+                callee,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.85),
+            )
+            .expect("add callee edge");
+        graph
+            .add_edge(
+                primary,
+                test,
+                "test-covers",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add test edge");
+        graph
+            .add_edge(
+                primary,
+                doc,
+                "documents",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.95),
+            )
+            .expect("add doc edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+
+        let output = handle_surgical_context_v2(
+            &mut state,
+            surgical::SurgicalContextV2Input {
+                file_path: primary_str.clone(),
+                agent_id: "test".into(),
+                symbol: None,
+                radius: 1,
+                include_tests: true,
+                max_connected_files: 8,
+                max_lines_per_file: 60,
+                proof_focused: true,
+            },
+        )
+        .expect("surgical context v2");
+
+        assert_eq!(output.connected_files.len(), 3);
+        assert!(
+            output
+                .connected_files
+                .iter()
+                .all(|file| file.excerpt_lines <= 25),
+            "proof-focused mode should cap connected excerpts aggressively"
+        );
+        assert!(output
+            .connected_files
+            .iter()
+            .any(|file| file.relation_type == "caller"));
+        assert!(output
+            .connected_files
+            .iter()
+            .any(|file| file.relation_type == "callee"));
+        assert!(output
+            .connected_files
+            .iter()
+            .any(|file| file.relation_type == "test"));
+        assert!(
+            output
+                .connected_files
+                .iter()
+                .all(|file| !file.file_path.ends_with("reference.md")),
+            "proof-focused mode should keep proof files over documentation noise"
+        );
+        assert_eq!(output.next_suggested_tool.as_deref(), Some("validate_plan"));
+        assert_eq!(
+            output.next_suggested_target.as_deref(),
+            Some(primary_str.as_str())
+        );
+        assert_eq!(output.proof_state, "proving");
+        assert!(output
+            .next_step_hint
+            .as_deref()
+            .is_some_and(|hint| hint.contains("Run validate_plan next before editing")));
     }
 
     #[test]
@@ -3308,8 +4407,7 @@ mod tests {
         let verification = output.verification.expect("verification should be present");
         let impact = verification
             .high_impact_files
-            .iter()
-            .next()
+            .first()
             .expect("at least one impact entry should be present");
         let summary = impact
             .heuristic_summary
@@ -3317,6 +4415,15 @@ mod tests {
             .expect("heuristic summary should be present");
         assert!(summary.risk_score > 0.0);
         assert!(summary.heuristic_signals.tremor_observation_count >= 3);
+        let surface_ref = impact
+            .heuristics_surface_ref
+            .as_ref()
+            .expect("heuristics surface ref should be present");
+        assert!(
+            surface_ref.file_path.ends_with("src/core.rs"),
+            "surface ref should point at the modified file"
+        );
+        assert_eq!(surface_ref.node_id, impact.node_id);
     }
 
     #[test]
@@ -3374,5 +4481,137 @@ mod tests {
 
         let verification = output.verification.expect("verification should be present");
         assert_eq!(verification.verdict, "RISKY");
+    }
+
+    #[test]
+    fn test_apply_batch_guides_next_step_from_verification_verdict() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let now = 50_000.0;
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 60.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.0,
+            4,
+            now - 50.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.1,
+            4,
+            now - 40.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.2,
+            4,
+            now - 30.0,
+        );
+
+        let output = handle_apply_batch(
+            &mut state,
+            surgical::ApplyBatchInput {
+                agent_id: "test".into(),
+                edits: vec![surgical::BatchEditItem {
+                    file_path: primary_str.clone(),
+                    new_content: "def core():\n    return 2\n".into(),
+                    description: Some("update return".into()),
+                }],
+                atomic: true,
+                reingest: true,
+                verify: true,
+            },
+        )
+        .expect("apply batch");
+
+        assert_eq!(output.proof_state, "proving");
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("heuristics_surface")
+        );
+        let done_event = output
+            .progress_events
+            .last()
+            .expect("apply_batch should emit a final progress event");
+        assert_eq!(done_event.event_type, "batch_completed");
+        assert_eq!(done_event.proof_state.as_deref(), Some("proving"));
+        assert_eq!(
+            done_event.next_suggested_tool.as_deref(),
+            Some("heuristics_surface")
+        );
+        assert!(
+            output
+                .next_suggested_target
+                .as_deref()
+                .is_some_and(|target| target.ends_with("src/core.py")),
+            "next suggested target should point at the modified file"
+        );
+        assert!(output
+            .next_step_hint
+            .as_deref()
+            .is_some_and(|hint| hint.contains("highest-impact file")));
+    }
+
+    #[test]
+    fn test_apply_batch_emits_progress_to_live_sink() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = captured.clone();
+        state.apply_batch_progress_sink = Some(Arc::new(move |event| {
+            sink_events
+                .lock()
+                .expect("capture lock")
+                .push((event.phase.clone(), event.progress_pct));
+        }));
+
+        let _output = handle_apply_batch(
+            &mut state,
+            surgical::ApplyBatchInput {
+                agent_id: "test".into(),
+                edits: vec![surgical::BatchEditItem {
+                    file_path: primary_str,
+                    new_content: "def core():\n    return 2\n".into(),
+                    description: Some("update return".into()),
+                }],
+                atomic: true,
+                reingest: false,
+                verify: false,
+            },
+        )
+        .expect("apply batch");
+
+        let events = captured.lock().expect("capture lock");
+        assert!(
+            events.iter().any(|(phase, _)| phase == "validate"),
+            "live sink should receive validate phase"
+        );
+        assert!(
+            events.iter().any(|(phase, _)| phase == "write"),
+            "live sink should receive write phase"
+        );
+        assert!(
+            events.iter().any(|(phase, _)| phase == "done"),
+            "live sink should receive done phase"
+        );
     }
 }

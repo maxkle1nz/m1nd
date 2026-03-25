@@ -1,0 +1,27 @@
+[
+  {
+    "tool_name": "m1nd.surgical_context_v2",
+    "query": "normalized scope edit prep proof focused",
+    "elapsed_ms": 2.4,
+    "payload_chars": 990,
+    "proof_state": "proving",
+    "next_suggested_tool": "validate_plan",
+    "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
+    "next_tool_used": "validate_plan",
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs",
+      "m1nd-mcp/src/surgical_handlers.rs"
+    ],
+    "notes": "proof-focused edit prep now recommends validate_plan directly when connected proof suggests a coupled edit and marks the flow as proving instead of leaving stage implicit."
+  },
+  {
+    "tool_name": "m1nd.validate_plan",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 1.8,
+    "payload_chars": 560,
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs",
+      "m1nd-mcp/src/protocol/surgical.rs"
+    ]
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_trace_root_cause_triage",
+  "scenario_name": "Warm trace-guided root-cause triage",
+  "repo_path": ".",
+  "question": "Start from a stacktrace, identify the most likely structural suspect, and continue into the right file without manual frame chasing.",
+  "tags": ["warm-graph", "trace", "triage", "root-cause"],
+  "expected_strength": "strong"
+}

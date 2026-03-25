@@ -84,19 +84,19 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
             "hypothesize(claim) to test a theory".into(),
         ],
         "impact" => vec![
-            "validate_plan(files) to verify changes".into(),
+            "view(next_suggested_target) to inspect the strongest downstream seam".into(),
+            "validate_plan(files) before touching a high-blast seam".into(),
             "counterfactual(node) to simulate removal".into(),
-            "predict(changed_node) for co-change likelihood".into(),
         ],
         "hypothesize" => vec![
-            "missing(query) to find structural holes".into(),
-            "trace(error) to follow dependency chain".into(),
-            "learn(feedback) to confirm/deny".into(),
+            "view(next_suggested_target) to inspect the strongest proof target".into(),
+            "timeline(next_suggested_target) when historical proof is missing".into(),
+            "validate_plan(files) when the claim is strong enough to shape an edit".into(),
         ],
         "surgical_context" | "surgical_context_v2" => vec![
+            "validate_plan(files) to ground the coupled edit surface".into(),
             "edit_preview(file, content) to preview changes before writing".into(),
-            "apply(file, content) to make changes directly".into(),
-            "apply_batch(edits) for multiple files".into(),
+            "apply_batch(edits) for multiple files after proof".into(),
         ],
         "edit_preview" => {
             vec!["edit_commit(preview_id, confirm=true) to apply the previewed change".into()]
@@ -170,9 +170,16 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
         "impact" => {
             let total = result
                 .get("blast_radius")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            format!("{} nodes in blast radius. careful here.", total)
+                .and_then(|v| v.as_array())
+                .map_or(0, |a| a.len());
+            let proof_state = result
+                .get("proof_state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("triaging");
+            format!(
+                "{} nodes in blast radius. proof_state={}. follow the downstream seam next.",
+                total, proof_state
+            )
         }
         "search" => {
             let count = result
@@ -289,6 +296,293 @@ pub struct ToolDoc {
     pub next: &'static [&'static str],
 }
 
+fn when_to_use(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "search" => &[
+            "Use when you already know the text, regex, or exact identifier you want.",
+            "Best for precise string matching, scoped grep, and quick confirmation.",
+        ],
+        "seek" => &[
+            "Use when you know the intent but not the exact symbol or filename.",
+            "Best for natural-language retrieval before opening a likely file.",
+        ],
+        "glob" => &[
+            "Use when the question is mainly about filenames or path patterns.",
+            "Best for narrowing a file set before search, view, or surgical tools.",
+        ],
+        "trace" => &[
+            "Use when you have an error or stacktrace and need the most likely file to inspect next.",
+            "Best for turning failure text into a guided triage path.",
+        ],
+        "hypothesize" => &[
+            "Use when you want to test a structural claim instead of manually proving it with grep.",
+            "Best for yes-or-no dependency/path questions before editing.",
+        ],
+        "validate_plan" => &[
+            "Use before a connected or risky edit when you want gaps, hotspots, and the next proof step.",
+            "Best for deciding whether an edit plan is still proving or ready to execute.",
+        ],
+        "surgical_context_v2" => &[
+            "Use when you need the target file plus connected proof files in one edit-prep surface.",
+            "Best for compact multi-file grounding before validate_plan or apply_batch.",
+        ],
+        "trail_resume" => &[
+            "Use when you are resuming an earlier investigation and want the next likely move, not just raw history.",
+            "Best for continuity across long-running agent work.",
+        ],
+        "timeline" => &[
+            "Use when the question is historical: what changed, when, and with what nearby churn.",
+            "Best for commit history and co-change proof on a file.",
+        ],
+        "apply_batch" => &[
+            "Use when you already know the multi-file edit set and want one write, one re-ingest, and one verdict.",
+            "Best for execution after plan/proof, not for discovery.",
+        ],
+        _ => &[
+            "Use when this tool is the shortest path to the answer you need right now.",
+        ],
+    }
+}
+
+fn avoid_when(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "search" => &[
+            "Avoid when the problem is structural and you do not know the right text yet.",
+        ],
+        "seek" => &[
+            "Avoid when you already have an exact string, regex, or filename.",
+        ],
+        "glob" => &[
+            "Avoid when you need semantic or structural ranking instead of filename matching.",
+        ],
+        "trace" => &[
+            "Avoid when you do not have failure text or when simple compiler output already points to one file.",
+        ],
+        "hypothesize" => &[
+            "Avoid when a direct literal search or file read already settles the question cheaply.",
+        ],
+        "validate_plan" => &[
+            "Avoid as the first move when you still do not know the edit surface.",
+        ],
+        "surgical_context_v2" => &[
+            "Avoid for one-file questions where view or surgical_context is enough.",
+        ],
+        "trail_resume" => &[
+            "Avoid when you are not resuming prior work or when the trail is clearly irrelevant.",
+        ],
+        "timeline" => &[
+            "Avoid when you need runtime truth or current code shape rather than git history.",
+        ],
+        "apply_batch" => &[
+            "Avoid while you are still discovering the plan or proving the target files.",
+        ],
+        _ => &["Avoid when a simpler tool answers the question more directly."],
+    }
+}
+
+fn agent_notes(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "Read proof_state before editing: triaging means inspect next, not patch yet.",
+            "Prefer next_suggested_tool and next_suggested_target over manual follow-up guesses.",
+        ],
+        "hypothesize" => &[
+            "Use proof_state to separate a strong structural handoff from an inconclusive one.",
+        ],
+        "validate_plan" => &[
+            "Read proof_hint and next_step_hint before calling more tools.",
+            "A proving state means keep gathering evidence; ready_to_edit means the plan is grounded enough to proceed.",
+        ],
+        "surgical_context_v2" => &[
+            "proof_focused=true is for compact edit proof, not wide exploration.",
+            "Use proof_state plus next_suggested_tool to decide whether to keep proving or move into execution.",
+        ],
+        "trail_resume" => &[
+            "Treat this as continuity assist on the current graph, not perfect replay of old agent state.",
+            "Prefer the returned next_focus_node_id and next_suggested_tool over a fresh search loop.",
+        ],
+        "timeline" => &[
+            "Timeline is historical proof on files; it does not replace runtime or compiler truth.",
+        ],
+        "impact" => &[
+            "Read proof_state before editing: triaging means inspect the seam first, not patch yet.",
+            "Use next_suggested_target as the downstream seam to inspect before widening the edit.",
+        ],
+        "apply_batch" => &[
+            "Use status_message and phases to drive shell/UI progress.",
+            "Use active_phase, completed_phase_count, phase_count, remaining_phase_count, progress_pct, and next_phase for coarse progress without reconstructing the phase timeline yourself.",
+            "Each phase can carry phase_index, current_file, progress_pct, and next_phase for better progress rendering.",
+            "progress_events mirrors the same lifecycle in a streaming-friendly event shape for future MCP emission.",
+            "Read proof_state plus next_suggested_tool after the batch finishes; apply_batch now hands off the next verification or inspection step instead of only returning a verdict.",
+        ],
+        _ => &[],
+    }
+}
+
+fn error_recovery_notes(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "search" => &[
+            "If search says scope/path is wrong, retry with a graph-relative scope or let auto-ingest resolve the path first.",
+            "If search returns mostly fixture noise, tighten scope before reformulating the query.",
+        ],
+        "seek" => &[
+            "If seek drifts, switch to search when you already know an exact string, or activate when you need neighborhood rather than ranking.",
+            "Treat a weak semantic hit as a hint to inspect, not as proof to edit.",
+        ],
+        "trace" => &[
+            "If trace says the failure text is too weak, pass the full error output instead of only the exception headline.",
+            "If trace cannot ground the path, fall back to view on the top suspect or timeline for historical proof.",
+        ],
+        "impact" => &[
+            "If impact cannot ground the seam, inspect the suggested downstream file before widening the edit plan.",
+            "If the blast set feels too broad, move into validate_plan instead of opening more files blindly.",
+        ],
+        "validate_plan" => &[
+            "If validate_plan says the edit surface is unresolved, gather proof with surgical_context_v2 or seek before retrying.",
+            "If the plan is still proving, treat the returned next_step_hint as the shortest path to a stronger retry.",
+        ],
+        "surgical_context_v2" => &[
+            "If the payload is too wide, retry with proof_focused=true or narrow to a symbol before opening more files.",
+            "If connected tests are missing, use validate_plan to ask for test impact rather than guessing test files manually.",
+        ],
+        "trail_resume" => &[
+            "If the trail is stale or thin, use the resume hints as a compact restart plan instead of rebuilding the whole investigation from scratch.",
+            "If there is no next focus, resume into search or activate rather than reopening every prior file.",
+        ],
+        _ => &[
+            "When a tool fails, look for the hint, example, and next-step guidance before reformulating from scratch.",
+            "If the current tool is a bad fit, switch tools instead of forcing a second weak retry.",
+        ],
+    }
+}
+
+fn benchmark_notes(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "Usually strong for warm-graph triage and fast first-good-answer on failure text.",
+            "Not a replacement for compiler/runtime truth; use it to narrow the next file fast.",
+        ],
+        "trail_resume" => &[
+            "Usually one of the strongest continuity wins in the benchmark corpus.",
+            "Best when avoiding rediscovery matters more than replaying every old thought exactly.",
+        ],
+        "validate_plan" => &[
+            "Usually strong for compact proof handoff before risky edits.",
+            "Best read as planning/proof guidance, not as a universal speed win on tiny edits.",
+        ],
+        "surgical_context_v2" => &[
+            "Usually strong for compact connected edit prep, especially with proof_focused=true.",
+            "Benchmark wins here are mostly about payload quality and clarity, not always zero search steps.",
+        ],
+        "seek" => &[
+            "Usually strong when intent is known but exact text is not.",
+            "Use search instead when exact text or regex is already obvious.",
+        ],
+        "impact" => &[
+            "Usually useful for guided blast-radius follow-up and downstream seam selection.",
+            "The main win is better follow-up targeting, not proving every dependency alone.",
+        ],
+        "hypothesize" => &[
+            "Usually strong for structural yes-or-no questions and proof-target handoff.",
+            "Best when grep would require several manual path checks to settle the claim.",
+        ],
+        "apply_batch" => &[
+            "Benchmark value here is mostly safety, verification, and better progress UX.",
+            "Use after discovery and proof; this is execution, not exploration.",
+            "The newer wins here are about observability and handoff quality, not only token savings.",
+        ],
+        "timeline" => &[
+            "Usually strongest when historical proof is the missing piece after localization.",
+            "Less useful when the question is current code shape rather than git history.",
+        ],
+        "search" => &[
+            "Usually best for exact text and cheap confirmation, not as a headline m1nd differentiator.",
+        ],
+        "glob" => &[
+            "Usually best as a cheap narrowing step before more semantic or structural tools.",
+        ],
+        _ => &[],
+    }
+}
+
+fn workflow_patterns(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "trace -> view -> surgical_context_v2",
+            "trace -> timeline when the missing piece is historical proof",
+        ],
+        "trail_resume" => &[
+            "trail_resume -> next_suggested_tool",
+            "trail_resume -> timeline for temporal follow-up",
+        ],
+        "validate_plan" => &[
+            "validate_plan -> heuristics_surface -> apply_batch",
+            "validate_plan -> surgical_context_v2 when the edit surface is still too implicit",
+        ],
+        "surgical_context_v2" => &[
+            "surgical_context_v2 -> validate_plan -> apply_batch",
+            "surgical_context_v2(proof_focused=true) -> validate_plan for compact edit proof",
+        ],
+        "seek" => &[
+            "seek -> view on the winning file",
+            "seek -> surgical_context_v2 when the retrieved seam looks coupled",
+        ],
+        "impact" => &[
+            "impact -> view on the strongest downstream target",
+            "impact -> validate_plan before touching a high-blast seam",
+        ],
+        "hypothesize" => &[
+            "hypothesize -> view or timeline on the strongest proof target",
+            "hypothesize -> validate_plan when the claim is strong enough to shape an edit",
+        ],
+        "apply_batch" => &[
+            "validate_plan -> heuristics_surface -> apply_batch(verify=true)",
+            "apply_batch -> next_suggested_tool when verification says the batch still needs review",
+        ],
+        "timeline" => &["trace or trail_resume -> timeline -> view"],
+        _ => &[],
+    }
+}
+
+fn state_handoffs(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "trace" => &[
+            "triaging: inspect the suggested file next; do not patch yet.",
+            "ready_to_edit: rare here; only trust it when the causal path is already strong.",
+        ],
+        "hypothesize" => &[
+            "proving: gather the strongest proof target before turning the claim into an edit plan.",
+            "ready_to_edit: the structural claim is grounded enough to shape a concrete change.",
+        ],
+        "validate_plan" => &[
+            "proving: keep collecting proof on the risky seam before writing.",
+            "ready_to_edit: the plan is grounded enough to execute.",
+        ],
+        "surgical_context_v2" => &[
+            "triaging: you have context, but not enough proof to commit to a coupled edit yet.",
+            "proving: the connected edit surface is grounded; validate or verify before writing.",
+            "ready_to_edit: the edit surface is compact and sufficiently settled for execution.",
+        ],
+        "seek" => &[
+            "triaging: the semantic hit is promising, but you still need to inspect the winning file.",
+            "proving: the winning target is strong enough to move into file-level proof next.",
+            "ready_to_edit: rare here; only trust it when retrieval lands on one dominant file-level target.",
+        ],
+        "impact" => &[
+            "triaging: inspect the strongest downstream seam before turning blast radius into a plan.",
+            "proving: the blast pattern is strong enough to validate the change against the impacted target next.",
+            "ready_to_edit: rare here; only trust it when the causal chain is strong and specific enough to ground the seam.",
+        ],
+        "apply_batch" => &[
+            "blocked: inspect the failed or broken target before retrying or promoting the batch.",
+            "triaging: the batch wrote cleanly, but it still needs a verification pass before you trust it.",
+            "proving: the batch finished, but the verification verdict is still risky and needs hotspot review.",
+            "ready_to_edit: the batch verification is strong enough that follow-up work can continue safely.",
+        ],
+        _ => &[],
+    }
+}
+
 /// Get all tool documentation entries.
 pub fn tool_docs() -> Vec<ToolDoc> {
     vec![
@@ -330,9 +624,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     false,
                 ),
             ],
-            returns: "Blast radius, depth distribution, causal chains",
+            returns: "Blast radius, causal chains, proof_state, and guided next-step target",
             example: r#"{"node_id": "file::backend/chat_handler.py", "agent_id": "jimi"}"#,
-            next: &["validate_plan", "counterfactual", "predict"],
+            next: &["view", "validate_plan", "counterfactual"],
         },
         ToolDoc {
             name: "missing",
@@ -564,27 +858,27 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             name: "hypothesize",
             category: "Extended",
             glyph: GLYPH_STRUCTURE,
-            one_liner: "Test a structural claim about the codebase",
+            one_liner: "Test a structural claim and surface the strongest next proof target",
             params: &[
                 ("claim", "Natural language claim", true),
                 ("agent_id", "Calling agent identifier", true),
             ],
-            returns: "Verdict (likely_true/likely_false/inconclusive), confidence, evidence",
+            returns: "Verdict, confidence, evidence, proof_state, and guided follow-up target",
             example: r#"{"claim": "chat_handler validates session tokens", "agent_id": "jimi"}"#,
-            next: &["missing", "learn"],
+            next: &["view", "timeline", "validate_plan"],
         },
         ToolDoc {
             name: "trace",
             category: "Extended",
             glyph: GLYPH_PATH,
-            one_liner: "Dependency chain tracing -- follow imports and calls",
+            one_liner: "Failure triage -- map error text to the best next file and proof stage",
             params: &[
                 ("query", "Start node or query", true),
                 ("agent_id", "Calling agent identifier", true),
             ],
-            returns: "Dependency chains with edge types",
+            returns: "Suspects, causal chain, proof_state, and guided next-step file",
             example: r#"{"query": "file::auth.py", "agent_id": "jimi"}"#,
-            next: &["impact", "hypothesize"],
+            next: &["view", "timeline", "surgical_context_v2"],
         },
         ToolDoc {
             name: "differential",
@@ -609,9 +903,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                 ("agent_id", "Calling agent identifier", true),
                 ("plan", "Array of file changes", true),
             ],
-            returns: "Validation result: conflicts, missing deps, risk assessment",
+            returns: "Validation result, proof_state, proof_hint, and guided next-step target",
             example: r#"{"plan": [{"file": "auth.py", "action": "modify"}], "agent_id": "jimi"}"#,
-            next: &["impact", "apply"],
+            next: &["heuristics_surface", "apply_batch", "surgical_context_v2"],
         },
         ToolDoc {
             name: "federate",
@@ -742,14 +1036,14 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             name: "surgical_context_v2",
             category: "Surgical",
             glyph: GLYPH_CONNECTION,
-            one_liner: "Enhanced context extraction with dependency resolution",
+            one_liner: "Connected edit prep -- compact proof-focused context before risky writes",
             params: &[
                 ("agent_id", "Calling agent identifier", true),
                 ("query", "What you need context for", true),
             ],
-            returns: "Code context with imports, dependencies, and types resolved",
+            returns: "Connected code context, proof_state, and guided next-step handoff",
             example: r#"{"query": "chat handler message routing", "agent_id": "jimi"}"#,
-            next: &["apply", "apply_batch"],
+            next: &["validate_plan", "apply_batch", "edit_preview"],
         },
         ToolDoc {
             name: "apply",
@@ -1194,7 +1488,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             category: "Trail",
             glyph: GLYPH_PATH,
             one_liner:
-                "Restore a saved investigation -- re-inject activation boosts, detect staleness",
+                "Resume an investigation with actionable continuity, next focus, and next tool",
             params: &[
                 ("agent_id", "Calling agent identifier", true),
                 ("trail_id", "Trail ID to resume", true),
@@ -1204,9 +1498,9 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     false,
                 ),
             ],
-            returns: "Restored state with staleness report, re-boosted nodes",
+            returns: "Restored state with staleness report, resume_hints, next_focus_node_id, and next_suggested_tool",
             example: r#"{"agent_id": "jimi", "trail_id": "trail-abc123"}"#,
-            next: &["activate", "trail_save", "perspective_start"],
+            next: &["timeline", "view", "activate"],
         },
         ToolDoc {
             name: "trail_merge",
@@ -1297,7 +1591,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
                     false,
                 ),
             ],
-            returns: "Formatted help text with params, examples, and NEXT suggestions",
+            returns: "Formatted help text with params, examples, next steps, workflows, and state handoffs",
             example: r#"{"agent_id": "jimi", "tool_name": "activate"}"#,
             next: &["activate", "ingest"],
         },
@@ -1418,6 +1712,14 @@ pub fn format_help_index() -> String {
         "{}use help(tool_name=\"activate\") for detailed help on any tool{}\n",
         ANSI_DIM, ANSI_RESET
     ));
+    out.push_str(&format!(
+        "{}decision guide: search=text, glob=filenames, seek=intent, trace=errors, validate_plan=edit risk, surgical_context_v2=connected edit prep{}\n",
+        ANSI_DIM, ANSI_RESET
+    ));
+    out.push_str(&format!(
+        "{}common errors should be treated as reroute hints: read the hint, example, and next-step guidance before retrying.{}\n",
+        ANSI_DIM, ANSI_RESET
+    ));
     out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — m1nd.help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
     out
 }
@@ -1466,9 +1768,83 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
     out.push_str(&format!("{}\u{234D} RETURNS{}\n", ANSI_GREEN, ANSI_RESET)); // ⍍
     out.push_str(&format!("  {}{}{}\n\n", ANSI_DIM, doc.returns, ANSI_RESET));
 
+    // When to use section
+    out.push_str(&format!(
+        "{}\u{25B7} WHEN TO USE{}\n",
+        ANSI_CYAN, ANSI_RESET
+    ));
+    for line in when_to_use(doc.name) {
+        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+    }
+    out.push('\n');
+
+    // Avoid when section
+    out.push_str(&format!("{}\u{26A0} AVOID WHEN{}\n", ANSI_RED, ANSI_RESET));
+    for line in avoid_when(doc.name) {
+        out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+    }
+    out.push('\n');
+
     // Example section
     out.push_str(&format!("{}\u{233C} EXAMPLE{}\n", ANSI_MAGENTA, ANSI_RESET)); // ⌼
     out.push_str(&format!("  {}{}{}\n\n", ANSI_DIM, doc.example, ANSI_RESET));
+
+    let notes = agent_notes(doc.name);
+    if !notes.is_empty() {
+        out.push_str(&format!(
+            "{}\u{2699} AGENT NOTES{}\n",
+            ANSI_GOLD, ANSI_RESET
+        ));
+        for line in notes {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let recovery = error_recovery_notes(doc.name);
+    if !recovery.is_empty() {
+        out.push_str(&format!(
+            "{}\u{21BB} ERROR RECOVERY{}\n",
+            ANSI_RED, ANSI_RESET
+        ));
+        for line in recovery {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let bench = benchmark_notes(doc.name);
+    if !bench.is_empty() {
+        out.push_str(&format!(
+            "{}\u{25C8} BENCHMARK TRUTH{}\n",
+            ANSI_MAGENTA, ANSI_RESET
+        ));
+        for line in bench {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let flows = workflow_patterns(doc.name);
+    if !flows.is_empty() {
+        out.push_str(&format!("{}\u{21AA} WORKFLOWS{}\n", ANSI_BLUE, ANSI_RESET));
+        for line in flows {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
+
+    let handoffs = state_handoffs(doc.name);
+    if !handoffs.is_empty() {
+        out.push_str(&format!(
+            "{}\u{21C4} STATE HANDOFF{}\n",
+            ANSI_GREEN, ANSI_RESET
+        ));
+        for line in handoffs {
+            out.push_str(&format!("  {}- {}{}\n", ANSI_DIM, line, ANSI_RESET));
+        }
+        out.push('\n');
+    }
 
     // Next section
     out.push_str(&format!("{}\u{2350} NEXT{}\n", ANSI_CYAN, ANSI_RESET)); // ⍐

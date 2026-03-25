@@ -1,0 +1,26 @@
+[
+  {
+    "tool_name": "shell.notes",
+    "query": "edit_commit failed because confirm=false; reread the preview contract and decide whether the existing preview can still be trusted",
+    "elapsed_ms": 1.3,
+    "payload_chars": 250
+  },
+  {
+    "tool_name": "shell.docs",
+    "query": "inspect edit_commit confirm semantics before retrying",
+    "elapsed_ms": 1.0,
+    "payload_chars": 220,
+    "surfaced_files": [
+      "m1nd-mcp/tests/test_edit_preview.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.edit_commit",
+    "query": "retry commit with confirm=true after manually interpreting the error",
+    "elapsed_ms": 1.4,
+    "payload_chars": 300,
+    "opened_files": [
+      "m1nd-mcp/tests/test_edit_preview.rs"
+    ]
+  }
+]

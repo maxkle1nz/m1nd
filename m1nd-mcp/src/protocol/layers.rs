@@ -83,7 +83,16 @@ pub struct SeekOutput {
     pub total_candidates_scanned: usize,
     /// Whether embeddings were used (false = fallback to trigram/semantic engine).
     pub embeddings_used: bool,
+    /// Coarse proof stage for semantic retrieval:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     pub elapsed_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 /// Shared heuristic metadata exposed by tools that apply trust/tremor priors.
@@ -238,6 +247,9 @@ pub struct TimelineInput {
 pub struct TimelineOutput {
     pub node: String,
     pub depth: String,
+    /// Coarse proof stage for temporal investigation:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     pub changes: Vec<TimelineChange>,
     pub co_changed_with: Vec<CoChangePartner>,
     /// "accelerating" | "decelerating" | "stable"
@@ -248,6 +260,12 @@ pub struct TimelineOutput {
     pub pattern: String,
     pub total_churn: ChurnSummary,
     pub commit_count_in_window: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
     pub elapsed_ms: f64,
 }
 
@@ -256,6 +274,7 @@ pub struct TimelineChange {
     pub date: String,
     pub commit: String,
     pub author: String,
+    pub subject: String,
     /// "+45/-12" format.
     pub delta: String,
     pub co_changed: Vec<String>,
@@ -443,6 +462,12 @@ pub struct TrailResumeInput {
     /// Resume even if trail is stale (>50% missing nodes). Default: false.
     #[serde(default)]
     pub force: bool,
+    /// Max reactivated node previews to return. Default: 5.
+    #[serde(default = "default_top_k_5")]
+    pub max_reactivated_nodes: usize,
+    /// Max resume hints to return. Default: 4.
+    #[serde(default = "default_top_k_4")]
+    pub max_resume_hints: usize,
 }
 
 /// Output for m1nd.trail.resume.
@@ -458,8 +483,18 @@ pub struct TrailResumeOutput {
     pub missing_nodes: Vec<String>,
     /// Number of nodes successfully re-activated via boost injection.
     pub nodes_reactivated: usize,
+    /// Preview of the strongest nodes reactivated into the graph state.
+    pub reactivated_node_ids: Vec<String>,
     /// Hypotheses that were downgraded due to missing supporting nodes.
     pub hypotheses_downgraded: Vec<String>,
+    /// Strongest node to continue investigating next, if one is available.
+    pub next_focus_node_id: Option<String>,
+    /// Highest-priority open question carried forward from the saved trail.
+    pub next_open_question: Option<String>,
+    /// Suggested next tool for continuing the investigation.
+    pub next_suggested_tool: Option<String>,
+    /// Suggested next prompts or moves for continuing the investigation.
+    pub resume_hints: Vec<String>,
     /// The full trail data.
     pub trail: TrailSummaryOutput,
     pub elapsed_ms: f64,
@@ -619,6 +654,9 @@ pub struct HypothesizeOutput {
     pub verdict: String,
     /// Bayesian posterior confidence [0.01, 0.99].
     pub confidence: f32,
+    /// Coarse proof stage for agent orchestration:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     pub supporting_evidence: Vec<HypothesisEvidence>,
     pub contradicting_evidence: Vec<HypothesisEvidence>,
     /// Partial flow: how far the search reached before stopping.
@@ -627,6 +665,12 @@ pub struct HypothesizeOutput {
     pub partial_reach: Option<Vec<PartialReachEntry>>,
     pub paths_explored: usize,
     pub elapsed_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 /// A single piece of evidence for or against a hypothesis.
@@ -758,6 +802,9 @@ pub struct TraceOutput {
     pub frames_parsed: usize,
     /// How many frames matched graph nodes.
     pub frames_mapped: usize,
+    /// Coarse proof stage for agent orchestration:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     /// Ranked suspects: most likely root cause first.
     pub suspects: Vec<TraceSuspect>,
     /// Files modified in the same temporal window as the top suspect.
@@ -765,6 +812,12 @@ pub struct TraceOutput {
     /// Causal chain from suspected root cause to error site.
     pub causal_chain: Vec<String>,
     pub fix_scope: TraceFixScope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
     /// Frames that could not be mapped to graph nodes.
     pub unmapped_frames: Vec<TraceUnmappedFrame>,
     pub elapsed_ms: f64,
@@ -873,12 +926,21 @@ pub struct ValidatePlanOutput {
     pub risk_score: f32,
     /// "low" (<0.3) | "medium" (<0.6) | "high" (<0.8) | "critical" (>=0.8)
     pub risk_level: String,
+    /// Coarse proof stage for agent orchestration:
+    /// "blocked" | "triaging" | "proving" | "ready_to_edit".
+    pub proof_state: String,
     pub test_coverage: PlanTestCoverage,
     /// Suggested additions to the plan.
     pub suggested_additions: Vec<PlanSuggestedAction>,
     pub blast_radius_total: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heuristic_summary: Option<PlanHeuristicSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
     pub elapsed_ms: f64,
 }
 
@@ -931,6 +993,7 @@ pub struct PlanHeuristicHotspot {
     /// "planned" | "gap"
     pub role: String,
     pub antibody_hits: usize,
+    pub proof_hint: String,
     pub heuristic_signals: HeuristicSignals,
     pub heuristics_surface_ref: HeuristicsSurfaceRef,
 }
@@ -1029,6 +1092,12 @@ pub struct FederateCrossRepoEdge {
 
 fn default_top_k() -> usize {
     20
+}
+fn default_top_k_5() -> usize {
+    5
+}
+fn default_top_k_4() -> usize {
+    4
 }
 fn default_top_k_10() -> usize {
     10
@@ -2019,6 +2088,8 @@ mod tests {
         let input: TrailResumeInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.trail_id, "trail_jimi_001_abc");
         assert!(!input.force);
+        assert_eq!(input.max_reactivated_nodes, 5);
+        assert_eq!(input.max_resume_hints, 4);
     }
 
     #[test]

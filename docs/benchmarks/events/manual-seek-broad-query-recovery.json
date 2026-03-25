@@ -1,0 +1,39 @@
+[
+  {
+    "tool_name": "shell.rg",
+    "query": "rg -n \"seek proof state fallback|l2_seek_proof_state|l2_seek_next_step\" m1nd-mcp/src",
+    "elapsed_ms": 2.0,
+    "payload_chars": 420,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs",
+      "m1nd-mcp/src/protocol/layers.rs"
+    ]
+  },
+  {
+    "tool_name": "shell.rg",
+    "query": "rg -n \"l2_seek_proof_state|l2_seek_next_step\" m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 1.1,
+    "payload_chars": 340,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "shell.view",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 0.8,
+    "payload_chars": 1100,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "shell.view",
+    "target": "m1nd-mcp/src/protocol/layers.rs",
+    "elapsed_ms": 0.7,
+    "payload_chars": 900,
+    "opened_files": [
+      "m1nd-mcp/src/protocol/layers.rs"
+    ]
+  }
+]

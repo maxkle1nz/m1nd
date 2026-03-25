@@ -1,5 +1,11 @@
 # Benchmarks
 
+For current benchmark research, warm-graph workflow findings, and next-patch backlog, see:
+
+- `docs/BENCHMARK_RESEARCH_2026-03-24.md`
+- `docs/BENCHMARK_PATCH_PLAN_2026-03-24.md`
+- `docs/BENCHMARK_HARNESS_SPEC_2026-03-24.md`
+
 All numbers in this document are from real execution against a production Python backend: 335 files, approximately 52,000 lines of code, producing a graph of 9,767 nodes and 26,557 edges.
 
 No synthetic benchmarks. No cherry-picked runs. These are the numbers you get when you run m1nd against a real codebase.

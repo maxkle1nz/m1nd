@@ -2,6 +2,49 @@
 
 All notable changes to m1nd are documented here. This project uses [Semantic Versioning](https://semver.org/).
 
+## Unreleased -- Guided Proof + Live Batch Progress
+
+This phase focuses on turning m1nd from a strong structural toolbox into a more
+agent-native system that can express state, hand off the next move, and expose
+execution progress during long-running writes.
+
+### Guided Proof State
+
+- `seek`, `trace`, `impact`, `timeline`, `hypothesize`, `validate_plan`, and
+  `surgical_context_v2` now expose `proof_state`
+- the main structural flows now also return `next_suggested_tool`,
+  `next_suggested_target`, and `next_step_hint`
+- `trail_resume` now returns more operational continuation data instead of only
+  restoring investigation memory
+
+### `apply_batch` Progress and Correlation
+
+- `apply_batch` now returns `batch_id`
+- progress is exposed through lifecycle fields, structured `phases`, and
+  streaming-friendly `progress_events`
+- serve mode now emits live `apply_batch_progress` SSE events during execution
+- live and replay transports now share stable batch correlation
+- the final `batch_completed` event now carries the batch’s `proof_state` and
+  next-step handoff fields
+
+### Benchmark System
+
+- the benchmark harness now distinguishes `execution_origin`
+- progress capture can now distinguish `live`, `replay`, and `snapshot`
+- the structural `apply_batch` benchmark now records live progress delivery
+- progress observability is now measured as a real product surface, not just
+  implied by logs or UI feel
+
+### Docs and Help
+
+- help entries are now more operational, with guidance on when to use a tool,
+  when not to use it, how benchmark truth applies, and what workflow usually
+  comes next
+- README, examples, and benchmark docs now reflect the current guided behavior
+  of `proof_state` and long-running write progress more accurately
+
+---
+
 ## v0.5.1 -- Ultra Edit Phase 1
 
 Two-phase transactional editing for LLM agents. Preview before you write.

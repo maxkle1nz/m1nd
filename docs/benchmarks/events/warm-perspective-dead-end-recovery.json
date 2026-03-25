@@ -1,0 +1,39 @@
+[
+  {
+    "tool_name": "m1nd.perspective_follow",
+    "query": "follow a perspective route into a leaf with no downstream routes",
+    "elapsed_ms": 1.4,
+    "payload_chars": 260,
+    "surfaced_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "hint": "Try perspective.back or start a new perspective",
+    "suggested_next_step": "Use `perspective_suggest` to confirm the recovery action for this exhausted branch, then restore the previous checkpoint with `perspective_back`.",
+    "next_suggested_tool": "perspective_suggest",
+    "next_tool_used": "perspective_suggest",
+    "recovery_followed": true,
+    "notes": "The dead-end diagnostic preserves investigation state and teaches the next recovery surface instead of forcing a fresh `perspective_start`."
+  },
+  {
+    "tool_name": "m1nd.perspective_suggest",
+    "query": "recover after perspective dead_end",
+    "elapsed_ms": 1.1,
+    "payload_chars": 240,
+    "hint": "No routes available at current focus",
+    "suggested_next_step": "Follow the recommended `perspective.back` action to restore the last checkpoint; `perspective.close` is only the fallback if the branch is fully exhausted.",
+    "next_suggested_tool": "perspective_back",
+    "next_tool_used": "perspective_back",
+    "recovery_followed": true,
+    "notes": "Suggest collapses the recovery choice into one explicit action instead of leaving the agent to infer whether to back out or restart."
+  },
+  {
+    "tool_name": "m1nd.perspective_back",
+    "query": "restore previous focus after dead-end",
+    "elapsed_ms": 1.3,
+    "payload_chars": 320,
+    "opened_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "notes": "The previous checkpoint is restored with fresh routes, so the investigation continues from the prior focus instead of starting over."
+  }
+]

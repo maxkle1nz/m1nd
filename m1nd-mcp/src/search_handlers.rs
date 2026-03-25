@@ -125,6 +125,56 @@ struct AutoIngestSearchState {
     scope_override: Option<String>,
 }
 
+fn search_query_empty_hint(scope: Option<&str>, filename_pattern: Option<&str>) -> String {
+    let mut hints = vec![
+        "query cannot be empty".to_string(),
+        "add exact text/regex to search content".to_string(),
+    ];
+    if scope.is_some() || filename_pattern.is_some() {
+        hints.push("for file/path discovery use m1nd.glob instead".to_string());
+    }
+    hints.push("for natural-language intent use m1nd.seek".to_string());
+    hints.join("; ")
+}
+
+fn invalid_filename_pattern_hint(pat: &str, err: &glob::PatternError) -> String {
+    format!(
+        "invalid filename pattern '{}': {}; use shell-style globs like '*.rs' or '**/*.py'; for exact path text use query+scope, and for file discovery use m1nd.glob",
+        pat, err
+    )
+}
+
+fn invalid_regex_hint(query: &str, err: &regex::Error) -> String {
+    format!(
+        "invalid regex: {}; escape regex metacharacters or switch to mode='literal' for exact text; query='{}'",
+        err, query
+    )
+}
+
+fn ambiguous_auto_ingest_scope_hint(
+    scope: &str,
+    candidates: &[AutoIngestScopeCandidate],
+) -> String {
+    let candidates_list = candidates
+        .iter()
+        .map(|path| path.resolved_path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "scope '{}' resolves to {} candidate paths: [{}]. Use a more specific or absolute scope, or disable auto_ingest if you only want to search current roots",
+        scope,
+        candidates.len(),
+        candidates_list
+    )
+}
+
+fn invalid_glob_pattern_hint(pattern: &str, err: &glob::PatternError) -> String {
+    format!(
+        "invalid glob pattern '{}': {}; use shell-style globs like 'src/**/*.rs' or '*.md'; for content search use m1nd.search instead",
+        pattern, err
+    )
+}
+
 #[derive(Clone, Copy)]
 enum SearchRankingMode {
     Literal,
@@ -140,10 +190,13 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
     let start = Instant::now();
 
     // Validate
-    if input.query.is_empty() {
+    if input.query.trim().is_empty() {
         return Err(M1ndError::InvalidParams {
             tool: "m1nd_search".into(),
-            detail: "query cannot be empty".into(),
+            detail: search_query_empty_hint(
+                input.scope.as_deref(),
+                input.filename_pattern.as_deref(),
+            ),
         });
     }
 
@@ -152,7 +205,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         Some(
             glob::Pattern::new(pat).map_err(|e| M1ndError::InvalidParams {
                 tool: "m1nd_search".into(),
-                detail: format!("invalid filename pattern '{}': {}", pat, e),
+                detail: invalid_filename_pattern_hint(pat, &e),
             })?,
         )
     } else {
@@ -263,7 +316,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             }
             .map_err(|e| M1ndError::InvalidParams {
                 tool: "m1nd_search".into(),
-                detail: format!("invalid regex: {}", e),
+                detail: invalid_regex_hint(&input.query, &e),
             })?;
 
             // Phase 1: Match node labels in graph (non-inverted only)
@@ -447,19 +500,9 @@ fn maybe_auto_ingest_search_scope(
     }
 
     if candidates.len() > 1 {
-        let candidates_list = candidates
-            .iter()
-            .map(|path| path.resolved_path.to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(", ");
         return Err(M1ndError::InvalidParams {
             tool: "m1nd_search".into(),
-            detail: format!(
-                "scope '{}' resolves to {} candidate paths: [{}]. Set a more specific scope.",
-                scope,
-                candidates.len(),
-                candidates_list
-            ),
+            detail: ambiguous_auto_ingest_scope_hint(scope, &candidates),
         });
     }
 
@@ -1068,8 +1111,50 @@ fn result_rank(entry: &SearchResultEntry, query_lower: &str, mode: SearchRanking
     if matches!(mode, SearchRankingMode::Semantic) {
         score += 10;
     }
+    if matches!(mode, SearchRankingMode::Literal) {
+        score -= fixture_noise_penalty(entry, query_lower);
+    }
 
     score
+}
+
+fn fixture_noise_penalty(entry: &SearchResultEntry, query_lower: &str) -> i32 {
+    let file_path = entry.file_path.to_lowercase();
+    let matched_line = entry.matched_line.to_lowercase();
+
+    let fixture_like_path = [
+        "/tests/",
+        "/test/",
+        "/fixtures/",
+        "/fixture/",
+        "/mocks/",
+        "/mock/",
+        "/examples/",
+        "/docs/",
+        "/samples/",
+    ]
+    .iter()
+    .any(|needle| file_path.contains(needle))
+        || file_path.ends_with("_test.rs")
+        || file_path.ends_with("_test.py")
+        || file_path.contains("fixture")
+        || file_path.contains("mock");
+
+    if !fixture_like_path {
+        return 0;
+    }
+
+    let hardcoded_identity_like = matched_line.contains("file::")
+        || matched_line.contains("node_")
+        || matched_line.contains("/src/")
+        || matched_line.contains("::fn::")
+        || matched_line.contains("::class::");
+
+    if hardcoded_identity_like && matched_line.contains(query_lower) {
+        260
+    } else {
+        80
+    }
 }
 
 fn exact_token_match(haystack: &str, needle: &str) -> bool {
@@ -1196,14 +1281,16 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
     if input.pattern.is_empty() {
         return Err(M1ndError::InvalidParams {
             tool: "m1nd_glob".into(),
-            detail: "pattern cannot be empty".into(),
+            detail:
+                "pattern cannot be empty; use shell-style globs like 'src/**/*.rs'; for content search use m1nd.search"
+                    .into(),
         });
     }
 
     let glob_pattern =
         glob::Pattern::new(&input.pattern).map_err(|e| M1ndError::InvalidParams {
             tool: "m1nd_glob".into(),
-            detail: format!("invalid glob pattern '{}': {}", input.pattern, e),
+            detail: invalid_glob_pattern_hint(&input.pattern, &e),
         })?;
 
     let top_k = (input.top_k as usize).clamp(1, 10_000);
@@ -1504,7 +1591,7 @@ mod tests {
         )
         .expect("write file");
 
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
         let input = SearchInput {
             agent_id: "jimi-codex".into(),
             query: "FALLBACK_TOKEN".into(),
@@ -1665,6 +1752,134 @@ mod tests {
         assert!(err_msg.contains("scope 'overlap/src' resolves to 2 candidate paths"));
         assert!(err_msg.contains("project-a"));
         assert!(err_msg.contains("project-b"));
+        assert!(err_msg.contains("absolute scope"));
+        assert!(err_msg.contains("disable auto_ingest"));
+    }
+
+    #[test]
+    fn search_empty_query_returns_agent_hint() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = SearchInput {
+            agent_id: "jimi-codex".into(),
+            query: "   ".into(),
+            mode: SearchMode::Literal,
+            scope: Some("src".into()),
+            top_k: 10,
+            case_sensitive: false,
+            context_lines: 0,
+            invert: false,
+            count_only: false,
+            multiline: false,
+            auto_ingest: false,
+            filename_pattern: Some("*.rs".into()),
+        };
+
+        let err = handle_search(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("query cannot be empty"));
+        assert!(err.contains("m1nd.glob"));
+        assert!(err.contains("m1nd.seek"));
+    }
+
+    #[test]
+    fn search_invalid_filename_pattern_suggests_glob_usage() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = SearchInput {
+            agent_id: "jimi-codex".into(),
+            query: "needle".into(),
+            mode: SearchMode::Literal,
+            scope: None,
+            top_k: 10,
+            case_sensitive: false,
+            context_lines: 0,
+            invert: false,
+            count_only: false,
+            multiline: false,
+            auto_ingest: false,
+            filename_pattern: Some("[".into()),
+        };
+
+        let err = handle_search(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("invalid filename pattern"));
+        assert!(err.contains("*.rs"));
+        assert!(err.contains("m1nd.glob"));
+    }
+
+    #[test]
+    fn search_invalid_regex_suggests_literal_mode() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = SearchInput {
+            agent_id: "jimi-codex".into(),
+            query: "(".into(),
+            mode: SearchMode::Regex,
+            scope: None,
+            top_k: 10,
+            case_sensitive: false,
+            context_lines: 0,
+            invert: false,
+            count_only: false,
+            multiline: false,
+            auto_ingest: false,
+            filename_pattern: None,
+        };
+
+        let err = handle_search(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("invalid regex"));
+        assert!(err.contains("mode='literal'"));
+        assert!(err.contains("escape regex metacharacters"));
+    }
+
+    #[test]
+    fn glob_empty_pattern_suggests_search_when_needed() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = GlobInput {
+            agent_id: "jimi-codex".into(),
+            pattern: "".into(),
+            scope: None,
+            top_k: 10,
+            sort: GlobSort::Path,
+        };
+
+        let err = handle_glob(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("pattern cannot be empty"));
+        assert!(err.contains("src/**/*.rs"));
+        assert!(err.contains("m1nd.search"));
+    }
+
+    #[test]
+    fn glob_invalid_pattern_suggests_content_search() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(&root).expect("root dir");
+        let mut state = build_state(&root);
+
+        let input = GlobInput {
+            agent_id: "jimi-codex".into(),
+            pattern: "[".into(),
+            scope: None,
+            top_k: 10,
+            sort: GlobSort::Path,
+        };
+
+        let err = handle_glob(&mut state, input).unwrap_err().to_string();
+        assert!(err.contains("invalid glob pattern"));
+        assert!(err.contains("src/**/*.rs"));
+        assert!(err.contains("m1nd.search"));
     }
 
     #[test]
@@ -1692,7 +1907,7 @@ mod tests {
     fn help_handler_resolves_aliases_to_canonical_tool_names() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
 
         let input = crate::protocol::layers::HelpInput {
             agent_id: "jimi-codex".into(),
@@ -1703,6 +1918,83 @@ mod tests {
         assert!(output.found);
         assert_eq!(output.tool.as_deref(), Some("activate"));
         assert!(output.formatted.contains("PARAMS"));
+    }
+
+    #[test]
+    fn help_handler_surfaces_decision_sections_for_known_tools() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(root);
+
+        let input = crate::protocol::layers::HelpInput {
+            agent_id: "jimi-codex".into(),
+            tool_name: Some("surgical_context_v2".into()),
+        };
+
+        let output = handle_help(&mut state, input).expect("help output");
+        assert!(output.found);
+        assert!(output.formatted.contains("WHEN TO USE"));
+        assert!(output.formatted.contains("AVOID WHEN"));
+        assert!(output.formatted.contains("AGENT NOTES"));
+        assert!(output.formatted.contains("ERROR RECOVERY"));
+        assert!(output.formatted.contains("BENCHMARK TRUTH"));
+        assert!(output.formatted.contains("WORKFLOWS"));
+        assert!(output.formatted.contains("STATE HANDOFF"));
+        assert!(output.formatted.contains("proof_focused=true"));
+    }
+
+    #[test]
+    fn help_handler_updates_impact_and_trace_for_guided_proof_flow() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(root);
+
+        let impact = handle_help(
+            &mut state,
+            crate::protocol::layers::HelpInput {
+                agent_id: "jimi-codex".into(),
+                tool_name: Some("impact".into()),
+            },
+        )
+        .expect("impact help");
+        assert!(impact.found);
+        assert!(impact.formatted.contains("proof_state"));
+        assert!(impact.formatted.contains("strongest downstream seam"));
+        assert!(impact.formatted.contains("STATE HANDOFF"));
+
+        let trace = handle_help(
+            &mut state,
+            crate::protocol::layers::HelpInput {
+                agent_id: "jimi-codex".into(),
+                tool_name: Some("trace".into()),
+            },
+        )
+        .expect("trace help");
+        assert!(trace.found);
+        assert!(trace.formatted.contains("proof_state"));
+        assert!(trace.formatted.contains("Failure triage"));
+        assert!(trace.formatted.contains("view"));
+    }
+
+    #[test]
+    fn help_index_includes_short_decision_guide() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(root);
+
+        let input = crate::protocol::layers::HelpInput {
+            agent_id: "jimi-codex".into(),
+            tool_name: None,
+        };
+
+        let output = handle_help(&mut state, input).expect("help output");
+        assert!(output.found);
+        assert!(output.formatted.contains("decision guide"));
+        assert!(output
+            .formatted
+            .contains("common errors should be treated as reroute hints"));
+        assert!(output.formatted.contains("search=text"));
+        assert!(output.formatted.contains("seek=intent"));
     }
 
     #[test]
@@ -1752,7 +2044,7 @@ mod tests {
         let scopes = [
             "src".to_string(),
             absolute.to_string_lossy().to_string(),
-            format!("file::src"),
+            "file::src".to_string(),
             format!("file::{}", absolute.to_string_lossy()),
         ];
 
@@ -1797,7 +2089,7 @@ mod tests {
         )
         .expect("write file");
 
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
         add_file_node(&mut state, "src/example.rs");
 
         let scopes = vec![
@@ -1817,7 +2109,7 @@ mod tests {
         let src_dir = root.join("src");
         std::fs::create_dir_all(&src_dir).expect("src dir");
 
-        let mut state = build_state(&root);
+        let mut state = build_state(root);
         add_file_node(&mut state, "src/example.rs");
         add_file_node(&mut state, "src/other.txt");
         add_file_node(&mut state, "docs/ignore.rs");
@@ -1869,5 +2161,47 @@ mod tests {
             results[0].node_id,
             "file::m1nd/m1nd-mcp/src/boot_memory_handlers.rs"
         );
+    }
+
+    #[test]
+    fn ranking_demotes_fixture_like_literal_identity_noise() {
+        let mut results = vec![
+            SearchResultEntry {
+                node_id: "file::tests/fixtures/continuity_fixture.rs".into(),
+                label: "tests/fixtures/continuity_fixture.rs".into(),
+                node_type: "FileContent".into(),
+                score: None,
+                file_path: "/abs/tests/fixtures/continuity_fixture.rs".into(),
+                line_number: 18,
+                matched_line:
+                    "let saved = \"file::m1nd/m1nd-mcp/src/session.rs::fn::persist_boot_memory\";"
+                        .into(),
+                context_before: vec![],
+                context_after: vec![],
+                graph_linked: false,
+                heuristic_signals: None,
+            },
+            SearchResultEntry {
+                node_id: "file::m1nd/m1nd-mcp/src/session.rs".into(),
+                label: "session.rs".into(),
+                node_type: "FileContent".into(),
+                score: None,
+                file_path: "/abs/m1nd/m1nd-mcp/src/session.rs".into(),
+                line_number: 42,
+                matched_line: "pub fn persist_boot_memory(state: &SessionState) {".into(),
+                context_before: vec![],
+                context_after: vec![],
+                graph_linked: true,
+                heuristic_signals: None,
+            },
+        ];
+
+        rank_search_results(
+            "persist_boot_memory",
+            SearchRankingMode::Literal,
+            &mut results,
+        );
+
+        assert_eq!(results[0].node_id, "file::m1nd/m1nd-mcp/src/session.rs");
     }
 }

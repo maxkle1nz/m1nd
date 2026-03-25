@@ -139,6 +139,9 @@ pub struct BootMemoryEntry {
     pub updated_by_agent: String,
 }
 
+pub type ApplyBatchProgressSink =
+    Arc<dyn Fn(&crate::protocol::surgical::ApplyBatchProgressEvent) + Send + Sync>;
+
 // ---------------------------------------------------------------------------
 // SessionState — all server state in one place
 // Replaces: 03-MCP Section 1.1 server internal state
@@ -214,6 +217,8 @@ pub struct SessionState {
     pub workspace_root: Option<String>,
     /// Dedicated runtime root for persisted sidecar state.
     pub runtime_root: PathBuf,
+    /// Optional live sink for apply_batch progress emission.
+    pub apply_batch_progress_sink: Option<ApplyBatchProgressSink>,
 
     // --- Superpowers: Antibody state ---
     /// All stored antibodies.
@@ -366,6 +371,7 @@ impl SessionState {
                 .parent()
                 .map(|p| p.to_string_lossy().to_string()),
             runtime_root: runtime_root.clone(),
+            apply_batch_progress_sink: None,
             // Superpowers: Antibody state
             antibodies: {
                 let ab_path = runtime_root.join("antibodies.json");

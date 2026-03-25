@@ -4,6 +4,80 @@ All notable changes to m1nd are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+#### Guided Proof State Across Core Agent Flows
+
+Several high-value tools now surface `proof_state` plus explicit handoff guidance so
+an agent can tell whether it is still triaging, actively proving, or ready to move
+into edit preparation.
+
+- `seek`, `trace`, `impact`, `timeline`, `hypothesize`, `validate_plan`, and
+  `surgical_context_v2` now participate in a shared proof-state model
+- guided outputs now include `next_suggested_tool`, `next_suggested_target`, and
+  `next_step_hint` across the main structural triage and edit-prep paths
+- `trail_resume` now behaves more like continuity orchestration than bookmark restore,
+  returning compact resume hints, next-focus guidance, and tool-aware follow-up
+
+#### `apply_batch` Progress, Correlation, and Handoff Signals
+
+`apply_batch` has been upgraded from a “wait until the batch finishes” write surface
+into an observable execution flow with stable correlation and final handoff data.
+
+- final outputs now expose `batch_id` for correlating progress and final result
+- progress reporting now includes coarse lifecycle fields such as `active_phase`,
+  `completed_phase_count`, `phase_count`, `remaining_phase_count`, `progress_pct`,
+  and `next_phase`
+- `phases` now act as a structured execution timeline across `validate`, `write`,
+  `reingest`, `verify`, and `done`
+- `progress_events` now provide a streaming-friendly event log for the same lifecycle
+- live `apply_batch_progress` SSE emission now happens during execution in serve mode
+- replay and live transports now carry consistent batch correlation data
+- the final `batch_completed` event now carries the batch’s `proof_state` and
+  next-step guidance, so clients do not need to wait for a separate final blob to
+  recover the cognitive handoff
+
+#### Benchmark Harness Expansion
+
+The benchmark system has been extended so progress UX and workflow guidance can be
+measured as first-class product behavior, not only token proxy.
+
+- benchmark runs now record `execution_origin` and `source_ref`
+- long-running flows can now distinguish `live`, `replay`, and `snapshot` progress delivery
+- the harness now records progress event counts, delivery modes, phase sequences,
+  and guidance-followed behavior
+- the `warm_structural_proof_apply_batch` scenario now captures live progress delivery
+  explicitly instead of treating progress as an undifferentiated blob
+
+### Changed
+
+#### Help and Docs Are More Agent-Operational
+
+The help surface and public docs now reflect the real working style of current m1nd,
+with less catalog-style listing and more decision support.
+
+- help entries now include `WHEN TO USE`, `AVOID WHEN`, benchmark-aware guidance,
+  composed workflows, and proof-state handoff cues
+- help and docs now frame common tool failures as short repair loops, with
+  hint/example/next-step guidance that agents can use to self-correct
+- README, examples, and benchmark docs now describe the current guided behavior of
+  `apply_batch`, `proof_state`, and long-running progress updates more accurately
+- benchmark truth now explicitly includes recovery-loop scenarios such as invalid
+  regex retry, ambiguous scope retry, stale route refresh, and protected-write reroute
+- benchmark research now documents progress observability and delivery modes as part
+  of product truth, not only token savings
+
+### Notes
+
+- Current benchmark corpus summary continues to show strong warm-graph wins on
+  structural tasks while making progress observability measurable instead of subjective
+- This entry reflects ongoing work on `codex/benchmark-research-and-timeline-p1`;
+  it is intentionally recorded under `Unreleased` rather than a tagged release
+
+---
+
 ## [0.5.0] — 2026-03-16
 
 ### Added

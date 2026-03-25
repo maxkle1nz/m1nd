@@ -1,0 +1,30 @@
+[
+  {
+    "tool_name": "rg",
+    "query": "normalize scope normalization affected downstream search",
+    "elapsed_ms": 7.8,
+    "payload_chars": 760,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs",
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 11.4,
+    "payload_chars": 980,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "read_file",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 9.1,
+    "payload_chars": 860,
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  }
+]

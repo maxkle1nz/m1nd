@@ -1,0 +1,70 @@
+{
+  "recorded_at": "2026-03-24T20:10:11.965659+00:00",
+  "scenario_id": "warm_proof_focused_edit_prep",
+  "scenario_name": "Warm proof-focused edit prep for normalized scope changes",
+  "scenario_tags": [
+    "warm-graph",
+    "edit-prep",
+    "proof-focused",
+    "surgical-context-v2"
+  ],
+  "mode": "m1nd_warm",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 4.2,
+  "time_to_full_proof_ms": 6.1,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 1,
+  "public_claim_worthy": true,
+  "workflow_notes": "proof-focused edit prep plus guided validate_plan handoff",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.surgical_context_v2",
+      "query": "normalized scope edit prep proof focused",
+      "elapsed_ms": 2.4,
+      "payload_chars": 990,
+      "proof_state": "proving",
+      "next_suggested_tool": "validate_plan",
+      "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
+      "next_tool_used": "validate_plan",
+      "opened_files": [
+        "m1nd-mcp/src/search_handlers.rs",
+        "m1nd-mcp/src/surgical_handlers.rs"
+      ],
+      "notes": "proof-focused edit prep now recommends validate_plan directly when connected proof suggests a coupled edit and marks the flow as proving instead of leaving stage implicit.",
+      "event_index": 1,
+      "surfaced_files": []
+    },
+    {
+      "tool_name": "m1nd.validate_plan",
+      "target": "m1nd-mcp/src/search_handlers.rs",
+      "elapsed_ms": 1.8,
+      "payload_chars": 560,
+      "surfaced_files": [
+        "m1nd-mcp/src/search_handlers.rs",
+        "m1nd-mcp/src/protocol/surgical.rs"
+      ],
+      "event_index": 2,
+      "opened_files": []
+    }
+  ],
+  "files_opened": 3,
+  "repeat_reads": 1,
+  "search_iterations": 1,
+  "chars_surfaced": 1550,
+  "token_proxy": 388,
+  "guidance_events": 1,
+  "guidance_followed": 1,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [
+    "proving"
+  ],
+  "final_proof_state": "proving",
+  "repo_path": ".",
+  "question": "Prepare a compact multi-file edit plan for normalized scope changes without flooding the agent with neighborhood payload.",
+  "expected_strength": "strong"
+}

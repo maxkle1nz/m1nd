@@ -1,0 +1,26 @@
+[
+  {
+    "tool_name": "shell.notes",
+    "query": "stale perspective route failed; re-open current route list and recover the latest version manually",
+    "elapsed_ms": 1.2,
+    "payload_chars": 260
+  },
+  {
+    "tool_name": "m1nd.perspective_routes",
+    "query": "list current routes for perspective after stale follow failure",
+    "elapsed_ms": 2.0,
+    "payload_chars": 420,
+    "surfaced_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.perspective_follow",
+    "query": "retry follow with fresh route_set_version and current route_id",
+    "elapsed_ms": 1.7,
+    "payload_chars": 380,
+    "opened_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ]
+  }
+]

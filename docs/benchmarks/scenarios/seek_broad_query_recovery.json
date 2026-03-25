@@ -1,0 +1,14 @@
+{
+  "scenario_id": "warm_seek_broad_query_recovery",
+  "scenario_name": "Warm recovery from a broad seek query into exact helper lookup",
+  "repo_path": ".",
+  "question": "Recover from a broad semantic seek that lands in the right subsystem but not the exact helper name, then narrow into `l2_seek_proof_state` and confirm the output contract instead of guessing files.",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "seek",
+    "intent",
+    "exact-lookup"
+  ],
+  "expected_strength": "strong"
+}

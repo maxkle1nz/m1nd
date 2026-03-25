@@ -1,0 +1,101 @@
+{
+  "recorded_at": "2026-03-24T23:41:25.073346+00:00",
+  "scenario_id": "warm_search_invalid_regex_recovery",
+  "scenario_name": "Warm recovery from invalid regex search into literal search",
+  "scenario_tags": [
+    "warm-graph",
+    "recovery",
+    "search",
+    "error-guidance"
+  ],
+  "mode": "m1nd_warm",
+  "execution_origin": "live",
+  "source_ref": "docs/benchmarks/events/warm-search-invalid-regex-recovery.json",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 1.7,
+  "time_to_full_proof_ms": 2.2,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "search returns a repair hint for invalid regex, the agent retries in literal mode, and view closes the proof",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.search",
+      "query": "normalize_dispatch_tool_name(",
+      "elapsed_ms": 0.9,
+      "payload_chars": 220,
+      "hint": "The regex pattern is invalid. Escape regex metacharacters or retry with mode='literal' when you want an exact text match.",
+      "suggested_next_step": "Retry search with mode='literal' for the exact text.",
+      "usage_hint": "Use `search` in literal mode for exact text. Use regex mode only when you need pattern matching.",
+      "next_suggested_tool": "search",
+      "next_tool_used": "search",
+      "recovery_followed": true,
+      "notes": "Invalid regex is surfaced as a compact repair loop instead of a dead end.",
+      "event_index": 1,
+      "opened_files": [],
+      "surfaced_files": []
+    },
+    {
+      "tool_name": "m1nd.search",
+      "query": "normalize_dispatch_tool_name(",
+      "elapsed_ms": 0.8,
+      "payload_chars": 520,
+      "surfaced_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "opened_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "proof_state": "proving",
+      "next_suggested_tool": "view",
+      "next_suggested_target": "m1nd-mcp/src/server.rs",
+      "next_step_hint": "Open the top literal match next to confirm the alias normalization helper.",
+      "next_tool_used": "view",
+      "event_index": 2
+    },
+    {
+      "tool_name": "m1nd.view",
+      "target": "m1nd-mcp/src/server.rs",
+      "elapsed_ms": 0.5,
+      "payload_chars": 760,
+      "opened_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "event_index": 3,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 2,
+  "search_iterations": 2,
+  "chars_surfaced": 1500,
+  "token_proxy": 375,
+  "guidance_events": 2,
+  "guidance_followed": 2,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [
+    "proving"
+  ],
+  "final_proof_state": "proving",
+  "progress_events": 0,
+  "max_progress_pct": 0.0,
+  "active_phases": [],
+  "next_phases": [],
+  "progress_event_types": [],
+  "progress_delivery_modes": [],
+  "live_progress_events": 0,
+  "replay_progress_events": 0,
+  "snapshot_progress_events": 0,
+  "progress_guidance_events": 0,
+  "progress_guidance_followed": 0,
+  "recovery_events": 1,
+  "recovery_followed": 1,
+  "repo_path": null,
+  "question": "Recover from an invalid regex search and still reach the correct literal match quickly.",
+  "expected_strength": "strong"
+}

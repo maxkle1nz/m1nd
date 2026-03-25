@@ -1,0 +1,25 @@
+[
+  {
+    "tool_name": "m1nd.trace",
+    "query": "Traceback (most recent call last): ... RuntimeError: worker pool closed during submit",
+    "elapsed_ms": 2.7,
+    "payload_chars": 420,
+    "proof_state": "triaging",
+    "next_suggested_tool": "view",
+    "next_tool_used": "view",
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "trace maps the stacktrace to the top suspect and suggests opening that file next."
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 1.3,
+    "payload_chars": 260,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "Single follow-up view confirms the suspect file without extra frame chasing."
+  }
+]

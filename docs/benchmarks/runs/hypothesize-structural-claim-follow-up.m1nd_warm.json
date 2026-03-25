@@ -1,0 +1,68 @@
+{
+  "recorded_at": "2026-03-24T19:58:52.097035+00:00",
+  "scenario_id": "warm_hypothesize_structural_claim_follow_up",
+  "scenario_name": "Warm structural-claim follow-up for missing validation proof",
+  "scenario_tags": [
+    "warm-graph",
+    "hypothesize",
+    "proof",
+    "follow-up"
+  ],
+  "mode": "m1nd_warm",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 1.486,
+  "time_to_full_proof_ms": 2.008,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "hypothesize surfaces the strongest evidence and now guides the follow-up file directly",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.hypothesize",
+      "query": "why is this missing validation guard?",
+      "elapsed_ms": 1.486,
+      "payload_chars": 460,
+      "proof_state": "ready_to_edit",
+      "surfaced_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "next_suggested_tool": "view",
+      "next_suggested_target": "m1nd-mcp/src/server.rs",
+      "next_step_hint": "Open the strongest hypothesis evidence next: m1nd-mcp/src/server.rs.",
+      "next_tool_used": "view",
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.view",
+      "target": "m1nd-mcp/src/server.rs",
+      "elapsed_ms": 0.522,
+      "payload_chars": 780,
+      "opened_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "event_index": 2,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 1,
+  "search_iterations": 0,
+  "chars_surfaced": 1240,
+  "token_proxy": 310,
+  "guidance_events": 1,
+  "guidance_followed": 1,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [
+    "ready_to_edit"
+  ],
+  "final_proof_state": "ready_to_edit",
+  "repo_path": ".",
+  "question": "Why is this dispatch path missing a validation guard, and what file should I inspect next?",
+  "expected_strength": "strong"
+}

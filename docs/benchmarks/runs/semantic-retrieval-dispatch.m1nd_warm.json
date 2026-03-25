@@ -1,0 +1,73 @@
+{
+  "recorded_at": "2026-03-24T22:17:46.312879+00:00",
+  "scenario_id": "warm_semantic_retrieval_dispatch",
+  "scenario_name": "Warm semantic retrieval for normalize_dispatch_tool_name",
+  "scenario_tags": [
+    "warm-graph",
+    "semantic",
+    "retrieval",
+    "dispatch"
+  ],
+  "mode": "m1nd_warm",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 0.742,
+  "time_to_full_proof_ms": 1.153,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "seek resolves the canonical dispatch helper in one shot, signals proving, suggests view, and view confirms it immediately",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.seek",
+      "query": "Where do we normalize alias tool names into the canonical dispatch status name?",
+      "elapsed_ms": 0.742,
+      "payload_chars": 480,
+      "surfaced_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "proof_state": "proving",
+      "next_suggested_tool": "view",
+      "next_suggested_target": "m1nd-mcp/src/server.rs",
+      "next_step_hint": "Open the top seek result next: normalize_dispatch_tool_name in m1nd-mcp/src/server.rs.",
+      "next_tool_used": "view",
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.view",
+      "target": "m1nd-mcp/src/server.rs",
+      "elapsed_ms": 0.411,
+      "payload_chars": 920,
+      "opened_files": [
+        "m1nd-mcp/src/server.rs"
+      ],
+      "event_index": 2,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 1,
+  "search_iterations": 1,
+  "chars_surfaced": 1400,
+  "token_proxy": 350,
+  "guidance_events": 1,
+  "guidance_followed": 1,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [
+    "proving"
+  ],
+  "final_proof_state": "proving",
+  "progress_events": 0,
+  "max_progress_pct": 0.0,
+  "active_phases": [],
+  "next_phases": [],
+  "progress_event_types": [],
+  "repo_path": ".",
+  "question": "Where do we normalize alias tool names into the canonical dispatch status name?",
+  "expected_strength": "strong"
+}

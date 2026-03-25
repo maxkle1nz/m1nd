@@ -325,6 +325,13 @@ pub struct ImpactOutput {
     pub total_energy: f32,
     pub max_hops_reached: u8,
     pub causal_chains: Vec<CausalChainOutput>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

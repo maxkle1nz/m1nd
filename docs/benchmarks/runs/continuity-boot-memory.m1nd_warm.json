@@ -1,0 +1,73 @@
+{
+  "recorded_at": "2026-03-24T19:03:22.371516+00:00",
+  "scenario_id": "warm_continuity_boot_memory",
+  "scenario_name": "Warm continuity resume for boot memory investigation",
+  "scenario_tags": [
+    "warm-graph",
+    "continuity",
+    "trail-resume",
+    "boot-memory"
+  ],
+  "mode": "m1nd_warm",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 3.7,
+  "time_to_full_proof_ms": 5.8,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "trail_resume now points directly at the session persistence seam and the suggestion is followed immediately",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.trail_resume",
+      "query": "resume boot memory investigation",
+      "elapsed_ms": 2.4,
+      "payload_chars": 340,
+      "reactivated_node_ids": [
+        "file::m1nd-mcp/src/session.rs",
+        "file::m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "resume_hints": [
+        "Re-open the current focus before branching: file::m1nd-mcp/src/session.rs",
+        "Continue with open question: where is boot memory persisted and read back?"
+      ],
+      "next_focus_node_id": "file::m1nd-mcp/src/session.rs",
+      "next_open_question": "where is boot memory persisted and read back?",
+      "next_suggested_tool": "view",
+      "next_tool_used": "view",
+      "surfaced_files": [
+        "m1nd-mcp/src/session.rs"
+      ],
+      "notes": "Updated continuity flow follows the compact trail_resume guidance instead of rediscovering the seam with search.",
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.view",
+      "target": "m1nd-mcp/src/session.rs",
+      "elapsed_ms": 1.3,
+      "payload_chars": 250,
+      "opened_files": [
+        "m1nd-mcp/src/session.rs"
+      ],
+      "notes": "Single follow-up view confirms the persistence path after the guided resume.",
+      "event_index": 2,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 1,
+  "search_iterations": 0,
+  "chars_surfaced": 590,
+  "token_proxy": 148,
+  "guidance_events": 1,
+  "guidance_followed": 1,
+  "reactivated_nodes": 2,
+  "resume_hints": 2,
+  "repo_path": ".",
+  "question": "Resume a boot-memory investigation without rediscovering the structural path from scratch.",
+  "expected_strength": "mixed"
+}

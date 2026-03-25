@@ -1,0 +1,26 @@
+[
+  {
+    "tool_name": "shell.diff",
+    "query": "compare preview target with current file after commit failure",
+    "elapsed_ms": 1.9,
+    "payload_chars": 330
+  },
+  {
+    "tool_name": "shell.view",
+    "target": "m1nd-mcp/tests/test_edit_preview.rs",
+    "elapsed_ms": 1.2,
+    "payload_chars": 520,
+    "opened_files": [
+      "m1nd-mcp/tests/test_edit_preview.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.edit_preview",
+    "query": "recreate preview manually after confirming source drift",
+    "elapsed_ms": 2.0,
+    "payload_chars": 360,
+    "surfaced_files": [
+      "m1nd-mcp/tests/test_edit_preview.rs"
+    ]
+  }
+]

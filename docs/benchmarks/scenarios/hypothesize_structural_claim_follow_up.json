@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_hypothesize_structural_claim_follow_up",
+  "scenario_name": "Warm structural-claim follow-up for missing validation proof",
+  "repo_path": ".",
+  "question": "Why is this dispatch path missing a validation guard, and what file should I inspect next?",
+  "tags": ["warm-graph", "hypothesize", "proof", "follow-up"],
+  "expected_strength": "strong"
+}

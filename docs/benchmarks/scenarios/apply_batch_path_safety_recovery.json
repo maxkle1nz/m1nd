@@ -1,0 +1,13 @@
+{
+  "scenario_id": "warm_apply_batch_path_safety_recovery",
+  "scenario_name": "Warm recovery from apply_batch path safety rejection",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "surgical",
+    "apply-batch",
+    "write-safety"
+  ],
+  "question": "Recover from an apply_batch write that targets a path outside the ingested workspace roots, then retry safely inside the workspace without restarting the proof flow.",
+  "expected_strength": "strong"
+}

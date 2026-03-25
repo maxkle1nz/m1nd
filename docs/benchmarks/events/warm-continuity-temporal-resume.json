@@ -1,0 +1,34 @@
+[
+  {
+    "tool_name": "m1nd.trail_resume",
+    "query": "resume prior timeline-related investigation and continue from the next temporal question",
+    "elapsed_ms": 2.3,
+    "payload_chars": 360,
+    "reactivated_node_ids": [
+      "file::m1nd-mcp/src/layer_handlers.rs",
+      "file::m1nd-mcp/src/protocol/layers.rs"
+    ],
+    "resume_hints": [
+      "Use timeline on file::m1nd-mcp/src/layer_handlers.rs to answer the carried-forward question: what changed recently in trail resume routing?",
+      "Inspect neighborhood around file::m1nd-mcp/src/protocol/layers.rs"
+    ],
+    "next_focus_node_id": "file::m1nd-mcp/src/layer_handlers.rs",
+    "next_open_question": "what changed recently in trail resume routing?",
+    "next_suggested_tool": "timeline",
+    "next_tool_used": "timeline",
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "Resume returns a temporal seam and points directly at timeline."
+  },
+  {
+    "tool_name": "m1nd.timeline",
+    "target": "file::m1nd-mcp/src/layer_handlers.rs",
+    "elapsed_ms": 2.8,
+    "payload_chars": 340,
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ],
+    "notes": "Single follow-up timeline query confirms recent commit-proof path."
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_semantic_retrieval_dispatch",
+  "scenario_name": "Warm semantic retrieval for normalize_dispatch_tool_name",
+  "repo_path": ".",
+  "question": "Where do we normalize alias tool names into the canonical dispatch status name?",
+  "tags": ["warm-graph", "semantic", "retrieval", "dispatch"],
+  "expected_strength": "strong"
+}

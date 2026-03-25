@@ -172,6 +172,346 @@ fn normalize_dispatch_tool_name(tool_name: &str) -> String {
     }
 }
 
+fn tool_schema_by_name(tool_name: &str) -> Option<serde_json::Value> {
+    tool_schemas()
+        .get("tools")
+        .and_then(|tools| tools.as_array())
+        .and_then(|tools| {
+            tools.iter().find(|schema| {
+                schema.get("name").and_then(|value| value.as_str()) == Some(tool_name)
+            })
+        })
+        .cloned()
+}
+
+fn tool_required_fields(tool_name: &str) -> Vec<String> {
+    tool_schema_by_name(tool_name)
+        .and_then(|schema| schema.get("inputSchema").cloned())
+        .and_then(|schema| schema.get("required").cloned())
+        .and_then(|required| required.as_array().cloned())
+        .map(|required| {
+            required
+                .iter()
+                .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn schema_example_value(schema: &serde_json::Value) -> serde_json::Value {
+    if let Some(default) = schema.get("default") {
+        return default.clone();
+    }
+
+    match schema.get("type").and_then(|value| value.as_str()) {
+        Some("string") => serde_json::json!("..."),
+        Some("integer") => serde_json::json!(1),
+        Some("number") => serde_json::json!(0.5),
+        Some("boolean") => serde_json::json!(true),
+        Some("array") => {
+            let item = schema
+                .get("items")
+                .map(schema_example_value)
+                .unwrap_or(serde_json::Value::Null);
+            serde_json::Value::Array(vec![item])
+        }
+        Some("object") => serde_json::Value::Object(serde_json::Map::new()),
+        _ => serde_json::json!("..."),
+    }
+}
+
+fn tool_minimal_example(tool_name: &str) -> Option<serde_json::Value> {
+    let schema = tool_schema_by_name(tool_name)?;
+    let input_schema = schema.get("inputSchema")?;
+    let properties = input_schema.get("properties")?.as_object()?;
+    let required = input_schema
+        .get("required")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut arguments = serde_json::Map::new();
+    for key in required.iter().filter_map(|value| value.as_str()) {
+        if let Some(property_schema) = properties.get(key) {
+            arguments.insert(key.to_string(), schema_example_value(property_schema));
+        }
+    }
+
+    Some(serde_json::json!({
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": arguments,
+        }
+    }))
+}
+
+fn tool_usage_hint(tool_name: &str) -> Option<&'static str> {
+    match tool_name {
+        "seek" => Some("Use `seek` for intent/natural-language retrieval. For exact text or regex, prefer `search`."),
+        "search" | "m1nd_search" => Some("Use `search` for exact text, regex, or filename-filtered lookup. For intent-based retrieval, prefer `seek`."),
+        "glob" | "m1nd_glob" => Some("Use `glob` for file/path discovery with shell-style patterns. For content lookup inside files, prefer `search`."),
+        "trace" => Some("Use `trace` when you have a real stacktrace or error output. If you only have a symbol or file, start with `seek` or `view`."),
+        "validate_plan" => Some("Use `validate_plan` after you already know which files/actions you want to change. If you still need connected edit context, start with `surgical_context_v2`."),
+        "surgical_context_v2" => Some("Use `surgical_context_v2` to prepare connected edits around a file. For direct text lookup, use `search` or `view` first."),
+        "apply_batch" => Some("Use `apply_batch` for coordinated multi-file writes after you already have validated content. If you still need to inspect risk, call `validate_plan` first."),
+        "trail_resume" | "trail.resume" => Some("Use `trail_resume` to continue a saved investigation. If you do not have a saved trail yet, start with `trail_list` or a fresh query tool."),
+        "timeline" => Some("Use `timeline` for git-backed historical proof on a known node or file. If you still need to locate the target, start with `seek`, `search`, or `activate`."),
+        "perspective_start" => Some("Use `perspective_start` to begin a stateful navigation session. Then use `perspective_routes`, `perspective_follow`, and `perspective_peek` inside that session."),
+        _ => None,
+    }
+}
+
+fn invalid_params_recovery(tool: &str, detail: &str) -> Option<serde_json::Value> {
+    if tool == "trail.resume" && detail.contains("Use force=true to resume.") {
+        return Some(serde_json::json!({
+            "hint": "This saved trail has drifted too far from the current graph for a normal resume. If partial continuity is still useful, retry with `force=true`.",
+            "suggested_next_step": "Retry `trail_resume` with `force=true` to recover degraded continuity, or start a new investigation if the trail is no longer trustworthy.",
+            "workflow_hint": "Typical recovery flow: `trail_resume(force=true) -> inspect next_focus / resume_hints -> continue or restart`.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "trail_resume",
+                    "arguments": {
+                        "agent_id": "dev",
+                        "trail_id": "trail_123",
+                        "force": true
+                    }
+                }
+            }
+        }));
+    }
+
+    if tool == "m1nd_search" && detail.contains("query cannot be empty") {
+        return Some(serde_json::json!({
+            "hint": "This search is missing content to search for. If you are trying to discover files or paths, reroute to `glob`; if you know the intent but not the exact text, use `seek`.",
+            "suggested_next_step": "Retry with `glob` for file discovery, or retry `search` with an exact text/regex query.",
+            "workflow_hint": "Typical recovery flow: `glob -> view` for file discovery, or `search(literal/regex) -> view` for content lookup.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "glob",
+                    "arguments": {
+                        "agent_id": "dev",
+                        "pattern": "m1nd-mcp/src/**/*search*.rs"
+                    }
+                }
+            }
+        }));
+    }
+
+    if tool == "m1nd_search" && detail.contains("resolves to") && detail.contains("candidate paths")
+    {
+        return Some(serde_json::json!({
+            "hint": "The scope is ambiguous across multiple candidate paths. Retry with a more specific or absolute scope so `search` only targets one root.",
+            "suggested_next_step": "Retry `search` with an explicit scope path, or disable `auto_ingest` if you only want current roots.",
+            "workflow_hint": "Typical recovery flow: `search(scope=<exact path>) -> view`.",
+        }));
+    }
+
+    if tool == "m1nd_glob" && detail.contains("pattern cannot be empty") {
+        return Some(serde_json::json!({
+            "hint": "This glob call is missing a file pattern. Use shell-style globs such as `src/**/*.rs`, or switch to `search` if you meant to look for content.",
+            "suggested_next_step": "Retry `glob` with a file/path pattern, or use `search` for content lookup.",
+            "workflow_hint": "Typical recovery flow: `glob(pattern) -> view` for file discovery, or `search(query) -> view` for content lookup.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "glob",
+                    "arguments": {
+                        "agent_id": "dev",
+                        "pattern": "src/**/*.rs"
+                    }
+                }
+            }
+        }));
+    }
+
+    if tool == "m1nd_glob" && detail.contains("invalid glob pattern") {
+        return Some(serde_json::json!({
+            "hint": "The glob pattern is invalid or content-shaped. Use shell-style globs for file discovery, or switch to `search` when you want to find text inside files.",
+            "suggested_next_step": "Retry `glob` with a valid shell-style pattern, or reroute to `search` in literal mode for exact text.",
+            "workflow_hint": "Typical recovery flow: `search(literal) -> view` if the original pattern was actually content.",
+        }));
+    }
+
+    if tool == "edit_commit" && detail.contains("confirm must be true to commit") {
+        return Some(serde_json::json!({
+            "hint": "The preview is still valid, but commit is gated until you explicitly confirm it. Reuse the same `preview_id` with `confirm=true` after reviewing the preview.",
+            "suggested_next_step": "Retry `edit_commit` with the same `preview_id` and `confirm=true`.",
+            "workflow_hint": "Typical recovery flow: `edit_preview -> review -> edit_commit(confirm=true)`.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_commit",
+                    "arguments": {
+                        "preview_id": "preview_dev_001",
+                        "agent_id": "dev",
+                        "confirm": true
+                    }
+                }
+            }
+        }));
+    }
+
+    if tool == "edit_commit" && detail.contains("preview_id not found or expired") {
+        return Some(serde_json::json!({
+            "hint": "That preview handle is gone or expired. Mint a fresh preview for the same file, then retry the commit with the new `preview_id`.",
+            "suggested_next_step": "Call `edit_preview` again for the same file, then retry `edit_commit` with the new `preview_id`.",
+            "workflow_hint": "Typical recovery flow: `edit_preview -> edit_commit`.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_preview",
+                    "arguments": {
+                        "file_path": "src/auth.rs",
+                        "agent_id": "dev",
+                        "new_content": "..."
+                    }
+                }
+            }
+        }));
+    }
+
+    None
+}
+
+pub(crate) fn tool_error_payload(error: &M1ndError) -> serde_json::Value {
+    match error {
+        M1ndError::UnknownTool { name } => serde_json::json!({
+            "error_type": "unknown_tool",
+            "message": format!("Unknown tool `{}`.", name),
+            "detail": error.to_string(),
+            "hint": "Use canonical MCP tool names with underscores, not transport aliases. First call `tools/list` to inspect the available tools.",
+            "suggested_next_step": "Retry with the canonical tool name, for example `trail_resume`, `perspective_start`, or `apply_batch`.",
+            "example": {
+                "method": "tools/list"
+            },
+        }),
+        M1ndError::InvalidParams { tool, detail } => {
+            let required_fields = tool_required_fields(tool);
+            let example = tool_minimal_example(tool);
+            let mut payload = serde_json::json!({
+                "error_type": "invalid_params",
+                "tool": tool,
+                "message": format!("Invalid params for `{}`.", tool),
+                "detail": detail,
+                "hint": format!("Check the required fields for `{}` and retry with the MCP `tools/call` envelope.", tool),
+                "required_fields": required_fields,
+                "suggested_next_step": format!("Call `help` or `tools/list`, then retry `{}` with the required arguments.", tool),
+            });
+            if let Some(example) = example {
+                payload["example"] = example;
+            }
+            if let Some(usage_hint) = tool_usage_hint(tool) {
+                payload["usage_hint"] = serde_json::json!(usage_hint);
+            }
+            if let Some(recovery) = invalid_params_recovery(tool, detail) {
+                if let Some(hint) = recovery.get("hint") {
+                    payload["hint"] = hint.clone();
+                }
+                if let Some(step) = recovery.get("suggested_next_step") {
+                    payload["suggested_next_step"] = step.clone();
+                }
+                if let Some(workflow_hint) = recovery.get("workflow_hint") {
+                    payload["workflow_hint"] = workflow_hint.clone();
+                }
+                if let Some(example) = recovery.get("example") {
+                    payload["example"] = example.clone();
+                }
+            }
+            payload
+        }
+        M1ndError::EmptyGraph => serde_json::json!({
+            "error_type": "empty_graph",
+            "message": "The active graph is empty.",
+            "detail": error.to_string(),
+            "hint": "Run `ingest` first so m1nd has code or documents to analyze.",
+            "suggested_next_step": "Use `ingest`, then retry `activate`, `search`, `seek`, or the tool you originally called.",
+            "example": tool_minimal_example("ingest"),
+            "workflow_hint": "Typical recovery flow: `ingest -> activate/search`.",
+        }),
+        M1ndError::PerspectiveNotFound {
+            perspective_id,
+            agent_id,
+        } => serde_json::json!({
+            "error_type": "perspective_not_found",
+            "message": format!("Perspective `{}` was not found for agent `{}`.", perspective_id, agent_id),
+            "detail": error.to_string(),
+            "hint": "The perspective may be stale or closed. Inspect active perspectives before retrying.",
+            "suggested_next_step": "Call `perspective_list` to inspect active sessions, or create a fresh one with `perspective_start`.",
+            "example": tool_minimal_example("perspective_start"),
+        }),
+        M1ndError::NoEntryPoints => serde_json::json!({
+            "error_type": "no_entry_points",
+            "message": "The requested flow simulation has no entry points.",
+            "detail": error.to_string(),
+            "hint": "Pass explicit `entry_nodes`, or narrow the query/scope until a valid starting point exists.",
+            "suggested_next_step": "Locate a concrete node first with `seek`, `search`, or `activate`, then retry with `entry_nodes`.",
+        }),
+        M1ndError::NoValidInfectedNodes => serde_json::json!({
+            "error_type": "no_valid_infected_nodes",
+            "message": "No valid infected nodes were found for epidemic analysis.",
+            "detail": error.to_string(),
+            "hint": "Retry with existing node IDs such as `file::...` or function IDs that are already in the graph.",
+            "suggested_next_step": "Use `seek`, `search`, or `activate` to recover valid node identifiers before calling `epidemic`.",
+        }),
+        M1ndError::Serde(detail) => serde_json::json!({
+            "error_type": "invalid_json",
+            "message": "The request body was not valid JSON.",
+            "detail": detail.to_string(),
+            "hint": "Use a valid JSON object. For MCP tool calls, the request shape is `{\"method\":\"tools/call\",\"params\":{\"name\":\"tool\",\"arguments\":{...}}}`.",
+            "suggested_next_step": "Fix the JSON envelope and retry the request.",
+        }),
+        _ => serde_json::json!({
+            "error_type": "internal",
+            "message": "The tool call failed.",
+            "detail": error.to_string(),
+        }),
+    }
+}
+
+pub(crate) fn timeout_error_payload(timeout_secs: u64) -> serde_json::Value {
+    serde_json::json!({
+        "error_type": "timeout",
+        "message": format!("Tool execution exceeded the {}s limit.", timeout_secs),
+        "detail": format!("Tool execution exceeded {}s limit.", timeout_secs),
+        "hint": "Narrow `scope`, lower `top_k`, or split the work into smaller calls. For long write flows, prefer `apply_batch` and watch its progress phases.",
+        "suggested_next_step": "Retry with a smaller target set or a more focused query.",
+    })
+}
+
+pub(crate) fn parse_error_payload(detail: &str) -> serde_json::Value {
+    serde_json::json!({
+        "error_type": "invalid_jsonrpc",
+        "message": "Invalid JSON-RPC request.",
+        "detail": detail,
+        "hint": "Expected `jsonrpc`, `id`, `method`, and `params`. For tool calls, use `tools/call` with `{ \"name\": \"tool\", \"arguments\": { ... } }`.",
+        "example": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "seek",
+                "arguments": {
+                    "agent_id": "dev",
+                    "query": "find the dispatch alias normalization helper"
+                }
+            }
+        }
+    })
+}
+
+pub(crate) fn method_not_found_payload(method: &str) -> serde_json::Value {
+    serde_json::json!({
+        "error_type": "method_not_found",
+        "message": format!("Unknown JSON-RPC method `{}`.", method),
+        "detail": format!("Method not found: {}", method),
+        "hint": "Use MCP protocol methods like `initialize`, `tools/list`, and `tools/call`.",
+        "suggested_next_step": "Retry with `tools/list` to inspect tools, or `tools/call` to execute one.",
+    })
+}
+
 // ---------------------------------------------------------------------------
 // McpConfig — server configuration
 // Replaces: 03-MCP Section 1.2 initialization config
@@ -2009,14 +2349,18 @@ impl McpServer {
             let request: JsonRpcRequest = match serde_json::from_str(trimmed) {
                 Ok(r) => r,
                 Err(e) => {
+                    let payload = parse_error_payload(&e.to_string());
                     let err_resp = JsonRpcResponse {
                         jsonrpc: "2.0".into(),
                         id: serde_json::Value::Null,
                         result: None,
                         error: Some(JsonRpcError {
                             code: -32700,
-                            message: format!("Parse error: {}", e),
-                            data: None,
+                            message: payload["message"]
+                                .as_str()
+                                .unwrap_or("Invalid JSON-RPC request.")
+                                .to_string(),
+                            data: Some(payload),
                         }),
                     };
                     let _ = write_response(&mut writer, &err_resp, transport_mode);
@@ -2029,16 +2373,22 @@ impl McpServer {
 
             let resp = match response {
                 Ok(r) => r,
-                Err(e) => JsonRpcResponse {
-                    jsonrpc: "2.0".into(),
-                    id: request.id.clone(),
-                    result: None,
-                    error: Some(JsonRpcError {
-                        code: -32603,
-                        message: format!("{}", e),
-                        data: None,
-                    }),
-                },
+                Err(e) => {
+                    let payload = tool_error_payload(&e);
+                    JsonRpcResponse {
+                        jsonrpc: "2.0".into(),
+                        id: request.id.clone(),
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32603,
+                            message: payload["message"]
+                                .as_str()
+                                .unwrap_or("Tool call failed.")
+                                .to_string(),
+                            data: Some(payload),
+                        }),
+                    }
+                }
             };
 
             if write_response(&mut writer, &resp, transport_mode).is_err() {
@@ -2131,7 +2481,8 @@ impl McpServer {
                         result: Some(serde_json::json!({
                             "content": [{
                                 "type": "text",
-                                "text": format!("Error: {}", e),
+                                "text": serde_json::to_string_pretty(&tool_error_payload(&e))
+                                    .unwrap_or_else(|_| format!("Error: {}", e)),
                             }],
                             "isError": true
                         })),
@@ -2148,7 +2499,7 @@ impl McpServer {
                     error: Some(JsonRpcError {
                         code: -32601,
                         message: format!("Method not found: {}", method),
-                        data: None,
+                        data: Some(method_not_found_payload(method)),
                     }),
                 })
             }
@@ -2167,7 +2518,11 @@ impl McpServer {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_dispatch_tool_name;
+    use super::{
+        method_not_found_payload, normalize_dispatch_tool_name, parse_error_payload,
+        tool_error_payload,
+    };
+    use m1nd_core::error::M1ndError;
 
     #[test]
     fn normalizes_m1nd_aliases_to_canonical_tool_names() {
@@ -2200,5 +2555,175 @@ mod tests {
         for (input, expected) in cases {
             assert_eq!(normalize_dispatch_tool_name(input), expected);
         }
+    }
+
+    #[test]
+    fn unknown_tool_payload_teaches_canonical_retry() {
+        let payload = tool_error_payload(&M1ndError::UnknownTool {
+            name: "m1nd.foo".into(),
+        });
+        assert_eq!(payload["error_type"], "unknown_tool");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("canonical MCP tool names"));
+        assert_eq!(payload["example"]["method"], "tools/list");
+    }
+
+    #[test]
+    fn invalid_params_payload_includes_required_fields_and_example() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "trace".into(),
+            detail: "missing field `error_text`".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "trace");
+        let required_fields = payload["required_fields"]
+            .as_array()
+            .expect("required fields array");
+        assert!(required_fields.iter().any(|value| value == "agent_id"));
+        assert!(required_fields.iter().any(|value| value == "error_text"));
+        assert_eq!(payload["example"]["params"]["name"], "trace");
+    }
+
+    #[test]
+    fn stale_trail_resume_invalid_params_payload_teaches_force_recovery() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "trail.resume".into(),
+            detail:
+                "Trail trail_123 is stale: 8 of 12 nodes missing (67%). Use force=true to resume."
+                    .into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "trail.resume");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("force=true"));
+        assert!(payload["workflow_hint"]
+            .as_str()
+            .expect("workflow hint")
+            .contains("trail_resume(force=true)"));
+        assert_eq!(payload["example"]["params"]["name"], "trail_resume");
+        assert_eq!(payload["example"]["params"]["arguments"]["force"], true);
+    }
+
+    #[test]
+    fn empty_search_invalid_params_payload_reroutes_to_glob() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "m1nd_search".into(),
+            detail: "query cannot be empty; add exact text/regex to search content; for file/path discovery use m1nd.glob instead; for natural-language intent use m1nd.seek".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "m1nd_search");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("reroute to `glob`"));
+        assert!(payload["workflow_hint"]
+            .as_str()
+            .expect("workflow hint")
+            .contains("glob -> view"));
+        assert_eq!(payload["example"]["params"]["name"], "glob");
+    }
+
+    #[test]
+    fn ambiguous_search_scope_invalid_params_payload_teaches_exact_scope_retry() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "m1nd_search".into(),
+            detail: "scope 'src/handlers' resolves to 2 candidate paths: [/repo/a/src/handlers, /repo/b/src/handlers]. Use a more specific or absolute scope, or disable auto_ingest if you only want to search current roots".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("ambiguous across multiple candidate paths"));
+        assert!(payload["suggested_next_step"]
+            .as_str()
+            .expect("step")
+            .contains("explicit scope path"));
+    }
+
+    #[test]
+    fn invalid_glob_pattern_payload_teaches_search_reroute() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "m1nd_glob".into(),
+            detail: "invalid glob pattern 'normalize_dispatch_tool_name(': dangling metacharacter; use shell-style globs like 'src/**/*.rs' or '*.md'; for content search use m1nd.search instead".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "m1nd_glob");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("switch to `search`"));
+        assert!(payload["suggested_next_step"]
+            .as_str()
+            .expect("step")
+            .contains("literal mode"));
+    }
+
+    #[test]
+    fn edit_commit_confirm_gate_payload_teaches_same_preview_retry() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: "confirm must be true to commit".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "edit_commit");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("same `preview_id`"));
+        assert!(payload["workflow_hint"]
+            .as_str()
+            .expect("workflow hint")
+            .contains("edit_commit(confirm=true)"));
+        assert_eq!(payload["example"]["params"]["name"], "edit_commit");
+        assert_eq!(payload["example"]["params"]["arguments"]["confirm"], true);
+    }
+
+    #[test]
+    fn edit_commit_expired_preview_payload_teaches_fresh_preview_recovery() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: "preview_id not found or expired (TTL=5min): preview_dev_001".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "edit_commit");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("fresh preview"));
+        assert!(payload["suggested_next_step"]
+            .as_str()
+            .expect("step")
+            .contains("edit_preview"));
+        assert_eq!(payload["example"]["params"]["name"], "edit_preview");
+    }
+
+    #[test]
+    fn empty_graph_payload_points_to_ingest() {
+        let payload = tool_error_payload(&M1ndError::EmptyGraph);
+        assert_eq!(payload["error_type"], "empty_graph");
+        assert!(payload["hint"].as_str().expect("hint").contains("ingest"));
+        assert_eq!(payload["example"]["params"]["name"], "ingest");
+    }
+
+    #[test]
+    fn parse_error_payload_contains_jsonrpc_example() {
+        let payload = parse_error_payload("expected ident");
+        assert_eq!(payload["error_type"], "invalid_jsonrpc");
+        assert_eq!(payload["example"]["method"], "tools/call");
+        assert_eq!(payload["example"]["params"]["name"], "seek");
+    }
+
+    #[test]
+    fn method_not_found_payload_suggests_mcp_methods() {
+        let payload = method_not_found_payload("foo/bar");
+        assert_eq!(payload["error_type"], "method_not_found");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("tools/list"));
     }
 }
