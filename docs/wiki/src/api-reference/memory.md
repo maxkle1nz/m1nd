@@ -198,7 +198,7 @@ Path explanation between two nodes. Finds and explains the relationship paths co
 
 ---
 
-## `m1nd.trail.save`
+## `trail_save`
 
 Persist the current investigation state -- nodes visited, hypotheses formed, conclusions reached, and open questions. Captures activation boosts for later restoration.
 
@@ -224,7 +224,7 @@ Persist the current investigation state -- nodes visited, hypotheses formed, con
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.save",
+    "name": "trail_save",
     "arguments": {
       "agent_id": "jimi",
       "label": "auth-leak-investigation",
@@ -275,13 +275,13 @@ Persist the current investigation state -- nodes visited, hypotheses formed, con
 
 ### Related Tools
 
-- [`m1nd.trail.resume`](#m1ndtrailresume) -- restore a saved trail
-- [`m1nd.trail.list`](#m1ndtraillist) -- find saved trails
-- [`m1nd.trail.merge`](#m1ndtrailmerge) -- combine trails from parallel investigations
+- [`trail_resume`](#m1ndtrailresume) -- restore a saved trail
+- [`trail_list`](#m1ndtraillist) -- find saved trails
+- [`trail_merge`](#m1ndtrailmerge) -- combine trails from parallel investigations
 
 ---
 
-## `m1nd.trail.resume`
+## `trail_resume`
 
 Restore a saved investigation. Re-injects activation boosts into the graph, validates that saved nodes still exist, detects staleness, and optionally downgrades hypotheses whose supporting nodes are missing.
 
@@ -290,7 +290,7 @@ Restore a saved investigation. Re-injects activation boosts into the graph, vali
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
-| `trail_id` | `string` | Yes | -- | Trail ID to resume (from `trail.save` or `trail.list`). |
+| `trail_id` | `string` | Yes | -- | Trail ID to resume (from `trail_save` or `trail_list`). |
 | `force` | `boolean` | No | `false` | Resume even if trail is stale (>50% missing nodes). Default behavior: refuse to resume stale trails. |
 
 ### Example Request
@@ -301,7 +301,7 @@ Restore a saved investigation. Re-injects activation boosts into the graph, vali
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.resume",
+    "name": "trail_resume",
     "arguments": {
       "agent_id": "jimi",
       "trail_id": "trail_jimi_001_a1b2c3"
@@ -347,12 +347,12 @@ Restore a saved investigation. Re-injects activation boosts into the graph, vali
 
 ### Related Tools
 
-- [`m1nd.trail.save`](#m1ndtrailsave) -- save a trail to resume later
-- [`m1nd.warmup`](activation.md#m1ndwarmup) -- simpler priming without full trail restoration
+- [`trail_save`](#m1ndtrailsave) -- save a trail to resume later
+- [`warmup`](activation.md#m1ndwarmup) -- simpler priming without full trail restoration
 
 ---
 
-## `m1nd.trail.list`
+## `trail_list`
 
 List saved investigation trails with optional filters. Returns compact summaries suitable for selecting a trail to resume.
 
@@ -373,7 +373,7 @@ List saved investigation trails with optional filters. Returns compact summaries
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.list",
+    "name": "trail_list",
     "arguments": {
       "agent_id": "jimi",
       "filter_status": "saved",
@@ -414,8 +414,8 @@ List saved investigation trails with optional filters. Returns compact summaries
 
 ### Related Tools
 
-- [`m1nd.trail.resume`](#m1ndtrailresume) -- resume a trail from this list
-- [`m1nd.trail.merge`](#m1ndtrailmerge) -- combine related trails
+- [`trail_resume`](#m1ndtrailresume) -- resume a trail from this list
+- [`trail_merge`](#m1ndtrailmerge) -- combine related trails
 
 ---
 
@@ -495,5 +495,5 @@ When merging hypotheses that contradict each other:
 
 ### Related Tools
 
-- [`m1nd.trail.save`](#m1ndtrailsave) -- save individual trails
+- [`trail_save`](#m1ndtrailsave) -- save individual trails
 - [`m1nd.trail.list`](#m1ndtraillist) -- find trails to merge

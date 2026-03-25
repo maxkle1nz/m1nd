@@ -1,6 +1,6 @@
 # Graph Engine (m1nd-core)
 
-m1nd-core is the computational core of the connectome. It owns the graph data structure, all activation and analysis engines, the plasticity system, and the type-safe numeric primitives that prevent NaN/Inf corruption system-wide.
+m1nd-core is the computational core of the graph runtime. It owns the graph data structure, the activation and analysis engines, the plasticity system, and the type-safe numeric primitives that prevent NaN/Inf corruption system-wide.
 
 Source: `mcp/m1nd/m1nd-core/src/`
 

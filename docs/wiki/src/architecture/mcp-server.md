@@ -1,6 +1,6 @@
 # MCP Server (m1nd-mcp)
 
-m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 43 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and provides perspective branching and lock-based change tracking.
+m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 63 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, and observable batch execution.
 
 Source: `mcp/m1nd/m1nd-mcp/src/`
 
@@ -11,7 +11,7 @@ Source: `mcp/m1nd/m1nd-mcp/src/`
 | `main.rs` | Binary entry point, config loading, tokio runtime, SIGINT handling |
 | `server.rs` | `McpServer`, JSON-RPC transport (framed + line), tool schema registry |
 | `session.rs` | `SessionState`, engine lifecycle, auto-persist, perspective/lock management |
-| `tools.rs` | Tool handler implementations for all 43 MCP tools |
+| `tools.rs` | Tool handler implementations for the exported MCP surface |
 | `engine_ops.rs` | Read-only engine wrappers for perspective synthesis |
 | `protocol.rs` | JSON-RPC request/response types |
 | `perspective/` | Perspective branching, lock state, watcher events |
@@ -91,7 +91,7 @@ Responses:
 }
 ```
 
-The `tools/list` method returns all 43 tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client.
+The `tools/list` method returns all 63 tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client.
 
 ## Server Lifecycle
 
@@ -173,7 +173,7 @@ Example schema entry:
 ```json
 {
     "name": "m1nd.activate",
-    "description": "Spreading activation query across the connectome",
+    "description": "Spreading activation query across the graph",
     "inputSchema": {
         "type": "object",
         "properties": {

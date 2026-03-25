@@ -1,7 +1,7 @@
 [book]
 title = "m1nd Documentation"
 authors = ["Max Kleinschmidt"]
-description = "Complete documentation for m1nd — the neuro-symbolic connectome engine"
+description = "Complete documentation for m1nd — the local code graph engine for MCP agents"
 language = "en"
 src = "src"
 

@@ -1,118 +1,116 @@
 # Introduction
 
-m1nd is a neuro-symbolic connectome engine built in Rust. It ingests a codebase into a weighted, directed graph --- then lets you fire queries into that graph and watch where the energy goes. Signal propagates across structural, semantic, temporal, and causal dimensions. The graph learns from every interaction via Hebbian plasticity: paths you use get stronger, paths you ignore decay. The result is a code intelligence layer that adapts to how you think about your codebase. It ships as an [MCP](https://modelcontextprotocol.io/) server with 43 tools, runs on stdio, and works with any MCP-compatible client.
+m1nd is a local code graph engine for MCP agents. It ingests a repository once, turns it into a queryable graph, and helps agents ask for structure, impact, connected context, continuity, and likely risk instead of reconstructing the repo from raw files every time.
+
+The current public shape of the product is not just “graph search.” It is a guided runtime with:
+
+- graph-grounded retrieval and impact analysis
+- `proof_state` on the main structural flows
+- `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
+- actionable continuity through `trail_resume`
+- observable multi-file writes through `apply_batch`
+- recovery loops that teach the next valid move when a tool is used badly
+
+m1nd ships as an [MCP](https://modelcontextprotocol.io/) server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 63 MCP tools.
 
 ## The Problem
 
-AI coding agents are powerful reasoners but terrible navigators. An LLM can analyze a function you paste into its context window, but it cannot *find* the right function in a codebase of 10,000 files without burning tokens on speculative grep, glob, and tree walks. The existing tools fail in different ways:
+Most agent loops still waste time in the same place: navigation.
 
-- **Full-text search** finds what you *said*, not what you *meant*. Searching for "authentication" won't surface the session middleware that enforces it.
-- **RAG** retrieves chunks by embedding similarity, but each retrieval is stateless. It has no memory of what it retrieved last time, and no way to express relationships between results.
-- **Static analysis** produces call graphs and ASTs, but they are frozen snapshots. They cannot answer "what if I remove this module?" or "what changed since my last session?"
-- **Knowledge graphs** require manual curation and only return what was explicitly encoded.
+An LLM can reason about a file once it has the file. The expensive part is getting the right file, the right neighbors, and enough proof to act without reopening half the repo.
 
-m1nd solves this with a fundamentally different approach: spreading activation on a learned graph. Instead of matching tokens or embedding vectors, it propagates energy from seed nodes through weighted edges and observes the activation pattern that emerges. The graph topology determines where signal flows. Hebbian learning determines how strongly.
+Without a structural layer, the loop usually looks like this:
 
-```
-335 files -> 9,767 nodes -> 26,557 edges in 0.91s
-activate in 31ms | impact in 5ms | trace in 3.5ms | learn in <1ms
-```
+1. grep for a symbol or phrase
+2. open a file
+3. grep for callers, callees, or related paths
+4. open more files
+5. repeat until the subsystem shape becomes clear
 
-No LLM calls. No API keys. No network. The binary is ~8MB of pure Rust.
+That cost shows up as:
 
-## Key Capabilities
+- more file reads than necessary
+- more token burn on repo reconstruction
+- weaker stopping rules during triage
+- more false starts before editing
+- more friction resuming prior investigations
 
-### Spreading Activation
+## What m1nd Changes
 
-The core query primitive. Fire a signal into the graph from one or more seed nodes. The signal propagates through the CSR adjacency structure, decaying at each hop, inhibited by negative edges, and scored across four dimensions:
+m1nd keeps the graph local and lets an agent ask for structure directly:
 
-| Dimension | Source | What It Captures |
-|-----------|--------|------------------|
-| Structural | CSR adjacency + PageRank | Graph distance, edge types, centrality |
-| Semantic | Trigram matching on identifiers | Naming patterns, token overlap |
-| Temporal | Git history + learn feedback | Co-change frequency, recency decay |
-| Causal | Stacktrace mapping + call chains | Error proximity, suspiciousness |
+- `trace` maps stacktraces to likely suspects
+- `impact` inspects blast radius before edits
+- `seek` and `activate` find intent and connected structure
+- `validate_plan` and `surgical_context_v2` prepare safer multi-file changes
+- `trail_resume` restores investigations with next-focus and next-tool hints
+- `apply_batch` exposes progress, phases, and final handoff signals
 
-The engine selects between a wavefront (BFS-parallel) and a heap (priority-queue) propagation strategy at runtime based on seed density and average degree. Results are merged with adaptive dimension weighting and a resonance bonus for nodes that score across 3 or 4 dimensions.
+The result is less context churn and better decision quality per step.
 
-```jsonc
-// Ask: "What's related to authentication?"
-{"method": "tools/call", "params": {
-  "name": "m1nd.activate",
-  "arguments": {"query": "authentication", "agent_id": "dev"}
-}}
-// -> auth.py fires -> propagates to session, middleware, JWT, user model
-//    4-dimensional relevance ranking in 31ms
-```
+Current benchmark truth from the recorded warm-graph corpus:
 
-### Hebbian Plasticity
+- `10518 -> 5182` aggregate token proxy
+- `50.73%` aggregate reduction
+- `14 -> 0` false starts
+- `31` guided follow-throughs
+- `12` successful recovery loops
 
-The graph learns. When you tell m1nd that results were useful, edge weights strengthen along the activated paths (`delta_w = learning_rate * activation_src * activation_tgt`). When results go unused, inactive edges decay. After sustained strengthening, edges receive a permanent Long-Term Potentiation (LTP) bonus. After sustained weakening, Long-Term Depression (LTD) applies a permanent penalty. Homeostatic normalization prevents runaway weights by scaling incoming edges when their sum exceeds a ceiling.
+Not every scenario is a token win. Some wins are continuity, recovery, or execution clarity. That is part of the product truth too.
 
-```jsonc
-// Tell the graph what was useful
-{"method": "tools/call", "params": {
-  "name": "m1nd.learn",
-  "arguments": {
-    "feedback": "correct",
-    "node_ids": ["file::auth.py", "file::middleware.py"],
-    "agent_id": "dev"
-  }
-}}
-// -> 740 edges strengthened. Next query for "authentication" is smarter.
-```
+## Core Runtime Ideas
 
-Plasticity state persists to disk. Across sessions, the graph evolves to match how your team navigates the codebase.
+### Graph-grounded retrieval
 
-### Structural Hole Detection
+The graph is still the foundation. Activation, semantic retrieval, path search, temporal history, and blast-radius analysis all sit on top of a shared structural model rather than a stateless grep loop.
 
-`m1nd.missing` finds gaps in the graph --- nodes or edges that *should* exist based on the surrounding topology but don't. If every other module in a cluster has error handling and one doesn't, that's a structural hole. If two subsystems communicate through a single bridge node, that's a fragility point. This turns the graph into a specification-free audit tool.
+### Guided handoff
 
-### Counterfactual Simulation
+Several high-value tools now return more than raw results. They can expose:
 
-"What breaks if I delete `spawner.py`?" The counterfactual engine uses a zero-allocation bitset mask (no graph clone) to virtually remove nodes and their incident edges, then re-runs spreading activation to measure the impact. The output includes orphaned nodes, weakened nodes, reachability loss, and cascade depth. Synergy analysis reveals whether removing two modules together is worse than the sum of removing them individually.
+- `proof_state`
+- `next_suggested_tool`
+- `next_suggested_target`
+- `next_step_hint`
 
-```
-counterfactual("spawner.py") -> 4,189 affected nodes, cascade at depth 3
-counterfactual("config.py")  -> 2,531 affected nodes (despite being universally imported)
-```
+That turns the server from a catalog of answers into a layer that helps the agent decide what to do next.
 
-### Perspectives
+### Continuity
 
-Stateful graph navigation. Open a perspective anchored to a node, list available routes, follow edges, peek at source code, and branch explorations. Perspectives carry confidence calibration and epistemic safety checks. Two agents can open independent perspectives on the same graph and later compare them to find shared nodes and divergent conclusions.
+`trail_resume` is no longer just bookmark restore. It can return compact resume hints, reactivated nodes, the next focus node, the next open question, and the likely next tool. This is one of the main reasons the benchmark corpus now records fewer false starts.
 
-### XLR Noise Cancellation
+### Observable execution
 
-Borrowed from professional audio engineering. Like a balanced XLR cable, m1nd transmits signal on two inverted channels --- hot (from your query seeds) and cold (from automatically selected anti-seeds that are structurally similar but semantically distant). The cold signal cancels common-mode noise: the generic infrastructure that every query touches. What survives is the differential signal specific to your actual question. Sigmoid gating, density-adaptive strength, and seed immunity prevent over-cancellation.
+`apply_batch` is now an observable write surface:
+
+- `status_message`
+- `proof_state`
+- lifecycle phases such as `validate`, `write`, `reingest`, `verify`, and `done`
+- coarse progress fields like `progress_pct`
+- structured `progress_events`
+- live SSE progress in serve mode
+
+### Recovery loops
+
+Common failures no longer have to be dead ends. Many invalid calls now return hints, examples, and a suggested next step so the agent can repair the call instead of rediscovering the workflow from scratch.
 
 ## Who This Is For
 
-- **AI agent developers** who need their agents to navigate code without wasting context tokens on trial-and-error search.
-- **IDE and tool builders** looking for an MCP-compatible code intelligence backend that goes beyond static analysis.
-- **Anyone using MCP clients** (Claude Code, Cursor, Windsurf, Zed, Cline, Roo Code, Continue, OpenCode, Amazon Q, GitHub Copilot) who wants a graph that learns from their workflow.
-- **Multi-agent orchestrators** who need a shared, persistent code graph that multiple agents can query, learn from, and lock regions of concurrently.
+- agent builders who want a local structural layer for navigation and edit prep
+- MCP client users who want better triage, continuity, and connected context
+- multi-agent systems that need shared graph truth without shipping code to an API
+- teams that want safer workflow around stacktrace triage, blast radius, and multi-file changes
 
-m1nd is *not* a replacement for full-text search, and it does not use neural embeddings (v1 uses trigram matching for the semantic dimension). If you need "find code that *means* X but never uses the word," m1nd will not do it yet. See [the FAQ](faq.md) for more on current limitations.
+m1nd is not a compiler, debugger, or test runner replacement. It is best when the real bottleneck is structural understanding and repo navigation.
 
-## How to Read This Wiki
+## How To Read This Wiki
 
-This wiki is organized into four sections. Read them in order for a full understanding, or jump to the section you need.
+**[Architecture](architecture/overview.md)** explains how the three crates fit together and how the MCP server turns graph truth into agent-facing runtime behavior.
 
-**[Architecture](architecture/overview.md)** --- How m1nd is built. The three crates (`m1nd-core`, `m1nd-ingest`, `m1nd-mcp`), the CSR graph representation, the activation engine hierarchy, and the MCP server protocol layer. Start here if you want to contribute or understand the internals.
+**[Concepts](concepts/spreading-activation.md)** covers the underlying graph ideas such as activation, plasticity, and structural holes.
 
-**[Concepts](concepts/spreading-activation.md)** --- The ideas behind the implementation. Spreading activation, Hebbian plasticity, XLR noise cancellation, and structural hole detection explained with enough depth to reason about behavior and tune parameters.
+**[API Reference](api-reference/overview.md)** documents the current MCP surface, including underscore-based canonical tool names, guided outputs, and transport behavior.
 
-**[API Reference](api-reference/overview.md)** --- All 43 MCP tools documented with parameters, return types, and usage examples. Organized by function: activation and queries, analysis and prediction, memory and learning, exploration and discovery, perspective navigation, and lifecycle administration.
+**[Tutorials](tutorials/quickstart.md)** walks through the main workflows from first ingest to connected edit prep.
 
-**[Tutorials](tutorials/quickstart.md)** --- Practical walkthroughs. Quick start, your first query, and multi-agent workflows with trail save/resume/merge.
-
-The **[Benchmarks](benchmarks.md)** page has real performance numbers from a production codebase (335 files, ~52K lines, 9,767 nodes, 26,557 edges). The **[Changelog](changelog.md)** tracks what changed between versions.
-
----
-
-```
-cargo build --release
-./target/release/m1nd-mcp
-```
-
-The server starts, listens on stdio, and waits for JSON-RPC. The graph is empty until you call `m1nd.ingest`. From there, every query teaches it something.
+The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history from `v0.6.0` and `v0.6.1` onward.

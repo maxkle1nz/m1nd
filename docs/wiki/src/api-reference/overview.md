@@ -1,81 +1,92 @@
 # API Reference Overview
 
-m1nd exposes **43 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. Tools are organized into seven groups.
+m1nd currently exposes **63 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
+
+Several tools now do more than return raw results. On the main structural flows you should expect some combination of:
+
+- `proof_state`
+- `next_suggested_tool`
+- `next_suggested_target`
+- `next_step_hint`
+
+That matters for how you integrate m1nd into an agent loop: treat many responses as workflow guidance, not just data blobs.
 
 ## Tool Index
 
-### Core Activation (3 tools)
+### Core Activation
 
 | Tool | Description |
 |------|-------------|
-| [`m1nd.activate`](activation.md#m1ndactivate) | Spreading activation query across the connectome |
-| [`m1nd.warmup`](activation.md#m1ndwarmup) | Task-based warmup and priming |
-| [`m1nd.resonate`](activation.md#m1ndresonate) | Resonance analysis: harmonics, sympathetic pairs, and resonant frequencies |
+| [`activate`](activation.md#m1ndactivate) | Spreading activation query across the graph |
+| [`warmup`](activation.md#m1ndwarmup) | Task-based warmup and priming |
+| [`resonate`](activation.md#m1ndresonate) | Resonance analysis: harmonics, sympathetic pairs, and resonant frequencies |
 
-### Analysis (7 tools)
-
-| Tool | Description |
-|------|-------------|
-| [`m1nd.impact`](analysis.md#m1ndimpact) | Impact radius / blast analysis for a node |
-| [`m1nd.predict`](analysis.md#m1ndpredict) | Co-change prediction for a modified node |
-| [`m1nd.counterfactual`](analysis.md#m1ndcounterfactual) | What-if node removal simulation |
-| [`m1nd.fingerprint`](analysis.md#m1ndfingerprint) | Activation fingerprint and equivalence detection |
-| [`m1nd.hypothesize`](analysis.md#m1ndhypothesize) | Graph-based hypothesis testing against structural claims |
-| [`m1nd.differential`](analysis.md#m1nddifferential) | Focused structural diff between two graph snapshots |
-| [`m1nd.diverge`](analysis.md#m1nddiverge) | Structural drift between a baseline and current graph state |
-
-### Memory & Learning (7 tools)
+### Analysis
 
 | Tool | Description |
 |------|-------------|
-| [`m1nd.learn`](memory.md#m1ndlearn) | Explicit feedback-based edge adjustment |
-| [`m1nd.drift`](memory.md#m1nddrift) | Weight and structural drift analysis |
-| [`m1nd.why`](memory.md#m1ndwhy) | Path explanation between two nodes |
-| [`m1nd.trail.save`](memory.md#m1ndtrailsave) | Persist current investigation state |
-| [`m1nd.trail.resume`](memory.md#m1ndtrailresume) | Restore a saved investigation |
-| [`m1nd.trail.list`](memory.md#m1ndtraillist) | List saved investigation trails |
-| [`m1nd.trail.merge`](memory.md#m1ndtrailmerge) | Combine two or more investigation trails |
+| [`impact`](analysis.md#m1ndimpact) | Impact radius / blast analysis for a node |
+| [`predict`](analysis.md#m1ndpredict) | Co-change prediction for a modified node |
+| [`counterfactual`](analysis.md#m1ndcounterfactual) | What-if node removal simulation |
+| [`fingerprint`](analysis.md#m1ndfingerprint) | Activation fingerprint and equivalence detection |
+| [`hypothesize`](analysis.md#m1ndhypothesize) | Graph-based hypothesis testing against structural claims |
+| [`differential`](analysis.md#m1nddifferential) | Focused structural diff between two graph snapshots |
+| [`diverge`](analysis.md#m1nddiverge) | Structural drift between a baseline and current graph state |
 
-### Exploration (6 tools)
-
-| Tool | Description |
-|------|-------------|
-| [`m1nd.seek`](exploration.md#m1ndseek) | Intent-aware semantic code search |
-| [`m1nd.scan`](exploration.md#m1ndscan) | Pattern-aware structural code analysis |
-| [`m1nd.missing`](exploration.md#m1ndmissing) | Detect structural holes and missing connections |
-| [`m1nd.trace`](exploration.md#m1ndtrace) | Map runtime errors to structural root causes |
-| [`m1nd.timeline`](exploration.md#m1ndtimeline) | Git-based temporal history for a node |
-| [`m1nd.federate`](exploration.md#m1ndfederate) | Multi-repository federated graph ingestion |
-
-### Perspectives (12 tools)
+### Memory, Trails, and Learning
 
 | Tool | Description |
 |------|-------------|
-| [`m1nd.perspective.start`](perspectives.md#m1ndperspectivestart) | Enter a perspective: navigable route surface from a query |
-| [`m1nd.perspective.routes`](perspectives.md#m1ndperspectiveroutes) | Browse the current route set with pagination |
-| [`m1nd.perspective.inspect`](perspectives.md#m1ndperspectiveinspect) | Expand a route with metrics, provenance, and affinity |
-| [`m1nd.perspective.peek`](perspectives.md#m1ndperspectivepeek) | Extract a code/doc slice from a route target |
-| [`m1nd.perspective.follow`](perspectives.md#m1ndperspectivefollow) | Follow a route: move focus to target, synthesize new routes |
-| [`m1nd.perspective.suggest`](perspectives.md#m1ndperspectivesuggest) | Get the next best move suggestion |
-| [`m1nd.perspective.affinity`](perspectives.md#m1ndperspectiveaffinity) | Discover probable connections a route target might have |
-| [`m1nd.perspective.branch`](perspectives.md#m1ndperspectivebranch) | Fork navigation state into a new branch |
-| [`m1nd.perspective.back`](perspectives.md#m1ndperspectiveback) | Navigate back to previous focus |
-| [`m1nd.perspective.compare`](perspectives.md#m1ndperspectivecompare) | Compare two perspectives on shared/unique nodes |
-| [`m1nd.perspective.list`](perspectives.md#m1ndperspectivelist) | List all perspectives for an agent |
-| [`m1nd.perspective.close`](perspectives.md#m1ndperspectiveclose) | Close a perspective and release associated locks |
+| [`learn`](memory.md#m1ndlearn) | Explicit feedback-based edge adjustment |
+| [`drift`](memory.md#m1nddrift) | Weight and structural drift analysis |
+| [`why`](memory.md#m1ndwhy) | Path explanation between two nodes |
+| [`trail_save`](memory.md#m1ndtrailsave) | Persist current investigation state |
+| [`trail_resume`](memory.md#m1ndtrailresume) | Restore a saved investigation with next-step guidance |
+| [`trail_list`](memory.md#m1ndtraillist) | List saved investigation trails |
+| [`trail_merge`](memory.md#m1ndtrailmerge) | Combine two or more investigation trails |
 
-### Lifecycle & Locks (8 tools)
+### Exploration
 
 | Tool | Description |
 |------|-------------|
-| [`m1nd.ingest`](lifecycle.md#m1ndingest) | Ingest or re-ingest a codebase, descriptor, or memory corpus |
-| [`m1nd.health`](lifecycle.md#m1ndhealth) | Server health and statistics |
-| [`m1nd.validate_plan`](lifecycle.md#m1ndvalidate_plan) | Validate a modification plan against the code graph |
-| [`m1nd.lock.create`](lifecycle.md#m1ndlockcreate) | Pin a subgraph region and capture a baseline |
-| [`m1nd.lock.watch`](lifecycle.md#m1ndlockwatch) | Set a watcher strategy on a lock |
-| [`m1nd.lock.diff`](lifecycle.md#m1ndlockdiff) | Compute what changed in a locked region since baseline |
-| [`m1nd.lock.rebase`](lifecycle.md#m1ndlockrebase) | Re-capture lock baseline from current graph |
-| [`m1nd.lock.release`](lifecycle.md#m1ndlockrelease) | Release a lock and free its resources |
+| [`seek`](exploration.md#m1ndseek) | Intent-aware semantic code search |
+| [`scan`](exploration.md#m1ndscan) | Pattern-aware structural code analysis |
+| [`missing`](exploration.md#m1ndmissing) | Detect structural holes and missing connections |
+| [`trace`](exploration.md#m1ndtrace) | Map runtime errors to structural root causes |
+| [`timeline`](exploration.md#m1ndtimeline) | Git-based temporal history for a node |
+| [`federate`](exploration.md#m1ndfederate) | Multi-repository federated graph ingestion |
+
+### Perspectives
+
+| Tool | Description |
+|------|-------------|
+| [`perspective_start`](perspectives.md#m1ndperspectivestart) | Enter a perspective: navigable route surface from a query |
+| [`perspective_routes`](perspectives.md#m1ndperspectiveroutes) | Browse the current route set with pagination |
+| [`perspective_inspect`](perspectives.md#m1ndperspectiveinspect) | Expand a route with metrics, provenance, and affinity |
+| [`perspective_peek`](perspectives.md#m1ndperspectivepeek) | Extract a code/doc slice from a route target |
+| [`perspective_follow`](perspectives.md#m1ndperspectivefollow) | Follow a route: move focus to target, synthesize new routes |
+| [`perspective_suggest`](perspectives.md#m1ndperspectivesuggest) | Get the next best move suggestion |
+| [`perspective_affinity`](perspectives.md#m1ndperspectiveaffinity) | Discover probable connections a route target might have |
+| [`perspective_branch`](perspectives.md#m1ndperspectivebranch) | Fork navigation state into a new branch |
+| [`perspective_back`](perspectives.md#m1ndperspectiveback) | Navigate back to previous focus |
+| [`perspective_compare`](perspectives.md#m1ndperspectivecompare) | Compare two perspectives on shared/unique nodes |
+| [`perspective_list`](perspectives.md#m1ndperspectivelist) | List all perspectives for an agent |
+| [`perspective_close`](perspectives.md#m1ndperspectiveclose) | Close a perspective and release associated locks |
+
+### Lifecycle, Search, and Surgical
+
+| Tool | Description |
+|------|-------------|
+| [`ingest`](lifecycle.md#m1ndingest) | Ingest or re-ingest a codebase, descriptor, or memory corpus |
+| [`health`](lifecycle.md#m1ndhealth) | Server health and statistics |
+| [`search`](lifecycle.md#m1ndsearch) | Literal, regex, or semantic-graph-aware content search |
+| [`glob`](lifecycle.md#m1ndglob) | Graph-aware file globbing |
+| [`view`](lifecycle.md#m1ndview) | Fast line-numbered file inspection |
+| [`validate_plan`](lifecycle.md#m1ndvalidate_plan) | Validate a modification plan against the code graph |
+| [`surgical_context_v2`](lifecycle.md#m1ndsurgicalcontextv2) | Pull connected edit context with proof-oriented options |
+| [`apply_batch`](lifecycle.md#m1ndapplybatch) | Atomic multi-file write with progress, verification, and handoff |
+
+The grouped reference pages below still organize the surface by area, but the current best operational map is in `help`, the README tool table, and the live `tools/list` response.
 
 ---
 
@@ -101,7 +112,7 @@ m1nd uses the [MCP protocol](https://modelcontextprotocol.io/) over JSON-RPC 2.0
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+        "name": "activate",
     "arguments": {
       "agent_id": "jimi",
       "query": "session management"
@@ -131,7 +142,7 @@ The `text` field contains the tool-specific output as a pretty-printed JSON stri
 
 ### Error response (tool execution error)
 
-Tool execution errors are returned as MCP `isError` content, **not** as JSON-RPC errors:
+Tool execution errors are returned as MCP `isError` content, **not** as JSON-RPC errors. Many current errors are recovery-oriented and may include fields such as `hint`, `workflow_hint`, `example`, or `suggested_next_step`.
 
 ```json
 {
@@ -141,7 +152,7 @@ Tool execution errors are returned as MCP `isError` content, **not** as JSON-RPC
     "content": [
       {
         "type": "text",
-        "text": "Error: Node not found: file::nonexistent.py"
+        "text": "{ \"error\": \"...\", \"hint\": \"...\", \"suggested_next_step\": \"...\" }"
       }
     ],
     "isError": true
@@ -185,11 +196,13 @@ The server auto-detects which mode each incoming message uses and responds in th
 
 ## Tool Name Normalization
 
-Tool names accept both dots and underscores as separators. The server normalizes `_` to `.` before dispatch:
+The exported MCP schema uses underscore-based canonical names, but the server still accepts legacy dotted and underscored aliases when possible:
 
-- `m1nd.activate` and `m1nd_activate` both work
-- `m1nd.perspective.start` and `m1nd_perspective_start` both work
-- `m1nd.lock.create` and `m1nd_lock_create` both work
+- `activate` is canonical
+- `m1nd.activate` is accepted as a compatibility alias
+- `m1nd_activate` is also accepted where normalization applies
+
+If you are generating tool calls from an MCP client, prefer the canonical schema names returned by `tools/list`.
 
 ## Protocol Handshake
 
@@ -207,7 +220,7 @@ Response:
   "id": 0,
   "result": {
     "protocolVersion": "2024-11-05",
-    "serverInfo": { "name": "m1nd-mcp", "version": "0.1.0" },
+    "serverInfo": { "name": "m1nd-mcp", "version": "0.6.1" },
     "capabilities": { "tools": {} }
   }
 }
@@ -219,4 +232,4 @@ Then list available tools:
 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
 ```
 
-This returns the full schema for all 43 tools with `inputSchema` for each.
+This returns the full schema for all 63 tools with `inputSchema` for each.

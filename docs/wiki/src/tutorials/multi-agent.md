@@ -86,7 +86,7 @@ Perspectives are isolated per agent. Agent A's perspectives are not visible to A
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.start",
+    "name": "perspective_start",
     "arguments": {
       "agent_id": "agent-a",
       "query": "authentication middleware",
@@ -116,7 +116,7 @@ Response:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.start",
+    "name": "perspective_start",
     "arguments": {
       "agent_id": "agent-b",
       "query": "worker pool scaling"
@@ -136,7 +136,7 @@ Each agent only sees its own:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.list",
+    "name": "perspective_list",
     "arguments": {"agent_id": "agent-a"}
   }
 }
@@ -146,7 +146,7 @@ Each agent only sees its own:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.list",
+    "name": "perspective_list",
     "arguments": {"agent_id": "agent-b"}
   }
 }
@@ -161,7 +161,7 @@ You *can* explicitly compare two perspectives from different agents using `persp
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.compare",
+    "name": "perspective_compare",
     "arguments": {
       "agent_id": "agent-a",
       "perspective_id_a": "persp-a1b2c3",
@@ -291,7 +291,7 @@ Trails are investigation snapshots: visited nodes, hypotheses, conclusions, open
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.save",
+    "name": "trail_save",
     "arguments": {
       "agent_id": "agent-a",
       "label": "auth-token-leak-investigation",
@@ -497,7 +497,7 @@ When Agent A finds something that Agent B needs to investigate:
 
 ```jsonc
 // Agent A saves its investigation
-{"method":"tools/call","params":{"name":"m1nd.trail.save","arguments":{
+{"method":"tools/call","params":{"name":"trail_save","arguments":{
   "agent_id":"hacker-auth",
   "label":"session-hijack-vector",
   "tags":["security","critical"]

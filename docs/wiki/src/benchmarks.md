@@ -1,124 +1,103 @@
 # Benchmarks
 
-For current benchmark research, warm-graph workflow findings, and next-patch backlog, see:
+For the raw research artifacts and patch backlog that produced the current public numbers, see:
 
 - `docs/BENCHMARK_RESEARCH_2026-03-24.md`
 - `docs/BENCHMARK_PATCH_PLAN_2026-03-24.md`
 - `docs/BENCHMARK_HARNESS_SPEC_2026-03-24.md`
 
-All numbers in this document are from real execution against a production Python backend: 335 files, approximately 52,000 lines of code, producing a graph of 9,767 nodes and 26,557 edges.
+This page is the short product-truth layer for the current benchmark corpus.
 
-No synthetic benchmarks. No cherry-picked runs. These are the numbers you get when you run m1nd against a real codebase.
+## What We Measure Now
 
-## Core Operations
+The current benchmark system is not only about token proxy. It also tracks whether m1nd improves workflow behavior:
 
-| Operation | Time | Scale |
+- token proxy / context churn
+- `false_starts`
+- guided follow-through
+- recovery loops
+- proof-state progression
+- progress observability on long-running writes
+
+That matters because some of m1nd’s strongest wins are continuity, repair, and execution clarity rather than raw compression in every single scenario.
+
+## Current Warm-Graph Corpus
+
+The current recorded aggregate warm-graph corpus shows:
+
+| Metric | Manual | `m1nd_warm` | Result |
+|--------|--------|-------------|--------|
+| Aggregate token proxy | `10518` | `5182` | `50.73%` reduction |
+| False starts | `14` | `0` | m1nd eliminates the recorded false starts |
+| Guided follow-throughs | `0` | `31` | guided next-step behavior is being followed in real runs |
+| Successful recovery loops | `0` | `12` | repair loops are closing instead of restarting from scratch |
+
+These are the public numbers reflected in the README and landing. They are the benchmark truth to mirror across docs.
+
+## Representative Engine Timings
+
+The underlying engine remains fast on the measured production backend (~335 files, ~52K lines, 9,767 nodes, 26,557 edges):
+
+| Operation | Time | Notes |
 |-----------|------|-------|
-| **Full ingest** | 910ms | 335 files -> 9,767 nodes, 26,557 edges |
-| **Spreading activation** | 31-77ms | 15-20 results from 9,767 nodes |
-| **Blast radius** (depth=3) | 5-52ms | Up to 4,271 affected nodes |
-| **Stacktrace analysis** | 3.5ms | 5 frames -> 4 suspects ranked |
-| **Plan validation** | 10ms | 7 files -> 43,152 blast radius |
-| **Counterfactual cascade** | 3ms | Full BFS on 26,557 edges |
-| **Hypothesis testing** | 58ms | 25,015 paths explored |
-| **Pattern scan** (all 8 patterns) | 38ms | 335 files, 50 findings per pattern |
-| **Multi-repo federation** | 1.3s | 11,217 nodes, 18,203 cross-repo edges |
-| **Lock diff** | 0.08us | 1,639-node subgraph comparison |
-| **Trail merge** | 1.2ms | 5 hypotheses, 3 conflicts detected |
-| **Hebbian learn** | <1ms | 740 edges adjusted |
-| **Health check** | <1ms | Statistics only |
-| **Seek** (semantic search) | 10-15ms | 20 results |
-| **Warmup** (task priming) | 82-89ms | 50 seed nodes primed |
-| **Resonate** (standing wave) | 37-52ms | Harmonic analysis |
-| **Fingerprint** (twin detection) | 1-107ms | Topology comparison |
-| **Why** (path explanation) | 5-6ms | Shortest path between two nodes |
-| **Drift** (weight changes) | 23ms | Since last session |
-| **Timeline** (temporal history) | ~1ms | Node change history |
+| Full ingest | ~910ms | Walk + extract + resolve + finalize |
+| Activate query | ~31ms | Four-dimensional ranking |
+| Impact analysis | ~5ms | Blast-radius path |
+| Trace analysis | ~3.5ms | Stacktrace to suspects |
+| Trail resume | ~0.2ms | Continuity restore + hints |
+| Apply batch | ~165ms | Atomic multi-file write before deeper verification |
 
-## Comparison Table
+These timings are useful, but they are no longer the whole story. Current m1nd is also measured on guided behavior and recovery quality.
 
-### m1nd vs grep / ripgrep
+## Where m1nd Wins
 
-| Dimension | ripgrep | m1nd |
-|-----------|---------|------|
-| **Query type** | Text pattern (regex) | Natural language intent |
-| **Returns** | Lines matching pattern | Ranked nodes with 4D scores |
-| **Relationships** | None | Full graph traversal |
-| **Learning** | None | Hebbian plasticity |
-| **"What if?" queries** | Not possible | Counterfactual, hypothesis, impact |
-| **Speed (simple query)** | ~5ms | 31-77ms |
-| **Speed (structural query)** | Not possible | 3-58ms |
-| **Memory** | ~10MB | ~50MB |
-| **Cost per query** | Zero | Zero |
+m1nd wins most clearly when the task is structural, stateful, or risky:
 
-ripgrep is faster for simple text matching and always will be. m1nd answers questions ripgrep cannot ask.
+- stacktrace triage with `trace`
+- blast-radius analysis with `impact`
+- continuity restoration with `trail_resume`
+- edit preparation with `surgical_context_v2` and `validate_plan`
+- long-running writes with `apply_batch`
+- repair loops after invalid regex, stale route sets, stale trails, protected writes, and stale edit previews
 
-### m1nd vs RAG
+## Where Plain Tools Still Win
 
-| Dimension | RAG | m1nd |
-|-----------|-----|------|
-| **Retrieval method** | Embedding similarity (top-K) | Spreading activation (4D) |
-| **Statefulness** | Stateless per query | Persistent graph + learning |
-| **Relationships** | Not tracked | First-class edges |
-| **Learning** | None | Hebbian feedback loop |
-| **Investigation memory** | None | Trail save/resume/merge |
-| **Structural queries** | Not possible | Impact, counterfactual, hypothesis |
-| **Setup cost** | Embedding computation | 910ms ingest |
-| **Cost per query** | LLM tokens for embedding | Zero |
-| **Typical query latency** | 200-500ms (includes API call) | 31-77ms (local) |
+m1nd is not the headline tool for:
 
-### m1nd vs Static Analysis (Sourcegraph, SCIP, LSP)
+- exact text search
+- one-file lookup when you already know the file
+- compiler truth
+- runtime logs and debugger work
 
-| Dimension | Static Analysis | m1nd |
-|-----------|----------------|------|
-| **Accuracy** | Language-server precise | Structural heuristic |
-| **Learning** | None | Hebbian plasticity |
-| **Temporal intelligence** | git blame only | Co-change velocity + decay |
-| **"What if?" simulation** | Not possible | Counterfactual cascade |
-| **Hypothesis testing** | Not possible | Bayesian path analysis |
-| **Investigation state** | Not tracked | Trail system |
-| **Multi-agent** | Read-only sharing | Shared graph + isolated perspectives |
-| **Cost** | Hosted SaaS or self-hosted infra | Single binary, zero cost |
-| **Setup** | Minutes to hours (indexing) | 910ms (ingest) |
+Use `rg`, the compiler, the test runner, and logs when execution truth is the question. Use m1nd when navigation and connected structure are the bottleneck.
 
-### Summary: Use the Right Tool
+## Why The Corpus Matters
 
-| Task | Best Tool |
-|------|-----------|
-| Find text in files | ripgrep |
-| Find semantically similar code | RAG |
-| Go-to-definition, find references | LSP / Sourcegraph |
-| Understand blast radius of a change | **m1nd** |
-| Simulate module removal | **m1nd** |
-| Test structural hypotheses | **m1nd** |
-| Learn from agent feedback | **m1nd** |
-| Persist investigation state | **m1nd** |
-| Multi-agent shared code intelligence | **m1nd** |
+The benchmark corpus is now part of product development, not just a marketing appendix.
 
-## Cost Comparison: Tokens Saved
+Recent runtime and UX improvements were driven directly by measured benchmark pain:
 
-In a typical AI agent coding session, the agent calls grep/ripgrep 20-50 times and reads 10-30 files to navigate a codebase. Each file read costs tokens (the file content is sent to the LLM).
+- `proof_state` and next-step guidance on core flows
+- more actionable `trail_resume`
+- better `seek` handling for natural-language prompts
+- reduced `validate_plan` noise
+- more useful `surgical_context_v2`
+- observable `apply_batch` progress and SSE handoff
+- recovery-oriented error payloads for invalid or stale tool calls
 
-m1nd replaces many of these exploratory reads with graph queries that return *ranked results* rather than raw file contents. The agent reads fewer files because it reads the *right* files first.
+## Reproducibility
 
-### Estimated Token Savings
+To inspect the current benchmark system:
 
-Assumptions: 335-file Python backend, 8-hour agent workday, agent using Claude Opus.
+```bash
+git clone https://github.com/maxkle1nz/m1nd.git
+cd m1nd
+cargo build --release --workspace
+python3 scripts/benchmark/run_benchmark.py --help
+python3 scripts/benchmark/summarize_benchmarks.py --help
+```
 
-| Without m1nd | With m1nd |
-|-------------|-----------|
-| ~40 grep calls/hour | ~15 grep calls/hour |
-| ~20 file reads/hour | ~8 file reads/hour |
-| ~150K tokens/hour (context) | ~60K tokens/hour (context) |
-| ~1.2M tokens/day | ~480K tokens/day |
-
-**Estimated savings: ~720K tokens/day** (60% reduction in context tokens).
-
-These are estimates based on production usage in the ROOMANIZER OS multi-agent system. Your mileage varies with codebase size, task type, and agent behavior.
-
-The key insight: m1nd does not replace search. It *focuses* search. The agent still uses grep and reads files, but it starts from a much better position because m1nd told it where to look.
-
-## Memory and CPU Usage
+The versioned scenarios, events, and run outputs live under `docs/benchmarks/`.
 
 ### Memory
 

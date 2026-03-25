@@ -1,12 +1,12 @@
 # Activation Tools
 
-Three tools for querying the connectome through spreading activation, task-based priming, and resonance analysis.
+Three tools for querying the graph through spreading activation, task-based priming, and resonance analysis.
 
 ---
 
-## `m1nd.activate`
+## `activate`
 
-Spreading activation query across the connectome. The primary search tool -- propagates signal from seed nodes through the graph across four dimensions (structural, semantic, temporal, causal), with XLR noise cancellation and optional ghost edge / structural hole detection.
+Spreading activation query across the graph. The primary structural search tool -- propagates signal from seed nodes through the graph across four dimensions (structural, semantic, temporal, causal), with XLR noise cancellation and optional ghost edge / structural hole detection.
 
 ### Parameters
 
@@ -28,7 +28,7 @@ Spreading activation query across the connectome. The primary search tool -- pro
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+    "name": "activate",
     "arguments": {
       "agent_id": "jimi",
       "query": "session pool management",
@@ -111,14 +111,14 @@ Activate has **plasticity side effects**: it strengthens edges between activated
 
 ### Related Tools
 
-- [`m1nd.warmup`](#m1ndwarmup) -- activate + prime for a specific task
-- [`m1nd.seek`](exploration.md#m1ndseek) -- intent-aware search (finds code by purpose, not just keywords)
-- [`m1nd.perspective.start`](perspectives.md#m1ndperspectivestart) -- wraps activate into a navigable perspective
-- [`m1nd.learn`](memory.md#m1ndlearn) -- explicitly provide feedback on activation results
+- [`warmup`](#m1ndwarmup) -- activate + prime for a specific task
+- [`seek`](exploration.md#m1ndseek) -- intent-aware search (finds code by purpose, not just keywords)
+- [`perspective_start`](perspectives.md#m1ndperspectivestart) -- wraps activate into a navigable perspective
+- [`learn`](memory.md#m1ndlearn) -- explicitly provide feedback on activation results
 
 ---
 
-## `m1nd.warmup`
+## `warmup`
 
 Task-based warmup and priming. Activates the graph around a task description and applies a temporary boost to relevant nodes, preparing the graph for focused work. The boost decays naturally over time.
 
@@ -138,7 +138,7 @@ Task-based warmup and priming. Activates the graph around a task description and
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.warmup",
+    "name": "warmup",
     "arguments": {
       "agent_id": "jimi",
       "task_description": "Refactor the WhatsApp message routing to support group chats",
@@ -176,14 +176,14 @@ Applies temporary priming boosts to node activations. These boosts decay natural
 
 ### Related Tools
 
-- [`m1nd.activate`](#m1ndactivate) -- raw activation query without the priming boost
-- [`m1nd.trail.resume`](memory.md#m1ndtrailresume) -- restores a full investigation context including activation boosts
+- [`activate`](#m1ndactivate) -- raw activation query without the priming boost
+- [`trail_resume`](memory.md#m1ndtrailresume) -- restores a full investigation context including activation boosts
 
 ---
 
-## `m1nd.resonate`
+## `resonate`
 
-Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant frequencies in the graph. Identifies nodes that form natural clusters of mutual reinforcement -- the "harmonics" of the connectome.
+Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant frequencies in the graph. Identifies nodes that form natural clusters of mutual reinforcement.
 
 ### Parameters
 
@@ -202,7 +202,7 @@ Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant f
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.resonate",
+    "name": "resonate",
     "arguments": {
       "agent_id": "jimi",
       "query": "authentication flow",

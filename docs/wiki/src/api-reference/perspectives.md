@@ -18,7 +18,7 @@ Twelve tools for stateful, navigable exploration of the code graph. Perspectives
 
 ---
 
-## `m1nd.perspective.start`
+## `perspective_start`
 
 Enter a perspective: creates a navigable route surface from a query. Returns the initial set of routes.
 
@@ -39,7 +39,7 @@ Enter a perspective: creates a navigable route surface from a query. Returns the
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.start",
+    "name": "perspective_start",
     "arguments": {
       "agent_id": "jimi",
       "query": "session management and connection pooling",
@@ -180,7 +180,7 @@ Browse the current route set with pagination.
 
 ---
 
-## `m1nd.perspective.inspect`
+## `perspective_inspect`
 
 Expand a route with fuller path, metrics, provenance, affinity candidates, and score breakdown. Does not change the perspective state -- purely informational.
 
@@ -204,7 +204,7 @@ Specify the route by either `route_id` (stable, content-addressed) or `route_ind
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.inspect",
+    "name": "perspective_inspect",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001",
@@ -258,13 +258,13 @@ Specify the route by either `route_id` (stable, content-addressed) or `route_ind
 
 ### Related Tools
 
-- [`m1nd.perspective.peek`](#m1ndperspectivepeek) -- extract actual code content
-- [`m1nd.perspective.follow`](#m1ndperspectivefollow) -- navigate to the route target
-- [`m1nd.perspective.affinity`](#m1ndperspectiveaffinity) -- deeper affinity analysis
+- [`perspective_peek`](#m1ndperspectivepeek) -- extract actual code content
+- [`perspective_follow`](#m1ndperspectivefollow) -- navigate to the route target
+- [`perspective_affinity`](#m1ndperspectiveaffinity) -- deeper affinity analysis
 
 ---
 
-## `m1nd.perspective.peek`
+## `perspective_peek`
 
 Extract a small relevant code or documentation slice from a route's target node. Reads the actual source file and returns the relevant excerpt. Security-checked: only reads files within the ingested graph scope.
 
@@ -286,7 +286,7 @@ Extract a small relevant code or documentation slice from a route's target node.
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.peek",
+    "name": "perspective_peek",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001",
@@ -840,7 +840,7 @@ A complete perspective exploration session, from start to close:
 
 ```
 1. START a perspective from a query
-   m1nd.perspective.start(query="authentication and session security")
+   perspective_start(query="authentication and session security")
    -> persp_jimi_001, 12 routes, anchored to auth_discovery.py
 
 2. BROWSE routes (page 1 already returned by start)

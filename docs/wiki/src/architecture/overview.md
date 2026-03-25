@@ -1,6 +1,15 @@
 # System Architecture Overview
 
-m1nd is a neuro-symbolic connectome engine that transforms codebases (and other structured domains) into a weighted property graph, then runs biologically-inspired algorithms over it: spreading activation, Hebbian plasticity, spectral noise cancellation, standing wave resonance, and temporal co-change analysis. It exposes these capabilities as 43 MCP tools over JSON-RPC stdio, serving multiple agents concurrently from a single process.
+m1nd is a local code graph engine for MCP agents. Internally it is still a graph-and-analysis system, but the current public runtime is organized around a more agent-operational contract:
+
+- graph-grounded retrieval and ranking
+- proof-aware structural flows
+- next-step handoff on high-value tools
+- continuity through trails and perspectives
+- observable multi-file writes through `apply_batch`
+- repair-friendly errors when a tool call goes wrong
+
+The workspace currently exposes 63 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.
 
 ## Three-Crate Workspace
 
@@ -35,7 +44,7 @@ Dependencies flow strictly downward: `m1nd-mcp` depends on both `m1nd-core` and 
 graph TD
     subgraph "m1nd-mcp (Transport)"
         STDIO["JSON-RPC stdio<br/>dual: framed + line"]
-        DISPATCH["Tool Dispatch<br/>43 tools"]
+        DISPATCH["Tool Dispatch<br/>63 tools"]
         SESSION["SessionState<br/>SharedGraph + Engines"]
         PERSIST["Auto-Persist<br/>every 50 queries"]
     end
@@ -90,7 +99,9 @@ graph TD
 
 ## Request Lifecycle
 
-A typical `m1nd.activate` query flows through these stages:
+A typical structural workflow now has two layers: graph execution and agent handoff.
+
+### Example: `activate`
 
 1. **Transport**: JSON-RPC message arrives on stdin (either Content-Length framed or raw line JSON).
 2. **Dispatch**: `McpServer.serve()` parses the JSON-RPC request, matches the tool name, extracts parameters.
@@ -102,6 +113,15 @@ A typical `m1nd.activate` query flows through these stages:
 8. **XLR**: If enabled, `AdaptiveXlrEngine` runs spectral noise cancellation with dual hot/cold pulses and sigmoid gating.
 9. **Plasticity**: `PlasticityEngine.update()` runs the 5-step Hebbian cycle on co-activated edges.
 10. **Response**: Results serialized to JSON-RPC response, written to stdout in the same transport mode as the request.
+
+### Example: guided structural flow
+
+A more agent-native flow such as `trace -> view -> surgical_context_v2 -> validate_plan -> apply_batch` adds two extra kinds of behavior on top of the graph work:
+
+1. **Cognitive state**: tools can expose `proof_state` such as `triaging`, `proving`, or `ready_to_edit`
+2. **Next-step guidance**: tools can return `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
+
+This is one of the biggest architectural changes in `v0.6.0`: the MCP layer is no longer just a transport for graph answers. It is a transport for graph answers plus workflow guidance.
 
 ## Key Design Decisions
 
@@ -155,16 +175,31 @@ Graph and plasticity state are saved via atomic write: serialize to a temporary 
 
 ## Performance Characteristics
 
-Benchmarks on the ROOMANIZER OS codebase (~335 files, ~52K lines):
+There are two truths worth separating:
+
+1. engine/runtime timings
+2. workflow-level benchmark truth
+
+Engine timings still matter, especially for ingest and structural queries. Workflow benchmarks matter when the goal is to reduce context churn, false starts, and repair loops.
+
+Representative measured engine timings:
 
 | Operation | Time | Notes |
 |-----------|------|-------|
 | Full ingest | ~910ms | Walk + parallel extract + resolve + finalize (CSR + PageRank) |
 | Activate query | ~31ms | 4-dimension with XLR, top-20 results |
 | Impact analysis | ~5ms | BFS blast radius, 3-hop default |
-| Predict (co-change) | ~8ms | Co-change matrix lookup + velocity scoring |
-| Graph persist | ~45ms | Atomic JSON write, ~2MB snapshot |
-| Plasticity update | ~2ms | 5-step Hebbian cycle on co-activated edges |
+| Trace analysis | ~3.5ms | Stacktrace to ranked suspects |
+| Trail resume | ~0.2ms | Restore continuity and next-step hints |
+| Apply batch | ~165ms | Atomic multi-file write before deeper verification |
+
+Workflow benchmark truth lives on the [Benchmarks](../benchmarks.md) page. The current recorded warm-graph corpus shows:
+
+- `10518 -> 5182` aggregate token proxy
+- `50.73%` aggregate reduction
+- `14 -> 0` false starts
+- `31` guided follow-throughs
+- `12` successful recovery loops
 
 Memory footprint scales linearly with graph size. A 10K-node graph with 25K edges uses approximately 15MB of heap (graph + all engine indexes). The CSR representation is 3-5x more compact than equivalent adjacency list representations.
 
@@ -180,6 +215,13 @@ Memory footprint scales linearly with graph size. A 10K-node graph with 25K edge
 
 m1nd runs as a single process serving multiple agents through the same JSON-RPC stdio channel. All agents share one graph and one set of engines. Writes (plasticity updates, ingestion) are immediately visible to all readers through `SharedGraph = Arc<parking_lot::RwLock<Graph>>`.
 
-Each agent gets its own `AgentSession` tracking first/last seen timestamps and query count. The perspective system (per-agent branching views) and lock system (per-agent change tracking) provide isolation where needed without duplicating the underlying graph.
+Each agent gets its own `AgentSession` tracking first/last seen timestamps and query count. The perspective system, trail system, and shared runtime state provide isolation where needed without duplicating the underlying graph.
+
+The important modern detail is that agent-facing state is not limited to ownership and transport. Several flows now expose cognitive runtime state directly, including:
+
+- `proof_state`
+- next-step guidance fields
+- trail continuation hints
+- batch progress and handoff metadata
 
 `parking_lot::RwLock` is used instead of `std::sync::RwLock` to prevent writer starvation -- a critical property when plasticity updates (writes) must interleave with activation queries (reads).

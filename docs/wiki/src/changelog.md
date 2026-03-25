@@ -2,50 +2,61 @@
 
 All notable changes to m1nd are documented here. This project uses [Semantic Versioning](https://semver.org/).
 
-## Unreleased -- Guided Proof + Live Batch Progress
+## [0.6.1] — 2026-03-25
 
-This phase focuses on turning m1nd from a strong structural toolbox into a more
-agent-native system that can express state, hand off the next move, and expose
-execution progress during long-running writes.
+### Fixed
 
-### Guided Proof State
+#### Release and Publish Alignment
 
-- `seek`, `trace`, `impact`, `timeline`, `hypothesize`, `validate_plan`, and
-  `surgical_context_v2` now expose `proof_state`
-- the main structural flows now also return `next_suggested_tool`,
-  `next_suggested_target`, and `next_step_hint`
-- `trail_resume` now returns more operational continuation data instead of only
-  restoring investigation memory
+This patch release aligns the public release surfaces after the `v0.6.0` rollout.
 
-### `apply_batch` Progress and Correlation
+- workspace crates now include the missing crates.io metadata needed for clean publish
+- internal workspace dependencies now use explicit published-version constraints
+- the release workflow now skips crates.io publish cleanly when `CARGO_REGISTRY_TOKEN` is missing instead of failing the full release
 
-- `apply_batch` now returns `batch_id`
-- progress is exposed through lifecycle fields, structured `phases`, and
-  streaming-friendly `progress_events`
-- serve mode now emits live `apply_batch_progress` SSE events during execution
-- live and replay transports now share stable batch correlation
-- the final `batch_completed` event now carries the batch’s `proof_state` and
-  next-step handoff fields
+## [0.6.0] — 2026-03-25
 
-### Benchmark System
+### Added
 
-- the benchmark harness now distinguishes `execution_origin`
-- progress capture can now distinguish `live`, `replay`, and `snapshot`
-- the structural `apply_batch` benchmark now records live progress delivery
-- progress observability is now measured as a real product surface, not just
-  implied by logs or UI feel
+#### Guided Proof State Across Core Agent Flows
 
-### Docs and Help
+Several high-value tools now surface `proof_state` plus explicit handoff guidance so an agent can tell whether it is still triaging, actively proving, or ready to move into edit preparation.
 
-- help entries are now more operational, with guidance on when to use a tool,
-  when not to use it, how benchmark truth applies, and what workflow usually
-  comes next
-- README, examples, and benchmark docs now reflect the current guided behavior
-  of `proof_state` and long-running write progress more accurately
+- `seek`, `trace`, `impact`, `timeline`, `hypothesize`, `validate_plan`, and `surgical_context_v2` now participate in a shared proof-state model
+- guided outputs now include `next_suggested_tool`, `next_suggested_target`, and `next_step_hint` across the main structural triage and edit-prep paths
+- `trail_resume` now behaves more like continuity orchestration than bookmark restore, returning compact resume hints, next-focus guidance, and tool-aware follow-up
+
+#### `apply_batch` Progress, Correlation, and Handoff Signals
+
+`apply_batch` has been upgraded from a “wait until the batch finishes” write surface into an observable execution flow with stable correlation and final handoff data.
+
+- final outputs now expose `batch_id` for correlating progress and final result
+- progress reporting now includes coarse lifecycle fields such as `active_phase`, `completed_phase_count`, `phase_count`, `remaining_phase_count`, `progress_pct`, and `next_phase`
+- `phases` now act as a structured execution timeline across `validate`, `write`, `reingest`, `verify`, and `done`
+- `progress_events` now provide a streaming-friendly event log for the same lifecycle
+- live `apply_batch_progress` SSE emission now happens during execution in serve mode
+- the final `batch_completed` event now carries the batch’s `proof_state` and next-step guidance
+
+#### Benchmark Harness Expansion
+
+The benchmark system has been extended so progress UX, guidance, and repair loops can be measured as first-class product behavior, not only token proxy.
+
+- benchmark runs now record `execution_origin` and `source_ref`
+- long-running flows can distinguish `live`, `replay`, and `snapshot` progress delivery
+- the harness records progress event counts, proof-state transitions, recovery loops, and guidance-followed behavior
+- the current aggregate warm-graph corpus stands at `10518 -> 5182`, or `50.73%` savings, while also reducing `false_starts` from `14` to `0`
+
+### Changed
+
+#### Help and Docs Are More Agent-Operational
+
+- help entries now include `WHEN TO USE`, `AVOID WHEN`, benchmark-aware guidance, composed workflows, and proof-state handoff cues
+- common tool failures are now framed as repair loops with hint/example/next-step guidance
+- README, examples, benchmark docs, and public landing surfaces now describe the current guided runtime more accurately
 
 ---
 
-## v0.5.1 -- Ultra Edit Phase 1
+## [0.5.1] — 2026-03-24
 
 Two-phase transactional editing for LLM agents. Preview before you write.
 
@@ -72,9 +83,9 @@ Two-phase transactional editing for LLM agents. Preview before you write.
 
 ---
 
-## v0.1.0 -- Initial Release
+## [0.1.0] — Initial Release
 
-The first public release of m1nd: a neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 43 MCP tools. Built in Rust.
+The first public release of m1nd: a graph-grounded code intelligence engine with Hebbian plasticity, spreading activation, and 43 MCP tools. Built in Rust.
 
 ### Core Engine (m1nd-core)
 

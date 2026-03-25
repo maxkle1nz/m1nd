@@ -4,9 +4,9 @@
 
 ### What is m1nd?
 
-m1nd is a neuro-symbolic connectome engine for code intelligence. It parses your codebase into a weighted graph and provides 43 MCP tools for querying, learning, and navigating it. Built in Rust, it runs locally as an MCP server and works with any MCP-compatible AI agent (Claude Code, Cursor, Windsurf, Zed, etc.).
+m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 63 MCP tools for structure, impact, connected context, continuity, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
 
-The key differentiator: the graph *learns*. When you tell m1nd which results were useful and which were not, it adjusts edge weights via Hebbian plasticity. Over time, the graph adapts to how your team thinks about your codebase.
+The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as `proof_state`, `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`, plus observable progress for long-running writes like `apply_batch`.
 
 ### How is m1nd different from grep / ripgrep?
 
