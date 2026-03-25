@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents, with proof state, guided next steps, recovery loops, and observable execution.">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,7 +182,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
-<p>m1nd is a neuro-symbolic connectome engine built in Rust. It ingests a codebase into a weighted, directed graph — then lets you fire queries into that graph and watch where the energy goes. Signal propagates across structural, semantic, temporal, and causal dimensions. The graph learns from every interaction via Hebbian plasticity: paths you use get stronger, paths you ignore decay. The result is a code intelligence layer that adapts to how you think about your codebase. It ships as an <a href="https://modelcontextprotocol.io/">MCP</a> server with 43 tools, runs on stdio, and works with any MCP-compatible client.</p>
+<p>m1nd is a local code graph engine built in Rust for <a href="https://modelcontextprotocol.io/">MCP</a> agents. It ingests a codebase into a weighted graph and turns that structure into retrieval, proof, continuity, and guided next-step behavior. Modern m1nd is not just a graph query layer: it exposes <code>proof_state</code>, handoff metadata such as <code>next_suggested_tool</code> and <code>next_suggested_target</code>, recovery loops when the agent gets a call wrong, and observable execution for long-running flows like <code>apply_batch</code>.</p>
 <h2 id="the-problem"><a class="header" href="#the-problem">The Problem</a></h2>
 <p>AI coding agents are powerful reasoners but terrible navigators. An LLM can analyze a function you paste into its context window, but it cannot <em>find</em> the right function in a codebase of 10,000 files without burning tokens on speculative grep, glob, and tree walks. The existing tools fail in different ways:</p>
 <ul>
@@ -191,7 +191,7 @@
 <li><strong>Static analysis</strong> produces call graphs and ASTs, but they are frozen snapshots. They cannot answer “what if I remove this module?” or “what changed since my last session?”</li>
 <li><strong>Knowledge graphs</strong> require manual curation and only return what was explicitly encoded.</li>
 </ul>
-<p>m1nd solves this with a fundamentally different approach: spreading activation on a learned graph. Instead of matching tokens or embedding vectors, it propagates energy from seed nodes through weighted edges and observes the activation pattern that emerges. The graph topology determines where signal flows. Hebbian learning determines how strongly.</p>
+<p>m1nd solves this by grounding agent work in graph structure instead of forcing the model to rediscover the repo from raw text every time. It can retrieve connected files, reason about impact, preserve continuity across sessions, surface the next likely move, and keep the agent inside a repair loop instead of letting it drift into trial-and-error search.</p>
 <pre><code>335 files -&gt; 9,767 nodes -&gt; 26,557 edges in 0.91s
 activate in 31ms | impact in 5ms | trace in 3.5ms | learn in &lt;1ms
 </code></pre>
@@ -258,7 +258,7 @@ counterfactual("config.py")  -&gt; 2,531 affected nodes (despite being universal
 <p>This wiki is organized into four sections. Read them in order for a full understanding, or jump to the section you need.</p>
 <p><strong><a href="architecture/overview.html">Architecture</a></strong> — How m1nd is built. The three crates (<code>m1nd-core</code>, <code>m1nd-ingest</code>, <code>m1nd-mcp</code>), the CSR graph representation, the activation engine hierarchy, and the MCP server protocol layer. Start here if you want to contribute or understand the internals.</p>
 <p><strong><a href="concepts/spreading-activation.html">Concepts</a></strong> — The ideas behind the implementation. Spreading activation, Hebbian plasticity, XLR noise cancellation, and structural hole detection explained with enough depth to reason about behavior and tune parameters.</p>
-<p><strong><a href="api-reference/overview.html">API Reference</a></strong> — All 43 MCP tools documented with parameters, return types, and usage examples. Organized by function: activation and queries, analysis and prediction, memory and learning, exploration and discovery, perspective navigation, and lifecycle administration.</p>
+<p><strong><a href="api-reference/overview.html">API Reference</a></strong> — The runtime surface documented with parameters, return types, and usage examples. Organized by retrieval, proof, continuity, exploration, perspectives, and lifecycle administration.</p>
 <p><strong><a href="tutorials/quickstart.html">Tutorials</a></strong> — Practical walkthroughs. Quick start, your first query, and multi-agent workflows with trail save/resume/merge.</p>
 <p>The <strong><a href="benchmarks.html">Benchmarks</a></strong> page has real performance numbers from a production codebase (335 files, ~52K lines, 9,767 nodes, 26,557 edges). The <strong><a href="changelog.html">Changelog</a></strong> tracks what changed between versions.</p>
 <hr>

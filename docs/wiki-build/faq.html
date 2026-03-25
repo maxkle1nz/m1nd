@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents, including proof state, guided handoff, continuity, and recovery workflows.">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -184,8 +184,8 @@
                         <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
 <h2 id="general"><a class="header" href="#general">General</a></h2>
 <h3 id="what-is-m1nd"><a class="header" href="#what-is-m1nd">What is m1nd?</a></h3>
-<p>m1nd is a neuro-symbolic connectome engine for code intelligence. It parses your codebase into a weighted graph and provides 43 MCP tools for querying, learning, and navigating it. Built in Rust, it runs locally as an MCP server and works with any MCP-compatible AI agent (Claude Code, Cursor, Windsurf, Zed, etc.).</p>
-<p>The key differentiator: the graph <em>learns</em>. When you tell m1nd which results were useful and which were not, it adjusts edge weights via Hebbian plasticity. Over time, the graph adapts to how your team thinks about your codebase.</p>
+<p>m1nd is a local code graph engine for MCP agents. It parses your codebase into a weighted graph and exposes a runtime surface for retrieval, proof, continuity, connected edits, and recovery. Built in Rust, it runs locally as an MCP server and works with MCP-compatible agent clients.</p>
+<p>The key differentiator is not just that the graph learns. Modern m1nd also returns <code>proof_state</code>, next-step guidance, actionable continuity through <code>trail_resume</code>, and observable execution for flows like <code>apply_batch</code>.</p>
 <h3 id="how-is-m1nd-different-from-grep--ripgrep"><a class="header" href="#how-is-m1nd-different-from-grep--ripgrep">How is m1nd different from grep / ripgrep?</a></h3>
 <p>Grep finds <em>text</em>. m1nd finds <em>structure and relationships</em>.</p>
 <p>Grep tells you which files contain the word “authentication”. m1nd tells you which modules are structurally connected to authentication, which ones are likely co-changed when auth changes, which hidden dependencies exist between auth and seemingly unrelated modules, and what would break if you removed the auth module.</p>
@@ -199,7 +199,7 @@
 <p>m1nd uses similar structural information as a starting point but adds three things static analysis cannot: (1) Hebbian learning that adapts the graph based on usage, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.</p>
 <p>Sourcegraph is a search engine. m1nd is a reasoning engine.</p>
 <h3 id="do-i-need-an-llm-to-use-m1nd"><a class="header" href="#do-i-need-an-llm-to-use-m1nd">Do I need an LLM to use m1nd?</a></h3>
-<p>No. m1nd makes zero LLM calls. It is pure Rust computation: graph algorithms, spreading activation, Hebbian plasticity. No API keys, no network calls, no token costs.</p>
+<p>No. m1nd makes zero LLM calls. It is local Rust computation over your graph and runtime state. No API keys, no network calls, and no code shipping required.</p>
 <p>m1nd is designed to <em>work alongside</em> LLMs (as an MCP tool that agents call), but the graph engine itself is completely self-contained.</p>
 <h3 id="what-languages-does-m1nd-support"><a class="header" href="#what-languages-does-m1nd-support">What languages does m1nd support?</a></h3>
 <p>m1nd has dedicated extractors for:</p>

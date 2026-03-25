@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="API reference for the m1nd guided runtime: retrieval, proof, continuity, perspectives, lifecycle, and recovery-aware MCP workflows.">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,7 +182,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="api-reference-overview"><a class="header" href="#api-reference-overview">API Reference Overview</a></h1>
-<p>m1nd exposes <strong>43 MCP tools</strong> over JSON-RPC 2.0 via stdio. Every tool requires <code>agent_id</code> as a parameter. Tools are organized into seven groups.</p>
+<p>m1nd exposes a guided MCP runtime over JSON-RPC 2.0 via stdio and HTTP/SSE. The surface is organized around retrieval, proof, continuity, exploration, perspectives, and lifecycle workflows. Many outputs now carry <code>proof_state</code>, <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code> so agents can keep moving without rediscovery.</p>
 <h2 id="tool-index"><a class="header" href="#tool-index">Tool Index</a></h2>
 <h3 id="core-activation-3-tools"><a class="header" href="#core-activation-3-tools">Core Activation (3 tools)</a></h3>
 <div class="table-wrapper">
