@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Perspective navigation in m1nd — stateful route-based exploration for MCP agents working through code graph trails">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,13 +182,13 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="perspective-tools"><a class="header" href="#perspective-tools">Perspective Tools</a></h1>
-<p>Twelve tools for stateful, navigable exploration of the code graph. Perspectives are m1nd’s primary interface for guided codebase exploration – they synthesize routes (weighted navigation suggestions) from a query, then let you follow, inspect, branch, and compare routes.</p>
+<p>Twelve tools for stateful, navigable exploration of the code graph. Perspectives are m1nd’s route-based interface for guided codebase exploration: they synthesize candidate moves from a query, then let an agent follow, inspect, branch, compare, and recover from stale route state without restarting the investigation.</p>
 <h2 id="core-concepts"><a class="header" href="#core-concepts">Core Concepts</a></h2>
-<p><strong>Perspective</strong>: A stateful exploration session. Created from a query, it synthesizes a set of <em>routes</em> from the current graph state. The agent navigates by following routes, which moves the <em>focus</em> and generates new routes.</p>
+<p><strong>Perspective</strong>: A stateful exploration session. Created from a query, it synthesizes a set of <em>routes</em> from the current graph state. The agent navigates by following routes, which moves the <em>focus</em> and generates new routes, making perspectives especially useful for long investigations where continuity matters more than a single ranked list.</p>
 <p><strong>Route</strong>: A suggested direction of exploration. Each route points to a target node and carries a score, a family classification, and a path preview.</p>
 <p><strong>Focus</strong>: The current node the perspective is centered on. Following a route moves the focus. <code>back</code> restores the previous focus.</p>
 <p><strong>Mode</strong>: Either <code>"anchored"</code> (routes stay related to an anchor node) or <code>"local"</code> (routes synthesized purely from the current focus). Anchored mode degrades to local if navigation moves more than 8 hops from the anchor.</p>
-<p><strong>Route Set Version</strong>: A version counter for the current route set. Clients must pass this in subsequent calls for staleness detection. If the graph changes between calls, the version changes and stale requests are rejected.</p>
+<p><strong>Route Set Version</strong>: A version counter for the current route set. Clients must pass this in subsequent calls for staleness detection. If the graph changes between calls, the version changes and stale requests are rejected with guidance so the agent can refresh the route set instead of falling into a blind retry loop.</p>
 <p><strong>Lens</strong>: Optional filtering configuration for perspectives (dimension weights, node type filters, etc.).</p>
 <hr>
 <h2 id="m1ndperspectivestart"><a class="header" href="#m1ndperspectivestart"><code>m1nd.perspective.start</code></a></h2>

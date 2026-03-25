@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Adaptive graph feedback in m1nd — how edge weights learn from usage, confirmation, and repeated workflows">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,12 +182,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="hebbian-plasticity"><a class="header" href="#hebbian-plasticity">Hebbian Plasticity</a></h1>
-<p>m1nd’s graph learns. Every query changes the edge weights. Paths that lead to useful results get stronger. Paths that lead to noise get weaker. Over time, the graph evolves to match how <em>your</em> team thinks about <em>your</em> codebase. No other code intelligence tool does this.</p>
-<h2 id="the-neuroscience-principle"><a class="header" href="#the-neuroscience-principle">The neuroscience principle</a></h2>
-<p>In 1949, Donald Hebb proposed a theory of synaptic learning: <em>“When an axon of cell A is near enough to excite cell B and repeatedly or persistently takes part in firing it, some growth process or metabolic change takes place in one or both cells such that A’s efficiency, as one of the cells firing B, is increased.”</em></p>
-<p>The popular summary: <strong>neurons that fire together wire together.</strong></p>
-<p>The converse is equally important: neurons that fire independently weaken their connections. This bidirectional learning – strengthening co-active pathways, weakening inactive ones – is the foundation of how biological neural networks adapt to experience.</p>
-<p>m1nd applies this principle to code graphs. Nodes are modules. Edges are relationships. “Firing” means being activated by a spreading activation query. When an agent confirms that a result was useful, the edges connecting those activated nodes strengthen. When the agent marks results as wrong, those paths weaken. The graph remembers what worked.</p>
+<p>m1nd’s graph adapts. Queries, confirmation, and repeated workflows can change edge weights so the runtime gradually prefers paths that have proven useful and downranks paths that consistently lead to noise. In practice this means the graph becomes a little more shaped by real usage over time instead of staying frozen at static-analysis defaults.</p>
+<h2 id="the-neuroscience-principle"><a class="header" href="#the-neuroscience-principle">The feedback principle</a></h2>
+<p>The name comes from Hebbian learning in neuroscience, but the important product truth is simpler: repeated confirmation strengthens useful structural paths, and repeated rejection weakens them.</p>
+<p>m1nd applies that feedback to code graphs. Nodes are files, functions, modules, and related entities. Edges are structural or semantic relationships. When an agent confirms that a route, result, or connection was helpful, the graph can reinforce that path. When the result was wrong or noisy, the graph can decay it. The graph retains memory of what worked without turning the product into a black box.</p>
 <h2 id="the-five-step-learning-cycle"><a class="header" href="#the-five-step-learning-cycle">The five-step learning cycle</a></h2>
 <p>Every query that passes through m1nd’s <code>PlasticityEngine</code> triggers a five-step update cycle. This runs automatically – no explicit training phase required.</p>
 <h3 id="step-1-hebbian-strengthening"><a class="header" href="#step-1-hebbian-strengthening">Step 1: Hebbian strengthening</a></h3>

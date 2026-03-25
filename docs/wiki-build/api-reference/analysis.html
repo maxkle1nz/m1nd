@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Analysis tools for m1nd — proof-aware impact, prediction, drift, and hypothesis workflows for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,10 +182,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="analysis-tools"><a class="header" href="#analysis-tools">Analysis Tools</a></h1>
-<p>Seven tools for impact analysis, prediction, counterfactual simulation, fingerprinting, hypothesis testing, structural diffing, and drift detection.</p>
+<p>Seven tools for impact analysis, prediction, counterfactual simulation, fingerprinting, hypothesis testing, structural diffing, and drift detection. In the current runtime these tools are not just readouts: they help agents understand whether they are still triaging, actively proving a path, or already close to a safe edit.</p>
 <hr>
 <h2 id="m1ndimpact"><a class="header" href="#m1ndimpact"><code>m1nd.impact</code></a></h2>
-<p>Impact radius / blast analysis for a node. Propagates signal outward from a source node to determine which other nodes would be affected by a change. Supports forward (downstream), reverse (upstream), and bidirectional analysis.</p>
+<p>Impact radius / blast analysis for a node. Propagates signal outward from a source node to determine which other nodes would be affected by a change. Supports forward (downstream), reverse (upstream), and bidirectional analysis, and is best used as part of a guided workflow before edits or refactors.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
