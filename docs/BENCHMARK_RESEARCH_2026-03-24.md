@@ -424,6 +424,26 @@ Interpretation:
 - the meaningful gains are behavioral: the agent stops guessing, opens fewer
   files, and stays inside the `search -> view` loop instead of dropping into
   manual file discovery
+
+`warm_trail_resume_stale_force_recovery`
+
+- manual token proxy: `215`
+- `m1nd_warm` token proxy: `275`
+- savings: `-27.91%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is a continuity-safety recovery benchmark
+- the token story is negative because the warm path carries an explicit stale
+  warning plus the guided retry
+- the real gain is that stale continuity no longer forces a restart decision to
+  be rediscovered by hand
+- the tool now teaches when `force=true` is the right move and preserves the
+  partial trail instead of dropping the investigation
 - `live_progress_events`
 - `replay_progress_events`
 - `snapshot_progress_events`

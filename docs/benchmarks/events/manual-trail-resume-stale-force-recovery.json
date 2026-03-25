@@ -1,0 +1,28 @@
+[
+  {
+    "tool_name": "shell.notes",
+    "query": "trail resume says the trail is stale; inspect the contract and decide whether forcing resume is acceptable",
+    "elapsed_ms": 1.4,
+    "payload_chars": 260
+  },
+  {
+    "tool_name": "shell.docs",
+    "query": "inspect trail_resume stale behavior before retrying",
+    "elapsed_ms": 1.2,
+    "payload_chars": 260,
+    "surfaced_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.trail_resume",
+    "query": "retry trail_resume with force=true after manual stale-trail check",
+    "elapsed_ms": 1.6,
+    "payload_chars": 340,
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/layer_handlers.rs",
+    "opened_files": [
+      "m1nd-mcp/src/layer_handlers.rs"
+    ]
+  }
+]
