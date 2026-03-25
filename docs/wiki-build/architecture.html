@@ -343,7 +343,7 @@
     <section class="arch-section" id="graph">
       <div class="section-label" style="color: var(--green);">Graph Structure</div>
       <h2 class="section-title">Nodes and Edges</h2>
-      <p class="section-desc">The graph stores four types of nodes and four types of weighted edges. All edges carry a weight between 0.0 and 1.0 that adapts through Hebbian learning.</p>
+      <p class="section-desc">The graph stores four types of nodes and four types of weighted edges. All edges carry a weight between 0.0 and 1.0 and can adapt over time through runtime feedback.</p>
 
       <div class="graph-visual">
         <div class="graph-elements">
@@ -389,7 +389,7 @@
 
         <div class="info-box" style="text-align: left;">
           <div class="info-title">Edge Weights</div>
-          <p>Every edge has a weight between 0.0 and 1.0. Weights are initialized from static analysis (import depth, call frequency) and adapted at runtime through Hebbian learning. When an agent confirms a connection is useful (via <code>learn</code>), the weight increases. When confirmed wrong, it decays.</p>
+          <p>Every edge has a weight between 0.0 and 1.0. Weights are initialized from static analysis (import depth, call frequency) and can adapt at runtime through feedback. When an agent confirms a connection is useful (via <code>learn</code>), the weight increases. When confirmed wrong, it decays.</p>
         </div>
       </div>
     </section>
@@ -452,7 +452,7 @@
         <div class="engine-card re">
           <div class="engine-name">ResonanceEngine</div>
           <div class="engine-subtitle">Standing Waves, Harmonics</div>
-          <p class="engine-desc">Sends simultaneous signals from multiple seed nodes and detects standing wave patterns -- places where signals from different sources reinforce each other. Reveals deep cross-domain relationships.</p>
+          <p class="engine-desc">Sends simultaneous signals from multiple seed nodes and detects reinforcement patterns -- places where signals from different sources converge strongly enough to expose deeper structural relationships.</p>
           <ul class="engine-features">
             <li>Multi-source signal emission</li>
             <li>Standing wave detection</li>
@@ -463,8 +463,8 @@
 
         <div class="engine-card pe">
           <div class="engine-name">PlasticityEngine</div>
-          <div class="engine-subtitle">Hebbian Learning, Weight Adaptation</div>
-          <p class="engine-desc">Implements the learning loop. When agents provide feedback via <code>learn</code>, the PlasticityEngine adjusts edge weights using Hebbian rules -- "neurons that fire together, wire together."</p>
+          <div class="engine-subtitle">Feedback Loop, Weight Adaptation</div>
+          <p class="engine-desc">Implements the learning loop. When agents provide feedback via <code>learn</code>, the PlasticityEngine adjusts edge weights so future retrieval and routing can lean more toward paths that have already proven useful.</p>
           <ul class="engine-features">
             <li>Hebbian weight updates</li>
             <li>Anti-Hebbian decay</li>

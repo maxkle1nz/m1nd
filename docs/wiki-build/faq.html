@@ -196,7 +196,7 @@
 <p>RAG is useful for semantic similarity search. m1nd is useful for structural reasoning. They are complementary, not competing.</p>
 <h3 id="how-is-m1nd-different-from-static-analysis-tools-tree-sitter-ast-grep-sourcegraph"><a class="header" href="#how-is-m1nd-different-from-static-analysis-tools-tree-sitter-ast-grep-sourcegraph">How is m1nd different from static analysis tools (tree-sitter, ast-grep, Sourcegraph)?</a></h3>
 <p>Static analysis tools parse code into ASTs and compute call graphs, type hierarchies, and cross-references. These are accurate but frozen – they represent the code at a single point in time and cannot answer “what if?” questions.</p>
-<p>m1nd uses similar structural information as a starting point but adds three things static analysis cannot: (1) Hebbian learning that adapts the graph based on usage, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.</p>
+<p>m1nd uses similar structural information as a starting point but adds three things static analysis usually does not: (1) adaptive feedback over graph weights, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.</p>
 <p>Sourcegraph is a search engine. m1nd is a reasoning engine.</p>
 <h3 id="do-i-need-an-llm-to-use-m1nd"><a class="header" href="#do-i-need-an-llm-to-use-m1nd">Do I need an LLM to use m1nd?</a></h3>
 <p>No. m1nd makes zero LLM calls. It is local Rust computation over your graph and runtime state. No API keys, no network calls, and no code shipping required.</p>
@@ -324,13 +324,13 @@
 </div>
 <hr>
 <h2 id="plasticity-and-learning"><a class="header" href="#plasticity-and-learning">Plasticity and Learning</a></h2>
-<h3 id="how-does-hebbian-learning-work"><a class="header" href="#how-does-hebbian-learning-work">How does Hebbian learning work?</a></h3>
-<p>“Neurons that fire together wire together.” When you call <code>learn</code> with <code>feedback: "correct"</code> and a list of node IDs, m1nd identifies all edges on paths between those nodes and increases their weights (Long-Term Potentiation, LTP). When you call with <code>feedback: "wrong"</code>, it decreases weights on paths leading to the marked nodes (Long-Term Depression, LTD).</p>
+<h3 id="how-does-hebbian-learning-work"><a class="header" href="#how-does-hebbian-learning-work">How does graph learning work?</a></h3>
+<p>When you call <code>learn</code> with <code>feedback: "correct"</code> and a list of node IDs, m1nd identifies edges on the paths that contributed to those results and increases their weights. When you call with <code>feedback: "wrong"</code>, it decreases weights on paths leading to the marked nodes.</p>
 <p>The <code>strength</code> parameter (default 0.2) controls how aggressively weights shift. The <code>learning_rate</code> server configuration (default 0.08) provides a global scaling factor.</p>
 <h3 id="can-i-reset-learned-weights"><a class="header" href="#can-i-reset-learned-weights">Can I reset learned weights?</a></h3>
 <p>Yes. Delete the <code>plasticity_state.json</code> file and restart the server. Alternatively, re-ingest the codebase, which rebuilds the graph from scratch (but does not clear the plasticity state file – you need to delete it separately or pass <code>"incremental": false</code> and delete the plasticity file).</p>
 <h3 id="does-the-graph-overfit"><a class="header" href="#does-the-graph-overfit">Does the graph overfit?</a></h3>
-<p>Hebbian learning includes homeostatic normalization to prevent runaway weight amplification. Edge weights are bounded and periodically normalized so that heavily-used paths do not completely dominate. The <code>decay_rate</code> parameter (default 0.005) provides a slow decay toward baseline weights over time.</p>
+<p>The learning loop includes normalization to prevent runaway weight amplification. Edge weights are bounded and periodically normalized so that heavily-used paths do not completely dominate. The <code>decay_rate</code> parameter (default 0.005) provides a slow decay toward baseline weights over time.</p>
 <p>In practice, overfitting requires thousands of feedback signals consistently reinforcing the same narrow paths. Normal usage produces a well-distributed weight landscape.</p>
 <h3 id="what-is-partial-feedback"><a class="header" href="#what-is-partial-feedback">What is “partial” feedback?</a></h3>
 <p>The <code>learn</code> tool accepts three feedback types:</p>
