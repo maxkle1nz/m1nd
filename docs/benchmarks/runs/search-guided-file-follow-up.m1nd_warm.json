@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-25T13:42:04.257246+00:00",
+  "recorded_at": "2026-03-25T14:10:34.523031+00:00",
   "scenario_id": "warm_search_guided_file_follow_up",
   "scenario_name": "Warm search with guided file follow-up",
   "scenario_tags": [
@@ -20,7 +20,7 @@
   "false_start_count": 0,
   "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
-  "workflow_notes": "Search now hands off directly into view on the strongest file match.",
+  "workflow_notes": "Search now routes directly into the winning file-level follow-up instead of forcing extra scanning.",
   "notes": "",
   "events": [
     {
@@ -32,6 +32,7 @@
         "m1nd-mcp/src/search_handlers.rs"
       ],
       "proof_state": "triaging",
+      "what_is_missing": "Open the file to confirm implementation details before escalating into proof or edit prep.",
       "next_suggested_tool": "view",
       "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
       "next_step_hint": "Open the top search match next: m1nd-mcp/src/search_handlers.rs:1.",
@@ -84,6 +85,9 @@
   "recovery_events": 0,
   "recovery_followed": 0,
   "recovery_followthrough_rate": null,
+  "missing_signals": 1,
+  "missing_resolved": 1,
+  "missing_resolution_rate": 1.0,
   "repo_path": ".",
   "question": "After a content search finds the strongest runtime-contract match, which file should the agent open next?",
   "expected_strength": "strong"

@@ -8,6 +8,7 @@
       "m1nd-mcp/src/search_handlers.rs"
     ],
     "proof_state": "triaging",
+    "what_is_missing": "Open the file to confirm implementation details before escalating into proof or edit prep.",
     "next_suggested_tool": "view",
     "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
     "next_step_hint": "Open the top search match next: m1nd-mcp/src/search_handlers.rs:1.",

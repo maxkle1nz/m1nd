@@ -5,6 +5,7 @@
     "elapsed_ms": 0.7,
     "payload_chars": 320,
     "proof_state": "triaging",
+    "what_is_missing": "The actual downstream tool still needs to run before proof can advance.",
     "next_suggested_tool": "impact",
     "next_suggested_target": "activate",
     "next_step_hint": "Use this help page to choose the next workflow step after `activate`.",

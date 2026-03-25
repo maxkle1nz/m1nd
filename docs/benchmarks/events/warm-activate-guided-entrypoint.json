@@ -8,6 +8,7 @@
       "m1nd-mcp/src/search_handlers.rs"
     ],
     "proof_state": "triaging",
+    "what_is_missing": "Open the node to confirm whether the neighborhood signal is strong enough to enter proof or edit prep.",
     "next_suggested_tool": "view",
     "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
     "next_step_hint": "Open the top activated node next: search_handlers.rs.",

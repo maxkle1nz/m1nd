@@ -129,6 +129,8 @@ def summarize_events(events):
     progress_guidance_followed = 0
     recovery_events = 0
     recovery_followed = 0
+    missing_signals = 0
+    missing_resolved = 0
 
     for event in events:
         chars_surfaced += event["payload_chars"]
@@ -150,6 +152,12 @@ def summarize_events(events):
         proof_state = event.get("proof_state")
         if isinstance(proof_state, str) and proof_state:
             proof_states.append(proof_state)
+        what_is_missing = event.get("what_is_missing")
+        if isinstance(what_is_missing, str) and what_is_missing.strip():
+            missing_signals += 1
+            next_tool_used = str(event.get("next_tool_used", "")).strip()
+            if next_tool_used:
+                missing_resolved += 1
         hint = event.get("hint")
         suggested_next_step = event.get("suggested_next_step")
         example = event.get("example")
@@ -232,6 +240,8 @@ def summarize_events(events):
         "progress_guidance_followed": progress_guidance_followed,
         "recovery_events": recovery_events,
         "recovery_followed": recovery_followed,
+        "missing_signals": missing_signals,
+        "missing_resolved": missing_resolved,
     }
 
 
@@ -302,6 +312,11 @@ def build_run(args):
         "recovery_followthrough_rate": safe_rate(
             derived["recovery_followed"], derived["recovery_events"]
         ),
+        "missing_signals": derived["missing_signals"],
+        "missing_resolved": derived["missing_resolved"],
+        "missing_resolution_rate": safe_rate(
+            derived["missing_resolved"], derived["missing_signals"]
+        ),
         "repo_path": "." if scenario.get("repo_path") else None,
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),
@@ -371,6 +386,9 @@ def main():
             "recovery_events": run["recovery_events"],
             "recovery_followed": run["recovery_followed"],
             "recovery_followthrough_rate": run["recovery_followthrough_rate"],
+            "missing_signals": run["missing_signals"],
+            "missing_resolved": run["missing_resolved"],
+            "missing_resolution_rate": run["missing_resolution_rate"],
             "proof_state_counts": run["proof_state_counts"],
         },
         indent=2,

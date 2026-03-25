@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-25T13:42:04.191820+00:00",
+  "recorded_at": "2026-03-25T14:10:34.523037+00:00",
   "scenario_id": "warm_activate_guided_entrypoint",
   "scenario_name": "Warm activation entrypoint with guided file follow-up",
   "scenario_tags": [
@@ -32,6 +32,7 @@
         "m1nd-mcp/src/search_handlers.rs"
       ],
       "proof_state": "triaging",
+      "what_is_missing": "Open the node to confirm whether the neighborhood signal is strong enough to enter proof or edit prep.",
       "next_suggested_tool": "view",
       "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
       "next_step_hint": "Open the top activated node next: search_handlers.rs.",
@@ -84,6 +85,9 @@
   "recovery_events": 0,
   "recovery_followed": 0,
   "recovery_followthrough_rate": null,
+  "missing_signals": 1,
+  "missing_resolved": 1,
+  "missing_resolution_rate": 1.0,
   "repo_path": ".",
   "question": "When activation surfaces the strongest node for runtime guidance work, which file should the agent open first?",
   "expected_strength": "strong"

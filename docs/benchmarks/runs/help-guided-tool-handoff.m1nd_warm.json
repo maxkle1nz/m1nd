@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-03-25T13:42:04.322503+00:00",
+  "recorded_at": "2026-03-25T14:10:34.531269+00:00",
   "scenario_id": "warm_help_guided_tool_handoff",
   "scenario_name": "Warm help page that hands off into the next workflow tool",
   "scenario_tags": [
@@ -20,7 +20,7 @@
   "false_start_count": 0,
   "tests_identified_before_edit": 0,
   "public_claim_worthy": true,
-  "workflow_notes": "Help now routes directly into impact and then view, instead of stopping at documentation.",
+  "workflow_notes": "Help now acts as a workflow router and hands the agent into the downstream tool chain.",
   "notes": "",
   "events": [
     {
@@ -29,6 +29,7 @@
       "elapsed_ms": 0.7,
       "payload_chars": 320,
       "proof_state": "triaging",
+      "what_is_missing": "The actual downstream tool still needs to run before proof can advance.",
       "next_suggested_tool": "impact",
       "next_suggested_target": "activate",
       "next_step_hint": "Use this help page to choose the next workflow step after `activate`.",
@@ -100,6 +101,9 @@
   "recovery_events": 0,
   "recovery_followed": 0,
   "recovery_followthrough_rate": null,
+  "missing_signals": 1,
+  "missing_resolved": 1,
+  "missing_resolution_rate": 1.0,
   "repo_path": ".",
   "question": "After opening the activate help page, which downstream tool should the agent use next to inspect blast radius?",
   "expected_strength": "strong"

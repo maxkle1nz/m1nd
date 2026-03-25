@@ -69,6 +69,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
     aggregate_warm_recovery_events = 0
     aggregate_manual_recovery_followed = 0
     aggregate_warm_recovery_followed = 0
+    aggregate_manual_missing_signals = 0
+    aggregate_warm_missing_signals = 0
+    aggregate_manual_missing_resolved = 0
+    aggregate_warm_missing_resolved = 0
     aggregate_manual_proof_states = Counter()
     aggregate_warm_proof_states = Counter()
     compared = 0
@@ -119,6 +123,11 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "recovery_followthrough_rate": safe_rate(
                     manual.get("recovery_followed", 0), manual.get("recovery_events", 0)
                 ),
+                "missing_signals": manual.get("missing_signals", 0),
+                "missing_resolved": manual.get("missing_resolved", 0),
+                "missing_resolution_rate": safe_rate(
+                    manual.get("missing_resolved", 0), manual.get("missing_signals", 0)
+                ),
             }
         if warm:
             warm_proof_state_counts = counter_to_sorted_dict(warm.get("proof_states", []))
@@ -158,6 +167,11 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "recovery_followthrough_rate": safe_rate(
                     warm.get("recovery_followed", 0), warm.get("recovery_events", 0)
                 ),
+                "missing_signals": warm.get("missing_signals", 0),
+                "missing_resolved": warm.get("missing_resolved", 0),
+                "missing_resolution_rate": safe_rate(
+                    warm.get("missing_resolved", 0), warm.get("missing_signals", 0)
+                ),
             }
         if manual and warm:
             token_delta = manual["token_proxy"] - warm["token_proxy"]
@@ -196,6 +210,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 - warm.get("recovery_events", 0),
                 "recovery_followed_delta": manual.get("recovery_followed", 0)
                 - warm.get("recovery_followed", 0),
+                "missing_signal_delta": manual.get("missing_signals", 0)
+                - warm.get("missing_signals", 0),
+                "missing_resolved_delta": manual.get("missing_resolved", 0)
+                - warm.get("missing_resolved", 0),
             }
             aggregate_manual += manual["token_proxy"]
             aggregate_warm += warm["token_proxy"]
@@ -251,6 +269,10 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             aggregate_warm_recovery_events += warm.get("recovery_events", 0)
             aggregate_manual_recovery_followed += manual.get("recovery_followed", 0)
             aggregate_warm_recovery_followed += warm.get("recovery_followed", 0)
+            aggregate_manual_missing_signals += manual.get("missing_signals", 0)
+            aggregate_warm_missing_signals += warm.get("missing_signals", 0)
+            aggregate_manual_missing_resolved += manual.get("missing_resolved", 0)
+            aggregate_warm_missing_resolved += warm.get("missing_resolved", 0)
             aggregate_manual_proof_states.update(manual.get("proof_states", []))
             aggregate_warm_proof_states.update(warm.get("proof_states", []))
             compared += 1
@@ -356,6 +378,20 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             ),
             "recovery_followed_delta": aggregate_manual_recovery_followed
             - aggregate_warm_recovery_followed,
+            "manual_missing_signals": aggregate_manual_missing_signals,
+            "m1nd_warm_missing_signals": aggregate_warm_missing_signals,
+            "missing_signal_delta": aggregate_manual_missing_signals
+            - aggregate_warm_missing_signals,
+            "manual_missing_resolved": aggregate_manual_missing_resolved,
+            "m1nd_warm_missing_resolved": aggregate_warm_missing_resolved,
+            "manual_missing_resolution_rate": safe_rate(
+                aggregate_manual_missing_resolved, aggregate_manual_missing_signals
+            ),
+            "m1nd_warm_missing_resolution_rate": safe_rate(
+                aggregate_warm_missing_resolved, aggregate_warm_missing_signals
+            ),
+            "missing_resolved_delta": aggregate_manual_missing_resolved
+            - aggregate_warm_missing_resolved,
             "manual_proof_state_counts": dict(sorted(aggregate_manual_proof_states.items())),
             "m1nd_warm_proof_state_counts": dict(sorted(aggregate_warm_proof_states.items())),
         }

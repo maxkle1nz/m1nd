@@ -58,6 +58,7 @@ The `--events` file is a JSON array. Each item can contain:
 - `next_suggested_tool`
 - `next_suggested_target`
 - `next_step_hint`
+- `what_is_missing`
 - `proof_hint`
 - `proof_state`
 - `batch_id`
@@ -91,6 +92,16 @@ The harness now surfaces this explicitly as:
 
 - `recovery_events`
 - `recovery_followed`
+
+For guided runtime scenarios, also capture when a tool names the missing proof
+or inspection step explicitly. The harness tracks this as:
+
+- `missing_signals`
+- `missing_resolved`
+
+Use `missing_resolved` when the very next move closes the gap the runtime named,
+for example opening the file that `activate`, `search`, or `glob` said still
+needed confirmation.
 
 Use `recovery_followed` when the agent actually takes the hinted retry path
 instead of falling back to a fresh discovery sweep.
@@ -182,8 +193,9 @@ In particular:
 - `apply_batch_protected_state_recovery.json` captures a runtime-safety recovery loop where `apply_batch` rejects a protected `graph/plasticity` state file, redirects the agent back to a source file, and preserves the proof handoff after the safe retry
 - `lock_diff_guided_follow_up.json` captures `lock_create` and `lock_diff` as a guided chain, where the lock layer can now point directly at the changed file to inspect next instead of leaving the agent to guess
 - `activate_guided_entrypoint.json` captures `activate` as a proper runtime entrypoint that can hand the agent straight into the strongest file instead of forcing a follow-up search pass
-- `search_guided_file_follow_up.json` captures `search` as a guided retrieval surface that can route directly into the winning file-level follow-up
-- `help_guided_tool_handoff.json` captures `help` as workflow selection, where a tool page can now hand the agent into the next downstream operation instead of stopping at documentation alone
+- `activate_guided_entrypoint.json` now also captures `what_is_missing` as the explicit confirmation step the runtime still needs before activation can escalate
+- `search_guided_file_follow_up.json` captures `search` as a guided retrieval surface that can route directly into the winning file-level follow-up, and now also records the missing confirmation step that the next file open resolves
+- `help_guided_tool_handoff.json` captures `help` as workflow selection, where a tool page can now hand the agent into the next downstream operation instead of stopping at documentation alone, while still naming the downstream step that remains undone
 - `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`, detailed `progress_events`, and the post-batch handoff into the next proof surface
 - `structural_proof_apply_batch.json` currently marks `apply_batch` progress as `live`, which reflects the current serve-mode behavior rather than the older replay-only contract
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone
