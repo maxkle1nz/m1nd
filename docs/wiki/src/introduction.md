@@ -53,7 +53,7 @@ Current benchmark truth from the recorded warm-graph corpus:
 - `10518 -> 5182` aggregate token proxy
 - `50.73%` aggregate reduction
 - `14 -> 0` false starts
-- `31` guided follow-throughs
+- `39` guided follow-throughs
 - `12` successful recovery loops
 
 Not every scenario is a token win. Some wins are continuity, recovery, or execution clarity. That is part of the product truth too.

@@ -198,7 +198,7 @@ Workflow benchmark truth lives on the [Benchmarks](../benchmarks.md) page. The c
 - `10518 -> 5182` aggregate token proxy
 - `50.73%` aggregate reduction
 - `14 -> 0` false starts
-- `31` guided follow-throughs
+- `39` guided follow-throughs
 - `12` successful recovery loops
 
 Memory footprint scales linearly with graph size. A 10K-node graph with 25K edges uses approximately 15MB of heap (graph + all engine indexes). The CSR representation is 3-5x more compact than equivalent adjacency list representations.
