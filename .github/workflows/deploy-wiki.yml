@@ -1,4 +1,4 @@
-name: Deploy M1nd Docs to GitHub Pages
+name: Deploy m1nd Site to GitHub Pages
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'docs/**'
+      - 'm1nd-demo/**'
       - '.github/workflows/deploy-wiki.yml'
 
 # Allow only one concurrent deployment
@@ -28,13 +29,33 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Setup mdBook
         uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: 'latest'
 
+      - name: Install landing dependencies
+        working-directory: ./m1nd-demo
+        run: npm install
+
+      - name: Build landing
+        working-directory: ./m1nd-demo
+        run: npm run build
+
       - name: Build mdBook
         run: mdbook build docs/wiki
+
+      - name: Compose Pages artifact
+        run: |
+          rm -rf site-dist
+          mkdir -p site-dist/wiki
+          cp -R m1nd-demo/dist/. site-dist/
+          cp -R wiki-build/. site-dist/wiki/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -42,7 +63,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './wiki-build'
+          path: './site-dist'
 
       - name: Deploy to GitHub Pages
         id: deployment

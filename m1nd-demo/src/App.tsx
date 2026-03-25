@@ -365,10 +365,10 @@ export default function App() {
                 ))}
               </div>
               <div className="hero-actions" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 26 }}>
-                <a href="https://github.com/maxkle1nz/m1nd#readme" target="_blank" rel="noreferrer" style={primaryButton}>
+                <a href="/wiki/" style={primaryButton}>
                   Read the docs
                 </a>
-                <a href="https://github.com/maxkle1nz/m1nd/tree/main/docs/benchmarks" target="_blank" rel="noreferrer" style={secondaryButton}>
+                <a href="/wiki/benchmarks.html" style={secondaryButton}>
                   See benchmark truth
                 </a>
               </div>
@@ -612,7 +612,10 @@ export default function App() {
             <a href="https://github.com/maxkle1nz/m1nd#readme" target="_blank" rel="noreferrer" style={secondaryButton}>
               Read README
             </a>
-            <a href="https://github.com/maxkle1nz/m1nd/tree/main/docs/benchmarks" target="_blank" rel="noreferrer" style={secondaryButton}>
+            <a href="/wiki/" style={secondaryButton}>
+              Open wiki
+            </a>
+            <a href="/wiki/benchmarks.html" style={secondaryButton}>
               Benchmark corpus
             </a>
             <a href="https://github.com/maxkle1nz/m1nd/releases/tag/v0.6.1" target="_blank" rel="noreferrer" style={secondaryButton}>
