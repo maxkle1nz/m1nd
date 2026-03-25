@@ -148,6 +148,22 @@ If that fails, the useful behavior is not just "invalid regex". The useful behav
 - keep the retry payload small
 - avoid falling back to shell grep unless the repair hint also fails
 
+Another concrete recovery loop is `edit_commit` when the preview is valid but the guard rail was not lifted:
+
+```jsonc
+{"method":"tools/call","params":{"name":"edit_commit","arguments":{
+  "agent_id":"dev",
+  "preview_id":"preview-123",
+  "confirm":false
+}}}
+```
+
+The useful behavior is:
+
+- do not force the agent to rediscover the write path
+- explain that the same `preview_id` can be reused with `confirm=true`
+- only rerun `edit_preview` when the preview is stale or expired
+
 ## 4. Stacktrace triage
 
 If you already have failure output, use `trace` instead of manually walking top frames.
@@ -411,6 +427,20 @@ Illustrative response shape:
 ```
 
 Use trails when you want continuity across sessions or across agents. The compact limits help when you want just the next move instead of a big resume payload.
+
+If the trail is stale but still worth using, the recovery path should stay compact too:
+
+```jsonc
+{"method":"tools/call","params":{"name":"trail_resume","arguments":{
+  "agent_id":"dev",
+  "trail_id":"trail-abc123",
+  "force":true,
+  "max_reactivated_nodes":2,
+  "max_resume_hints":2
+}}}
+```
+
+Use this only when degraded continuity is still better than restarting from zero.
 
 ## 13. Follow a resumed trail with `timeline`
 
