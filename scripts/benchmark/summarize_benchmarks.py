@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 
@@ -15,6 +15,16 @@ def dump_json(path: Path, payload):
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
         f.write("\n")
+
+
+def safe_rate(numerator, denominator):
+    if denominator:
+        return round(numerator / denominator, 4)
+    return None
+
+
+def counter_to_sorted_dict(values):
+    return dict(sorted(Counter(values).items()))
 
 
 def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
@@ -59,6 +69,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
     aggregate_warm_recovery_events = 0
     aggregate_manual_recovery_followed = 0
     aggregate_warm_recovery_followed = 0
+    aggregate_manual_proof_states = Counter()
+    aggregate_warm_proof_states = Counter()
     compared = 0
 
     for scenario_id, modes in sorted(by_scenario.items()):
@@ -70,6 +82,7 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             "modes_present": sorted(modes.keys()),
         }
         if manual:
+            manual_proof_state_counts = counter_to_sorted_dict(manual.get("proof_states", []))
             entry["manual"] = {
                 "token_proxy": manual["token_proxy"],
                 "execution_origin": manual.get("execution_origin"),
@@ -81,7 +94,11 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "false_start_count": manual.get("false_start_count", 0),
                 "guidance_events": manual.get("guidance_events", 0),
                 "guidance_followed": manual.get("guidance_followed", 0),
+                "guidance_followthrough_rate": safe_rate(
+                    manual.get("guidance_followed", 0), manual.get("guidance_events", 0)
+                ),
                 "final_proof_state": manual.get("final_proof_state"),
+                "proof_state_counts": manual_proof_state_counts,
                 "progress_events": manual.get("progress_events", 0),
                 "max_progress_pct": manual.get("max_progress_pct", 0.0),
                 "progress_event_types": manual.get("progress_event_types", []),
@@ -93,10 +110,18 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "progress_guidance_followed": manual.get(
                     "progress_guidance_followed", 0
                 ),
+                "progress_guidance_followthrough_rate": safe_rate(
+                    manual.get("progress_guidance_followed", 0),
+                    manual.get("progress_guidance_events", 0),
+                ),
                 "recovery_events": manual.get("recovery_events", 0),
                 "recovery_followed": manual.get("recovery_followed", 0),
+                "recovery_followthrough_rate": safe_rate(
+                    manual.get("recovery_followed", 0), manual.get("recovery_events", 0)
+                ),
             }
         if warm:
+            warm_proof_state_counts = counter_to_sorted_dict(warm.get("proof_states", []))
             entry["m1nd_warm"] = {
                 "token_proxy": warm["token_proxy"],
                 "execution_origin": warm.get("execution_origin"),
@@ -108,7 +133,11 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "false_start_count": warm.get("false_start_count", 0),
                 "guidance_events": warm.get("guidance_events", 0),
                 "guidance_followed": warm.get("guidance_followed", 0),
+                "guidance_followthrough_rate": safe_rate(
+                    warm.get("guidance_followed", 0), warm.get("guidance_events", 0)
+                ),
                 "final_proof_state": warm.get("final_proof_state"),
+                "proof_state_counts": warm_proof_state_counts,
                 "progress_events": warm.get("progress_events", 0),
                 "max_progress_pct": warm.get("max_progress_pct", 0.0),
                 "progress_event_types": warm.get("progress_event_types", []),
@@ -120,8 +149,15 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
                 "progress_guidance_followed": warm.get(
                     "progress_guidance_followed", 0
                 ),
+                "progress_guidance_followthrough_rate": safe_rate(
+                    warm.get("progress_guidance_followed", 0),
+                    warm.get("progress_guidance_events", 0),
+                ),
                 "recovery_events": warm.get("recovery_events", 0),
                 "recovery_followed": warm.get("recovery_followed", 0),
+                "recovery_followthrough_rate": safe_rate(
+                    warm.get("recovery_followed", 0), warm.get("recovery_events", 0)
+                ),
             }
         if manual and warm:
             token_delta = manual["token_proxy"] - warm["token_proxy"]
@@ -215,6 +251,8 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             aggregate_warm_recovery_events += warm.get("recovery_events", 0)
             aggregate_manual_recovery_followed += manual.get("recovery_followed", 0)
             aggregate_warm_recovery_followed += warm.get("recovery_followed", 0)
+            aggregate_manual_proof_states.update(manual.get("proof_states", []))
+            aggregate_warm_proof_states.update(warm.get("proof_states", []))
             compared += 1
         scenarios.append(entry)
 
@@ -256,6 +294,12 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             - aggregate_warm_guidance_events,
             "manual_guidance_followed": aggregate_manual_guidance_followed,
             "m1nd_warm_guidance_followed": aggregate_warm_guidance_followed,
+            "manual_guidance_followthrough_rate": safe_rate(
+                aggregate_manual_guidance_followed, aggregate_manual_guidance_events
+            ),
+            "m1nd_warm_guidance_followthrough_rate": safe_rate(
+                aggregate_warm_guidance_followed, aggregate_warm_guidance_events
+            ),
             "guidance_followed_delta": aggregate_manual_guidance_followed
             - aggregate_warm_guidance_followed,
             "manual_progress_events": aggregate_manual_progress_events,
@@ -288,6 +332,14 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             - aggregate_warm_progress_guidance_events,
             "manual_progress_guidance_followed": aggregate_manual_progress_guidance_followed,
             "m1nd_warm_progress_guidance_followed": aggregate_warm_progress_guidance_followed,
+            "manual_progress_guidance_followthrough_rate": safe_rate(
+                aggregate_manual_progress_guidance_followed,
+                aggregate_manual_progress_guidance_events,
+            ),
+            "m1nd_warm_progress_guidance_followthrough_rate": safe_rate(
+                aggregate_warm_progress_guidance_followed,
+                aggregate_warm_progress_guidance_events,
+            ),
             "progress_guidance_followed_delta": aggregate_manual_progress_guidance_followed
             - aggregate_warm_progress_guidance_followed,
             "manual_recovery_events": aggregate_manual_recovery_events,
@@ -296,8 +348,16 @@ def summarize_runs(runs, input_price_per_1m=None, time_value_per_hour_usd=None):
             - aggregate_warm_recovery_events,
             "manual_recovery_followed": aggregate_manual_recovery_followed,
             "m1nd_warm_recovery_followed": aggregate_warm_recovery_followed,
+            "manual_recovery_followthrough_rate": safe_rate(
+                aggregate_manual_recovery_followed, aggregate_manual_recovery_events
+            ),
+            "m1nd_warm_recovery_followthrough_rate": safe_rate(
+                aggregate_warm_recovery_followed, aggregate_warm_recovery_events
+            ),
             "recovery_followed_delta": aggregate_manual_recovery_followed
             - aggregate_warm_recovery_followed,
+            "manual_proof_state_counts": dict(sorted(aggregate_manual_proof_states.items())),
+            "m1nd_warm_proof_state_counts": dict(sorted(aggregate_warm_proof_states.items())),
         }
         if input_price_per_1m is not None:
             summary["aggregate"]["input_price_per_1m"] = input_price_per_1m

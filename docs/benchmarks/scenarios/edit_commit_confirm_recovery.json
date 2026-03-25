@@ -1,0 +1,13 @@
+{
+  "scenario_id": "warm_edit_commit_confirm_recovery",
+  "scenario_name": "Warm recovery from edit_commit confirm gate",
+  "tags": [
+    "warm-graph",
+    "recovery",
+    "surgical",
+    "edit-preview",
+    "confirm-gate"
+  ],
+  "question": "Recover from an edit_commit failure caused by confirm=false and continue safely by reusing the same preview_id with confirm=true instead of minting a fresh preview or forcing a blind write.",
+  "expected_strength": "strong"
+}

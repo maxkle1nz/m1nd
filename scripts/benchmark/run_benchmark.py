@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +33,12 @@ def chars_from_event(event):
         if isinstance(value, list):
             chars += sum(len(str(item)) for item in value)
     return chars
+
+
+def safe_rate(numerator, denominator):
+    if denominator:
+        return round(numerator / denominator, 4)
+    return None
 
 
 def normalize_event(index, event):
@@ -238,6 +245,7 @@ def build_run(args):
         events = [normalize_event(i + 1, event) for i, event in enumerate(raw_events)]
 
     derived = summarize_events(events)
+    proof_state_counts = dict(sorted(Counter(derived["proof_states"]).items()))
 
     run = {
         "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -266,10 +274,14 @@ def build_run(args):
         "token_proxy": derived["token_proxy"],
         "guidance_events": derived["guidance_events"],
         "guidance_followed": derived["guidance_followed"],
+        "guidance_followthrough_rate": safe_rate(
+            derived["guidance_followed"], derived["guidance_events"]
+        ),
         "reactivated_nodes": derived["reactivated_nodes"],
         "resume_hints": derived["resume_hints"],
         "proof_states": derived["proof_states"],
         "final_proof_state": derived["proof_states"][-1] if derived["proof_states"] else None,
+        "proof_state_counts": proof_state_counts,
         "progress_events": derived["progress_events"],
         "max_progress_pct": derived["max_progress_pct"],
         "active_phases": derived["active_phases"],
@@ -281,8 +293,15 @@ def build_run(args):
         "snapshot_progress_events": derived["snapshot_progress_events"],
         "progress_guidance_events": derived["progress_guidance_events"],
         "progress_guidance_followed": derived["progress_guidance_followed"],
+        "progress_guidance_followthrough_rate": safe_rate(
+            derived["progress_guidance_followed"],
+            derived["progress_guidance_events"],
+        ),
         "recovery_events": derived["recovery_events"],
         "recovery_followed": derived["recovery_followed"],
+        "recovery_followthrough_rate": safe_rate(
+            derived["recovery_followed"], derived["recovery_events"]
+        ),
         "repo_path": scenario.get("repo_path"),
         "question": scenario.get("question"),
         "expected_strength": scenario.get("expected_strength"),
@@ -337,6 +356,7 @@ def main():
             "search_iterations": run["search_iterations"],
             "guidance_events": run["guidance_events"],
             "guidance_followed": run["guidance_followed"],
+            "guidance_followthrough_rate": run["guidance_followthrough_rate"],
             "progress_events": run["progress_events"],
             "max_progress_pct": run["max_progress_pct"],
             "live_progress_events": run["live_progress_events"],
@@ -344,7 +364,14 @@ def main():
             "snapshot_progress_events": run["snapshot_progress_events"],
             "progress_guidance_events": run["progress_guidance_events"],
             "progress_guidance_followed": run["progress_guidance_followed"],
+            "progress_guidance_followthrough_rate": run[
+                "progress_guidance_followthrough_rate"
+            ],
             "output": str(Path(args.output)),
+            "recovery_events": run["recovery_events"],
+            "recovery_followed": run["recovery_followed"],
+            "recovery_followthrough_rate": run["recovery_followthrough_rate"],
+            "proof_state_counts": run["proof_state_counts"],
         },
         indent=2,
     ))

@@ -220,6 +220,25 @@ If `delta_T = 20 seconds` on average and `N = 200` tasks/day:
 
 This is why the next benchmark phase should focus on time-to-solution, not just token proxy.
 
+## Versioned Replay Candidate Added After Phase 2
+
+One additional perspective recovery loop proved strong enough to version in the
+benchmark corpus and is now part of the broader recovery set:
+
+- `perspective_dead_end_recovery`: a stateful navigation branch reaches a dead
+  end, `perspective.follow` returns a dead-end diagnostic, `perspective.suggest`
+  recommends `perspective.back`, and the agent resumes from the restored
+  checkpoint instead of restarting the investigation
+
+Why it matters:
+
+- it is deeper than stale-version repair because the graph state is still valid,
+  but the navigation branch is exhausted
+- it measures whether `perspective` teaches “how to unwind” rather than only
+  “how to refresh”
+- it is a clean fit for warm-graph continuity metrics such as false starts,
+  recovery events followed, and repeat reads avoided
+
 ## Recommended Next Benchmark Phase
 
 The next round should be warm-graph only and answer four questions:
@@ -328,6 +347,24 @@ Interpretation:
 - the token win is modest, but the workflow win is strong
 - the key benefit is that stale preview failure now teaches the safe retry path
   instead of nudging the agent toward a risky blind commit or a manual diff loop
+
+`warm_edit_commit_confirm_recovery`
+
+- manual token proxy: `193`
+- `m1nd_warm` token proxy: `130`
+- savings: `32.64%`
+- manual `false_start_count`: `1`
+- `m1nd_warm false_start_count`: `0`
+- manual `recovery_followed`: `0`
+- `m1nd_warm recovery_followed`: `1`
+
+Interpretation:
+
+- this is a lightweight write-safety recovery benchmark
+- the compactness win is real, but the stronger result is behavioral
+- the confirm gate now teaches the exact safe retry path on the same
+  `preview_id`, which avoids an unnecessary fresh preview and keeps the agent
+  out of a blind write flow
 
 `warm_apply_batch_path_safety_recovery`
 
@@ -544,7 +581,8 @@ Current implication:
 The repository now includes four recorded runs plus one summary JSON under
 `docs/benchmarks/runs/`.
 
-Current harness-backed comparison set:
+Current harness-backed comparison set now includes these headline warm-graph
+flows plus the growing recovery family:
 
 - `warm_semantic_retrieval_dispatch`
 - `warm_continuity_boot_memory`
@@ -555,21 +593,23 @@ Current harness-backed comparison set:
 - `warm_continuity_actionable_resume`
 - `warm_continuity_temporal_resume`
 - `warm_trace_root_cause_triage`
+- `warm_edit_commit_confirm_recovery`
 
 Current aggregate from those recorded runs:
 
-- manual token proxy: `7121`
-- warm `m1nd` token proxy: `2096`
-- aggregate token savings: `70.57%`
-- manual first good answer total: `306.115ms`
-- warm `m1nd` first good answer total: `203.942ms`
-- manual search iterations: `11`
-- warm `m1nd` search iterations: `2`
-- manual repeat reads: `16`
-- warm `m1nd` repeat reads: `8`
-- manual false starts: `3`
+- manual token proxy: `9318`
+- warm `m1nd` token proxy: `4149`
+- aggregate token savings: `55.47%`
+- manual first good answer total: `337.615ms`
+- warm `m1nd` first good answer total: `153.342ms`
+- manual search iterations: `18`
+- warm `m1nd` search iterations: `6`
+- manual repeat reads: `25`
+- warm `m1nd` repeat reads: `20`
+- manual false starts: `11`
 - warm `m1nd` false starts: `0`
-- warm `m1nd` guidance-followed count: `8`
+- warm `m1nd` guidance-followed count: `24`
+- warm `m1nd` recovery-followed count: `9`
 
 Interpretation:
 
@@ -579,12 +619,14 @@ Interpretation:
 - the new actionable continuity scenario is a strong workflow win: fewer searches, fewer rereads, and no false start before the next concrete move
 - the new temporal continuity scenario is the first harness case that proves `trail_resume` guidance can be followed directly into `timeline`
 - the refreshed `warm_continuity_boot_memory` scenario now also behaves like a strong continuity win once the guided resume flow is followed
+- the new `edit_commit` confirm-gate scenario broadens the recovery story beyond stale previews: the product now teaches a safe same-preview retry instead of pushing the agent into unnecessary preview regeneration
 - the earlier semantic retrieval outlier was a benchmark unit mismatch, not a product slowdown
 - semantic retrieval now joins the guided-flow set too: `seek` can hand off directly into `view` on the winning file, and it now carries `proof_state` so retrieval can distinguish loose localization from a stronger file-level proof handoff
 - blast-radius follow-up now joins it as well: `impact` can point straight at the strongest downstream seam instead of leaving the dependent choice implicit
 - structural-claim proof joins the same family too: `hypothesize` can now point directly at the strongest evidence target instead of stopping at a verdict blob
 - `validate_plan` proof hints cut a whole step out of the `apply_batch` proof flow, which helped flip the aggregate timing result
 - guidance-followed is now measurable in retrieval, continuity, structural-proof, edit-prep, triage, blast-radius, and structural-claim flows
+- recovery-followed is now measurable across search, perspective, preview lifecycle, confirm-gate, and write-safety flows
 - the harness now also records `proof_state` where tools expose it, which starts to separate `proving` flows from `ready_to_edit` handoffs inside the same benchmark family
 - `trace` is now part of that same guided workflow story: suspect selection plus immediate follow-up on the right file
 - `apply_batch` now exposes `status_message`, progress metadata, `phases`, and `progress_events`, so long-running write UX can be benchmarked as an explicit product surface instead of a vague shell wait
@@ -652,6 +694,28 @@ Interpretation:
 - `impact` no longer only returns a blast set; it now suggests the first downstream target worth opening
 - in the warm benchmark run, that guided blast lands in `proof_state="proving"`, which is the right reading for “strong seam, inspect next” rather than “edit immediately”
 - that makes blast-radius inspection part of the same measurable guided workflow family as `seek`, `trace`, `trail_resume`, and `validate_plan`
+
+### New recovery candidate: empty `search` query should reroute into `glob`
+
+Another strong recovery loop is not "bad regex repair" but "wrong tool chosen
+for the job."
+
+In agent-like use, an empty `search` query paired with `scope` or
+`filename_pattern` usually means the model was trying to discover files, not
+search file contents.
+
+That makes this a stronger product story than a syntax-only error:
+
+- the failure teaches a tool reroute, not just a retry shape
+- the likely recovery path is `search -> glob -> view`
+- the benchmark should measure whether the returned hint avoids a fresh shell
+  file-discovery sweep
+
+Expected benchmark shape:
+
+- manual path uses `rg --files` or equivalent file enumeration, then opens the handler
+- warm `m1nd` path uses the error hint, reroutes directly to `glob`, then opens the matched file
+- expected win is lower search-iteration count plus at least one recovery event followed
 
 ### New triage result: `trace` now guides the next move
 

@@ -1,0 +1,21 @@
+[
+  {
+    "tool_name": "shell.rg",
+    "query": "rg --files m1nd-mcp/src | rg 'search.*\\.rs$'",
+    "elapsed_ms": 1.9,
+    "payload_chars": 320,
+    "opened_files": [],
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "shell.view",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 0.8,
+    "payload_chars": 860,
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  }
+]
