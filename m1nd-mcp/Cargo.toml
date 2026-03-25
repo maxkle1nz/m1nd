@@ -11,8 +11,8 @@ default = ["serve"]
 serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures"]
 
 [dependencies]
-m1nd-core = { path = "../m1nd-core" }
-m1nd-ingest = { path = "../m1nd-ingest" }
+m1nd-core = { path = "../m1nd-core", version = "0.6.0" }
+m1nd-ingest = { path = "../m1nd-ingest", version = "0.6.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = { workspace = true }

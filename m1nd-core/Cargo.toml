@@ -2,6 +2,9 @@
 name = "m1nd-core"
 version = "0.6.0"
 edition = "2021"
+description = "Core graph engine and reasoning primitives for m1nd."
+license = "MIT"
+repository = "https://github.com/maxkle1nz/m1nd"
 
 [dependencies]
 thiserror = { workspace = true }

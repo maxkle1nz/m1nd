@@ -2,6 +2,9 @@
 name = "m1nd-ingest"
 version = "0.6.0"
 edition = "2021"
+description = "Language ingest and graph extraction pipeline for m1nd."
+license = "MIT"
+repository = "https://github.com/maxkle1nz/m1nd"
 
 [features]
 default = ["tier2"]
@@ -38,7 +41,7 @@ tier2 = [
 ]
 
 [dependencies]
-m1nd-core = { path = "../m1nd-core" }
+m1nd-core = { path = "../m1nd-core", version = "0.6.0" }
 regex = "1"
 walkdir = "2"
 rayon = "1.10"
