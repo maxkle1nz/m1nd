@@ -43,6 +43,11 @@ jobs:
         working-directory: ./m1nd-demo
         run: npm ci
 
+      - name: Install Rollup Linux binary
+        if: runner.os == 'Linux'
+        working-directory: ./m1nd-demo
+        run: npm install --no-save @rollup/rollup-linux-x64-gnu
+
       - name: Build landing
         working-directory: ./m1nd-demo
         run: npm run build
