@@ -66,6 +66,7 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
         why_this_next_step: Some(
             "The top file-level match already contains the strongest textual evidence.".into(),
         ),
+        what_is_missing: Some("Open the file to confirm implementation details.".into()),
     }
 }
 
@@ -85,6 +86,7 @@ fn build_help_output_known(tool: &str) -> HelpOutput {
         next_step_hint: Some("Use this help page to choose the next tool in the workflow.".into()),
         confidence: Some(0.71),
         why_this_next_step: Some("The help page already encodes the downstream workflow.".into()),
+        what_is_missing: Some("The downstream tool still needs to run.".into()),
     }
 }
 
@@ -450,6 +452,7 @@ fn test_help_unknown_tool() {
         why_this_next_step: Some(
             "The requested tool name did not resolve to a canonical tool.".into(),
         ),
+        what_is_missing: Some("A valid canonical tool name is still missing.".into()),
     };
 
     assert!(!out.found, "unknown tool must return found=false");
@@ -491,6 +494,7 @@ fn test_help_no_arg() {
         next_step_hint: Some("Open help for the tool you expect to use next.".into()),
         confidence: Some(0.42),
         why_this_next_step: Some("The help index is acting as a workflow router.".into()),
+        what_is_missing: Some("A concrete workflow choice is still missing.".into()),
     };
 
     assert!(out.found, "index response must have found=true");
@@ -522,6 +526,7 @@ fn test_help_contains_next_suggestions() {
         next_step_hint: Some("Use the NEXT section to continue the workflow.".into()),
         confidence: Some(0.68),
         why_this_next_step: Some("The help page already points toward the downstream workflow.".into()),
+        what_is_missing: Some("The downstream tool chain has not executed yet.".into()),
     };
 
     assert!(

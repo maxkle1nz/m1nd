@@ -28,6 +28,7 @@ fn search_contract(
     Option<String>,
     Option<f32>,
     Option<String>,
+    Option<String>,
 ) {
     if let Some(result) = results.first() {
         (
@@ -40,6 +41,7 @@ fn search_contract(
             )),
             Some(result.score.unwrap_or(0.72).clamp(0.0, 1.0)),
             Some("The highest-ranked file-level match already contains the strongest textual evidence for the query.".into()),
+            Some("Open the file to confirm implementation details before escalating into proof or edit prep.".into()),
         )
     } else {
         (
@@ -52,6 +54,7 @@ fn search_contract(
             ),
             Some(0.18),
             Some("No file-level match was strong enough to justify opening a file directly, so the runtime falls back to filename discovery.".into()),
+            Some("A concrete candidate file is still missing, so the runtime needs filename-level narrowing first.".into()),
         )
     }
 }
@@ -65,6 +68,7 @@ fn glob_contract(
     Option<String>,
     Option<f32>,
     Option<String>,
+    Option<String>,
 ) {
     if let Some(file) = files.first() {
         (
@@ -74,6 +78,7 @@ fn glob_contract(
             Some(format!("Open the top glob match next: {}.", file.file_path)),
             Some(if file.has_connections { 0.74 } else { 0.61 }),
             Some("The first glob result is the strongest filename-level candidate and is ready for direct inspection.".into()),
+            Some("Open the file to confirm content-level relevance before escalating to proof or edit prep.".into()),
         )
     } else {
         (
@@ -86,6 +91,7 @@ fn glob_contract(
             ),
             Some(0.16),
             Some("There was not enough filename evidence to open a file directly, so the runtime points back to content search.".into()),
+            Some("A content-level signal is missing, so filename matches alone are not enough to continue confidently.".into()),
         )
     }
 }
@@ -510,6 +516,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 next_step_hint,
                 confidence,
                 why_this_next_step,
+                what_is_missing,
             ) = if let Some(result) = results.first() {
                 (
                         "proving".into(),
@@ -521,6 +528,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                         )),
                         Some(result.score.unwrap_or(0.81).clamp(0.0, 1.0)),
                         Some("Semantic ranking already converged on a file-level match strong enough to inspect directly.".into()),
+                        Some("Open the file to confirm the semantic hit before switching into proof or edit planning.".into()),
                     )
             } else {
                 (
@@ -533,6 +541,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                         ),
                         Some(0.2),
                         Some("The semantic match set was too weak to justify a direct file open, so the runtime points back to a tighter intent query.".into()),
+                        Some("A stronger intent formulation is missing before the runtime can pick a trustworthy file target.".into()),
                     )
             };
             return Ok(SearchOutput {
@@ -551,6 +560,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 next_step_hint,
                 confidence,
                 why_this_next_step,
+                what_is_missing,
             });
         }
     }
@@ -582,6 +592,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         next_step_hint,
         confidence,
         why_this_next_step,
+        what_is_missing,
     ) = search_contract(&final_results);
 
     Ok(SearchOutput {
@@ -600,6 +611,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         next_step_hint,
         confidence,
         why_this_next_step,
+        what_is_missing,
     })
 }
 
@@ -1501,6 +1513,7 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         next_step_hint,
         confidence,
         why_this_next_step,
+        what_is_missing,
     ) = glob_contract(&files);
 
     Ok(GlobOutput {
@@ -1515,6 +1528,7 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         next_step_hint,
         confidence,
         why_this_next_step,
+        what_is_missing,
     })
 }
 
@@ -1545,6 +1559,9 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 why_this_next_step: Some(
                     "The help index is a workflow router here, so the next best move is to narrow into a concrete tool page.".into(),
                 ),
+                what_is_missing: Some(
+                    "A concrete workflow choice is still missing before the agent can act.".into(),
+                ),
             })
         }
         Some("about") => {
@@ -1564,6 +1581,9 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 confidence: Some(0.56),
                 why_this_next_step: Some(
                     "The about page establishes orientation, but the runtime still needs a concrete tool page before work can begin.".into(),
+                ),
+                what_is_missing: Some(
+                    "A specific workflow entrypoint is still missing before the runtime can continue.".into(),
                 ),
             })
         }
@@ -1592,6 +1612,9 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                         "The `{}` help page already encodes the recommended downstream workflow, so the runtime can hand off directly.",
                         normalized
                     )),
+                    what_is_missing: Some(
+                        "The actual downstream tool still needs to run before proof can advance.".into(),
+                    ),
                 })
             } else {
                 // Unknown tool -- find similar (ADVERSARY H2)
@@ -1619,6 +1642,9 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     confidence: Some(0.24),
                     why_this_next_step: Some(
                         "The requested tool name did not resolve, so the safest next move is to retry with a canonical suggestion.".into(),
+                    ),
+                    what_is_missing: Some(
+                        "A valid canonical tool name is missing, so workflow selection cannot proceed yet.".into(),
                     ),
                 })
             }
@@ -2402,7 +2428,7 @@ mod tests {
             graph_linked: true,
             heuristic_signals: None,
         }];
-        let (proof_state, tool, target, hint, confidence, why_this_next_step) =
+        let (proof_state, tool, target, hint, confidence, why_this_next_step, what_is_missing) =
             search_contract(&results);
         assert_eq!(proof_state, "triaging");
         assert_eq!(tool.as_deref(), Some("view"));
@@ -2412,6 +2438,7 @@ mod tests {
         assert!(why_this_next_step
             .unwrap()
             .contains("strongest textual evidence"));
+        assert!(what_is_missing.unwrap().contains("Open the file"));
     }
 
     #[test]
@@ -2423,7 +2450,7 @@ mod tests {
             line_count: 120,
             has_connections: true,
         }];
-        let (proof_state, tool, target, hint, confidence, why_this_next_step) =
+        let (proof_state, tool, target, hint, confidence, why_this_next_step, what_is_missing) =
             glob_contract(&files);
         assert_eq!(proof_state, "triaging");
         assert_eq!(tool.as_deref(), Some("view"));
@@ -2433,5 +2460,8 @@ mod tests {
         assert!(why_this_next_step
             .unwrap()
             .contains("filename-level candidate"));
+        assert!(what_is_missing
+            .unwrap()
+            .contains("confirm content-level relevance"));
     }
 }

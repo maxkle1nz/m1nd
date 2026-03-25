@@ -255,6 +255,8 @@ pub struct ActivateOutput {
     pub confidence: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why_this_next_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub what_is_missing: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

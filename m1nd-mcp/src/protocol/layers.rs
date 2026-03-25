@@ -1747,6 +1747,8 @@ pub struct SearchOutput {
     pub confidence: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why_this_next_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub what_is_missing: Option<String>,
 }
 
 /// A single search result entry.
@@ -1810,6 +1812,8 @@ pub struct HelpOutput {
     pub confidence: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why_this_next_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub what_is_missing: Option<String>,
 }
 
 // =========================================================================
@@ -1880,6 +1884,8 @@ pub struct GlobOutput {
     pub confidence: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why_this_next_step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub what_is_missing: Option<String>,
 }
 
 /// A single file entry from a glob match.
