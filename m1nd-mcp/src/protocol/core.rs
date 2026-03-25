@@ -244,6 +244,13 @@ pub struct ActivateOutput {
     pub structural_holes: Vec<StructuralHoleOutput>,
     pub plasticity: PlasticityOutput,
     pub elapsed_ms: f64,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

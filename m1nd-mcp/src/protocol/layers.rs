@@ -1736,6 +1736,13 @@ pub struct SearchOutput {
     /// Paths that were auto-ingested (empty if auto_ingest was not triggered).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub auto_ingested_paths: Vec<String>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 /// A single search result entry.
@@ -1788,6 +1795,13 @@ pub struct HelpOutput {
     /// Suggested tools when tool was not found.
     #[serde(default)]
     pub suggestions: Vec<String>,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 // =========================================================================
@@ -1847,6 +1861,13 @@ pub struct GlobOutput {
     /// Whether scope prefix was applied.
     pub scope_applied: bool,
     pub elapsed_ms: f64,
+    pub proof_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
 }
 
 /// A single file entry from a glob match.

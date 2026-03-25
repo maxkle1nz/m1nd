@@ -19,6 +19,55 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+fn search_contract(
+    results: &[SearchResultEntry],
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if let Some(result) = results.first() {
+        (
+            "triaging".into(),
+            Some("view".into()),
+            Some(result.file_path.clone()),
+            Some(format!(
+                "Open the top search match next: {}:{}.",
+                result.file_path, result.line_number
+            )),
+        )
+    } else {
+        (
+            "blocked".into(),
+            Some("glob".into()),
+            None,
+            Some(
+                "Search returned no actionable matches. Broaden the scope or use `glob` to locate likely files first."
+                    .into(),
+            ),
+        )
+    }
+}
+
+fn glob_contract(
+    files: &[GlobFileEntry],
+) -> (String, Option<String>, Option<String>, Option<String>) {
+    if let Some(file) = files.first() {
+        (
+            "triaging".into(),
+            Some("view".into()),
+            Some(file.file_path.clone()),
+            Some(format!("Open the top glob match next: {}.", file.file_path)),
+        )
+    } else {
+        (
+            "blocked".into(),
+            Some("search".into()),
+            None,
+            Some(
+                "Glob returned no files. Switch to `search` if you are really looking for content rather than filenames."
+                    .into(),
+            ),
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Shared normalization helpers
 // ---------------------------------------------------------------------------
@@ -432,6 +481,28 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             }
 
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+            let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+                if let Some(result) = results.first() {
+                    (
+                        "proving".into(),
+                        Some("view".into()),
+                        Some(result.file_path.clone()),
+                        Some(format!(
+                            "Open the strongest semantic match next: {}.",
+                            result.file_path
+                        )),
+                    )
+                } else {
+                    (
+                        "blocked".into(),
+                        Some("seek".into()),
+                        None,
+                        Some(
+                            "Semantic search returned no strong file-level match. Refine the intent query and retry."
+                                .into(),
+                        ),
+                    )
+                };
             return Ok(SearchOutput {
                 query: input.query,
                 mode: "semantic".into(),
@@ -442,6 +513,10 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 auto_ingested,
                 match_count: None,
                 auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
+                proof_state,
+                next_suggested_tool,
+                next_suggested_target,
+                next_step_hint,
             });
         }
     }
@@ -466,6 +541,8 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         results.truncate(top_k);
         results
     };
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        search_contract(&final_results);
 
     Ok(SearchOutput {
         query: input.query,
@@ -477,6 +554,10 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         auto_ingested,
         match_count,
         auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     })
 }
 
@@ -1371,6 +1452,8 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
     }
 
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
+        glob_contract(&files);
 
     Ok(GlobOutput {
         pattern: input.pattern,
@@ -1378,6 +1461,10 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         total_matches,
         scope_applied,
         elapsed_ms: elapsed,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     })
 }
 
@@ -1397,6 +1484,13 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 tool: None,
                 found: true,
                 suggestions: vec![],
+                proof_state: "triaging".into(),
+                next_suggested_tool: Some("help".into()),
+                next_suggested_target: Some("seek".into()),
+                next_step_hint: Some(
+                    "Open help for the tool you expect to use next, such as `seek`, `trace`, or `validate_plan`."
+                        .into(),
+                ),
             })
         }
         Some("about") => {
@@ -1406,6 +1500,13 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 tool: Some("about".into()),
                 found: true,
                 suggestions: vec![],
+                proof_state: "ready_to_edit".into(),
+                next_suggested_tool: Some("help".into()),
+                next_suggested_target: Some("seek".into()),
+                next_step_hint: Some(
+                    "Jump from about into a concrete tool help page to start an actual workflow."
+                        .into(),
+                ),
             })
         }
         Some(name) => {
@@ -1418,9 +1519,16 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 let formatted = personality::format_tool_help(doc);
                 Ok(HelpOutput {
                     formatted,
-                    tool: Some(normalized),
+                    tool: Some(normalized.clone()),
                     found: true,
                     suggestions: vec![],
+                    proof_state: "triaging".into(),
+                    next_suggested_tool: doc.next.first().map(|n| (*n).to_string()),
+                    next_suggested_target: Some(normalized.clone()),
+                    next_step_hint: Some(format!(
+                        "Use this help page to choose the next workflow step after `{}`.",
+                        normalized
+                    )),
                 })
             } else {
                 // Unknown tool -- find similar (ADVERSARY H2)
@@ -1438,7 +1546,13 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     formatted,
                     tool: Some(name.to_string()),
                     found: false,
-                    suggestions,
+                    suggestions: suggestions.clone(),
+                    proof_state: "blocked".into(),
+                    next_suggested_tool: Some("help".into()),
+                    next_suggested_target: suggestions.first().cloned(),
+                    next_step_hint: Some(
+                        "Retry help with one of the suggested canonical tool names.".into(),
+                    ),
                 })
             }
         }
@@ -1448,11 +1562,12 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_path_hint, handle_glob, handle_help, handle_search, normalize_help_tool_name,
-        normalize_scope_hint, rank_search_results, scope_matches_path, SearchRankingMode,
+        canonicalize_path_hint, glob_contract, handle_glob, handle_help, handle_search,
+        normalize_help_tool_name, normalize_scope_hint, rank_search_results, scope_matches_path,
+        search_contract, SearchRankingMode,
     };
     use crate::protocol::layers::{
-        GlobInput, GlobSort, SearchInput, SearchMode, SearchResultEntry,
+        GlobFileEntry, GlobInput, GlobSort, SearchInput, SearchMode, SearchResultEntry,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
@@ -2203,5 +2318,43 @@ mod tests {
         );
 
         assert_eq!(results[0].node_id, "file::m1nd/m1nd-mcp/src/session.rs");
+    }
+
+    #[test]
+    fn search_contract_prefers_view_for_top_match() {
+        let results = vec![SearchResultEntry {
+            node_id: "file::src/lib.rs".into(),
+            label: "src/lib.rs".into(),
+            node_type: "file".into(),
+            score: Some(0.9),
+            file_path: "src/lib.rs".into(),
+            line_number: 42,
+            matched_line: "fn important()".into(),
+            context_before: vec![],
+            context_after: vec![],
+            graph_linked: true,
+            heuristic_signals: None,
+        }];
+        let (proof_state, tool, target, hint) = search_contract(&results);
+        assert_eq!(proof_state, "triaging");
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("src/lib.rs"));
+        assert!(hint.unwrap().contains("src/lib.rs:42"));
+    }
+
+    #[test]
+    fn glob_contract_prefers_view_for_top_file() {
+        let files = vec![GlobFileEntry {
+            node_id: "file::src/lib.rs".into(),
+            file_path: "src/lib.rs".into(),
+            extension: "rs".into(),
+            line_count: 120,
+            has_connections: true,
+        }];
+        let (proof_state, tool, target, hint) = glob_contract(&files);
+        assert_eq!(proof_state, "triaging");
+        assert_eq!(tool.as_deref(), Some("view"));
+        assert_eq!(target.as_deref(), Some("src/lib.rs"));
+        assert!(hint.unwrap().contains("src/lib.rs"));
     }
 }

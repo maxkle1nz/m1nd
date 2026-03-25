@@ -413,6 +413,38 @@ pub fn handle_activate(
     };
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) = if let Some(
+        top,
+    ) =
+        activated.first()
+    {
+        (
+            "triaging".into(),
+            Some("view".into()),
+            Some(top.node_id.clone()),
+            Some(format!("Open the top activated node next: {}.", top.label)),
+        )
+    } else if let Some(seed) = seeds.first() {
+        (
+            "blocked".into(),
+            Some("seek".into()),
+            Some(seed.node_id.clone()),
+            Some(format!(
+                "Activation found seeds but no strong activations. Refine around `{}` with `seek`.",
+                seed.label
+            )),
+        )
+    } else {
+        (
+                "blocked".into(),
+                Some("seek".into()),
+                None,
+                Some(
+                    "Activation did not surface a strong seed. Refine the query or use `seek` for a tighter entry point."
+                        .into(),
+                ),
+            )
+    };
 
     Ok(ActivateOutput {
         query: input.query,
@@ -422,6 +454,10 @@ pub fn handle_activate(
         structural_holes,
         plasticity,
         elapsed_ms,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
     })
 }
 

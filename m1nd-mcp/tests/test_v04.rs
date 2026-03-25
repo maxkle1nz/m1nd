@@ -58,6 +58,10 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
         auto_ingested: false,
         match_count: None,
         auto_ingested_paths: vec![],
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("view".into()),
+        next_suggested_target: Some("/project/backend/module_0.py".into()),
+        next_step_hint: Some("Open the top search match next.".into()),
     }
 }
 
@@ -71,6 +75,10 @@ fn build_help_output_known(tool: &str) -> HelpOutput {
         tool: Some(tool.into()),
         found: true,
         suggestions: vec![],
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("help".into()),
+        next_suggested_target: Some(tool.into()),
+        next_step_hint: Some("Use this help page to choose the next tool in the workflow.".into()),
     }
 }
 
@@ -428,6 +436,10 @@ fn test_help_unknown_tool() {
         tool: Some("activ8".into()),
         found: false,
         suggestions: vec!["activate".into(), "scan".into()],
+        proof_state: "blocked".into(),
+        next_suggested_tool: Some("help".into()),
+        next_suggested_target: Some("activate".into()),
+        next_step_hint: Some("Retry with a suggested canonical tool name.".into()),
     };
 
     assert!(!out.found, "unknown tool must return found=false");
@@ -463,6 +475,10 @@ fn test_help_no_arg() {
         tool: None,
         found: true,
         suggestions: vec![],
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("help".into()),
+        next_suggested_target: Some("seek".into()),
+        next_step_hint: Some("Open help for the tool you expect to use next.".into()),
     };
 
     assert!(out.found, "index response must have found=true");
@@ -488,6 +504,10 @@ fn test_help_contains_next_suggestions() {
         tool: Some("activate".into()),
         found: true,
         suggestions: vec![],
+        proof_state: "triaging".into(),
+        next_suggested_tool: Some("impact".into()),
+        next_suggested_target: Some("activate".into()),
+        next_step_hint: Some("Use the NEXT section to continue the workflow.".into()),
     };
 
     assert!(

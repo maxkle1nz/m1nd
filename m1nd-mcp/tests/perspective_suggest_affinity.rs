@@ -766,7 +766,9 @@ fn cross_02_affinity_output_structure_with_candidates() {
         proof_state: "proving".into(),
         next_suggested_tool: Some("perspective_follow".into()),
         next_suggested_target: Some("R_abc123".into()),
-        next_step_hint: Some("Inspect or follow the route to validate the probable connection.".into()),
+        next_step_hint: Some(
+            "Inspect or follow the route to validate the probable connection.".into(),
+        ),
     };
 
     // Serialize and verify
