@@ -335,6 +335,44 @@ fn invalid_params_recovery(tool: &str, detail: &str) -> Option<serde_json::Value
         }));
     }
 
+    if tool == "edit_commit" && detail.contains("confirm must be true to commit") {
+        return Some(serde_json::json!({
+            "hint": "The preview is still valid, but commit is gated until you explicitly confirm it. Reuse the same `preview_id` with `confirm=true` after reviewing the preview.",
+            "suggested_next_step": "Retry `edit_commit` with the same `preview_id` and `confirm=true`.",
+            "workflow_hint": "Typical recovery flow: `edit_preview -> review -> edit_commit(confirm=true)`.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_commit",
+                    "arguments": {
+                        "preview_id": "preview_dev_001",
+                        "agent_id": "dev",
+                        "confirm": true
+                    }
+                }
+            }
+        }));
+    }
+
+    if tool == "edit_commit" && detail.contains("preview_id not found or expired") {
+        return Some(serde_json::json!({
+            "hint": "That preview handle is gone or expired. Mint a fresh preview for the same file, then retry the commit with the new `preview_id`.",
+            "suggested_next_step": "Call `edit_preview` again for the same file, then retry `edit_commit` with the new `preview_id`.",
+            "workflow_hint": "Typical recovery flow: `edit_preview -> edit_commit`.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "edit_preview",
+                    "arguments": {
+                        "file_path": "src/auth.rs",
+                        "agent_id": "dev",
+                        "new_content": "..."
+                    }
+                }
+            }
+        }));
+    }
+
     None
 }
 
@@ -2622,6 +2660,45 @@ mod tests {
             .as_str()
             .expect("step")
             .contains("literal mode"));
+    }
+
+    #[test]
+    fn edit_commit_confirm_gate_payload_teaches_same_preview_retry() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: "confirm must be true to commit".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "edit_commit");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("same `preview_id`"));
+        assert!(payload["workflow_hint"]
+            .as_str()
+            .expect("workflow hint")
+            .contains("edit_commit(confirm=true)"));
+        assert_eq!(payload["example"]["params"]["name"], "edit_commit");
+        assert_eq!(payload["example"]["params"]["arguments"]["confirm"], true);
+    }
+
+    #[test]
+    fn edit_commit_expired_preview_payload_teaches_fresh_preview_recovery() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "edit_commit".into(),
+            detail: "preview_id not found or expired (TTL=5min): preview_dev_001".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "edit_commit");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("fresh preview"));
+        assert!(payload["suggested_next_step"]
+            .as_str()
+            .expect("step")
+            .contains("edit_preview"));
+        assert_eq!(payload["example"]["params"]["name"], "edit_preview");
     }
 
     #[test]
