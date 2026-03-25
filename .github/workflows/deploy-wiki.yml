@@ -41,7 +41,7 @@ jobs:
 
       - name: Install landing dependencies
         working-directory: ./m1nd-demo
-        run: npm install
+        run: npm ci
 
       - name: Build landing
         working-directory: ./m1nd-demo
