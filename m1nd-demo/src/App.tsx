@@ -3,16 +3,16 @@ import { motion } from 'framer-motion';
 import { COLORS, GLYPHS } from './lib/colors';
 
 const heroMetrics = [
-  { label: 'Warm-graph corpus', value: '50.73%', note: 'less context churn' },
+  { label: 'Warm-graph corpus', value: '47.05%', note: 'less context churn' },
   { label: 'False starts', value: '14 -> 0', note: 'in the recorded corpus' },
-  { label: 'Guided follow-throughs', value: '31', note: 'measured workflows' },
+  { label: 'Guided follow-throughs', value: '39', note: 'measured workflows' },
   { label: 'Recovery loops', value: '12', note: 'successful guided recoveries' },
 ];
 
 const proofBar = [
-  '50.73% less context churn',
+  '47.05% less context churn',
   '14 -> 0 false starts',
-  '31 guided follow-throughs',
+  '39 guided follow-throughs',
 ];
 
 const capabilities = [

@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_activate_guided_entrypoint",
+  "scenario_name": "Warm activation entrypoint with guided file follow-up",
+  "repo_path": ".",
+  "question": "When activation surfaces the strongest node for runtime guidance work, which file should the agent open first?",
+  "tags": ["warm-graph", "activate", "guided-entrypoint", "proof-state"],
+  "expected_strength": "strong"
+}

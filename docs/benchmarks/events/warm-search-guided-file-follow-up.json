@@ -1,0 +1,26 @@
+[
+  {
+    "tool_name": "m1nd.search",
+    "query": "next_suggested_tool",
+    "elapsed_ms": 1.1,
+    "payload_chars": 390,
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ],
+    "proof_state": "triaging",
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
+    "next_step_hint": "Open the top search match next: m1nd-mcp/src/search_handlers.rs:1.",
+    "next_tool_used": "view"
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 0.6,
+    "payload_chars": 520,
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ],
+    "notes": "The guided search contract eliminates the detour into adjacent docs and support files."
+  }
+]

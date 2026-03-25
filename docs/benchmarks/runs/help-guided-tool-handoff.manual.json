@@ -1,0 +1,90 @@
+{
+  "recorded_at": "2026-03-25T13:42:04.289855+00:00",
+  "scenario_id": "warm_help_guided_tool_handoff",
+  "scenario_name": "Warm help page that hands off into the next workflow tool",
+  "scenario_tags": [
+    "warm-graph",
+    "help",
+    "guided-handoff",
+    "proof-state"
+  ],
+  "mode": "manual",
+  "execution_origin": "replay",
+  "source_ref": "docs/benchmarks/events/manual-help-guided-tool-handoff.json",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 2.6,
+  "time_to_full_proof_ms": 3.8,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "Manual help requires the agent to infer the downstream workflow and then start the tool chain itself.",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.help",
+      "query": "activate",
+      "elapsed_ms": 0.9,
+      "payload_chars": 340,
+      "notes": "Manual flow still requires the agent to infer the downstream workflow from the help text.",
+      "event_index": 1,
+      "opened_files": [],
+      "surfaced_files": []
+    },
+    {
+      "tool_name": "m1nd.activate",
+      "query": "rate limiting",
+      "elapsed_ms": 1.7,
+      "payload_chars": 420,
+      "surfaced_files": [
+        "m1nd-mcp/src/tools.rs"
+      ],
+      "event_index": 2,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.impact",
+      "target": "file::m1nd-mcp/src/tools.rs",
+      "elapsed_ms": 1.2,
+      "payload_chars": 420,
+      "opened_files": [
+        "m1nd-mcp/src/tools.rs"
+      ],
+      "event_index": 3,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 1,
+  "repeat_reads": 1,
+  "search_iterations": 0,
+  "chars_surfaced": 1180,
+  "token_proxy": 295,
+  "guidance_events": 0,
+  "guidance_followed": 0,
+  "guidance_followthrough_rate": null,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [],
+  "final_proof_state": null,
+  "proof_state_counts": {},
+  "progress_events": 0,
+  "max_progress_pct": 0.0,
+  "active_phases": [],
+  "next_phases": [],
+  "progress_event_types": [],
+  "progress_delivery_modes": [],
+  "live_progress_events": 0,
+  "replay_progress_events": 0,
+  "snapshot_progress_events": 0,
+  "progress_guidance_events": 0,
+  "progress_guidance_followed": 0,
+  "progress_guidance_followthrough_rate": null,
+  "recovery_events": 0,
+  "recovery_followed": 0,
+  "recovery_followthrough_rate": null,
+  "repo_path": ".",
+  "question": "After opening the activate help page, which downstream tool should the agent use next to inspect blast radius?",
+  "expected_strength": "strong"
+}

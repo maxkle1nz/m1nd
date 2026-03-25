@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_help_guided_tool_handoff",
+  "scenario_name": "Warm help page that hands off into the next workflow tool",
+  "repo_path": ".",
+  "question": "After opening the activate help page, which downstream tool should the agent use next to inspect blast radius?",
+  "tags": ["warm-graph", "help", "guided-handoff", "proof-state"],
+  "expected_strength": "strong"
+}

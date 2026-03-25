@@ -85,10 +85,10 @@ Cards:
 
 Metrics:
 
-- `10,518 -> 5,182` token proxy in the recorded corpus
-- `50.73%` aggregate reduction
+- `12,139 -> 6,428` token proxy in the recorded corpus
+- `47.05%` aggregate reduction
 - `14 -> 0` false starts
-- `31` guided follow-throughs
+- `39` guided follow-throughs
 - `12` successful recovery loops
 
 ### Footnote

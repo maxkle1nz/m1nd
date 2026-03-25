@@ -1,0 +1,37 @@
+[
+  {
+    "tool_name": "m1nd.help",
+    "query": "activate",
+    "elapsed_ms": 0.7,
+    "payload_chars": 320,
+    "proof_state": "triaging",
+    "next_suggested_tool": "impact",
+    "next_suggested_target": "activate",
+    "next_step_hint": "Use this help page to choose the next workflow step after `activate`.",
+    "next_tool_used": "impact"
+  },
+  {
+    "tool_name": "m1nd.impact",
+    "target": "file::m1nd-mcp/src/tools.rs",
+    "elapsed_ms": 1.0,
+    "payload_chars": 380,
+    "proof_state": "proving",
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/tools.rs",
+    "next_step_hint": "Open the strongest impacted file next.",
+    "next_tool_used": "view",
+    "surfaced_files": [
+      "m1nd-mcp/src/tools.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/tools.rs",
+    "elapsed_ms": 0.6,
+    "payload_chars": 440,
+    "opened_files": [
+      "m1nd-mcp/src/tools.rs"
+    ],
+    "notes": "Help now hands the agent into the downstream workflow instead of stopping at documentation alone."
+  }
+]

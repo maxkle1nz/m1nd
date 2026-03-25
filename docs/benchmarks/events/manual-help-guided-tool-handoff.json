@@ -1,0 +1,27 @@
+[
+  {
+    "tool_name": "m1nd.help",
+    "query": "activate",
+    "elapsed_ms": 0.9,
+    "payload_chars": 340,
+    "notes": "Manual flow still requires the agent to infer the downstream workflow from the help text."
+  },
+  {
+    "tool_name": "m1nd.activate",
+    "query": "rate limiting",
+    "elapsed_ms": 1.7,
+    "payload_chars": 420,
+    "surfaced_files": [
+      "m1nd-mcp/src/tools.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.impact",
+    "target": "file::m1nd-mcp/src/tools.rs",
+    "elapsed_ms": 1.2,
+    "payload_chars": 420,
+    "opened_files": [
+      "m1nd-mcp/src/tools.rs"
+    ]
+  }
+]

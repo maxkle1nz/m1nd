@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_search_guided_file_follow_up",
+  "scenario_name": "Warm search with guided file follow-up",
+  "repo_path": ".",
+  "question": "After a content search finds the strongest runtime-contract match, which file should the agent open next?",
+  "tags": ["warm-graph", "search", "guided-follow-up", "proof-state"],
+  "expected_strength": "strong"
+}

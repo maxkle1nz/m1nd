@@ -1,0 +1,26 @@
+[
+  {
+    "tool_name": "m1nd.activate",
+    "query": "guided runtime contract",
+    "elapsed_ms": 1.4,
+    "payload_chars": 360,
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ],
+    "proof_state": "triaging",
+    "next_suggested_tool": "view",
+    "next_suggested_target": "m1nd-mcp/src/search_handlers.rs",
+    "next_step_hint": "Open the top activated node next: search_handlers.rs.",
+    "next_tool_used": "view"
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 0.7,
+    "payload_chars": 520,
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ],
+    "notes": "Activation now lands directly in the strongest file instead of forcing an extra search pass."
+  }
+]

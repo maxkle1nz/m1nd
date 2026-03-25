@@ -1,0 +1,34 @@
+[
+  {
+    "tool_name": "m1nd.activate",
+    "query": "guided runtime contract",
+    "elapsed_ms": 2.1,
+    "payload_chars": 420,
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs",
+      "m1nd-mcp/src/tools.rs"
+    ],
+    "notes": "Manual flow still needs an extra file-selection step after activation."
+  },
+  {
+    "tool_name": "m1nd.search",
+    "query": "proof_state next_suggested_tool next_step_hint",
+    "elapsed_ms": 2.0,
+    "payload_chars": 440,
+    "surfaced_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ],
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/search_handlers.rs",
+    "elapsed_ms": 1.0,
+    "payload_chars": 500,
+    "opened_files": [
+      "m1nd-mcp/src/search_handlers.rs"
+    ]
+  }
+]

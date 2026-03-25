@@ -312,11 +312,11 @@ Warm-graph benchmark corpus recorded in `docs/benchmarks` now also shows where t
 | Scenario | Manual token proxy | `m1nd_warm` token proxy | Savings |
 |----------|--------------------|-------------------------|---------|
 | Actionable continuity resume | 1340 | 145 | 89.18% |
-| Aggregate warm-graph corpus | 11164 | 5695 | 48.99% |
+| Aggregate warm-graph corpus | 12139 | 6428 | 47.05% |
 
 Those continuity gains come from changes that make `trail_resume` more actionable: compact limits, structural reactivation, next-focus hints, and next-tool suggestions such as routing temporal follow-ups toward `timeline`.
 
-The same benchmark corpus now also treats recovery loops and guided handoffs as product truth. Across the current recorded corpus, `m1nd_warm` reduces false starts from `14` to `0`, records `31` guided follow-throughs, and records `12` successful recovery loops where manual flows recorded none.
+The same benchmark corpus now also treats recovery loops and guided handoffs as product truth. Across the current recorded corpus, `m1nd_warm` reduces false starts from `14` to `0`, records `39` guided follow-throughs, and records `12` successful recovery loops where manual flows recorded none.
 
 Invalid regex, ambiguous scope, stale route, stale trail, and protected-write failures are benchmarked on whether the tool teaches the agent how to recover with a shorter retry path, not only on whether the tool emitted an error.
 
