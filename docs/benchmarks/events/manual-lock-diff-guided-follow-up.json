@@ -1,0 +1,31 @@
+[
+  {
+    "tool_name": "m1nd.lock_create",
+    "query": "create a lock around perspective handlers",
+    "elapsed_ms": 2.6,
+    "payload_chars": 220,
+    "surfaced_files": [
+      "m1nd-mcp/src/lock_handlers.rs"
+    ],
+    "notes": "The manual path creates the lock and then checks it later without guidance."
+  },
+  {
+    "tool_name": "m1nd.lock_diff",
+    "query": "diff the guarded scope after graph activity",
+    "elapsed_ms": 3.1,
+    "payload_chars": 410,
+    "surfaced_files": [
+      "m1nd-mcp/src/lock_handlers.rs"
+    ],
+    "notes": "The diff reveals a changed node, but the agent still has to decide manually what to open next."
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/perspective_handlers.rs",
+    "elapsed_ms": 2.2,
+    "payload_chars": 520,
+    "opened_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ]
+  }
+]

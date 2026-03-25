@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_lock_diff_guided_follow_up",
+  "scenario_name": "Warm lock diff with guided structural follow-up",
+  "repo_path": ".",
+  "question": "Inside a guarded scope around perspective handlers, what changed first and which file should I inspect next?",
+  "tags": ["warm-graph", "lock", "diff", "guided-follow-up", "proof-state"],
+  "expected_strength": "strong"
+}

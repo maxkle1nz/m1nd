@@ -1,0 +1,8 @@
+{
+  "scenario_id": "warm_perspective_guided_navigation",
+  "scenario_name": "Warm perspective navigation with guided inspect and peek handoff",
+  "repo_path": ".",
+  "question": "After starting a perspective around session management, what route should I inspect first and how do I validate it before following?",
+  "tags": ["warm-graph", "perspective", "guided-navigation", "proof-state"],
+  "expected_strength": "strong"
+}

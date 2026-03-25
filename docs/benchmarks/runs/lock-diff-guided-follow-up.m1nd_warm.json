@@ -1,0 +1,108 @@
+{
+  "recorded_at": "2026-03-25T13:29:54.302213+00:00",
+  "scenario_id": "warm_lock_diff_guided_follow_up",
+  "scenario_name": "Warm lock diff with guided structural follow-up",
+  "scenario_tags": [
+    "warm-graph",
+    "lock",
+    "diff",
+    "guided-follow-up",
+    "proof-state"
+  ],
+  "mode": "m1nd_warm",
+  "execution_origin": "replay",
+  "source_ref": "docs/benchmarks/events/warm-lock-diff-guided-follow-up.json",
+  "cold_graph_time_ms": null,
+  "warm_graph_time_ms": null,
+  "time_to_first_good_answer_ms": 2.8,
+  "time_to_full_proof_ms": 4.1,
+  "answer_quality": "high",
+  "plan_changed": false,
+  "false_start_count": 0,
+  "tests_identified_before_edit": 0,
+  "public_claim_worthy": true,
+  "workflow_notes": "Guided lock diff chains create -> diff -> view with the changed file already selected by the runtime contract.",
+  "notes": "",
+  "events": [
+    {
+      "tool_name": "m1nd.lock_create",
+      "query": "create a lock around perspective handlers",
+      "elapsed_ms": 1.6,
+      "payload_chars": 200,
+      "proof_state": "triaging",
+      "next_suggested_tool": "lock_diff",
+      "next_suggested_target": "lock_jimi_001",
+      "next_step_hint": "Capture a diff against this lock after graph activity to see whether the protected region changed.",
+      "next_tool_used": "lock_diff",
+      "surfaced_files": [
+        "m1nd-mcp/src/lock_handlers.rs"
+      ],
+      "event_index": 1,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.lock_diff",
+      "query": "diff the guarded scope after graph activity",
+      "elapsed_ms": 2.0,
+      "payload_chars": 320,
+      "proof_state": "triaging",
+      "next_suggested_tool": "view",
+      "next_suggested_target": "file::m1nd-mcp/src/perspective_handlers.rs",
+      "next_step_hint": "Inspect `file::m1nd-mcp/src/perspective_handlers.rs` first to understand the most visible structural change inside the lock scope.",
+      "next_tool_used": "view",
+      "surfaced_files": [
+        "m1nd-mcp/src/perspective_handlers.rs"
+      ],
+      "event_index": 2,
+      "opened_files": []
+    },
+    {
+      "tool_name": "m1nd.view",
+      "target": "m1nd-mcp/src/perspective_handlers.rs",
+      "elapsed_ms": 1.3,
+      "payload_chars": 430,
+      "opened_files": [
+        "m1nd-mcp/src/perspective_handlers.rs"
+      ],
+      "notes": "The lock diff now closes the loop by pointing directly at the changed file instead of forcing a manual guess.",
+      "event_index": 3,
+      "surfaced_files": []
+    }
+  ],
+  "files_opened": 2,
+  "repeat_reads": 1,
+  "search_iterations": 0,
+  "chars_surfaced": 950,
+  "token_proxy": 238,
+  "guidance_events": 2,
+  "guidance_followed": 2,
+  "guidance_followthrough_rate": 1.0,
+  "reactivated_nodes": 0,
+  "resume_hints": 0,
+  "proof_states": [
+    "triaging",
+    "triaging"
+  ],
+  "final_proof_state": "triaging",
+  "proof_state_counts": {
+    "triaging": 2
+  },
+  "progress_events": 0,
+  "max_progress_pct": 0.0,
+  "active_phases": [],
+  "next_phases": [],
+  "progress_event_types": [],
+  "progress_delivery_modes": [],
+  "live_progress_events": 0,
+  "replay_progress_events": 0,
+  "snapshot_progress_events": 0,
+  "progress_guidance_events": 0,
+  "progress_guidance_followed": 0,
+  "progress_guidance_followthrough_rate": null,
+  "recovery_events": 0,
+  "recovery_followed": 0,
+  "recovery_followthrough_rate": null,
+  "repo_path": ".",
+  "question": "Inside a guarded scope around perspective handlers, what changed first and which file should I inspect next?",
+  "expected_strength": "strong"
+}

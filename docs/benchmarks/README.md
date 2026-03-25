@@ -152,9 +152,11 @@ guided downstream targeting, not skipping proof.
 - `search_invalid_regex_recovery.json`
 - `search_ambiguous_scope_recovery.json`
 - `perspective_stale_route_recovery.json`
+- `perspective_guided_navigation.json`
 - `edit_preview_source_modified_recovery.json`
 - `apply_batch_path_safety_recovery.json`
 - `apply_batch_protected_state_recovery.json`
+- `lock_diff_guided_follow_up.json`
 
 These are warm-graph oriented starter scenarios for rerunning the benchmark
 work captured in `docs/BENCHMARK_RESEARCH_2026-03-24.md`.
@@ -171,9 +173,11 @@ In particular:
 - `search_invalid_regex_recovery.json` captures a concrete repair loop where `search` rejects an invalid regex, suggests `literal` mode, and the agent retries successfully without falling back to shell grep
 - `search_ambiguous_scope_recovery.json` captures a scope-repair loop where `search` rejects an ambiguous `auto_ingest` scope, teaches the agent to retry with an explicit path, and avoids manual file guessing
 - `perspective_stale_route_recovery.json` captures a stateful recovery loop where a stale `route_set_version` points the agent to `perspective_routes`, then back into a fresh `perspective_follow` without restarting the investigation
+- `perspective_guided_navigation.json` captures the new runtime contract on `perspective_start` and `perspective_inspect`, where navigation can move straight into inspect and peek without an extra manual route-list detour
 - `edit_preview_source_modified_recovery.json` captures a write-safety recovery loop where `edit_commit` rejects a stale preview, teaches the agent to rerun `edit_preview`, and keeps the edit flow safe without forcing a blind write
 - `apply_batch_path_safety_recovery.json` captures a long-running write-safety recovery loop where `apply_batch` rejects an out-of-root target, teaches the agent to retry inside the ingested workspace, and preserves progress plus handoff on the successful retry
 - `apply_batch_protected_state_recovery.json` captures a runtime-safety recovery loop where `apply_batch` rejects a protected `graph/plasticity` state file, redirects the agent back to a source file, and preserves the proof handoff after the safe retry
+- `lock_diff_guided_follow_up.json` captures `lock_create` and `lock_diff` as a guided chain, where the lock layer can now point directly at the changed file to inspect next instead of leaving the agent to guess
 - `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`, detailed `progress_events`, and the post-batch handoff into the next proof surface
 - `structural_proof_apply_batch.json` currently marks `apply_batch` progress as `live`, which reflects the current serve-mode behavior rather than the older replay-only contract
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone

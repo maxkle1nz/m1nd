@@ -312,7 +312,7 @@ Warm-graph benchmark corpus recorded in `docs/benchmarks` now also shows where t
 | Scenario | Manual token proxy | `m1nd_warm` token proxy | Savings |
 |----------|--------------------|-------------------------|---------|
 | Actionable continuity resume | 1340 | 145 | 89.18% |
-| Aggregate warm-graph corpus | 10518 | 5182 | 50.73% |
+| Aggregate warm-graph corpus | 11164 | 5695 | 48.99% |
 
 Those continuity gains come from changes that make `trail_resume` more actionable: compact limits, structural reactivation, next-focus hints, and next-tool suggestions such as routing temporal follow-ups toward `timeline`.
 

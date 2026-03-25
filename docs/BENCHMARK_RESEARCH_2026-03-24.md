@@ -831,6 +831,36 @@ Interpretation:
 - the current harness run records `time_to_first_good_answer=4.2ms` and `time_to_full_proof=6.1ms`
 - `guidance_followed=1` still coexists with `search_iterations=1`, so this is a strong compactness and clarity win, not a claim that every guided edit-prep flow eliminates intermediate search
 
+### New guided-runtime result: `perspective` now carries a first-class handoff contract
+
+The new `perspective_guided_navigation` scenario measures the runtime contract
+added to `perspective_start`, `perspective_inspect`, and `perspective_peek`.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Guided perspective navigation | 358 | 275 | 23.18% | Cuts the explicit `perspective_routes` detour, improves first-answer time from `8.9ms` to `3.1ms`, and records guided follow-through `2/2` |
+
+Interpretation:
+
+- this is not a giant compactness win; it is a guidance and continuity win
+- the main value is that `perspective_start` can now move directly into `perspective_inspect`, and `inspect` can move directly into `peek`, without the agent reconstructing the route choice manually
+- the warm run ends with `proof_state="proving"`, which is the right public reading for “validated route, ready for evidence peek” rather than “ready to edit”
+
+### New guarded-runtime result: `lock_diff` now points at the next file
+
+The new `lock_diff_guided_follow_up` scenario measures the guided handoff added
+to the lock surface.
+
+| Scenario | Manual token proxy | Warm `m1nd` token proxy | Savings | Workflow effect |
+|---|---:|---:|---:|---|
+| Guided lock diff follow-up | 288 | 238 | 17.36% | Improves first-answer time from `7.2ms` to `2.8ms` and records guided follow-through `2/2` from `lock_create -> lock_diff -> view` |
+
+Interpretation:
+
+- this is again more about operational clarity than raw compression
+- the important public change is that `lock_create` and `lock_diff` now participate in the same guided runtime contract as `trace`, `seek`, `impact`, and `perspective`
+- the warm run ends in `proof_state="triaging"`, which is the correct reading for “scope changed; inspect the changed file next”
+
 ### Priority 1
 
 1. Fix `timeline` history fidelity for recently changed files.

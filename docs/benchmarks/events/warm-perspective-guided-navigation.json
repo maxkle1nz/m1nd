@@ -1,0 +1,40 @@
+[
+  {
+    "tool_name": "m1nd.perspective_start",
+    "query": "session management",
+    "elapsed_ms": 1.7,
+    "payload_chars": 310,
+    "surfaced_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "proof_state": "triaging",
+    "next_suggested_tool": "perspective_inspect",
+    "next_suggested_target": "R01",
+    "next_step_hint": "Inspect route R01 to validate the next hop from `session.rs`.",
+    "next_tool_used": "perspective_inspect"
+  },
+  {
+    "tool_name": "m1nd.perspective_inspect",
+    "query": "inspect the top route from perspective start",
+    "elapsed_ms": 1.4,
+    "payload_chars": 430,
+    "proof_state": "proving",
+    "next_suggested_tool": "perspective_peek",
+    "next_suggested_target": "R01",
+    "next_step_hint": "Peek route R01 to inspect source evidence before moving the focus.",
+    "next_tool_used": "perspective_peek",
+    "surfaced_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.perspective_peek",
+    "query": "peek the strongest route before following",
+    "elapsed_ms": 1.2,
+    "payload_chars": 360,
+    "opened_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "notes": "Guided perspective navigation skips the manual route-list detour and still validates the route before movement."
+  }
+]

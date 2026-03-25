@@ -1,0 +1,40 @@
+[
+  {
+    "tool_name": "m1nd.lock_create",
+    "query": "create a lock around perspective handlers",
+    "elapsed_ms": 1.6,
+    "payload_chars": 200,
+    "proof_state": "triaging",
+    "next_suggested_tool": "lock_diff",
+    "next_suggested_target": "lock_jimi_001",
+    "next_step_hint": "Capture a diff against this lock after graph activity to see whether the protected region changed.",
+    "next_tool_used": "lock_diff",
+    "surfaced_files": [
+      "m1nd-mcp/src/lock_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.lock_diff",
+    "query": "diff the guarded scope after graph activity",
+    "elapsed_ms": 2.0,
+    "payload_chars": 320,
+    "proof_state": "triaging",
+    "next_suggested_tool": "view",
+    "next_suggested_target": "file::m1nd-mcp/src/perspective_handlers.rs",
+    "next_step_hint": "Inspect `file::m1nd-mcp/src/perspective_handlers.rs` first to understand the most visible structural change inside the lock scope.",
+    "next_tool_used": "view",
+    "surfaced_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ]
+  },
+  {
+    "tool_name": "m1nd.view",
+    "target": "m1nd-mcp/src/perspective_handlers.rs",
+    "elapsed_ms": 1.3,
+    "payload_chars": 430,
+    "opened_files": [
+      "m1nd-mcp/src/perspective_handlers.rs"
+    ],
+    "notes": "The lock diff now closes the loop by pointing directly at the changed file instead of forcing a manual guess."
+  }
+]
