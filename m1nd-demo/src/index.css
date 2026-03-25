@@ -150,6 +150,29 @@ a {
   font-weight: 700;
 }
 
+.hero-visual-snippet {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  width: min(86%, 460px);
+  border-radius: 18px;
+  border: 1px solid rgba(232, 237, 245, 0.1);
+  background: rgba(7, 11, 18, 0.78);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  padding: 14px 16px;
+  backdrop-filter: blur(12px);
+}
+
+.hero-visual-snippet-line {
+  color: #a9b8d1;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .hero-node-trace {
   top: 24px;
   left: 24px;
@@ -227,6 +250,7 @@ button:focus-visible {
   }
 
   .metrics-grid,
+  .buyer-grid,
   .capability-grid,
   .use-grid {
     grid-template-columns: 1fr !important;
@@ -284,7 +308,7 @@ button:focus-visible {
   }
 
   .hero-visual {
-    min-height: 430px;
+    min-height: 500px;
     border-radius: 22px;
   }
 
@@ -321,5 +345,13 @@ button:focus-visible {
   .hero-node-resume {
     left: 18px;
     bottom: 24px;
+  }
+
+  .hero-visual-snippet {
+    left: 18px;
+    right: 18px;
+    bottom: 18px;
+    transform: none;
+    width: auto;
   }
 }

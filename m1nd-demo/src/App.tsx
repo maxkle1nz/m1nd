@@ -9,6 +9,12 @@ const heroMetrics = [
   { label: 'Recovery loops', value: '12', note: 'successful guided recoveries' },
 ];
 
+const proofBar = [
+  '50.73% less context churn',
+  '14 -> 0 false starts',
+  '31 guided follow-throughs',
+];
+
 const capabilities = [
   {
     title: 'Trace failures into the next file',
@@ -55,6 +61,13 @@ const truths = [
   'm1nd is MCP-native. It is built to help agents choose and sequence the next move.',
   'm1nd is not just retrieval. It exposes proof state, continuity, recovery, and execution progress.',
   'm1nd is not for every lookup. Plain tools still win for simple grep, logs, tests, and compiler truth.',
+];
+
+const buyerReasons = [
+  'Less rediscovery across long-running agent tasks',
+  'Safer connected edits before anything gets written',
+  'More observable workflows when a batch write takes time',
+  'Better recovery when the agent picks the wrong tool or shape',
 ];
 
 const useCases = [
@@ -326,6 +339,31 @@ export default function App() {
                 and recover from mistakes with less context churn. It does not just return results. It exposes
                 proof state, next-step guidance, and execution progress.
               </p>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  marginBottom: 24,
+                }}
+              >
+                {proofBar.map((item) => (
+                  <div
+                    key={item}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 999,
+                      background: 'rgba(8,12,20,0.58)',
+                      border: `1px solid rgba(232,237,245,0.08)`,
+                      color: COLORS.text,
+                      fontSize: 12,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {item}
+                  </div>
+                ))}
+              </div>
               <div className="hero-actions" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 26 }}>
                 <a href="https://github.com/maxkle1nz/m1nd#readme" target="_blank" rel="noreferrer" style={primaryButton}>
                   Read the docs
@@ -391,6 +429,12 @@ export default function App() {
                 <span>trail_resume</span>
                 <strong>next focus + next tool</strong>
               </div>
+              <div className="hero-visual-snippet">
+                <div className="hero-visual-snippet-line">$ m1nd.trace("AuthError: stale session in middleware")</div>
+                <div className="hero-visual-snippet-line">proof_state=triaging</div>
+                <div className="hero-visual-snippet-line">next_suggested_tool=view</div>
+                <div className="hero-visual-snippet-line">next_suggested_target=middleware/session.py</div>
+              </div>
             </div>
             <div
               style={{
@@ -415,6 +459,41 @@ export default function App() {
         </section>
 
         <section style={{ marginBottom: 74 }}>
+          <SectionEyebrow>Use it honestly</SectionEyebrow>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 18,
+              marginBottom: 30,
+            }}
+            className="use-grid"
+          >
+            {useCases.map((group, groupIndex) => (
+              <div
+                key={group.title}
+                style={{
+                  background: 'rgba(15,20,32,0.74)',
+                  border: `1px solid ${groupIndex === 0 ? `${COLORS.D}22` : 'rgba(107,127,163,0.16)'}`,
+                  borderRadius: 22,
+                  padding: '24px 22px',
+                }}
+              >
+                <div style={{ fontSize: 22, color: COLORS.text, fontWeight: 700, marginBottom: 14 }}>{group.title}</div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {group.items.map((item) => (
+                    <div key={item} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <span style={{ color: groupIndex === 0 ? COLORS.D : COLORS.textDim }}>{groupIndex === 0 ? GLYPHS.activate : GLYPHS.edge}</span>
+                      <span style={{ color: COLORS.textMuted, fontSize: 14, lineHeight: 1.7 }}>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section style={{ marginBottom: 74 }}>
           <SectionEyebrow>Why it matters</SectionEyebrow>
           <div className="split-grid" style={{ display: 'grid', gridTemplateColumns: '0.92fr 1.08fr', gap: 28, alignItems: 'start' }}>
             <div>
@@ -426,6 +505,43 @@ export default function App() {
               </p>
             </div>
             <TruthList />
+          </div>
+        </section>
+
+        <section style={{ marginBottom: 74 }}>
+          <SectionEyebrow>Why teams buy this</SectionEyebrow>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+              gap: 14,
+            }}
+            className="buyer-grid"
+          >
+            {buyerReasons.map((reason, index) => (
+              <div
+                key={reason}
+                style={{
+                  padding: '18px 18px 20px',
+                  borderRadius: 18,
+                  background: 'rgba(15,20,32,0.72)',
+                  border: `1px solid ${[COLORS.M, COLORS.one, COLORS.N, COLORS.D][index % 4]}22`,
+                }}
+              >
+                <div
+                  style={{
+                    color: [COLORS.M, COLORS.one, COLORS.N, COLORS.D][index % 4],
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    textTransform: 'uppercase',
+                    marginBottom: 10,
+                  }}
+                >
+                  Outcome
+                </div>
+                <div style={{ color: COLORS.text, fontSize: 15, lineHeight: 1.7 }}>{reason}</div>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -468,33 +584,6 @@ export default function App() {
           </div>
         </section>
 
-        <section style={{ marginBottom: 74 }}>
-          <SectionEyebrow>Use it honestly</SectionEyebrow>
-          <div className="use-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-            {useCases.map((group, groupIndex) => (
-              <div
-                key={group.title}
-                style={{
-                  background: 'rgba(15,20,32,0.74)',
-                  border: `1px solid ${groupIndex === 0 ? `${COLORS.D}22` : 'rgba(107,127,163,0.16)'}`,
-                  borderRadius: 22,
-                  padding: '24px 22px',
-                }}
-              >
-                <div style={{ fontSize: 22, color: COLORS.text, fontWeight: 700, marginBottom: 14 }}>{group.title}</div>
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {group.items.map((item) => (
-                    <div key={item} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <span style={{ color: groupIndex === 0 ? COLORS.D : COLORS.textDim }}>{groupIndex === 0 ? GLYPHS.activate : GLYPHS.edge}</span>
-                      <span style={{ color: COLORS.textMuted, fontSize: 14, lineHeight: 1.7 }}>{item}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
         <section
           className="final-cta-grid"
           style={{
@@ -519,6 +608,12 @@ export default function App() {
           <div className="cta-actions" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <a href="https://crates.io/crates/m1nd-mcp" target="_blank" rel="noreferrer" style={primaryButton}>
               Install from crates.io
+            </a>
+            <a href="https://github.com/maxkle1nz/m1nd#readme" target="_blank" rel="noreferrer" style={secondaryButton}>
+              Read README
+            </a>
+            <a href="https://github.com/maxkle1nz/m1nd/tree/main/docs/benchmarks" target="_blank" rel="noreferrer" style={secondaryButton}>
+              Benchmark corpus
             </a>
             <a href="https://github.com/maxkle1nz/m1nd/releases/tag/v0.6.1" target="_blank" rel="noreferrer" style={secondaryButton}>
               View release
