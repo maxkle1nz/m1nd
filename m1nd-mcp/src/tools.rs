@@ -413,16 +413,21 @@ pub fn handle_activate(
     };
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) = if let Some(
-        top,
-    ) =
-        activated.first()
-    {
+    let (
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        confidence,
+        why_this_next_step,
+    ) = if let Some(top) = activated.first() {
         (
             "triaging".into(),
             Some("view".into()),
             Some(top.node_id.clone()),
             Some(format!("Open the top activated node next: {}.", top.label)),
+            Some(top.activation.clamp(0.0, 1.0)),
+            Some("Activation already surfaced a dominant node in the connected neighborhood, so direct inspection is the best next move.".into()),
         )
     } else if let Some(seed) = seeds.first() {
         (
@@ -433,6 +438,8 @@ pub fn handle_activate(
                 "Activation found seeds but no strong activations. Refine around `{}` with `seek`.",
                 seed.label
             )),
+            Some(seed.relevance.clamp(0.0, 1.0)),
+            Some("There is still a plausible seed, but activation did not produce a dominant neighborhood hit strong enough for direct inspection.".into()),
         )
     } else {
         (
@@ -443,6 +450,8 @@ pub fn handle_activate(
                     "Activation did not surface a strong seed. Refine the query or use `seek` for a tighter entry point."
                         .into(),
                 ),
+                Some(0.12),
+                Some("Neither seeds nor activations were strong enough to justify opening a node directly, so the runtime falls back to a tighter retrieval pass.".into()),
             )
     };
 
@@ -458,6 +467,8 @@ pub fn handle_activate(
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
+        confidence,
+        why_this_next_step,
     })
 }
 

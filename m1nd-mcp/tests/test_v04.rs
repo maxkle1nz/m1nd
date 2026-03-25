@@ -62,6 +62,10 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
         next_suggested_tool: Some("view".into()),
         next_suggested_target: Some("/project/backend/module_0.py".into()),
         next_step_hint: Some("Open the top search match next.".into()),
+        confidence: Some(0.72),
+        why_this_next_step: Some(
+            "The top file-level match already contains the strongest textual evidence.".into(),
+        ),
     }
 }
 
@@ -79,6 +83,8 @@ fn build_help_output_known(tool: &str) -> HelpOutput {
         next_suggested_tool: Some("help".into()),
         next_suggested_target: Some(tool.into()),
         next_step_hint: Some("Use this help page to choose the next tool in the workflow.".into()),
+        confidence: Some(0.71),
+        why_this_next_step: Some("The help page already encodes the downstream workflow.".into()),
     }
 }
 
@@ -440,6 +446,10 @@ fn test_help_unknown_tool() {
         next_suggested_tool: Some("help".into()),
         next_suggested_target: Some("activate".into()),
         next_step_hint: Some("Retry with a suggested canonical tool name.".into()),
+        confidence: Some(0.24),
+        why_this_next_step: Some(
+            "The requested tool name did not resolve to a canonical tool.".into(),
+        ),
     };
 
     assert!(!out.found, "unknown tool must return found=false");
@@ -479,6 +489,8 @@ fn test_help_no_arg() {
         next_suggested_tool: Some("help".into()),
         next_suggested_target: Some("seek".into()),
         next_step_hint: Some("Open help for the tool you expect to use next.".into()),
+        confidence: Some(0.42),
+        why_this_next_step: Some("The help index is acting as a workflow router.".into()),
     };
 
     assert!(out.found, "index response must have found=true");
@@ -508,6 +520,8 @@ fn test_help_contains_next_suggestions() {
         next_suggested_tool: Some("impact".into()),
         next_suggested_target: Some("activate".into()),
         next_step_hint: Some("Use the NEXT section to continue the workflow.".into()),
+        confidence: Some(0.68),
+        why_this_next_step: Some("The help page already points toward the downstream workflow.".into()),
     };
 
     assert!(

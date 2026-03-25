@@ -21,7 +21,14 @@ use std::time::Instant;
 
 fn search_contract(
     results: &[SearchResultEntry],
-) -> (String, Option<String>, Option<String>, Option<String>) {
+) -> (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<f32>,
+    Option<String>,
+) {
     if let Some(result) = results.first() {
         (
             "triaging".into(),
@@ -31,6 +38,8 @@ fn search_contract(
                 "Open the top search match next: {}:{}.",
                 result.file_path, result.line_number
             )),
+            Some(result.score.unwrap_or(0.72).clamp(0.0, 1.0)),
+            Some("The highest-ranked file-level match already contains the strongest textual evidence for the query.".into()),
         )
     } else {
         (
@@ -41,19 +50,30 @@ fn search_contract(
                 "Search returned no actionable matches. Broaden the scope or use `glob` to locate likely files first."
                     .into(),
             ),
+            Some(0.18),
+            Some("No file-level match was strong enough to justify opening a file directly, so the runtime falls back to filename discovery.".into()),
         )
     }
 }
 
 fn glob_contract(
     files: &[GlobFileEntry],
-) -> (String, Option<String>, Option<String>, Option<String>) {
+) -> (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<f32>,
+    Option<String>,
+) {
     if let Some(file) = files.first() {
         (
             "triaging".into(),
             Some("view".into()),
             Some(file.file_path.clone()),
             Some(format!("Open the top glob match next: {}.", file.file_path)),
+            Some(if file.has_connections { 0.74 } else { 0.61 }),
+            Some("The first glob result is the strongest filename-level candidate and is ready for direct inspection.".into()),
         )
     } else {
         (
@@ -64,6 +84,8 @@ fn glob_contract(
                 "Glob returned no files. Switch to `search` if you are really looking for content rather than filenames."
                     .into(),
             ),
+            Some(0.16),
+            Some("There was not enough filename evidence to open a file directly, so the runtime points back to content search.".into()),
         )
     }
 }
@@ -481,9 +503,15 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             }
 
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-            let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
-                if let Some(result) = results.first() {
-                    (
+            let (
+                proof_state,
+                next_suggested_tool,
+                next_suggested_target,
+                next_step_hint,
+                confidence,
+                why_this_next_step,
+            ) = if let Some(result) = results.first() {
+                (
                         "proving".into(),
                         Some("view".into()),
                         Some(result.file_path.clone()),
@@ -491,9 +519,11 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                             "Open the strongest semantic match next: {}.",
                             result.file_path
                         )),
+                        Some(result.score.unwrap_or(0.81).clamp(0.0, 1.0)),
+                        Some("Semantic ranking already converged on a file-level match strong enough to inspect directly.".into()),
                     )
-                } else {
-                    (
+            } else {
+                (
                         "blocked".into(),
                         Some("seek".into()),
                         None,
@@ -501,8 +531,10 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                             "Semantic search returned no strong file-level match. Refine the intent query and retry."
                                 .into(),
                         ),
+                        Some(0.2),
+                        Some("The semantic match set was too weak to justify a direct file open, so the runtime points back to a tighter intent query.".into()),
                     )
-                };
+            };
             return Ok(SearchOutput {
                 query: input.query,
                 mode: "semantic".into(),
@@ -517,6 +549,8 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 next_suggested_tool,
                 next_suggested_target,
                 next_step_hint,
+                confidence,
+                why_this_next_step,
             });
         }
     }
@@ -541,8 +575,14 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         results.truncate(top_k);
         results
     };
-    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
-        search_contract(&final_results);
+    let (
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        confidence,
+        why_this_next_step,
+    ) = search_contract(&final_results);
 
     Ok(SearchOutput {
         query: input.query,
@@ -558,6 +598,8 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
+        confidence,
+        why_this_next_step,
     })
 }
 
@@ -1452,8 +1494,14 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
     }
 
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-    let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
-        glob_contract(&files);
+    let (
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        confidence,
+        why_this_next_step,
+    ) = glob_contract(&files);
 
     Ok(GlobOutput {
         pattern: input.pattern,
@@ -1465,6 +1513,8 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
+        confidence,
+        why_this_next_step,
     })
 }
 
@@ -1491,6 +1541,10 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     "Open help for the tool you expect to use next, such as `seek`, `trace`, or `validate_plan`."
                         .into(),
                 ),
+                confidence: Some(0.42),
+                why_this_next_step: Some(
+                    "The help index is a workflow router here, so the next best move is to narrow into a concrete tool page.".into(),
+                ),
             })
         }
         Some("about") => {
@@ -1506,6 +1560,10 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 next_step_hint: Some(
                     "Jump from about into a concrete tool help page to start an actual workflow."
                         .into(),
+                ),
+                confidence: Some(0.56),
+                why_this_next_step: Some(
+                    "The about page establishes orientation, but the runtime still needs a concrete tool page before work can begin.".into(),
                 ),
             })
         }
@@ -1527,6 +1585,11 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     next_suggested_target: Some(normalized.clone()),
                     next_step_hint: Some(format!(
                         "Use this help page to choose the next workflow step after `{}`.",
+                        normalized
+                    )),
+                    confidence: Some(0.71),
+                    why_this_next_step: Some(format!(
+                        "The `{}` help page already encodes the recommended downstream workflow, so the runtime can hand off directly.",
                         normalized
                     )),
                 })
@@ -1552,6 +1615,10 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     next_suggested_target: suggestions.first().cloned(),
                     next_step_hint: Some(
                         "Retry help with one of the suggested canonical tool names.".into(),
+                    ),
+                    confidence: Some(0.24),
+                    why_this_next_step: Some(
+                        "The requested tool name did not resolve, so the safest next move is to retry with a canonical suggestion.".into(),
                     ),
                 })
             }
@@ -2335,11 +2402,16 @@ mod tests {
             graph_linked: true,
             heuristic_signals: None,
         }];
-        let (proof_state, tool, target, hint) = search_contract(&results);
+        let (proof_state, tool, target, hint, confidence, why_this_next_step) =
+            search_contract(&results);
         assert_eq!(proof_state, "triaging");
         assert_eq!(tool.as_deref(), Some("view"));
         assert_eq!(target.as_deref(), Some("src/lib.rs"));
         assert!(hint.unwrap().contains("src/lib.rs:42"));
+        assert_eq!(confidence, Some(0.9));
+        assert!(why_this_next_step
+            .unwrap()
+            .contains("strongest textual evidence"));
     }
 
     #[test]
@@ -2351,10 +2423,15 @@ mod tests {
             line_count: 120,
             has_connections: true,
         }];
-        let (proof_state, tool, target, hint) = glob_contract(&files);
+        let (proof_state, tool, target, hint, confidence, why_this_next_step) =
+            glob_contract(&files);
         assert_eq!(proof_state, "triaging");
         assert_eq!(tool.as_deref(), Some("view"));
         assert_eq!(target.as_deref(), Some("src/lib.rs"));
         assert!(hint.unwrap().contains("src/lib.rs"));
+        assert_eq!(confidence, Some(0.74));
+        assert!(why_this_next_step
+            .unwrap()
+            .contains("filename-level candidate"));
     }
 }
