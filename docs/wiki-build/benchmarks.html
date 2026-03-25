@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Benchmarks — m1nd Wiki</title>
-  <meta name="description" content="m1nd performance benchmarks: 60% token reduction, 62% fewer grep calls, ~50MB memory, sub-100ms queries.">
+  <meta name="description" content="m1nd benchmark truth: 50.73% less context churn in the current corpus, 14 to 0 false starts, 31 guided follow-throughs, and 12 successful recovery loops.">
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -242,79 +242,79 @@
     <div class="page-header">
       <div class="breadcrumb"><a href="index.html">Wiki</a> / Benchmarks</div>
       <h1>Benchmarks</h1>
-      <p class="page-desc">Measured performance data from production use on a 5000-node codebase graph. m1nd does not replace search. It focuses search.</p>
+      <p class="page-desc">Measured workflow data from the current warm-graph corpus. m1nd is strongest when the task needs structure, proof, continuity, recovery, or observable execution.</p>
     </div>
 
     <!-- HERO STATS -->
     <div class="hero-stats">
       <div class="hero-stat">
-        <div class="hs-value">60%</div>
-        <div class="hs-label">Token Reduction</div>
-        <div class="hs-detail">1.2M &#x2192; 480K tokens/day</div>
+        <div class="hs-value">50.73%</div>
+        <div class="hs-label">Context Reduction</div>
+        <div class="hs-detail">10,518 &#x2192; 5,182 token proxy</div>
       </div>
       <div class="hero-stat">
-        <div class="hs-value">62%</div>
-        <div class="hs-label">Fewer Greps</div>
-        <div class="hs-detail">40 &#x2192; 15 calls/hour</div>
+        <div class="hs-value">14&#x2192;0</div>
+        <div class="hs-label">False Starts</div>
+        <div class="hs-detail">Across the compared corpus</div>
       </div>
       <div class="hero-stat">
-        <div class="hs-value">~50MB</div>
-        <div class="hs-label">Memory</div>
-        <div class="hs-detail">5000-node graph</div>
+        <div class="hs-value">31</div>
+        <div class="hs-label">Guided Follow-throughs</div>
+        <div class="hs-detail">Next-step guidance actually followed</div>
       </div>
       <div class="hero-stat">
-        <div class="hs-value">&lt;100ms</div>
-        <div class="hs-label">Query Latency</div>
-        <div class="hs-detail">Activate, median</div>
+        <div class="hs-value">12</div>
+        <div class="hs-label">Recovery Loops</div>
+        <div class="hs-detail">Successful repair flows in the corpus</div>
       </div>
     </div>
 
     <!-- TOKEN SAVINGS -->
     <section class="bench-section" id="tokens">
       <div class="section-label" style="color: var(--cyan);">&#x234C; Token Efficiency</div>
-      <h2 class="section-title">Context Token Savings</h2>
-      <p class="section-desc">m1nd reduces context token consumption by focusing agent attention on relevant code before it reads files. Instead of grepping everything and dumping results into context, agents query the graph first.</p>
+      <h2 class="section-title">Context Churn Reduction</h2>
+      <p class="section-desc">The current corpus tracks warm-graph agent workflows. The strongest wins are not just smaller payloads, but fewer false starts, more guided follow-through, and cleaner recovery when the agent gets a tool call wrong.</p>
 
       <div class="chart-container">
-        <div class="chart-title" style="color: var(--cyan);">Daily Token Consumption</div>
-        <div class="chart-subtitle">Tokens consumed by agent context per working day</div>
+        <div class="chart-title" style="color: var(--cyan);">Aggregate Corpus Context</div>
+        <div class="chart-subtitle">Token proxy surfaced across the recorded warm-graph corpus</div>
 
         <div class="compare-group">
-          <div class="compare-label">Context Tokens / Day</div>
+          <div class="compare-label">Token Proxy / Corpus</div>
           <div class="compare-pair">
             <div class="compare-row">
               <span class="cr-label">Without</span>
               <div class="cr-track"><div class="cr-fill cr-before" style="width: 100%;"></div></div>
-              <span class="cr-value" style="color: #ff3366;">1.2M</span>
+              <span class="cr-value" style="color: #ff3366;">10,518</span>
             </div>
             <div class="compare-row">
               <span class="cr-label">With m1nd</span>
-              <div class="cr-track"><div class="cr-fill cr-after" style="width: 40%;"></div></div>
-              <span class="cr-value" style="color: var(--green);">480K</span>
+              <div class="cr-track"><div class="cr-fill cr-after" style="width: 49.27%;"></div></div>
+              <span class="cr-value" style="color: var(--green);">5,182</span>
             </div>
           </div>
         </div>
 
         <div class="compare-group">
-          <div class="compare-label">Grep Calls / Hour</div>
+          <div class="compare-label">False Starts / Corpus</div>
           <div class="compare-pair">
             <div class="compare-row">
               <span class="cr-label">Without</span>
               <div class="cr-track"><div class="cr-fill cr-before" style="width: 100%;"></div></div>
-              <span class="cr-value" style="color: #ff3366;">40</span>
+              <span class="cr-value" style="color: #ff3366;">14</span>
             </div>
             <div class="compare-row">
               <span class="cr-label">With m1nd</span>
-              <div class="cr-track"><div class="cr-fill cr-after" style="width: 37.5%;"></div></div>
-              <span class="cr-value" style="color: var(--green);">15</span>
+              <div class="cr-track"><div class="cr-fill cr-after" style="width: 0%;"></div></div>
+              <span class="cr-value" style="color: var(--green);">0</span>
             </div>
           </div>
         </div>
       </div>
 
       <div class="insight-box">
-        <div class="insight-quote">"m1nd does not replace search.<br><span>It focuses search.</span>"</div>
-        <div class="insight-detail">Agents still use grep and glob. But they ask the graph <em>where</em> to search first, reducing wasted reads by 60%.</div>
+        <div class="insight-quote">"m1nd does not win by replacing plain tools.<br><span>It wins by keeping the agent moving.</span>"</div>
+        <div class="insight-detail">The current corpus shows fewer false starts, more guided follow-through, and successful recovery loops on top of lower context churn.</div>
       </div>
     </section>
 

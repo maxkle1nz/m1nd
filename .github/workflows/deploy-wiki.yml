@@ -34,11 +34,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup mdBook
-        uses: peaceiris/actions-mdbook@v2
-        with:
-          mdbook-version: 'latest'
-
       - name: Install landing dependencies
         working-directory: ./m1nd-demo
         run: npm ci
@@ -52,15 +47,12 @@ jobs:
         working-directory: ./m1nd-demo
         run: npm run build
 
-      - name: Build mdBook
-        run: mdbook build docs/wiki
-
       - name: Compose Pages artifact
         run: |
           rm -rf site-dist
           mkdir -p site-dist/wiki
           cp -R m1nd-demo/dist/. site-dist/
-          cp -R wiki-build/. site-dist/wiki/
+          cp -R docs/wiki-build/. site-dist/wiki/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
