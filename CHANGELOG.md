@@ -6,6 +6,12 @@ All notable changes to m1nd are documented here.
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+---
+
+## [0.6.0] — 2026-03-25
+
 ### Added
 
 #### Guided Proof State Across Core Agent Flows
@@ -71,10 +77,12 @@ with less catalog-style listing and more decision support.
 
 ### Notes
 
-- Current benchmark corpus summary continues to show strong warm-graph wins on
-  structural tasks while making progress observability measurable instead of subjective
-- This entry reflects ongoing work on `codex/benchmark-research-and-timeline-p1`;
-  it is intentionally recorded under `Unreleased` rather than a tagged release
+- Current benchmark corpus summary shows `10518 -> 5182` token proxy on the
+  aggregate warm-graph corpus, for `50.73%` savings
+- The same corpus now measures more than token compression: `false_starts`,
+  guided follow-through, recovery loops, progress events, and proof-state transitions
+- Across the recorded corpus, `m1nd_warm` reduced `false_starts` from `14` to `0`,
+  recorded `31` guided follow-throughs, and recorded `12` successful recovery loops
 
 ---
 
