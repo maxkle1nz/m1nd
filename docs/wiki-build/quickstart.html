@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Quickstart — m1nd Wiki</title>
-  <meta name="description" content="Get started with m1nd in under 2 minutes. Binary download, cargo install, build from source, and MCP client setup.">
+  <meta name="description" content="Get started with m1nd. Install the MCP server, ingest a repo, and use proof-aware, guided runtime workflows from your agent.">
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -218,7 +218,7 @@
     <div class="page-header">
       <div class="breadcrumb"><a href="index.html">Wiki</a> / Quickstart</div>
       <h1>Quickstart</h1>
-      <p class="page-desc">Get m1nd running and connected to your AI agent in under 2 minutes. Three installation methods, one binary, zero runtime dependencies.</p>
+      <p class="page-desc">Get m1nd running and connected to your AI agent. Install the server, ingest a repo, and start using the guided runtime surface.</p>
     </div>
 
     <!-- INSTALL -->
@@ -327,7 +327,7 @@
     <section class="qs-section" id="first-ingest">
       <div class="section-label" style="color: var(--yellow);">Step 3</div>
       <h2 class="section-title">First Ingest</h2>
-      <p class="section-desc">Build the connectome graph from your codebase. This happens automatically on first query, but you can also trigger it explicitly.</p>
+      <p class="section-desc">Build the graph from your codebase. This happens automatically on first query, but you can also trigger it explicitly.</p>
 
       <div class="step-list">
         <div class="step-item">
@@ -372,7 +372,7 @@
             <div class="code-block"><span class="comment">// Those results were exactly what I needed</span>
 <span class="cmd">m1nd.learn</span>({ <span class="str">"query"</span>: <span class="str">"authentication"</span>, <span class="str">"feedback"</span>: <span class="str">"correct"</span> })
 
-<span class="output">Hebbian update: strengthened 12 edges in auth subgraph.</span></div>
+<span class="output">Feedback applied: strengthened 12 useful auth edges for future runs.</span></div>
           </div>
         </div>
       </div>
@@ -406,7 +406,7 @@
     <section class="qs-section" id="next">
       <div class="section-label" style="color: var(--green);">Next Steps</div>
       <h2 class="section-title">Keep Going</h2>
-      <p class="section-desc">You have a working connectome. Here is where to go next.</p>
+      <p class="section-desc">You have a working runtime. Here is where to go next.</p>
 
       <div class="next-grid">
         <a href="tools.html" class="next-card">
@@ -422,7 +422,7 @@
         <a href="architecture.html" class="next-card">
           <div class="nc-glyph" style="color: var(--blue);">&#x1D53B;</div>
           <div class="nc-title">How It Works</div>
-          <div class="nc-desc">Understand the 6 engines and graph internals.</div>
+          <div class="nc-desc">Understand the runtime layers, graph internals, and guided execution model.</div>
         </a>
         <a href="benchmarks.html" class="next-card">
           <div class="nc-glyph" style="color: var(--yellow);">&#x2350;</div>
@@ -435,7 +435,7 @@
 
   <footer class="wiki-footer">
     <div class="footer-glyphs"><span class="g-cy">&#x234C;</span><span class="g-ye">&#x2350;</span><span class="g-ma">&#x2342;</span><span class="g-bl">&#x1D53B;</span> <span class="g-gr">&#x27C1;</span></div>
-    <div class="footer-text">neuro-symbolic connectome engine</div>
+    <div class="footer-text">local code graph engine for MCP agents</div>
     <div class="footer-links">
       <a href="index.html">Wiki Home</a><a href="tools.html">Tools</a><a href="architecture.html">Architecture</a><a href="../index.html">Main Site</a>
     </div>

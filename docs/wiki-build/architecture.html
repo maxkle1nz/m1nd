@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Architecture — m1nd Wiki</title>
-  <meta name="description" content="How the m1nd connectome engine works internally. Graph structure, 6 computation engines, data flow, and MCP protocol layer.">
+  <meta name="description" content="How the m1nd guided runtime works internally. Graph truth, proof state, next-step guidance, continuity, and observable execution.">
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -295,7 +295,7 @@
     <div class="page-header">
       <div class="breadcrumb"><a href="index.html">Wiki</a> / Architecture</div>
       <h1>Architecture</h1>
-      <p class="page-desc">How the connectome engine works internally. From MCP request to graph response, through 6 computation engines.</p>
+      <p class="page-desc">How the guided runtime works internally. From MCP request to graph response, through graph truth, proof state, next-step guidance, and observable execution.</p>
     </div>
 
     <!-- LAYER DIAGRAM -->
@@ -315,13 +315,13 @@
           <div class="arch-layer layer-dispatch">
             <span class="layer-glyph g-ye">&#x2350;</span>
             <span class="layer-name">Tool Dispatch</span>
-            <span class="layer-desc">Routes 43 tools to the correct engine. Parameter normalization, error wrapping.</span>
+            <span class="layer-desc">Routes the runtime surface to the right handler. Parameter normalization, recovery hints, and next-step guidance.</span>
           </div>
           <div class="flow-arrow">&#x25BC;</div>
           <div class="arch-layer layer-engines">
             <span class="layer-glyph g-bl">&#x1D53B;</span>
-            <span class="layer-name">6 Engines</span>
-            <span class="layer-desc">Query, Temporal, Counterfactual, Topology, Resonance, Plasticity. The computation layer.</span>
+            <span class="layer-name">Core Engines</span>
+            <span class="layer-desc">Query, temporal, impact, topology, resonance, and persistence work together to produce grounded runtime behavior.</span>
           </div>
           <div class="flow-arrow">&#x25BC;</div>
           <div class="arch-layer layer-graph">
@@ -333,7 +333,7 @@
           <div class="arch-layer layer-persist">
             <span class="layer-glyph g-ma">&#x2342;</span>
             <span class="layer-name">Persistence</span>
-            <span class="layer-desc">Auto-persist every 50 queries + on shutdown. Graph JSON + plasticity state on disk.</span>
+            <span class="layer-desc">Persisted graph and runtime state, plus trail continuity and apply_batch execution metadata.</span>
           </div>
         </div>
       </div>
@@ -589,7 +589,7 @@ mcp/m1nd/
 
   <footer class="wiki-footer">
     <div class="footer-glyphs"><span class="g-cy">&#x234C;</span><span class="g-ye">&#x2350;</span><span class="g-ma">&#x2342;</span><span class="g-bl">&#x1D53B;</span> <span class="g-gr">&#x27C1;</span></div>
-    <div class="footer-text">neuro-symbolic connectome engine</div>
+    <div class="footer-text">local code graph engine for MCP agents</div>
     <div class="footer-links">
       <a href="index.html">Wiki Home</a><a href="tools.html">Tools</a><a href="quickstart.html">Quickstart</a><a href="../index.html">Main Site</a>
     </div>

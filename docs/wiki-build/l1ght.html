@@ -155,13 +155,13 @@
         <div class="breadcrumb"><a href="index.html">Wiki</a> / L1GHT Protocol</div>
         <h1><span class="g-gr">&#x2342;</span> L1GHT Protocol</h1>
         <p class="page-desc">A structured markdown format that lets m1nd ingest documentation, specifications, and knowledge bases as typed, weighted knowledge graphs — without writing a line of code.</p>
-        <div class="version-badge"><span>●</span> adapter: "light" &nbsp;·&nbsp; v0.5.1</div>
+        <div class="version-badge"><span>●</span> adapter: "light" &nbsp;·&nbsp; v0.6.1</div>
       </div>
 
       <!-- OVERVIEW -->
       <section class="content-section" id="overview">
         <h2>What is L1GHT?</h2>
-        <p>L1GHT is m1nd's structured markdown ingest protocol. While the <code>code</code> adapter parses source files (Rust, Python, TypeScript, etc.) into a connectome graph, the <code>light</code> adapter parses <strong>markdown documents</strong> enriched with a semantic tagging syntax.</p>
+        <p>L1GHT is m1nd's structured markdown ingest protocol. While the <code>code</code> adapter parses source files (Rust, Python, TypeScript, etc.) into a graph, the <code>light</code> adapter parses <strong>markdown documents</strong> enriched with a semantic tagging syntax.</p>
         <p>The result is the same: a weighted, traversable graph. The difference is the input domain. L1GHT transforms prose — specs, notes, decision records, knowledge bases, investigation trails — into first-class graph citizens that <code>activate</code>, <code>missing</code>, and <code>seek</code> can reason over alongside code.</p>
         <div class="callout green">
           <div class="callout-title">Key Use Cases</div>
@@ -336,7 +336,7 @@ It [<span class="tag">⟁ depends_on: StripeClient</span>] for API calls.
         <h2>All Ingest Adapters</h2>
         <table class="marker-table">
           <tr><th>Adapter</th><th>Input</th><th>Use Case</th></tr>
-          <tr><td>code</td><td>Source files (27+ languages)</td><td>Default. Build a code connectome from your codebase.</td></tr>
+          <tr><td>code</td><td>Source files (27+ languages)</td><td>Default. Build a code graph from your codebase.</td></tr>
           <tr><td>json</td><td>Structured JSON</td><td>Ingest custom graph descriptors or exported data.</td></tr>
           <tr><td>memory</td><td>.md / .txt</td><td>Unstructured text corpus (no tagging required).</td></tr>
           <tr><td>light</td><td>.md with L1GHT markers</td><td>Structured docs, specs, and knowledge bases as typed graphs.</td></tr>
@@ -351,7 +351,7 @@ It [<span class="tag">⟁ depends_on: StripeClient</span>] for API calls.
     <div class="footer-glyphs">
       <span class="g-cy">&#x234C;</span><span class="g-ye">&#x2350;</span><span class="g-ma">&#x2342;</span><span class="g-bl">&#x1D53B;</span> <span class="g-gr">&#x27C1;</span>
     </div>
-    <div class="footer-text">neuro-symbolic connectome engine</div>
+    <div class="footer-text">local code graph engine for MCP agents</div>
     <div class="footer-links">
       <a href="index.html">Wiki Home</a>
       <a href="tools.html">Tools</a>
