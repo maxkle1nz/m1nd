@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Spreading activation in m1nd — how graph signal propagation turns queries into structured relevance for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,10 +182,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="spreading-activation"><a class="header" href="#spreading-activation">Spreading Activation</a></h1>
-<p>Spreading activation is the core query mechanism in m1nd. Instead of searching for text matches, m1nd <em>fires a signal into a weighted graph</em> and observes where the energy propagates. The resulting activation pattern tells you what is structurally, semantically, temporally, and causally related to your query.</p>
-<h2 id="the-neuroscience-origin"><a class="header" href="#the-neuroscience-origin">The neuroscience origin</a></h2>
-<p>The concept comes from cognitive psychology. In 1975, Allan Collins and Elizabeth Loftus proposed that human semantic memory is organized as a network of interconnected concepts. When you think of “doctor,” activation spreads along weighted connections to “nurse,” “hospital,” “stethoscope” – but not to “bicycle.” The strength of the connection determines how much activation passes through. Distant or weak connections receive less energy. The pattern of activated nodes <em>is</em> the meaning.</p>
-<p>m1nd applies this model to code. Files, functions, classes, and modules become nodes. Import relationships, call chains, type references, and co-change history become weighted edges. Querying “authentication” does not find the string “authentication” – it fires signal into nodes that match and watches energy flow outward through the graph’s structure.</p>
+<p>Spreading activation is the core query mechanism in m1nd. Instead of only matching text, m1nd propagates signal through a weighted graph and observes where relevance accumulates. The resulting activation pattern helps an agent see what is structurally, semantically, temporally, and causally related to the task at hand.</p>
+<h2 id="the-neuroscience-origin"><a class="header" href="#the-neuroscience-origin">The propagation model</a></h2>
+<p>The inspiration comes from cognitive psychology, but the operational truth is straightforward: start from a few matching seeds, push weighted signal outward, and see which parts of the graph light up together.</p>
+<p>m1nd applies this model to code. Files, functions, classes, and modules become nodes. Import relationships, call chains, type references, and co-change history become weighted edges. Querying “authentication” does not just grep the string “authentication” — it starts at likely seeds and lets graph structure reveal the neighboring code that matters.</p>
 <h2 id="four-dimensions-of-activation"><a class="header" href="#four-dimensions-of-activation">Four dimensions of activation</a></h2>
 <p>Most spreading activation systems operate on a single graph. m1nd runs four independent activation passes and fuses the results. Each dimension captures a different kind of relationship.</p>
 <h3 id="d1-structural"><a class="header" href="#d1-structural">D1: Structural</a></h3>

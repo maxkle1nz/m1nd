@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Exploration tools in m1nd — semantic retrieval, stacktrace triage, federation, and structural discovery for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,10 +182,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="exploration-tools"><a class="header" href="#exploration-tools">Exploration Tools</a></h1>
-<p>Six tools for intent-aware search, pattern-based scanning, structural hole detection, stacktrace analysis, temporal history, and multi-repository federation.</p>
+<p>Six tools for intent-aware search, pattern-based scanning, structural hole detection, stacktrace analysis, temporal history, and multi-repository federation. These are the discovery surfaces agents use when they know the goal, but not yet the exact file, symbol, or proof path.</p>
 <hr>
 <h2 id="m1ndseek"><a class="header" href="#m1ndseek"><code>m1nd.seek</code></a></h2>
-<p>Intent-aware semantic code search. Finds code by <strong>purpose</strong>, not text pattern. Combines keyword matching, graph activation (PageRank), and trigram similarity for ranking.</p>
+<p>Intent-aware semantic code search. Finds code by <strong>purpose</strong>, not text pattern. Combines keyword matching, graph activation, and trigram similarity for ranking, then hands the agent off toward the next file or proof step.</p>
 <p>Unlike <code>activate</code> (which propagates signal through edges), <code>seek</code> scores every node independently against the query, making it better for finding specific code when you know what it <em>does</em> but not where it <em>lives</em>.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <div class="table-wrapper">
@@ -207,7 +207,7 @@
 <h3 id="scoring-formula-v1"><a class="header" href="#scoring-formula-v1">Scoring Formula (V1)</a></h3>
 <pre><code>combined = keyword_match * 0.6 + graph_activation * 0.3 + trigram * 0.1
 </code></pre>
-<p>V2 upgrade path will replace keyword matching with real embeddings (fastembed-rs + jina-embeddings-v2-base-code).</p>
+<p>The current runtime favors practical retrieval for MCP agents: compact results, path-aware reranking, and guidance that helps the next tool call land on the right target.</p>
 <h3 id="example-request"><a class="header" href="#example-request">Example Request</a></h3>
 <pre><code class="language-json">{
   "jsonrpc": "2.0",

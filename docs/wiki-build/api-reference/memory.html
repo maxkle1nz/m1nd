@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Memory and learning tools in m1nd — feedback, trail continuity, drift, and path explanation for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -182,10 +182,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="memory--learning-tools"><a class="header" href="#memory--learning-tools">Memory &amp; Learning Tools</a></h1>
-<p>Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management.</p>
+<p>Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management. This is where m1nd stores continuity, reinforces useful paths, and helps an agent resume work without rediscovering the repo from scratch.</p>
 <hr>
 <h2 id="m1ndlearn"><a class="header" href="#m1ndlearn"><code>m1nd.learn</code></a></h2>
-<p>Explicit feedback-based edge adjustment. After using <code>activate</code> or other query tools, call <code>learn</code> to tell m1nd whether the results were correct, wrong, or partial. This applies Hebbian learning to strengthen or weaken edges between the query seeds and the reported nodes.</p>
+<p>Explicit feedback-based edge adjustment. After using <code>activate</code> or other query tools, call <code>learn</code> to tell m1nd whether the results were correct, wrong, or partial. This updates edge weights so future guided queries and route suggestions are shaped a little more by what actually worked.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
