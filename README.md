@@ -257,6 +257,7 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 | Filename/path pattern | `glob` |
 | Natural-language intent like “who owns retry backoff?” or “which helper canonicalizes dispatch tool names?” | `seek` |
 | Connected neighborhood around a topic | `activate` |
+| You are unsure which tool fits, or how to recover from a bad call | `help` |
 | Quick file read without graph expansion | `view` |
 | Why something ranked as risky or important | `heuristics_surface` |
 | Blast radius before editing | `impact` |
@@ -275,6 +276,7 @@ Common failure recovery:
 - wrong tool for the question: switch based on the decision guide instead of retrying the same weak call
 - weak structural proof: follow `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
 - thin continuity restore: use `trail_resume` hints as the restart plan instead of reopening every old file
+- unclear tool choice: call `help` and use its `WHEN TO USE`, `AVOID WHEN`, `WORKFLOWS`, and recovery guidance before guessing
 
 ## Results And Measurements
 
@@ -411,6 +413,8 @@ It is not a replacement for an LSP, a compiler, or runtime observability. It giv
 **It has write-aware workflows.** `surgical_context_v2`, `edit_preview`, `edit_commit`, and `apply_batch` make more sense as edit-preparation and edit-verification tools than as generic search tools.
 
 **It is starting to expose agent state, not only tool output.** `seek`, `impact`, `trace`, `hypothesize`, `validate_plan`, `timeline`, and `surgical_context_v2` can now surface `proof_state`, and `apply_batch` now returns `status_message`, coarse progress fields, structured `phases`, and follow-up guidance so long-running writes are easier to understand and present in shells or UIs.
+
+**Its help surface is becoming operational, not decorative.** `help` is now useful when an agent is stuck between tools or recovering from a bad call: it can explain when to use a tool, when to avoid it, what workflow usually follows, and how to reroute after common mistakes.
 
 ## Tool Surface
 

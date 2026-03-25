@@ -80,6 +80,24 @@ Another good `seek` prompt is:
 
 This is the kind of question where plain grep often needs several reformulations before it converges on the right helper.
 
+### Unsure which tool fits: `help`
+
+```jsonc
+{"method":"tools/call","params":{"name":"help","arguments":{
+  "agent_id":"dev",
+  "tool_name":"validate_plan"
+}}}
+```
+
+Use this when the agent is stuck between tools or needs a compact recovery path after a bad call.
+
+The useful public behavior is:
+
+- `WHEN TO USE` for the tool's best-fit question
+- `AVOID WHEN` so the agent does not force the wrong surface
+- `WORKFLOWS` for the likely next move
+- recovery guidance so retry loops stay short
+
 ## 3. Connected neighborhood around a topic
 
 ```jsonc

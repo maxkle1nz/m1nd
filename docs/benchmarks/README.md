@@ -141,7 +141,6 @@ guided downstream targeting, not skipping proof.
 ## Current scenario corpus
 
 - `semantic_retrieval_dispatch.json`
-- `seek_broad_query_recovery.json`
 - `continuity_boot_memory.json`
 - `proof_focused_edit_prep.json`
 - `structural_proof_apply_batch.json`
@@ -152,11 +151,8 @@ guided downstream targeting, not skipping proof.
 - `trace_root_cause_triage.json`
 - `search_invalid_regex_recovery.json`
 - `search_ambiguous_scope_recovery.json`
-- `search_empty_query_reroute.json`
 - `perspective_stale_route_recovery.json`
-- `perspective_dead_end_recovery.json`
 - `edit_preview_source_modified_recovery.json`
-- `edit_commit_confirm_recovery.json`
 - `apply_batch_path_safety_recovery.json`
 - `apply_batch_protected_state_recovery.json`
 
@@ -171,18 +167,15 @@ In particular:
 - `impact_blast_radius_follow_up.json` captures `impact` plus guided follow-up into the strongest downstream seam, with `proof_state` showing when blast analysis has moved from triage into proof
 - `hypothesize_structural_claim_follow_up.json` captures `hypothesize` plus guided follow-up into the strongest proof target
 - `semantic_retrieval_dispatch.json` captures `seek` plus guided follow-up into the winning file, with `proof_state` showing when retrieval has already moved from loose localization into file-level proof
-- `seek_broad_query_recovery.json` captures a semantic recovery loop where a broad `seek` prompt lands in the right subsystem and the agent then recovers by exact helper lookup through `search` before opening the output contract
 - `trace_root_cause_triage.json` captures trace-driven suspect selection plus guided follow-up into the right file
 - `search_invalid_regex_recovery.json` captures a concrete repair loop where `search` rejects an invalid regex, suggests `literal` mode, and the agent retries successfully without falling back to shell grep
 - `search_ambiguous_scope_recovery.json` captures a scope-repair loop where `search` rejects an ambiguous `auto_ingest` scope, teaches the agent to retry with an explicit path, and avoids manual file guessing
-- `search_empty_query_reroute.json` captures a wrong-tool recovery loop where `search` rejects an empty content query, teaches the agent to switch to `glob` for file/path discovery, and avoids a fresh shell file sweep
-- `trail_resume_stale_force_recovery.json` captures a continuity recovery loop where `trail_resume` rejects a stale trail by default, teaches the agent when `force=true` is appropriate, and resumes from degraded continuity instead of restarting from zero
 - `perspective_stale_route_recovery.json` captures a stateful recovery loop where a stale `route_set_version` points the agent to `perspective_routes`, then back into a fresh `perspective_follow` without restarting the investigation
-- `perspective_dead_end_recovery.json` captures a deeper stateful recovery loop where `perspective.follow` lands on an exhausted branch, `perspective.suggest` recommends `perspective.back`, and the investigation resumes from the restored checkpoint instead of restarting from scratch
 - `edit_preview_source_modified_recovery.json` captures a write-safety recovery loop where `edit_commit` rejects a stale preview, teaches the agent to rerun `edit_preview`, and keeps the edit flow safe without forcing a blind write
-- `edit_commit_confirm_recovery.json` captures a lighter write-safety recovery loop where `edit_commit` rejects `confirm=false`, teaches the agent to reuse the same `preview_id` with `confirm=true`, and avoids an unnecessary fresh preview or blind write
 - `apply_batch_path_safety_recovery.json` captures a long-running write-safety recovery loop where `apply_batch` rejects an out-of-root target, teaches the agent to retry inside the ingested workspace, and preserves progress plus handoff on the successful retry
 - `apply_batch_protected_state_recovery.json` captures a runtime-safety recovery loop where `apply_batch` rejects a protected `graph/plasticity` state file, redirects the agent back to a source file, and preserves the proof handoff after the safe retry
 - `structural_proof_apply_batch.json` now also captures compact proof hints from `validate_plan` plus measurable `apply_batch` progress metadata such as `progress_pct`, detailed `progress_events`, and the post-batch handoff into the next proof surface
 - `structural_proof_apply_batch.json` currently marks `apply_batch` progress as `live`, which reflects the current serve-mode behavior rather than the older replay-only contract
 - `proof_focused_edit_prep.json` captures `surgical_context_v2` as a guided handoff into edit prep rather than a context blob alone
+
+If you add a new public benchmark claim, keep this section in lockstep with the actual files present in `docs/benchmarks/scenarios`.
