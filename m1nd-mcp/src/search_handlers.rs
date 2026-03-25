@@ -19,9 +19,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-fn search_contract(
-    results: &[SearchResultEntry],
-) -> (
+type GuidedRuntimeTuple = (
     String,
     Option<String>,
     Option<String>,
@@ -29,7 +27,9 @@ fn search_contract(
     Option<f32>,
     Option<String>,
     Option<String>,
-) {
+);
+
+fn search_contract(results: &[SearchResultEntry]) -> GuidedRuntimeTuple {
     if let Some(result) = results.first() {
         (
             "triaging".into(),
@@ -59,17 +59,7 @@ fn search_contract(
     }
 }
 
-fn glob_contract(
-    files: &[GlobFileEntry],
-) -> (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<f32>,
-    Option<String>,
-    Option<String>,
-) {
+fn glob_contract(files: &[GlobFileEntry]) -> GuidedRuntimeTuple {
     if let Some(file) = files.first() {
         (
             "triaging".into(),
