@@ -3,9 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { COLORS, GLYPHS } from '../lib/colors';
 
 /**
- * Scene 5: THE ECONOMY
- * Split screen. Left: grep token counter RACING. Right: m1nd counter FROZEN.
- * The contrast IS the story.
+ * Scene 5: BENCHMARK TRUTH
+ * The story is not "token savings at any cost".
+ * It is reduced context churn, guided follow-through, and fewer false starts.
  */
 
 function AnimatedCost({ target, speed, color, label }: {
@@ -192,7 +192,7 @@ export function EconomyScene() {
           alignSelf: 'flex-start',
         }}
       >
-        {GLYPHS.save} SCENE 5 -- THE ECONOMY
+        {GLYPHS.save} SCENE 5 -- BENCHMARK TRUTH
       </motion.div>
 
       {/* Split screen: two counters */}
@@ -220,13 +220,13 @@ export function EconomyScene() {
                 letterSpacing: 3,
                 textTransform: 'uppercase',
               }}>
-                grep + LLM
+                manual flow
               </div>
               <AnimatedCost
                 target={723}
                 speed={3}
                 color={COLORS.error}
-                label="token cost (grep)"
+                label="context cost (manual)"
               />
               {/* Token count underneath */}
               <motion.div
@@ -239,7 +239,7 @@ export function EconomyScene() {
                   fontFamily: 'monospace',
                 }}
               >
-                ~193,000 tokens consumed
+                more rereads, more retries, more context surfaced
               </motion.div>
             </div>
 
@@ -260,7 +260,7 @@ export function EconomyScene() {
                 letterSpacing: 3,
                 textTransform: 'uppercase',
               }}>
-                m1nd
+                m1nd_warm
               </div>
               <FrozenCounter />
               <motion.div
@@ -273,7 +273,7 @@ export function EconomyScene() {
                   fontFamily: 'monospace',
                 }}
               >
-                graph queries -- no AI calls needed
+                guided handoff plus proof-aware flow
               </motion.div>
             </div>
           </motion.div>
@@ -295,8 +295,8 @@ export function EconomyScene() {
             }}
           >
             <div style={{ fontSize: 22, color: COLORS.text, fontWeight: 600, marginBottom: 8 }}>
-              <span style={{ color: COLORS.one }}>946</span> tokens saved per query.{' '}
-              <span style={{ color: COLORS.textMuted }}>every query.</span>
+              <span style={{ color: COLORS.one }}>50.73%</span> less context churn in the recorded corpus.{' '}
+              <span style={{ color: COLORS.textMuted }}>with 14 → 0 false starts.</span>
             </div>
           </motion.div>
         )}
@@ -321,8 +321,8 @@ export function EconomyScene() {
             }}
           >
             <div style={{ fontSize: 20, color: COLORS.textMuted, lineHeight: 1.8, fontWeight: 600 }}>
-              5 hours. 100+ agents. plan usage:{' '}
-              <span style={{ color: COLORS.D, fontWeight: 800, fontSize: 22 }}>didn't move.</span>
+              31 guided follow-throughs. 12 successful recovery loops.{' '}
+              <span style={{ color: COLORS.D, fontWeight: 800, fontSize: 22 }}>measured, not imagined.</span>
             </div>
             <div style={{
               fontSize: 11,
@@ -330,7 +330,7 @@ export function EconomyScene() {
               marginTop: 8,
               letterSpacing: 1,
             }}>
-              {GLYPHS.statement} measured from live m1nd.savings -- one session, 105 queries
+              {GLYPHS.statement} not every win is tokens. some wins are continuity, recovery, and execution clarity.
             </div>
           </motion.div>
         )}

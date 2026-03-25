@@ -4,16 +4,8 @@ import { COLORS } from '../lib/colors';
 
 /**
  * Scene 8: THE PHILOSOPHY
- * Fade to near-black. Text appears line by line.
- * "you don't need to understand how it works."
- * "your agent does."
- * pause 500ms <- SACRED
- * "by Max Elias Kleinschmidt"
- * "AI should amplify, never replace."
- * "m1nd shortens the distance."
- * github.com/maxkle1nz/m1nd
- *
- * This must feel like the end of a film -- NOT a product page.
+ * The ending should now feel like a product statement grounded in the runtime,
+ * not a poem detached from the current product truth.
  */
 
 interface TypedLineProps {
@@ -144,9 +136,9 @@ export function PhilosophyScene() {
               transition={{ duration: 0.3 }}
             >
               <TypedLine
-                text="you don't need to understand how it works."
+                text="a local code graph engine for MCP agents."
                 color={COLORS.text}
-                fontSize={28}
+                fontSize={24}
                 fontWeight={600}
                 delay={0}
                 speed={35}
@@ -167,9 +159,9 @@ export function PhilosophyScene() {
               style={{ marginTop: 16 }}
             >
               <TypedLine
-                text="your agent does."
+                text="state-aware, guidance-driven, and local-first."
                 color={COLORS.M}
-                fontSize={28}
+                fontSize={22}
                 fontWeight={700}
                 delay={0}
                 speed={40}
@@ -202,7 +194,7 @@ export function PhilosophyScene() {
               letterSpacing: 2,
               opacity: 0.7,
             }}>
-              by Max Elias Kleinschmidt
+              built for grounded agent workflows
             </div>
 
             <div style={{
@@ -220,7 +212,7 @@ export function PhilosophyScene() {
               lineHeight: 2,
               opacity: 0.8,
             }}>
-              AI should amplify, never replace.
+              trace failures. inspect impact. resume work.
             </div>
 
             <div style={{
@@ -230,7 +222,7 @@ export function PhilosophyScene() {
               lineHeight: 2,
               opacity: 0.8,
             }}>
-              m1nd shortens the distance.
+              prepare safer edits. recover faster. keep moving.
             </div>
           </motion.div>
         )}
@@ -277,7 +269,7 @@ export function PhilosophyScene() {
         overflow: 'hidden',
         clip: 'rect(0, 0, 0, 0)',
       }}>
-        You don't need to understand how it works. Your agent does.
+        A local code graph engine for MCP agents. State-aware, guidance-driven, and local-first.
       </h2>
     </motion.div>
   );

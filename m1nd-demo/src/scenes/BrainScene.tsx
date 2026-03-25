@@ -6,9 +6,8 @@ import { TokenCounter } from '../components/TokenCounter';
 /**
  * SCENE 3: THE BRAIN (Layer 2 part 2)
  *
- * Graph visualization. Nodes appearing. Signal propagating in 4D waves
- * (cyan/gold/magenta/blue matching M1ND). XLR noise cancellation (red noise fading).
- * Results ranking on the side. "31ms. 8 results. 0 LLM tokens for navigation."
+ * Graph visualization. The key message is that m1nd returns structured state,
+ * ranked targets, and continuity signals instead of a raw pile of matches.
  *
  * Emotion: AWE
  * Verified: 7 nodes in 31ms, measured on 335-file codebase with 9,767 nodes
@@ -133,7 +132,7 @@ export function BrainScene() {
           animate={{ x: 0, opacity: 1 }}
           style={{ fontSize: 11, color: COLORS.one, letterSpacing: 3, fontFamily: 'monospace', marginBottom: 8 }}
         >
-          {GLYPHS.structure} SCENE 3 -- THE BRAIN
+          {GLYPHS.structure} SCENE 3 -- PROOF STATE
         </motion.div>
         <motion.h2
           initial={{ y: 10, opacity: 0 }}
@@ -141,8 +140,8 @@ export function BrainScene() {
           transition={{ delay: 0.2 }}
           style={{ fontSize: 24, color: COLORS.text, fontWeight: 700, fontFamily: '"JetBrains Mono", monospace' }}
         >
-          signal propagates through 4 dimensions.<br />
-          <span style={{ color: COLORS.one }}>31ms. 7 nodes. 0 LLM tokens for navigation.</span>
+          grounded retrieval is only the first layer.<br />
+          <span style={{ color: COLORS.one }}>proof_state tells the agent whether it is triaging, proving, or ready to edit.</span>
         </motion.h2>
       </div>
 

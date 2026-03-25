@@ -6,11 +6,12 @@ import { TokenCounter } from '../components/TokenCounter';
 /**
  * SCENE 1: THE PROBLEM (Layer 1 — THE FLASHLIGHT)
  *
- * Hacker terminal. grep commands appearing. Token counter RACING up in red.
- * $0.04 burning. Frustration builds. Dark, urgent.
+ * Raw text search loop. The point is not "grep bad".
+ * The point is that agents keep rediscovering the same repo state.
  *
  * Emotion: FRUSTRATION
- * Verified numbers: 847 results, 12K tokens, $0.04
+ * Demo numbers stay illustrative, but the copy now sells the real product:
+ * rediscovery, lack of ranking, and weak next-step guidance.
  */
 
 const GREP_RESULTS = [
@@ -108,7 +109,7 @@ export function ProblemScene() {
             marginBottom: 8,
           }}
         >
-          {GLYPHS.statement} SCENE 1 — THE PROBLEM
+          {GLYPHS.statement} SCENE 1 — REDISCOVERY
         </motion.div>
         <motion.h2
           initial={{ y: 10, opacity: 0 }}
@@ -122,9 +123,9 @@ export function ProblemScene() {
             fontFamily: '"JetBrains Mono", monospace',
           }}
         >
-          your agent uses grep.<br />
+          your agent keeps starting over.<br />
           <span style={{ color: COLORS.error }}>
-            that's like using a flashlight in a library.
+            raw text alone does not tell it what to do next.
           </span>
         </motion.h2>
       </div>
@@ -216,7 +217,7 @@ export function ProblemScene() {
             transition={{ delay: 0.8 }}
           >
             <TokenCounter
-              label="tokens burned"
+              label="context churn"
               targetValue={12000}
               color={COLORS.error}
               duration={3500}
@@ -232,7 +233,7 @@ export function ProblemScene() {
             transition={{ delay: 1.2 }}
           >
             <TokenCounter
-              label="tool calls"
+              label="retry loops"
               targetValue={12}
               color={COLORS.error}
               duration={2500}
@@ -257,9 +258,9 @@ export function ProblemScene() {
             }}
           >
             <div style={{ color: COLORS.error, marginBottom: 4 }}>
-              {GLYPHS.statement} 847 results. Zero ranking.
+              {GLYPHS.statement} 847 hits. No proof state.
             </div>
-            <div>{GLYPHS.statement} Every result costs tokens to process.</div>
+            <div>{GLYPHS.statement} No ranking. No continuity. No handoff.</div>
             <div>{GLYPHS.statement} Agent doing archaeology, not engineering.</div>
           </motion.div>
         </div>
@@ -281,8 +282,8 @@ export function ProblemScene() {
           }}
         >
           <span style={{ opacity: 0.6 }}>{GLYPHS.statement}</span>{' '}
-          your agent spends most of its budget{' '}
-          <span style={{ color: COLORS.error }}>being lost.</span>
+          your agent spends too much of its budget{' '}
+          <span style={{ color: COLORS.error }}>rediscovering the repo.</span>
         </motion.div>
       )}
 

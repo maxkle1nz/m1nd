@@ -5,15 +5,15 @@ import { COLORS, GLYPHS } from '../lib/colors';
 /**
  * SCENE 2: THE COMMAND (Layer 2 part 1)
  *
- * Screen clears. Single green cursor. "m1nd.activate" typed slowly.
- * Enter pressed. Flash of light. Transition to the brain.
+ * Screen clears. One grounded call.
+ * The product truth today is not just search: it is state + next step.
  *
  * Emotion: CURIOSITY -> AWE
  * The moment of "wait, what?"
  */
 
-const COMMAND = 'm1nd.activate("authentication flow")';
-const RESULT_LINE = '\u27C1 7 nodes activated in 31ms';
+const COMMAND = 'm1nd.trace("AuthError: stale session in middleware")';
+const RESULT_LINE = '\u27C1 proof_state=triaging  next=view middleware/session.py';
 
 export function CommandScene() {
   const [phase, setPhase] = useState<'empty' | 'typing' | 'enter' | 'flash' | 'result' | 'dimensions'>('empty');
@@ -176,7 +176,7 @@ export function CommandScene() {
             marginBottom: 8,
           }}
         >
-          {GLYPHS.transition} SCENE 2 — THE COMMAND
+          {GLYPHS.transition} SCENE 2 — GROUND THE TASK
         </motion.div>
       </div>
 
@@ -341,13 +341,11 @@ export function CommandScene() {
             }}
           >
             <span style={{ color: COLORS.M }}>
-              it doesn't read your code.
+              it does not just return a hit list.
             </span>
             <br />
             <span style={{ color: COLORS.M }}>
-              it{' '}
-              <span style={{ fontWeight: 900, textTransform: 'uppercase' }}>thinks</span>{' '}
-              about your code.
+              it returns structure, state, and the next move.
             </span>
           </motion.div>
         )}

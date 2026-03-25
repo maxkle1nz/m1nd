@@ -5,11 +5,11 @@ import { COLORS, GLYPHS } from '../lib/colors';
 /**
  * SCENE 4: THE KILLER FEATURE (Layer 3)
  *
- * apply_batch. Show 3 file panels side by side. Code changing simultaneously
- * in all 3. "3 files. atomic. 165ms." This is the jaw-drop moment.
+ * apply_batch. The product truth now is not just "writes multiple files".
+ * It is observable execution plus verification-aware handoff.
  *
  * Emotion: REVELATION
- * The moment they realize m1nd doesn't just search -- it EDITS.
+ * The moment they realize m1nd can guide connected edits end to end.
  */
 
 interface FilePanel {
@@ -204,7 +204,7 @@ export function KillerScene() {
           animate={{ x: 0, opacity: 1 }}
           style={{ fontSize: 11, color: COLORS.N, letterSpacing: 3, fontFamily: 'monospace', marginBottom: 6 }}
         >
-          {GLYPHS.convergence} SCENE 4 -- THE KILLER FEATURE
+          {GLYPHS.convergence} SCENE 4 -- EDIT PREP
         </motion.div>
         <motion.h2
           initial={{ y: 10, opacity: 0 }}
@@ -212,8 +212,8 @@ export function KillerScene() {
           transition={{ delay: 0.2 }}
           style={{ fontSize: 24, color: COLORS.text, fontWeight: 700, fontFamily: '"JetBrains Mono", monospace' }}
         >
-          3 files. one shot. 165ms.<br />
-          <span style={{ color: COLORS.N }}>this is the jaw-drop moment.</span>
+          prepare, write, verify, continue.<br />
+          <span style={{ color: COLORS.N }}>apply_batch now exposes phases, progress, and the next review move.</span>
         </motion.h2>
       </div>
 

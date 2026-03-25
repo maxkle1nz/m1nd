@@ -5,7 +5,7 @@ import { COLORS } from '../lib/colors';
 /**
  * Scene 7: THE IDENTITY
  * Dark void. Glyphs appear one by one with spring animation.
- * Below: dimension labels. Then gradient borders draw. "61 tools. the graph learns."
+ * Below: runtime labels. Then gradient borders draw. The message is guided runtime.
  */
 
 const GLYPH_ENTRIES = [
@@ -41,7 +41,7 @@ export function IdentityScene() {
   // Phase 1: glyphs appear (0.3s)
   // Phase 2: labels appear (1.5s)
   // Phase 3: gradient border draws (2.5s)
-  // Phase 4: "61 tools. the graph learns." (3.5s)
+  // Phase 4: runtime line (3.5s)
 
   useEffect(() => {
     const timers = [
@@ -209,15 +209,15 @@ export function IdentityScene() {
               letterSpacing: 3,
               marginBottom: 8,
             }}>
-              61 tools.{' '}
-              <span style={{ color: COLORS.D }}>the graph learns.</span>
+              63 tools.{' '}
+              <span style={{ color: COLORS.D }}>guided runtime for MCP agents.</span>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Accessibility: screen reader text */}
-      <div role="img" aria-label="Five m1nd dimension symbols: Signal, Path, Structure, Dimension, Connection. 61 tools. The graph learns." style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }} />
+      <div role="img" aria-label="Five m1nd runtime symbols: Signal, Path, Structure, Dimension, Connection. 63 tools. Guided runtime for MCP agents." style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }} />
     </motion.div>
   );
 }

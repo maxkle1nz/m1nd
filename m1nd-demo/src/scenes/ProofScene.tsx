@@ -19,44 +19,44 @@ interface ProofRow {
 
 const PROOF_DATA: ProofRow[] = [
   {
-    label: 'queries',
-    m1nd: '46',
-    grepLlm: '~210',
+    label: 'token proxy',
+    m1nd: '5,182',
+    grepLlm: '10,518',
     m1ndColor: COLORS.D,
     grepColor: COLORS.error,
   },
   {
-    label: 'time',
-    m1nd: '3.1s',
-    grepLlm: '~35 min',
-    m1ndColor: COLORS.D,
-    grepColor: COLORS.error,
-  },
-  {
-    label: 'tokens',
+    label: 'false starts',
     m1nd: '0',
-    grepLlm: '~193,000',
+    grepLlm: '14',
     m1ndColor: COLORS.D,
     grepColor: COLORS.error,
   },
   {
-    label: 'cost',
-    m1nd: '$0.00',
-    grepLlm: '~$7.23',
+    label: 'guided follow-throughs',
+    m1nd: '31',
+    grepLlm: '0',
     m1ndColor: COLORS.D,
     grepColor: COLORS.error,
   },
   {
-    label: 'bugs found',
-    m1nd: '39',
-    grepLlm: '~23',
+    label: 'recovery loops',
+    m1nd: '12',
+    grepLlm: '0',
+    m1ndColor: COLORS.D,
+    grepColor: COLORS.error,
+  },
+  {
+    label: 'proof state',
+    m1nd: 'explicit',
+    grepLlm: 'implicit',
     m1ndColor: COLORS.D,
     grepColor: COLORS.one,
   },
   {
-    label: 'invisible bugs',
-    m1nd: '8',
-    grepLlm: '0',
+    label: 'next step',
+    m1nd: 'guided',
+    grepLlm: 'manual',
     m1ndColor: COLORS.M,
     grepColor: COLORS.error,
     isKiller: true,
@@ -174,7 +174,7 @@ export function ProofScene() {
           width: '100%',
         }}
       >
-        {GLYPHS.structure} SCENE 6 -- THE PROOF
+        {GLYPHS.structure} SCENE 6 -- WORKFLOW CHANGE
       </motion.div>
 
       {/* Table container */}
@@ -223,7 +223,7 @@ export function ProofScene() {
             fontWeight: 700,
             opacity: 0.7,
           }}>
-            grep+LLM
+            manual
           </div>
         </div>
 
@@ -252,7 +252,7 @@ export function ProofScene() {
               alignSelf: 'center',
             }}
           >
-            {GLYPHS.statement} 8 bugs that exist in your code right now that grep will never find.
+            {GLYPHS.statement} m1nd changes the workflow by returning state, handoff, and recovery, not just search results.
           </motion.div>
         )}
       </AnimatePresence>
