@@ -249,12 +249,13 @@ fn tool_minimal_example(tool_name: &str) -> Option<serde_json::Value> {
 fn tool_usage_hint(tool_name: &str) -> Option<&'static str> {
     match tool_name {
         "seek" => Some("Use `seek` for intent/natural-language retrieval. For exact text or regex, prefer `search`."),
-        "search" => Some("Use `search` for exact text, regex, or filename-filtered lookup. For intent-based retrieval, prefer `seek`."),
+        "search" | "m1nd_search" => Some("Use `search` for exact text, regex, or filename-filtered lookup. For intent-based retrieval, prefer `seek`."),
+        "glob" | "m1nd_glob" => Some("Use `glob` for file/path discovery with shell-style patterns. For content lookup inside files, prefer `search`."),
         "trace" => Some("Use `trace` when you have a real stacktrace or error output. If you only have a symbol or file, start with `seek` or `view`."),
         "validate_plan" => Some("Use `validate_plan` after you already know which files/actions you want to change. If you still need connected edit context, start with `surgical_context_v2`."),
         "surgical_context_v2" => Some("Use `surgical_context_v2` to prepare connected edits around a file. For direct text lookup, use `search` or `view` first."),
         "apply_batch" => Some("Use `apply_batch` for coordinated multi-file writes after you already have validated content. If you still need to inspect risk, call `validate_plan` first."),
-        "trail_resume" => Some("Use `trail_resume` to continue a saved investigation. If you do not have a saved trail yet, start with `trail_list` or a fresh query tool."),
+        "trail_resume" | "trail.resume" => Some("Use `trail_resume` to continue a saved investigation. If you do not have a saved trail yet, start with `trail_list` or a fresh query tool."),
         "timeline" => Some("Use `timeline` for git-backed historical proof on a known node or file. If you still need to locate the target, start with `seek`, `search`, or `activate`."),
         "perspective_start" => Some("Use `perspective_start` to begin a stateful navigation session. Then use `perspective_routes`, `perspective_follow`, and `perspective_peek` inside that session."),
         _ => None,
@@ -278,6 +279,59 @@ fn invalid_params_recovery(tool: &str, detail: &str) -> Option<serde_json::Value
                     }
                 }
             }
+        }));
+    }
+
+    if tool == "m1nd_search" && detail.contains("query cannot be empty") {
+        return Some(serde_json::json!({
+            "hint": "This search is missing content to search for. If you are trying to discover files or paths, reroute to `glob`; if you know the intent but not the exact text, use `seek`.",
+            "suggested_next_step": "Retry with `glob` for file discovery, or retry `search` with an exact text/regex query.",
+            "workflow_hint": "Typical recovery flow: `glob -> view` for file discovery, or `search(literal/regex) -> view` for content lookup.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "glob",
+                    "arguments": {
+                        "agent_id": "dev",
+                        "pattern": "m1nd-mcp/src/**/*search*.rs"
+                    }
+                }
+            }
+        }));
+    }
+
+    if tool == "m1nd_search" && detail.contains("resolves to") && detail.contains("candidate paths")
+    {
+        return Some(serde_json::json!({
+            "hint": "The scope is ambiguous across multiple candidate paths. Retry with a more specific or absolute scope so `search` only targets one root.",
+            "suggested_next_step": "Retry `search` with an explicit scope path, or disable `auto_ingest` if you only want current roots.",
+            "workflow_hint": "Typical recovery flow: `search(scope=<exact path>) -> view`.",
+        }));
+    }
+
+    if tool == "m1nd_glob" && detail.contains("pattern cannot be empty") {
+        return Some(serde_json::json!({
+            "hint": "This glob call is missing a file pattern. Use shell-style globs such as `src/**/*.rs`, or switch to `search` if you meant to look for content.",
+            "suggested_next_step": "Retry `glob` with a file/path pattern, or use `search` for content lookup.",
+            "workflow_hint": "Typical recovery flow: `glob(pattern) -> view` for file discovery, or `search(query) -> view` for content lookup.",
+            "example": {
+                "method": "tools/call",
+                "params": {
+                    "name": "glob",
+                    "arguments": {
+                        "agent_id": "dev",
+                        "pattern": "src/**/*.rs"
+                    }
+                }
+            }
+        }));
+    }
+
+    if tool == "m1nd_glob" && detail.contains("invalid glob pattern") {
+        return Some(serde_json::json!({
+            "hint": "The glob pattern is invalid or content-shaped. Use shell-style globs for file discovery, or switch to `search` when you want to find text inside files.",
+            "suggested_next_step": "Retry `glob` with a valid shell-style pattern, or reroute to `search` in literal mode for exact text.",
+            "workflow_hint": "Typical recovery flow: `search(literal) -> view` if the original pattern was actually content.",
         }));
     }
 
@@ -2514,6 +2568,60 @@ mod tests {
             .contains("trail_resume(force=true)"));
         assert_eq!(payload["example"]["params"]["name"], "trail_resume");
         assert_eq!(payload["example"]["params"]["arguments"]["force"], true);
+    }
+
+    #[test]
+    fn empty_search_invalid_params_payload_reroutes_to_glob() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "m1nd_search".into(),
+            detail: "query cannot be empty; add exact text/regex to search content; for file/path discovery use m1nd.glob instead; for natural-language intent use m1nd.seek".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "m1nd_search");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("reroute to `glob`"));
+        assert!(payload["workflow_hint"]
+            .as_str()
+            .expect("workflow hint")
+            .contains("glob -> view"));
+        assert_eq!(payload["example"]["params"]["name"], "glob");
+    }
+
+    #[test]
+    fn ambiguous_search_scope_invalid_params_payload_teaches_exact_scope_retry() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "m1nd_search".into(),
+            detail: "scope 'src/handlers' resolves to 2 candidate paths: [/repo/a/src/handlers, /repo/b/src/handlers]. Use a more specific or absolute scope, or disable auto_ingest if you only want to search current roots".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("ambiguous across multiple candidate paths"));
+        assert!(payload["suggested_next_step"]
+            .as_str()
+            .expect("step")
+            .contains("explicit scope path"));
+    }
+
+    #[test]
+    fn invalid_glob_pattern_payload_teaches_search_reroute() {
+        let payload = tool_error_payload(&M1ndError::InvalidParams {
+            tool: "m1nd_glob".into(),
+            detail: "invalid glob pattern 'normalize_dispatch_tool_name(': dangling metacharacter; use shell-style globs like 'src/**/*.rs' or '*.md'; for content search use m1nd.search instead".into(),
+        });
+        assert_eq!(payload["error_type"], "invalid_params");
+        assert_eq!(payload["tool"], "m1nd_glob");
+        assert!(payload["hint"]
+            .as_str()
+            .expect("hint")
+            .contains("switch to `search`"));
+        assert!(payload["suggested_next_step"]
+            .as_str()
+            .expect("step")
+            .contains("literal mode"));
     }
 
     #[test]
