@@ -314,6 +314,8 @@ Warm-graph benchmark corpus recorded in `docs/benchmarks` now also shows where t
 
 Those continuity gains come from changes that make `trail_resume` more actionable: compact limits, structural reactivation, next-focus hints, and next-tool suggestions such as routing temporal follow-ups toward `timeline`.
 
+The same benchmark corpus now also treats recovery loops as product truth. Invalid regex, ambiguous scope, stale route, and protected-write failures are benchmarked on whether the tool teaches the agent how to recover with a shorter retry path, not only on whether the tool emitted an error.
+
 ## Configure Your Agent
 
 m1nd works best when your agent treats it as the first stop for structure and connected context, not the only tool it is allowed to use.

@@ -114,6 +114,22 @@ Operational rule for agents:
 - weak proof -> follow the suggested next seam
 - stale continuity -> resume from hints, not from zero
 
+Concrete example:
+
+```jsonc
+{"method":"tools/call","params":{"name":"search","arguments":{
+  "agent_id":"dev",
+  "query":"(",
+  "mode":"regex"
+}}}
+```
+
+If that fails, the useful behavior is not just "invalid regex". The useful behavior is:
+
+- tell the agent to switch to `mode="literal"` if exact text was intended
+- keep the retry payload small
+- avoid falling back to shell grep unless the repair hint also fails
+
 ## 4. Stacktrace triage
 
 If you already have failure output, use `trace` instead of manually walking top frames.

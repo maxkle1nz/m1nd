@@ -64,6 +64,8 @@ with less catalog-style listing and more decision support.
   hint/example/next-step guidance that agents can use to self-correct
 - README, examples, and benchmark docs now describe the current guided behavior of
   `apply_batch`, `proof_state`, and long-running progress updates more accurately
+- benchmark truth now explicitly includes recovery-loop scenarios such as invalid
+  regex retry, ambiguous scope retry, stale route refresh, and protected-write reroute
 - benchmark research now documents progress observability and delivery modes as part
   of product truth, not only token savings
 
