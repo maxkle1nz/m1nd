@@ -10,6 +10,21 @@ No unreleased changes yet.
 
 ---
 
+## [0.6.1] — 2026-03-25
+
+### Fixed
+
+#### Release and Publish Alignment
+
+This patch release aligns the public release surfaces after the `v0.6.0` rollout.
+
+- added missing crates.io metadata to workspace crates so publish succeeds cleanly
+- added explicit published-version constraints on internal workspace dependencies
+- hardened the release workflow so crates.io publish is skipped cleanly when
+  `CARGO_REGISTRY_TOKEN` is not configured, instead of failing the whole release job
+
+---
+
 ## [0.6.0] — 2026-03-25
 
 ### Added

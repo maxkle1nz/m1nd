@@ -1,6 +1,6 @@
 [package]
 name = "m1nd-core"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Core graph engine and reasoning primitives for m1nd."
 license = "MIT"
