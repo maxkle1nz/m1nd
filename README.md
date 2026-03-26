@@ -15,6 +15,10 @@
 </p>
 
 <p align="center">
+  <strong>Structural bugs found in minutes, not days &middot; 89% hypothesis accuracy &middot; Cuts 84% of LLM context costs</strong>
+</p>
+
+<p align="center">
   <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
