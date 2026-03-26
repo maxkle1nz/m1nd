@@ -7,7 +7,6 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub mod cargo_workspace;
-pub mod cross_domain;
 pub mod cross_file;
 pub mod diff;
 pub mod extract;
