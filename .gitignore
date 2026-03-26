@@ -11,3 +11,5 @@ antibodies.json
 tremor_state.json
 trust_state.json
 trails/
+.DS_Store
+*.bak

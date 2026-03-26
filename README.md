@@ -7,7 +7,7 @@
 <h3 align="center">A local code graph engine for MCP agents.</h3>
 
 <p align="center">
-  m1nd turns a repo into a queryable graph so an agent can ask for structure, impact, connected context, and likely risk instead of reconstructing everything from raw files every time.
+  m1nd turns a repo into a queryable graph so an agent can trace structural bugs, measure blast radius, and verify architectural claims — in under 1 second, without reading raw files every time.
 </p>
 
 <p align="center">
@@ -74,7 +74,7 @@ The practical payoff is simple:
 
 - fewer file reads before the agent knows where to look
 - lower token burn on repo reconstruction
-- faster impact analysis before editing
+- faster impact analysis before editing — most queries return in **&lt;1 second**
 - safer multi-file changes because callers, callees, tests, and hotspots can be pulled together in one pass
 
 ## What m1nd Is
@@ -297,7 +297,7 @@ Case-study audit on a Python/FastAPI codebase:
 | Post-write validation sample | 12/12 scenarios classified correctly in the documented set |
 | LLM tokens consumed by the graph engine itself | 0 |
 | Example query count vs grep-heavy loop | 46 vs ~210 |
-| Estimated total query latency in the documented session | ~3.1 seconds |
+| Estimated total query latency in the documented session | ~3.1 seconds across 46 queries (&lt;1s per query) |
 
 Criterion micro-benchmarks recorded in current docs:
 

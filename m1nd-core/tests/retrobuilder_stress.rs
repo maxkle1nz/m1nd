@@ -200,7 +200,11 @@ fn stress_taint_all_entry_points() {
     eprintln!("[STRESS TAINT] {} entry points on real graph: risk={:.3}, reached={}, leaks={}, elapsed={:.1}ms",
         entries.len(), result.risk_score, result.summary.total_nodes_reached, result.summary.leaks_found,
         elapsed.as_secs_f64() * 1000.0);
-    assert!(elapsed.as_secs() < 180, "Should complete within 180s (CI), took {:?}", elapsed);
+    assert!(
+        elapsed.as_secs() < 180,
+        "Should complete within 180s (CI), took {:?}",
+        elapsed
+    );
 }
 
 #[test]
