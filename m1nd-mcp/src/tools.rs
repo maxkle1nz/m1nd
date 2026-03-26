@@ -413,51 +413,6 @@ pub fn handle_activate(
     };
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    let (
-        proof_state,
-        next_suggested_tool,
-        next_suggested_target,
-        next_step_hint,
-        confidence,
-        why_this_next_step,
-        what_is_missing,
-    ) = if let Some(top) = activated.first() {
-        (
-            "triaging".into(),
-            Some("view".into()),
-            Some(top.node_id.clone()),
-            Some(format!("Open the top activated node next: {}.", top.label)),
-            Some(top.activation.clamp(0.0, 1.0)),
-            Some("Activation already surfaced a dominant node in the connected neighborhood, so direct inspection is the best next move.".into()),
-            Some("Open the node to confirm whether the neighborhood signal is strong enough to enter proof or edit prep.".into()),
-        )
-    } else if let Some(seed) = seeds.first() {
-        (
-            "blocked".into(),
-            Some("seek".into()),
-            Some(seed.node_id.clone()),
-            Some(format!(
-                "Activation found seeds but no strong activations. Refine around `{}` with `seek`.",
-                seed.label
-            )),
-            Some(seed.relevance.clamp(0.0, 1.0)),
-            Some("There is still a plausible seed, but activation did not produce a dominant neighborhood hit strong enough for direct inspection.".into()),
-            Some("A stronger neighborhood winner is still missing, so the runtime falls back to tighter semantic retrieval.".into()),
-        )
-    } else {
-        (
-                "blocked".into(),
-                Some("seek".into()),
-                None,
-                Some(
-                    "Activation did not surface a strong seed. Refine the query or use `seek` for a tighter entry point."
-                        .into(),
-                ),
-                Some(0.12),
-                Some("Neither seeds nor activations were strong enough to justify opening a node directly, so the runtime falls back to a tighter retrieval pass.".into()),
-                Some("A viable structural entrypoint is still missing, so activation alone cannot safely continue the workflow.".into()),
-            )
-    };
 
     Ok(ActivateOutput {
         query: input.query,
@@ -467,13 +422,6 @@ pub fn handle_activate(
         structural_holes,
         plasticity,
         elapsed_ms,
-        proof_state,
-        next_suggested_tool,
-        next_suggested_target,
-        next_step_hint,
-        confidence,
-        why_this_next_step,
-        what_is_missing,
     })
 }
 
@@ -494,10 +442,6 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 total_energy: 0.0,
                 max_hops_reached: 0,
                 causal_chains: vec![],
-                proof_state: "blocked".into(),
-                next_suggested_tool: None,
-                next_suggested_target: None,
-                next_step_hint: None,
             });
         }
     };
@@ -580,10 +524,6 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         })
         .collect();
 
-    let proof_state = impact_proof_state(&blast_radius, &causal_chains);
-    let (next_suggested_tool, next_suggested_target, next_step_hint) =
-        impact_next_step(&blast_radius, &causal_chains);
-
     Ok(ImpactOutput {
         source: input.node_id,
         source_label,
@@ -592,162 +532,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         total_energy: impact.total_energy.get(),
         max_hops_reached: impact.max_hops_reached,
         causal_chains,
-        proof_state,
-        next_suggested_tool,
-        next_suggested_target,
-        next_step_hint,
     })
-}
-
-fn impact_proof_state(
-    blast_radius: &[BlastRadiusEntry],
-    causal_chains: &[CausalChainOutput],
-) -> String {
-    if blast_radius.is_empty() && causal_chains.is_empty() {
-        return "blocked".into();
-    }
-
-    if let Some(top_chain) = causal_chains.first() {
-        if top_chain.cumulative_strength >= 0.8 && top_chain.path.len() >= 2 {
-            return "ready_to_edit".into();
-        }
-        return "proving".into();
-    }
-
-    if let Some(top_blast) = blast_radius.first() {
-        if blast_radius.len() > 1 || top_blast.signal_strength >= 0.7 {
-            return "proving".into();
-        }
-    }
-
-    "triaging".into()
-}
-
-fn impact_next_step(
-    blast_radius: &[BlastRadiusEntry],
-    causal_chains: &[CausalChainOutput],
-) -> (Option<String>, Option<String>, Option<String>) {
-    if let Some(top_chain) = causal_chains.first() {
-        if let Some(target) = top_chain.path.last() {
-            return (
-                Some("view".into()),
-                Some(target.clone()),
-                Some(format!("Open the farthest causal target next: {}.", target)),
-            );
-        }
-    }
-
-    if let Some(top_blast) = blast_radius.first() {
-        return (
-            Some("view".into()),
-            Some(top_blast.node_id.clone()),
-            Some(format!(
-                "Open the top impacted node next: {} (hop {}, signal {:.2}).",
-                top_blast.node_id, top_blast.hop_distance, top_blast.signal_strength
-            )),
-        );
-    }
-
-    (None, None, None)
-}
-
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn impact_proof_state_distinguishes_triage_proof_and_ready_states() {
-        let empty_blast = Vec::<BlastRadiusEntry>::new();
-        let empty_chains = Vec::<CausalChainOutput>::new();
-        assert_eq!(impact_proof_state(&empty_blast, &empty_chains), "blocked");
-
-        let triage_blast = vec![BlastRadiusEntry {
-            node_id: "file::src/leaf.rs".into(),
-            label: "leaf".into(),
-            node_type: "File".into(),
-            signal_strength: 0.42,
-            hop_distance: 1,
-        }];
-        assert_eq!(impact_proof_state(&triage_blast, &empty_chains), "triaging");
-
-        let proving_blast = vec![
-            BlastRadiusEntry {
-                node_id: "file::src/a.rs".into(),
-                label: "a".into(),
-                node_type: "File".into(),
-                signal_strength: 0.74,
-                hop_distance: 1,
-            },
-            BlastRadiusEntry {
-                node_id: "file::src/b.rs".into(),
-                label: "b".into(),
-                node_type: "File".into(),
-                signal_strength: 0.51,
-                hop_distance: 2,
-            },
-        ];
-        assert_eq!(impact_proof_state(&proving_blast, &empty_chains), "proving");
-
-        let ready_chain = vec![CausalChainOutput {
-            path: vec!["file::src/root.rs".into(), "file::src/leaf.rs".into()],
-            relations: vec!["calls".into()],
-            cumulative_strength: 0.84,
-        }];
-        assert_eq!(
-            impact_proof_state(&triage_blast, &ready_chain),
-            "ready_to_edit"
-        );
-    }
-
-    #[test]
-    fn impact_next_step_prefers_causal_chain_target() {
-        let blast = vec![BlastRadiusEntry {
-            node_id: "file::src/core.rs".into(),
-            label: "core".into(),
-            node_type: "File".into(),
-            signal_strength: 0.71,
-            hop_distance: 1,
-        }];
-        let chains = vec![CausalChainOutput {
-            path: vec!["file::src/root.rs".into(), "file::src/leaf.rs".into()],
-            relations: vec!["calls".into()],
-            cumulative_strength: 0.83,
-        }];
-
-        let (tool, target, hint) = impact_next_step(&blast, &chains);
-
-        assert_eq!(tool.as_deref(), Some("view"));
-        assert_eq!(target.as_deref(), Some("file::src/leaf.rs"));
-        assert!(
-            hint.as_deref()
-                .unwrap_or_default()
-                .contains("farthest causal target"),
-            "impact should suggest opening the downstream causal target first"
-        );
-    }
-
-    #[test]
-    fn impact_next_step_falls_back_to_top_blast_node() {
-        let blast = vec![BlastRadiusEntry {
-            node_id: "file::src/core.rs".into(),
-            label: "core".into(),
-            node_type: "File".into(),
-            signal_strength: 0.71,
-            hop_distance: 1,
-        }];
-
-        let (tool, target, hint) = impact_next_step(&blast, &[]);
-
-        assert_eq!(tool.as_deref(), Some("view"));
-        assert_eq!(target.as_deref(), Some("file::src/core.rs"));
-        assert!(
-            hint.as_deref()
-                .unwrap_or_default()
-                .contains("top impacted node"),
-            "impact should suggest inspecting the strongest blast target"
-        );
-    }
 }
 
 /// Handle m1nd.missing (03-MCP Section 2.3).
@@ -1922,8 +1707,49 @@ pub fn handle_ingest(
             let (new_graph, stats) = adapter.ingest(&path)?;
             finalize_ingest(state, &input, "light", new_graph, stats)
         }
+        "patent" => {
+            let adapter = m1nd_ingest::PatentIngestAdapter::new(input.namespace.clone());
+            let (new_graph, stats) = adapter.ingest(&path)?;
+            finalize_ingest(state, &input, "patent", new_graph, stats)
+        }
+        "article" | "jats" => {
+            let adapter = m1nd_ingest::JatsArticleAdapter::new(input.namespace.clone());
+            let (new_graph, stats) = adapter.ingest(&path)?;
+            finalize_ingest(state, &input, "article", new_graph, stats)
+        }
+        "bibtex" | "bib" => {
+            let adapter = m1nd_ingest::BibTexAdapter::new(input.namespace.clone());
+            let (new_graph, stats) = adapter.ingest(&path)?;
+            finalize_ingest(state, &input, "bibtex", new_graph, stats)
+        }
+        "rfc" => {
+            let adapter = m1nd_ingest::RfcAdapter::new(input.namespace.clone());
+            let (new_graph, stats) = adapter.ingest(&path)?;
+            finalize_ingest(state, &input, "rfc", new_graph, stats)
+        }
+        "auto" | "document" => {
+            // Auto-detect format from file content
+            let (format, adapter) =
+                m1nd_ingest::document_router::DocumentRouter::detect_directory(&path);
+            match adapter {
+                Some(adapter) => {
+                    let (new_graph, stats) = adapter.ingest(&path)?;
+                    finalize_ingest(state, &input, &format.to_string(), new_graph, stats)
+                }
+                None => {
+                    // Fallback to code adapter
+                    let config = m1nd_ingest::IngestConfig {
+                        root: path.clone(),
+                        ..m1nd_ingest::IngestConfig::default()
+                    };
+                    let ingestor = m1nd_ingest::Ingestor::new(config);
+                    let (new_graph, stats) = ingestor.ingest()?;
+                    finalize_ingest(state, &input, "code", new_graph, stats)
+                }
+            }
+        }
         other => Ok(serde_json::json!({
-            "error": format!("Unknown adapter: '{}'. Supported: 'code', 'json', 'memory', 'light'", other),
+            "error": format!("Unknown adapter: '{}'. Supported: 'code', 'json', 'memory', 'light', 'patent', 'article', 'bibtex', 'rfc', 'auto'", other),
         })),
     }
 }

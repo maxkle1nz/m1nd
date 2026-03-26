@@ -499,41 +499,6 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             }
 
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-            let (
-                proof_state,
-                next_suggested_tool,
-                next_suggested_target,
-                next_step_hint,
-                confidence,
-                why_this_next_step,
-                what_is_missing,
-            ) = if let Some(result) = results.first() {
-                (
-                        "proving".into(),
-                        Some("view".into()),
-                        Some(result.file_path.clone()),
-                        Some(format!(
-                            "Open the strongest semantic match next: {}.",
-                            result.file_path
-                        )),
-                        Some(result.score.unwrap_or(0.81).clamp(0.0, 1.0)),
-                        Some("Semantic ranking already converged on a file-level match strong enough to inspect directly.".into()),
-                        Some("Open the file to confirm the semantic hit before switching into proof or edit planning.".into()),
-                    )
-            } else {
-                (
-                        "blocked".into(),
-                        Some("seek".into()),
-                        None,
-                        Some(
-                            "Semantic search returned no strong file-level match. Refine the intent query and retry."
-                                .into(),
-                        ),
-                        Some(0.2),
-                        Some("The semantic match set was too weak to justify a direct file open, so the runtime points back to a tighter intent query.".into()),
-                        Some("A stronger intent formulation is missing before the runtime can pick a trustworthy file target.".into()),
-                    )
-            };
             return Ok(SearchOutput {
                 query: input.query,
                 mode: "semantic".into(),
@@ -544,13 +509,6 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 auto_ingested,
                 match_count: None,
                 auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
-                proof_state,
-                next_suggested_tool,
-                next_suggested_target,
-                next_step_hint,
-                confidence,
-                why_this_next_step,
-                what_is_missing,
             });
         }
     }
@@ -575,16 +533,6 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         results.truncate(top_k);
         results
     };
-    let (
-        proof_state,
-        next_suggested_tool,
-        next_suggested_target,
-        next_step_hint,
-        confidence,
-        why_this_next_step,
-        what_is_missing,
-    ) = search_contract(&final_results);
-
     Ok(SearchOutput {
         query: input.query,
         mode: format!("{:?}", input.mode).to_lowercase(),
@@ -595,13 +543,6 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         auto_ingested,
         match_count,
         auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
-        proof_state,
-        next_suggested_tool,
-        next_suggested_target,
-        next_step_hint,
-        confidence,
-        why_this_next_step,
-        what_is_missing,
     })
 }
 
@@ -1496,15 +1437,6 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
     }
 
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-    let (
-        proof_state,
-        next_suggested_tool,
-        next_suggested_target,
-        next_step_hint,
-        confidence,
-        why_this_next_step,
-        what_is_missing,
-    ) = glob_contract(&files);
 
     Ok(GlobOutput {
         pattern: input.pattern,
@@ -1512,13 +1444,6 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         total_matches,
         scope_applied,
         elapsed_ms: elapsed,
-        proof_state,
-        next_suggested_tool,
-        next_suggested_target,
-        next_step_hint,
-        confidence,
-        why_this_next_step,
-        what_is_missing,
     })
 }
 
@@ -1579,20 +1504,6 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 tool: None,
                 found: true,
                 suggestions: vec![],
-                proof_state: "triaging".into(),
-                next_suggested_tool: Some("help".into()),
-                next_suggested_target: Some("seek".into()),
-                next_step_hint: Some(
-                    "Open help for the tool you expect to use next, such as `seek`, `trace`, or `validate_plan`."
-                        .into(),
-                ),
-                confidence: Some(0.42),
-                why_this_next_step: Some(
-                    "The help index is a workflow router here, so the next best move is to narrow into a concrete tool page.".into(),
-                ),
-                what_is_missing: Some(
-                    "A concrete workflow choice is still missing before the agent can act.".into(),
-                ),
             })
         }
         Some("about") => {
@@ -1602,20 +1513,6 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 tool: Some("about".into()),
                 found: true,
                 suggestions: vec![],
-                proof_state: "ready_to_edit".into(),
-                next_suggested_tool: Some("help".into()),
-                next_suggested_target: Some("seek".into()),
-                next_step_hint: Some(
-                    "Jump from about into a concrete tool help page to start an actual workflow."
-                        .into(),
-                ),
-                confidence: Some(0.56),
-                why_this_next_step: Some(
-                    "The about page establishes orientation, but the runtime still needs a concrete tool page before work can begin.".into(),
-                ),
-                what_is_missing: Some(
-                    "A specific workflow entrypoint is still missing before the runtime can continue.".into(),
-                ),
             })
         }
         Some(name) => {
@@ -1631,21 +1528,6 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     tool: Some(normalized.clone()),
                     found: true,
                     suggestions: vec![],
-                    proof_state: "triaging".into(),
-                    next_suggested_tool: doc.next.first().map(|n| (*n).to_string()),
-                    next_suggested_target: Some(normalized.clone()),
-                    next_step_hint: Some(format!(
-                        "Use this help page to choose the next workflow step after `{}`.",
-                        normalized
-                    )),
-                    confidence: Some(0.71),
-                    why_this_next_step: Some(format!(
-                        "The `{}` help page already encodes the recommended downstream workflow, so the runtime can hand off directly.",
-                        normalized
-                    )),
-                    what_is_missing: Some(
-                        "The actual downstream tool still needs to run before proof can advance.".into(),
-                    ),
                 })
             } else {
                 // Unknown tool -- find similar (ADVERSARY H2)
@@ -1664,19 +1546,6 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     tool: Some(name.to_string()),
                     found: false,
                     suggestions: suggestions.clone(),
-                    proof_state: "blocked".into(),
-                    next_suggested_tool: Some("help".into()),
-                    next_suggested_target: suggestions.first().cloned(),
-                    next_step_hint: Some(
-                        "Retry help with one of the suggested canonical tool names.".into(),
-                    ),
-                    confidence: Some(0.24),
-                    why_this_next_step: Some(
-                        "The requested tool name did not resolve, so the safest next move is to retry with a canonical suggestion.".into(),
-                    ),
-                    what_is_missing: Some(
-                        "A valid canonical tool name is missing, so workflow selection cannot proceed yet.".into(),
-                    ),
                 })
             }
         }
