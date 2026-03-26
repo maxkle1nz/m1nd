@@ -14,10 +14,12 @@ pub mod json_adapter;
 pub mod l1ght_adapter;
 pub mod memory_adapter;
 pub mod merge;
+pub mod patent_adapter;
 pub mod resolve;
 pub mod walker;
 
 pub use l1ght_adapter::L1ghtIngestAdapter;
+pub use patent_adapter::PatentIngestAdapter;
 
 fn is_valid_relative_file_path(rel_path: &str) -> bool {
     let trimmed = rel_path.trim();
