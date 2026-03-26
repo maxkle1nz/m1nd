@@ -352,13 +352,11 @@ impl PatentIngestAdapter {
                             in_pdat = false;
                         }
                         "snm" => {
-                            if in_snm && !text_buf.is_empty() {
-                                if in_b721 {
-                                    inventor_parts.push(text_buf.trim().to_string());
-                                    text_buf.clear();
-                                }
-                                // For B731 (assignee), don't clear — let B731 close handle it
+                            if in_snm && !text_buf.is_empty() && in_b721 {
+                                inventor_parts.push(text_buf.trim().to_string());
+                                text_buf.clear();
                             }
+                            // For B731 (assignee), don't clear — let B731 close handle it
                             in_snm = false;
                         }
                         "fnm" => {
