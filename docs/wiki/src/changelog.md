@@ -2,6 +2,58 @@
 
 All notable changes to m1nd are documented here. This project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] — 2026-03-26
+
+### Added
+
+#### Universal Knowledge Connectome
+
+The ingestion pipeline now supports scholarly and standards documents alongside code:
+
+- **Patent adapter** (`patent`): USPTO/EPO XML with claims, citations, and assignee extraction
+- **JATS adapter** (`article`): PubMed NLM / JATS Z39.96 scientific article XML
+- **BibTeX adapter** (`bibtex`/`bib`): BibTeX bibliography file ingestion
+- **RFC adapter** (`rfc`): IETF RFC XML v3 with section-level granularity
+- **CrossRef adapter** (`crossref`/`doi`): CrossRef API JSON for DOI metadata
+
+#### Document Router (Auto-Detection)
+
+`DocumentRouter` auto-detects file format by extension and content heuristics.
+Used via `m1nd.ingest(adapter="auto")`.
+
+#### Cross-Domain Resolution — 6 Bridge Strategies
+
+`CrossDomainResolver` merges outputs from multiple adapters and discovers connections:
+
+| Bridge | Weight | Discovery |
+|--------|--------|-----------|
+| `same_as` | 1.0 | Shared DOI/PMID identity |
+| `cross_cites` | 0.95 | Cross-domain citation targets |
+| `same_orcid` | 0.95 | Researcher identity via ORCID |
+| `same_author` | 0.7 | Name matching across namespaces |
+| `shared_keyword` | 0.6 | Topic clustering via keyword/subject tags (≤20 cap) |
+| `citation_chain` | 0.5 | Transitive A→B→C bridging |
+
+All bridges are cross-domain only — same namespace never bridges.
+
+### Changed
+
+- README hero stats added to all 7 translated READMEs
+- `.gitignore` updated to exclude `.DS_Store` and `*.bak` files
+- Architecture docs updated with all new adapters, router, and bridges
+
+### Removed
+
+- `.DS_Store` and `antibodies.json.bak` removed from repository
+
+### Stats
+
+- 10 ingestion adapters registered in MCP CLI
+- 131+ tests passing
+- 3/3 domains validated bridging via shared DOIs (RFC × CrossRef × BibTeX)
+
+---
+
 ## [0.6.1] — 2026-03-25
 
 ### Fixed

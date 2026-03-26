@@ -48,6 +48,10 @@
   <a href="https://aws.amazon.com/q/developer"><img src="https://img.shields.io/badge/Amazon_Q-232f3e?logo=amazonaws&logoColor=f90" alt="Amazon Q" /></a>
 </p>
 
+<p align="center">
+  <strong>Findet strukturelle Bugs in &lt;1s</strong> &middot; 89% Hypothesengenauigkeit &middot; Reduziert LLM-Kontextkosten um 84%
+</p>
+
 ---
 
 <a id="why-use-m1nd"></a>

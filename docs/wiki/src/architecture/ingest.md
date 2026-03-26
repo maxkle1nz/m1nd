@@ -18,11 +18,19 @@ Source: `mcp/m1nd/m1nd-ingest/src/`
 | `extract/java.rs` | Java: classes, interfaces, methods, packages |
 | `extract/generic.rs` | Fallback: file-level node with tag extraction |
 | `resolve.rs` | `ReferenceResolver`, proximity disambiguation |
-| `cross_file.rs` | Cross-file edge generation (directory contains, sibling) |
+| `cargo_workspace.rs` | Cargo workspace/crate/dependency enrichment for Rust repos |
+| `cross_file.rs` | Python-weighted cross-file enrichment (`imports`, `tests`, `registers`) |
 | `diff.rs` | `GraphDiff` for incremental updates |
 | `json_adapter.rs` | Generic JSON-to-graph adapter |
 | `memory_adapter.rs` | Markdown/memory document adapter |
 | `merge.rs` | Graph merge utilities |
+| `patent_adapter.rs` | USPTO/EPO patent XML ingestion |
+| `jats_adapter.rs` | PubMed/JATS scientific article XML ingestion |
+| `bibtex_adapter.rs` | BibTeX bibliography file ingestion |
+| `rfc_adapter.rs` | IETF RFC XML v3 ingestion |
+| `crossref_adapter.rs` | CrossRef API JSON (DOI metadata) ingestion |
+| `document_router.rs` | Auto-detect document format and route to correct adapter |
+| `cross_domain.rs` | Cross-domain edge resolution (DOI, ORCID, keyword bridges) |
 
 ## Pipeline Overview
 
@@ -53,11 +61,12 @@ flowchart TD
         CAUSAL["Causal strength assignment<br/>contains=0.8, imports=0.6, etc."]
     end
 
-    subgraph "Phase 4: Resolve"
+    subgraph "Phase 4: Resolve + Enrich"
         REFS["ReferenceResolver<br/>ref:: → actual nodes"]
         PROX["Proximity Disambiguation<br/>same file > same dir > same project"]
         HINTS["Import Hints<br/>module path → target preference"]
-        XFILE["Cross-File Edges<br/>directory contains, siblings"]
+        CARGO["Cargo Workspace<br/>workspace/crate/dependency graph"]
+        XFILE["Cross-File Enrichment<br/>currently strongest for Python"]
     end
 
     subgraph "Phase 5: Finalize"
@@ -73,7 +82,7 @@ flowchart TD
     PY & TS & RS & GO & JAVA & GEN --> RESULTS
     RESULTS --> NODES --> EDGES --> CAUSAL
     CAUSAL --> REFS --> PROX
-    PROX --> HINTS --> XFILE
+    PROX --> HINTS --> CARGO --> XFILE
     XFILE --> CSR --> BIDIR --> REV --> PR
 ```
 
@@ -135,6 +144,12 @@ Files are distributed across rayon's thread pool for concurrent extraction. Each
 | `.go` | `GoExtractor` | Structs, interfaces, functions, methods, packages |
 | `.java` | `JavaExtractor` | Classes, interfaces, methods, fields, packages |
 | everything else | `GenericExtractor` | File-level node with tag extraction from content |
+
+This stack is hybrid:
+
+- native/manual extractors for Python, TypeScript/JavaScript, Rust, Go, and Java
+- tree-sitter-backed tiers for additional languages
+- generic fallback for unsupported files
 
 ### Extractor Interface
 
@@ -237,7 +252,7 @@ Two budget checks run between sequential file processing:
 
 Both log a warning and break from the build loop, producing a partial but consistent graph from whatever was processed.
 
-## Phase 4: Reference Resolution
+## Phase 4: Reference Resolution And Enrichment
 
 ### ReferenceResolver
 
@@ -259,12 +274,29 @@ Resolution outcome per reference:
 - **Ambiguous**: Multiple matches with equal proximity. Best guess selected, counted in stats.
 - **Unresolved**: No match found. Counted in stats, no edge created.
 
-### Cross-File Edges
+### Cargo Workspace Enrichment
 
-After reference resolution, `cross_file.rs` generates structural edges that span files:
+For Rust repos, `cargo_workspace.rs` adds a workspace-aware layer before finalization:
 
-- **Directory contains**: `dir::backend/ --contains--> file::backend/main.py`
-- **Sibling edges**: Files in the same directory get weak bidirectional edges.
+- workspace nodes
+- crate nodes
+- crate -> file `contains` edges
+- crate -> crate `depends_on` edges for internal workspace dependencies
+- external dependency nodes for non-workspace dependencies
+
+This means Rust repos are no longer represented only as file graphs.
+
+### Cross-File Enrichment
+
+After reference resolution and Cargo enrichment, `cross_file.rs` adds a narrower set of shipped cross-file edges.
+
+Today this pass is strongest for Python and focuses on:
+
+- `imports`
+- `tests`
+- `registers`
+
+It should not be described as a language-uniform cross-file engine yet.
 
 ## Phase 5: Finalization
 
@@ -354,13 +386,78 @@ pub trait IngestAdapter: Send + Sync {
 
 Implemented adapters:
 
-| Adapter | Domain | Input |
-|---------|--------|-------|
-| `Ingestor` | `"code"` | Source code directories |
-| `MemoryIngestAdapter` | `"memory"` | Markdown/text documents |
-| `JsonIngestAdapter` | `"generic"` | Arbitrary JSON with `nodes[]` and `edges[]` |
+| Adapter | Domain | Input | MCP `adapter=` |
+|---------|--------|-------|----------------|
+| `Ingestor` | `"code"` | Source code directories | `code` |
+| `MemoryIngestAdapter` | `"memory"` | Markdown/text documents | `memory` |
+| `JsonIngestAdapter` | `"generic"` | Arbitrary JSON with `nodes[]` and `edges[]` | `json` |
+| `PatentIngestAdapter` | `"patent"` | USPTO/EPO patent XML | `patent` |
+| `JatsArticleAdapter` | `"article"` | PubMed NLM / JATS Z39.96 XML | `article` |
+| `BibTexAdapter` | `"bibtex"` | BibTeX bibliography files | `bibtex`, `bib` |
+| `RfcAdapter` | `"rfc"` | IETF RFC XML v3 | `rfc` |
+| `CrossRefAdapter` | `"crossref"` | CrossRef API JSON (DOI metadata) | `crossref`, `doi` |
+| `L1ghtIngestAdapter` | `"light"` | L1GHT protocol Markdown | `light` |
 
 The JSON adapter is the escape hatch for importing graphs from external tools. It expects a JSON document with `nodes` (array of `{id, label, type, tags}`) and `edges` (array of `{source, target, relation, weight}`).
+
+## Document Router (Auto-Detection)
+
+`DocumentRouter` inspects file content and extension to auto-detect the correct adapter:
+
+```rust
+let (format, adapter) = DocumentRouter::detect(path);
+let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20 files
+```
+
+| Detection Method | Format | Heuristic |
+|-----------------|--------|----------|
+| Extension `.bib` / `.bibtex` | BibTeX | Extension only |
+| Extension `.md` + `Protocol: L1GHT` | L1GHT | Content check |
+| Extension `.xml` / `.nxml` | Patent, JATS, or RFC | Root element inspection |
+| Extension `.json` | CrossRef | Checks for `DOI` + `publisher` + `type` keys |
+| Fallback | Code | Default pipeline |
+
+Used via MCP: `m1nd.ingest(adapter="auto")` or `adapter="document"`.
+
+For directory detection, the router samples up to 20 files and returns the dominant format.
+
+## Cross-Domain Resolution
+
+`CrossDomainResolver` merges multiple adapter outputs and discovers cross-domain connections automatically.
+
+### Bridge Strategies
+
+| Bridge | Weight | Source | Description |
+|--------|--------|--------|-------------|
+| `same_as` | 1.0 | DOI/PMID | Same identifier in different domains → identity edge |
+| `cross_cites` | 0.95 | Citation edges | Citation target exists as a full node in another domain |
+| `same_orcid` | 0.95 | ORCID tags | Same researcher ORCID across different domains |
+| `same_author` | 0.7 | Author name | Same author name across different namespaces |
+| `shared_keyword` | 0.6 | Keyword tags | Shared `keyword:`, `article:keyword:`, or `subject:` tags |
+| `citation_chain` | 0.5 | Citation adjacency | Transitive A→B→C bridging with decayed weight |
+
+### Safety Guards
+
+- **Keyword cap**: Keywords shared by >20 nodes are ignored to prevent hub explosion.
+- **Cross-domain only**: All bridges require nodes from ≥2 different namespaces. Same-domain matches are skipped.
+- **Self-loop prevention**: Citation chains A→B→A do not generate self-loop edges.
+- **Deduplication**: Nodes with identical external IDs are deduplicated (first wins).
+
+### Resolution Statistics
+
+```rust
+pub struct ResolutionStats {
+    pub graphs_merged: usize,
+    pub total_nodes: u32,
+    pub total_edges: usize,
+    pub cross_edges_created: usize,
+    pub identity_matches: usize,
+    pub author_bridges: usize,
+    pub keyword_bridges: usize,
+    pub orcid_bridges: usize,
+    pub citation_chains: usize,
+}
+```
 
 ## Configuration Reference
 
