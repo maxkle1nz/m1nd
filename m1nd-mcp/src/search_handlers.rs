@@ -509,6 +509,13 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 auto_ingested,
                 match_count: None,
                 auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
+                proof_state: "triaging".into(),
+                next_suggested_tool: None,
+                next_suggested_target: None,
+                next_step_hint: None,
+                confidence: None,
+                why_this_next_step: None,
+                what_is_missing: None,
             });
         }
     }
@@ -543,6 +550,13 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         auto_ingested,
         match_count,
         auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
+        proof_state: "triaging".into(),
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        confidence: None,
+        why_this_next_step: None,
+        what_is_missing: None,
     })
 }
 
@@ -1444,6 +1458,13 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         total_matches,
         scope_applied,
         elapsed_ms: elapsed,
+        proof_state: "triaging".into(),
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        confidence: None,
+        why_this_next_step: None,
+        what_is_missing: None,
     })
 }
 
@@ -1504,6 +1525,13 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 tool: None,
                 found: true,
                 suggestions: vec![],
+                proof_state: "triaging".into(),
+                next_suggested_tool: None,
+                next_suggested_target: None,
+                next_step_hint: None,
+                confidence: None,
+                why_this_next_step: None,
+                what_is_missing: None,
             })
         }
         Some("about") => {
@@ -1513,6 +1541,13 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                 tool: Some("about".into()),
                 found: true,
                 suggestions: vec![],
+                proof_state: "triaging".into(),
+                next_suggested_tool: None,
+                next_suggested_target: None,
+                next_step_hint: None,
+                confidence: None,
+                why_this_next_step: None,
+                what_is_missing: None,
             })
         }
         Some(name) => {
@@ -1528,6 +1563,13 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     tool: Some(normalized.clone()),
                     found: true,
                     suggestions: vec![],
+                    proof_state: "triaging".into(),
+                    next_suggested_tool: None,
+                    next_suggested_target: None,
+                    next_step_hint: None,
+                    confidence: None,
+                    why_this_next_step: None,
+                    what_is_missing: None,
                 })
             } else {
                 // Unknown tool -- find similar (ADVERSARY H2)
@@ -1546,6 +1588,13 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
                     tool: Some(name.to_string()),
                     found: false,
                     suggestions: suggestions.clone(),
+                    proof_state: "triaging".into(),
+                    next_suggested_tool: None,
+                    next_suggested_target: None,
+                    next_step_hint: None,
+                    confidence: None,
+                    why_this_next_step: None,
+                    what_is_missing: None,
                 })
             }
         }

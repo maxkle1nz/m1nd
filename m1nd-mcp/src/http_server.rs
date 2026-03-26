@@ -24,7 +24,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::http_types::SubgraphQuery;
 use crate::server::{
-    dispatch_tool, timeout_error_payload, tool_error_payload, tool_schemas, McpConfig,
+    dispatch_tool, tool_schemas, McpConfig,
 };
 use crate::session::{ApplyBatchProgressSink, SessionState};
 
@@ -618,6 +618,26 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Build a JSON error payload for tool execution timeouts.
+fn timeout_error_payload(timeout_secs: u64) -> serde_json::Value {
+    serde_json::json!({
+        "error_type": "timeout",
+        "timeout_secs": timeout_secs,
+        "hint": format!(
+            "Tool execution exceeded {}s. Try narrowing scope or using incremental mode.",
+            timeout_secs
+        ),
+    })
+}
+
+/// Build a JSON error payload from a M1ndError.
+fn tool_error_payload(e: &m1nd_core::error::M1ndError) -> serde_json::Value {
+    serde_json::json!({
+        "error": "tool_error",
+        "message": e.to_string(),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Router construction
 // ---------------------------------------------------------------------------
@@ -1160,7 +1180,6 @@ async fn serve_embedded_ui(uri: Uri) -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::timeout_error_payload;
 
     #[test]
     fn emit_followup_events_replays_apply_batch_progress() {

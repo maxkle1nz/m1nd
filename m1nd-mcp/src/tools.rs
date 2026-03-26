@@ -422,6 +422,13 @@ pub fn handle_activate(
         structural_holes,
         plasticity,
         elapsed_ms,
+        proof_state: "triaging".into(),
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
+        confidence: None,
+        why_this_next_step: None,
+        what_is_missing: None,
     })
 }
 
@@ -442,6 +449,10 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 total_energy: 0.0,
                 max_hops_reached: 0,
                 causal_chains: vec![],
+                proof_state: "triaging".into(),
+                next_suggested_tool: None,
+                next_suggested_target: None,
+                next_step_hint: None,
             });
         }
     };
@@ -532,6 +543,10 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         total_energy: impact.total_energy.get(),
         max_hops_reached: impact.max_hops_reached,
         causal_chains,
+        proof_state: "triaging".into(),
+        next_suggested_tool: None,
+        next_suggested_target: None,
+        next_step_hint: None,
     })
 }
 
