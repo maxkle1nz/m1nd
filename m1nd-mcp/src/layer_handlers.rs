@@ -8039,6 +8039,254 @@ fn l7_normalize_layer_scope(scope: Option<&str>, ingest_roots: &[String]) -> Opt
     normalize_scope_path(scope, ingest_roots).map(|scope| format!("file::{}", scope))
 }
 
+// =========================================================================
+// RETROBUILDER Handlers (RB-01 through RB-05)
+// =========================================================================
+
+/// RB-01: Ghost Edges — parse git history and inject temporal co-change edges.
+pub fn handle_ghost_edges(
+    state: &mut SessionState,
+    input: layers::GhostEdgesInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+
+    // Parse depth
+    let depth = m1nd_core::git_history::GitDepth::parse(&input.depth)?;
+
+    // Discover repo root
+    let repo_root = discover_git_root(state)?;
+
+    // Parse git history
+    let commits = m1nd_core::git_history::parse_git_history(&repo_root, depth)?;
+
+    // Inject into co-change matrix
+    let graph = state.graph.read();
+    let result = m1nd_core::git_history::inject_git_history(
+        &graph,
+        &mut state.orchestrator.temporal.co_change,
+        &commits,
+    )?;
+    drop(graph);
+
+    state.queries_processed += 1;
+    if state.should_persist() {
+        let _ = state.persist();
+    }
+
+    serde_json::to_value(serde_json::json!({
+        "commits_parsed": result.commits_parsed,
+        "co_change_pairs_injected": result.co_change_pairs_injected,
+        "ghost_edges_found": result.ghost_edges_found,
+        "depth": input.depth,
+        "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+    }))
+    .map_err(M1ndError::Serde)
+}
+
+/// RB-02: Taint Trace — taint propagation / graph fuzzing.
+pub fn handle_taint_trace(
+    state: &mut SessionState,
+    input: layers::TaintTraceInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+    let graph = state.graph.read();
+
+    // Resolve entry node IDs to NodeIds
+    let entry_node_ids: Vec<m1nd_core::types::NodeId> = input
+        .entry_nodes
+        .iter()
+        .filter_map(|ext_id| graph.resolve_id(ext_id))
+        .collect();
+
+    if entry_node_ids.is_empty() {
+        return Err(M1ndError::InvalidParams {
+            tool: "taint_trace".into(),
+            detail: format!("no entry nodes resolved from: {}", input.entry_nodes.join(", ")),
+        });
+    }
+
+    // Build taint type
+    let taint_type = match input.taint_type.as_str() {
+        "sensitive_data" => m1nd_core::taint::TaintType::SensitiveData,
+        "custom" => m1nd_core::taint::TaintType::Custom {
+            boundary_patterns: input.boundary_patterns,
+        },
+        _ => m1nd_core::taint::TaintType::UserInput,
+    };
+
+    let config = m1nd_core::taint::TaintConfig {
+        max_depth: input.max_depth,
+        min_probability: input.min_probability,
+        taint_type,
+        ..m1nd_core::taint::TaintConfig::default()
+    };
+
+    let result = m1nd_core::taint::TaintEngine::analyze(&graph, &entry_node_ids, &config)?;
+    drop(graph);
+
+    state.queries_processed += 1;
+    if state.should_persist() {
+        let _ = state.persist();
+    }
+
+    serde_json::to_value(serde_json::json!({
+        "risk_score": result.risk_score,
+        "summary": result.summary,
+        "boundary_hits": result.boundary_hits,
+        "boundary_misses": result.boundary_misses,
+        "leaks": result.leaks,
+        "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+    }))
+    .map_err(M1ndError::Serde)
+}
+
+/// RB-03: Twins — find structural twins via topological signatures.
+pub fn handle_twins(
+    state: &mut SessionState,
+    input: layers::TwinsInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+    let graph = state.graph.read();
+
+    // Convert string node types to NodeType enum
+    let node_types: Vec<m1nd_core::types::NodeType> = input
+        .node_types
+        .iter()
+        .filter_map(|s| match s.to_lowercase().as_str() {
+            "function" => Some(m1nd_core::types::NodeType::Function),
+            "class" => Some(m1nd_core::types::NodeType::Class),
+            "struct" => Some(m1nd_core::types::NodeType::Struct),
+            "file" => Some(m1nd_core::types::NodeType::File),
+            "module" => Some(m1nd_core::types::NodeType::Module),
+            _ => None,
+        })
+        .collect();
+
+    let config = m1nd_core::twins::TwinConfig {
+        similarity_threshold: input.similarity_threshold,
+        top_k: input.top_k,
+        scope: input.scope,
+        node_types,
+        use_edge_types: true,
+    };
+
+    let result = m1nd_core::twins::find_twins(&graph, &config)?;
+    drop(graph);
+
+    state.queries_processed += 1;
+    if state.should_persist() {
+        let _ = state.persist();
+    }
+
+    serde_json::to_value(serde_json::json!({
+        "pairs": result.pairs,
+        "nodes_analyzed": result.nodes_analyzed,
+        "signatures_computed": result.signatures_computed,
+        "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+    }))
+    .map_err(M1ndError::Serde)
+}
+
+/// RB-04: Refactor Plan — community detection + counterfactual extraction.
+pub fn handle_refactor_plan(
+    state: &mut SessionState,
+    input: layers::RefactorPlanInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+    let graph = state.graph.read();
+
+    let config = m1nd_core::refactor::RefactorConfig {
+        max_communities: input.max_communities,
+        min_community_size: input.min_community_size,
+        scope: input.scope,
+        ..m1nd_core::refactor::RefactorConfig::default()
+    };
+
+    let result = m1nd_core::refactor::plan_refactoring(&graph, &config)?;
+    drop(graph);
+
+    state.queries_processed += 1;
+    if state.should_persist() {
+        let _ = state.persist();
+    }
+
+    serde_json::to_value(serde_json::json!({
+        "candidates": result.candidates,
+        "graph_modularity": result.graph_modularity,
+        "num_communities": result.num_communities,
+        "nodes_analyzed": result.nodes_analyzed,
+        "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+    }))
+    .map_err(M1ndError::Serde)
+}
+
+/// RB-05: Runtime Overlay — ingest OTel spans and paint runtime heat.
+pub fn handle_runtime_overlay(
+    state: &mut SessionState,
+    input: layers::RuntimeOverlayInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+
+    // Convert input spans to OtelBatch
+    let batch = m1nd_core::runtime_overlay::OtelBatch {
+        spans: input
+            .spans
+            .into_iter()
+            .map(|s| m1nd_core::runtime_overlay::OtelSpan {
+                name: s.name,
+                duration_us: s.duration_us,
+                count: s.count,
+                is_error: s.is_error,
+                attributes: s.attributes,
+                parent: s.parent,
+            })
+            .collect(),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0),
+        service_name: input.service_name,
+    };
+
+    // Parse mapping strategy
+    let mapping_strategy = match input.mapping_strategy.as_str() {
+        "code_attribute" => m1nd_core::runtime_overlay::MappingStrategy::CodeAttribute,
+        "exact_id" => m1nd_core::runtime_overlay::MappingStrategy::ExactId,
+        _ => m1nd_core::runtime_overlay::MappingStrategy::LabelMatch,
+    };
+
+    let overlay_config = m1nd_core::runtime_overlay::OverlayConfig {
+        mapping_strategy,
+        ..m1nd_core::runtime_overlay::OverlayConfig::default()
+    };
+
+    let mut overlay = m1nd_core::runtime_overlay::RuntimeOverlay::new(overlay_config);
+    let graph = state.graph.read();
+    let result = overlay.ingest(&graph, &batch)?;
+
+    // Apply boosts to graph activation
+    drop(graph);
+    let boosts_applied = {
+        let mut graph = state.graph.write();
+        overlay.apply_boosts(&mut graph, input.boost_strength)
+    };
+
+    state.queries_processed += 1;
+    if state.should_persist() {
+        let _ = state.persist();
+    }
+
+    serde_json::to_value(serde_json::json!({
+        "spans_processed": result.spans_processed,
+        "spans_mapped": result.spans_mapped,
+        "spans_unmapped": result.spans_unmapped,
+        "hot_nodes": result.hot_nodes,
+        "boosts_applied": boosts_applied,
+        "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+    }))
+    .map_err(M1ndError::Serde)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData};

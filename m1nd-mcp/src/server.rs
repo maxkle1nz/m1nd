@@ -1357,6 +1357,98 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             // =================================================================
+            // RETROBUILDER Superpowers (RB-01 through RB-05)
+            // =================================================================
+            {
+                "name": "ghost_edges",
+                "description": "Parse git history and inject temporal co-change ghost edges into the graph. Ghost edges reveal hidden coupling between files that always change together but have no static dependency.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "depth": { "type": "string", "default": "30d", "description": "Git history depth: 7d, 30d, 90d, all" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "top_k": { "type": "integer", "default": 50, "description": "Maximum ghost edges to return" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "taint_trace",
+                "description": "Taint propagation analysis: inject taint at entry points and track how it flows through the graph. Detects which security boundaries (validation, auth, sanitization) it crosses or misses.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "entry_nodes": { "type": "array", "items": { "type": "string" }, "description": "Entry point node IDs to inject taint" },
+                        "taint_type": { "type": "string", "default": "user_input", "description": "Taint type: user_input, sensitive_data, custom" },
+                        "boundary_patterns": { "type": "array", "items": { "type": "string" }, "description": "Custom boundary patterns (when taint_type=custom)" },
+                        "max_depth": { "type": "integer", "default": 15, "description": "Maximum propagation depth" },
+                        "min_probability": { "type": "number", "default": 0.01, "description": "Minimum infection probability to report" }
+                    },
+                    "required": ["agent_id", "entry_nodes"]
+                }
+            },
+            {
+                "name": "twins",
+                "description": "Find structural twins: code that behaves the same way topologically even when written differently. Detects duplicate retry logic, state machines, CRUD handlers via cosine similarity of structural signatures.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "similarity_threshold": { "type": "number", "default": 0.80, "description": "Minimum cosine similarity [0.0, 1.0]" },
+                        "top_k": { "type": "integer", "default": 50, "description": "Maximum twin pairs to return" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "node_types": { "type": "array", "items": { "type": "string" }, "description": "Filter by node types (empty = all)" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "refactor_plan",
+                "description": "Intent-driven refactoring planner: detects natural module boundaries via community detection, computes minimum-cut interfaces, and simulates extraction risk via counterfactual analysis.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "max_communities": { "type": "integer", "default": 10, "description": "Maximum communities to consider" },
+                        "min_community_size": { "type": "integer", "default": 3, "description": "Minimum nodes for extraction candidate" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "runtime_overlay",
+                "description": "Ingest OpenTelemetry trace data and paint the graph with runtime heat — call counts, latency, error rates. Boosts activation scoring for runtime-hot code paths.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "spans": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string", "description": "Span/function name" },
+                                    "duration_us": { "type": "integer", "description": "Duration in microseconds" },
+                                    "count": { "type": "integer", "default": 1, "description": "Invocation count" },
+                                    "is_error": { "type": "boolean", "default": false },
+                                    "attributes": { "type": "object", "description": "Optional OTel attributes" },
+                                    "parent": { "type": "string", "description": "Parent span name" }
+                                },
+                                "required": ["name", "duration_us"]
+                            },
+                            "description": "OTel spans to ingest"
+                        },
+                        "service_name": { "type": "string", "description": "Service name for scoping" },
+                        "mapping_strategy": { "type": "string", "default": "label_match", "description": "How to map spans to nodes: label_match, code_attribute, exact_id" },
+                        "boost_strength": { "type": "number", "default": 0.15, "description": "Activation boost strength [0.0, 1.0]" }
+                    },
+                    "required": ["agent_id", "spans"]
+                }
+            },
+            // =================================================================
             // Surgical: context + apply
             // =================================================================
             {
@@ -1903,6 +1995,34 @@ fn dispatch_core_tool(
             let input: layers::LayerInspectInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             layer_handlers::handle_layer_inspect(state, input)
+        }
+        // -----------------------------------------------------------------
+        // RETROBUILDER: ghost_edges, taint_trace, twins, refactor_plan, runtime_overlay
+        // -----------------------------------------------------------------
+        "ghost_edges" => {
+            let input: layers::GhostEdgesInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_ghost_edges(state, input)
+        }
+        "taint_trace" => {
+            let input: layers::TaintTraceInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_taint_trace(state, input)
+        }
+        "twins" => {
+            let input: layers::TwinsInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_twins(state, input)
+        }
+        "refactor_plan" => {
+            let input: layers::RefactorPlanInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_refactor_plan(state, input)
+        }
+        "runtime_overlay" => {
+            let input: layers::RuntimeOverlayInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_runtime_overlay(state, input)
         }
         // -----------------------------------------------------------------
         // v0.4.0: search, help, panoramic, savings, report

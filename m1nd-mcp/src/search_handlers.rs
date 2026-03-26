@@ -1531,8 +1531,49 @@ pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<He
 
     match tool_name {
         None => {
-            // Full index
-            let formatted = personality::format_help_index();
+            // Check if TEMPONIZER is enabled via .m1nd/boot/temponizer.json
+            // Search: ingest roots → workspace_root → runtime_root ancestors → exe ancestors → CWD
+            let show_temponizer = {
+                let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+                for root in &_state.ingest_roots {
+                    candidates.push(std::path::PathBuf::from(root));
+                }
+                if let Some(ref ws) = _state.workspace_root {
+                    candidates.push(std::path::PathBuf::from(ws));
+                }
+                // Walk up from runtime_root
+                let mut dir = _state.runtime_root.clone();
+                for _ in 0..5 {
+                    candidates.push(dir.clone());
+                    if let Some(parent) = dir.parent() {
+                        dir = parent.to_path_buf();
+                    } else {
+                        break;
+                    }
+                }
+                // Walk up from the executable itself (target/release/m1nd-mcp → project root)
+                if let Ok(exe) = std::env::current_exe() {
+                    let mut dir = exe;
+                    for _ in 0..6 {
+                        if let Some(parent) = dir.parent() {
+                            candidates.push(parent.to_path_buf());
+                            dir = parent.to_path_buf();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                if let Ok(cwd) = std::env::current_dir() {
+                    candidates.push(cwd);
+                }
+                candidates.iter().any(|root| {
+                    let path = root.join(".m1nd/boot/temponizer.json");
+                    std::fs::read_to_string(&path)
+                        .map(|c| c.contains("\"enabled\": true") || c.contains("\"enabled\":true"))
+                        .unwrap_or(false)
+                })
+            };
+            let formatted = personality::format_help_index(show_temponizer);
             Ok(HelpOutput {
                 formatted,
                 tool: None,

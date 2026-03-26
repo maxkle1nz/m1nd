@@ -6,7 +6,26 @@ All notable changes to m1nd are documented here.
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+
+#### RETROBUILDER: 5 Advanced Graph Analysis Tools
+
+Five new MCP tools expose the RETROBUILDER core modules (RB-01 through RB-05),
+adding temporal analysis, security taint propagation, structural duplication
+detection, refactoring planning, and runtime observability to the tool surface.
+
+| Tool | Module | What It Does |
+|------|--------|-------------|
+| `ghost_edges` | RB-01: 4D Git Graph | Parse git history and inject temporal co-change ghost edges — hidden coupling between files that always change together but have no static dependency |
+| `taint_trace` | RB-02: Graph Fuzzing | Inject taint at entry points, track propagation through the graph, detect missed security boundaries (validation, auth, sanitization) |
+| `twins` | RB-03: Structural Twins | Find structurally identical code via topological signature cosine similarity — detects duplicate retry logic, CRUD handlers, state machines |
+| `refactor_plan` | RB-04: Intent-Driven Refactoring | Community detection + bridge analysis + counterfactual simulation for safe module extraction planning |
+| `runtime_overlay` | RB-05: OTel Overlay | Ingest OpenTelemetry trace data to paint runtime heat (call counts, latency, error rates) onto graph nodes |
+
+New types in `protocol/layers.rs`: `GhostEdgesInput`, `TaintTraceInput`,
+`TwinsInput`, `RefactorPlanInput`, `RuntimeOverlayInput`, `RuntimeOverlaySpan`.
+
+Tool count: 63 → 68.
 
 ---
 

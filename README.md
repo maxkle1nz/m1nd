@@ -270,6 +270,11 @@ This is the part most READMEs skip. If the reader does not know which tool to re
 | Resume an investigation and get the next likely move | `trail_resume` with `resume_hints`, `next_focus_node_id`, `next_open_question`, `next_suggested_tool` |
 | Understand whether a tool is still triaging, proving, or ready to edit | `proof_state` on `impact`, `trace`, `hypothesize`, `validate_plan`, and `surgical_context_v2` |
 | Ask what changed recently and why it matters | `timeline` |
+| Discover hidden temporal coupling between files | `ghost_edges` |
+| Trace taint propagation and missing security boundaries | `taint_trace` |
+| Find structurally identical code (duplicate patterns) | `twins` |
+| Plan safe module extraction with risk assessment | `refactor_plan` |
+| Paint runtime heat from OTel traces onto the graph | `runtime_overlay` |
 
 Common failure recovery:
 
@@ -422,7 +427,7 @@ It is not a replacement for an LSP, a compiler, or runtime observability. It giv
 
 ## Tool Surface
 
-The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **63 MCP tools**.
+The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **68 MCP tools**.
 
 Canonical tool names in the exported MCP schema use underscores, such as `trail_save`, `perspective_start`, and `apply_batch`. Some clients may display names with a transport prefix like `m1nd.apply_batch`, but the live registry entries are underscore-based.
 
@@ -432,6 +437,7 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 | Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
+| RETROBUILDER | ghost_edges, taint_trace, twins, refactor_plan, runtime_overlay |
 | Reporting & State | report, savings, persist, boot_memory |
 | Surgical | surgical_context, surgical_context_v2, heuristics_surface, apply, edit_preview, edit_commit, apply_batch |
 
@@ -509,6 +515,18 @@ Canonical tool names in the exported MCP schema use underscores, such as `trail_
 | `trust` | Per-module defect-history trust scores | 70 &micro;s |
 | `layers` | Auto-detect architectural layers and violations | 862 &micro;s |
 | `layer_inspect` | Inspect a specific layer | varies |
+</details>
+
+<details>
+<summary><strong>RETROBUILDER</strong></summary>
+
+| Tool | What It Does | Speed |
+|------|-------------|-------|
+| `ghost_edges` | Parse git history and inject temporal co-change ghost edges | varies |
+| `taint_trace` | Taint propagation analysis detecting security boundary gaps | varies |
+| `twins` | Find structurally identical code via topological signatures | varies |
+| `refactor_plan` | Community detection + counterfactual extraction risk planning | varies |
+| `runtime_overlay` | Ingest OTel spans and paint runtime heat onto graph nodes | varies |
 </details>
 
 <details>
@@ -590,7 +608,9 @@ Three Rust crates. Local execution. No API keys required for the core server pat
 
 ```text
 m1nd-core/     Graph engine, propagation, heuristics, hypothesis engine,
-               antibody system, flow simulator, epidemic, tremor, trust, layers
+               antibody system, flow simulator, epidemic, tremor, trust, layers,
+               git history ghost edges, taint propagation, structural twins,
+               refactoring planner, runtime overlay
 m1nd-ingest/   Language extractors, memory/json/light adapters,
                git enrichment, cross-file resolver, incremental diff
 m1nd-mcp/      MCP server, JSON-RPC over stdio, plus HTTP/UI support in the current default build

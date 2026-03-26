@@ -18,7 +18,41 @@ bincode = "1.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+m1nd-ingest = { path = "../m1nd-ingest" }
 
 [[bench]]
 name = "core_benchmarks"
 harness = false
+
+# ═══════════════════════════════════════════════════════════════════
+# @m1nd — Agent-readable methodology metadata. Cargo ignores this.
+# Any LLM agent or tool calling `cargo metadata` receives this.
+# ═══════════════════════════════════════════════════════════════════
+[package.metadata.m1nd]
+methodology = "TEMPONIZER + RUN Technology (EMCA)"
+boot_file = ".m1nd/boot/temponizer.json"
+
+[package.metadata.m1nd.modules.git_history]
+classification = "IGNITION"
+primitives = ["temporal::CoChangeMatrix", "git log"]
+pattern = "Parse → Feed existing matrix → Detect ghost edges"
+
+[package.metadata.m1nd.modules.taint]
+classification = "WIRING"
+primitives = ["flow::FlowEngine", "epidemic::EpidemicEngine"]
+pattern = "Compose flow + epidemic → Cross-ref vs security boundaries"
+
+[package.metadata.m1nd.modules.twins]
+classification = "WIRING"
+primitives = ["topology (degree distribution)", "cosine_similarity"]
+pattern = "Compute signature vectors → Pairwise cosine → Threshold filter"
+
+[package.metadata.m1nd.modules.refactor]
+classification = "HARDENING"
+primitives = ["topology::CommunityDetector", "topology::BridgeDetector", "counterfactual::CounterfactualEngine"]
+pattern = "Detect communities → Find bridges → Simulate extraction → Score risk"
+
+[package.metadata.m1nd.modules.runtime_overlay]
+classification = "HARDENING"
+primitives = ["graph::Graph (activation arrays)", "temporal::TemporalDecayScorer"]
+pattern = "Ingest OTel spans → Map to nodes → Accumulate heat → Boost activation"

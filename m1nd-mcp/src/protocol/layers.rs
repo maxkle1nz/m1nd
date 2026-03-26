@@ -1087,6 +1087,154 @@ pub struct FederateCrossRepoEdge {
 }
 
 // =========================================================================
+// RETROBUILDER Modules — ghost_edges / taint_trace / twins / refactor_plan / runtime_overlay
+// =========================================================================
+
+// ---------------------------------------------------------------------------
+// m1nd.ghost_edges (RB-01: 4D Git Graph)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct GhostEdgesInput {
+    pub agent_id: String,
+    /// Depth of git history: "7d", "30d", "90d", "all". Default: "30d".
+    #[serde(default = "default_depth_30d")]
+    pub depth: String,
+    /// Scope filter: only process files matching this prefix.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// Maximum ghost edges to return. Default: 50.
+    #[serde(default = "default_scan_limit")]
+    pub top_k: usize,
+}
+
+// ---------------------------------------------------------------------------
+// m1nd.taint_trace (RB-02: Graph Fuzzing / Taint Propagation)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TaintTraceInput {
+    pub agent_id: String,
+    /// Entry point node IDs to inject taint.
+    pub entry_nodes: Vec<String>,
+    /// Taint type: "user_input", "sensitive_data", or custom boundary patterns.
+    #[serde(default = "default_taint_type")]
+    pub taint_type: String,
+    /// Custom boundary patterns (used when taint_type = "custom").
+    #[serde(default)]
+    pub boundary_patterns: Vec<String>,
+    /// Maximum propagation depth. Default: 15.
+    #[serde(default = "default_taint_max_depth")]
+    pub max_depth: u32,
+    /// Minimum infection probability to report. Default: 0.01.
+    #[serde(default = "default_taint_min_prob")]
+    pub min_probability: f32,
+}
+
+fn default_taint_type() -> String {
+    "user_input".to_string()
+}
+fn default_taint_max_depth() -> u32 {
+    15
+}
+fn default_taint_min_prob() -> f32 {
+    0.01
+}
+
+// ---------------------------------------------------------------------------
+// m1nd.twins (RB-03: Structural Twins)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TwinsInput {
+    pub agent_id: String,
+    /// Minimum cosine similarity threshold [0.0, 1.0]. Default: 0.80.
+    #[serde(default = "default_twin_threshold")]
+    pub similarity_threshold: f32,
+    /// Maximum twin pairs to return. Default: 50.
+    #[serde(default = "default_scan_limit")]
+    pub top_k: usize,
+    /// File path prefix to limit scope.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// Node type filter (empty = all).
+    #[serde(default)]
+    pub node_types: Vec<String>,
+}
+
+fn default_twin_threshold() -> f32 {
+    0.80
+}
+
+// ---------------------------------------------------------------------------
+// m1nd.refactor_plan (RB-04: Intent-Driven Refactoring)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RefactorPlanInput {
+    pub agent_id: String,
+    /// File path prefix to limit scope. Narrows community detection to this area.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// Maximum communities to consider. Default: 10.
+    #[serde(default = "default_max_communities")]
+    pub max_communities: usize,
+    /// Minimum nodes for a community to be extractable. Default: 3.
+    #[serde(default = "default_min_community_size")]
+    pub min_community_size: usize,
+}
+
+fn default_max_communities() -> usize {
+    10
+}
+fn default_min_community_size() -> usize {
+    3
+}
+
+// ---------------------------------------------------------------------------
+// m1nd.runtime_overlay (RB-05: OpenTelemetry Overlay)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RuntimeOverlayInput {
+    pub agent_id: String,
+    /// OTel spans to ingest.
+    pub spans: Vec<RuntimeOverlaySpan>,
+    /// Service name for scoping.
+    #[serde(default)]
+    pub service_name: String,
+    /// Mapping strategy: "label_match", "code_attribute", "exact_id".
+    #[serde(default = "default_mapping_strategy")]
+    pub mapping_strategy: String,
+    /// Activation boost strength [0.0, 1.0]. Default: 0.15.
+    #[serde(default = "default_boost_strength")]
+    pub boost_strength: f32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RuntimeOverlaySpan {
+    pub name: String,
+    pub duration_us: u64,
+    #[serde(default = "default_span_count")]
+    pub count: u64,
+    #[serde(default)]
+    pub is_error: bool,
+    #[serde(default)]
+    pub attributes: std::collections::HashMap<String, String>,
+    pub parent: Option<String>,
+}
+
+fn default_mapping_strategy() -> String {
+    "label_match".to_string()
+}
+fn default_boost_strength() -> f32 {
+    0.15
+}
+fn default_span_count() -> u64 {
+    1
+}
+
+// =========================================================================
 // Default value helpers
 // =========================================================================
 

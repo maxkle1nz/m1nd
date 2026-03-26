@@ -1112,6 +1112,7 @@ version = "0.6.1"
 dependencies = [
  "bincode",
  "criterion",
+ "m1nd-ingest",
  "parking_lot",
  "rayon",
  "serde",

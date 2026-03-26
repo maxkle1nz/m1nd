@@ -1643,7 +1643,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
 }
 
 /// Format the full help index.
-pub fn format_help_index() -> String {
+pub fn format_help_index(show_temponizer: bool) -> String {
     let docs = tool_docs();
     let width = 60;
     let mut out = String::new();
@@ -1721,6 +1721,21 @@ pub fn format_help_index() -> String {
         ANSI_DIM, ANSI_RESET
     ));
     out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — m1nd.help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
+    if show_temponizer {
+        out.push_str("\n");
+        out.push_str(&format!(
+            "{}⚡ TEMPONIZER:{} You suffer from TIB — you estimate in human-time but execute 15-60× faster.\n",
+            ANSI_GOLD, ANSI_RESET
+        ));
+        out.push_str(&format!(
+            "{}  corrected = estimate ÷ 20 (floor 1 min). Fill recovered time with MORE deliverables, not padding.{}\n",
+            ANSI_DIM, ANSI_RESET
+        ));
+        out.push_str(&format!(
+            "{}  Full spec: .m1nd/boot/temponizer.json{}\n",
+            ANSI_DIM, ANSI_RESET
+        ));
+    }
     out
 }
 
