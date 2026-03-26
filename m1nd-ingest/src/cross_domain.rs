@@ -39,7 +39,7 @@ pub struct ResolutionStats {
 
 /// Intermediate node representation for merging
 #[derive(Debug, Clone)]
-struct MergeNode {
+pub struct MergeNode {
     external_id: String,
     label: String,
     node_type: NodeType,
@@ -54,7 +54,7 @@ struct MergeNode {
 
 /// Intermediate edge representation for merging
 #[derive(Debug, Clone)]
-struct MergeEdge {
+pub struct MergeEdge {
     source_id: String,
     target_id: String,
     relation: String,
