@@ -12,9 +12,9 @@ use walkdir::WalkDir;
 /// Maps a patent kind code to a L1GHT state.
 fn kind_to_state(kind: &str) -> &'static str {
     match kind {
-        "A1" | "A2" | "A9" => "draft",      // Published application
-        "B1" | "B2" => "active",              // Granted patent
-        "C1" | "C2" | "C3" => "active",       // Reexamination certificate
+        "A1" | "A2" | "A9" => "draft",         // Published application
+        "B1" | "B2" => "active",               // Granted patent
+        "C1" | "C2" | "C3" => "active",        // Reexamination certificate
         "P1" | "P2" | "P3" | "P4" => "active", // Plant patent
         "S1" => "active",                      // Design patent
         "E1" => "active",                      // Reissue
@@ -45,9 +45,9 @@ struct PatentRecord {
 enum PatentFormat {
     #[default]
     Unknown,
-    UsRedBook,   // <us-patent-grant>
+    UsRedBook,    // <us-patent-grant>
     UsYellowBook, // <us-patent-application>
-    EpoDocDb,    // <ep-patent-document>
+    EpoDocDb,     // <ep-patent-document>
 }
 
 impl PatentRecord {
@@ -62,11 +62,7 @@ impl PatentRecord {
         } else {
             &self.country
         };
-        let kind = if self.kind.is_empty() {
-            ""
-        } else {
-            &self.kind
-        };
+        let kind = if self.kind.is_empty() { "" } else { &self.kind };
         format!("patent::{}::{}{}", country, num, kind)
     }
 
@@ -133,9 +129,7 @@ impl PatentIngestAdapter {
         WalkDir::new(root)
             .into_iter()
             .filter_map(Result::ok)
-            .filter(|entry| {
-                entry.file_type().is_file() && Self::accepted_extension(entry.path())
-            })
+            .filter(|entry| entry.file_type().is_file() && Self::accepted_extension(entry.path()))
             .map(|entry| entry.into_path())
             .collect()
     }
@@ -203,13 +197,13 @@ impl PatentIngestAdapter {
         let mut in_inventor_name = false;
         let mut inventor_parts: Vec<String> = Vec::new();
         // EPO B-series SDOBI flags
-        let mut in_b541 = false;   // EPO title
-        let mut in_b721 = false;   // EPO inventor block
-        let mut in_b731 = false;   // EPO assignee block
-        let mut in_b561 = false;   // EPO citation block
-        let mut in_pdat = false;   // EPO inline data
-        let mut in_snm = false;    // EPO surname
-        let mut in_fnm = false;    // EPO first name
+        let mut in_b541 = false; // EPO title
+        let mut in_b721 = false; // EPO inventor block
+        let mut in_b731 = false; // EPO assignee block
+        let mut in_b561 = false; // EPO citation block
+        let mut in_pdat = false; // EPO inline data
+        let mut in_snm = false; // EPO surname
+        let mut in_fnm = false; // EPO first name
 
         loop {
             match reader.read_event_into(&mut buf) {
@@ -264,9 +258,10 @@ impl PatentIngestAdapter {
                             in_classification = true;
                         }
                         "given-name" | "family-name" | "last-name" | "first-name" => {
-                            if path.iter().any(|p| {
-                                p == "inventors" || p == "inventor" || p == "applicants"
-                            }) {
+                            if path
+                                .iter()
+                                .any(|p| p == "inventors" || p == "inventor" || p == "applicants")
+                            {
                                 in_inventor_name = true;
                             }
                         }
@@ -307,9 +302,8 @@ impl PatentIngestAdapter {
                         "orgname" => {
                             in_orgname = false;
                             if !text_buf.is_empty() {
-                                let parent_is_assignee = path
-                                    .iter()
-                                    .any(|p| p == "assignee" || p == "assignees");
+                                let parent_is_assignee =
+                                    path.iter().any(|p| p == "assignee" || p == "assignees");
                                 if parent_is_assignee {
                                     record.assignees.push(text_buf.trim().to_string());
                                 }
@@ -410,8 +404,7 @@ impl PatentIngestAdapter {
                                         record.country = text_buf.trim().to_string();
                                     }
                                     if in_citation {
-                                        current_citation_doc
-                                            .push_str(text_buf.trim());
+                                        current_citation_doc.push_str(text_buf.trim());
                                     }
                                 }
                                 text_buf.clear();
@@ -457,9 +450,15 @@ impl PatentIngestAdapter {
                     path.pop();
                 }
                 Ok(Event::Text(e)) => {
-                    if in_abstract || in_title || in_orgname || in_inventor_name
-                        || in_classification || in_citation
-                        || in_pdat || in_snm || in_fnm
+                    if in_abstract
+                        || in_title
+                        || in_orgname
+                        || in_inventor_name
+                        || in_classification
+                        || in_citation
+                        || in_pdat
+                        || in_snm
+                        || in_fnm
                     {
                         if let Ok(t) = e.unescape() {
                             text_buf.push_str(&t);
@@ -467,10 +466,7 @@ impl PatentIngestAdapter {
                     } else {
                         // Capture text for country/doc-number/kind/date
                         let current = path.last().map(|s| s.as_str()).unwrap_or("");
-                        if matches!(
-                            current,
-                            "country" | "doc-number" | "kind" | "date"
-                        ) {
+                        if matches!(current, "country" | "doc-number" | "kind" | "date") {
                             if let Ok(t) = e.unescape() {
                                 text_buf.push_str(&t);
                             }
@@ -583,8 +579,7 @@ impl IngestAdapter for PatentIngestAdapter {
 
                 // Citation edges (depends_on)
                 for citation in &record.citations {
-                    let target_id = format!("patent::{}",
-                        citation.replace(' ', ""));
+                    let target_id = format!("patent::{}", citation.replace(' ', ""));
                     let key = (ext_id.clone(), target_id.clone(), "cites".to_string());
                     if edge_keys.insert(key) {
                         // Create a reference node for the cited patent
@@ -594,10 +589,7 @@ impl IngestAdapter for PatentIngestAdapter {
                                 id: target_id.clone(),
                                 label: citation.clone(),
                                 node_type: NodeType::Reference,
-                                tags: vec![
-                                    "patent".to_string(),
-                                    "patent:cited".to_string(),
-                                ],
+                                tags: vec!["patent".to_string(), "patent:cited".to_string()],
                                 timestamp,
                                 source_path: rel_path.clone(),
                                 excerpt: None,
@@ -624,17 +616,18 @@ impl IngestAdapter for PatentIngestAdapter {
                             id: assignee_id.clone(),
                             label: assignee.clone(),
                             node_type: NodeType::Concept,
-                            tags: vec![
-                                "patent".to_string(),
-                                "patent:assignee".to_string(),
-                            ],
+                            tags: vec!["patent".to_string(), "patent:assignee".to_string()],
                             timestamp,
                             source_path: rel_path.clone(),
                             excerpt: None,
                             namespace: self.namespace.clone(),
                         });
                     }
-                    let key = (ext_id.clone(), assignee_id.clone(), "assigned_to".to_string());
+                    let key = (
+                        ext_id.clone(),
+                        assignee_id.clone(),
+                        "assigned_to".to_string(),
+                    );
                     if edge_keys.insert(key) {
                         edges.push(EdgeRecord {
                             source: ext_id.clone(),
@@ -649,19 +642,14 @@ impl IngestAdapter for PatentIngestAdapter {
                 for cls in &record.classifications {
                     let cls_id = format!(
                         "patent::class::{}",
-                        cls.to_lowercase()
-                            .replace(' ', "")
-                            .replace('/', "_")
+                        cls.to_lowercase().replace(' ', "").replace('/', "_")
                     );
                     if node_ids.insert(cls_id.clone()) {
                         nodes.push(NodeRecord {
                             id: cls_id.clone(),
                             label: cls.clone(),
                             node_type: NodeType::Concept,
-                            tags: vec![
-                                "patent".to_string(),
-                                "patent:classification".to_string(),
-                            ],
+                            tags: vec!["patent".to_string(), "patent:classification".to_string()],
                             timestamp,
                             source_path: rel_path.clone(),
                             excerpt: None,
