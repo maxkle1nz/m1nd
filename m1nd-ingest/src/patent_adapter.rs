@@ -202,6 +202,14 @@ impl PatentIngestAdapter {
         let mut in_orgname = false;
         let mut in_inventor_name = false;
         let mut inventor_parts: Vec<String> = Vec::new();
+        // EPO B-series SDOBI flags
+        let mut in_b541 = false;   // EPO title
+        let mut in_b721 = false;   // EPO inventor block
+        let mut in_b731 = false;   // EPO assignee block
+        let mut in_b561 = false;   // EPO citation block
+        let mut in_pdat = false;   // EPO inline data
+        let mut in_snm = false;    // EPO surname
+        let mut in_fnm = false;    // EPO first name
 
         loop {
             match reader.read_event_into(&mut buf) {
@@ -215,7 +223,32 @@ impl PatentIngestAdapter {
                             "us-patent-application" => {
                                 record.format = PatentFormat::UsYellowBook;
                             }
-                            "ep-patent-document" => record.format = PatentFormat::EpoDocDb,
+                            "ep-patent-document" => {
+                                record.format = PatentFormat::EpoDocDb;
+                                // EPO stores country/doc-number/kind as attributes
+                                for attr in e.attributes().filter_map(|a| a.ok()) {
+                                    let key = String::from_utf8_lossy(attr.key.as_ref());
+                                    let val = String::from_utf8_lossy(&attr.value);
+                                    match key.as_ref() {
+                                        "country" => {
+                                            if record.country.is_empty() {
+                                                record.country = val.to_string();
+                                            }
+                                        }
+                                        "doc-number" => {
+                                            if record.doc_number.is_empty() {
+                                                record.doc_number = val.to_string();
+                                            }
+                                        }
+                                        "kind" => {
+                                            if record.kind.is_empty() {
+                                                record.kind = val.to_string();
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -235,6 +268,19 @@ impl PatentIngestAdapter {
                                 p == "inventors" || p == "inventor" || p == "applicants"
                             }) {
                                 in_inventor_name = true;
+                            }
+                        }
+                        // EPO B-series SDOBI tags
+                        "B541" => in_b541 = true,
+                        "B721" => in_b721 = true,
+                        "B731" => in_b731 = true,
+                        "B561" => in_b561 = true,
+                        "pdat" => in_pdat = true,
+                        "snm" => in_snm = true,
+                        "fnm" => in_fnm = true,
+                        "pcit" => {
+                            if in_b561 {
+                                in_citation = true;
                             }
                         }
                         _ => {}
@@ -281,6 +327,62 @@ impl PatentIngestAdapter {
                             if !inventor_parts.is_empty() {
                                 record.inventors.push(inventor_parts.join(" "));
                                 inventor_parts.clear();
+                            }
+                        }
+                        // EPO B-series end tags
+                        "B541" => {
+                            in_b541 = false;
+                            if !text_buf.is_empty() && record.title.is_empty() {
+                                record.title = text_buf.trim().to_string();
+                                text_buf.clear();
+                            }
+                        }
+                        "B721" => {
+                            in_b721 = false;
+                            if !inventor_parts.is_empty() {
+                                record.inventors.push(inventor_parts.join(" "));
+                                inventor_parts.clear();
+                            }
+                        }
+                        "B731" => {
+                            in_b731 = false;
+                            if !text_buf.is_empty() {
+                                record.assignees.push(text_buf.trim().to_string());
+                                text_buf.clear();
+                            }
+                        }
+                        "B561" => {
+                            in_b561 = false;
+                        }
+                        "pdat" => {
+                            in_pdat = false;
+                        }
+                        "snm" => {
+                            if in_snm && !text_buf.is_empty() {
+                                if in_b721 {
+                                    inventor_parts.push(text_buf.trim().to_string());
+                                    text_buf.clear();
+                                }
+                                // For B731 (assignee), don't clear — let B731 close handle it
+                            }
+                            in_snm = false;
+                        }
+                        "fnm" => {
+                            if in_fnm && !text_buf.is_empty() {
+                                if in_b721 {
+                                    inventor_parts.push(text_buf.trim().to_string());
+                                }
+                                text_buf.clear();
+                            }
+                            in_fnm = false;
+                        }
+                        "pcit" => {
+                            if in_citation {
+                                if !current_citation_doc.is_empty() {
+                                    record.citations.push(current_citation_doc.clone());
+                                    current_citation_doc.clear();
+                                }
+                                in_citation = false;
                             }
                         }
                         "patcit" | "us-citation" => {
@@ -357,6 +459,7 @@ impl PatentIngestAdapter {
                 Ok(Event::Text(e)) => {
                     if in_abstract || in_title || in_orgname || in_inventor_name
                         || in_classification || in_citation
+                        || in_pdat || in_snm || in_fnm
                     {
                         if let Ok(t) = e.unescape() {
                             text_buf.push_str(&t);
