@@ -15,12 +15,12 @@
 //    - Risk assessment (orphaned nodes, activation loss)
 //    - Suggested interface specifications
 
+use crate::activation::HybridEngine;
 use crate::counterfactual::{CascadeResult, CounterfactualEngine, CounterfactualResult};
 use crate::error::{M1ndError, M1ndResult};
 use crate::graph::Graph;
-use crate::topology::{BridgeDetector, CommunityDetector, CommunityResult, Bridge};
+use crate::topology::{Bridge, BridgeDetector, CommunityDetector, CommunityResult};
 use crate::types::{CommunityId, FiniteF32, NodeId};
-use crate::activation::HybridEngine;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
@@ -130,10 +130,7 @@ pub struct RefactorPlan {
 
 /// Build a refactoring plan by composing community detection and
 /// counterfactual analysis.
-pub fn plan_refactoring(
-    graph: &Graph,
-    config: &RefactorConfig,
-) -> M1ndResult<RefactorPlan> {
+pub fn plan_refactoring(graph: &Graph, config: &RefactorConfig) -> M1ndResult<RefactorPlan> {
     let start = std::time::Instant::now();
     let n = graph.num_nodes() as usize;
 
@@ -157,6 +154,7 @@ pub fn plan_refactoring(
 
     // --- Phase 2: Analyze each community as an extraction candidate ---
     let mut community_nodes: HashMap<u32, Vec<usize>> = HashMap::new();
+    #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         // Scope filter
         if let Some(ref scope) = config.scope {
@@ -207,20 +205,12 @@ pub fn plan_refactoring(
         let node_set: HashSet<usize> = nodes.iter().copied().collect();
 
         // Counterfactual: what happens if we remove this community?
-        let cf_result = cf_engine.simulate_removal(
-            graph,
-            &hybrid_engine,
-            &prop_config,
-            &node_ids,
-        )?;
+        let cf_result =
+            cf_engine.simulate_removal(graph, &hybrid_engine, &prop_config, &node_ids)?;
 
         // Cascade analysis from the first node
-        let cascade = cf_engine.cascade_analysis(
-            graph,
-            &hybrid_engine,
-            &prop_config,
-            node_ids[0],
-        )?;
+        let cascade =
+            cf_engine.cascade_analysis(graph, &hybrid_engine, &prop_config, node_ids[0])?;
 
         // Find interface edges (bridges touching this community)
         let interface: Vec<InterfaceEdge> = bridges
@@ -237,7 +227,10 @@ pub fn plan_refactoring(
                 InterfaceEdge {
                     source_id: node_to_ext[b.source.as_usize()].clone(),
                     target_id: node_to_ext[b.target.as_usize()].clone(),
-                    relation: graph.strings.resolve(graph.csr.relations[b.edge_idx.as_usize()]).to_string(),
+                    relation: graph
+                        .strings
+                        .resolve(graph.csr.relations[b.edge_idx.as_usize()])
+                        .to_string(),
                     weight: b.importance.get(),
                     direction: direction.to_string(),
                 }
@@ -266,9 +259,10 @@ pub fn plan_refactoring(
         candidates.push(ExtractionPlan {
             community_id: cid,
             extracted_nodes: nodes.iter().map(|&i| node_to_ext[i].clone()).collect(),
-            extracted_labels: nodes.iter().map(|&i| {
-                graph.strings.resolve(graph.nodes.label[i]).to_string()
-            }).collect(),
+            extracted_labels: nodes
+                .iter()
+                .map(|&i| graph.strings.resolve(graph.nodes.label[i]).to_string())
+                .collect(),
             interface_edges: interface,
             risk: ExtractionRisk {
                 level: risk_level.to_string(),
@@ -288,7 +282,9 @@ pub fn plan_refactoring(
     candidates.sort_by(|a, b| {
         let score_a = a.risk.activation_loss - a.cohesion * 0.5;
         let score_b = b.risk.activation_loss - b.cohesion * 0.5;
-        score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+        score_a
+            .partial_cmp(&score_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     Ok(RefactorPlan {
@@ -317,22 +313,115 @@ mod tests {
     fn build_two_cluster_graph() -> Graph {
         let mut g = Graph::new();
         // Cluster A
-        g.add_node("a1", "handler_a", NodeType::Function, &["cluster_a"], 0.0, 0.5).unwrap();
-        g.add_node("a2", "process_a", NodeType::Function, &["cluster_a"], 0.0, 0.4).unwrap();
-        g.add_node("a3", "output_a", NodeType::Function, &["cluster_a"], 0.0, 0.3).unwrap();
+        g.add_node(
+            "a1",
+            "handler_a",
+            NodeType::Function,
+            &["cluster_a"],
+            0.0,
+            0.5,
+        )
+        .unwrap();
+        g.add_node(
+            "a2",
+            "process_a",
+            NodeType::Function,
+            &["cluster_a"],
+            0.0,
+            0.4,
+        )
+        .unwrap();
+        g.add_node(
+            "a3",
+            "output_a",
+            NodeType::Function,
+            &["cluster_a"],
+            0.0,
+            0.3,
+        )
+        .unwrap();
         // Cluster B
-        g.add_node("b1", "handler_b", NodeType::Function, &["cluster_b"], 0.0, 0.5).unwrap();
-        g.add_node("b2", "process_b", NodeType::Function, &["cluster_b"], 0.0, 0.4).unwrap();
-        g.add_node("b3", "output_b", NodeType::Function, &["cluster_b"], 0.0, 0.3).unwrap();
+        g.add_node(
+            "b1",
+            "handler_b",
+            NodeType::Function,
+            &["cluster_b"],
+            0.0,
+            0.5,
+        )
+        .unwrap();
+        g.add_node(
+            "b2",
+            "process_b",
+            NodeType::Function,
+            &["cluster_b"],
+            0.0,
+            0.4,
+        )
+        .unwrap();
+        g.add_node(
+            "b3",
+            "output_b",
+            NodeType::Function,
+            &["cluster_b"],
+            0.0,
+            0.3,
+        )
+        .unwrap();
 
         // Internal edges A (strong)
-        g.add_edge(NodeId::new(0), NodeId::new(1), "calls", FiniteF32::new(0.9), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(1), NodeId::new(2), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "calls",
+            FiniteF32::new(0.9),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(1),
+            NodeId::new(2),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
         // Internal edges B (strong)
-        g.add_edge(NodeId::new(3), NodeId::new(4), "calls", FiniteF32::new(0.9), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(4), NodeId::new(5), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
+        g.add_edge(
+            NodeId::new(3),
+            NodeId::new(4),
+            "calls",
+            FiniteF32::new(0.9),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(4),
+            NodeId::new(5),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
         // Bridge (weak)
-        g.add_edge(NodeId::new(2), NodeId::new(3), "calls", FiniteF32::new(0.2), EdgeDirection::Forward, false, FiniteF32::new(0.3)).unwrap();
+        g.add_edge(
+            NodeId::new(2),
+            NodeId::new(3),
+            "calls",
+            FiniteF32::new(0.2),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.3),
+        )
+        .unwrap();
 
         g.finalize().unwrap();
         g
@@ -402,7 +491,10 @@ mod tests {
             ..RefactorConfig::default()
         };
         let result = plan_refactoring(&g, &config).unwrap();
-        assert!(result.candidates.is_empty(), "Nonexistent scope should yield no candidates");
+        assert!(
+            result.candidates.is_empty(),
+            "Nonexistent scope should yield no candidates"
+        );
     }
 
     #[test]
@@ -415,8 +507,14 @@ mod tests {
         let result = plan_refactoring(&g, &config).unwrap();
         // At least one candidate should have interface edges if communities are split
         if result.num_communities >= 2 {
-            let has_interface = result.candidates.iter().any(|c| !c.interface_edges.is_empty());
-            assert!(has_interface, "Split communities should have interface edges");
+            let has_interface = result
+                .candidates
+                .iter()
+                .any(|c| !c.interface_edges.is_empty());
+            assert!(
+                has_interface,
+                "Split communities should have interface edges"
+            );
         }
     }
 }

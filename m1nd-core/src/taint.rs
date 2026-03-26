@@ -132,17 +132,44 @@ pub struct TaintSummary {
 fn default_boundary_patterns(taint_type: &TaintType) -> Vec<&'static str> {
     match taint_type {
         TaintType::UserInput => vec![
-            "validate", "sanitize", "escape", "encode", "clean",
-            "filter", "check_input", "verify", "parse_input",
-            "whitelist", "allowlist", "blocklist", "blacklist",
-            "csrf", "xss", "sql_injection", "injection",
+            "validate",
+            "sanitize",
+            "escape",
+            "encode",
+            "clean",
+            "filter",
+            "check_input",
+            "verify",
+            "parse_input",
+            "whitelist",
+            "allowlist",
+            "blocklist",
+            "blacklist",
+            "csrf",
+            "xss",
+            "sql_injection",
+            "injection",
         ],
         TaintType::SensitiveData => vec![
-            "auth", "authenticate", "authorize", "verify_token",
-            "check_permission", "check_role", "is_admin",
-            "encrypt", "decrypt", "hash", "hmac", "sign",
-            "mask", "redact", "anonymize", "obfuscate",
-            "access_control", "permission", "credential",
+            "auth",
+            "authenticate",
+            "authorize",
+            "verify_token",
+            "check_permission",
+            "check_role",
+            "is_admin",
+            "encrypt",
+            "decrypt",
+            "hash",
+            "hmac",
+            "sign",
+            "mask",
+            "redact",
+            "anonymize",
+            "obfuscate",
+            "access_control",
+            "permission",
+            "credential",
         ],
         TaintType::Custom { boundary_patterns } => {
             // We return borrowed strs — for Custom, we handle separately
@@ -183,12 +210,8 @@ impl TaintEngine {
             ..FlowConfig::with_defaults()
         };
         let flow_engine = FlowEngine::new();
-        let flow_result = flow_engine.simulate(
-            graph,
-            entry_node_ids,
-            config.num_particles,
-            &flow_config,
-        )?;
+        let flow_result =
+            flow_engine.simulate(graph, entry_node_ids, config.num_particles, &flow_config)?;
 
         // --- Phase 2: Epidemic simulation ---
         let epidemic_config = EpidemicConfig {
@@ -206,13 +229,16 @@ impl TaintEngine {
         let epidemic_result = epidemic_engine.simulate(
             graph,
             entry_node_ids,
-            &[],  // no recovered nodes
+            &[], // no recovered nodes
             &epidemic_config,
         )?;
 
         // --- Phase 3: Identify security boundaries ---
         let boundary_patterns = default_boundary_patterns(&config.taint_type);
-        let custom_patterns: Vec<String> = if let TaintType::Custom { boundary_patterns: cp } = &config.taint_type {
+        let custom_patterns: Vec<String> = if let TaintType::Custom {
+            boundary_patterns: cp,
+        } = &config.taint_type
+        {
             cp.clone()
         } else {
             vec![]
@@ -240,6 +266,7 @@ impl TaintEngine {
         let mut boundary_hits = Vec::new();
         let mut boundary_misses = Vec::new();
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             let label = graph.strings.resolve(graph.nodes.label[i]).to_lowercase();
             let ext_id = &node_to_ext[i];
@@ -296,11 +323,7 @@ impl TaintEngine {
 
             if !has_boundary_in_path && !pred.transmission_path.is_empty() {
                 // Find entry point from path
-                let entry = pred
-                    .transmission_path
-                    .first()
-                    .cloned()
-                    .unwrap_or_default();
+                let entry = pred.transmission_path.first().cloned().unwrap_or_default();
 
                 leaks.push(TaintLeak {
                     entry_node: entry,
@@ -312,10 +335,15 @@ impl TaintEngine {
         }
 
         // Sort leaks by probability descending
-        leaks.sort_by(|a, b| b.probability.partial_cmp(&a.probability).unwrap_or(std::cmp::Ordering::Equal));
+        leaks.sort_by(|a, b| {
+            b.probability
+                .partial_cmp(&a.probability)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // --- Phase 5: Compute risk score ---
-        let risk_score = compute_risk_score(&boundary_hits, &boundary_misses, &leaks, &epidemic_result);
+        let risk_score =
+            compute_risk_score(&boundary_hits, &boundary_misses, &leaks, &epidemic_result);
 
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
@@ -419,12 +447,54 @@ mod tests {
     /// Build a simple graph: entry → process → output (no boundary)
     fn build_no_boundary_graph() -> Graph {
         let mut g = Graph::new();
-        g.add_node("entry", "handle_request", NodeType::Function, &["handler"], 0.0, 0.5).unwrap();
-        g.add_node("proc", "process_data", NodeType::Function, &["data"], 0.0, 0.3).unwrap();
-        g.add_node("out", "send_response", NodeType::Function, &["output"], 0.0, 0.2).unwrap();
+        g.add_node(
+            "entry",
+            "handle_request",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.5,
+        )
+        .unwrap();
+        g.add_node(
+            "proc",
+            "process_data",
+            NodeType::Function,
+            &["data"],
+            0.0,
+            0.3,
+        )
+        .unwrap();
+        g.add_node(
+            "out",
+            "send_response",
+            NodeType::Function,
+            &["output"],
+            0.0,
+            0.2,
+        )
+        .unwrap();
 
-        g.add_edge(NodeId::new(0), NodeId::new(1), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(1), NodeId::new(2), "calls", FiniteF32::new(0.7), EdgeDirection::Forward, false, FiniteF32::new(0.4)).unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(1),
+            NodeId::new(2),
+            "calls",
+            FiniteF32::new(0.7),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.4),
+        )
+        .unwrap();
 
         g.finalize().unwrap();
         g
@@ -433,14 +503,73 @@ mod tests {
     /// Build a graph with a validation boundary: entry → validate → process → output
     fn build_with_boundary_graph() -> Graph {
         let mut g = Graph::new();
-        g.add_node("entry", "handle_request", NodeType::Function, &["handler"], 0.0, 0.5).unwrap();
-        g.add_node("val", "validate_input", NodeType::Function, &["security"], 0.0, 0.4).unwrap();
-        g.add_node("proc", "process_data", NodeType::Function, &["data"], 0.0, 0.3).unwrap();
-        g.add_node("out", "send_response", NodeType::Function, &["output"], 0.0, 0.2).unwrap();
+        g.add_node(
+            "entry",
+            "handle_request",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.5,
+        )
+        .unwrap();
+        g.add_node(
+            "val",
+            "validate_input",
+            NodeType::Function,
+            &["security"],
+            0.0,
+            0.4,
+        )
+        .unwrap();
+        g.add_node(
+            "proc",
+            "process_data",
+            NodeType::Function,
+            &["data"],
+            0.0,
+            0.3,
+        )
+        .unwrap();
+        g.add_node(
+            "out",
+            "send_response",
+            NodeType::Function,
+            &["output"],
+            0.0,
+            0.2,
+        )
+        .unwrap();
 
-        g.add_edge(NodeId::new(0), NodeId::new(1), "calls", FiniteF32::new(0.9), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(1), NodeId::new(2), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.4)).unwrap();
-        g.add_edge(NodeId::new(2), NodeId::new(3), "calls", FiniteF32::new(0.7), EdgeDirection::Forward, false, FiniteF32::new(0.4)).unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "calls",
+            FiniteF32::new(0.9),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(1),
+            NodeId::new(2),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.4),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(2),
+            NodeId::new(3),
+            "calls",
+            FiniteF32::new(0.7),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.4),
+        )
+        .unwrap();
 
         g.finalize().unwrap();
         g
@@ -457,22 +586,30 @@ mod tests {
 
     #[test]
     fn risk_score_no_boundaries_is_medium() {
-        let score = compute_risk_score(&[], &[], &[], &EpidemicResult {
-            predictions: vec![],
-            summary: crate::epidemic::EpidemicSummary {
-                total_susceptible: 10,
-                total_infected: 0,
-                total_recovered: 0,
-                peak_infection_iteration: 0,
-                r0_estimate: 0.0,
-                epidemic_extinct: true,
+        let score = compute_risk_score(
+            &[],
+            &[],
+            &[],
+            &EpidemicResult {
+                predictions: vec![],
+                summary: crate::epidemic::EpidemicSummary {
+                    total_susceptible: 10,
+                    total_infected: 0,
+                    total_recovered: 0,
+                    peak_infection_iteration: 0,
+                    r0_estimate: 0.0,
+                    epidemic_extinct: true,
+                },
+                unreachable_components: vec![],
+                warnings: vec![],
+                unresolved_nodes: vec![],
+                elapsed_ms: 1.0,
             },
-            unreachable_components: vec![],
-            warnings: vec![],
-            unresolved_nodes: vec![],
-            elapsed_ms: 1.0,
-        });
-        assert!((score - 0.2).abs() < 0.1, "No boundaries = medium risk, got {score}");
+        );
+        assert!(
+            (score - 0.2).abs() < 0.1,
+            "No boundaries = medium risk, got {score}"
+        );
     }
 
     #[test]
@@ -526,22 +663,33 @@ mod tests {
             taint_reached: false,
             infection_probability: 0.0,
         };
-        let score = compute_risk_score(&[], &[miss], &[leak], &EpidemicResult {
-            predictions: vec![],
-            summary: crate::epidemic::EpidemicSummary {
-                total_susceptible: 5,
-                total_infected: 5,
-                total_recovered: 0,
-                peak_infection_iteration: 10,
-                r0_estimate: 2.0,
-                epidemic_extinct: false,
+        let score = compute_risk_score(
+            &[],
+            &[miss],
+            &[leak],
+            &EpidemicResult {
+                predictions: vec![],
+                summary: crate::epidemic::EpidemicSummary {
+                    total_susceptible: 5,
+                    total_infected: 5,
+                    total_recovered: 0,
+                    peak_infection_iteration: 10,
+                    r0_estimate: 2.0,
+                    epidemic_extinct: false,
+                },
+                unreachable_components: vec![],
+                warnings: vec![],
+                unresolved_nodes: vec![],
+                elapsed_ms: 1.0,
             },
-            unreachable_components: vec![],
-            warnings: vec![],
-            unresolved_nodes: vec![],
-            elapsed_ms: 1.0,
-        });
-        assert!(score >= 0.0 && score <= 1.0, "Risk score out of range: {score}");
-        assert!(score > 0.5, "All misses + leaks + high spread should be high risk, got {score}");
+        );
+        assert!(
+            score >= 0.0 && score <= 1.0,
+            "Risk score out of range: {score}"
+        );
+        assert!(
+            score > 0.5,
+            "All misses + leaks + high spread should be high risk, got {score}"
+        );
     }
 }

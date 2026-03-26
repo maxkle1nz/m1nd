@@ -8101,7 +8101,10 @@ pub fn handle_taint_trace(
     if entry_node_ids.is_empty() {
         return Err(M1ndError::InvalidParams {
             tool: "taint_trace".into(),
-            detail: format!("no entry nodes resolved from: {}", input.entry_nodes.join(", ")),
+            detail: format!(
+                "no entry nodes resolved from: {}",
+                input.entry_nodes.join(", ")
+            ),
         });
     }
 

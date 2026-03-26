@@ -4,17 +4,17 @@
 //
 // Tests: adversarial inputs, scale limits, edge cases, performance.
 
-use m1nd_ingest::{IngestConfig, Ingestor};
-use m1nd_core::taint::{TaintConfig, TaintEngine, TaintType};
-use m1nd_core::twins::{TwinConfig, find_twins};
-use m1nd_core::refactor::{RefactorConfig, plan_refactoring};
-use m1nd_core::runtime_overlay::{RuntimeOverlay, OtelBatch, OtelSpan};
-use m1nd_core::git_history::{GitDepth, parse_git_history, inject_git_history};
-use m1nd_core::temporal::CoChangeMatrix;
+use m1nd_core::git_history::{inject_git_history, parse_git_history, GitDepth};
 use m1nd_core::graph::Graph;
-use m1nd_core::types::{NodeId, NodeType, EdgeDirection, FiniteF32};
-use std::path::PathBuf;
+use m1nd_core::refactor::{plan_refactoring, RefactorConfig};
+use m1nd_core::runtime_overlay::{OtelBatch, OtelSpan, RuntimeOverlay};
+use m1nd_core::taint::{TaintConfig, TaintEngine, TaintType};
+use m1nd_core::temporal::CoChangeMatrix;
+use m1nd_core::twins::{find_twins, TwinConfig};
+use m1nd_core::types::{EdgeDirection, FiniteF32, NodeId, NodeType};
+use m1nd_ingest::{IngestConfig, Ingestor};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Instant;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -22,10 +22,20 @@ use std::time::Instant;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 fn ingest_m1nd() -> Graph {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
-    let config = IngestConfig { root, ..Default::default() };
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let config = IngestConfig {
+        root,
+        ..Default::default()
+    };
     let (graph, stats) = Ingestor::new(config).ingest().unwrap();
-    eprintln!("[STRESS] Ingested: {} nodes, {} edges", graph.num_nodes(), graph.num_edges());
+    eprintln!(
+        "[STRESS] Ingested: {} nodes, {} edges",
+        graph.num_nodes(),
+        graph.num_edges()
+    );
     graph
 }
 
@@ -40,7 +50,8 @@ fn build_fully_connected(n: usize) -> Graph {
             &["stress"],
             0.0,
             0.5,
-        ).unwrap();
+        )
+        .unwrap();
     }
     for i in 0..n {
         for j in 0..n {
@@ -72,7 +83,8 @@ fn build_chain(n: usize) -> Graph {
             &["chain"],
             0.0,
             0.1,
-        ).unwrap();
+        )
+        .unwrap();
     }
     for i in 0..(n - 1) {
         g.add_edge(
@@ -83,7 +95,8 @@ fn build_chain(n: usize) -> Graph {
             EdgeDirection::Forward,
             false,
             FiniteF32::new(0.5),
-        ).unwrap();
+        )
+        .unwrap();
     }
     g.finalize().unwrap();
     g
@@ -92,7 +105,8 @@ fn build_chain(n: usize) -> Graph {
 /// Build a star graph: hub → spoke_0, hub → spoke_1, ...
 fn build_star(spokes: usize) -> Graph {
     let mut g = Graph::new();
-    g.add_node("hub", "central_hub", NodeType::Function, &["hub"], 0.0, 1.0).unwrap();
+    g.add_node("hub", "central_hub", NodeType::Function, &["hub"], 0.0, 1.0)
+        .unwrap();
     for i in 0..spokes {
         g.add_node(
             &format!("spoke_{i}"),
@@ -101,7 +115,8 @@ fn build_star(spokes: usize) -> Graph {
             &["spoke"],
             0.0,
             0.1,
-        ).unwrap();
+        )
+        .unwrap();
         g.add_edge(
             NodeId::new(0),
             NodeId::new((i + 1) as u32),
@@ -110,7 +125,8 @@ fn build_star(spokes: usize) -> Graph {
             EdgeDirection::Forward,
             false,
             FiniteF32::new(0.3),
-        ).unwrap();
+        )
+        .unwrap();
     }
     g.finalize().unwrap();
     g
@@ -128,9 +144,17 @@ fn stress_taint_fully_connected_50() {
     let config = TaintConfig::default();
     let result = TaintEngine::analyze(&g, &[NodeId::new(0)], &config).unwrap();
     let elapsed = t.elapsed();
-    eprintln!("[STRESS TAINT] Fully connected 50 nodes: risk={:.3}, reached={}, elapsed={:.1}ms",
-        result.risk_score, result.summary.total_nodes_reached, elapsed.as_secs_f64() * 1000.0);
-    assert!(elapsed.as_secs() < 30, "Should complete within 30s, took {:?}", elapsed);
+    eprintln!(
+        "[STRESS TAINT] Fully connected 50 nodes: risk={:.3}, reached={}, elapsed={:.1}ms",
+        result.risk_score,
+        result.summary.total_nodes_reached,
+        elapsed.as_secs_f64() * 1000.0
+    );
+    assert!(
+        elapsed.as_secs() < 30,
+        "Should complete within 30s, took {:?}",
+        elapsed
+    );
     assert!(result.risk_score >= 0.0 && result.risk_score <= 1.0);
 }
 
@@ -139,13 +163,23 @@ fn stress_taint_chain_500() {
     // Long chain = deep propagation
     let g = build_chain(500);
     let t = Instant::now();
-    let config = TaintConfig { max_depth: 100, ..TaintConfig::default() };
+    let config = TaintConfig {
+        max_depth: 100,
+        ..TaintConfig::default()
+    };
     let result = TaintEngine::analyze(&g, &[NodeId::new(0)], &config).unwrap();
     let elapsed = t.elapsed();
-    eprintln!("[STRESS TAINT] Chain 500 nodes: risk={:.3}, reached={}, elapsed={:.1}ms",
-        result.risk_score, result.summary.total_nodes_reached, elapsed.as_secs_f64() * 1000.0);
+    eprintln!(
+        "[STRESS TAINT] Chain 500 nodes: risk={:.3}, reached={}, elapsed={:.1}ms",
+        result.risk_score,
+        result.summary.total_nodes_reached,
+        elapsed.as_secs_f64() * 1000.0
+    );
     assert!(elapsed.as_secs() < 10);
-    assert!(result.summary.total_nodes_reached > 1, "Should propagate along chain");
+    assert!(
+        result.summary.total_nodes_reached > 1,
+        "Should propagate along chain"
+    );
 }
 
 #[test]
@@ -155,7 +189,12 @@ fn stress_taint_all_entry_points() {
     let n = g.num_nodes() as usize;
     let entries: Vec<NodeId> = (0..n.min(100)).map(|i| NodeId::new(i as u32)).collect();
     let t = Instant::now();
-    let config = TaintConfig { max_depth: 5, num_particles: 1, epidemic_iterations: 10, ..TaintConfig::default() };
+    let config = TaintConfig {
+        max_depth: 5,
+        num_particles: 1,
+        epidemic_iterations: 10,
+        ..TaintConfig::default()
+    };
     let result = TaintEngine::analyze(&g, &entries, &config).unwrap();
     let elapsed = t.elapsed();
     eprintln!("[STRESS TAINT] 100 entry points on real graph: risk={:.3}, reached={}, leaks={}, elapsed={:.1}ms",
@@ -172,8 +211,10 @@ fn stress_taint_sensitive_data_mode() {
         ..TaintConfig::default()
     };
     let result = TaintEngine::analyze(&g, &[NodeId::new(0)], &config).unwrap();
-    eprintln!("[STRESS TAINT] SensitiveData mode: hits={}, misses={}, risk={:.3}",
-        result.summary.boundary_hits, result.summary.boundary_misses, result.risk_score);
+    eprintln!(
+        "[STRESS TAINT] SensitiveData mode: hits={}, misses={}, risk={:.3}",
+        result.summary.boundary_hits, result.summary.boundary_misses, result.risk_score
+    );
 }
 
 #[test]
@@ -186,11 +227,17 @@ fn stress_taint_custom_boundaries() {
         ..TaintConfig::default()
     };
     let result = TaintEngine::analyze(&g, &[NodeId::new(0)], &config).unwrap();
-    eprintln!("[STRESS TAINT] Custom boundaries (graph/node/edge): hits={}, misses={}, risk={:.3}",
-        result.summary.boundary_hits, result.summary.boundary_misses, result.risk_score);
+    eprintln!(
+        "[STRESS TAINT] Custom boundaries (graph/node/edge): hits={}, misses={}, risk={:.3}",
+        result.summary.boundary_hits, result.summary.boundary_misses, result.risk_score
+    );
     // With graph/node/edge as boundaries, many nodes should match
     let total_boundaries = result.summary.boundary_hits + result.summary.boundary_misses;
-    assert!(total_boundaries > 10, "graph/node/edge should match many nodes, got {}", total_boundaries);
+    assert!(
+        total_boundaries > 10,
+        "graph/node/edge should match many nodes, got {}",
+        total_boundaries
+    );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -211,10 +258,18 @@ fn stress_twins_all_identical() {
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
     let elapsed = t.elapsed();
-    eprintln!("[STRESS TWINS] Star 100 spokes: {} pairs, {} analyzed, {:.1}ms",
-        result.pairs.len(), result.nodes_analyzed, elapsed.as_secs_f64() * 1000.0);
+    eprintln!(
+        "[STRESS TWINS] Star 100 spokes: {} pairs, {} analyzed, {:.1}ms",
+        result.pairs.len(),
+        result.nodes_analyzed,
+        elapsed.as_secs_f64() * 1000.0
+    );
     // All spokes should be twins (same in-degree=1, out-degree=0)
-    assert!(result.pairs.len() > 10, "Spokes should be highly similar, got {} pairs", result.pairs.len());
+    assert!(
+        result.pairs.len() > 10,
+        "Spokes should be highly similar, got {} pairs",
+        result.pairs.len()
+    );
     assert!(elapsed.as_secs() < 5);
 }
 
@@ -232,9 +287,16 @@ fn stress_twins_large_chain() {
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
     let elapsed = t.elapsed();
-    eprintln!("[STRESS TWINS] Chain 200: {} pairs, {} analyzed, {:.1}ms",
-        result.pairs.len(), result.nodes_analyzed, elapsed.as_secs_f64() * 1000.0);
-    assert!(result.pairs.len() > 0, "Interior chain nodes should be twins");
+    eprintln!(
+        "[STRESS TWINS] Chain 200: {} pairs, {} analyzed, {:.1}ms",
+        result.pairs.len(),
+        result.nodes_analyzed,
+        elapsed.as_secs_f64() * 1000.0
+    );
+    assert!(
+        result.pairs.len() > 0,
+        "Interior chain nodes should be twins"
+    );
     assert!(elapsed.as_secs() < 10);
 }
 
@@ -251,10 +313,17 @@ fn stress_twins_real_functions_only() {
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
     let elapsed = t.elapsed();
-    eprintln!("[STRESS TWINS] Real graph, Functions only: {} pairs, {} analyzed, {:.1}ms",
-        result.pairs.len(), result.nodes_analyzed, elapsed.as_secs_f64() * 1000.0);
+    eprintln!(
+        "[STRESS TWINS] Real graph, Functions only: {} pairs, {} analyzed, {:.1}ms",
+        result.pairs.len(),
+        result.nodes_analyzed,
+        elapsed.as_secs_f64() * 1000.0
+    );
     for pair in result.pairs.iter().take(10) {
-        eprintln!("   {:.3}: '{}' ↔ '{}'", pair.similarity, pair.node_a_label, pair.node_b_label);
+        eprintln!(
+            "   {:.3}: '{}' ↔ '{}'",
+            pair.similarity, pair.node_a_label, pair.node_b_label
+        );
     }
     assert!(elapsed.as_secs() < 30);
 }
@@ -273,9 +342,15 @@ fn stress_twins_low_threshold() {
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
     let elapsed = t.elapsed();
-    eprintln!("[STRESS TWINS] Threshold=0.50: {} pairs, {:.1}ms",
-        result.pairs.len(), elapsed.as_secs_f64() * 1000.0);
-    assert!(result.pairs.len() >= 20, "Low threshold should find many pairs");
+    eprintln!(
+        "[STRESS TWINS] Threshold=0.50: {} pairs, {:.1}ms",
+        result.pairs.len(),
+        elapsed.as_secs_f64() * 1000.0
+    );
+    assert!(
+        result.pairs.len() >= 20,
+        "Low threshold should find many pairs"
+    );
     assert!(elapsed.as_secs() < 30);
 }
 
@@ -300,7 +375,11 @@ fn stress_refactor_fully_connected() {
         result.graph_modularity, result.num_communities, result.candidates.len(),
         elapsed.as_secs_f64() * 1000.0);
     // Fully connected → modularity should be low (no natural separation)
-    assert!(result.graph_modularity < 0.5, "Fully connected should have low modularity, got {:.4}", result.graph_modularity);
+    assert!(
+        result.graph_modularity < 0.5,
+        "Fully connected should have low modularity, got {:.4}",
+        result.graph_modularity
+    );
     assert!(elapsed.as_secs() < 10);
 }
 
@@ -316,9 +395,13 @@ fn stress_refactor_chain() {
     let t = Instant::now();
     let result = plan_refactoring(&g, &config).unwrap();
     let elapsed = t.elapsed();
-    eprintln!("[STRESS REFACTOR] Chain 200: modularity={:.4}, communities={}, candidates={}, {:.1}ms",
-        result.graph_modularity, result.num_communities, result.candidates.len(),
-        elapsed.as_secs_f64() * 1000.0);
+    eprintln!(
+        "[STRESS REFACTOR] Chain 200: modularity={:.4}, communities={}, candidates={}, {:.1}ms",
+        result.graph_modularity,
+        result.num_communities,
+        result.candidates.len(),
+        elapsed.as_secs_f64() * 1000.0
+    );
     assert!(elapsed.as_secs() < 10);
 }
 
@@ -339,8 +422,15 @@ fn stress_refactor_real_aggressive() {
         result.graph_modularity, result.num_communities, result.candidates.len(),
         elapsed.as_secs_f64() * 1000.0);
     for (i, c) in result.candidates.iter().take(5).enumerate() {
-        eprintln!("   #{}: {} nodes, cohesion={:.3}, coupling={:.3}, risk={} ({:.3})",
-            i, c.extracted_nodes.len(), c.cohesion, c.coupling, c.risk.level, c.risk.activation_loss);
+        eprintln!(
+            "   #{}: {} nodes, cohesion={:.3}, coupling={:.3}, risk={} ({:.3})",
+            i,
+            c.extracted_nodes.len(),
+            c.cohesion,
+            c.coupling,
+            c.risk.level,
+            c.risk.activation_loss
+        );
     }
     assert!(elapsed.as_secs() < 60);
 }
@@ -391,13 +481,20 @@ fn stress_otel_1000_spans() {
     let result = overlay.ingest(&graph, &batch).unwrap();
     let elapsed = t.elapsed();
 
-    eprintln!("[STRESS OTEL] 1000 spans: mapped={}, unmapped={}, hot={}, {:.1}ms",
-        result.spans_mapped, result.spans_unmapped, result.hot_nodes.len(),
-        elapsed.as_secs_f64() * 1000.0);
+    eprintln!(
+        "[STRESS OTEL] 1000 spans: mapped={}, unmapped={}, hot={}, {:.1}ms",
+        result.spans_mapped,
+        result.spans_unmapped,
+        result.hot_nodes.len(),
+        elapsed.as_secs_f64() * 1000.0
+    );
 
     assert!(result.spans_processed == 1000);
     assert!(result.spans_mapped > 0, "Should map at least some spans");
-    assert!(result.spans_unmapped > 0, "Garbage spans should be unmapped");
+    assert!(
+        result.spans_unmapped > 0,
+        "Garbage spans should be unmapped"
+    );
     assert!(elapsed.as_secs() < 5);
 }
 
@@ -458,16 +555,18 @@ fn stress_otel_all_errors() {
     let graph = ingest_m1nd();
     let n = graph.num_nodes() as usize;
 
-    let spans: Vec<OtelSpan> = (0..n.min(200)).map(|i| {
-        OtelSpan {
-            name: graph.strings.resolve(graph.nodes.label[i]).to_string(),
-            duration_us: 10000,
-            count: 1,
-            is_error: true, // ALL errors
-            attributes: HashMap::new(),
-            parent: None,
-        }
-    }).collect();
+    let spans: Vec<OtelSpan> = (0..n.min(200))
+        .map(|i| {
+            OtelSpan {
+                name: graph.strings.resolve(graph.nodes.label[i]).to_string(),
+                duration_us: 10000,
+                count: 1,
+                is_error: true, // ALL errors
+                attributes: HashMap::new(),
+                parent: None,
+            }
+        })
+        .collect();
 
     let batch = OtelBatch {
         spans,
@@ -478,11 +577,22 @@ fn stress_otel_all_errors() {
     let mut overlay = RuntimeOverlay::with_defaults();
     let result = overlay.ingest(&graph, &batch).unwrap();
 
-    eprintln!("[STRESS OTEL] All-error batch: mapped={}, hot_nodes={}",
-        result.spans_mapped, result.hot_nodes.len());
+    eprintln!(
+        "[STRESS OTEL] All-error batch: mapped={}, hot_nodes={}",
+        result.spans_mapped,
+        result.hot_nodes.len()
+    );
 
-    let error_nodes: Vec<_> = result.hot_nodes.iter().filter(|n| n.error_count > 0).collect();
-    eprintln!("[STRESS OTEL] Nodes with errors: {}/{}", error_nodes.len(), result.hot_nodes.len());
+    let error_nodes: Vec<_> = result
+        .hot_nodes
+        .iter()
+        .filter(|n| n.error_count > 0)
+        .collect();
+    eprintln!(
+        "[STRESS OTEL] Nodes with errors: {}/{}",
+        error_nodes.len(),
+        result.hot_nodes.len()
+    );
 
     assert!(error_nodes.len() > 0, "Error tracking should work");
 }
@@ -509,9 +619,13 @@ fn stress_taint_then_refactor() {
     };
     let refactor_result = plan_refactoring(&g, &refactor_config).unwrap();
 
-    eprintln!("[STRESS CROSS] Taint risk={:.3}, leaks={} → Refactor modularity={:.4}, candidates={}",
-        taint_result.risk_score, taint_result.summary.leaks_found,
-        refactor_result.graph_modularity, refactor_result.candidates.len());
+    eprintln!(
+        "[STRESS CROSS] Taint risk={:.3}, leaks={} → Refactor modularity={:.4}, candidates={}",
+        taint_result.risk_score,
+        taint_result.summary.leaks_found,
+        refactor_result.graph_modularity,
+        refactor_result.candidates.len()
+    );
 
     // Both should complete without interference
     assert!(taint_result.risk_score >= 0.0);
@@ -552,7 +666,9 @@ fn stress_twins_then_otel() {
         let result = overlay.ingest(&g, &batch).unwrap();
         let applied = overlay.apply_boosts(&mut g, 0.5);
 
-        eprintln!("[STRESS CROSS] Boosted twin '{}': mapped={}, boosts={}",
-            pair.node_a_label, result.spans_mapped, applied);
+        eprintln!(
+            "[STRESS CROSS] Boosted twin '{}': mapped={}, boosts={}",
+            pair.node_a_label, result.spans_mapped, applied
+        );
     }
 }

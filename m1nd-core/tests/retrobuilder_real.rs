@@ -2,19 +2,22 @@
 //
 // Usage: cargo test -p m1nd-core --test retrobuilder_real -- --nocapture
 
-use m1nd_ingest::{IngestConfig, Ingestor};
+use m1nd_core::git_history::{inject_git_history, parse_git_history, GitDepth};
+use m1nd_core::refactor::{plan_refactoring, RefactorConfig};
+use m1nd_core::runtime_overlay::{OtelBatch, OtelSpan, RuntimeOverlay};
 use m1nd_core::taint::{TaintConfig, TaintEngine};
-use m1nd_core::twins::{TwinConfig, find_twins};
-use m1nd_core::refactor::{RefactorConfig, plan_refactoring};
-use m1nd_core::runtime_overlay::{RuntimeOverlay, OtelBatch, OtelSpan};
-use m1nd_core::git_history::{GitDepth, parse_git_history, inject_git_history};
 use m1nd_core::temporal::CoChangeMatrix;
+use m1nd_core::twins::{find_twins, TwinConfig};
 use m1nd_core::types::NodeId;
-use std::path::PathBuf;
+use m1nd_ingest::{IngestConfig, Ingestor};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 fn ingest_m1nd() -> m1nd_core::graph::Graph {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
     eprintln!("[REAL TEST] Ingesting m1nd from: {:?}", root);
 
     let config = IngestConfig {
@@ -24,18 +27,34 @@ fn ingest_m1nd() -> m1nd_core::graph::Graph {
     let ingestor = Ingestor::new(config);
     let (graph, stats) = ingestor.ingest().unwrap();
 
-    eprintln!("[REAL TEST] Ingest complete: {} nodes, {} edges, {} files parsed in {:.1}ms",
-        graph.num_nodes(), graph.num_edges(), stats.files_parsed, stats.elapsed_ms);
+    eprintln!(
+        "[REAL TEST] Ingest complete: {} nodes, {} edges, {} files parsed in {:.1}ms",
+        graph.num_nodes(),
+        graph.num_edges(),
+        stats.files_parsed,
+        stats.elapsed_ms
+    );
 
-    assert!(graph.num_nodes() > 100, "Real codebase should have >100 nodes, got {}", graph.num_nodes());
-    assert!(graph.num_edges() > 100, "Real codebase should have >100 edges, got {}", graph.num_edges());
+    assert!(
+        graph.num_nodes() > 100,
+        "Real codebase should have >100 nodes, got {}",
+        graph.num_nodes()
+    );
+    assert!(
+        graph.num_edges() > 100,
+        "Real codebase should have >100 edges, got {}",
+        graph.num_edges()
+    );
 
     graph
 }
 
 #[test]
 fn rb01_git_history_real() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let depth = GitDepth::Days(30);
     let commits = parse_git_history(&root, depth);
 
@@ -43,8 +62,12 @@ fn rb01_git_history_real() {
         Ok(ref c) => {
             eprintln!("[RB-01] ✅ Parsed {} commits from git history", c.len());
             for commit in c.iter().take(3) {
-                eprintln!("[RB-01]   {} by {} — {} files",
-                    &commit.hash[..8], commit.author, commit.files.len());
+                eprintln!(
+                    "[RB-01]   {} by {} — {} files",
+                    &commit.hash[..8],
+                    commit.author,
+                    commit.files.len()
+                );
             }
 
             // Now inject into a real graph
@@ -52,11 +75,16 @@ fn rb01_git_history_real() {
             let mut co_change = CoChangeMatrix::bootstrap(&graph, 10_000).unwrap();
             let result = inject_git_history(&graph, &mut co_change, c).unwrap();
 
-            eprintln!("[RB-01] ✅ Injected: {} pairs, {} ghost edges",
-                result.co_change_pairs_injected, result.ghost_edges_found);
+            eprintln!(
+                "[RB-01] ✅ Injected: {} pairs, {} ghost edges",
+                result.co_change_pairs_injected, result.ghost_edges_found
+            );
         }
         Err(e) => {
-            eprintln!("[RB-01] ⚠ Git history failed (may not be a git repo): {:?}", e);
+            eprintln!(
+                "[RB-01] ⚠ Git history failed (may not be a git repo): {:?}",
+                e
+            );
         }
     }
 }
@@ -83,7 +111,11 @@ fn rb02_taint_real() {
         return;
     }
 
-    eprintln!("[RB-02] Running taint from {} entry points on {} nodes", entries.len(), n);
+    eprintln!(
+        "[RB-02] Running taint from {} entry points on {} nodes",
+        entries.len(),
+        n
+    );
     let config = TaintConfig::default();
     let result = TaintEngine::analyze(&graph, &entries, &config).unwrap();
 
@@ -95,8 +127,14 @@ fn rb02_taint_real() {
     eprintln!("  Risk score: {:.3}", result.risk_score);
     eprintln!("  Elapsed: {:.1}ms", result.summary.elapsed_ms);
 
-    assert!(result.risk_score >= 0.0 && result.risk_score <= 1.0, "Risk must be [0,1]");
-    assert!(result.summary.total_nodes_reached > 0, "Taint should reach at least some nodes");
+    assert!(
+        result.risk_score >= 0.0 && result.risk_score <= 1.0,
+        "Risk must be [0,1]"
+    );
+    assert!(
+        result.summary.total_nodes_reached > 0,
+        "Taint should reach at least some nodes"
+    );
 }
 
 #[test]
@@ -110,15 +148,23 @@ fn rb03_twins_real() {
         use_edge_types: true,
     };
 
-    eprintln!("[RB-03] Running twin detection on {} nodes", graph.num_nodes());
+    eprintln!(
+        "[RB-03] Running twin detection on {} nodes",
+        graph.num_nodes()
+    );
     let result = find_twins(&graph, &config).unwrap();
 
-    eprintln!("[RB-03] ✅ Twins found: {} pairs, {} nodes analyzed",
-        result.pairs.len(), result.nodes_analyzed);
+    eprintln!(
+        "[RB-03] ✅ Twins found: {} pairs, {} nodes analyzed",
+        result.pairs.len(),
+        result.nodes_analyzed
+    );
 
     for pair in result.pairs.iter().take(10) {
-        eprintln!("[RB-03]   {:.3} sim: '{}' ↔ '{}'",
-            pair.similarity, pair.node_a_label, pair.node_b_label);
+        eprintln!(
+            "[RB-03]   {:.3} sim: '{}' ↔ '{}'",
+            pair.similarity, pair.node_a_label, pair.node_b_label
+        );
     }
 
     assert!(result.nodes_analyzed > 0);
@@ -134,11 +180,19 @@ fn rb04_refactor_real() {
         scope: None,
     };
 
-    eprintln!("[RB-04] Running refactor planner on {} nodes", graph.num_nodes());
+    eprintln!(
+        "[RB-04] Running refactor planner on {} nodes",
+        graph.num_nodes()
+    );
     let result = plan_refactoring(&graph, &config).unwrap();
 
-    eprintln!("[RB-04] ✅ Modularity: {:.4}, Communities: {}, Candidates: {}, Elapsed: {:.1}ms",
-        result.graph_modularity, result.num_communities, result.candidates.len(), result.elapsed_ms);
+    eprintln!(
+        "[RB-04] ✅ Modularity: {:.4}, Communities: {}, Candidates: {}, Elapsed: {:.1}ms",
+        result.graph_modularity,
+        result.num_communities,
+        result.candidates.len(),
+        result.elapsed_ms
+    );
 
     for (i, c) in result.candidates.iter().take(5).enumerate() {
         eprintln!("[RB-04]   #{}: {} nodes, cohesion={:.3}, coupling={:.3}, risk={} (loss={:.3}), {} interface edges",
@@ -146,7 +200,10 @@ fn rb04_refactor_real() {
             c.interface_edges.len());
     }
 
-    assert!(result.num_communities >= 1, "Should detect at least 1 community");
+    assert!(
+        result.num_communities >= 1,
+        "Should detect at least 1 community"
+    );
     assert!(result.nodes_analyzed > 100, "Should analyze all nodes");
 }
 
@@ -180,17 +237,27 @@ fn rb05_otel_overlay_real() {
     let mut overlay = RuntimeOverlay::with_defaults();
     let result = overlay.ingest(&graph, &batch).unwrap();
 
-    eprintln!("[RB-05] ✅ OTel overlay: processed={}, mapped={}, unmapped={}, hot_nodes={}",
-        result.spans_processed, result.spans_mapped, result.spans_unmapped, result.hot_nodes.len());
+    eprintln!(
+        "[RB-05] ✅ OTel overlay: processed={}, mapped={}, unmapped={}, hot_nodes={}",
+        result.spans_processed,
+        result.spans_mapped,
+        result.spans_unmapped,
+        result.hot_nodes.len()
+    );
 
     for node in result.hot_nodes.iter().take(5) {
-        eprintln!("[RB-05]   heat={:.3} invocations={} errors={}: '{}'",
-            node.heat, node.invocation_count, node.error_count, node.label);
+        eprintln!(
+            "[RB-05]   heat={:.3} invocations={} errors={}: '{}'",
+            node.heat, node.invocation_count, node.error_count, node.label
+        );
     }
 
     let applied = overlay.apply_boosts(&mut graph, 0.1);
     eprintln!("[RB-05] Boosts applied: {}", applied);
 
     assert!(result.spans_processed > 0);
-    assert!(result.spans_mapped > 0, "At least some spans should map to real nodes");
+    assert!(
+        result.spans_mapped > 0,
+        "At least some spans should map to real nodes"
+    );
 }

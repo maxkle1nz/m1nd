@@ -80,7 +80,9 @@ pub struct OtelSpan {
     pub parent: Option<String>,
 }
 
-fn default_count() -> u64 { 1 }
+fn default_count() -> u64 {
+    1
+}
 
 /// A batch of OTel spans to ingest.
 #[derive(Clone, Debug, Deserialize)]
@@ -242,7 +244,9 @@ impl RuntimeOverlay {
                                     if shorter * 2 < longer {
                                         continue;
                                     }
-                                    if label.contains(name_lower.as_str()) || name_lower.contains(label.as_str()) {
+                                    if label.contains(name_lower.as_str())
+                                        || name_lower.contains(label.as_str())
+                                    {
                                         matches.extend_from_slice(indices);
                                     }
                                 }
@@ -259,9 +263,10 @@ impl RuntimeOverlay {
                         Vec::new()
                     }
                 }
-                MappingStrategy::ExactId => {
-                    ext_to_idx.get(&span.name).map(|&idx| vec![idx]).unwrap_or_default()
-                }
+                MappingStrategy::ExactId => ext_to_idx
+                    .get(&span.name)
+                    .map(|&idx| vec![idx])
+                    .unwrap_or_default(),
             };
 
             if matched_indices.is_empty() {
@@ -272,7 +277,8 @@ impl RuntimeOverlay {
             spans_mapped += 1;
 
             // Accumulate heat data
-            let heat_increment = (span.count as f32).ln_1p() * (1.0 + (span.duration_us as f64 / 1_000_000.0) as f32);
+            let heat_increment = (span.count as f32).ln_1p()
+                * (1.0 + (span.duration_us as f64 / 1_000_000.0) as f32);
 
             for &idx in &matched_indices {
                 let data = self.node_data.entry(idx).or_default();
@@ -298,7 +304,8 @@ impl RuntimeOverlay {
         }
 
         // Collect hot nodes
-        let mut hot_nodes: Vec<NodeHeat> = self.node_data
+        let mut hot_nodes: Vec<NodeHeat> = self
+            .node_data
             .iter()
             .filter(|(_, data)| data.heat > 0.01)
             .map(|(&idx, data)| {
@@ -308,7 +315,11 @@ impl RuntimeOverlay {
                     0.0
                 };
                 NodeHeat {
-                    node_id: if idx < n { node_to_ext[idx].clone() } else { String::new() },
+                    node_id: if idx < n {
+                        node_to_ext[idx].clone()
+                    } else {
+                        String::new()
+                    },
                     label: if idx < n {
                         graph.strings.resolve(graph.nodes.label[idx]).to_string()
                     } else {
@@ -323,7 +334,11 @@ impl RuntimeOverlay {
             })
             .collect();
 
-        hot_nodes.sort_by(|a, b| b.heat.partial_cmp(&a.heat).unwrap_or(std::cmp::Ordering::Equal));
+        hot_nodes.sort_by(|a, b| {
+            b.heat
+                .partial_cmp(&a.heat)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         hot_nodes.truncate(100);
 
         Ok(OverlayResult {
@@ -387,12 +402,54 @@ mod tests {
 
     fn build_test_graph() -> Graph {
         let mut g = Graph::new();
-        g.add_node("func::handle_request", "handle_request", NodeType::Function, &["handler"], 0.0, 0.5).unwrap();
-        g.add_node("func::process_data", "process_data", NodeType::Function, &["data"], 0.0, 0.3).unwrap();
-        g.add_node("func::send_response", "send_response", NodeType::Function, &["output"], 0.0, 0.2).unwrap();
+        g.add_node(
+            "func::handle_request",
+            "handle_request",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.5,
+        )
+        .unwrap();
+        g.add_node(
+            "func::process_data",
+            "process_data",
+            NodeType::Function,
+            &["data"],
+            0.0,
+            0.3,
+        )
+        .unwrap();
+        g.add_node(
+            "func::send_response",
+            "send_response",
+            NodeType::Function,
+            &["output"],
+            0.0,
+            0.2,
+        )
+        .unwrap();
 
-        g.add_edge(NodeId::new(0), NodeId::new(1), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(1), NodeId::new(2), "calls", FiniteF32::new(0.7), EdgeDirection::Forward, false, FiniteF32::new(0.4)).unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(1),
+            NodeId::new(2),
+            "calls",
+            FiniteF32::new(0.7),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.4),
+        )
+        .unwrap();
 
         g.finalize().unwrap();
         g
@@ -458,7 +515,10 @@ mod tests {
 
         let result = overlay.ingest(&g, &batch).unwrap();
         for window in result.hot_nodes.windows(2) {
-            assert!(window[0].heat >= window[1].heat, "Hot nodes should be sorted by heat desc");
+            assert!(
+                window[0].heat >= window[1].heat,
+                "Hot nodes should be sorted by heat desc"
+            );
         }
     }
 
@@ -490,14 +550,25 @@ mod tests {
         let heat_after_first = overlay.get_heat(0);
 
         // Ingest empty batch to trigger decay
-        let empty_batch = OtelBatch { spans: vec![], timestamp: 0.0, service_name: String::new() };
+        let empty_batch = OtelBatch {
+            spans: vec![],
+            timestamp: 0.0,
+            service_name: String::new(),
+        };
         overlay.ingest(&g, &empty_batch).unwrap();
         let heat_after_decay = overlay.get_heat(0);
 
-        assert!(heat_after_decay < heat_after_first, "Decay should reduce heat");
+        assert!(
+            heat_after_decay < heat_after_first,
+            "Decay should reduce heat"
+        );
         // With decay_factor=0.5, heat should be roughly halved
         let ratio = heat_after_decay / heat_after_first;
-        assert!(ratio < 0.6, "Heat should decay by ~50%, got ratio {}", ratio);
+        assert!(
+            ratio < 0.6,
+            "Heat should decay by ~50%, got ratio {}",
+            ratio
+        );
     }
 
     #[test]
@@ -512,7 +583,10 @@ mod tests {
         let activation_after = g.nodes.activation[0][0].get();
 
         assert!(applied > 0, "Should apply at least one boost");
-        assert!(activation_after >= activation_before, "Activation should not decrease after boost");
+        assert!(
+            activation_after >= activation_before,
+            "Activation should not decrease after boost"
+        );
     }
 
     #[test]
@@ -520,16 +594,14 @@ mod tests {
         let g = build_test_graph();
         let mut overlay = RuntimeOverlay::with_defaults();
         let batch = OtelBatch {
-            spans: vec![
-                OtelSpan {
-                    name: "nonexistent_function".to_string(),
-                    duration_us: 1000,
-                    count: 10,
-                    is_error: false,
-                    attributes: HashMap::new(),
-                    parent: None,
-                },
-            ],
+            spans: vec![OtelSpan {
+                name: "nonexistent_function".to_string(),
+                duration_us: 1000,
+                count: 10,
+                is_error: false,
+                attributes: HashMap::new(),
+                parent: None,
+            }],
             timestamp: 0.0,
             service_name: String::new(),
         };
@@ -548,16 +620,14 @@ mod tests {
         let mut overlay = RuntimeOverlay::new(config);
 
         let batch = OtelBatch {
-            spans: vec![
-                OtelSpan {
-                    name: "func::handle_request".to_string(), // matches external ID
-                    duration_us: 5000,
-                    count: 50,
-                    is_error: false,
-                    attributes: HashMap::new(),
-                    parent: None,
-                },
-            ],
+            spans: vec![OtelSpan {
+                name: "func::handle_request".to_string(), // matches external ID
+                duration_us: 5000,
+                count: 50,
+                is_error: false,
+                attributes: HashMap::new(),
+                parent: None,
+            }],
             timestamp: 0.0,
             service_name: String::new(),
         };
@@ -578,6 +648,9 @@ mod tests {
 
         let result = overlay.ingest(&g, &batch).unwrap();
         // All spans should be filtered out by the minimum duration
-        assert!(result.hot_nodes.is_empty(), "Spans below min_duration should be filtered");
+        assert!(
+            result.hot_nodes.is_empty(),
+            "Spans below min_duration should be filtered"
+        );
     }
 }

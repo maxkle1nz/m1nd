@@ -41,11 +41,9 @@ impl GitDepth {
             return Ok(Self::All);
         }
         if let Some(n) = s.strip_suffix('d') {
-            let days: u32 = n.parse().map_err(|_| {
-                M1ndError::InvalidParams {
-                    tool: "ghost_edges".into(),
-                    detail: format!("bad depth: {s} — expected 7d, 30d, 90d, all"),
-                }
+            let days: u32 = n.parse().map_err(|_| M1ndError::InvalidParams {
+                tool: "ghost_edges".into(),
+                detail: format!("bad depth: {s} — expected 7d, 30d, 90d, all"),
             })?;
             return Ok(Self::Days(days));
         }
@@ -116,19 +114,13 @@ pub fn parse_git_history(repo_root: &Path, depth: GitDepth) -> M1ndResult<Vec<Gi
         .args(&args)
         .current_dir(repo_root)
         .output()
-        .map_err(|e| {
-            M1ndError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("git log failed: {e}"),
-            ))
-        })?;
+        .map_err(|e| M1ndError::Io(std::io::Error::other(format!("git log failed: {e}"))))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(M1ndError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("git log failed: {stderr}"),
-        )));
+        return Err(M1ndError::Io(std::io::Error::other(format!(
+            "git log failed: {stderr}"
+        ))));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -149,7 +141,9 @@ fn parse_git_log_output(raw: &str) -> M1ndResult<Vec<GitCommit>> {
 
         // Try to parse as a commit header: HASH|TIMESTAMP|AUTHOR
         let parts: Vec<&str> = line.splitn(3, '|').collect();
-        if parts.len() == 3 && parts[0].len() >= 7 && parts[0].chars().all(|c| c.is_ascii_hexdigit())
+        if parts.len() == 3
+            && parts[0].len() >= 7
+            && parts[0].chars().all(|c| c.is_ascii_hexdigit())
         {
             // Flush previous commit
             if let Some(c) = current.take() {
@@ -236,7 +230,7 @@ pub fn inject_git_history(
                         target_id: nid_b,
                         source_ext: path_a.to_string(),
                         target_ext: path_b.to_string(),
-                        co_change_count: 1, // Will be aggregated below
+                        co_change_count: 1,            // Will be aggregated below
                         strength: FiniteF32::new(0.5), // Default; refined after aggregation
                     });
                 }
@@ -313,8 +307,14 @@ mod tests {
     #[test]
     fn depth_parse_days() {
         assert!(matches!(GitDepth::parse("7d").unwrap(), GitDepth::Days(7)));
-        assert!(matches!(GitDepth::parse("30d").unwrap(), GitDepth::Days(30)));
-        assert!(matches!(GitDepth::parse("90d").unwrap(), GitDepth::Days(90)));
+        assert!(matches!(
+            GitDepth::parse("30d").unwrap(),
+            GitDepth::Days(30)
+        ));
+        assert!(matches!(
+            GitDepth::parse("90d").unwrap(),
+            GitDepth::Days(90)
+        ));
     }
 
     #[test]

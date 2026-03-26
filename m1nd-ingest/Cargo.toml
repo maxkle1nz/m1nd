@@ -2,6 +2,9 @@
 name = "m1nd-ingest"
 version = "0.6.1"
 edition = "2021"
+description = "Language ingest and graph extraction pipeline for m1nd."
+license = "MIT"
+repository = "https://github.com/maxkle1nz/m1nd"
 
 [features]
 default = ["tier2"]
@@ -38,13 +41,12 @@ tier2 = [
 ]
 
 [dependencies]
-m1nd-core = { path = "../m1nd-core" }
+m1nd-core = { path = "../m1nd-core", version = "0.6.1" }
 regex = "1"
 walkdir = "2"
 rayon = "1.10"
 serde_json = { workspace = true }
 cargo_metadata = { workspace = true }
-quick-xml = "0.37"
 
 # Tree-sitter core (0.25 — all grammar crates must use new-API via tree-sitter-language)
 tree-sitter = { version = "0.25", optional = true }

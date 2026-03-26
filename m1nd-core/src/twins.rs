@@ -133,7 +133,11 @@ fn compute_signature(
     edge_type_vocab: &HashMap<String, usize>,
     use_edge_types: bool,
 ) -> Vec<f32> {
-    let edge_vocab_size = if use_edge_types { edge_type_vocab.len() } else { 0 };
+    let edge_vocab_size = if use_edge_types {
+        edge_type_vocab.len()
+    } else {
+        0
+    };
     let total_features = BASE_FEATURES + edge_vocab_size * 2; // outgoing + incoming edge types
     let mut features = vec![0.0f32; total_features];
 
@@ -154,7 +158,11 @@ fn compute_signature(
 
     // Feature 2: degree ratio (in / (in + out))
     let total_degree = in_degree + out_degree;
-    features[2] = if total_degree > 0.0 { in_degree / total_degree } else { 0.5 };
+    features[2] = if total_degree > 0.0 {
+        in_degree / total_degree
+    } else {
+        0.5
+    };
 
     // Feature 3: pagerank
     features[3] = graph.nodes.pagerank[idx].get();
@@ -183,7 +191,8 @@ fn compute_signature(
     // Shannon entropy of neighbor type distribution
     let total: f32 = type_counts.iter().sum();
     if total > 0.0 {
-        let entropy: f32 = type_counts.iter()
+        let entropy: f32 = type_counts
+            .iter()
             .filter(|&&c| c > 0.0)
             .map(|&c| {
                 let p = c / total;
@@ -203,7 +212,9 @@ fn compute_signature(
         }
         for edge_idx in graph.csr.in_range(node) {
             let fwd_idx = graph.csr.rev_edge_idx[edge_idx];
-            let rel = graph.strings.resolve(graph.csr.relations[fwd_idx.as_usize()]);
+            let rel = graph
+                .strings
+                .resolve(graph.csr.relations[fwd_idx.as_usize()]);
             if let Some(&vocab_idx) = edge_type_vocab.get(rel) {
                 features[BASE_FEATURES + edge_vocab_size + vocab_idx] += 1.0;
             }
@@ -230,10 +241,18 @@ fn describe_shared(a: &[f32], b: &[f32]) -> Vec<String> {
     if a.len() < BASE_FEATURES || b.len() < BASE_FEATURES {
         return props;
     }
-    if (a[0] - b[0]).abs() < 0.5 { props.push(format!("out_degree≈{:.0}", a[0])); }
-    if (a[1] - b[1]).abs() < 0.5 { props.push(format!("in_degree≈{:.0}", a[1])); }
-    if (a[4] - b[4]).abs() < 0.5 { props.push(format!("same_node_type")); }
-    if (a[6] - b[6]).abs() < 0.5 { props.push(format!("tag_count≈{:.0}", a[6])); }
+    if (a[0] - b[0]).abs() < 0.5 {
+        props.push(format!("out_degree≈{:.0}", a[0]));
+    }
+    if (a[1] - b[1]).abs() < 0.5 {
+        props.push(format!("in_degree≈{:.0}", a[1]));
+    }
+    if (a[4] - b[4]).abs() < 0.5 {
+        props.push("same_node_type".to_string());
+    }
+    if (a[6] - b[6]).abs() < 0.5 {
+        props.push(format!("tag_count≈{:.0}", a[6]));
+    }
     props
 }
 
@@ -265,7 +284,10 @@ pub fn find_twins(graph: &Graph, config: &TwinConfig) -> M1ndResult<TwinResult> 
         for i in 0..n {
             let nid = NodeId::new(i as u32);
             for edge_idx in graph.csr.out_range(nid) {
-                let rel = graph.strings.resolve(graph.csr.relations[edge_idx]).to_string();
+                let rel = graph
+                    .strings
+                    .resolve(graph.csr.relations[edge_idx])
+                    .to_string();
                 let len = edge_type_vocab.len();
                 edge_type_vocab.entry(rel).or_insert(len);
             }
@@ -276,7 +298,9 @@ pub fn find_twins(graph: &Graph, config: &TwinConfig) -> M1ndResult<TwinResult> 
     let candidate_nodes: Vec<NodeId> = (0..n)
         .filter(|&i| {
             // Type filter
-            if !config.node_types.is_empty() && !config.node_types.contains(&graph.nodes.node_type[i]) {
+            if !config.node_types.is_empty()
+                && !config.node_types.contains(&graph.nodes.node_type[i])
+            {
                 return false;
             }
             // Scope filter
@@ -312,10 +336,14 @@ pub fn find_twins(graph: &Graph, config: &TwinConfig) -> M1ndResult<TwinResult> 
     let mut comparisons = 0usize;
 
     for i in 0..signatures.len() {
-        if comparisons >= budget { break; }
+        if comparisons >= budget {
+            break;
+        }
         for j in (i + 1)..signatures.len() {
             comparisons += 1;
-            if comparisons >= budget { break; }
+            if comparisons >= budget {
+                break;
+            }
 
             let sim = cosine_similarity(&signatures[i].features, &signatures[j].features);
             if sim >= config.similarity_threshold {
@@ -325,14 +353,21 @@ pub fn find_twins(graph: &Graph, config: &TwinConfig) -> M1ndResult<TwinResult> 
                     node_b_id: signatures[j].ext_id.clone(),
                     node_b_label: signatures[j].label.clone(),
                     similarity: sim,
-                    shared_properties: describe_shared(&signatures[i].features, &signatures[j].features),
+                    shared_properties: describe_shared(
+                        &signatures[i].features,
+                        &signatures[j].features,
+                    ),
                 });
             }
         }
     }
 
     // Sort by similarity descending and truncate
-    pairs.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+    pairs.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     pairs.truncate(config.top_k);
 
     Ok(TwinResult {
@@ -359,20 +394,76 @@ mod tests {
     fn build_twin_graph() -> Graph {
         let mut g = Graph::new();
         // Subgraph A
-        g.add_node("a_h", "handler_a", NodeType::Function, &["handler"], 0.0, 0.5).unwrap();
-        g.add_node("a_p", "process_a", NodeType::Function, &["data"], 0.0, 0.3).unwrap();
-        g.add_node("a_o", "output_a", NodeType::Function, &["output"], 0.0, 0.2).unwrap();
+        g.add_node(
+            "a_h",
+            "handler_a",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.5,
+        )
+        .unwrap();
+        g.add_node("a_p", "process_a", NodeType::Function, &["data"], 0.0, 0.3)
+            .unwrap();
+        g.add_node("a_o", "output_a", NodeType::Function, &["output"], 0.0, 0.2)
+            .unwrap();
         // Subgraph B (structural twin)
-        g.add_node("b_h", "handler_b", NodeType::Function, &["handler"], 0.0, 0.5).unwrap();
-        g.add_node("b_p", "process_b", NodeType::Function, &["data"], 0.0, 0.3).unwrap();
-        g.add_node("b_o", "output_b", NodeType::Function, &["output"], 0.0, 0.2).unwrap();
+        g.add_node(
+            "b_h",
+            "handler_b",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.5,
+        )
+        .unwrap();
+        g.add_node("b_p", "process_b", NodeType::Function, &["data"], 0.0, 0.3)
+            .unwrap();
+        g.add_node("b_o", "output_b", NodeType::Function, &["output"], 0.0, 0.2)
+            .unwrap();
 
         // Edges A
-        g.add_edge(NodeId::new(0), NodeId::new(1), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(1), NodeId::new(2), "calls", FiniteF32::new(0.7), EdgeDirection::Forward, false, FiniteF32::new(0.4)).unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(1),
+            NodeId::new(2),
+            "calls",
+            FiniteF32::new(0.7),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.4),
+        )
+        .unwrap();
         // Edges B (same structure)
-        g.add_edge(NodeId::new(3), NodeId::new(4), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(4), NodeId::new(5), "calls", FiniteF32::new(0.7), EdgeDirection::Forward, false, FiniteF32::new(0.4)).unwrap();
+        g.add_edge(
+            NodeId::new(3),
+            NodeId::new(4),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(4),
+            NodeId::new(5),
+            "calls",
+            FiniteF32::new(0.7),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.4),
+        )
+        .unwrap();
 
         g.finalize().unwrap();
         g
@@ -382,16 +473,68 @@ mod tests {
     fn build_different_graph() -> Graph {
         let mut g = Graph::new();
         // Hub node (high out-degree)
-        g.add_node("hub", "dispatcher", NodeType::Function, &["core"], 0.0, 0.9).unwrap();
+        g.add_node("hub", "dispatcher", NodeType::Function, &["core"], 0.0, 0.9)
+            .unwrap();
         // Leaf nodes (low degree)
-        g.add_node("leaf1", "handler_1", NodeType::Function, &["handler"], 0.0, 0.1).unwrap();
-        g.add_node("leaf2", "handler_2", NodeType::Function, &["handler"], 0.0, 0.1).unwrap();
-        g.add_node("leaf3", "handler_3", NodeType::Function, &["handler"], 0.0, 0.1).unwrap();
+        g.add_node(
+            "leaf1",
+            "handler_1",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.1,
+        )
+        .unwrap();
+        g.add_node(
+            "leaf2",
+            "handler_2",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.1,
+        )
+        .unwrap();
+        g.add_node(
+            "leaf3",
+            "handler_3",
+            NodeType::Function,
+            &["handler"],
+            0.0,
+            0.1,
+        )
+        .unwrap();
 
         // Hub fans out to all leaves
-        g.add_edge(NodeId::new(0), NodeId::new(1), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(0), NodeId::new(2), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
-        g.add_edge(NodeId::new(0), NodeId::new(3), "calls", FiniteF32::new(0.8), EdgeDirection::Forward, false, FiniteF32::new(0.5)).unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(2),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(3),
+            "calls",
+            FiniteF32::new(0.8),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.5),
+        )
+        .unwrap();
 
         g.finalize().unwrap();
         g
@@ -427,13 +570,21 @@ mod tests {
         assert!(result.nodes_analyzed == 6);
         // handler_a ↔ handler_b, process_a ↔ process_b, output_a ↔ output_b
         // should all be detected as structural twins
-        assert!(!result.pairs.is_empty(), "Should detect twin pairs, got none");
+        assert!(
+            !result.pairs.is_empty(),
+            "Should detect twin pairs, got none"
+        );
 
         // Check that at least one handler pair is found
-        let has_handler_twin = result.pairs.iter().any(|p| {
-            (p.node_a_label.contains("handler") && p.node_b_label.contains("handler"))
-        });
-        assert!(has_handler_twin, "Should detect handler_a ↔ handler_b twin, pairs: {:?}", result.pairs);
+        let has_handler_twin = result
+            .pairs
+            .iter()
+            .any(|p| (p.node_a_label.contains("handler") && p.node_b_label.contains("handler")));
+        assert!(
+            has_handler_twin,
+            "Should detect handler_a ↔ handler_b twin, pairs: {:?}",
+            result.pairs
+        );
     }
 
     #[test]
@@ -445,10 +596,14 @@ mod tests {
         };
         let result = find_twins(&g, &config).unwrap();
         // Hub should NOT be a twin with any leaf
-        let has_hub_leaf_twin = result.pairs.iter().any(|p| {
-            (p.node_a_label == "dispatcher" || p.node_b_label == "dispatcher")
-        });
-        assert!(!has_hub_leaf_twin, "Hub should not be twin with leaf at 0.9 threshold");
+        let has_hub_leaf_twin = result
+            .pairs
+            .iter()
+            .any(|p| (p.node_a_label == "dispatcher" || p.node_b_label == "dispatcher"));
+        assert!(
+            !has_hub_leaf_twin,
+            "Hub should not be twin with leaf at 0.9 threshold"
+        );
     }
 
     #[test]
@@ -460,10 +615,18 @@ mod tests {
         };
         let result = find_twins(&g, &config).unwrap();
         // All 3 leaves should be twins of each other
-        let leaf_pairs: Vec<_> = result.pairs.iter().filter(|p| {
-            p.node_a_label.starts_with("handler_") && p.node_b_label.starts_with("handler_")
-        }).collect();
-        assert!(leaf_pairs.len() >= 2, "Should find at least 2 leaf twin pairs, found {}", leaf_pairs.len());
+        let leaf_pairs: Vec<_> = result
+            .pairs
+            .iter()
+            .filter(|p| {
+                p.node_a_label.starts_with("handler_") && p.node_b_label.starts_with("handler_")
+            })
+            .collect();
+        assert!(
+            leaf_pairs.len() >= 2,
+            "Should find at least 2 leaf twin pairs, found {}",
+            leaf_pairs.len()
+        );
     }
 
     #[test]
@@ -481,6 +644,9 @@ mod tests {
             ..TwinConfig::default()
         };
         let result = find_twins(&g, &config).unwrap();
-        assert!(result.pairs.is_empty(), "Scoped to nonexistent prefix should find no twins");
+        assert!(
+            result.pairs.is_empty(),
+            "Scoped to nonexistent prefix should find no twins"
+        );
     }
 }
