@@ -29,6 +29,12 @@ pub struct ResolutionStats {
     pub identity_matches: usize,
     /// Number of author bridges found
     pub author_bridges: usize,
+    /// Number of keyword bridges found
+    pub keyword_bridges: usize,
+    /// Number of ORCID identity bridges found
+    pub orcid_bridges: usize,
+    /// Number of transitive citation chains found
+    pub citation_chains: usize,
 }
 
 /// Intermediate node representation for merging
@@ -76,6 +82,8 @@ impl CrossDomainResolver {
         let mut doi_to_ids: HashMap<String, Vec<String>> = HashMap::new();
         let mut pmid_to_ids: HashMap<String, Vec<String>> = HashMap::new();
         let mut author_to_ids: HashMap<String, Vec<String>> = HashMap::new();
+        let mut keyword_to_ids: HashMap<String, Vec<String>> = HashMap::new();
+        let mut orcid_to_ids: HashMap<String, Vec<String>> = HashMap::new();
         let mut seen_ids: HashSet<String> = HashSet::new();
 
         let mut deduped_nodes: Vec<MergeNode> = Vec::new();
@@ -123,6 +131,38 @@ impl CrossDomainResolver {
             {
                 let name_key = node.label.to_lowercase().replace(' ', "_");
                 author_to_ids.entry(name_key).or_default().push(eid.clone());
+            }
+
+            // Index keywords for shared_keyword bridge
+            for tag in &node.tags {
+                if let Some(kw) = tag.strip_prefix("article:keyword:") {
+                    keyword_to_ids
+                        .entry(kw.to_lowercase())
+                        .or_default()
+                        .push(eid.clone());
+                }
+                if let Some(kw) = tag.strip_prefix("keyword:") {
+                    keyword_to_ids
+                        .entry(kw.to_lowercase())
+                        .or_default()
+                        .push(eid.clone());
+                }
+                if let Some(subj) = tag.strip_prefix("subject:") {
+                    keyword_to_ids
+                        .entry(subj.to_lowercase())
+                        .or_default()
+                        .push(eid.clone());
+                }
+            }
+
+            // Index ORCID for same_orcid bridge
+            for tag in &node.tags {
+                if let Some(orcid) = tag.strip_prefix("orcid:") {
+                    orcid_to_ids
+                        .entry(orcid.to_lowercase())
+                        .or_default()
+                        .push(eid.clone());
+                }
             }
         }
 
@@ -240,6 +280,120 @@ impl CrossDomainResolver {
                     }
                 }
             }
+        }
+
+        // ---------------------------------------------------------------
+        // Shared keyword bridges: nodes sharing keywords across domains
+        // ---------------------------------------------------------------
+        for (keyword, ids) in &keyword_to_ids {
+            if ids.len() > 1 && ids.len() <= 20 {
+                // Cap to avoid hyper-connected hubs from generic keywords
+                let namespaces: HashSet<String> = ids
+                    .iter()
+                    .filter_map(|id| {
+                        deduped_nodes
+                            .iter()
+                            .find(|n| &n.external_id == id)
+                            .and_then(|n| n.namespace.clone())
+                    })
+                    .collect();
+
+                if namespaces.len() > 1 {
+                    // Cross-domain keyword match → bridge
+                    for i in 0..ids.len() {
+                        for j in (i + 1)..ids.len() {
+                            // Only bridge across different namespaces
+                            let ns_i = deduped_nodes
+                                .iter()
+                                .find(|n| n.external_id == ids[i])
+                                .and_then(|n| n.namespace.as_deref());
+                            let ns_j = deduped_nodes
+                                .iter()
+                                .find(|n| n.external_id == ids[j])
+                                .and_then(|n| n.namespace.as_deref());
+                            if ns_i != ns_j {
+                                cross_edges.push(MergeEdge {
+                                    source_id: ids[i].clone(),
+                                    target_id: ids[j].clone(),
+                                    relation: "shared_keyword".to_string(),
+                                    weight: 0.6,
+                                });
+                                stats.keyword_bridges += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // ORCID identity bridges: same researcher via ORCID
+        // ---------------------------------------------------------------
+        for (orcid, ids) in &orcid_to_ids {
+            if ids.len() > 1 {
+                let namespaces: HashSet<String> = ids
+                    .iter()
+                    .filter_map(|id| {
+                        deduped_nodes
+                            .iter()
+                            .find(|n| &n.external_id == id)
+                            .and_then(|n| n.namespace.clone())
+                    })
+                    .collect();
+
+                if namespaces.len() > 1 {
+                    for i in 0..ids.len() {
+                        for j in (i + 1)..ids.len() {
+                            cross_edges.push(MergeEdge {
+                                source_id: ids[i].clone(),
+                                target_id: ids[j].clone(),
+                                relation: "same_orcid".to_string(),
+                                weight: 0.95,
+                            });
+                            stats.orcid_bridges += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Citation chain: transitive A→B→C bridging with weight decay
+        // If A cites B and B cites C, create A → C with decayed weight
+        // ---------------------------------------------------------------
+        {
+            // Build adjacency: source → Vec<target> for cites edges
+            let mut cite_adj: HashMap<String, Vec<String>> = HashMap::new();
+            for edge in &edges {
+                if edge.relation == "cites" || edge.relation == "references" {
+                    cite_adj
+                        .entry(edge.source_id.clone())
+                        .or_default()
+                        .push(edge.target_id.clone());
+                }
+            }
+
+            // For each A → B, check B → C
+            let mut chain_edges: Vec<MergeEdge> = Vec::new();
+            for (a, bs) in &cite_adj {
+                for b in bs {
+                    if let Some(cs) = cite_adj.get(b) {
+                        for c in cs {
+                            if c != a {
+                                // A → B → C: create transitive bridge
+                                chain_edges.push(MergeEdge {
+                                    source_id: a.clone(),
+                                    target_id: c.clone(),
+                                    relation: "citation_chain".to_string(),
+                                    weight: 0.5, // decayed
+                                });
+                                stats.citation_chains += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            cross_edges.extend(chain_edges);
         }
 
         // Phase 3: Build unified graph
@@ -521,5 +675,260 @@ mod tests {
         assert!(graph.resolve_id("article::author::alice_wang").is_some());
         assert!(stats.cross_edges_created >= 1, "cross_cites should exist");
         assert!(stats.total_edges >= 3);
+    }
+
+    // ===== NEW BRIDGE TESTS =====
+
+    #[test]
+    fn shared_keyword_across_domains() {
+        let nodes = vec![
+            make_node(
+                "doi::10.1234/rfc",
+                "RFC Paper",
+                &["keyword:http", "keyword:transport"],
+                "rfc",
+            ),
+            make_node(
+                "doi::10.5678/article",
+                "HTTP Article",
+                &["keyword:http", "keyword:performance"],
+                "article",
+            ),
+        ];
+        let edges = vec![];
+
+        let (_, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        println!("keyword_bridges={}", stats.keyword_bridges);
+        assert!(
+            stats.keyword_bridges >= 1,
+            "should bridge via shared 'http' keyword"
+        );
+    }
+
+    #[test]
+    fn shared_keyword_same_domain_no_bridge() {
+        let nodes = vec![
+            make_node(
+                "doi::10.1/a",
+                "Paper A",
+                &["keyword:machine_learning"],
+                "article",
+            ),
+            make_node(
+                "doi::10.1/b",
+                "Paper B",
+                &["keyword:machine_learning"],
+                "article",
+            ),
+        ];
+        let edges = vec![];
+
+        let (_, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        assert_eq!(
+            stats.keyword_bridges, 0,
+            "same domain keywords should not bridge"
+        );
+    }
+
+    #[test]
+    fn shared_keyword_article_format() {
+        // Test article:keyword: prefix
+        let nodes = vec![
+            make_node(
+                "bibtex::transformer",
+                "Attention Paper",
+                &["article:keyword:attention"],
+                "bibtex",
+            ),
+            make_node(
+                "crossref::10.9/x",
+                "Attention Study",
+                &["subject:attention"],
+                "crossref",
+            ),
+        ];
+        let edges = vec![];
+
+        let (_, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        assert!(
+            stats.keyword_bridges >= 1,
+            "article:keyword: and subject: should both be indexed"
+        );
+    }
+
+    #[test]
+    fn same_orcid_bridges() {
+        let nodes = vec![
+            MergeNode {
+                external_id: "article::author::roy_fielding_1".to_string(),
+                label: "Roy T. Fielding".to_string(),
+                node_type: NodeType::Concept,
+                tags: vec![
+                    "article:author".to_string(),
+                    "orcid:0000-0001-8249-3260".to_string(),
+                ],
+                timestamp: 0.0,
+                change_freq: 0.5,
+                source_path: None,
+                excerpt: None,
+                namespace: Some("crossref".to_string()),
+            },
+            MergeNode {
+                external_id: "rfc::author::roy_fielding".to_string(),
+                label: "Roy T. Fielding".to_string(),
+                node_type: NodeType::Concept,
+                tags: vec![
+                    "article:author".to_string(),
+                    "orcid:0000-0001-8249-3260".to_string(),
+                ],
+                timestamp: 0.0,
+                change_freq: 0.5,
+                source_path: None,
+                excerpt: None,
+                namespace: Some("rfc".to_string()),
+            },
+        ];
+        let edges = vec![];
+
+        let (_, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        println!("orcid_bridges={}", stats.orcid_bridges);
+        assert!(
+            stats.orcid_bridges >= 1,
+            "same ORCID across domains should create bridge"
+        );
+    }
+
+    #[test]
+    fn same_orcid_same_domain_no_bridge() {
+        let nodes = vec![
+            MergeNode {
+                external_id: "a::author1".to_string(),
+                label: "Author 1".to_string(),
+                node_type: NodeType::Concept,
+                tags: vec!["orcid:0000-0001-0000-0000".to_string()],
+                timestamp: 0.0,
+                change_freq: 0.5,
+                source_path: None,
+                excerpt: None,
+                namespace: Some("article".to_string()),
+            },
+            MergeNode {
+                external_id: "a::author2".to_string(),
+                label: "Author 2".to_string(),
+                node_type: NodeType::Concept,
+                tags: vec!["orcid:0000-0001-0000-0000".to_string()],
+                timestamp: 0.0,
+                change_freq: 0.5,
+                source_path: None,
+                excerpt: None,
+                namespace: Some("article".to_string()),
+            },
+        ];
+        let edges = vec![];
+
+        let (_, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        assert_eq!(
+            stats.orcid_bridges, 0,
+            "same domain ORCID should not bridge"
+        );
+    }
+
+    #[test]
+    fn citation_chain_transitive() {
+        // A cites B, B cites C → A should get chain edge to C
+        let nodes = vec![
+            make_node("doi::a", "Paper A", &["article"], "article"),
+            make_node("doi::b", "Paper B", &["article"], "article"),
+            make_node("doi::c", "Paper C", &["article"], "article"),
+        ];
+        let edges = vec![
+            MergeEdge {
+                source_id: "doi::a".to_string(),
+                target_id: "doi::b".to_string(),
+                relation: "cites".to_string(),
+                weight: 0.8,
+            },
+            MergeEdge {
+                source_id: "doi::b".to_string(),
+                target_id: "doi::c".to_string(),
+                relation: "cites".to_string(),
+                weight: 0.8,
+            },
+        ];
+
+        let (graph, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        println!("citation_chains={}", stats.citation_chains);
+        assert!(
+            stats.citation_chains >= 1,
+            "A→B→C should create citation_chain A→C"
+        );
+
+        // Verify the transitive edge exists
+        let a = graph.resolve_id("doi::a").unwrap();
+        let c = graph.resolve_id("doi::c").unwrap();
+        let has_chain = graph.csr.out_range(a).any(|idx| {
+            graph.csr.targets[idx] == c
+                && graph.strings.resolve(graph.csr.relations[idx]) == "citation_chain"
+        });
+        assert!(has_chain, "transitive chain edge should exist from A to C");
+    }
+
+    #[test]
+    fn citation_chain_no_self_loop() {
+        // A cites B, B cites A → should NOT create A→A chain
+        let nodes = vec![
+            make_node("doi::a", "Paper A", &["article"], "article"),
+            make_node("doi::b", "Paper B", &["article"], "article"),
+        ];
+        let edges = vec![
+            MergeEdge {
+                source_id: "doi::a".to_string(),
+                target_id: "doi::b".to_string(),
+                relation: "cites".to_string(),
+                weight: 0.8,
+            },
+            MergeEdge {
+                source_id: "doi::b".to_string(),
+                target_id: "doi::a".to_string(),
+                relation: "cites".to_string(),
+                weight: 0.8,
+            },
+        ];
+
+        let (_, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        assert_eq!(
+            stats.citation_chains, 0,
+            "A→B→A should not create self-loop chain"
+        );
+    }
+
+    #[test]
+    fn citation_chain_with_references_relation() {
+        // Also works with "references" relation
+        let nodes = vec![
+            make_node("doi::x", "Paper X", &["article"], "article"),
+            make_node("doi::y", "Paper Y", &["article"], "article"),
+            make_node("doi::z", "Paper Z", &["article"], "article"),
+        ];
+        let edges = vec![
+            MergeEdge {
+                source_id: "doi::x".to_string(),
+                target_id: "doi::y".to_string(),
+                relation: "references".to_string(),
+                weight: 0.7,
+            },
+            MergeEdge {
+                source_id: "doi::y".to_string(),
+                target_id: "doi::z".to_string(),
+                relation: "references".to_string(),
+                weight: 0.7,
+            },
+        ];
+
+        let (_, stats) = CrossDomainResolver::resolve(nodes, edges).unwrap();
+        assert!(
+            stats.citation_chains >= 1,
+            "'references' relation should also create chains"
+        );
     }
 }
