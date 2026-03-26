@@ -6,9 +6,11 @@ use m1nd_core::types::*;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
+pub mod bibtex_adapter;
 pub mod cargo_workspace;
 pub mod cross_file;
 pub mod diff;
+pub mod document_router;
 pub mod extract;
 pub mod jats_adapter;
 pub mod json_adapter;
@@ -19,6 +21,7 @@ pub mod patent_adapter;
 pub mod resolve;
 pub mod walker;
 
+pub use bibtex_adapter::BibTexAdapter;
 pub use jats_adapter::JatsArticleAdapter;
 pub use l1ght_adapter::L1ghtIngestAdapter;
 pub use patent_adapter::PatentIngestAdapter;
