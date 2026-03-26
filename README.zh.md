@@ -48,6 +48,10 @@
   <a href="https://aws.amazon.com/q/developer"><img src="https://img.shields.io/badge/Amazon_Q-232f3e?logo=amazonaws&logoColor=f90" alt="Amazon Q" /></a>
 </p>
 
+<p align="center">
+  <strong>在不到1秒内发现结构性漏洞</strong> &middot; 89% 假设准确率 &middot; 降低 84% 的 LLM 上下文成本
+</p>
+
 ---
 
 ## 为什么使用 m1nd
