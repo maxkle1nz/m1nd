@@ -10,6 +10,7 @@ pub mod cargo_workspace;
 pub mod cross_file;
 pub mod diff;
 pub mod extract;
+pub mod jats_adapter;
 pub mod json_adapter;
 pub mod l1ght_adapter;
 pub mod memory_adapter;
@@ -18,6 +19,7 @@ pub mod patent_adapter;
 pub mod resolve;
 pub mod walker;
 
+pub use jats_adapter::JatsArticleAdapter;
 pub use l1ght_adapter::L1ghtIngestAdapter;
 pub use patent_adapter::PatentIngestAdapter;
 
