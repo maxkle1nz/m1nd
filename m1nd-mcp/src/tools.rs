@@ -1727,6 +1727,11 @@ pub fn handle_ingest(
             let (new_graph, stats) = adapter.ingest(&path)?;
             finalize_ingest(state, &input, "rfc", new_graph, stats)
         }
+        "crossref" | "doi" => {
+            let adapter = m1nd_ingest::CrossRefAdapter::new(input.namespace.clone());
+            let (new_graph, stats) = adapter.ingest(&path)?;
+            finalize_ingest(state, &input, "crossref", new_graph, stats)
+        }
         "auto" | "document" => {
             // Auto-detect format from file content
             let (format, adapter) =
@@ -1749,7 +1754,7 @@ pub fn handle_ingest(
             }
         }
         other => Ok(serde_json::json!({
-            "error": format!("Unknown adapter: '{}'. Supported: 'code', 'json', 'memory', 'light', 'patent', 'article', 'bibtex', 'rfc', 'auto'", other),
+            "error": format!("Unknown adapter: '{}'. Supported: 'code', 'json', 'memory', 'light', 'patent', 'article', 'bibtex', 'rfc', 'crossref', 'auto'", other),
         })),
     }
 }

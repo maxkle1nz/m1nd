@@ -5,8 +5,8 @@
 //!   let (graph, stats) = adapter.ingest(root)?;
 
 use crate::{
-    BibTexAdapter, IngestAdapter, JatsArticleAdapter, L1ghtIngestAdapter, PatentIngestAdapter,
-    RfcAdapter,
+    BibTexAdapter, CrossRefAdapter, IngestAdapter, JatsArticleAdapter, L1ghtIngestAdapter,
+    PatentIngestAdapter, RfcAdapter,
 };
 use std::path::Path;
 
@@ -19,6 +19,8 @@ pub enum DocumentFormat {
     JatsArticle,
     /// IETF RFC XML v3
     Rfc,
+    /// CrossRef API JSON (DOI metadata)
+    CrossRef,
     /// BibTeX bibliography file
     BibTeX,
     /// L1GHT protocol Markdown
@@ -33,6 +35,7 @@ impl std::fmt::Display for DocumentFormat {
             Self::Patent => write!(f, "patent"),
             Self::JatsArticle => write!(f, "article"),
             Self::Rfc => write!(f, "rfc"),
+            Self::CrossRef => write!(f, "crossref"),
             Self::BibTeX => write!(f, "bibtex"),
             Self::L1ght => write!(f, "light"),
             Self::Code => write!(f, "code"),
@@ -82,7 +85,33 @@ impl DocumentRouter {
             }
         }
 
+        // JSON — check for CrossRef format
+        if ext == "json" {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                if Self::looks_like_crossref(&content) {
+                    return (
+                        DocumentFormat::CrossRef,
+                        Some(Box::new(CrossRefAdapter::new(None))),
+                    );
+                }
+            }
+        }
+
         (DocumentFormat::Code, None)
+    }
+
+    /// Quick heuristic: does this JSON look like a CrossRef work?
+    fn looks_like_crossref(content: &str) -> bool {
+        // Check for CrossRef API envelope
+        if content.contains("\"message-type\"")
+            && (content.contains("\"work\"") || content.contains("\"work-list\""))
+        {
+            return true;
+        }
+        // Check for raw work object with DOI + type
+        content.contains("\"DOI\"")
+            && content.contains("\"publisher\"")
+            && content.contains("\"type\"")
     }
 
     fn detect_from_xml(content: &str) -> (DocumentFormat, Option<Box<dyn IngestAdapter>>) {
@@ -123,7 +152,7 @@ impl DocumentRouter {
             return Self::detect(root);
         }
 
-        let mut counts = [0u32; 5]; // Patent, Article, BibTeX, L1ght, Rfc
+        let mut counts = [0u32; 6]; // Patent, Article, BibTeX, L1ght, Rfc, CrossRef
 
         for entry in walkdir::WalkDir::new(root)
             .max_depth(3)
@@ -139,6 +168,7 @@ impl DocumentRouter {
                 DocumentFormat::BibTeX => counts[2] += 1,
                 DocumentFormat::L1ght => counts[3] += 1,
                 DocumentFormat::Rfc => counts[4] += 1,
+                DocumentFormat::CrossRef => counts[5] += 1,
                 DocumentFormat::Code => {}
             }
         }
@@ -173,6 +203,10 @@ impl DocumentRouter {
                 Some(Box::new(L1ghtIngestAdapter::new(None))),
             ),
             4 => (DocumentFormat::Rfc, Some(Box::new(RfcAdapter::new(None)))),
+            5 => (
+                DocumentFormat::CrossRef,
+                Some(Box::new(CrossRefAdapter::new(None))),
+            ),
             _ => (DocumentFormat::Code, None),
         }
     }
@@ -242,6 +276,21 @@ mod tests {
         std::fs::write(dir.join("b.bib"), "@article{y, title={B}}").unwrap();
         let (fmt, _) = DocumentRouter::detect_directory(&dir);
         assert_eq!(fmt, DocumentFormat::BibTeX);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn detects_crossref_json() {
+        let dir = std::env::temp_dir().join("router-crossref");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("work.json"),
+            r#"{"DOI":"10.1234/test","publisher":"Test","type":"journal-article","title":["Test"]}"#,
+        )
+        .unwrap();
+        let (fmt, adapter) = DocumentRouter::detect(&dir.join("work.json"));
+        assert_eq!(fmt, DocumentFormat::CrossRef);
+        assert!(adapter.is_some());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

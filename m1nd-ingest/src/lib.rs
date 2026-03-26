@@ -10,6 +10,7 @@ pub mod bibtex_adapter;
 pub mod cargo_workspace;
 pub mod cross_domain;
 pub mod cross_file;
+pub mod crossref_adapter;
 pub mod diff;
 pub mod document_router;
 pub mod extract;
@@ -24,6 +25,7 @@ pub mod rfc_adapter;
 pub mod walker;
 
 pub use bibtex_adapter::BibTexAdapter;
+pub use crossref_adapter::CrossRefAdapter;
 pub use jats_adapter::JatsArticleAdapter;
 pub use l1ght_adapter::L1ghtIngestAdapter;
 pub use patent_adapter::PatentIngestAdapter;

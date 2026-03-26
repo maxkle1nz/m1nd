@@ -396,7 +396,7 @@ pub fn tool_schemas() -> serde_json::Value {
                         "adapter": {
                             "type": "string",
                             "default": "code",
-                            "enum": ["code", "json", "memory", "light", "patent", "article", "bibtex", "rfc", "auto"],
+                            "enum": ["code", "json", "memory", "light", "patent", "article", "bibtex", "rfc", "crossref", "auto"],
                             "description": "Adapter to use for parsing the input corpus"
                         },
                         "mode": {
