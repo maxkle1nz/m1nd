@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 pub mod bibtex_adapter;
 pub mod cargo_workspace;
+pub mod cross_domain;
 pub mod cross_file;
 pub mod diff;
 pub mod document_router;
