@@ -3,16 +3,10 @@ import { motion } from 'framer-motion';
 import { COLORS, GLYPHS } from './lib/colors';
 
 const heroMetrics = [
-  { label: 'Recorded corpus', value: '47.05%', note: 'less context churn on measured workflows' },
-  { label: 'False starts', value: '14 -> 0', note: 'removed in the recorded corpus' },
-  { label: 'Guided handoffs', value: '39', note: 'measured workflow follow-throughs' },
-  { label: 'Recovery loops', value: '12', note: 'successful guided recoveries' },
-];
-
-const proofBar = [
-  'Less reading',
-  'Less token burn',
-  'More precise cuts',
+  { label: 'Context churn', value: '-47.05%', note: 'in the recorded corpus' },
+  { label: 'False starts', value: '14 -> 0', note: 'on measured workflows' },
+  { label: 'Guided handoffs', value: '39', note: 'recorded follow-throughs' },
+  { label: 'Recovery loops', value: '12', note: 'successful recoveries' },
 ];
 
 const capabilities = [
@@ -27,47 +21,22 @@ const capabilities = [
     accent: COLORS.one,
   },
   {
-    title: 'Resume without paying the orientation cost again',
-    body: 'trail_resume restores the investigation with the next focus, open question, and likely tool instead of forcing another read-search loop.',
-    accent: COLORS.N,
-  },
-  {
     title: 'Prepare narrower, safer changes',
     body: 'surgical_context_v2 and validate_plan turn connected edits into a scoped plan instead of a blind multi-file jump.',
     accent: COLORS.D,
   },
   {
-    title: 'Keep long writes observable',
-    body: 'apply_batch exposes phases, progress, SSE events, and handoff guidance so structural edits stay understandable while they run.',
-    accent: COLORS.M,
-  },
-  {
-    title: 'Connect the reasoning around the code',
-    body: 'The ingest layer can connect code with docs, RFCs, articles, papers, and memory so the agent sees more than isolated files.',
-    accent: COLORS.one,
+    title: 'Work with connected context',
+    body: 'm1nd can connect code with docs, RFCs, papers, articles, and memory so the agent does not reason from code alone.',
+    accent: COLORS.N,
   },
 ];
 
 const workflow = [
   { step: '01', title: 'Locate the cut', body: 'Start with trace, seek, impact, or trail_resume to get structure before the model disappears into repo reading.' },
-  { step: '02', title: 'Read state, not just hits', body: 'proof_state tells the agent whether it is still triaging, actively proving, or ready to move into edit prep.' },
-  { step: '03', title: 'Follow the next move', body: 'next_suggested_tool, next_suggested_target, and next_step_hint reduce wandering and dead-end retries.' },
-  { step: '04', title: 'Plan the narrow change', body: 'Use surgical_context_v2 and validate_plan to pull connected context and expose blast radius before writing.' },
-  { step: '05', title: 'Write with visibility', body: 'apply_batch executes with phases, progress, verification verdicts, and runtime-visible completion signals.' },
-];
-
-const truths = [
-  'The value is not the graph by itself. The value is finding authority, blast radius, and edit scope before the model wastes tokens rediscovering structure.',
-  'm1nd is local-first and MCP-native. It is built to change how agents behave early, not just decorate search results later.',
-  'The product win is faster orientation, lower context churn, narrower edits, and less wandering on structural work.',
-  'Plain tools still win for simple grep, logs, tests, and compiler truth. m1nd wins when the task is connected, risky, or expensive to rediscover.',
-];
-
-const buyerReasons = [
-  'Lower token spend on reading-heavy structural work',
-  'Faster orientation before the model drifts into blind file reads',
-  'Narrower cuts and safer edits before anything gets written',
-  'More confidence when the task spans code, docs, and connected context',
+  { step: '02', title: 'Check impact', body: 'Use impact and proof_state to confirm whether the seam still needs proof or is ready for edit prep.' },
+  { step: '03', title: 'Plan the narrow change', body: 'Use surgical_context_v2 and validate_plan to pull connected context and expose blast radius before writing.' },
+  { step: '04', title: 'Write with visibility', body: 'apply_batch executes with phases, progress, verification verdicts, and runtime-visible completion signals.' },
 ];
 
 const useCases = [
@@ -196,35 +165,6 @@ function WorkflowStep({ step, title, body }: { step: string; title: string; body
   );
 }
 
-function TruthList() {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gap: 14,
-      }}
-    >
-      {truths.map((truth) => (
-        <div
-          key={truth}
-          style={{
-            display: 'flex',
-            gap: 12,
-            alignItems: 'flex-start',
-            padding: '16px 18px',
-            background: 'rgba(15,20,32,0.7)',
-            border: `1px solid rgba(107,127,163,0.16)`,
-            borderRadius: 16,
-          }}
-        >
-          <div style={{ color: COLORS.D, marginTop: 2 }}>{GLYPHS.convergence}</div>
-          <div style={{ color: COLORS.textMuted, fontSize: 14, lineHeight: 1.75 }}>{truth}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function App() {
   return (
     <div
@@ -335,34 +275,9 @@ export default function App() {
                   marginBottom: 28,
                 }}
               >
-                Less token burn. Less wasted spend. Faster orientation. More precise cuts. m1nd finds authority,
-                blast radius, and connected edit context before an agent disappears into read-search-drift loops.
+                m1nd reduces token burn on structural work by finding authority, blast radius, and connected edit
+                context before an agent disappears into read-search-drift loops.
               </p>
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 10,
-                  marginBottom: 24,
-                }}
-              >
-                {proofBar.map((item) => (
-                  <div
-                    key={item}
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: 999,
-                      background: 'rgba(8,12,20,0.58)',
-                      border: `1px solid rgba(232,237,245,0.08)`,
-                      color: COLORS.text,
-                      fontSize: 12,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    {item}
-                  </div>
-                ))}
-              </div>
               <div className="hero-actions" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 26 }}>
                 <a href="/wiki/" style={primaryButton}>
                   Read the docs
@@ -372,7 +287,7 @@ export default function App() {
                 </a>
               </div>
               <div className="pill-row" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {['authority discovery', 'blast-radius preflight', 'connected edit context', 'proof_state', 'trail_resume', 'apply_batch'].map((pill, index) => (
+                {['authority discovery', 'blast-radius preflight', 'connected edit context', 'apply_batch'].map((pill, index) => (
                   <div
                     key={pill}
                     style={{
@@ -494,52 +409,12 @@ export default function App() {
 
         <section style={{ marginBottom: 74 }}>
           <SectionEyebrow>Why it matters</SectionEyebrow>
-          <div className="split-grid" style={{ display: 'grid', gridTemplateColumns: '0.92fr 1.08fr', gap: 28, alignItems: 'start' }}>
-            <div>
-              <h2 style={sectionTitle}>Stop paying tokens to rediscover repo structure.</h2>
-              <p style={sectionBody}>
-                Models read. m1nd locates. That difference shows up as lower spend, faster orientation,
-                less wandering, and narrower edits before the model has burned half the budget reopening files.
-              </p>
-            </div>
-            <TruthList />
-          </div>
-        </section>
-
-        <section style={{ marginBottom: 74 }}>
-          <SectionEyebrow>Why teams buy this</SectionEyebrow>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-              gap: 14,
-            }}
-            className="buyer-grid"
-          >
-            {buyerReasons.map((reason, index) => (
-              <div
-                key={reason}
-                style={{
-                  padding: '18px 18px 20px',
-                  borderRadius: 18,
-                  background: 'rgba(15,20,32,0.72)',
-                  border: `1px solid ${[COLORS.M, COLORS.one, COLORS.N, COLORS.D][index % 4]}22`,
-                }}
-              >
-                <div
-                  style={{
-                    color: [COLORS.M, COLORS.one, COLORS.N, COLORS.D][index % 4],
-                    fontSize: 11,
-                    letterSpacing: 2,
-                    textTransform: 'uppercase',
-                    marginBottom: 10,
-                  }}
-                >
-                  Outcome
-                </div>
-                <div style={{ color: COLORS.text, fontSize: 15, lineHeight: 1.7 }}>{reason}</div>
-              </div>
-            ))}
+          <div>
+            <h2 style={sectionTitle}>Stop paying tokens to rediscover repo structure.</h2>
+            <p style={{ ...sectionBody, maxWidth: 920 }}>
+              Models read. m1nd locates. That difference shows up as lower spend, faster orientation, less
+              wandering, and narrower edits before the model has burned half the budget reopening files.
+            </p>
           </div>
         </section>
 
@@ -553,7 +428,7 @@ export default function App() {
         </section>
 
         <section style={{ marginBottom: 74 }}>
-          <SectionEyebrow>Guided workflow</SectionEyebrow>
+          <SectionEyebrow>How it works</SectionEyebrow>
           <div
             className="workflow-grid"
             style={{
@@ -570,8 +445,7 @@ export default function App() {
             <div>
               <h2 style={sectionTitle}>A workflow that lands before the drift begins</h2>
               <p style={sectionBody}>
-                The product is strongest when it changes the sequence of work, not just the answer format.
-                A grounded flow now looks like <span style={{ color: COLORS.M }}>{'trace -> view -> surgical_context_v2 -> validate_plan -> apply_batch'}</span>.
+                A grounded flow looks like <span style={{ color: COLORS.M }}>{'trace -> view -> surgical_context_v2 -> validate_plan -> apply_batch'}</span>.
               </p>
             </div>
             <div>
