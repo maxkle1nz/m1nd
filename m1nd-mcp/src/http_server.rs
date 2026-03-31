@@ -23,9 +23,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 use crate::http_types::SubgraphQuery;
-use crate::server::{
-    dispatch_tool, tool_schemas, McpConfig,
-};
+use crate::server::{dispatch_tool, tool_schemas, McpConfig};
 use crate::session::{ApplyBatchProgressSink, SessionState};
 
 // ---------------------------------------------------------------------------

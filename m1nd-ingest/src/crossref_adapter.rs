@@ -476,7 +476,7 @@ fn build_graph(prefix: &str, records: &[CrossRefRecord]) -> (Graph, u64, u64) {
             // Create stub node for referenced DOI if doesn't exist
             if graph.resolve_id(&ref_id).is_none() {
                 let ref_label = format!("DOI: {}", ref_doi);
-                let ref_tags = vec![format!("doi:{}", ref_doi), "stub:true".to_string()];
+                let ref_tags = [format!("doi:{}", ref_doi), "stub:true".to_string()];
                 let tag_refs: Vec<&str> = ref_tags.iter().map(String::as_str).collect();
                 if graph
                     .add_node(&ref_id, &ref_label, NodeType::Module, &tag_refs, 0.0, 0.0)

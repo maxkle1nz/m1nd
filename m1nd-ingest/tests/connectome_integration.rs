@@ -12,9 +12,9 @@
 //! After ingestion, all three domains share DOI identifiers that the
 //! CrossDomainResolver can bridge.
 
+use m1nd_ingest::bibtex_adapter::BibTexAdapter;
 use m1nd_ingest::crossref_adapter::CrossRefAdapter;
 use m1nd_ingest::rfc_adapter::RfcAdapter;
-use m1nd_ingest::bibtex_adapter::BibTexAdapter;
 use m1nd_ingest::IngestAdapter;
 use std::collections::HashSet;
 
@@ -149,9 +149,7 @@ fn three_domain_connectome_shares_dois() {
         .unwrap();
 
     let bibtex_adapter = BibTexAdapter::new(None);
-    let (bibtex_graph, bibtex_stats) = bibtex_adapter
-        .ingest(&dir.join("references.bib"))
-        .unwrap();
+    let (bibtex_graph, bibtex_stats) = bibtex_adapter.ingest(&dir.join("references.bib")).unwrap();
 
     // Verify each adapter produced nodes
     assert!(rfc_stats.nodes_created > 0, "RFC should produce nodes");
@@ -234,15 +232,15 @@ fn three_domain_connectome_shares_dois() {
     );
 
     // Count total domains with connectable DOIs
-    let rfc_has_shared = rfc_dois.iter().any(|d| {
-        crossref_dois.contains(d) || bibtex_dois.contains(d)
-    });
-    let crossref_has_shared = crossref_dois.iter().any(|d| {
-        rfc_dois.contains(d) || bibtex_dois.contains(d)
-    });
-    let bibtex_has_shared = bibtex_dois.iter().any(|d| {
-        rfc_dois.contains(d) || crossref_dois.contains(d)
-    });
+    let rfc_has_shared = rfc_dois
+        .iter()
+        .any(|d| crossref_dois.contains(d) || bibtex_dois.contains(d));
+    let crossref_has_shared = crossref_dois
+        .iter()
+        .any(|d| rfc_dois.contains(d) || bibtex_dois.contains(d));
+    let bibtex_has_shared = bibtex_dois
+        .iter()
+        .any(|d| rfc_dois.contains(d) || crossref_dois.contains(d));
 
     let connected_domains = [rfc_has_shared, crossref_has_shared, bibtex_has_shared]
         .iter()

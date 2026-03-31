@@ -195,9 +195,7 @@ fn parse_fields(chars: &[char]) -> Vec<(String, String)> {
             read_quoted_value(remaining)
         } else {
             // Bare value (number or macro)
-            let end = remaining
-                .find(|c: char| c == ',' || c == '}')
-                .unwrap_or(remaining.len());
+            let end = remaining.find([',', '}']).unwrap_or(remaining.len());
             let val = remaining[..end].trim().to_string();
             let rest = if end < remaining.len() {
                 &remaining[end..]
@@ -254,8 +252,7 @@ fn read_quoted_value(s: &str) -> (String, &str) {
 }
 
 fn clean_bibtex_value(s: &str) -> String {
-    s.replace('{', "")
-        .replace('}', "")
+    s.replace(['{', '}'], "")
         .replace('\n', " ")
         .replace("  ", " ")
         .trim()

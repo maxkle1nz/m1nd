@@ -97,15 +97,13 @@ impl CrossDomainResolver {
 
             // Index by identifier type
             let eid = &node.external_id;
-            if eid.starts_with("doi::") {
-                let doi = &eid[5..];
+            if let Some(doi) = eid.strip_prefix("doi::") {
                 doi_to_ids
                     .entry(doi.to_lowercase())
                     .or_default()
                     .push(eid.clone());
             }
-            if eid.starts_with("pmid::") {
-                let pmid = &eid[6..];
+            if let Some(pmid) = eid.strip_prefix("pmid::") {
                 pmid_to_ids
                     .entry(pmid.to_string())
                     .or_default()
