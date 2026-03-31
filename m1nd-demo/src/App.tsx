@@ -3,81 +3,81 @@ import { motion } from 'framer-motion';
 import { COLORS, GLYPHS } from './lib/colors';
 
 const heroMetrics = [
-  { label: 'Warm-graph corpus', value: '47.05%', note: 'less context churn' },
-  { label: 'False starts', value: '14 -> 0', note: 'in the recorded corpus' },
-  { label: 'Guided follow-throughs', value: '39', note: 'measured workflows' },
+  { label: 'Recorded corpus', value: '47.05%', note: 'less context churn on measured workflows' },
+  { label: 'False starts', value: '14 -> 0', note: 'removed in the recorded corpus' },
+  { label: 'Guided handoffs', value: '39', note: 'measured workflow follow-throughs' },
   { label: 'Recovery loops', value: '12', note: 'successful guided recoveries' },
 ];
 
 const proofBar = [
-  '47.05% less context churn',
-  '14 -> 0 false starts',
-  '39 guided follow-throughs',
+  'Less reading',
+  'Less token burn',
+  'More precise cuts',
 ];
 
 const capabilities = [
   {
-    title: 'Trace failures into the next file',
-    body: 'trace does not stop at ranking suspects. It can expose proof_state and hand off the next file worth opening.',
+    title: 'Find the authority before the model drifts',
+    body: 'm1nd gets an agent to the file, symbol, or seam that actually matters before it burns time rediscovering structure through blind reads.',
     accent: COLORS.M,
   },
   {
-    title: 'Inspect blast radius with state',
-    body: 'impact shows affected nodes and whether the seam is still being triaged, actively proven, or ready for edit prep.',
+    title: 'Preflight blast radius before the edit',
+    body: 'impact surfaces real consumers and connected seams early, so the agent can narrow scope before it patches the wrong place.',
     accent: COLORS.one,
   },
   {
-    title: 'Resume work without rediscovery',
-    body: 'trail_resume restores the investigation with resume_hints, next_focus_node_id, next_open_question, and the next likely tool.',
+    title: 'Resume without paying the orientation cost again',
+    body: 'trail_resume restores the investigation with the next focus, open question, and likely tool instead of forcing another read-search loop.',
     accent: COLORS.N,
   },
   {
-    title: 'Prepare safer connected edits',
-    body: 'surgical_context_v2 and validate_plan turn connected changes into a guided workflow instead of a blind multi-file jump.',
+    title: 'Prepare narrower, safer changes',
+    body: 'surgical_context_v2 and validate_plan turn connected edits into a scoped plan instead of a blind multi-file jump.',
     accent: COLORS.D,
   },
   {
-    title: 'Write with live progress',
-    body: 'apply_batch now surfaces phases, progress, SSE events, and follow-up guidance so long-running writes stay understandable.',
+    title: 'Keep long writes observable',
+    body: 'apply_batch exposes phases, progress, SSE events, and handoff guidance so structural edits stay understandable while they run.',
     accent: COLORS.M,
   },
   {
-    title: 'Recover when the agent gets it wrong',
-    body: 'Invalid regex, ambiguous scope, stale route, stale trail, and protected-write failures now teach the next valid move.',
+    title: 'Connect the reasoning around the code',
+    body: 'The ingest layer can connect code with docs, RFCs, articles, papers, and memory so the agent sees more than isolated files.',
     accent: COLORS.one,
   },
 ];
 
 const workflow = [
-  { step: '01', title: 'Ground the task', body: 'Start with trace, seek, impact, or trail_resume to get structure instead of raw-text drift.' },
-  { step: '02', title: 'Read proof state', body: 'Use proof_state to tell whether the agent is still triaging, already proving, or ready to move into edit prep.' },
-  { step: '03', title: 'Follow the handoff', body: 'next_suggested_tool, next_suggested_target, and next_step_hint reduce hesitation and retry loops.' },
-  { step: '04', title: 'Prepare the edit', body: 'Use surgical_context_v2 and validate_plan to pull connected context and expose risky seams before writing.' },
-  { step: '05', title: 'Write and verify', body: 'apply_batch executes with phases, progress, verification verdicts, and runtime-visible completion signals.' },
+  { step: '01', title: 'Locate the cut', body: 'Start with trace, seek, impact, or trail_resume to get structure before the model disappears into repo reading.' },
+  { step: '02', title: 'Read state, not just hits', body: 'proof_state tells the agent whether it is still triaging, actively proving, or ready to move into edit prep.' },
+  { step: '03', title: 'Follow the next move', body: 'next_suggested_tool, next_suggested_target, and next_step_hint reduce wandering and dead-end retries.' },
+  { step: '04', title: 'Plan the narrow change', body: 'Use surgical_context_v2 and validate_plan to pull connected context and expose blast radius before writing.' },
+  { step: '05', title: 'Write with visibility', body: 'apply_batch executes with phases, progress, verification verdicts, and runtime-visible completion signals.' },
 ];
 
 const truths = [
-  'm1nd is local-first. It does not need to ship your code to an API to ground navigation.',
-  'm1nd is MCP-native. It is built to help agents choose and sequence the next move.',
-  'm1nd is not just retrieval. It exposes proof state, continuity, recovery, and execution progress.',
-  'm1nd is not for every lookup. Plain tools still win for simple grep, logs, tests, and compiler truth.',
+  'The value is not the graph by itself. The value is finding authority, blast radius, and edit scope before the model wastes tokens rediscovering structure.',
+  'm1nd is local-first and MCP-native. It is built to change how agents behave early, not just decorate search results later.',
+  'The product win is faster orientation, lower context churn, narrower edits, and less wandering on structural work.',
+  'Plain tools still win for simple grep, logs, tests, and compiler truth. m1nd wins when the task is connected, risky, or expensive to rediscover.',
 ];
 
 const buyerReasons = [
-  'Less rediscovery across long-running agent tasks',
-  'Safer connected edits before anything gets written',
-  'More observable workflows when a batch write takes time',
-  'Better recovery when the agent picks the wrong tool or shape',
+  'Lower token spend on reading-heavy structural work',
+  'Faster orientation before the model drifts into blind file reads',
+  'Narrower cuts and safer edits before anything gets written',
+  'More confidence when the task spans code, docs, and connected context',
 ];
 
 const useCases = [
   {
-    title: 'Use m1nd when the task is structural',
+    title: 'Use m1nd when repo reading would be expensive',
     items: [
-      'ranked retrieval beats raw text hits',
-      'blast radius matters',
-      'the edit crosses multiple files',
-      'you need continuity across steps',
+      'you need authority, not just string matches',
+      'blast radius matters before the edit',
+      'the change crosses multiple files or surfaces',
+      'continuity matters across several agent steps',
     ],
   },
   {
@@ -313,7 +313,7 @@ export default function App() {
               }}
             />
             <div style={{ position: 'relative' }}>
-              <SectionEyebrow>Local-first agent infrastructure</SectionEyebrow>
+              <SectionEyebrow>Map first, cut second</SectionEyebrow>
               <h1
                 style={{
                   fontSize: 'clamp(40px, 7vw, 78px)',
@@ -324,7 +324,7 @@ export default function App() {
                   marginBottom: 20,
                 }}
               >
-                A local code graph engine for MCP agents.
+                Before the model finishes reading, m1nd has already found the cut.
               </h1>
               <p
                 style={{
@@ -335,9 +335,8 @@ export default function App() {
                   marginBottom: 28,
                 }}
               >
-                m1nd helps agents trace failures, inspect impact, resume investigations, prepare safer edits,
-                and recover from mistakes with less context churn. It does not just return results. It exposes
-                proof state, next-step guidance, and execution progress.
+                Less token burn. Less wasted spend. Faster orientation. More precise cuts. m1nd finds authority,
+                blast radius, and connected edit context before an agent disappears into read-search-drift loops.
               </p>
               <div
                 style={{
@@ -369,11 +368,11 @@ export default function App() {
                   Read the docs
                 </a>
                 <a href="/wiki/benchmarks.html" style={secondaryButton}>
-                  See benchmark truth
+                  See measured benchmarks
                 </a>
               </div>
               <div className="pill-row" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {['proof_state', 'next-step guidance', 'trail_resume', 'apply_batch progress', 'recovery loops', 'SSE handoff'].map((pill, index) => (
+                {['authority discovery', 'blast-radius preflight', 'connected edit context', 'proof_state', 'trail_resume', 'apply_batch'].map((pill, index) => (
                   <div
                     key={pill}
                     style={{
@@ -410,30 +409,30 @@ export default function App() {
               <div className="hero-visual-orbit hero-visual-orbit-b" />
               <div className="hero-visual-orbit hero-visual-orbit-c" />
               <div className="hero-visual-core">
-                <div className="hero-visual-core-label">runtime</div>
+                <div className="hero-visual-core-label">map lands first</div>
                 <div className="hero-visual-core-value">m1nd</div>
               </div>
               <div className="hero-visual-node hero-node-trace">
                 <span>trace</span>
-                <strong>proof_state=triaging</strong>
+                <strong>authority located</strong>
               </div>
               <div className="hero-visual-node hero-node-validate">
                 <span>validate_plan</span>
-                <strong>next=heuristics_surface</strong>
+                <strong>blast radius checked</strong>
               </div>
               <div className="hero-visual-node hero-node-batch">
                 <span>apply_batch</span>
-                <strong>progress + handoff</strong>
+                <strong>narrow write + progress</strong>
               </div>
               <div className="hero-visual-node hero-node-resume">
                 <span>trail_resume</span>
-                <strong>next focus + next tool</strong>
+                <strong>continuity preserved</strong>
               </div>
               <div className="hero-visual-snippet">
                 <div className="hero-visual-snippet-line">$ m1nd.trace("AuthError: stale session in middleware")</div>
-                <div className="hero-visual-snippet-line">proof_state=triaging</div>
-                <div className="hero-visual-snippet-line">next_suggested_tool=view</div>
-                <div className="hero-visual-snippet-line">next_suggested_target=middleware/session.py</div>
+                <div className="hero-visual-snippet-line">authority=middleware/session.py</div>
+                <div className="hero-visual-snippet-line">blast_radius=3 consumers</div>
+                <div className="hero-visual-snippet-line">next_suggested_tool=validate_plan</div>
               </div>
             </div>
             <div
@@ -444,10 +443,10 @@ export default function App() {
                 padding: 22,
               }}
             >
-              <SectionEyebrow>Current benchmark truth</SectionEyebrow>
+              <SectionEyebrow>Measured benchmark truth</SectionEyebrow>
               <div style={{ color: COLORS.textMuted, fontSize: 14, lineHeight: 1.8 }}>
-                The recorded warm-graph corpus now measures not only token proxy, but also guidance,
-                recovery, false starts, and workflow follow-through.
+                The current corpus tracks where m1nd changes real workflow behavior: less context churn, fewer
+                false starts, stronger handoff, and faster recovery on structural tasks.
               </div>
             </div>
             <div className="metrics-grid" style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
@@ -497,11 +496,10 @@ export default function App() {
           <SectionEyebrow>Why it matters</SectionEyebrow>
           <div className="split-grid" style={{ display: 'grid', gridTemplateColumns: '0.92fr 1.08fr', gap: 28, alignItems: 'start' }}>
             <div>
-              <h2 style={sectionTitle}>Without structure, agents keep rediscovering the repo.</h2>
+              <h2 style={sectionTitle}>Stop paying tokens to rediscover repo structure.</h2>
               <p style={sectionBody}>
-                Raw text search can find strings, but it does not tell an agent whether it is still triaging,
-                actively proving, or already safe to move into edit prep. The real product win is less hesitation,
-                less re-reading, and less time spent reconstructing state from scratch.
+                Models read. m1nd locates. That difference shows up as lower spend, faster orientation,
+                less wandering, and narrower edits before the model has burned half the budget reopening files.
               </p>
             </div>
             <TruthList />
@@ -570,7 +568,7 @@ export default function App() {
             }}
           >
             <div>
-              <h2 style={sectionTitle}>A guided agent workflow</h2>
+              <h2 style={sectionTitle}>A workflow that lands before the drift begins</h2>
               <p style={sectionBody}>
                 The product is strongest when it changes the sequence of work, not just the answer format.
                 A grounded flow now looks like <span style={{ color: COLORS.M }}>{'trace -> view -> surgical_context_v2 -> validate_plan -> apply_batch'}</span>.
@@ -601,8 +599,8 @@ export default function App() {
             <SectionEyebrow>v0.6.1</SectionEyebrow>
             <h2 style={sectionTitle}>Ship the runtime your agents can actually work with.</h2>
             <p style={sectionBody}>
-              m1nd is strongest when the work is structural, connected, stateful, or risky. That is where proof state,
-              handoff, continuity, recovery, and execution visibility change how an agent operates.
+              m1nd is strongest when the task is structural, connected, stateful, or risky. That is where less spend,
+              faster orientation, narrower cuts, and grounded continuity change how an agent operates.
             </p>
           </div>
           <div className="cta-actions" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>

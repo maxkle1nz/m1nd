@@ -4,8 +4,8 @@ import { COLORS } from '../lib/colors';
 
 /**
  * Scene 8: THE PHILOSOPHY
- * The ending should now feel like a product statement grounded in the runtime,
- * not a poem detached from the current product truth.
+ * The ending should close on product value: faster orientation, lower spend,
+ * and narrower cuts before the model drifts into blind repo reading.
  */
 
 interface TypedLineProps {
@@ -136,7 +136,7 @@ export function PhilosophyScene() {
               transition={{ duration: 0.3 }}
             >
               <TypedLine
-                text="a local code graph engine for MCP agents."
+                text="before the model finishes reading,"
                 color={COLORS.text}
                 fontSize={24}
                 fontWeight={600}
@@ -159,7 +159,7 @@ export function PhilosophyScene() {
               style={{ marginTop: 16 }}
             >
               <TypedLine
-                text="state-aware, guidance-driven, and local-first."
+                text="m1nd has already found the cut."
                 color={COLORS.M}
                 fontSize={22}
                 fontWeight={700}
@@ -212,7 +212,7 @@ export function PhilosophyScene() {
               lineHeight: 2,
               opacity: 0.8,
             }}>
-              trace failures. inspect impact. resume work.
+              less reading. less spend. faster orientation.
             </div>
 
             <div style={{
@@ -222,7 +222,7 @@ export function PhilosophyScene() {
               lineHeight: 2,
               opacity: 0.8,
             }}>
-              prepare safer edits. recover faster. keep moving.
+              find authority. measure blast radius. cut narrower.
             </div>
           </motion.div>
         )}
@@ -269,7 +269,7 @@ export function PhilosophyScene() {
         overflow: 'hidden',
         clip: 'rect(0, 0, 0, 0)',
       }}>
-        A local code graph engine for MCP agents. State-aware, guidance-driven, and local-first.
+        Before the model finishes reading, m1nd has already found the cut.
       </h2>
     </motion.div>
   );

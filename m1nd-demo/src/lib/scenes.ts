@@ -32,8 +32,8 @@ export const SCENES: SceneConfig[] = [
   },
   {
     id: 'economy',
-    title: 'Benchmark Truth',
-    subtitle: 'Less context churn, fewer false starts, better follow-through.',
+    title: 'Spend Less To Orient',
+    subtitle: 'Less context churn, fewer false starts, narrower structural work.',
     durationMs: 5000,
     color: COLORS.D,
   },
@@ -54,7 +54,7 @@ export const SCENES: SceneConfig[] = [
   {
     id: 'philosophy',
     title: 'The Product',
-    subtitle: 'A local code graph engine for MCP agents.',
+    subtitle: 'Before the model finishes reading, m1nd has already found the cut.',
     durationMs: 10000,
     color: COLORS.D,
   },
