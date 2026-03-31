@@ -2,30 +2,29 @@
 
 ## Positioning
 
-`m1nd` should no longer be presented as a futuristic grep replacement.
+`m1nd` should no longer lead as a code graph engine.
 The product truth in `v0.6.1` is:
 
-- a local code graph engine for MCP agents
-- grounded retrieval plus proof-aware state
-- guided next-step handoff
-- actionable continuity
-- safer edit preparation
+- less token burn on structural work
+- faster orientation before the model drifts into repo reading
+- authority discovery and blast-radius preflight
+- narrower connected edits
 - observable multi-file execution
-- recovery loops that teach the agent how to continue
+- continuity and recovery that keep the agent moving
 
 ## Hero
 
 ### Headline
 
-`A local code graph engine for MCP agents.`
+`Before the model finishes reading, m1nd has already found the cut.`
 
 ### Subhead
 
-`m1nd helps agents trace failures, inspect impact, resume investigations, prepare safer edits, and recover from mistakes with less context churn.`
+`Less token burn. Less wasted spend. Faster orientation. More precise cuts.`
 
 ### Proof line
 
-`It does not just return results. It exposes proof state, next-step guidance, and execution progress.`
+`m1nd finds authority, blast radius, and connected edit context before an agent disappears into read-search-drift loops.`
 
 ### CTA
 
@@ -37,11 +36,11 @@ The product truth in `v0.6.1` is:
 
 ### Title
 
-`Without structure, agents keep rediscovering the repo.`
+`Stop paying tokens to rediscover repo structure.`
 
 ### Copy
 
-`Raw text search can find strings, but it does not tell an agent whether it is still triaging, actively proving, or already safe to move into edit prep.`
+`Models read. m1nd locates. That difference shows up as lower spend, faster orientation, less wandering, and narrower edits.`
 
 Three points:
 
@@ -117,14 +116,15 @@ Labels:
 
 ### Title
 
-`Use m1nd when the task is structural, connected, stateful, or risky`
+`Real v0.6.1 use cases`
 
 Bullets:
 
-- when an agent needs ranked structure instead of raw text hits
-- when continuity matters across multiple steps
-- when edit prep or blast radius matters
-- when long-running writes need to stay observable
+- stacktrace triage with `trace` when the top frame is not the real cause
+- blast-radius checks with `impact` before a risky edit
+- change preflight with `validate_plan` before a coupled multi-file patch
+- connected edit prep with `surgical_context_v2` in one shot
+- continuity restore with `trail_resume` when an investigation gets interrupted
 
 ## Section: When Plain Tools Are Better
 
