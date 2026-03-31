@@ -32,6 +32,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
+  test-status:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - run: echo "All matrix test jobs passed"
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
