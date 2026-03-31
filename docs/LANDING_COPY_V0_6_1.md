@@ -116,14 +116,15 @@ Labels:
 
 ### Title
 
-`Use m1nd when the task is structural, connected, stateful, or risky`
+`Real v0.6.1 use cases`
 
 Bullets:
 
-- when an agent needs ranked structure instead of raw text hits
-- when continuity matters across multiple steps
-- when edit prep or blast radius matters
-- when long-running writes need to stay observable
+- stacktrace triage with `trace` when the top frame is not the real cause
+- blast-radius checks with `impact` before a risky edit
+- change preflight with `validate_plan` before a coupled multi-file patch
+- connected edit prep with `surgical_context_v2` in one shot
+- continuity restore with `trail_resume` when an investigation gets interrupted
 
 ## Section: When Plain Tools Are Better
 

@@ -41,12 +41,13 @@ const workflow = [
 
 const useCases = [
   {
-    title: 'Use m1nd when repo reading would be expensive',
+    title: 'Real v0.6.1 use cases',
     items: [
-      'you need authority, not just string matches',
-      'blast radius matters before the edit',
-      'the change crosses multiple files or surfaces',
-      'continuity matters across several agent steps',
+      'stacktrace triage with trace when the top frame is not the real cause',
+      'blast-radius checks with impact before a risky edit',
+      'change preflight with validate_plan before a coupled multi-file patch',
+      'connected edit prep with surgical_context_v2 in one shot',
+      'continuity restore with trail_resume when an investigation gets interrupted',
     ],
   },
   {
@@ -373,7 +374,7 @@ export default function App() {
         </section>
 
         <section style={{ marginBottom: 74 }}>
-          <SectionEyebrow>Use it honestly</SectionEyebrow>
+          <SectionEyebrow>Use cases</SectionEyebrow>
           <div
             style={{
               display: 'grid',
