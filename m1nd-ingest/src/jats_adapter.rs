@@ -192,15 +192,19 @@ impl JatsArticleAdapter {
                     match name.as_str() {
                         // ── PubMed NLM format ──
                         "PubmedArticle" => {
-                            let mut rec = ArticleRecord::default();
-                            rec.format = ArticleFormat::PubMedNlm;
+                            let rec = ArticleRecord {
+                                format: ArticleFormat::PubMedNlm,
+                                ..ArticleRecord::default()
+                            };
                             current = Some(rec);
                         }
                         // ── JATS format ──
                         "article" => {
                             if current.is_none() {
-                                let mut rec = ArticleRecord::default();
-                                rec.format = ArticleFormat::Jats;
+                                let rec = ArticleRecord {
+                                    format: ArticleFormat::Jats,
+                                    ..ArticleRecord::default()
+                                };
                                 current = Some(rec);
                             }
                         }
