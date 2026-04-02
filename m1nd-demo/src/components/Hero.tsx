@@ -3,6 +3,7 @@ import { GraphCanvas } from "./three/GraphCanvas";
 import { StarField } from "./three/StarField";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { WebGLErrorBoundary } from "./WebGLErrorBoundary";
+import { Link } from "wouter";
 
 function HeroScene() {
   return (
@@ -119,9 +120,9 @@ export function Hero() {
                 Install m1nd
               </button>
             </a>
-            <a href="/use-cases" className="w-full sm:w-auto px-8 py-4 border border-primary/30 text-primary hover:bg-primary/10 transition-all rounded-md font-medium">
+            <Link href="/use-cases" className="w-full sm:w-auto px-8 py-4 border border-primary/30 text-primary hover:bg-primary/10 transition-all rounded-md font-medium">
               Explore use cases →
-            </a>
+            </Link>
           </div>
 
           {/* ── Trust strip ── */}

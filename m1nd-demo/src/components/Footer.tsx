@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { M1ndInline } from "@/components/M1ndWordmark";
+import { Link } from "wouter";
 
 export function Footer() {
   return (
@@ -71,16 +72,16 @@ export function Footer() {
             <a href="https://m1nd.world/wiki/" target="_blank" rel="noreferrer" className="text-primary/40 hover:text-primary/70 transition-colors tracking-widest uppercase">
               Wiki
             </a>
-            <a href="/l1ght" className="hover:opacity-80 transition-opacity tracking-widest uppercase"
+            <Link href="/l1ght" className="hover:opacity-80 transition-opacity tracking-widest uppercase"
               style={{ color: "#ffb70055" }}>
               l1ght
-            </a>
-            <a href="/use-cases" className="text-primary/40 hover:text-primary/70 transition-colors tracking-widest uppercase">
+            </Link>
+            <Link href="/use-cases" className="text-primary/40 hover:text-primary/70 transition-colors tracking-widest uppercase">
               Use Cases
-            </a>
-            <a href="/demo" className="text-primary/40 hover:text-primary/70 transition-colors tracking-widest uppercase">
+            </Link>
+            <Link href="/demo" className="text-primary/40 hover:text-primary/70 transition-colors tracking-widest uppercase">
               Demo
-            </a>
+            </Link>
           </div>
         </div>
       </div>
