@@ -13,3 +13,6 @@ trust_state.json
 trails/
 .DS_Store
 *.bak
+m1nd-demo/node_modules/
+m1nd-demo/dist/
+.github/.DS_Store
