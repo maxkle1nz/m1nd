@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
 import { NavBar } from "@/components/NavBar";
 import { SEO } from "@/components/SEO";
+import { Link } from "wouter";
 
 const AMBER = "#ffb700";
 const AMBER_DIM = "#ffb70022";
@@ -794,10 +795,10 @@ export default function L1ght() {
             transition={{ delay: 0.4 }}>
             <p className="font-mono text-[11px] text-muted-foreground/30">© {new Date().getFullYear()} m1nd / l1ght. Part of the same graph.</p>
             <div className="flex items-center gap-6 text-xs font-mono">
-              <a href="/" className="transition-colors tracking-widest uppercase hover:opacity-70"
-                style={{ color: "#00f5ff55" }}>m1nd</a>
-              <a href="/use-cases" className="text-muted-foreground/25 hover:text-muted-foreground/50 transition-colors tracking-widest uppercase">Use Cases</a>
-              <a href="/demo" className="text-muted-foreground/25 hover:text-muted-foreground/50 transition-colors tracking-widest uppercase">Demo</a>
+              <Link href="/" className="transition-colors tracking-widest uppercase hover:opacity-70"
+                style={{ color: "#00f5ff55" }}>m1nd</Link>
+              <Link href="/use-cases" className="text-muted-foreground/25 hover:text-muted-foreground/50 transition-colors tracking-widest uppercase">Use Cases</Link>
+              <Link href="/demo" className="text-muted-foreground/25 hover:text-muted-foreground/50 transition-colors tracking-widest uppercase">Demo</Link>
               <a href="https://m1nd.world/wiki/" target="_blank" rel="noreferrer"
                 className="text-muted-foreground/25 hover:text-muted-foreground/50 transition-colors tracking-widest uppercase">Wiki</a>
             </div>

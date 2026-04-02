@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0 --port 5175",
-    "build": "tsc --noEmit && vite build --config vite.config.ts",
+    "build": "tsc --noEmit && vite build --config vite.config.ts && cp dist/index.html dist/404.html",
     "preview": "vite preview --config vite.config.ts"
   },
   "dependencies": {
