@@ -28,12 +28,20 @@ export function ProblemSection() {
             <h2 className="text-3xl md:text-5xl font-bold font-sans tracking-tight mb-6">
               grep was built for humans.
               <br />
-              <span className="text-muted-foreground font-normal">Your agent is not human.</span>
+              <span className="text-muted-foreground font-normal">your agent is paying the price.</span>
             </h2>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Tools like grep, find, and ctags were written 30 years ago for humans scanning
-              terminals. They still are. Every unnecessary file read burns tokens.
-              Tokens cost money. The waste adds up — and your agent has been doing this since day one.
+              30-year-old tools. file-by-file reads.
+              <br />
+              tokens burned for no reason.
+              <br />
+              <br />
+              tokens = money.
+              <br />
+              waste = exponential.
+              <br />
+              <br />
+              and it starts on day one.
             </p>
           </motion.div>
         </div>
