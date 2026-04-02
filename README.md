@@ -96,7 +96,6 @@ Supporting surfaces also live in this repo:
 
 - `m1nd-ui`: operational UI
 - `m1nd-demo`: presentation/demo surface
-- `m1nd-viz`: visualization/storytelling surface
 
 The canonical architecture and release-critical code path remain `m1nd-core`, `m1nd-ingest`, and `m1nd-mcp`.
 

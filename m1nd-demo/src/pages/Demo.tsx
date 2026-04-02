@@ -3,6 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { Html, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import { motion, AnimatePresence } from "framer-motion";
+import { Link } from "wouter";
 import { NavBar } from "@/components/NavBar";
 import { Footer } from "@/components/Footer";
 import { GraphCanvas } from "@/components/three/GraphCanvas";
@@ -1070,9 +1071,9 @@ export default function Demo() {
                 Read the Docs
               </button>
             </a>
-            <a href="/use-cases" className="px-8 py-3 border border-primary/25 text-primary hover:bg-primary/10 transition-all rounded-md font-medium">
+            <Link href="/use-cases" className="px-8 py-3 border border-primary/25 text-primary hover:bg-primary/10 transition-all rounded-md font-medium">
               See all use cases →
-            </a>
+            </Link>
           </div>
         </div>
       </div>
