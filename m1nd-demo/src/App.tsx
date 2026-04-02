@@ -7,7 +7,7 @@ import UseCases from "@/pages/UseCases";
 import Demo from "@/pages/Demo";
 import L1ght from "@/pages/L1ght";
 import NotFound from "@/pages/not-found";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 
@@ -15,9 +15,31 @@ const queryClient = new QueryClient();
 
 function ScrollToTop() {
   const [location] = useLocation();
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+
+  useLayoutEffect(() => {
+    // Force a hard scroll reset on route changes so navigation between
+    // long landing sections and internal pages never lands mid-page.
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    window.scrollTo(0, 0);
+
+    const raf = requestAnimationFrame(() => {
+      window.scrollTo(0, 0);
+    });
+
+    return () => cancelAnimationFrame(raf);
   }, [location]);
+
+  useEffect(() => {
+    if ("scrollRestoration" in window.history) {
+      const prev = window.history.scrollRestoration;
+      window.history.scrollRestoration = "manual";
+      return () => {
+        window.history.scrollRestoration = prev;
+      };
+    }
+  }, []);
+
   return null;
 }
 
