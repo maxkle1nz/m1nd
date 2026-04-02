@@ -139,9 +139,9 @@ export function SpeedSection() {
               backgroundClip: "text",
             }}
           >
-            Before the model finishes reading,
+            Stop paying tokens
             <br className="hidden md:block" />
-            &nbsp;m1nd has already found the cut.
+            &nbsp;to rediscover repo structure.
           </blockquote>
 
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
