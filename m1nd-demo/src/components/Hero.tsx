@@ -100,17 +100,17 @@ export function Hero() {
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-foreground mb-6 font-sans leading-[1.05]">
-            Before the model finishes reading,
+            Model's still reading and
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-              m1nd has already found the cut.
+              m1nd's already spotted the cut.
             </span>
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            Your agent shouldn't be reading files. It should be asking a graph.
-            m1nd is an in-memory knowledge graph of your codebase, research, and memory —
-            built from the ground up for how AI agents think.
+            Don't have your agent messing with files—it oughta be querying the graph.
+            m1nd? In-memory knowledge graph for your codebase, research, all that memory stuff.
+            Made from the ground up, tuned for AI agent brains.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
