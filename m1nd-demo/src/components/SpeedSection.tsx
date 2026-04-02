@@ -139,15 +139,13 @@ export function SpeedSection() {
               backgroundClip: "text",
             }}
           >
-            Before the model finishes reading,
-            <br className="hidden md:block" />
-            &nbsp;m1nd has already found the cut.
+            m1nd finds the cut before the model even finishes reading.
           </blockquote>
 
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Pure Rust. In-memory graph. Zero LLM tokens consumed during navigation.
+            Pure Rust. In-memory graph. Zero LLM tokens spent on navigation.
             <br className="hidden md:block" />
-            The graph already knows. Your agent just has to ask.
+            The graph already knows what's up. Your agent just asks.
           </p>
         </motion.div>
 
