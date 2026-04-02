@@ -1,357 +1,311 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary-border: var(--sidebar-primary-border);
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --font-sans: var(--app-font-sans);
+  --font-serif: var(--app-font-serif);
+  --font-mono: var(--app-font-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-html, body, #root {
-  width: 100%;
-  min-height: 100%;
-  background: #080C14;
-  color: #E8EDF5;
+/* LIGHT MODE */
+:root {
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+
+  --background: 235 85% 5%;
+  --foreground: 235 50% 94%;
+  --border: 235 30% 15%;
+  --card: 235 85% 5%;
+  --card-foreground: 235 50% 94%;
+  --card-border: 235 30% 15%;
+  --sidebar: 235 85% 5%;
+  --sidebar-foreground: 235 50% 94%;
+  --sidebar-border: 235 30% 15%;
+  --sidebar-primary: 184 100% 50%;
+  --sidebar-primary-foreground: 235 85% 5%;
+  --sidebar-accent: 235 30% 15%;
+  --sidebar-accent-foreground: 235 50% 94%;
+  --sidebar-ring: 184 100% 50%;
+  --popover: 235 85% 5%;
+  --popover-foreground: 235 50% 94%;
+  --popover-border: 235 30% 15%;
+  --primary: 184 100% 50%;
+  --primary-foreground: 235 85% 5%;
+  --secondary: 153 100% 50%;
+  --secondary-foreground: 235 85% 5%;
+  --muted: 235 30% 15%;
+  --muted-foreground: 235 30% 70%;
+  --accent: 43 100% 50%;
+  --accent-foreground: 235 85% 5%;
+  --destructive: 322 100% 50%;
+  --destructive-foreground: 235 50% 94%;
+  --input: 235 30% 15%;
+  --ring: 184 100% 50%;
+  --chart-1: 184 100% 50%;
+  --chart-2: 153 100% 50%;
+  --chart-3: 43 100% 50%;
+  --chart-4: 25 100% 50%;
+  --chart-5: 322 100% 50%;
+
+  --app-font-sans: 'Space Grotesk', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: 'Space Mono', monospace;
+  --radius: .5rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
-/* Font stack with font-display: swap to prevent FOUT blocking */
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-display: swap;
-  src: local('JetBrains Mono'), local('JetBrainsMono-Regular');
-  font-weight: 400;
-  font-style: normal;
+.dark {
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  --background: 235 85% 5%;
+  --foreground: 235 50% 94%;
+  --border: 235 30% 15%;
+  --card: 235 85% 5%;
+  --card-foreground: 235 50% 94%;
+  --card-border: 235 30% 15%;
+  --sidebar: 235 85% 5%;
+  --sidebar-foreground: 235 50% 94%;
+  --sidebar-border: 235 30% 15%;
+  --sidebar-primary: 184 100% 50%;
+  --sidebar-primary-foreground: 235 85% 5%;
+  --sidebar-accent: 235 30% 15%;
+  --sidebar-accent-foreground: 235 50% 94%;
+  --sidebar-ring: 184 100% 50%;
+  --popover: 235 85% 5%;
+  --popover-foreground: 235 50% 94%;
+  --popover-border: 235 30% 15%;
+  --primary: 184 100% 50%;
+  --primary-foreground: 235 85% 5%;
+  --secondary: 153 100% 50%;
+  --secondary-foreground: 235 85% 5%;
+  --muted: 235 30% 15%;
+  --muted-foreground: 235 30% 70%;
+  --accent: 43 100% 50%;
+  --accent-foreground: 235 85% 5%;
+  --destructive: 322 100% 50%;
+  --destructive-foreground: 235 50% 94%;
+  --input: 235 30% 15%;
+  --ring: 184 100% 50%;
+  --chart-1: 184 100% 50%;
+  --chart-2: 153 100% 50%;
+  --chart-3: 43 100% 50%;
+  --chart-4: 25 100% 50%;
+  --chart-5: 322 100% 50%;
+
+
+  --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 1px 2px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 2px 4px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 4px 6px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00), 0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0.00);
+
 }
 
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-display: swap;
-  src: local('JetBrains Mono Bold'), local('JetBrainsMono-Bold');
-  font-weight: 700;
-  font-style: normal;
-}
+@layer base {
+  * {
+    @apply border-border;
+  }
 
-/* Font stack -- prefer JetBrains Mono, fall back gracefully */
-body {
-  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", "Consolas", monospace;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-a {
-  color: inherit;
-}
-
-.landing-shell::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(circle at center, black 35%, transparent 85%);
-}
-
-.hero-visual {
-  position: relative;
-  min-height: 330px;
-  border-radius: 28px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 212, 255, 0.18);
-  background:
-    radial-gradient(circle at 30% 35%, rgba(0, 212, 255, 0.15), transparent 28%),
-    radial-gradient(circle at 75% 26%, rgba(255, 0, 170, 0.14), transparent 30%),
-    radial-gradient(circle at 65% 80%, rgba(0, 255, 136, 0.11), transparent 24%),
-    linear-gradient(180deg, rgba(20, 27, 45, 0.95), rgba(11, 18, 32, 0.92));
-  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.18);
-}
-
-.hero-visual-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-  background-size: 28px 28px;
-  opacity: 0.6;
-}
-
-.hero-visual-orbit {
-  position: absolute;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-
-.hero-visual-orbit-a { inset: 54px 72px; }
-.hero-visual-orbit-b { inset: 86px 104px; }
-.hero-visual-orbit-c { inset: 118px 140px; }
-
-.hero-visual-core {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 148px;
-  height: 148px;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 212, 255, 0.24);
-  background:
-    radial-gradient(circle at 35% 35%, rgba(0, 212, 255, 0.28), transparent 42%),
-    radial-gradient(circle at 65% 70%, rgba(255, 0, 170, 0.2), transparent 38%),
-    linear-gradient(180deg, rgba(20, 27, 45, 0.98), rgba(11, 18, 32, 0.95));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 0 30px rgba(0, 212, 255, 0.12), 0 0 80px rgba(255, 0, 170, 0.08);
-}
-
-.hero-visual-core-label {
-  color: #6b7fa3;
-  font-size: 11px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.hero-visual-core-value {
-  color: #e8edf5;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-}
-
-.hero-visual-node {
-  position: absolute;
-  min-width: 150px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(8, 12, 20, 0.72);
-  border: 1px solid rgba(255,255,255,0.08);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
-  backdrop-filter: blur(10px);
-}
-
-.hero-visual-node span {
-  display: block;
-  color: #6b7fa3;
-  font-size: 10px;
-  letter-spacing: 1.6px;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-
-.hero-visual-node strong {
-  display: block;
-  color: #e8edf5;
-  font-size: 12px;
-  line-height: 1.5;
-  font-weight: 700;
-}
-
-.hero-visual-snippet {
-  position: absolute;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  width: min(86%, 460px);
-  border-radius: 18px;
-  border: 1px solid rgba(232, 237, 245, 0.1);
-  background: rgba(7, 11, 18, 0.78);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
-  padding: 14px 16px;
-  backdrop-filter: blur(12px);
-}
-
-.hero-visual-snippet-line {
-  color: #a9b8d1;
-  font-size: 12px;
-  line-height: 1.7;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.hero-node-trace {
-  top: 24px;
-  left: 24px;
-  border-color: rgba(0, 212, 255, 0.24);
-}
-
-.hero-node-validate {
-  top: 38px;
-  right: 26px;
-  border-color: rgba(255, 215, 0, 0.24);
-}
-
-.hero-node-batch {
-  right: 34px;
-  bottom: 28px;
-  border-color: rgba(0, 255, 136, 0.24);
-}
-
-.hero-node-resume {
-  left: 30px;
-  bottom: 34px;
-  border-color: rgba(255, 0, 170, 0.24);
-}
-
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: #0F1420; }
-::-webkit-scrollbar-thumb { background: #3A4A6B; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #00D4FF40; }
-
-/* Prevent text selection during presentation */
-.no-select {
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-/* Glow utilities */
-.glow-cyan { text-shadow: 0 0 20px #00D4FF80; }
-.glow-gold { text-shadow: 0 0 20px #FFD70080; }
-.glow-magenta { text-shadow: 0 0 20px #FF00AA80; }
-.glow-green { text-shadow: 0 0 20px #00FF8880; }
-
-/* Consolidated cursor blink keyframe -- used by all scenes */
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-/* Focus visible for keyboard navigation */
-a:focus-visible {
-  outline: 2px solid rgba(0, 212, 255, 0.5);
-  outline-offset: 4px;
-}
-
-button:focus-visible {
-  outline: 2px solid rgba(0, 212, 255, 0.5);
-  outline-offset: 2px;
-}
-
-/* Prefers reduced motion: disable all animations */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
   }
 }
 
-@media (max-width: 1080px) {
-  .hero-grid,
-  .split-grid,
-  .workflow-grid,
-  .final-cta-grid {
-    grid-template-columns: 1fr !important;
+/**
+ * Using the elevate system.
+ * Automatic contrast adjustment.
+ *
+ * <element className="hover-elevate" />
+ * <element className="active-elevate-2" />
+ *
+ * // Using the tailwind utility when a data attribute is "on"
+ * <element className="toggle-elevate data-[state=on]:toggle-elevated" />
+ * // Or manually controlling the toggle state
+ * <element className="toggle-elevate toggle-elevated" />
+ *
+ * Elevation systems have to handle many states.
+ * - not-hovered, vs. hovered vs. active  (three mutually exclusive states)
+ * - toggled or not
+ * - focused or not (this is not handled with these utilities)
+ *
+ * Even without handling focused or not, this is six possible combinations that
+ * need to be distinguished from eachother visually.
+ */
+@layer utilities {
+
+  /* Hide ugly search cancel button in Chrome until we can style it properly */
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
   }
 
-  .metrics-grid,
-  .buyer-grid,
-  .capability-grid,
-  .use-grid {
-    grid-template-columns: 1fr !important;
+  /* Placeholder styling for contentEditable div */
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
   }
 
-  .landing-header,
-  .landing-brand,
-  .header-actions,
-  .hero-actions,
-  .cta-actions {
-    align-items: flex-start !important;
-    justify-content: flex-start !important;
+  /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
+   * buttons/badges can remove the automatic brightness adjustment on interactions
+   * and program their own. */
+  .no-default-hover-elevate {}
+
+  .no-default-active-elevate {}
+
+
+  /**
+   * Toggleable backgrounds go behind the content. Hoverable/active goes on top.
+   * This way they can stack/compound. Both will overlap the parent's borders!
+   * So borders will be automatically adjusted both on toggle, and hover/active,
+   * and they will be compounded.
+   */
+  .toggle-elevate::before,
+  .toggle-elevate-2::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: -1;
+    /* sits behind content but above backdrop */
   }
 
-  .landing-header {
-    flex-direction: column;
-    gap: 18px;
+  .toggle-elevate.toggle-elevated::before {
+    background-color: var(--elevate-2);
   }
 
-  .capability-grid > div {
-    min-height: 0 !important;
-  }
-}
-
-@media (max-width: 720px) {
-  .landing-container {
-    padding: 18px 16px 56px !important;
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.toggle-elevate::before {
+    inset: -1px;
   }
 
-  .landing-brand {
-    flex-direction: column;
-    gap: 8px !important;
+  /* Does not work on elements with overflow:hidden! */
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) {
+    position: relative;
+    z-index: 0;
   }
 
-  .header-actions,
-  .hero-actions,
-  .cta-actions {
-    width: 100%;
-    flex-direction: column;
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: 999;
+    /* sits in front of content */
   }
 
-  .header-actions a,
-  .hero-actions a,
-  .cta-actions a {
-    width: 100%;
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-1);
   }
 
-  .pill-row {
-    gap: 8px !important;
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-2);
   }
 
-  .hero-panel {
-    padding: 24px 20px 22px !important;
-    border-radius: 22px !important;
-  }
-
-  .hero-visual {
-    min-height: 500px;
-    border-radius: 22px;
-  }
-
-  .hero-visual-core {
-    width: 120px;
-    height: 120px;
-  }
-
-  .hero-visual-core-value {
-    font-size: 24px;
-  }
-
-  .hero-visual-node {
-    min-width: 0;
-    width: 140px;
-    padding: 10px 12px;
-  }
-
-  .hero-node-trace {
-    top: 20px;
-    left: 18px;
-  }
-
-  .hero-node-validate {
-    top: 28px;
-    right: 18px;
-  }
-
-  .hero-node-batch {
-    right: 18px;
-    bottom: 20px;
-  }
-
-  .hero-node-resume {
-    left: 18px;
-    bottom: 24px;
-  }
-
-  .hero-visual-snippet {
-    left: 18px;
-    right: 18px;
-    bottom: 18px;
-    transform: none;
-    width: auto;
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
+    inset: -1px;
   }
 }
