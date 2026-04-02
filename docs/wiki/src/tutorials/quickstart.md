@@ -1,49 +1,70 @@
 # Quick Start
 
-Five minutes from zero to your first query.
+Five minutes from zero to your first useful graph query.
 
 ## Prerequisites
 
-- **Rust toolchain**: 1.75+ (install via [rustup](https://rustup.rs/))
-- **A codebase**: Any project with Python, Rust, TypeScript/JavaScript, Go, or Java files. Other languages use a generic fallback extractor.
+- **Rust toolchain**: current stable recommended if you build from source
+- **A codebase**: Python, Rust, TypeScript/JavaScript, Go, and Java have the strongest handling; additional languages are available through tree-sitter and fallback extraction
+- **An MCP client**: Claude Code, Codex, Cursor, Windsurf, Zed, Cline, Continue, or any client that can connect to an MCP server over stdio
 
-## Installation
+## Install
 
-### From source (recommended)
+Choose one path:
+
+### 1. Build from source
 
 ```bash
-git clone https://github.com/cosmophonix/m1nd.git
+git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build --release
 ```
 
-The binary is at `./target/release/m1nd-mcp` (~8MB). Copy it wherever you want:
+The binary will be at:
 
 ```bash
-cp target/release/m1nd-mcp /usr/local/bin/
+./target/release/m1nd-mcp
 ```
 
-### From crates.io
+If you want it on your PATH:
+
+```bash
+cp ./target/release/m1nd-mcp /usr/local/bin/
+```
+
+### 2. Install from crates.io
 
 ```bash
 cargo install m1nd-mcp
 ```
 
-### Verify the build
+### 3. Download a release binary
+
+The current release workflow publishes these artifact names:
+
+- `m1nd-mcp-linux-x86_64`
+- `m1nd-mcp-macos-x86_64`
+- `m1nd-mcp-macos-aarch64`
+
+If you use release binaries, download them from the latest GitHub release page instead of relying on hardcoded tarball names.
+
+## Verify the binary
 
 ```bash
 m1nd-mcp --help
 ```
 
-The binary should start and wait for JSON-RPC input on stdin. Press Ctrl+C to exit.
+If the binary is healthy, you should see the CLI help for the MCP server.
 
-## Configuration
+## Configure your MCP client
 
-m1nd is an MCP server that communicates over stdio using JSON-RPC. You configure it in your AI client's MCP settings.
+m1nd is an MCP server over stdio. Your client starts the binary and calls tools through MCP.
 
 ### Claude Code
 
-Add to your Claude Code MCP configuration (`.mcp.json` in your project root, or `~/.claude/mcp.json` globally):
+Add this to your Claude Code MCP config.
+
+The exact file path depends on how you run Claude Code, but the current repo README uses this shape:
 
 ```json
 {
@@ -61,7 +82,7 @@ Add to your Claude Code MCP configuration (`.mcp.json` in your project root, or 
 
 ### Cursor
 
-In Cursor settings, navigate to **MCP Servers** and add:
+In MCP Servers, use the same binary + env setup:
 
 ```json
 {
@@ -75,75 +96,81 @@ In Cursor settings, navigate to **MCP Servers** and add:
 }
 ```
 
-### Windsurf / Cline / Roo Code / Continue
+### Other MCP clients
 
-Any MCP-compatible client works. The pattern is the same: point the client at the `m1nd-mcp` binary and optionally set the environment variables for persistence.
+The pattern is the same:
 
-### Environment Variables
+- point the client at `m1nd-mcp`
+- optionally set graph/plasticity persistence env vars
+- then call tools through MCP
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `M1ND_GRAPH_SOURCE` | Path to persist graph state between sessions | In-memory only (lost on exit) |
-| `M1ND_PLASTICITY_STATE` | Path to persist learned edge weights | In-memory only (lost on exit) |
+## Persistence variables
 
-**Recommendation**: Always set both variables. Without persistence, every restart discards learned weights and you lose the graph's accumulated intelligence.
+| Variable | Purpose | If omitted |
+|----------|---------|------------|
+| `M1ND_GRAPH_SOURCE` | Persist the graph snapshot | graph is memory-only |
+| `M1ND_PLASTICITY_STATE` | Persist learned edge weights | learning is memory-only |
 
-### Advanced Configuration
+Recommendation: set both if you want continuity across restarts.
 
-The server accepts these configuration parameters (set via environment):
+## Important note on tool names
 
-| Parameter | Default | Purpose |
-|-----------|---------|---------|
-| `learning_rate` | 0.08 | How aggressively the graph learns from feedback |
-| `decay_rate` | 0.005 | Rate of edge weight decay over time |
-| `xlr_enabled` | true | Enable XLR noise cancellation |
-| `auto_persist_interval` | 50 | Persist state every N queries |
-| `max_concurrent_reads` | 32 | Maximum concurrent read operations |
-| `domain` | "code" | Domain preset: `code`, `music`, `memory`, or `generic` |
+The live MCP registry exposes bare tool names like:
 
-## First Run: Ingest a Project
+- `ingest`
+- `activate`
+- `search`
+- `impact`
 
-Once your MCP client is configured and m1nd is running, ingest your codebase. This is the foundation for everything else.
+Some clients or docs may show `m1nd.ingest`-style names. Treat that as presentation sugar. The canonical live registry names are the bare tool names shown by `tools/list`.
 
-If you are using m1nd through an MCP client like Claude Code, the client sends the JSON-RPC calls for you when you invoke the tools. The raw JSON-RPC is shown here for clarity.
+## First run
 
-### Step 1: Ingest
+Once your client is configured, the first thing to do is ingest a project.
+
+### Step 1: ingest a repo
 
 ```jsonc
-// Ingest your project
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.ingest",
+    "name": "ingest",
     "arguments": {
-      "path": "/path/to/your/project",
-      "agent_id": "dev"
+      "agent_id": "dev",
+      "path": "/path/to/your/project"
     }
   }
 }
 ```
 
-Expected response (times will vary by project size):
+Example response shape:
 
 ```json
 {
   "files_processed": 335,
   "nodes_created": 9767,
   "edges_created": 26557,
-  "languages": {"python": 335},
+  "languages": {
+    "python": 335
+  },
   "elapsed_ms": 910
 }
 ```
 
-**What happened**: m1nd parsed every file, extracted structural elements (modules, classes, functions, imports), resolved references between them, built a compressed graph, and computed PageRank centrality for every node.
+What happened:
 
-### Step 2: Verify with Health Check
+- files were parsed
+- structural nodes and edges were created
+- references were resolved
+- the graph was finalized for querying
+
+### Step 2: check server health
 
 ```jsonc
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.health",
+    "name": "health",
     "arguments": {
       "agent_id": "dev"
     }
@@ -151,79 +178,121 @@ Expected response (times will vary by project size):
 }
 ```
 
-Expected response:
+Current response shape in the repo:
 
 ```json
 {
   "status": "ok",
-  "nodes": 9767,
-  "edges": 26557,
-  "finalized": true,
-  "plasticity_records": 0,
-  "agents_seen": ["dev"],
-  "queries_served": 1,
-  "uptime_seconds": 12
+  "node_count": 9767,
+  "edge_count": 26557,
+  "queries_processed": 1,
+  "uptime_seconds": 12.4,
+  "memory_usage_bytes": 0,
+  "plasticity_state": "0 edges tracked",
+  "last_persist_time": null,
+  "active_sessions": [
+    {
+      "agent_id": "dev",
+      "query_count": 1
+    }
+  ]
 }
 ```
 
-If you see `"nodes": 0`, re-check the path you passed to `ingest`.
+If you see `node_count: 0`, your ingest path was wrong or the ingest did not run.
 
-### Step 3: Your First Query
+### Step 3: ask the graph something real
 
 ```jsonc
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+    "name": "activate",
     "arguments": {
-      "query": "authentication",
       "agent_id": "dev",
+      "query": "authentication",
       "top_k": 5
     }
   }
 }
 ```
 
-Expected response:
+Example response shape:
 
 ```json
 {
+  "query": "authentication",
   "activated": [
     {
       "node_id": "file::auth.py",
-      "score": 0.89,
-      "dimension_scores": {
-        "structural": 0.92,
-        "semantic": 0.95,
-        "temporal": 0.78,
-        "causal": 0.71
-      }
+      "score": 0.89
     },
-    {"node_id": "file::middleware.py", "score": 0.72},
-    {"node_id": "file::session.py", "score": 0.61}
+    {
+      "node_id": "file::middleware.py",
+      "score": 0.72
+    },
+    {
+      "node_id": "file::session.py",
+      "score": 0.61
+    }
   ],
   "ghost_edges": [
-    {"from": "file::auth.py", "to": "file::rate_limiter.py", "confidence": 0.34}
-  ]
+    {
+      "from": "file::auth.py",
+      "to": "file::rate_limiter.py",
+      "confidence": 0.34
+    }
+  ],
+  "elapsed_ms": 31,
+  "proof_state": "triaging"
 }
 ```
 
-**What happened**: m1nd fired a signal into the graph from nodes matching "authentication" and let it propagate across structural, semantic, temporal, and causal dimensions. Noise was cancelled via XLR differential processing. The results are ranked by multi-dimensional activation score, not just text matching.
+What happened:
 
-## What Next
+- seed nodes were selected from the query
+- spreading activation propagated across graph structure
+- the result was ranked by graph signal, not just text matching
 
-You now have a working m1nd instance. From here:
+## What to do next
 
-- **[First Query Tutorial](first-query.md)**: Step-by-step walkthrough of the full activate-learn-activate cycle, counterfactual simulation, and structural hole detection.
-- **[Multi-Agent Tutorial](multi-agent.md)**: How to use m1nd with multiple agents sharing one graph.
-- **[FAQ](../faq.md)**: Common questions and answers.
+After the first `activate`, these are the most useful next steps:
+
+- `search` for exact text or regex
+- `seek` for intent-based retrieval
+- `impact` before touching a central file
+- `surgical_context_v2` before multi-file edits
+- `validate_plan` when you already know the files you want to touch
 
 ## Troubleshooting
 
-**"No graph snapshot found, starting fresh"** -- This is normal on first run. The graph is empty until you call `ingest`.
+### “No graph snapshot found, starting fresh”
 
-**Ingest returns 0 files** -- Check that the path is correct and contains supported source files. m1nd currently has extractors for Python (.py), Rust (.rs), TypeScript/JavaScript (.ts/.js/.tsx/.jsx), Go (.go), and Java (.java). Other files use a generic fallback extractor.
+Normal on first run. The graph is empty until you call `ingest`.
 
-**MCP client does not see m1nd tools** -- Verify the binary path is correct and the binary is executable (`chmod +x m1nd-mcp`). Check your client's MCP server logs for connection errors.
+### Ingest returns 0 files
 
-**Permission denied** -- Ensure the `M1ND_GRAPH_SOURCE` and `M1ND_PLASTICITY_STATE` paths are writable.
+Check the path and confirm it points at a real project root.
+
+### My client cannot see the tools
+
+Check:
+
+- the `m1nd-mcp` path
+- execute permissions on the binary
+- the MCP client logs
+
+### Learned state disappears between restarts
+
+Set:
+
+- `M1ND_GRAPH_SOURCE`
+- `M1ND_PLASTICITY_STATE`
+
+### I want persistent low-latency operation for a large codebase
+
+See:
+
+- [Deployment](../../deployment.md)
+
+That doc covers the persistent server + stdio proxy pattern for near-zero startup overhead.
