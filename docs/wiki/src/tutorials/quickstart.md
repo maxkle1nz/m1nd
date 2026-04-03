@@ -96,6 +96,31 @@ In MCP Servers, use the same binary + env setup:
 }
 ```
 
+### Antigravity
+
+Antigravity supports a workspace-local `mcp_config.json` shape.
+
+Use:
+
+```json
+{
+  "mcpServers": {
+    "m1nd": {
+      "command": "python3",
+      "args": ["/path/to/m1nd-antigravity-proxy.py"],
+      "cwd": "/path/to/workspace",
+      "env": {
+        "M1ND_OPENCLAW_SOCKET": "/tmp/m1nd-openclaw.sock",
+        "M1ND_GRAPH_SOURCE": "/tmp/m1nd-graph.json",
+        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json"
+      }
+    }
+  }
+}
+```
+
+This keeps the host-facing contract stdio-compatible while routing into the hot native daemon.
+
 ### Other MCP clients
 
 The pattern is the same:

@@ -29,6 +29,7 @@
 <p align="center">
   <a href="#what-m1nd-does">What m1nd Does</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#ide-integration">IDE Integration</a> &middot;
   <a href="#configure-your-agent">Configure Your Agent</a> &middot;
   <a href="#results-and-measurements">Results</a> &middot;
   <a href="#tool-surface">Tools</a> &middot;
@@ -189,6 +190,23 @@ Add to Claude Code (`~/.claude.json`):
 Works with any MCP client that can connect to an MCP server: Claude Code, Codex, Cursor, Windsurf, Zed, or your own.
 
 **For large codebases, see [Deployment & Production Setup](docs/deployment.md) for how to run m1nd as a persistent server with smart namespace ingest and near-zero latency.**
+
+## IDE Integration
+
+m1nd can be connected through plain MCP everywhere, but some hosts benefit from a
+native fast path.
+
+| Client | Integration surface | Recommended shape |
+|---|---|---|
+| Claude Code | `.claude/mcp.json` / `claude_mcp.json` | `m1nd-mcp` |
+| Cursor | `.cursor/mcp.json` | `m1nd-mcp` or native proxy |
+| Windsurf | MCP config UI / JSON | `m1nd-mcp` or native proxy |
+| GitHub Copilot coding agent | repository MCP settings UI | `m1nd-mcp` or native proxy command |
+| Zed | assistant MCP config | `m1nd-mcp` |
+| Continue | MCP config | `m1nd-mcp` |
+| Antigravity | `mcp_config.json` | native proxy recommended |
+
+See [docs/IDE-INTEGRATIONS.md](docs/IDE-INTEGRATIONS.md) for the integration matrix and native-daemon strategy.
 
 ---
 

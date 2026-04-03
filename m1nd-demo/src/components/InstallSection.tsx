@@ -10,7 +10,10 @@ const STEP_CONFIG = `{
   "mcpServers": {
     "m1nd": {
       "command": "m1nd-mcp",
-      "args": ["--agent-id", "your-agent"]
+      "env": {
+        "M1ND_GRAPH_SOURCE": "/tmp/m1nd-graph.json",
+        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json"
+      }
     }
   }
 }`;
@@ -108,7 +111,7 @@ export function InstallSection() {
       num: "02",
       label: "Configure",
       title: "Add to your MCP config",
-      desc: "Drop it into your agent's MCP server list. Works with Claude Desktop, Cursor, Windsurf, and any MCP-compatible client.",
+      desc: "Drop it into your host's MCP server list. Claude Code, Cursor, Windsurf, GitHub Copilot coding agent, Zed, Continue, and Antigravity all have an entrypoint.",
       code: STEP_CONFIG,
       lang: "json — mcp config",
     },
@@ -146,6 +149,21 @@ export function InstallSection() {
             One binary. One config entry. One ingest call.{" "}
             <span className="text-green-400/80">Then the graph is live.</span>
           </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="mb-10 rounded-xl border border-primary/15 px-5 py-4 font-mono text-xs text-muted-foreground/70"
+          style={{ background: "rgba(0,245,255,0.03)" }}
+        >
+          MCP entrypoints exist across major hosts: <span style={{ color: "#00f5ff" }}>Claude Code</span>,{" "}
+          <span style={{ color: "#00f5ff" }}>Cursor</span>, <span style={{ color: "#00f5ff" }}>Windsurf</span>,{" "}
+          <span style={{ color: "#00f5ff" }}>GitHub Copilot</span>, <span style={{ color: "#00f5ff" }}>Zed</span>,{" "}
+          <span style={{ color: "#00f5ff" }}>Continue</span>, and editor-specific native proxies like{" "}
+          <span style={{ color: "#00ff88" }}>Antigravity</span> when you want a hot daemon instead of a cold stdio server.
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-20">
