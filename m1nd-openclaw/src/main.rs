@@ -140,7 +140,11 @@ fn load_config(cli: &Cli) -> McpConfig {
         .plasticity
         .as_ref()
         .map(PathBuf::from)
-        .or_else(|| std::env::var("M1ND_PLASTICITY_STATE").ok().map(PathBuf::from))
+        .or_else(|| {
+            std::env::var("M1ND_PLASTICITY_STATE")
+                .ok()
+                .map(PathBuf::from)
+        })
         .or_else(|| runtime_dir.as_ref().map(|dir| dir.join("plasticity.json")))
         .unwrap_or_else(|| PathBuf::from("./plasticity_state.json"));
 
