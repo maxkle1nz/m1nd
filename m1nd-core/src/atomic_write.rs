@@ -72,8 +72,12 @@ pub fn read_to_string_with_limit(path: &Path, max_bytes: u64) -> M1ndResult<Stri
 // ---------------------------------------------------------------------------
 
 /// Compute the temp path for a given target path.
+/// Appends `.tmp` to the full filename to avoid extension collisions.
+/// e.g. `graph.json` → `graph.json.tmp`, `graph.bin` → `graph.bin.tmp`
 fn temp_path_for(path: &Path) -> PathBuf {
-    path.with_extension("tmp")
+    let mut s = path.as_os_str().to_os_string();
+    s.push(".tmp");
+    PathBuf::from(s)
 }
 
 /// Write data to the temp file with proper permissions.
