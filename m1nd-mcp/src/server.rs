@@ -1268,6 +1268,60 @@ pub fn tool_schemas() -> serde_json::Value {
                     },
                     "required": ["agent_id", "action"]
                 }
+            },
+            // =================================================================
+            // v0.7.0: Diagnostic tools — metrics, type_trace, diagram
+            // =================================================================
+            {
+                "name": "metrics",
+                "description": "Structural codebase metrics: LOC, child counts, degree, PageRank per file/function/struct. Supports scope filtering and sorting.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "node_types": { "type": "array", "items": { "type": "string" }, "default": ["file"], "description": "Filter by node type: file, function, class, struct, module" },
+                        "top_k": { "type": "integer", "default": 50, "description": "Maximum results to return" },
+                        "sort": { "type": "string", "default": "loc_desc", "description": "Sort order: loc_desc, complexity_desc, name_asc" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "type_trace",
+                "description": "Cross-file type usage tracing. BFS from a type/struct/enum node to find all usage sites across the codebase. Supports forward, reverse, and bidirectional tracing.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "target": { "type": "string", "description": "Type name or external_id to trace" },
+                        "direction": { "type": "string", "default": "forward", "description": "BFS direction: forward, reverse, both" },
+                        "max_hops": { "type": "integer", "default": 4, "description": "Maximum BFS hops" },
+                        "top_k": { "type": "integer", "default": 50, "description": "Maximum results" },
+                        "group_by_file": { "type": "boolean", "default": true, "description": "Group results by file" }
+                    },
+                    "required": ["agent_id", "target"]
+                }
+            },
+            {
+                "name": "diagram",
+                "description": "Generate a visual graph diagram in Mermaid or DOT format. Centers on a node/query or shows top-N by PageRank. Supports scope, type filtering, and layout options.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "center": { "type": "string", "description": "Seed query or node_id to center the diagram on" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "format": { "type": "string", "default": "mermaid", "description": "Output format: mermaid or dot" },
+                        "max_nodes": { "type": "integer", "default": 30, "description": "Maximum nodes in diagram" },
+                        "depth": { "type": "integer", "default": 2, "description": "Max BFS depth from center" },
+                        "node_types": { "type": "array", "items": { "type": "string" }, "description": "Filter by node types" },
+                        "show_relations": { "type": "boolean", "default": true, "description": "Show edge labels" },
+                        "show_pagerank": { "type": "boolean", "default": false, "description": "Show PageRank in node labels" },
+                        "direction": { "type": "string", "default": "TD", "description": "Layout direction: TD (top-down) or LR (left-right)" }
+                    },
+                    "required": ["agent_id"]
+                }
             }
         ]
     })
@@ -1671,6 +1725,27 @@ fn dispatch_core_tool(
             let input: crate::boot_memory_handlers::BootMemoryInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::boot_memory_handlers::handle_boot_memory(state, input)
+        }
+        // -----------------------------------------------------------------
+        // v0.7.0: Diagnostic tools
+        // -----------------------------------------------------------------
+        "metrics" => {
+            let input: layers::MetricsInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            let output = layer_handlers::handle_metrics(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "type_trace" => {
+            let input: layers::TypeTraceInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            let output = layer_handlers::handle_type_trace(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "diagram" => {
+            let input: layers::DiagramInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            let output = layer_handlers::handle_diagram(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         _ => Err(M1ndError::UnknownTool {
             name: tool_name.to_string(),

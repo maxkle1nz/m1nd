@@ -2200,6 +2200,218 @@ pub struct SavingsOutput {
 // Tests
 // =========================================================================
 
+// =========================================================================
+// v0.7.0: m1nd.metrics — Structural Codebase Metrics
+// =========================================================================
+
+/// Input for m1nd.metrics — per-node structural metrics (LOC, children, degree).
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetricsInput {
+    pub agent_id: String,
+    /// File path prefix to limit scope. None = entire graph.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// Filter by node type: "file", "function", "class", "struct", "module".
+    /// Default: ["file"] — metrics per file.
+    #[serde(default = "default_metrics_node_types")]
+    pub node_types: Vec<String>,
+    /// Maximum results to return. Default: 50.
+    #[serde(default = "default_metrics_top_k")]
+    pub top_k: usize,
+    /// Sort order: "loc_desc", "complexity_desc", "name_asc". Default: "loc_desc".
+    #[serde(default = "default_metrics_sort")]
+    pub sort: String,
+}
+
+fn default_metrics_node_types() -> Vec<String> {
+    vec!["file".to_string()]
+}
+fn default_metrics_top_k() -> usize {
+    50
+}
+fn default_metrics_sort() -> String {
+    "loc_desc".to_string()
+}
+
+/// Output for m1nd.metrics.
+#[derive(Clone, Debug, Serialize)]
+pub struct MetricsOutput {
+    pub entries: Vec<MetricsEntry>,
+    pub summary: MetricsSummary,
+    pub elapsed_ms: f64,
+}
+
+/// Per-node metric entry.
+#[derive(Clone, Debug, Serialize)]
+pub struct MetricsEntry {
+    pub node_id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    /// Lines of code (from provenance line_end - line_start + 1, or child span).
+    pub loc: u32,
+    /// Number of child function nodes.
+    pub function_count: u32,
+    /// Number of child struct nodes.
+    pub struct_count: u32,
+    /// Number of child enum nodes.
+    pub enum_count: u32,
+    /// Number of child class nodes.
+    pub class_count: u32,
+    /// Outgoing edges (dependencies).
+    pub out_degree: u32,
+    /// Incoming edges (dependants).
+    pub in_degree: u32,
+    /// PageRank centrality.
+    pub pagerank: f32,
+    /// Ratio: children / LOC — higher = more modular.
+    pub density: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+}
+
+/// Aggregate summary across all entries.
+#[derive(Clone, Debug, Serialize)]
+pub struct MetricsSummary {
+    pub total_files: u32,
+    pub total_loc: u64,
+    pub total_functions: u32,
+    pub total_structs: u32,
+    pub total_enums: u32,
+    pub total_classes: u32,
+    pub avg_loc_per_file: f32,
+    pub max_loc_file: String,
+    pub max_loc: u32,
+}
+
+// =========================================================================
+// v0.7.0: m1nd.type_trace — Cross-File Type Usage Tracing
+// =========================================================================
+
+/// Input for m1nd.type_trace — find all usage sites of a type/struct/enum
+/// across the codebase via directed BFS from the type node.
+#[derive(Clone, Debug, Deserialize)]
+pub struct TypeTraceInput {
+    pub agent_id: String,
+    /// The type to trace: name or external_id.
+    pub target: String,
+    /// BFS direction: "forward", "reverse", "both". Default: "forward".
+    #[serde(default = "default_type_trace_direction")]
+    pub direction: String,
+    /// Maximum BFS hops. Default: 4.
+    #[serde(default = "default_type_trace_max_hops")]
+    pub max_hops: u8,
+    /// Maximum results to return. Default: 50.
+    #[serde(default = "default_metrics_top_k")]
+    pub top_k: usize,
+    /// Group results by file. Default: true.
+    #[serde(default = "default_true")]
+    pub group_by_file: bool,
+}
+
+fn default_type_trace_direction() -> String {
+    "forward".to_string()
+}
+fn default_type_trace_max_hops() -> u8 {
+    4
+}
+
+/// Output for m1nd.type_trace.
+#[derive(Clone, Debug, Serialize)]
+pub struct TypeTraceOutput {
+    pub target: String,
+    pub target_label: String,
+    pub target_type: String,
+    pub direction: String,
+    pub max_hops_used: u8,
+    pub usages: Vec<TypeTraceUsage>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub by_file: Vec<TypeTraceFileGroup>,
+    pub total_usages: usize,
+    pub total_files: usize,
+    pub elapsed_ms: f64,
+}
+
+/// A single usage site.
+#[derive(Clone, Debug, Serialize)]
+pub struct TypeTraceUsage {
+    pub node_id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    pub hops: u8,
+    pub relation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_start: Option<u32>,
+}
+
+/// Usage sites grouped by file.
+#[derive(Clone, Debug, Serialize)]
+pub struct TypeTraceFileGroup {
+    pub file: String,
+    pub usage_count: usize,
+    pub usages: Vec<TypeTraceUsage>,
+}
+
+// =========================================================================
+// v0.7.0: m1nd.diagram — Graph-to-Mermaid/DOT Export
+// =========================================================================
+
+/// Input for m1nd.diagram — generate a diagram from the graph.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DiagramInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub center: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default = "default_diagram_format")]
+    pub format: String,
+    #[serde(default = "default_diagram_max_nodes")]
+    pub max_nodes: usize,
+    #[serde(default = "default_diagram_depth")]
+    pub depth: u8,
+    #[serde(default)]
+    pub node_types: Vec<String>,
+    #[serde(default = "default_true")]
+    pub show_relations: bool,
+    #[serde(default)]
+    pub show_pagerank: bool,
+    #[serde(default = "default_diagram_direction")]
+    pub direction: String,
+}
+
+fn default_diagram_format() -> String {
+    "mermaid".to_string()
+}
+fn default_diagram_max_nodes() -> usize {
+    30
+}
+fn default_diagram_depth() -> u8 {
+    2
+}
+fn default_diagram_direction() -> String {
+    "TD".to_string()
+}
+
+/// Output for m1nd.diagram.
+#[derive(Clone, Debug, Serialize)]
+pub struct DiagramOutput {
+    pub source: String,
+    pub format: String,
+    pub node_count: usize,
+    pub edge_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub center_node: Option<String>,
+    pub elapsed_ms: f64,
+}
+
+// =========================================================================
+// Tests
+// =========================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;

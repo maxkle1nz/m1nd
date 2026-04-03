@@ -8290,6 +8290,773 @@ pub fn handle_runtime_overlay(
     .map_err(M1ndError::Serde)
 }
 
+// =========================================================================
+// v0.7.0: m1nd.metrics — Structural Codebase Metrics
+// =========================================================================
+
+/// Handle m1nd.metrics — per-node structural metrics (LOC, children, degree).
+pub fn handle_metrics(
+    state: &mut SessionState,
+    input: layers::MetricsInput,
+) -> M1ndResult<layers::MetricsOutput> {
+    let start = Instant::now();
+
+    let graph = state.graph.read();
+    let n = graph.num_nodes() as usize;
+    if n == 0 {
+        return Err(M1ndError::EmptyGraph);
+    }
+
+    let normalized_scope = l7_normalize_layer_scope(input.scope.as_deref(), &state.ingest_roots);
+
+    // Parse requested node types
+    let type_filters: Vec<NodeType> = input
+        .node_types
+        .iter()
+        .filter_map(|t| layer_parse_node_type(t))
+        .collect();
+
+    // Build reverse lookup
+    let mut node_to_ext: Vec<String> = vec![String::new(); n];
+    for (&interned, &nid) in &graph.id_to_node {
+        let idx = nid.as_usize();
+        if idx < n {
+            node_to_ext[idx] = graph.strings.resolve(interned).to_string();
+        }
+    }
+
+    // Iterate all nodes, filtering by type and scope
+    let mut entries: Vec<layers::MetricsEntry> = Vec::new();
+
+    for idx in 0..n {
+        let nid = NodeId::new(idx as u32);
+        let nt = graph.nodes.node_type[idx];
+
+        // Type filter
+        if !type_filters.is_empty() && !type_filters.contains(&nt) {
+            continue;
+        }
+
+        let ext_id = &node_to_ext[idx];
+
+        // Scope filter
+        if let Some(ref scope) = normalized_scope {
+            if !ext_id.starts_with(scope.as_str()) {
+                continue;
+            }
+        }
+
+        // Compute LOC from provenance (with fallback to child max line_end)
+        let prov = &graph.nodes.provenance[idx];
+        let prov_loc = if prov.line_end > 0 && prov.line_end >= prov.line_start {
+            prov.line_end - prov.line_start + 1
+        } else {
+            0
+        };
+
+        // Count children by type (outgoing "contains"/"defines" edges)
+        // Also compute fallback LOC from children's max line_end
+        let mut func_count = 0u32;
+        let mut struct_count = 0u32;
+        let mut enum_count = 0u32;
+        let mut class_count = 0u32;
+        let mut max_child_line_end: u32 = 0;
+
+        let out_range = graph.csr.out_range(nid);
+        for j in out_range.clone() {
+            let target = graph.csr.targets[j];
+            let tgt_idx = target.as_usize();
+            if tgt_idx >= n {
+                continue;
+            }
+            let rel = graph.strings.resolve(graph.csr.relations[j]);
+            if rel == "contains" || rel == "defines" || rel == "owned_by_impl" {
+                match graph.nodes.node_type[tgt_idx] {
+                    NodeType::Function => func_count += 1,
+                    NodeType::Struct => struct_count += 1,
+                    NodeType::Enum => enum_count += 1,
+                    NodeType::Class => class_count += 1,
+                    _ => {}
+                }
+                // Track max line_end among children for fallback LOC
+                let child_prov = &graph.nodes.provenance[tgt_idx];
+                if child_prov.line_end > max_child_line_end {
+                    max_child_line_end = child_prov.line_end;
+                }
+            }
+        }
+
+        // Fallback LOC: when provenance is empty, try reading from disk
+        let loc = if prov_loc > 0 {
+            prov_loc
+        } else if max_child_line_end > 0 {
+            max_child_line_end
+        } else if matches!(graph.nodes.node_type[idx], NodeType::File) {
+            let rel_path = ext_id.strip_prefix("file::").unwrap_or(ext_id);
+            let mut disk_loc = 0u32;
+            for root in &state.ingest_roots {
+                let full_path = std::path::Path::new(root).join(rel_path);
+                if let Ok(content) = std::fs::read(&full_path) {
+                    disk_loc = content.iter().filter(|&&b| b == b'\n').count() as u32;
+                    break;
+                }
+            }
+            disk_loc
+        } else {
+            0
+        };
+
+        let in_range = graph.csr.in_range(nid);
+        let out_degree = out_range.len() as u32;
+        let in_degree = in_range.len() as u32;
+        let pagerank = graph.nodes.pagerank[idx].get();
+        let total_children = func_count + struct_count + enum_count + class_count;
+        let density = if loc > 0 {
+            total_children as f32 / loc as f32
+        } else {
+            0.0
+        };
+
+        let file_path = prov
+            .source_path
+            .map(|interned| graph.strings.resolve(interned).to_string());
+
+        let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
+
+        entries.push(layers::MetricsEntry {
+            node_id: ext_id.clone(),
+            label,
+            node_type: layer_node_type_str(&nt).to_string(),
+            loc,
+            function_count: func_count,
+            struct_count,
+            enum_count,
+            class_count,
+            out_degree,
+            in_degree,
+            pagerank,
+            density,
+            file_path,
+        });
+    }
+
+    // Sort
+    match input.sort.as_str() {
+        "complexity_desc" => {
+            entries.sort_by(|a, b| {
+                let ca = a.out_degree + a.in_degree + a.function_count;
+                let cb = b.out_degree + b.in_degree + b.function_count;
+                cb.cmp(&ca)
+            });
+        }
+        "name_asc" => {
+            entries.sort_by(|a, b| a.label.cmp(&b.label));
+        }
+        _ => {
+            // loc_desc
+            entries.sort_by(|a, b| b.loc.cmp(&a.loc));
+        }
+    }
+
+    // Compute summary before truncation
+    let total_files = entries.len() as u32;
+    let total_loc: u64 = entries.iter().map(|e| e.loc as u64).sum();
+    let total_functions: u32 = entries.iter().map(|e| e.function_count).sum();
+    let total_structs: u32 = entries.iter().map(|e| e.struct_count).sum();
+    let total_enums: u32 = entries.iter().map(|e| e.enum_count).sum();
+    let total_classes: u32 = entries.iter().map(|e| e.class_count).sum();
+    let avg_loc = if total_files > 0 {
+        total_loc as f32 / total_files as f32
+    } else {
+        0.0
+    };
+    let (max_file, max_loc) = entries
+        .iter()
+        .max_by_key(|e| e.loc)
+        .map(|e| (e.label.clone(), e.loc))
+        .unwrap_or_default();
+
+    // Truncate
+    entries.truncate(input.top_k);
+
+    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(layers::MetricsOutput {
+        entries,
+        summary: layers::MetricsSummary {
+            total_files,
+            total_loc,
+            total_functions,
+            total_structs,
+            total_enums,
+            total_classes,
+            avg_loc_per_file: avg_loc,
+            max_loc_file: max_file,
+            max_loc,
+        },
+        elapsed_ms: elapsed,
+    })
+}
+
+// =========================================================================
+// v0.7.0: m1nd.type_trace — Cross-File Type Usage Tracing
+// =========================================================================
+
+/// Handle m1nd.type_trace — BFS from a type node to find all usage sites.
+pub fn handle_type_trace(
+    state: &mut SessionState,
+    input: layers::TypeTraceInput,
+) -> M1ndResult<layers::TypeTraceOutput> {
+    let start = Instant::now();
+
+    let graph = state.graph.read();
+    let n = graph.num_nodes() as usize;
+    if n == 0 {
+        return Err(M1ndError::EmptyGraph);
+    }
+
+    // Resolve target node — tiered resolution:
+    // 1. Exact external_id match
+    // 2. Label exact (case-insensitive) — prefer type-defining nodes
+    // 3. External_id segment match (::Target or ::Target::) — prefer types
+    // 4. Generic substring in external_id — prefer types
+    let target_node = graph
+        .resolve_id(&input.target)
+        .or_else(|| {
+            // Tier 2: Label exact match (case-insensitive)
+            let mut best: Option<NodeId> = None;
+            let mut best_is_type = false;
+            for idx in 0..n {
+                let label = graph.strings.resolve(graph.nodes.label[idx]);
+                if label == input.target || label.eq_ignore_ascii_case(&input.target) {
+                    let nt = graph.nodes.node_type[idx];
+                    let is_type = matches!(
+                        nt,
+                        NodeType::Struct | NodeType::Enum | NodeType::Class | NodeType::Type
+                    );
+                    if is_type && !best_is_type {
+                        best = Some(NodeId::new(idx as u32));
+                        best_is_type = true;
+                    } else if best.is_none() {
+                        best = Some(NodeId::new(idx as u32));
+                    }
+                }
+            }
+            best
+        })
+        .or_else(|| {
+            // Tier 3: Segment match in external_id
+            let segment_suffix = format!("::{}", input.target);
+            let segment_mid = format!("::{}::", input.target);
+            let mut best: Option<NodeId> = None;
+            let mut best_is_type = false;
+            for (&interned, &nid) in &graph.id_to_node {
+                let ext = graph.strings.resolve(interned);
+                if ext.ends_with(&segment_suffix) || ext.contains(&segment_mid) {
+                    let nt = graph.nodes.node_type[nid.as_usize()];
+                    let is_type = matches!(
+                        nt,
+                        NodeType::Struct | NodeType::Enum | NodeType::Class | NodeType::Type
+                    );
+                    if is_type && !best_is_type {
+                        best = Some(nid);
+                        best_is_type = true;
+                    } else if best.is_none() {
+                        best = Some(nid);
+                    }
+                }
+            }
+            best
+        })
+        .or_else(|| {
+            // Tier 4: Generic substring in external_id (loose fallback)
+            let mut best: Option<NodeId> = None;
+            let mut best_is_type = false;
+            for (&interned, &nid) in &graph.id_to_node {
+                let ext = graph.strings.resolve(interned);
+                if ext.contains(&input.target) {
+                    let nt = graph.nodes.node_type[nid.as_usize()];
+                    let is_type = matches!(
+                        nt,
+                        NodeType::Struct | NodeType::Enum | NodeType::Class | NodeType::Type
+                    );
+                    if is_type && !best_is_type {
+                        best = Some(nid);
+                        best_is_type = true;
+                    } else if best.is_none() {
+                        best = Some(nid);
+                    }
+                }
+            }
+            best
+        });
+
+    let target_nid = match target_node {
+        Some(nid) => nid,
+        None => {
+            return Ok(layers::TypeTraceOutput {
+                target: input.target,
+                target_label: String::new(),
+                target_type: String::new(),
+                direction: input.direction,
+                max_hops_used: 0,
+                usages: vec![],
+                by_file: vec![],
+                total_usages: 0,
+                total_files: 0,
+                elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            });
+        }
+    };
+
+    let target_idx = target_nid.as_usize();
+    let target_label = graph
+        .strings
+        .resolve(graph.nodes.label[target_idx])
+        .to_string();
+    let target_type = layer_node_type_str(&graph.nodes.node_type[target_idx]).to_string();
+
+    // Build reverse lookup
+    let mut node_to_ext: Vec<String> = vec![String::new(); n];
+    for (&interned, &nid) in &graph.id_to_node {
+        let idx = nid.as_usize();
+        if idx < n {
+            node_to_ext[idx] = graph.strings.resolve(interned).to_string();
+        }
+    }
+
+    // BFS
+    let use_forward = input.direction != "reverse";
+    let use_reverse = input.direction != "forward";
+    let max_hops = input.max_hops as usize;
+
+    let mut visited = vec![false; n];
+    visited[target_idx] = true;
+    let mut queue: std::collections::VecDeque<(NodeId, u8, String)> = std::collections::VecDeque::new();
+
+    // Seed BFS from target
+    if use_forward {
+        for j in graph.csr.in_range(target_nid) {
+            let src = graph.csr.rev_sources[j];
+            let fwd_edge = graph.csr.rev_edge_idx[j].as_usize();
+            let rel = graph.strings.resolve(graph.csr.relations[fwd_edge]).to_string();
+            if src.as_usize() < n && !visited[src.as_usize()] {
+                visited[src.as_usize()] = true;
+                queue.push_back((src, 1, rel));
+            }
+        }
+    }
+    if use_reverse {
+        for j in graph.csr.out_range(target_nid) {
+            let tgt = graph.csr.targets[j];
+            let rel = graph.strings.resolve(graph.csr.relations[j]).to_string();
+            if tgt.as_usize() < n && !visited[tgt.as_usize()] {
+                visited[tgt.as_usize()] = true;
+                queue.push_back((tgt, 1, rel));
+            }
+        }
+    }
+
+    let mut usages: Vec<layers::TypeTraceUsage> = Vec::new();
+
+    while let Some((node, hops, relation)) = queue.pop_front() {
+        let idx = node.as_usize();
+        let prov = &graph.nodes.provenance[idx];
+        let file_path = prov
+            .source_path
+            .map(|interned| graph.strings.resolve(interned).to_string());
+        let line_start = if prov.line_start > 0 {
+            Some(prov.line_start)
+        } else {
+            None
+        };
+
+        usages.push(layers::TypeTraceUsage {
+            node_id: node_to_ext[idx].clone(),
+            label: graph.strings.resolve(graph.nodes.label[idx]).to_string(),
+            node_type: layer_node_type_str(&graph.nodes.node_type[idx]).to_string(),
+            hops,
+            relation,
+            file_path,
+            line_start,
+        });
+
+        // Continue BFS if under hop limit
+        if (hops as usize) < max_hops {
+            if use_forward {
+                for j in graph.csr.in_range(node) {
+                    let src = graph.csr.rev_sources[j];
+                    if src.as_usize() < n && !visited[src.as_usize()] {
+                        visited[src.as_usize()] = true;
+                        let fwd_edge = graph.csr.rev_edge_idx[j].as_usize();
+                        let rel = graph.strings.resolve(graph.csr.relations[fwd_edge]).to_string();
+                        queue.push_back((src, hops + 1, rel));
+                    }
+                }
+            }
+            if use_reverse {
+                for j in graph.csr.out_range(node) {
+                    let tgt = graph.csr.targets[j];
+                    if tgt.as_usize() < n && !visited[tgt.as_usize()] {
+                        visited[tgt.as_usize()] = true;
+                        let rel = graph.strings.resolve(graph.csr.relations[j]).to_string();
+                        queue.push_back((tgt, hops + 1, rel));
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by hops
+    usages.sort_by_key(|u| u.hops);
+    usages.truncate(input.top_k);
+
+    // Group by file
+    let mut file_groups: Vec<layers::TypeTraceFileGroup> = Vec::new();
+    if input.group_by_file {
+        let mut file_map: std::collections::HashMap<String, Vec<layers::TypeTraceUsage>> =
+            std::collections::HashMap::new();
+        for u in &usages {
+            let key = u.file_path.clone().unwrap_or_else(|| "unknown".to_string());
+            file_map.entry(key).or_default().push(u.clone());
+        }
+        for (file, group_usages) in file_map {
+            let count = group_usages.len();
+            file_groups.push(layers::TypeTraceFileGroup {
+                file,
+                usage_count: count,
+                usages: group_usages,
+            });
+        }
+        file_groups.sort_by(|a, b| b.usage_count.cmp(&a.usage_count));
+    }
+
+    let total_files = file_groups.len();
+    let total_usages = usages.len();
+    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(layers::TypeTraceOutput {
+        target: input.target,
+        target_label,
+        target_type,
+        direction: input.direction,
+        max_hops_used: input.max_hops,
+        usages,
+        by_file: file_groups,
+        total_usages,
+        total_files,
+        elapsed_ms: elapsed,
+    })
+}
+
+// =========================================================================
+// v0.7.0: m1nd.diagram — Graph-to-Mermaid/DOT Export
+// =========================================================================
+
+struct DiagEdge {
+    src_idx: usize,
+    tgt_idx: usize,
+    relation: String,
+}
+
+/// Handle m1nd.diagram — generate a Mermaid or DOT diagram from the graph.
+pub fn handle_diagram(
+    state: &mut SessionState,
+    input: layers::DiagramInput,
+) -> M1ndResult<layers::DiagramOutput> {
+    let start = Instant::now();
+
+    let graph = state.graph.read();
+    let n = graph.num_nodes() as usize;
+    if n == 0 {
+        return Err(M1ndError::EmptyGraph);
+    }
+
+    let normalized_scope = l7_normalize_layer_scope(input.scope.as_deref(), &state.ingest_roots);
+
+    // Parse node type filters
+    let type_filters: Vec<NodeType> = input
+        .node_types
+        .iter()
+        .filter_map(|t| layer_parse_node_type(t))
+        .collect();
+
+    // Build reverse lookup
+    let mut node_to_ext: Vec<String> = vec![String::new(); n];
+    for (&interned, &nid) in &graph.id_to_node {
+        let idx = nid.as_usize();
+        if idx < n {
+            node_to_ext[idx] = graph.strings.resolve(interned).to_string();
+        }
+    }
+
+    // Determine center node and collect subgraph via BFS
+    let center_node = input.center.as_ref().and_then(|c| {
+        graph.resolve_id(c).or_else(|| {
+            // Fuzzy label match
+            for idx in 0..n {
+                let label = graph.strings.resolve(graph.nodes.label[idx]);
+                if label.contains(c.as_str()) {
+                    return Some(NodeId::new(idx as u32));
+                }
+            }
+            None
+        })
+    });
+
+    let mut included: Vec<bool> = vec![false; n];
+    let mut included_count: usize = 0;
+    let max_nodes = input.max_nodes;
+
+    if let Some(center) = center_node {
+        // BFS from center
+        let mut queue: std::collections::VecDeque<(NodeId, u8)> = std::collections::VecDeque::new();
+        included[center.as_usize()] = true;
+        included_count = 1;
+        queue.push_back((center, 0));
+
+        while let Some((node, depth)) = queue.pop_front() {
+            if included_count >= max_nodes {
+                break;
+            }
+            if depth >= input.depth {
+                continue;
+            }
+            // Forward
+            for j in graph.csr.out_range(node) {
+                let tgt = graph.csr.targets[j];
+                if tgt.as_usize() < n && !included[tgt.as_usize()] && included_count < max_nodes {
+                    let passes_type = type_filters.is_empty()
+                        || type_filters.contains(&graph.nodes.node_type[tgt.as_usize()]);
+                    if passes_type {
+                        included[tgt.as_usize()] = true;
+                        included_count += 1;
+                        queue.push_back((tgt, depth + 1));
+                    }
+                }
+            }
+            // Reverse
+            for j in graph.csr.in_range(node) {
+                let src = graph.csr.rev_sources[j];
+                if src.as_usize() < n && !included[src.as_usize()] && included_count < max_nodes {
+                    let passes_type = type_filters.is_empty()
+                        || type_filters.contains(&graph.nodes.node_type[src.as_usize()]);
+                    if passes_type {
+                        included[src.as_usize()] = true;
+                        included_count += 1;
+                        queue.push_back((src, depth + 1));
+                    }
+                }
+            }
+        }
+    } else {
+        // No center — take top-N by PageRank, respecting scope and type
+        let mut candidates: Vec<(usize, f32)> = (0..n)
+            .filter(|&idx| {
+                if !type_filters.is_empty()
+                    && !type_filters.contains(&graph.nodes.node_type[idx])
+                {
+                    return false;
+                }
+                if let Some(ref scope) = normalized_scope {
+                    let ext = &node_to_ext[idx];
+                    if !ext.starts_with(scope.as_str()) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|idx| (idx, graph.nodes.pagerank[idx].get()))
+            .collect();
+        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        for &(idx, _) in candidates.iter().take(max_nodes) {
+            included[idx] = true;
+            included_count += 1;
+        }
+    }
+
+    // Collect edges between included nodes
+    let mut edges: Vec<DiagEdge> = Vec::new();
+
+    for idx in 0..n {
+        if !included[idx] {
+            continue;
+        }
+        let nid = NodeId::new(idx as u32);
+        for j in graph.csr.out_range(nid) {
+            let tgt = graph.csr.targets[j];
+            if tgt.as_usize() < n && included[tgt.as_usize()] {
+                let rel = graph.strings.resolve(graph.csr.relations[j]).to_string();
+                edges.push(DiagEdge {
+                    src_idx: idx,
+                    tgt_idx: tgt.as_usize(),
+                    relation: rel,
+                });
+            }
+        }
+    }
+
+    // Generate diagram source
+    let is_mermaid = input.format != "dot";
+    let source = if is_mermaid {
+        generate_mermaid(&graph, &included, &edges, &node_to_ext, &input)
+    } else {
+        generate_dot(&graph, &included, &edges, &node_to_ext, &input)
+    };
+
+    let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(layers::DiagramOutput {
+        source,
+        format: if is_mermaid {
+            "mermaid".to_string()
+        } else {
+            "dot".to_string()
+        },
+        node_count: included_count,
+        edge_count: edges.len(),
+        center_node: center_node.map(|nid| node_to_ext[nid.as_usize()].clone()),
+        elapsed_ms: elapsed,
+    })
+}
+
+fn mermaid_safe_id(ext_id: &str) -> String {
+    ext_id
+        .replace("::", "_")
+        .replace('/', "_")
+        .replace('.', "_")
+        .replace('-', "_")
+        .replace(' ', "_")
+}
+
+fn mermaid_shape(nt: &NodeType) -> (&str, &str) {
+    match nt {
+        NodeType::File => ("[", "]"),
+        NodeType::Function => ("((", "))"),
+        NodeType::Class | NodeType::Struct => ("{", "}"),
+        NodeType::Enum => ("{{", "}}"),
+        NodeType::Module | NodeType::Directory => ("([", "])"),
+        _ => ("[", "]"),
+    }
+}
+
+fn generate_mermaid(
+    graph: &m1nd_core::graph::Graph,
+    included: &[bool],
+    edges: &[DiagEdge],
+    node_to_ext: &[String],
+    input: &layers::DiagramInput,
+) -> String {
+    let mut out = String::with_capacity(4096);
+    let dir = &input.direction;
+    out.push_str(&format!("graph {}\n", dir));
+
+    let n = graph.num_nodes() as usize;
+
+    // Nodes
+    for idx in 0..n {
+        if !included[idx] {
+            continue;
+        }
+        let label = graph.strings.resolve(graph.nodes.label[idx]);
+        let nt = &graph.nodes.node_type[idx];
+        let id = mermaid_safe_id(&node_to_ext[idx]);
+        let (open, close) = mermaid_shape(nt);
+        let display = if input.show_pagerank {
+            format!(
+                "{} (PR:{:.3})",
+                label,
+                graph.nodes.pagerank[idx].get()
+            )
+        } else {
+            label.to_string()
+        };
+        // Escape Mermaid special chars in label
+        let display = display.replace('"', "'");
+        out.push_str(&format!("    {}{}\"{}\"{};\n", id, open, display, close));
+    }
+
+    // Edges
+    for edge in edges {
+        let src_id = mermaid_safe_id(&node_to_ext[edge.src_idx]);
+        let tgt_id = mermaid_safe_id(&node_to_ext[edge.tgt_idx]);
+        if input.show_relations && !edge.relation.is_empty() {
+            out.push_str(&format!(
+                "    {} -->|{}| {};\n",
+                src_id, edge.relation, tgt_id
+            ));
+        } else {
+            out.push_str(&format!("    {} --> {};\n", src_id, tgt_id));
+        }
+    }
+
+    out
+}
+
+fn generate_dot(
+    graph: &m1nd_core::graph::Graph,
+    included: &[bool],
+    edges: &[DiagEdge],
+    node_to_ext: &[String],
+    input: &layers::DiagramInput,
+) -> String {
+    let mut out = String::with_capacity(4096);
+    let rankdir = if input.direction == "LR" { "LR" } else { "TB" };
+    out.push_str(&format!("digraph m1nd {{\n    rankdir={};\n    node [shape=box, style=rounded];\n\n", rankdir));
+
+    let n = graph.num_nodes() as usize;
+
+    // Nodes
+    for idx in 0..n {
+        if !included[idx] {
+            continue;
+        }
+        let label = graph.strings.resolve(graph.nodes.label[idx]);
+        let id = mermaid_safe_id(&node_to_ext[idx]);
+        let nt = &graph.nodes.node_type[idx];
+        let shape = match nt {
+            NodeType::File => "box",
+            NodeType::Function => "ellipse",
+            NodeType::Class | NodeType::Struct => "record",
+            NodeType::Enum => "diamond",
+            NodeType::Module | NodeType::Directory => "folder",
+            _ => "box",
+        };
+        let display = if input.show_pagerank {
+            format!(
+                "{}\\nPR:{:.3}",
+                label,
+                graph.nodes.pagerank[idx].get()
+            )
+        } else {
+            label.to_string()
+        };
+        out.push_str(&format!(
+            "    {} [label=\"{}\", shape={}];\n",
+            id, display, shape
+        ));
+    }
+
+    out.push('\n');
+
+    // Edges
+    for edge in edges {
+        let src_id = mermaid_safe_id(&node_to_ext[edge.src_idx]);
+        let tgt_id = mermaid_safe_id(&node_to_ext[edge.tgt_idx]);
+        if input.show_relations && !edge.relation.is_empty() {
+            out.push_str(&format!(
+                "    {} -> {} [label=\"{}\"];\n",
+                src_id, tgt_id, edge.relation
+            ));
+        } else {
+            out.push_str(&format!("    {} -> {};\n", src_id, tgt_id));
+        }
+    }
+
+    out.push_str("}\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData};

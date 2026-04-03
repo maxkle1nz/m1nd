@@ -27,6 +27,24 @@ New types in `protocol/layers.rs`: `GhostEdgesInput`, `TaintTraceInput`,
 
 Tool count: 63 → 68.
 
+#### Diagnostic Tools: 3 Structural Observability Tools
+
+Three new MCP tools provide structural observability, type-dependency tracing,
+and visual graph generation — moving m1nd from a passive graph engine to an
+active diagnostic platform.
+
+| Tool | What It Does |
+|------|-------------|
+| `metrics` | Per-node structural metrics: LOC (with 3-tier fallback: provenance → child span → disk read), child counts (functions, structs, enums, classes), in/out degree, PageRank, density ratio. Supports scope filtering and sorting by LOC, complexity, or name. |
+| `type_trace` | Cross-file type usage tracing via BFS from a type/struct/enum node. 4-tier target resolution (exact ID → label exact → segment match → substring) with explicit preference for type-defining nodes over impl blocks. Forward, reverse, and bidirectional tracing with file grouping. |
+| `diagram` | Generate visual graph diagrams in Mermaid or DOT format. Centers on a node/query via BFS or shows top-N by PageRank. Supports scope filtering, type filtering, edge label display, PageRank annotation, and layout direction (TD/LR). |
+
+New types in `protocol/layers.rs`: `MetricsInput`, `MetricsOutput`, `MetricsEntry`,
+`MetricsSummary`, `TypeTraceInput`, `TypeTraceOutput`, `TypeTraceUsage`,
+`TypeTraceFileGroup`, `DiagramInput`, `DiagramOutput`.
+
+Tool count: 68 → 71.
+
 ---
 
 ## [0.6.1] — 2026-03-25
