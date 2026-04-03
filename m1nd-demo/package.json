@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0 --port 5175",
-    "build": "tsc --noEmit && vite build --config vite.config.ts && cp dist/index.html dist/404.html",
+    "build": "tsc --noEmit && vite build --config vite.config.ts && cp dist/index.html dist/404.html && mkdir -p dist/use-cases dist/demo dist/l1ght && cp dist/index.html dist/use-cases/index.html && cp dist/index.html dist/demo/index.html && cp dist/index.html dist/l1ght/index.html",
     "preview": "vite preview --config vite.config.ts"
   },
   "dependencies": {
