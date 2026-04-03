@@ -101,17 +101,16 @@ export function Hero() {
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-foreground mb-6 font-sans leading-[1.05]">
-            Model's still reading and
+            Have your model dig into this repo and see if
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-              m1nd's already spotted the cut.
+              m1nd could actually help day to day.
             </span>
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            Don't have your agent messing with files—it oughta be querying the graph.
-            m1nd? In-memory knowledge graph for your codebase, research, all that memory stuff.
-            Made from the ground up, tuned for AI agent brains.
+            No need for the full sales pitch upfront. m1nd was made for LLMs.
+            Just feed it the codebase, let it hit the wall, and see how quickly your workflow flips.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
