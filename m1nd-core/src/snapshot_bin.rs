@@ -1,11 +1,11 @@
 // === crates/m1nd-core/src/snapshot_bin.rs ===
 // Compact binary snapshot (bincode) with atomic write. Mirrors snapshot.rs JSON logic.
 
+use crate::atomic_write::{read_with_limit, write_atomic, MAX_DESERIALIZE_BYTES};
 use crate::error::{M1ndError, M1ndResult};
 use crate::graph::{Graph, NodeProvenanceInput, ResolvedNodeProvenance};
 use crate::snapshot::SNAPSHOT_VERSION;
 use crate::types::*;
-use std::io::{BufWriter, Write};
 use std::path::Path;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -173,22 +173,17 @@ pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
     let bytes =
         bincode::serialize(&snapshot).map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
 
-    // Atomic write
-    let temp_path = path.with_extension("tmp");
-    {
-        let file = std::fs::File::create(&temp_path)?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(&bytes)?;
-        writer.flush()?;
-    }
-    std::fs::rename(&temp_path, path)?;
+    // Atomic write (with cleanup on error)
+    write_atomic(path, &bytes)?;
 
     Ok(())
 }
 
 /// Load full graph from compact binary snapshot.
+///
+/// Files larger than 100 MB are rejected to prevent OOM.
 pub fn load_graph(path: &Path) -> M1ndResult<Graph> {
-    let data = std::fs::read(path)?;
+    let data = read_with_limit(path, MAX_DESERIALIZE_BYTES)?;
     let snapshot: GraphSnapshotBin =
         bincode::deserialize(&data).map_err(|e| M1ndError::PersistenceFailed(e.to_string()))?;
 

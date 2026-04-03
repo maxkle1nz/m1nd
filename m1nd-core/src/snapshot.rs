@@ -1,10 +1,10 @@
 // === crates/m1nd-core/src/snapshot.rs ===
 
+use crate::atomic_write::{write_atomic, MAX_DESERIALIZE_BYTES};
 use crate::error::{M1ndError, M1ndResult};
 use crate::graph::{Graph, NodeProvenanceInput, ResolvedNodeProvenance};
 use crate::plasticity::SynapticState;
 use crate::types::*;
-use std::io::{BufWriter, Write};
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
@@ -211,23 +211,18 @@ pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> {
 
     let json = serde_json::to_string(&snapshot).map_err(M1ndError::Serde)?;
 
-    // FM-PL-008: atomic write via temp file + rename
-    let temp_path = path.with_extension("tmp");
-    {
-        let file = std::fs::File::create(&temp_path)?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
-        writer.flush()?;
-    }
-    std::fs::rename(&temp_path, path)?;
+    // FM-PL-008: atomic write via temp file + rename (with cleanup on error)
+    write_atomic(path, json.as_bytes())?;
 
     Ok(())
 }
 
 /// Load full graph from JSON snapshot. Reconstructs the complete graph
 /// with all nodes, edges, CSR, and PageRank.
+///
+/// Files larger than 100 MB are rejected to prevent OOM.
 pub fn load_graph(path: &Path) -> M1ndResult<Graph> {
-    let data = std::fs::read_to_string(path)?;
+    let data = crate::atomic_write::read_to_string_with_limit(path, MAX_DESERIALIZE_BYTES)?;
     let snapshot: GraphSnapshot = serde_json::from_str(&data).map_err(M1ndError::Serde)?;
 
     if snapshot.nodes.is_empty() {
@@ -313,15 +308,8 @@ pub fn save_plasticity_state(states: &[SynapticState], path: &Path) -> M1ndResul
 
     let json = serde_json::to_string_pretty(&safe_states).map_err(M1ndError::Serde)?;
 
-    // FM-PL-008: atomic write
-    let temp_path = path.with_extension("tmp");
-    {
-        let file = std::fs::File::create(&temp_path)?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
-        writer.flush()?;
-    }
-    std::fs::rename(&temp_path, path)?;
+    // FM-PL-008: atomic write (with cleanup on error)
+    write_atomic(path, json.as_bytes())?;
 
     Ok(())
 }
@@ -362,14 +350,7 @@ pub fn save_co_change_matrix(
     };
     let json = serde_json::to_string_pretty(&meta).map_err(M1ndError::Serde)?;
 
-    let temp_path = path.with_extension("tmp");
-    {
-        let file = std::fs::File::create(&temp_path)?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
-        writer.flush()?;
-    }
-    std::fs::rename(&temp_path, path)?;
+    write_atomic(path, json.as_bytes())?;
 
     Ok(())
 }
