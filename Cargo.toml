@@ -1,5 +1,5 @@
 [workspace]
-members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp"]
+members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw"]
 resolver = "2"
 
 [workspace.dependencies]

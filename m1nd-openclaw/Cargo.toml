@@ -1,0 +1,23 @@
+[package]
+name = "m1nd-openclaw"
+version = "0.1.0"
+edition = "2021"
+description = "Native low-latency OpenClaw bridge for m1nd"
+license = "MIT"
+repository = "https://github.com/maxkle1nz/m1nd"
+
+[dependencies]
+m1nd-mcp = { path = "../m1nd-mcp" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal"] }
+clap = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "m1nd-openclaw"
+path = "src/main.rs"
+
+[[bin]]
+name = "m1nd-openclaw-client"
+path = "src/client.rs"

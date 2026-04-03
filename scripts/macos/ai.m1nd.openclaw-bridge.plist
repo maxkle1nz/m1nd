@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.m1nd.openclaw-bridge</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/cosmophonix/SISTEMA/m1nd/scripts/macos/m1nd-openclaw-bridge.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>M1ND_OPENCLAW_SOCKET</key>
+        <string>/tmp/m1nd-openclaw.sock</string>
+        <key>M1ND_RUNTIME_DIR</key>
+        <string>/Users/cosmophonix/SISTEMA/m1nd-data</string>
+        <key>M1ND_GRAPH_SOURCE</key>
+        <string>/Users/cosmophonix/SISTEMA/m1nd-data/graph.json</string>
+        <key>M1ND_PLASTICITY_STATE</key>
+        <string>/Users/cosmophonix/SISTEMA/m1nd-data/plasticity.json</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/cosmophonix/.m1nd/logs/openclaw-bridge.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/cosmophonix/.m1nd/logs/openclaw-bridge.err.log</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/cosmophonix/SISTEMA/m1nd</string>
+</dict>
+</plist>
