@@ -4,14 +4,17 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Eine lokale Code-Graph-Engine für MCP-Agenten.</h3>
+<h3 align="center">Für Agenten gebaut. Menschen sind willkommen.</h3>
 
 <p align="center">
-  m1nd verwandelt ein Repo in einen abfragbaren Graphen, sodass ein Agent nach Struktur, Auswirkungen, verbundenem Kontext und wahrscheinlichem Risiko fragen kann, statt jedes Mal alles aus Rohdateien neu zusammenzusetzen.
+  <strong>Bevor du Code änderst, sieh, was kaputtgeht.</strong><br/>
+  <strong>Frag die Codebasis eine Frage. Hol dir die Karte, nicht das Labyrinth.</strong><br/><br/>
+  m1nd gibt Coding-Agenten strukturelle Intelligenz, bevor sie in grep-/read-Drift verschwinden. Einmal ingestieren, in einen Graphen verwandeln und den Agenten fragen lassen, was wirklich zählt: was von dieser Änderung betroffen ist, was sonst noch mitzieht und was als Nächstes verifiziert werden sollte.<br/>
+  <em>Lokale Ausführung. MCP über stdio. Optionale HTTP/UI-Oberfläche im aktuellen Standard-Build.</em>
 </p>
 
 <p align="center">
-  <em>Lokale Ausführung. Rust-Workspace. MCP über stdio, mit einer HTTP/UI-Oberfläche im aktuellen Standard-Build.</em>
+  <strong>Basierend auf aktuellem Code, Tests und ausgelieferten Tool-Oberflächen.</strong>
 </p>
 
 <p align="center">
@@ -22,14 +25,18 @@
 </p>
 
 <p align="center">
-  <a href="#why-use-m1nd">Warum m1nd nutzen</a> &middot;
+  <a href="#identity">Identität</a> &middot;
+  <a href="#what-m1nd-does">Was m1nd macht</a> &middot;
   <a href="#quick-start">Schnellstart</a> &middot;
-  <a href="#when-it-is-useful">Wann es nützlich ist</a> &middot;
-  <a href="#when-plain-tools-are-better">Wann einfache Tools besser sind</a> &middot;
-  <a href="#choose-the-right-tool">Das richtige Tool wählen</a> &middot;
-  <a href="#configure-your-agent">Den Agenten konfigurieren</a> &middot;
+  <a href="#anwendungsfalle">Anwendungsfälle</a> &middot;
+  <a href="#wann-m1nd-nicht-verwendet-werden-sollte">Wann m1nd nicht verwenden</a> &middot;
+  <a href="#configure-your-agent">Agent konfigurieren</a> &middot;
   <a href="#results-and-measurements">Ergebnisse</a> &middot;
+  <a href="#operativer-workflow-fur-agenten">Operativer Workflow</a> &middot;
   <a href="#tool-surface">Tools</a> &middot;
+  <a href="#mitwirken">Mitwirken</a> &middot;
+  <a href="#lizenz">Lizenz</a> &middot;
+  <a href="https://github.com/maxkle1nz/m1nd/wiki">Wiki</a> &middot;
   <a href="EXAMPLES.md">Examples</a>
 </p>
 
@@ -52,37 +59,27 @@
   <strong>Findet strukturelle Bugs in &lt;1s</strong> &middot; 89% Hypothesengenauigkeit &middot; Reduziert LLM-Kontextkosten um 84%
 </p>
 
+<p align="center">
+  <img src=".github/m1nd-key-visual.png" alt="m1nd - strukturelle Intelligenz für Coding-Agenten" width="860" />
+</p>
+
 ---
 
-<a id="why-use-m1nd"></a>
-## Warum m1nd nutzen
+<a id="identity"></a>
+## Identität
 
-Die meisten Agenten-Loops verschwenden Zeit mit demselben Muster:
+m1nd ist strukturelle Intelligenz für Coding-Agenten.
 
-1. nach einem Symbol oder einer Phrase mit `grep` suchen
-2. eine Datei öffnen
-3. nach Aufrufern oder verwandten Dateien suchen
-4. weitere Dateien öffnen
-5. wiederholen, bis die Form des Subsystems klar wird
+Einmal ingestieren, den Codebase-Graphen aufbauen und dem Agenten erlauben, strukturelle Fragen direkt zu stellen.
 
-m1nd hilft dann, wenn genau diese Navigationskosten der eigentliche Engpass sind.
+Vor einer Änderung hilft m1nd dem Agenten dabei, Auswirkungsradius, verbundene Kontexte, wahrscheinliche Co-Changes und die nächsten Verifikationsschritte zu sehen, bevor er sich in grep- und read-Loops verliert.
 
-Statt ein Repo jedes Mal als Rohtext zu behandeln, baut es den Graphen einmal auf und lässt einen Agenten fragen:
+> Bezahle nicht in jeder Runde die Orientierungsteuer.
+>
+> `grep` findet, wonach du gefragt hast. `m1nd` findet, was du übersehen hast.
 
-- was ist mit diesem Fehler oder Subsystem verbunden
-- welche Dateien liegen tatsächlich im Auswirkungsradius
-- was fehlt um einen Flow, Guard oder eine Grenze herum
-- welche verbundenen Dateien vor einer Multi-Datei-Änderung wichtig sind
-- warum eine Datei oder ein Knoten als riskant oder wichtig eingestuft wird
-
-Der praktische Nutzen ist einfach:
-
-- weniger Dateilesen, bevor der Agent weiß, wo er suchen muss
-- weniger Tokenverbrauch für das Neuaufbauen des Repo-Kontextes
-- schnellere Auswirkungsanalyse vor einer Änderung
-- sicherere Multi-Datei-Änderungen, weil Aufrufer, Callees, Tests und Hotspots in einem Zug geladen werden können
-
-## Was m1nd ist
+<a id="what-m1nd-does"></a>
+## Was m1nd macht
 
 m1nd ist ein lokaler Rust-Workspace mit drei Hauptteilen:
 
@@ -108,18 +105,6 @@ Aktueller Umfang:
 - Heuristikzusammenfassungen auf chirurgischen und Planungs-Pfaden
 
 Die Sprachabdeckung ist breit, aber die Tiefe variiert weiterhin je nach Sprache. Python und Rust haben eine stärkere Behandlung als viele tree-sitter-gestützte Sprachen.
-
-## Was m1nd nicht ist
-
-m1nd ist nicht:
-
-- ein Compiler
-- ein Debugger
-- ein Ersatz für einen Test-Runner
-- ein vollständiges semantisches Compiler-Frontend
-- ein Ersatz für Logs, Stacktraces oder Runtime-Evidenz
-
-Es sitzt zwischen einfacher Textsuche und schwerer statischer Analyse. Es ist am stärksten, wenn ein Agent Struktur und verbundenen Kontext schneller braucht, als wiederholte grep-/read-Loops das liefern können.
 
 <a id="quick-start"></a>
 ## Schnellstart
@@ -166,71 +151,19 @@ Funktioniert mit jedem MCP-Client, der sich mit einem MCP-Server verbinden kann:
 
 Für größere Repos und dauerhafte Nutzung siehe [Deployment & Production Setup](docs/deployment.md).
 
-<a id="when-it-is-useful"></a>
-## Wann es nützlich ist
+### Graph-First statt Text-First
 
-Die beste README für m1nd ist nicht „es macht Graph-Sachen“. Sie lautet: „Hier sind die Loops, in denen es echte Arbeit spart.“
+Die meisten KI-Coding-Workflows verbringen immer noch viel Zeit mit Navigation: grep, glob, Dateilesen und wiederholtes Nachladen von Kontext. m1nd geht anders vor, indem es den Graphen vorab berechnet und diesen Graphen über MCP bereitstellt.
 
-### 1. Stacktrace-Triage
+Dadurch verändert sich die Form der Frage. Statt das Modell jedes Mal die Repo-Struktur aus Rohdateien rekonstruieren zu lassen, kann der Agent nach Folgendem fragen:
 
-Nutze `trace`, wenn du einen Stacktrace oder Fehlerausgang hast und die echte Suspect-Menge brauchst, nicht nur den obersten Frame.
+- verbundene Code-Pfade
+- Auswirkungsradius
+- strukturelle Lücken
+- Graph-Pfade zwischen Knoten
+- verbundenen Kontext für eine Änderung
 
-Ohne m1nd:
-
-- das fehlernde Symbol mit `grep` suchen
-- eine Datei öffnen
-- Aufrufer finden
-- weitere Dateien öffnen
-- die eigentliche Ursache raten
-
-Mit m1nd:
-
-- `trace` ausführen
-- die gerankten Suspects prüfen
-- verbundenen Kontext mit `activate`, `why` oder `perspective_*` verfolgen
-
-Praktischer Nutzen:
-
-- weniger blinde Dateilesen
-- schnellerer Weg von der „Crash-Stelle“ zur „Ursachen-Stelle“
-
-### 2. Finden, was fehlt
-
-Nutze `missing`, `hypothesize` und `flow_simulate`, wenn das Problem in einer Abwesenheit besteht:
-
-- fehlende Validierung
-- fehlender Lock
-- fehlendes Cleanup
-- fehlende Abstraktion um einen Lifecycle
-
-Ohne m1nd wird daraus meist ein langer grep-/read-Loop mit schwachen Abbruchregeln.
-
-Mit m1nd kannst du direkt nach strukturellen Lücken fragen oder eine Behauptung gegen Graph-Pfade testen.
-
-### 3. Sichere Multi-Datei-Änderungen
-
-Nutze `validate_plan`, `surgical_context_v2`, `heuristics_surface` und `apply_batch`, wenn du unbekannten oder verbundenen Code bearbeitest.
-
-Ohne m1nd:
-
-- Aufrufer mit `grep` suchen
-- Tests mit `grep` suchen
-- benachbarte Dateien lesen
-- eine mentale Abhängigkeitsliste erstellen
-- hoffen, dass du keine Downstream-Datei übersehen hast
-
-Mit m1nd:
-
-- den Plan zuerst validieren
-- die primäre Datei plus verbundene Dateien in einem Aufruf laden
-- Heuristikzusammenfassungen ansehen
-- bei Bedarf atomar in einem Batch schreiben
-
-Praktischer Nutzen:
-
-- sicherere Änderungen
-- weniger übersehene Nachbarn
-- geringere Kosten fürs Kontextladen
+Das ersetzt weder ein LSP noch einen Compiler oder eine vollständige statische Analyse-/Security-Suite. Es gibt dem Agenten eine strukturelle Karte des Repos, damit er weniger Zeit mit Navigation und mehr Zeit mit der eigentlichen Aufgabe verbringt.
 
 <a id="when-plain-tools-are-better"></a>
 ## Wann einfache Tools besser sind
@@ -390,10 +323,23 @@ Es ist kein Ersatz für ein LSP, einen Compiler oder Runtime-Observability. Es g
 
 **Es hat write-aware Workflows.** `surgical_context_v2`, `edit_preview`, `edit_commit` und `apply_batch` sind sinnvoller als Vorbereitungs- und Verifikationswerkzeuge für Änderungen denn als generische Suchwerkzeuge.
 
+<a id="operativer-workflow-fur-agenten"></a>
+## Operativer Workflow für Agenten
+
+m1nd macht einen bevorzugten Bewegungsablauf für Agenten sichtbar. Der im Server eingebettete `M1ND_INSTRUCTIONS`-Block beschreibt eine empfohlene Choreografie:
+
+- **Sitzungsstart**: `health -> drift -> ingest`
+- **Recherche**: `ingest -> activate -> why -> missing -> learn`
+- **Codeänderung**: `impact -> predict -> counterfactual -> warmup -> surgical/apply`
+- **Zustandsorientierte Navigation**: `perspective.*` und `trail.*`
+- **Kanonischer Hot State**: `boot_memory`
+
+Das ist wichtig, weil m1nd nicht nur ein Such-Endpunkt ist. Es ist eine opinionated Graph-Operationsschicht für Agenten, und sie funktioniert am besten, wenn der Graph Teil des Workflows wird statt nur die letzte Rettung zu sein.
+
 <a id="tool-surface"></a>
 ## Tool-Oberfläche
 
-Die aktuelle Implementierung von `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) stellt **63 MCP-Tools** bereit.
+Die aktuelle Implementierung von `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) stellt **64 MCP-Tools** bereit. Die Zahl kann sich ändern; die Kategorien darunter sind wichtiger.
 
 Kanonsiche Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `trail_save`, `perspective_start` und `apply_batch`. Manche Clients zeigen Namen mit einem Transportpräfix wie `m1nd.apply_batch` an, aber die Live-Registry-Einträge basieren auf Unterstrichen.
 
@@ -586,8 +532,52 @@ graph LR
 
 Die Sprachanzahl ist groß, aber die Tiefe variiert je nach Sprache. Details zu den Adaptern findest du im Wiki.
 
+<a id="wann-m1nd-nicht-verwendet-werden-sollte"></a>
+## Wann m1nd nicht verwendet werden sollte
+
+- **Wenn du ein embedding-first Suchsystem als primäre Suchmaschine brauchst.** m1nd hat semantische und intent-basierte Suche (`seek`, hybride semantische Indizes, Graph-Re-Ranking), ist aber auf strukturelle Erdung statt auf rein embedding-first Suche optimiert.
+- **Wenn du 400K+ Dateien hast und das billig wirken soll.** Der Graph ist weiterhin im Speicher. Das kann in dieser Größenordnung funktionieren, aber m1nd ist für Repos optimiert, bei denen Orientierungsgeschwindigkeit wichtiger ist als extreme Graph-Dichte.
+- **Wenn du CodeQL-artige Dataflow-Garantien auf Variablenebene brauchst.** m1nd hat inzwischen flow- und taint-orientierte Fähigkeiten, sollte aber dedizierte SAST-/Dataflow-Tools für formale Sicherheitsanalysen ergänzen, nicht ersetzen.
+- **Wenn du SSA-artige Propagation auf Argument-für-Argument-Basis brauchst.** m1nd verfolgt Dateien, Symbole, Aufrufe, Nachbarschaften, chirurgischen Edit-Kontext und Graph-Pfade gut; es ist aber keine Compiler-grade Value-Flow-Engine.
+- **Wenn du Indexing im Tastaturtempo bei jedem Speichern brauchst.** Ingest ist schnell, aber m1nd ist weiterhin Session-Level-Intelligenz, keine Infrastruktur für jeden Editor-Keystroke. Dafür ist dein LSP da.
+
+<a id="anwendungsfalle"></a>
+## Anwendungsfälle
+
+**Bug-Hunt:** Starte mit `hypothesize` -> `missing` -> `flow_simulate` -> `trace`.
+Im dokumentierten Audit-Workflow reduzierte das grep-lastige Exploration und machte Probleme sichtbar, die reine Textsuche verfehlte. [Fallstudie ->](EXAMPLES.md)
+
+**Pre-Deploy-Gate:** `antibody_scan` -> `validate_plan` -> `epidemic`.
+Scannt nach bekannten Bug-Mustern, bewertet den Auswirkungsradius und sagt die Ausbreitung voraus.
+
+**Architektur-Audit:** `layers` -> `layer_inspect` -> `counterfactual`.
+Erkennt Layer automatisch, findet Verstöße und simuliert, was beim Entfernen eines Moduls bricht.
+
+**Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
+Neue Teammitglieder fragen: „Wie funktioniert Auth?“ und der Graph beleuchtet den Pfad.
+
+**Cross-Domain-Suche:** `ingest(adapter="memory", mode="merge")` -> `activate`.
+Code und Doku in einem Graphen. Eine Frage liefert Spezifikation und Implementierung zusammen.
+
+**Sichere Multi-Datei-Änderung:** `surgical_context_v2` -> `apply_batch(verify=true)`.
+Mehrere Dateien auf einmal schreiben. Vor CI einen SAFE/RISKY/BROKEN-Befund bekommen.
+
+<a id="mitwirken"></a>
+## Mitwirken
+
+m1nd ist noch jung und bewegt sich schnell. Beiträge sind willkommen:
+Sprach-Extraktoren, Graph-Algorithmen, MCP-Tools und Benchmarks.
+Siehe [CONTRIBUTING.md](CONTRIBUTING.md).
+
+<a id="lizenz"></a>
+## Lizenz
+
+MIT -- siehe [LICENSE](LICENSE).
+
 ---
 
-**Willst du konkrete Workflows?** Lies [EXAMPLES.md](EXAMPLES.md).
-**Einen Bug oder ein Missverhältnis gefunden?** [Ein Issue öffnen](https://github.com/maxkle1nz/m1nd/issues).
-**Die komplette API-Oberfläche willst du sehen?** Schau ins [Wiki](https://github.com/maxkle1nz/m1nd/wiki).
+<p align="center">
+  Erstellt von <a href="https://github.com/cosmophonix">Max Elias Kleinschmidt</a><br/>
+  <em>KI sollte verstärken, niemals ersetzen. Mensch und Maschine in Symbiose.</em><br/>
+  <em>Wenn du es träumen kannst, kannst du es bauen. m1nd verkürzt den Abstand.</em>
+</p>

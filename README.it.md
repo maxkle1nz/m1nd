@@ -4,14 +4,17 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Un motore locale a grafo del codice per agenti MCP.</h3>
+<h3 align="center">Costruito prima per gli agenti. Gli umani sono i benvenuti.</h3>
 
 <p align="center">
-  m1nd trasforma un repository in un grafo interrogabile così che un agente possa chiedere struttura, impatto, contesto connesso e rischio probabile invece di ricostruire tutto dai file grezzi ogni volta.
+  <strong>Prima di cambiare codice, guarda cosa si rompe.</strong><br/>
+  <strong>Fai una domanda al codebase. Ottieni la mappa, non il labirinto.</strong><br/><br/>
+  m1nd offre agli agenti di coding intelligenza strutturale prima che si perdano in derive grep/read. Ingestisci il codebase una volta, lo trasformi in un grafo e lasci che l'agente chieda ciò che conta davvero: cosa si rompe se cambia, cos'altro si muove con esso e cosa va verificato subito dopo.<br/>
+  <em>Esecuzione locale. MCP su stdio. Superficie HTTP/UI opzionale nella build predefinita attuale.</em>
 </p>
 
 <p align="center">
-  <em>Esecuzione locale. Workspace Rust. MCP su stdio, con una superficie HTTP/UI inclusa nell'attuale build predefinita.</em>
+  <strong>Basato sul codice, sui test e sulle superfici tool già rilasciate.</strong>
 </p>
 
 <p align="center">
@@ -22,13 +25,15 @@
 </p>
 
 <p align="center">
-  <a href="#why-use-m1nd">Perché usare m1nd</a> &middot;
-  <a href="#quick-start">Avvio rapido</a> &middot;
-  <a href="#when-it-is-useful">Quando è utile</a> &middot;
-  <a href="#when-plain-tools-are-better">Quando gli strumenti semplici sono migliori</a> &middot;
-  <a href="#choose-the-right-tool">Scegli lo strumento giusto</a> &middot;
-  <a href="#configure-your-agent">Configura il tuo agente</a> &middot;
+  <a href="#identity">Identità</a> &middot;
+  <a href="#what-m1nd-does">Cosa fa m1nd</a> &middot;
   <a href="#results-and-measurements">Risultati</a> &middot;
+  <a href="#quick-start">Avvio rapido</a> &middot;
+  <a href="#configura-il-tuo-agente">Configura il tuo agente</a> &middot;
+  <a href="#when-not-to-use-m1nd">Quando non usare m1nd</a> &middot;
+  <a href="#use-cases">Casi d'uso</a> &middot;
+  <a href="#contributing">Contribuire</a> &middot;
+  <a href="#license">Licenza</a> &middot;
   <a href="#tool-surface">Strumenti</a> &middot;
   <a href="EXAMPLES.md">Esempi</a>
 </p>
@@ -53,6 +58,59 @@
 </p>
 
 ---
+
+## Identity
+
+m1nd è intelligenza strutturale per agenti di coding.
+
+Ingestisci il codebase una volta, lo trasformi in un grafo e lasci che l'agente faccia domande strutturali direttamente.
+
+Prima di una modifica, m1nd aiuta l'agente a vedere blast radius, contesto connesso, co-change probabili e cosa verificare subito dopo, prima di perdersi in grep e read loop.
+
+> Smetti di pagare il costo di orientamento a ogni turno.
+>
+> `grep` trova ciò che hai chiesto. `m1nd` trova ciò che ti è sfuggito.
+
+## What m1nd Does
+
+m1nd serve nel momento prima che l'agente si perda.
+
+Ingestisci il repository una volta, lo trasformi in un grafo e smetti di far ricostruire la struttura al modello da testo grezzo a ogni giro.
+
+Questo significa che può rispondere alle domande che contano davvero:
+
+- cosa è collegato a questo?
+- cosa si rompe se lo cambio?
+- cos'altro probabilmente deve muoversi?
+- dov'è il contesto connesso per una modifica?
+- cosa dovrei verificare dopo?
+
+Sotto il cofano, il workspace ha tre parti principali:
+
+- `m1nd-core`: motore del grafo, propagazione, plasticità, euristiche e livelli di analisi
+- `m1nd-ingest`: ingestione di codice e documenti, extractor, resolver, percorsi di merge e costruzione del grafo
+- `m1nd-mcp`: server MCP su stdio, più una superficie HTTP/UI nella build predefinita attuale
+
+Punti di forza attuali:
+
+- navigazione del repository basata sul grafo invece che solo sulla ricerca testuale
+- relazione tra file, funzioni, tipi, moduli e vicinati del grafo
+- esposizione del grafo tramite tool MCP per navigazione, analisi d'impatto, tracing, predizione e workflow di editing
+- fusione di codice con markdown o grafi di memoria strutturata quando serve
+- memoria euristica persistente nel tempo, così il feedback può migliorare il recupero tramite `learn`, `trust`, `tremor` e `antibody`
+- spiegazione del perché un risultato è stato classificato, non solo di cosa ha matchato
+
+Oggi include:
+
+- extractor nativi/manuali per Python, TypeScript/JavaScript, Rust, Go e Java
+- 22 linguaggi aggiuntivi supportati da tree-sitter tra Tier 1 e Tier 2
+- un fallback generico per i tipi di file non supportati
+- risoluzione dei riferimenti nel percorso di ingest live
+- arricchimento Cargo workspace per repository Rust
+- ingestione di documenti per brevetti (USPTO/EPO XML), articoli scientifici (PubMed/JATS), bibliografie BibTeX, metadati DOI CrossRef e RFC IETF
+- segnali euristici ispezionabili sui percorsi di recupero di livello superiore, così `seek` e `predict` possono esporre più di un semplice punteggio
+
+La copertura linguistica è ampia, ma la profondità semantica varia ancora da linguaggio a linguaggio. Python e Rust hanno oggi un trattamento più specializzato rispetto a molti linguaggi basati su tree-sitter.
 
 ## Why Use m1nd
 
@@ -125,11 +183,11 @@ Si colloca tra la semplice ricerca testuale e l'analisi statica pesante. Dà il 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
-cargo build --release --workspace
+cargo build --release
 ./target/release/m1nd-mcp
 ```
 
-Questo ti fornisce un server locale funzionante a partire dal sorgente. L'attuale branch `main` è stato validato con `cargo build --release --workspace` e distribuisce un percorso server MCP funzionante.
+Questo ti dà un server locale funzionante a partire dal sorgente. L'attuale branch `main` è stato validato con `cargo build --release` e offre un percorso server MCP funzionante.
 
 Flusso MCP minimo:
 
@@ -163,6 +221,26 @@ Aggiungi a Claude Code (`~/.claude.json`):
 Funziona con qualsiasi client MCP che possa collegarsi a un server MCP: Claude Code, Codex, Cursor, Windsurf, Zed o uno tuo.
 
 Per repository più grandi e un utilizzo persistente, vedi [Deployment & Production Setup](docs/deployment.md).
+
+## Graph-First Instead Of Text-First
+
+La maggior parte dei flussi di coding AI continua a spendere tempo nella navigazione: grep, glob, letture di file e ricarichi ripetuti di contesto. m1nd prende una strada diversa: pre-calcola un grafo e lo espone tramite MCP.
+
+Questo cambia la forma della domanda. Invece di chiedere al modello di ricostruire ogni volta la struttura del repository dai file grezzi, l'agente può chiedere:
+
+- quali code path sono collegati
+- qual è il blast radius
+- quali sono i buchi strutturali
+- quali sono i percorsi del grafo tra nodi
+- qual è il contesto connesso per una modifica
+
+Questo non sostituisce un LSP, un compilatore o una suite completa di static analysis/security. Fornisce all'agente una mappa strutturale del repository, così può spendere meno tempo nella navigazione e più tempo nel task.
+
+---
+
+**Ti è stato utile?** [Metti una stella a questo repository](https://github.com/maxkle1nz/m1nd) -- aiuti altri a trovarlo.
+**Hai trovato un bug o un'idea?** [Apri una issue](https://github.com/maxkle1nz/m1nd/issues).
+**Vuoi andare più a fondo?** Consulta [EXAMPLES.md](EXAMPLES.md) per pipeline reali.
 
 ## When It Is Useful
 
@@ -574,6 +652,43 @@ graph LR
 ```
 
 Il numero di linguaggi è ampio, ma la profondità varia da linguaggio a linguaggio. Consulta il wiki per i dettagli sugli adapter.
+
+## When NOT to Use m1nd
+
+- **Hai bisogno di retrieval embedding-first di livello frontier come motore di ricerca principale.** m1nd supporta retrieval semantico e basato sull'intento (`seek`, indici semantici ibridi, graph re-ranking), ma è ottimizzato per il grounding strutturale più che per la ricerca puramente embedding-first.
+- **Hai 400K+ file e vuoi che sembri economico.** Il grafo vive ancora in memoria. Può reggere quella scala, ma è stato ottimizzato per repository dove la velocità di orientamento dell'agente conta più della densità estrema del grafo.
+- **Ti servono garanzie di dataflow a livello di variabile in stile CodeQL.** m1nd ora ha capacità orientate a flow e taint, ma deve comunque affiancare - non sostituire - strumenti SAST/dataflow dedicati per l'analisi di sicurezza formale.
+- **Ti serve una propagazione SSA-style argomento per argomento.** m1nd traccia bene file, simboli, chiamate, vicinati, contesto chirurgico di modifica e path del grafo; non è un motore di value-flow a livello di compilatore.
+- **Ti serve indicizzazione alla velocità del keystroke a ogni salvataggio.** L'ingest è veloce, ma m1nd è ancora intelligenza a livello di sessione, non infrastruttura ad ogni battuta di tasto. Per quello usa il tuo LSP.
+
+## Use Cases
+
+**Caccia ai bug:** `hypothesize` -> `missing` -> `flow_simulate` -> `trace`.
+Nel caso di audit documentato, questo ha ridotto l'esplorazione basata su grep e ha fatto emergere problemi che la semplice ricerca testuale non vedeva. [Caso studio ->](EXAMPLES.md)
+
+**Gate pre-deploy:** `antibody_scan` -> `validate_plan` -> `epidemic`.
+Scansiona i bug noti, valuta il blast radius, prevede la diffusione dell'infezione.
+
+**Audit architetturale:** `layers` -> `layer_inspect` -> `counterfactual`.
+Rileva automaticamente i layer, trova le violazioni, simula cosa si rompe se rimuovi un modulo.
+
+**Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
+Un nuovo developer chiede "come funziona auth?" e il grafo illumina il percorso.
+
+**Ricerca cross-domain:** `ingest(adapter="memory", mode="merge")` -> `activate`.
+Code + docs nello stesso grafo. Una domanda restituisce sia la spec sia l'implementazione.
+
+**Modifica sicura multi-file:** `surgical_context_v2` -> `apply_batch(verify=true)`.
+Scrivi N file insieme. Ottieni un verdetto SAFE/RISKY/BROKEN prima che parta CI.
+
+## Contributing
+
+m1nd è ancora giovane e si muove velocemente. Contributi benvenuti: extractor di linguaggi, algoritmi di grafo, tool MCP e benchmark.
+Vedi [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT -- vedi [LICENSE](LICENSE).
 
 ---
 
