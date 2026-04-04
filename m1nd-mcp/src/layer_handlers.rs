@@ -8328,7 +8328,7 @@ pub fn handle_metrics(
     // Iterate all nodes, filtering by type and scope
     let mut entries: Vec<layers::MetricsEntry> = Vec::new();
 
-    for idx in 0..n {
+    for (idx, ext_id) in node_to_ext.iter().enumerate().take(n) {
         let nid = NodeId::new(idx as u32);
         let nt = graph.nodes.node_type[idx];
 
@@ -8336,8 +8336,6 @@ pub fn handle_metrics(
         if !type_filters.is_empty() && !type_filters.contains(&nt) {
             continue;
         }
-
-        let ext_id = &node_to_ext[idx];
 
         // Scope filter
         if let Some(ref scope) = normalized_scope {
@@ -8632,14 +8630,18 @@ pub fn handle_type_trace(
 
     let mut visited = vec![false; n];
     visited[target_idx] = true;
-    let mut queue: std::collections::VecDeque<(NodeId, u8, String)> = std::collections::VecDeque::new();
+    let mut queue: std::collections::VecDeque<(NodeId, u8, String)> =
+        std::collections::VecDeque::new();
 
     // Seed BFS from target
     if use_forward {
         for j in graph.csr.in_range(target_nid) {
             let src = graph.csr.rev_sources[j];
             let fwd_edge = graph.csr.rev_edge_idx[j].as_usize();
-            let rel = graph.strings.resolve(graph.csr.relations[fwd_edge]).to_string();
+            let rel = graph
+                .strings
+                .resolve(graph.csr.relations[fwd_edge])
+                .to_string();
             if src.as_usize() < n && !visited[src.as_usize()] {
                 visited[src.as_usize()] = true;
                 queue.push_back((src, 1, rel));
@@ -8689,7 +8691,10 @@ pub fn handle_type_trace(
                     if src.as_usize() < n && !visited[src.as_usize()] {
                         visited[src.as_usize()] = true;
                         let fwd_edge = graph.csr.rev_edge_idx[j].as_usize();
-                        let rel = graph.strings.resolve(graph.csr.relations[fwd_edge]).to_string();
+                        let rel = graph
+                            .strings
+                            .resolve(graph.csr.relations[fwd_edge])
+                            .to_string();
                         queue.push_back((src, hops + 1, rel));
                     }
                 }
@@ -8853,9 +8858,7 @@ pub fn handle_diagram(
         // No center — take top-N by PageRank, respecting scope and type
         let mut candidates: Vec<(usize, f32)> = (0..n)
             .filter(|&idx| {
-                if !type_filters.is_empty()
-                    && !type_filters.contains(&graph.nodes.node_type[idx])
-                {
+                if !type_filters.is_empty() && !type_filters.contains(&graph.nodes.node_type[idx]) {
                     return false;
                 }
                 if let Some(ref scope) = normalized_scope {
@@ -8921,12 +8924,7 @@ pub fn handle_diagram(
 }
 
 fn mermaid_safe_id(ext_id: &str) -> String {
-    ext_id
-        .replace("::", "_")
-        .replace('/', "_")
-        .replace('.', "_")
-        .replace('-', "_")
-        .replace(' ', "_")
+    ext_id.replace("::", "_").replace(['/', '.', '-', ' '], "_")
 }
 
 fn mermaid_shape(nt: &NodeType) -> (&str, &str) {
@@ -8963,11 +8961,7 @@ fn generate_mermaid(
         let id = mermaid_safe_id(&node_to_ext[idx]);
         let (open, close) = mermaid_shape(nt);
         let display = if input.show_pagerank {
-            format!(
-                "{} (PR:{:.3})",
-                label,
-                graph.nodes.pagerank[idx].get()
-            )
+            format!("{} (PR:{:.3})", label, graph.nodes.pagerank[idx].get())
         } else {
             label.to_string()
         };
@@ -9002,7 +8996,10 @@ fn generate_dot(
 ) -> String {
     let mut out = String::with_capacity(4096);
     let rankdir = if input.direction == "LR" { "LR" } else { "TB" };
-    out.push_str(&format!("digraph m1nd {{\n    rankdir={};\n    node [shape=box, style=rounded];\n\n", rankdir));
+    out.push_str(&format!(
+        "digraph m1nd {{\n    rankdir={};\n    node [shape=box, style=rounded];\n\n",
+        rankdir
+    ));
 
     let n = graph.num_nodes() as usize;
 
@@ -9023,11 +9020,7 @@ fn generate_dot(
             _ => "box",
         };
         let display = if input.show_pagerank {
-            format!(
-                "{}\\nPR:{:.3}",
-                label,
-                graph.nodes.pagerank[idx].get()
-            )
+            format!("{}\\nPR:{:.3}", label, graph.nodes.pagerank[idx].get())
         } else {
             label.to_string()
         };
