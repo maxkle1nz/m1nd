@@ -1,5 +1,7 @@
 # IDE & Client Integration Matrix
 
+> Status: supporting setup reference. Use this page when wiring `m1nd` into a specific host; use `README.md` and the wiki for the canonical product overview.
+
 This page tracks where major coding clients connect MCP servers, and how `m1nd`
 fits into each one.
 

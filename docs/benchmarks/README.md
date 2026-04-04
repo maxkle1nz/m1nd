@@ -173,7 +173,7 @@ guided downstream targeting, not skipping proof.
 - `help_guided_tool_handoff.json`
 
 These are warm-graph oriented starter scenarios for rerunning the benchmark
-work captured in `docs/BENCHMARK_RESEARCH_2026-03-24.md`.
+work captured in `docs/archive/internal-notes/BENCHMARK_RESEARCH_2026-03-24.md`.
 
 In particular:
 

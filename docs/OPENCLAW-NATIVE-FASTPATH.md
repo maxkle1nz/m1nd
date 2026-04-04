@@ -1,5 +1,7 @@
 # OpenClaw Native Fast Path for m1nd
 
+> Status: host-specific architecture note. This is not the default `m1nd` setup path; see `README.md` and `docs/IDE-INTEGRATIONS.md` for canonical public onboarding.
+
 ## Why this exists
 
 `m1nd-mcp` is the universal transport surface.
