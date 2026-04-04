@@ -321,10 +321,10 @@ export function LandingComparison() {
             live comparison
           </div>
           <h2 className="text-3xl md:text-5xl font-bold font-sans tracking-tight mb-3">
-            The same task. Two different substrates.
+            One question. Two workflows.
           </h2>
           <p className="text-muted-foreground font-mono max-w-xl mx-auto text-sm">
-            "Where is session timeout configured? What would break if I change it?"
+            One gets lost in files. The other asks the graph.
           </p>
         </motion.div>
 
@@ -364,7 +364,7 @@ export function LandingComparison() {
           <div className={phase !== "done" ? "mx-auto" : ""}>
             <Link href="/demo">
               <span className="inline-block font-mono text-xs text-primary/60 border border-primary/20 rounded px-4 py-2 hover:bg-primary/10 hover:text-primary transition-all cursor-pointer">
-                See the 0.18s slow-motion breakdown →
+                Watch the 0.18s breakdown →
               </span>
             </Link>
           </div>
