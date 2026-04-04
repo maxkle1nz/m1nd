@@ -123,25 +123,6 @@ export function Hero() {
             </Link>
           </div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ delay: 0.95, duration: 0.9, ease: "easeOut" }}
-            className="mt-10 w-full max-w-4xl"
-          >
-            <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-black/35 shadow-[0_0_50px_rgba(0,245,255,0.14)] backdrop-blur-sm">
-              <img
-                src="/m1nd-key-visual.png"
-                alt="m1nd key visual"
-                className="block w-full h-auto object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-background/65 via-transparent to-transparent" />
-            </div>
-            <p className="mt-3 text-xs sm:text-sm font-mono text-primary/70">
-              Made by LLMs for LLMs. Still grounded in real code, real tests, and shipped tool surfaces.
-            </p>
-          </motion.div>
-
           {/* ── Trust strip ── */}
           <motion.div
             initial={{ opacity: 0 }}
