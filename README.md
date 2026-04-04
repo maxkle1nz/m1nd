@@ -201,7 +201,7 @@ That changes the shape of the question. Instead of asking the model to reconstru
 - graph paths between nodes
 - connected context for an edit
 
-This does not replace an LSP, a compiler, or a dataflow analyzer. It gives an agent a structural map of the repo so it can spend less time on navigation and more time on the task itself.
+This does not replace an LSP, a compiler, or a full static-analysis/security suite. It gives an agent a structural map of the repo so it can spend less time on navigation and more time on the task itself.
 
 ---
 
@@ -614,11 +614,11 @@ The current default build also includes an HTTP/UI surface. Keep it bound to loc
 
 ## When NOT to Use m1nd
 
-- **You need neural semantic search.** V1 uses trigram matching, not embeddings. "Find code that *means* authentication but never uses the word" won't work yet.
-- **You have 400K+ files.** The graph lives in memory (~2MB per 10K nodes). It works, but it wasn't optimized for that scale.
-- **You need dataflow / taint analysis.** m1nd tracks structural and co-change relationships, not data propagation through variables. Use Semgrep or CodeQL for that.
-- **You need sub-symbol tracking.** m1nd models function calls and imports as edges, not data flow through arguments.
-- **You need real-time indexing on every save.** Ingest is fast (910ms for 335 files) but not instantaneous. m1nd is for session-level intelligence, not keystroke feedback. Use your LSP for that.
+- **You need frontier-grade embedding-first retrieval as the primary search engine.** m1nd has semantic and intent-level retrieval (`seek`, hybrid semantic indexes, graph re-ranking), but it is optimized for structural grounding rather than pure embedding-first search.
+- **You have 400K+ files and want that to feel cheap.** The graph is still in-memory. It can work at that scale, but it was optimized for repos where agent orientation speed matters more than extreme graph density.
+- **You need CodeQL-class variable-level dataflow guarantees.** m1nd now has flow- and taint-oriented capabilities, but it should still complement -- not replace -- dedicated SAST/dataflow tools for formal security analysis.
+- **You need argument-by-argument SSA-style propagation.** m1nd tracks files, symbols, calls, neighborhoods, surgical edit context, and graph paths well; it is not a full compiler-grade value-flow engine.
+- **You need keystroke-speed indexing on every save.** Ingest is fast, but m1nd is still session-level intelligence, not editor-keystroke infrastructure. Use your LSP for that.
 
 ## Use Cases
 
