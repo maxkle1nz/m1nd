@@ -167,6 +167,19 @@ Any MCP-compatible editor uses the same config pattern:
 }
 ```
 
+## IDE integration matrix
+
+Different hosts expose different config entrypoints:
+
+- Claude Code → `.claude/mcp.json`
+- Cursor → `.cursor/mcp.json`
+- Windsurf → MCP config UI / JSON surface
+- GitHub Copilot coding agent → repository MCP config UI
+- Zed → assistant MCP config
+- Antigravity → workspace-local `mcp_config.json`
+
+For the full matrix and native-daemon strategy, see [`docs/IDE-INTEGRATIONS.md`](../docs/IDE-INTEGRATIONS.md).
+
 ---
 
 ## Config File

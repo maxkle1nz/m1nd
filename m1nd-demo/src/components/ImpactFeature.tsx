@@ -86,9 +86,9 @@ function ImpactScene() {
 export function ImpactFeature() {
   return (
     <FeatureSection
-      title="Know What Will Break Before You Touch It"
+      title="See the blast radius before the edit, not after the damage."
       subtitle="Blast Radius"
-      description="Before your agent edits a single line in worker_pool.py, m1nd returns a pre-computed impact cone: 4 direct callers, 4 indirect consumers, sorted by coupling risk. Your agent plans a safe refactor instead of discovering regressions in CI."
+      description="Before your agent changes a single line in worker_pool.py, m1nd returns the impact cone: direct callers, downstream consumers, and the modules most likely to break with it. The refactor starts with context instead of hope."
       align="right"
     >
       <ImpactScene />

@@ -260,7 +260,7 @@ function QueryDemo() {
             Natural language in. Surgical graph out.
           </h2>
           <p className="mt-3 text-muted-foreground/50 text-sm font-mono max-w-md mx-auto">
-            Not a keyword list. Not 10 blue links. The exact nodes and edges that answer the question.
+            Not a keyword list. Not another search tab. A connected answer.
           </p>
         </motion.div>
 
@@ -621,7 +621,7 @@ export default function L1ght() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.6, delay: 0.28 }}
           >
-            l1ght ingests patents, scientific papers, PDFs, articles, and conversations into a knowledge graph queryable in milliseconds. Everything you've ever read — finally connected.
+            l1ght ingests papers, patents, PDFs, articles, and conversations into one queryable graph. Everything you've ever read, finally connected.
           </motion.p>
 
           {/* CTA */}
@@ -670,7 +670,7 @@ export default function L1ght() {
           <motion.p className="text-center mt-6 font-mono text-xs text-muted-foreground/50"
             initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}
             transition={{ delay: 0.6 }}>
-            Drop a folder, paste a URL, or give l1ght a DOI. It handles the rest.
+            Paste a URL, drop a folder, hand it a DOI. l1ght does the boring part.
           </motion.p>
         </div>
       </section>
@@ -686,7 +686,7 @@ export default function L1ght() {
               Read. Connect. Query.
             </h2>
             <p className="mt-3 text-muted-foreground/55 text-sm font-mono max-w-md mx-auto">
-              Three stages. No ontology design. No schema setup. No data pipeline.
+              Three stages. No ontology project. No schema babysitting. No pipeline drama.
             </p>
           </motion.div>
 
@@ -766,7 +766,7 @@ export default function L1ght() {
             className="text-4xl md:text-6xl font-bold tracking-tight mb-4"
             initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
             transition={{ duration: 0.55, delay: 0.08 }}>
-            Stop searching.{" "}
+            Give your agent the graph.{" "}
             <span style={{
               background: `linear-gradient(135deg, ${AMBER} 0%, #ff8c00 100%)`,
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
@@ -777,7 +777,7 @@ export default function L1ght() {
             className="text-muted-foreground/55 max-w-lg mx-auto mb-10 text-lg leading-relaxed"
             initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }}
             transition={{ delay: 0.2 }}>
-            The paper you read last month, the patent filed yesterday, the conversation from last quarter — all in the same graph, all queryable in milliseconds.
+            Install m1nd, ingest once, and stop rebuilding structure from raw text every turn. The paper from last month, the patent filed yesterday, and the conversation from last quarter all live in the same graph.
           </motion.p>
           <motion.div
             className="w-full"

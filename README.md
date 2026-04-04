@@ -4,19 +4,21 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Before the model finishes reading, m1nd has already found the cut.</h3>
+<h3 align="center">Built for agents first. Humans are welcome.</h3>
 
 <p align="center">
-  <strong>Faster orientation. Narrower scope. More precise changes across real codebases.</strong>
+  <strong>Before you change code, see what breaks.</strong><br/>
+  <strong>Ask the codebase a question. Get the map, not the maze.</strong><br/><br/>
+  m1nd gives coding agents structural intelligence before they disappear into grep/read drift. Ingest the codebase once, turn it into a graph, and let the agent ask what actually matters: what breaks if this changes, what else moves with it, and what should be verified next.<br/>
+  <em>Local execution. MCP over stdio. Optional HTTP/UI surface in the current default build.</em>
 </p>
 
 <p align="center">
-  m1nd finds authority, blast radius, and connected edit context before the agent disappears into read-search-drift loops.<br/>
-  <em>Local execution. Graph-first navigation. MCP over stdio, with an optional HTTP/UI surface in the current default build.</em>
+  <strong>Grounded in current code, tests, and shipped tool surfaces.</strong>
 </p>
 
 <p align="center">
-  Models read. m1nd locates.
+  <img src=".github/m1nd-key-visual.png" alt="m1nd — structural intelligence for coding agents" width="860" />
 </p>
 
 <p align="center">
@@ -27,6 +29,7 @@
 </p>
 
 <p align="center">
+  <a href="#identity">Identity</a> &middot;
   <a href="#what-m1nd-does">What m1nd Does</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#configure-your-agent">Configure Your Agent</a> &middot;
@@ -57,47 +60,37 @@
   <img src=".github/demo-cinema.gif" alt="m1nd — 5 real queries, 1.9 seconds, zero tokens, 8 invisible bugs" width="720" />
 </p>
 
-## Why m1nd Exists
+## Identity
 
-Most coding agents still waste too much of their budget on navigation:
+m1nd is structural intelligence for coding agents.
 
-1. grep
-2. glob
-3. open a big file
-4. open the wrong file
-5. reconstruct authority from fragments
-6. guess the blast radius
-7. patch
-8. hope
+Ingest the codebase once, turn it into a graph, and let the agent ask structural questions directly.
 
-That can work on small repos. It gets expensive, noisy, and dangerous on real ones.
+Before an edit, m1nd helps the agent see blast radius, connected context, likely co-changes, and what to verify next — before it disappears into grep and read loops.
 
-m1nd changes the order of operations.
-
-It gives the agent structure before it improvises:
-
-- authority discovery before architectural claims
-- blast-radius mapping before edits
-- connected edit context before multi-file cuts
-- persistent investigation state instead of starting cold every turn
-- less token burn because the model spends less time rediscovering repo structure from raw text
-
-It also does not stop at source files. m1nd can connect the reasoning around the code too: docs, specs, RFCs, papers, patents, and memory in the same graph.
+> Stop paying the orientation tax every turn.
+>
+> `grep` finds what you asked for. `m1nd` finds what you missed.
 
 ## What m1nd Does
 
-m1nd is a local Rust workspace with three main parts:
+m1nd is for the moment before the agent gets lost.
+
+You ingest the repo once, turn it into a graph, and stop making the agent rediscover structure from raw text every turn.
+
+That means it can answer the questions that actually matter:
+
+- what is related to this?
+- what breaks if I change it?
+- what else probably needs to move?
+- where is the connected edit context?
+- what should I verify next?
+
+Under the hood, the workspace has three main parts:
 
 - `m1nd-core`: the graph engine
 - `m1nd-ingest`: repo walking, extraction, reference resolution, and graph construction
 - `m1nd-mcp`: the MCP server over stdio, plus an HTTP/UI surface in the current default build
-
-Supporting surfaces also live in this repo:
-
-- `m1nd-ui`: operational UI
-- `m1nd-demo`: presentation/demo surface
-
-The canonical architecture and release-critical code path remain `m1nd-core`, `m1nd-ingest`, and `m1nd-mcp`.
 
 The project is strongest at structural grounding:
 
@@ -122,7 +115,9 @@ Language breadth is broad, but semantic depth varies by language. Python and Rus
 
 ## Results And Measurements
 
-The numbers below are observed examples from the current repo docs and tests. Treat them as reference points, not hard guarantees for every codebase.
+These are observed runs from current docs and tests, not benchmark cosplay.
+
+Treat them as reference points, not hard guarantees for every codebase.
 
 Case-study audit on a Python/FastAPI codebase:
 
@@ -148,6 +143,8 @@ Criterion micro-benchmarks (recorded in current docs):
 | `resonate` 5 harmonics | 8.17 &micro;s |
 
 ## Quick Start
+
+If you just want the shortest path to value, it is this:
 
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git
@@ -196,8 +193,6 @@ Works with any MCP client that can connect to an MCP server: Claude Code, Codex,
 
 Most AI coding workflows still spend a lot of time on navigation: grep, glob, file reads, and repeated context loading. m1nd takes a different approach by precomputing a graph and exposing that graph through MCP.
 
-The point is not just that the agent knows more. The point is that it gets oriented fast enough to change how it behaves. In a couple of calls and a couple of seconds, the agent can move from raw uncertainty to a grounded cut.
-
 That changes the shape of the question. Instead of asking the model to reconstruct repo structure from raw files every time, the agent can ask for:
 
 - related code paths
@@ -218,7 +213,7 @@ This does not replace an LSP, a compiler, or a dataflow analyzer. It gives an ag
 
 ## Configure Your Agent
 
-m1nd is designed to replace grep, glob, and blind file reads for AI agents. 
+m1nd is most useful when the agent stops treating the repo like a pile of files and starts treating it like a graph.
 
 **It is critical to establish a strict rule in your agent's system prompt:** The AI must use m1nd *before* attempting to use traditional tools like `grep`, `ls`, or `cat`.
 
@@ -274,13 +269,19 @@ Any MCP-compatible tool (Windsurf, Zed, Cline, Roo Code, Continue, OpenCode, Ama
 
 m1nd is useful when an agent needs graph-grounded context instead of repeated grep/glob/file-read loops. In the documented audit session, it reduced grep-heavy exploration and surfaced structural findings that plain text search missed.
 
-Instead of paying to read 20,000 lines of code just to "find out how the provider works", the agent asks the connectome. Make m1nd the mandatory first step before any traditional tool usage.
+Instead of paying to read 20,000 lines of code just to figure out how the provider works, the agent asks the graph.
+
+If your agent is still opening files one by one to reconstruct repo structure, it is not exploring. It is wandering.
+
+Make m1nd the mandatory first step before traditional tool usage.
 
 ---
 
 ## Where m1nd Fits
 
-m1nd is most useful when an agent needs graph-grounded repo context that plain text search does not provide well:
+m1nd is at its best once plain text search stops being enough.
+
+It helps when an agent needs graph-grounded repo context instead of another round of grep, glob, and file reads:
 
 - persistent graph state instead of one-off search results
 - impact and neighborhood queries before edits
@@ -288,13 +289,13 @@ m1nd is most useful when an agent needs graph-grounded repo context that plain t
 - structural checks such as hypothesis testing, counterfactual removal, and layer inspection
 - mixed code + documentation graphs through the `memory`, `json`, and `light` adapters
 
-It is not a replacement for an LSP, Sourcegraph, CodeQL, or a compiler. It sits between raw search and heavy static analysis: faster to query than reconstructing structure from text every time, but not a full semantic compiler frontend.
+It is not trying to replace your LSP, Sourcegraph, CodeQL, or compiler. It sits in the middle: faster than reconstructing structure from raw text every turn, lighter than full static analysis.
 
 ## What Makes It Different
 
-**It keeps a persistent graph, not just search results.** Confirmed paths can be reinforced through `learn`, and later queries can reuse that structure instead of starting from zero.
+**It holds onto a persistent graph, not a pile of one-off search results.** Confirmed paths can be reinforced through `learn`, and later queries can reuse that structure instead of starting from zero.
 
-**It tests structural claims directly.** Tools like `hypothesize`, `why`, `impact`, and `counterfactual` operate on graph relationships rather than on text matches alone.
+**It puts structural claims to the test.** Tools like `hypothesize`, `why`, `impact`, and `counterfactual` operate on graph relationships rather than on text matches alone.
 
 **It can merge code and documentation into the same graph.** m1nd provides nine ingest adapters:
 
@@ -340,29 +341,43 @@ m1nd.activate({"query": "auth token refresh"})  # fires across both domains
 ```
 
 
-**It exposes additional analysis layers** beyond basic traversal:
+**It exposes more than basic traversal.**
 - antibody scanning for known bug patterns
 - epidemic-style propagation for neighboring risk
 - tremor/trust signals from change history
 - layer detection for architectural violations
 
-**It verifies writes.** `apply_batch(verify=true)` runs multiple post-write checks and returns a SAFE / RISKY / BROKEN-style verdict. See [Post-Write Verification](#post-write-verification).
+**It verifies writes instead of hoping they worked.** `apply_batch(verify=true)` runs multiple post-write checks and returns a SAFE / RISKY / BROKEN-style verdict. See [Post-Write Verification](#post-write-verification).
 
-**It can persist investigations.** `trail.save`, `trail.resume`, and `trail.merge` let agents keep and combine graph-grounded investigation state.
+**It can persist investigations instead of dropping them between sessions.** `trail.save`, `trail.resume`, and `trail.merge` let agents keep and combine graph-grounded investigation state.
+
+**It has a canonical hot-state layer.** `boot_memory` stores small, durable doctrine/state next to the graph without polluting trails or transcripts.
+
+## Operational Workflow For Agents
+
+m1nd is opinionated about how agents should move through a repo. The server's own embedded `M1ND_INSTRUCTIONS` block defines a preferred choreography:
+
+- **Session start**: `health -> drift -> ingest`
+- **Research**: `ingest -> activate -> why -> missing -> learn`
+- **Code change**: `impact -> predict -> counterfactual -> warmup -> surgical/apply path`
+- **Stateful navigation**: `perspective.*` and `trail.*`
+- **Canonical hot state**: `boot_memory`
+
+This matters because m1nd is not just a search endpoint. It is an opinionated graph operating layer for agents, and it works best when the graph becomes part of the workflow instead of a last resort.
 
 ## Tool Surface
 
-The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **64 MCP tools**. The categories below are more stable than the exact count, but the count itself is now grounded in the live registry.
+The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **64 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
 
 | Category | Highlights |
 |----------|------------|
-| **Foundation** | ingest, activate, impact, why, learn, drift, seek, scan, warmup, federate |
-| **Perspective Navigation** | start, follow, peek, branch, compare, inspect, suggest |
+| **Foundation** | ingest, health, activate, impact, why, learn, drift, seek, scan, warmup, federate |
+| **Perspective Navigation** | start, follow, peek, routes, branch, compare, inspect, suggest, affinity |
 | **Lock System** | pin subgraph regions, watch for changes, diff locked state |
 | **Graph Analysis** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
-| **Extended Analysis** | antibody, flow_simulate, epidemic, tremor, trust, layers |
-| **Reporting** | report, savings |
-| **Surgical** | surgical_context, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
+| **Extended Analysis** | antibody, flow_simulate, epidemic, tremor, trust, layers, heuristics_surface, validate_plan |
+| **Reporting & State** | report, panoramic, savings, persist, boot_memory |
+| **Surgical** | surgical_context, surgical_context_v2, view, symbol_splice, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
 
 <details>
 <summary><strong>Foundation</strong></summary>
@@ -433,6 +448,7 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `trail.merge` | Combine multi-agent investigations | 1.2ms |
 | `trail.list` | Browse saved investigations | ~0ms |
 | `differential` | Structural diff between graph snapshots | ~ms |
+| `boot_memory` | Canonical hot-state memory for doctrine/config/short durable state | ~0ms |
 </details>
 
 <details>
@@ -463,7 +479,20 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `edit_commit` | **Commit a previewed change** — requires explicit `confirm=true`, TTL 5min, source hash verification. Prevents stale/tampered writes | <1ms + apply |
 | `apply` | Write edited code back to file, atomic write, re-ingest graph, run predict | 3.5ms |
 | `apply_batch` | Write multiple files atomically, single re-ingest pass, returns per-file diffs | 165ms |
+| `symbol_splice` | Rewrite a specific symbol/body/region without hand-rolling a full-file patch | varies |
 | `apply_batch(verify=true)` | All of the above + **5-layer post-write verification** (pattern detection, compile check, graph BFS impact, test execution, anti-pattern analysis) with `heuristic_summary` on `verification.high_impact_files`; heuristic hotspots can promote the verdict to `RISKY` | 165ms + verify |
+</details>
+
+<details>
+<summary><strong>Reporting & State</strong></summary>
+
+| Tool | What It Does | Speed |
+|------|-------------|-------|
+| `report` | Session report with recent queries, savings, graph stats, and top heuristic hotspots; markdown summary includes `### Heuristic Hotspots` | ~0ms |
+| `panoramic` | Combined repo/module overview: blast radius, heuristics, and critical alerts in one pass | varies |
+| `savings` | Session/global token, CO2, and cost savings summary | ~0ms |
+| `persist` | Force graph + sidecar state persistence now | varies |
+| `boot_memory` | Set/get/list/delete small canonical hot-state values next to the graph | ~0ms |
 </details>
 
 <details>
@@ -593,7 +622,7 @@ The current default build also includes an HTTP/UI surface. Keep it bound to loc
 
 ## Use Cases
 
-**Bug hunt:** `hypothesize` -> `missing` -> `flow_simulate` -> `trace`.
+**Bug hunt:** Start with `hypothesize` -> `missing` -> `flow_simulate` -> `trace`.
 In the documented audit session, this reduced grep-heavy exploration and surfaced issues plain text search missed. [Case study ->](EXAMPLES.md)
 
 **Pre-deploy gate:** `antibody_scan` -> `validate_plan` -> `epidemic`.
@@ -603,7 +632,7 @@ Scans for known bug shapes, assesses blast radius, predicts infection spread.
 Auto-detects layers, finds violations, simulates what breaks if you remove a module.
 
 **Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
-New developer asks "how does auth work?" -- graph lights up the path.
+New developer asks "how does auth work?" and the graph lights up the path.
 
 **Cross-domain search:** `ingest(adapter="memory", mode="merge")` -> `activate`.
 Code + docs in one graph. One question returns both the spec and the implementation.
@@ -613,7 +642,7 @@ Write N files at once. Get a SAFE/RISKY/BROKEN verdict before CI runs.
 
 ## Contributing
 
-m1nd is early-stage and evolving fast. Contributions welcome:
+m1nd is still early and moving fast. Contributions welcome:
 language extractors, graph algorithms, MCP tools, and benchmarks.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 

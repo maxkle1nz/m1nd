@@ -95,22 +95,21 @@ export function Hero() {
         >
           <div className="inline-flex items-center gap-2 sm:gap-3 rounded-full border border-primary/30 bg-primary/10 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-mono text-primary mb-8">
             <span className="flex h-2 w-2 flex-shrink-0 rounded-full bg-primary animate-pulse" />
-            <span className="whitespace-nowrap">Designed for LLMs. Tested by LLMs. Runs in Rust.</span>
+            <span className="whitespace-nowrap">Built for agents first. Humans are welcome.</span>
             <span className="hidden sm:block h-3 w-px flex-shrink-0 bg-primary/30" />
             <span className="hidden sm:block text-primary/60 whitespace-nowrap">m1nd + l1ght</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-foreground mb-6 font-sans leading-[1.05]">
-            Have your model dig into this repo and see if
+            Before you change code,
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-              m1nd could actually help day to day.
+              see what breaks.
             </span>
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            No need for the full sales pitch upfront. m1nd was made for LLMs.
-            Just feed it the codebase, let it hit the wall, and see how quickly your workflow flips.
+            Ask the codebase a question. Get the map, not the maze. m1nd gives coding agents structural intelligence before they disappear into grep/read drift.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -123,6 +122,25 @@ export function Hero() {
               Explore use cases →
             </Link>
           </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ delay: 0.95, duration: 0.9, ease: "easeOut" }}
+            className="mt-10 w-full max-w-4xl"
+          >
+            <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-black/35 shadow-[0_0_50px_rgba(0,245,255,0.14)] backdrop-blur-sm">
+              <img
+                src="/m1nd-key-visual.png"
+                alt="m1nd key visual"
+                className="block w-full h-auto object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-background/65 via-transparent to-transparent" />
+            </div>
+            <p className="mt-3 text-xs sm:text-sm font-mono text-primary/70">
+              Made by LLMs for LLMs. Still grounded in real code, real tests, and shipped tool surfaces.
+            </p>
+          </motion.div>
 
           {/* ── Trust strip ── */}
           <motion.div
