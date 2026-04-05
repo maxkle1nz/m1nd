@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-71adba98.js";
+            window.path_to_searchindex_js = "../searchindex-1c1b5857.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-a37108d1.js"></script>
@@ -722,6 +722,76 @@
 <li><a href="lifecycle.html#m1ndingest"><code>m1nd.ingest</code></a> – single-repo ingestion</li>
 <li><a href="analysis.html#m1ndimpact"><code>m1nd.impact</code></a> – blast radius analysis (works across federated repos)</li>
 <li><a href="memory.html#m1ndwhy"><code>m1nd.why</code></a> – path explanation (traverses cross-repo edges)</li>
+</ul>
+<h2 id="m1ndfederate_auto"><a class="header" href="#m1ndfederate_auto"><code>m1nd.federate_auto</code></a></h2>
+<p>Turn explicit external path evidence into repo candidates, namespace suggestions, and an optional one-shot <code>federate</code> call.</p>
+<h3 id="parameters-6"><a class="header" href="#parameters-6">Parameters</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>agent_id</code></td><td><code>string</code></td><td>Yes</td><td>–</td><td>Calling agent identifier.</td></tr>
+<tr><td><code>scope</code></td><td><code>string</code></td><td>No</td><td>–</td><td>File path prefix to limit discovery sources.</td></tr>
+<tr><td><code>current_repo_name</code></td><td><code>string</code></td><td>No</td><td>auto</td><td>Optional namespace override for the current workspace.</td></tr>
+<tr><td><code>max_repos</code></td><td><code>integer</code></td><td>No</td><td><code>8</code></td><td>Maximum discovered external repos to include.</td></tr>
+<tr><td><code>detect_cross_repo_edges</code></td><td><code>boolean</code></td><td>No</td><td><code>true</code></td><td>Whether <code>execute=true</code> should auto-detect cross-repo edges.</td></tr>
+<tr><td><code>execute</code></td><td><code>boolean</code></td><td>No</td><td><code>false</code></td><td>If true, immediately run <code>m1nd.federate</code> with the current repo plus discovered candidates.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="example-request-6"><a class="header" href="#example-request-6">Example Request</a></h3>
+<pre><code class="language-json">{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.federate_auto",
+    "arguments": {
+      "agent_id": "jimi",
+      "scope": "docs",
+      "execute": false
+    }
+  }
+}
+</code></pre>
+<h3 id="example-response-6"><a class="header" href="#example-response-6">Example Response</a></h3>
+<pre><code class="language-json">{
+  "current_repo": { "namespace": "m1nd", "repo_root": "/repo/m1nd" },
+  "discovered_repos": [
+    {
+      "namespace": "runtime",
+      "repo_root": "/repo/runtime",
+      "marker": ".git",
+      "confidence": "high",
+      "evidence_types": ["markdown_link"],
+      "source_nodes": ["file::docs/architecture.md"],
+      "source_files": ["/repo/m1nd/docs/architecture.md"],
+      "sampled_paths": ["/repo/runtime/docs/ARCH.md"],
+      "suggested_action": "run federate_auto with execute=true or pass suggested_repos into federate"
+    }
+  ],
+  "suggested_repos": [
+    { "name": "runtime", "path": "/repo/runtime", "adapter": "code" }
+  ],
+  "skipped_paths": [],
+  "executed": false,
+  "federate_result": null,
+  "elapsed_ms": 42.0
+}
+</code></pre>
+<h3 id="when-to-use-6"><a class="header" href="#when-to-use-6">When to Use</a></h3>
+<ul>
+<li><strong>Cross-repo audits</strong> – when <code>audit</code> or <code>external_references</code> already surfaced sibling repo paths</li>
+<li><strong>Planning/doc hubs</strong> – when docs point to runtime repos and you want a namespace plan without manual copy-paste</li>
+<li><strong>Worktree-heavy setups</strong> – when the current workspace path is a worktree but you still want repo-shaped namespace suggestions</li>
+</ul>
+<h3 id="related-tools-6"><a class="header" href="#related-tools-6">Related Tools</a></h3>
+<ul>
+<li><a href="overview.html"><code>m1nd.external_references</code></a> – raw external path evidence</li>
+<li><a href="#m1ndfederate"><code>m1nd.federate</code></a> – explicit multi-repo federation</li>
+<li><a href="overview.html"><code>m1nd.audit</code></a> – broader audit that can surface the evidence before auto-federation</li>
 </ul>
 
                     </main>

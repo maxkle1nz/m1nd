@@ -1354,6 +1354,22 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             {
+                "name": "federate_auto",
+                "description": "Discover candidate external repositories from the current workspace and optionally federate them in one step.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "File path prefix to limit discovery sources" },
+                        "current_repo_name": { "type": "string", "description": "Optional namespace override for the current workspace inside the federated graph" },
+                        "max_repos": { "type": "integer", "default": 8, "description": "Maximum discovered external repos to include" },
+                        "detect_cross_repo_edges": { "type": "boolean", "default": true, "description": "Whether a follow-up federate execution should auto-detect cross-repo edges" },
+                        "execute": { "type": "boolean", "default": false, "description": "When true, immediately run federate with the current repo plus discovered candidates" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
                 "name": "help",
                 "description": "Get help text for m1nd tools. Returns overview or detailed help for a specific tool with visual identity.",
                 "inputSchema": {
@@ -1841,6 +1857,11 @@ fn dispatch_core_tool(
             let input: layers::ExternalReferencesInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::audit_handlers::handle_external_references(state, input)
+        }
+        "federate_auto" => {
+            let input: layers::FederateAutoInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::audit_handlers::handle_federate_auto(state, input)
         }
         "glob" => {
             let input: layers::GlobInput =
@@ -2495,6 +2516,7 @@ mod tests {
             "cross_verify",
             "coverage_session",
             "external_references",
+            "federate_auto",
             "audit",
         ] {
             assert!(

@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-71adba98.js";
+            window.path_to_searchindex_js = "searchindex-1c1b5857.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a37108d1.js"></script>
@@ -189,7 +189,7 @@
 <li>observable multi-file writes through <code>apply_batch</code></li>
 <li>recovery loops that teach the next valid move when a tool is used badly</li>
 </ul>
-<p>m1nd ships as an <a href="https://modelcontextprotocol.io/">MCP</a> server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 77 MCP tools.</p>
+<p>m1nd ships as an <a href="https://modelcontextprotocol.io/">MCP</a> server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 78 MCP tools.</p>
 <h2 id="the-problem"><a class="header" href="#the-problem">The Problem</a></h2>
 <p>Most agent loops still waste time in the same place: navigation.</p>
 <p>An LLM can reason about a file once it has the file. The expensive part is getting the right file, the right neighbors, and enough proof to act without reopening half the repo.</p>
@@ -280,7 +280,7 @@
 <li>observable multi-file writes through <code>apply_batch</code></li>
 <li>repair-friendly errors when a tool call goes wrong</li>
 </ul>
-<p>The workspace currently exposes 77 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.</p>
+<p>The workspace currently exposes 78 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.</p>
 <h2 id="three-crate-workspace"><a class="header" href="#three-crate-workspace">Three-Crate Workspace</a></h2>
 <p>The system is organized as a Cargo workspace with three crates:</p>
 <pre><code class="language-toml">[workspace]
@@ -1306,7 +1306,7 @@ let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20
 <p><code>commit_groups</code> is passed to the <code>CoChangeMatrix</code> in m1nd-core after graph finalization, seeding the temporal co-change model with real git history.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="mcp-server-m1nd-mcp"><a class="header" href="#mcp-server-m1nd-mcp">MCP Server (m1nd-mcp)</a></h1>
-<p>m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 77 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, and observable batch execution.</p>
+<p>m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 78 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, and observable batch execution.</p>
 <p>Source: <code>mcp/m1nd/m1nd-mcp/src/</code></p>
 <h2 id="module-map-1"><a class="header" href="#module-map-1">Module Map</a></h2>
 <div class="table-wrapper">
@@ -2510,7 +2510,7 @@ if fallback {
 <p>The <code>sibling_avg_activation</code> score helps prioritize. A hole where surrounding nodes have an average activation of 0.85 is more suspicious than one at 0.35. The former means the node is deeply embedded in a strongly activated cluster and conspicuously absent. The latter means the surrounding nodes were only weakly related to the query – the “hole” may just be a node in a different domain.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="api-reference-overview"><a class="header" href="#api-reference-overview">API Reference Overview</a></h1>
-<p>m1nd currently exposes <strong>77 MCP tools</strong> over JSON-RPC 2.0 via stdio. Every tool requires <code>agent_id</code> as a parameter. The exported MCP schema uses underscore-based canonical names such as <code>trail_resume</code>, <code>perspective_start</code>, and <code>apply_batch</code>.</p>
+<p>m1nd currently exposes <strong>78 MCP tools</strong> over JSON-RPC 2.0 via stdio. Every tool requires <code>agent_id</code> as a parameter. The exported MCP schema uses underscore-based canonical names such as <code>trail_resume</code>, <code>perspective_start</code>, and <code>apply_batch</code>.</p>
 <p>Several tools now do more than return raw results. On the main structural flows you should expect some combination of:</p>
 <ul>
 <li><code>proof_state</code></li>
@@ -2580,6 +2580,7 @@ if fallback {
 <tr><td><a href="#m1ndtrace"><code>trace</code></a></td><td>Map runtime errors to structural root causes</td></tr>
 <tr><td><a href="#m1ndtimeline"><code>timeline</code></a></td><td>Git-based temporal history for a node</td></tr>
 <tr><td><a href="#m1ndfederate"><code>federate</code></a></td><td>Multi-repository federated graph ingestion</td></tr>
+<tr><td><a href="#m1ndfederate_auto"><code>federate_auto</code></a></td><td>Discover repo candidates from external path evidence and optionally federate them</td></tr>
 </tbody>
 </table>
 </div>
@@ -4467,6 +4468,76 @@ if fallback {
 <li><a href="#m1ndimpact"><code>m1nd.impact</code></a> – blast radius analysis (works across federated repos)</li>
 <li><a href="#m1ndwhy"><code>m1nd.why</code></a> – path explanation (traverses cross-repo edges)</li>
 </ul>
+<h2 id="m1ndfederate_auto"><a class="header" href="#m1ndfederate_auto"><code>m1nd.federate_auto</code></a></h2>
+<p>Turn explicit external path evidence into repo candidates, namespace suggestions, and an optional one-shot <code>federate</code> call.</p>
+<h3 id="parameters-6-2"><a class="header" href="#parameters-6-2">Parameters</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>agent_id</code></td><td><code>string</code></td><td>Yes</td><td>–</td><td>Calling agent identifier.</td></tr>
+<tr><td><code>scope</code></td><td><code>string</code></td><td>No</td><td>–</td><td>File path prefix to limit discovery sources.</td></tr>
+<tr><td><code>current_repo_name</code></td><td><code>string</code></td><td>No</td><td>auto</td><td>Optional namespace override for the current workspace.</td></tr>
+<tr><td><code>max_repos</code></td><td><code>integer</code></td><td>No</td><td><code>8</code></td><td>Maximum discovered external repos to include.</td></tr>
+<tr><td><code>detect_cross_repo_edges</code></td><td><code>boolean</code></td><td>No</td><td><code>true</code></td><td>Whether <code>execute=true</code> should auto-detect cross-repo edges.</td></tr>
+<tr><td><code>execute</code></td><td><code>boolean</code></td><td>No</td><td><code>false</code></td><td>If true, immediately run <code>m1nd.federate</code> with the current repo plus discovered candidates.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="example-request-6-2"><a class="header" href="#example-request-6-2">Example Request</a></h3>
+<pre><code class="language-json">{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.federate_auto",
+    "arguments": {
+      "agent_id": "jimi",
+      "scope": "docs",
+      "execute": false
+    }
+  }
+}
+</code></pre>
+<h3 id="example-response-6-2"><a class="header" href="#example-response-6-2">Example Response</a></h3>
+<pre><code class="language-json">{
+  "current_repo": { "namespace": "m1nd", "repo_root": "/repo/m1nd" },
+  "discovered_repos": [
+    {
+      "namespace": "runtime",
+      "repo_root": "/repo/runtime",
+      "marker": ".git",
+      "confidence": "high",
+      "evidence_types": ["markdown_link"],
+      "source_nodes": ["file::docs/architecture.md"],
+      "source_files": ["/repo/m1nd/docs/architecture.md"],
+      "sampled_paths": ["/repo/runtime/docs/ARCH.md"],
+      "suggested_action": "run federate_auto with execute=true or pass suggested_repos into federate"
+    }
+  ],
+  "suggested_repos": [
+    { "name": "runtime", "path": "/repo/runtime", "adapter": "code" }
+  ],
+  "skipped_paths": [],
+  "executed": false,
+  "federate_result": null,
+  "elapsed_ms": 42.0
+}
+</code></pre>
+<h3 id="when-to-use-6-2"><a class="header" href="#when-to-use-6-2">When to Use</a></h3>
+<ul>
+<li><strong>Cross-repo audits</strong> – when <code>audit</code> or <code>external_references</code> already surfaced sibling repo paths</li>
+<li><strong>Planning/doc hubs</strong> – when docs point to runtime repos and you want a namespace plan without manual copy-paste</li>
+<li><strong>Worktree-heavy setups</strong> – when the current workspace path is a worktree but you still want repo-shaped namespace suggestions</li>
+</ul>
+<h3 id="related-tools-6-2"><a class="header" href="#related-tools-6-2">Related Tools</a></h3>
+<ul>
+<li><a href="#api-reference-overview"><code>m1nd.external_references</code></a> – raw external path evidence</li>
+<li><a href="#m1ndfederate"><code>m1nd.federate</code></a> – explicit multi-repo federation</li>
+<li><a href="#api-reference-overview"><code>m1nd.audit</code></a> – broader audit that can surface the evidence before auto-federation</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="perspective-tools"><a class="header" href="#perspective-tools">Perspective Tools</a></h1>
 <p>Twelve tools for stateful, navigable exploration of the code graph. Perspectives are m1nd’s primary interface for guided codebase exploration – they synthesize routes (weighted navigation suggestions) from a query, then let you follow, inspect, branch, and compare routes.</p>
@@ -4908,7 +4979,7 @@ if fallback {
 <h2 id="m1ndperspectiveaffinity"><a class="header" href="#m1ndperspectiveaffinity"><code>m1nd.perspective.affinity</code></a></h2>
 <p>Discover probable connections a route target might have. Returns affinity candidates – nodes that are not directly connected to the target but show structural affinity (similar neighborhoods, shared patterns).</p>
 <p>Epistemic notice: these are <strong>probable</strong> connections, not verified graph edges.</p>
-<h3 id="parameters-6-2"><a class="header" href="#parameters-6-2">Parameters</a></h3>
+<h3 id="parameters-6-3"><a class="header" href="#parameters-6-3">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -4923,7 +4994,7 @@ if fallback {
 </tbody>
 </table>
 </div>
-<h3 id="example-request-6-2"><a class="header" href="#example-request-6-2">Example Request</a></h3>
+<h3 id="example-request-6-3"><a class="header" href="#example-request-6-3">Example Request</a></h3>
 <pre><code class="language-json">{
   "jsonrpc": "2.0",
   "id": 7,
@@ -4939,7 +5010,7 @@ if fallback {
   }
 }
 </code></pre>
-<h3 id="example-response-6-2"><a class="header" href="#example-response-6-2">Example Response</a></h3>
+<h3 id="example-response-6-3"><a class="header" href="#example-response-6-3">Example Response</a></h3>
 <pre><code class="language-json">{
   "route_id": "R_j1k2l3",
   "target_node": "file::process_manager.py",
@@ -4950,13 +5021,13 @@ if fallback {
   ]
 }
 </code></pre>
-<h3 id="when-to-use-6-2"><a class="header" href="#when-to-use-6-2">When to Use</a></h3>
+<h3 id="when-to-use-6-3"><a class="header" href="#when-to-use-6-3">When to Use</a></h3>
 <ul>
 <li><strong>Discovery</strong> – find non-obvious connections that the graph does not yet have</li>
 <li><strong>Architecture analysis</strong> – identify modules that should be connected but are not</li>
 <li><strong>Ghost edge validation</strong> – affinity candidates often become confirmed edges after investigation</li>
 </ul>
-<h3 id="related-tools-6-2"><a class="header" href="#related-tools-6-2">Related Tools</a></h3>
+<h3 id="related-tools-6-3"><a class="header" href="#related-tools-6-3">Related Tools</a></h3>
 <ul>
 <li><a href="#m1ndmissing"><code>m1nd.missing</code></a> – finds structural holes (broader scope)</li>
 <li><a href="#m1ndperspectiveinspect"><code>m1nd.perspective.inspect</code></a> – affinity candidates are also included in inspect output</li>
@@ -5740,7 +5811,7 @@ if fallback {
 <hr>
 <h2 id="m1ndlockrebase"><a class="header" href="#m1ndlockrebase"><code>m1nd.lock.rebase</code></a></h2>
 <p>Re-capture the lock baseline from the current graph without releasing the lock. Use this after calling <code>lock.diff</code> and acknowledging the changes – the new baseline becomes the reference for future diffs.</p>
-<h3 id="parameters-6-3"><a class="header" href="#parameters-6-3">Parameters</a></h3>
+<h3 id="parameters-6-4"><a class="header" href="#parameters-6-4">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -5752,7 +5823,7 @@ if fallback {
 </tbody>
 </table>
 </div>
-<h3 id="example-request-6-3"><a class="header" href="#example-request-6-3">Example Request</a></h3>
+<h3 id="example-request-6-4"><a class="header" href="#example-request-6-4">Example Request</a></h3>
 <pre><code class="language-json">{
   "jsonrpc": "2.0",
   "id": 7,
@@ -5776,13 +5847,13 @@ if fallback {
   "watcher_preserved": true
 }
 </code></pre>
-<h3 id="when-to-use-6-3"><a class="header" href="#when-to-use-6-3">When to Use</a></h3>
+<h3 id="when-to-use-6-4"><a class="header" href="#when-to-use-6-4">When to Use</a></h3>
 <ul>
 <li><strong>After acknowledging changes</strong> – rebase after reviewing a diff to reset the baseline</li>
 <li><strong>After stale warning</strong> – when <code>lock.diff</code> returns <code>baseline_stale: true</code>, rebase to fix it</li>
 <li><strong>Periodic refresh</strong> – rebase periodically in long sessions to keep baselines current</li>
 </ul>
-<h3 id="related-tools-6-3"><a class="header" href="#related-tools-6-3">Related Tools</a></h3>
+<h3 id="related-tools-6-4"><a class="header" href="#related-tools-6-4">Related Tools</a></h3>
 <ul>
 <li><a href="#m1ndlockdiff"><code>m1nd.lock.diff</code></a> – the diff that triggers a rebase</li>
 <li><a href="#m1ndlockcreate"><code>m1nd.lock.create</code></a> – creating a new lock is an alternative to rebasing</li>
@@ -5816,7 +5887,7 @@ if fallback {
   }
 }
 </code></pre>
-<h3 id="example-response-6-3"><a class="header" href="#example-response-6-3">Example Response</a></h3>
+<h3 id="example-response-6-4"><a class="header" href="#example-response-6-4">Example Response</a></h3>
 <pre><code class="language-json">{
   "lock_id": "lock_jimi_001",
   "released": true
@@ -6838,7 +6909,7 @@ agent_id: "analyst-perf"  -- performance analysis agent
 <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
 <h2 id="general"><a class="header" href="#general">General</a></h2>
 <h3 id="what-is-m1nd"><a class="header" href="#what-is-m1nd">What is m1nd?</a></h3>
-<p>m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 77 MCP tools for structure, impact, connected context, continuity, audit, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.</p>
+<p>m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 78 MCP tools for structure, impact, connected context, continuity, audit, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.</p>
 <p>The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as <code>proof_state</code>, <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code>, plus observable progress for long-running writes like <code>apply_batch</code>.</p>
 <h3 id="how-is-m1nd-different-from-grep--ripgrep"><a class="header" href="#how-is-m1nd-different-from-grep--ripgrep">How is m1nd different from grep / ripgrep?</a></h3>
 <p>Grep finds <em>text</em>. m1nd finds <em>structure and relationships</em>.</p>
@@ -6894,13 +6965,21 @@ agent_id: "analyst-perf"  -- performance analysis agent
 <h3 id="how-much-memory-does-m1nd-use"><a class="header" href="#how-much-memory-does-m1nd-use">How much memory does m1nd use?</a></h3>
 <p>The graph itself is compact: ~2MB for a 10,000-node graph with 26,000 edges (Compressed Sparse Row format). The MCP server process uses additional memory for the JSON-RPC layer, perspective state, lock baselines, and trail storage. A typical production instance serving a 335-file codebase uses under 50MB total.</p>
 <h3 id="can-i-ingest-multiple-codebases-into-one-graph"><a class="header" href="#can-i-ingest-multiple-codebases-into-one-graph">Can I ingest multiple codebases into one graph?</a></h3>
-<p>Yes, through the <code>federate</code> tool. It ingests multiple repositories into a unified graph with automatic cross-repository edge detection:</p>
+<p>Yes. If you already know the repo list, use <code>federate</code>. If the current workspace only contains explicit path evidence to sibling repos, use <code>federate_auto</code> first and let m1nd suggest the namespace plan for you.</p>
+<p>Direct federation:</p>
 <pre><code class="language-jsonc">{"method":"tools/call","params":{"name":"m1nd.federate","arguments":{
   "agent_id":"dev",
   "repos":[
     {"name":"backend","path":"/project/backend"},
     {"name":"frontend","path":"/project/frontend"}
   ]
+}}}
+</code></pre>
+<p>Auto-discovery first:</p>
+<pre><code class="language-jsonc">{"method":"tools/call","params":{"name":"m1nd.federate_auto","arguments":{
+  "agent_id":"dev",
+  "scope":"docs",
+  "execute":false
 }}}
 </code></pre>
 <h3 id="can-i-do-incremental-ingests"><a class="header" href="#can-i-do-incremental-ingests">Can I do incremental ingests?</a></h3>

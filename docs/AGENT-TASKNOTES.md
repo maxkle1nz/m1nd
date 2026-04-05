@@ -29,15 +29,16 @@ The rule:
 - Likely next step: strengthen the profile registry so `audit` changes not only
   tool selection but also grading, recommendation logic, and narrative output
 
-### 2026-04-05 — `external_references` detects, but does not yet bridge
+### 2026-04-05 — `federate_auto` bridges explicit paths, but semantic discovery is still missing
 
-- Context: audit and repo-smoke on the `m1nd` branch
-- Friction: explicit path references are surfaced, but the next action is still
-  manual. The system does not yet propose or execute an automatic federation path
+- Context: first `federate_auto` slice on top of audit-era repo-truth tooling
+- Friction: explicit path references now turn into repo candidates, namespaces,
+  and optional one-shot federation, but repos that are only implied by imports,
+  manifests, or API contracts still need manual enumeration
 - Desired behavior:
-  - `federate_auto`
-  - suggested namespace plan
-  - optional follow-up ingest proposal in the response
+  - manifest/import-driven discovery without requiring absolute path evidence
+  - stronger monorepo/package-workspace awareness
+  - future semantic linking donor lane (stack-graphs / SCIP-class ideas)
 
 ### 2026-04-05 — `coverage_session` is useful but still shallow
 

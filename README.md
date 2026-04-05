@@ -367,7 +367,7 @@ This matters because m1nd is not just a search endpoint. It is an opinionated gr
 
 ## Tool Surface
 
-The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **77 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
+The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **78 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
 
 | Category | Highlights |
 |----------|------------|
@@ -377,7 +377,7 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | **Graph Analysis** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
 | **Extended Analysis** | antibody, flow_simulate, epidemic, tremor, trust, layers, heuristics_surface, validate_plan |
 | **RETROBUILDER** | ghost_edges, taint_trace, twins, refactor_plan, runtime_overlay |
-| **Audit & Session** | scan_all, cross_verify, coverage_session, external_references, audit |
+| **Audit & Session** | scan_all, cross_verify, coverage_session, external_references, federate_auto, audit |
 | **Reporting & State** | report, panoramic, savings, persist, boot_memory |
 | **Surgical** | surgical_context, surgical_context_v2, view, batch_view, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
 
@@ -490,6 +490,7 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `cross_verify` | Compare graph state against filesystem truth: existence, LOC drift, hash mismatches |
 | `coverage_session` | Show which files/nodes the current agent has already visited |
 | `external_references` | Find explicit path references that point outside current ingest roots |
+| `federate_auto` | Turn external path evidence into repo candidates and an optional one-shot federation plan |
 | `audit` | One-call profile-aware audit across topology, scans, git state, verification, and recommendations |
 </details>
 

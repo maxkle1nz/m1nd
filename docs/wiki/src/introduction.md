@@ -11,7 +11,7 @@ The current public shape of the product is not just “graph search.” It is a 
 - observable multi-file writes through `apply_batch`
 - recovery loops that teach the next valid move when a tool is used badly
 
-m1nd ships as an [MCP](https://modelcontextprotocol.io/) server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 77 MCP tools.
+m1nd ships as an [MCP](https://modelcontextprotocol.io/) server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 78 MCP tools.
 
 ## The Problem
 

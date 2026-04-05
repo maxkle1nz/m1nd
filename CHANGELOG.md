@@ -6,6 +6,22 @@ All notable changes to m1nd are documented here.
 
 ## [Unreleased]
 
+### Added
+
+#### `federate_auto` — evidence-to-federation bridge
+
+`federate_auto` turns explicit external path evidence into an actionable
+federation plan.
+
+- scans the current workspace's `external_references` signal
+- lifts referenced files to detected repo roots via `.git` or common manifest markers
+- suggests stable namespace names for the current repo and discovered sibling repos
+- can optionally execute `federate` directly in one call
+
+This is the first bridge from audit-era repo-truth tooling into automatic
+cross-repo graph expansion. It reduces the manual step where an agent had to
+copy paths out of `external_references` and hand-assemble a `federate` request.
+
 ---
 
 ## [0.7.0] — 2026-04-05
