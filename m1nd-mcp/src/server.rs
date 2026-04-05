@@ -2942,8 +2942,8 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::{
-        background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick,
-        should_autotick_daemon, tool_schemas, DaemonRuntimeControl, McpServer,
+        background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick, should_autotick_daemon,
+        tool_schemas, DaemonRuntimeControl, McpServer,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
