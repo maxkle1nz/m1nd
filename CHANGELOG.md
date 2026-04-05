@@ -8,6 +8,21 @@ All notable changes to m1nd are documented here.
 
 ### Added
 
+#### Proactive write insights on `apply` and `apply_batch`
+
+`apply` and `apply_batch` now attach `proactive_insights` directly to write
+results instead of forcing the agent to remember the next structural checks.
+
+Initial insight kinds include:
+
+- `co_change_prediction`
+- `untouched_test_companion`
+- `antibody_recurrence`
+- `trust_drop`
+- `tremor_hotspot`
+- `cross_repo_contract_risk`
+- `schema_contract_drift`
+
 #### `federate_auto` — evidence-to-federation bridge
 
 `federate_auto` turns explicit external path evidence into an actionable

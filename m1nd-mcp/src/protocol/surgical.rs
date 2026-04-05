@@ -119,6 +119,27 @@ pub struct SurgicalHeuristicSummary {
     pub heuristic_signals: HeuristicSignals,
 }
 
+/// A proactive structural insight attached to a write result.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProactiveInsight {
+    /// info | warning | critical
+    pub severity: String,
+    /// Stable insight family name.
+    pub kind: String,
+    /// Short human-readable explanation.
+    pub message: String,
+    /// 0.0-1.0 confidence score for ranking and display.
+    pub confidence: f32,
+    /// Small evidence packet the caller can surface directly.
+    pub evidence: Vec<String>,
+    /// Suggested next tool when a follow-up is useful.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_tool: Option<String>,
+    /// Suggested target for the next tool when one is available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_target: Option<String>,
+}
+
 /// A symbol (function, struct, class, etc.) within the file.
 #[derive(Clone, Debug, Serialize)]
 pub struct SurgicalSymbol {
@@ -181,6 +202,9 @@ pub struct ApplyOutput {
     pub reingested: bool,
     /// Node IDs that were updated or added during re-ingest.
     pub updated_node_ids: Vec<String>,
+    /// Proactive structural follow-up suggestions attached to this write.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub proactive_insights: Vec<ProactiveInsight>,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
 }
@@ -438,6 +462,9 @@ pub struct ApplyBatchOutput {
     /// Post-write verification report (populated when verify=true).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<VerificationReport>,
+    /// Proactive structural follow-up suggestions attached to this batch.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub proactive_insights: Vec<ProactiveInsight>,
     /// Suggested next tool after the batch finishes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_suggested_tool: Option<String>,
@@ -530,6 +557,9 @@ pub struct ApplyBatchProgressEvent {
     /// Short hint for the next step after this event when known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_step_hint: Option<String>,
+    /// Proactive structural follow-up suggestions when this event is ready to hand off.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub proactive_insights: Vec<ProactiveInsight>,
     /// Event timestamp in elapsed milliseconds from batch start.
     pub elapsed_ms: f64,
     /// Short status line for user-visible progress.
