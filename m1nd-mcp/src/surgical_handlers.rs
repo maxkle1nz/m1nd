@@ -310,7 +310,31 @@ fn build_proactive_insights(
     insights
 }
 
-fn persist_daemon_alerts_from_insights(
+pub(crate) fn daemon_proactive_insights_for_file(
+    state: &SessionState,
+    file_path: &str,
+    verification: Option<&surgical::VerificationReport>,
+) -> Vec<surgical::ProactiveInsight> {
+    let graph = state.graph.read();
+    let file_node = find_nodes_for_file(&graph, file_path)
+        .into_iter()
+        .find(|(node_id, ext)| is_file_node(&graph, *node_id) && ext.starts_with("file::"))
+        .map(|(_, ext)| ext);
+    drop(graph);
+
+    let heuristic_summary = file_node
+        .as_deref()
+        .map(|external_id| build_surgical_heuristic_summary(state, external_id, file_path));
+    build_proactive_insights(
+        state,
+        file_path,
+        file_node.as_deref(),
+        heuristic_summary.as_ref(),
+        verification,
+    )
+}
+
+pub(crate) fn persist_daemon_alerts_from_insights(
     state: &mut SessionState,
     proactive_insights: &[surgical::ProactiveInsight],
     default_file_path: Option<&str>,
@@ -2169,25 +2193,7 @@ pub fn handle_apply(
     state.track_agent(&input.agent_id);
 
     let applied_file_path = validated_path.to_string_lossy().to_string();
-    let proactive_insights = {
-        let graph = state.graph.read();
-        let file_node = find_nodes_for_file(&graph, &applied_file_path)
-            .into_iter()
-            .find(|(node_id, ext)| is_file_node(&graph, *node_id) && ext.starts_with("file::"))
-            .map(|(_, ext)| ext);
-        drop(graph);
-
-        let heuristic_summary = file_node.as_deref().map(|external_id| {
-            build_surgical_heuristic_summary(state, external_id, &applied_file_path)
-        });
-        build_proactive_insights(
-            state,
-            &applied_file_path,
-            file_node.as_deref(),
-            heuristic_summary.as_ref(),
-            None,
-        )
-    };
+    let proactive_insights = daemon_proactive_insights_for_file(state, &applied_file_path, None);
     persist_daemon_alerts_from_insights(
         state,
         &proactive_insights,

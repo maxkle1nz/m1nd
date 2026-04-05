@@ -275,11 +275,23 @@ pub fn handle_daemon_tick(
                 sha256: entry.sha256.clone(),
             },
         );
+        let proactive_insights = crate::surgical_handlers::daemon_proactive_insights_for_file(
+            state,
+            &entry.file_path,
+            None,
+        );
+        crate::surgical_handlers::persist_daemon_alerts_from_insights(
+            state,
+            &proactive_insights,
+            Some(&entry.file_path),
+            Some(&entry.external_id),
+        );
         ingested_files.push(json!({
             "file_path": entry.file_path,
             "external_id": entry.external_id,
             "nodes_created": ingest_result.get("nodes_created").cloned().unwrap_or(json!(0)),
             "edges_created": ingest_result.get("edges_created").cloned().unwrap_or(json!(0)),
+            "proactive_insight_kinds": proactive_insights.iter().map(|insight| insight.kind.clone()).collect::<Vec<_>>(),
         }));
     }
 
@@ -592,6 +604,100 @@ mod tests {
         assert!(ticked["ingested_files"][0]["file_path"]
             .as_str()
             .is_some_and(|path| path.ends_with("src/core.py")));
+    }
+
+    #[test]
+    fn daemon_tick_surfaces_proactive_alerts_for_risky_changed_file() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file_path = repo.join("src/core.py");
+        std::fs::write(&file_path, "def core():\n    return 1\n").expect("write file");
+        std::fs::write(
+            repo.join("src/test_core.py"),
+            "def test_core():\n    assert True\n",
+        )
+        .expect("write companion test");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("initial ingest");
+
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 500,
+            },
+        )
+        .expect("daemon start");
+
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", file_path.to_string_lossy()), 100.0);
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", file_path.to_string_lossy()), 200.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path.to_string_lossy()),
+            1.0,
+            4,
+            300.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path.to_string_lossy()),
+            1.1,
+            4,
+            400.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", file_path.to_string_lossy()),
+            1.2,
+            4,
+            500.0,
+        );
+
+        std::fs::write(&file_path, "def core():\n    return 3\n").expect("rewrite file");
+
+        let ticked = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("risky changed tick");
+        let kinds = ticked["ingested_files"][0]["proactive_insight_kinds"]
+            .as_array()
+            .expect("proactive insight kinds");
+        assert!(
+            kinds.iter().any(|value| {
+                value.as_str() == Some("trust_drop")
+                    || value.as_str() == Some("tremor_hotspot")
+                    || value.as_str() == Some("untouched_test_companion")
+            }),
+            "daemon tick should surface the same proactive heuristics as write paths"
+        );
+        assert!(
+            state.daemon_alerts.iter().any(|alert| {
+                alert.kind == "trust_drop"
+                    || alert.kind == "tremor_hotspot"
+                    || alert.kind == "untouched_test_companion"
+            }),
+            "daemon tick should persist heuristic alerts for risky changed files"
+        );
     }
 
     #[test]
