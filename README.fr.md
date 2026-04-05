@@ -463,7 +463,7 @@ Ce n’est pas un remplaçant d’un LSP, d’un compilateur ou de l’observabi
 
 ## Surface des outils
 
-L’implémentation actuelle de `tool_schemas()` dans [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) expose **63 MCP tools**.
+L’implémentation actuelle de `tool_schemas()` dans [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) expose **77 outils MCP**.
 
 Les noms canoniques des outils dans le schéma MCP exporté utilisent des underscores, comme `trail_save`, `perspective_start`, et `apply_batch`. Certains clients peuvent afficher des noms avec un préfixe de transport comme `m1nd.apply_batch`, mais les entrées du registre live sont basées sur des underscores.
 

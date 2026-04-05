@@ -58,6 +58,8 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
         auto_ingested: false,
         match_count: None,
         auto_ingested_paths: vec![],
+        truncated: false,
+        inline_summary: None,
         proof_state: "triaging".into(),
         next_suggested_tool: Some("view".into()),
         next_suggested_target: Some("/project/backend/module_0.py".into()),
@@ -118,6 +120,8 @@ fn build_report_output(agent_id: &str, queries: u32) -> ReportOutput {
             "## m1nd Session Report\n- Queries: {}\n- Tokens saved: {}\n",
             queries, tokens_saved
         ),
+        truncated: false,
+        inline_summary: None,
     }
 }
 
@@ -564,6 +568,8 @@ fn test_report_empty_session() {
         recent_queries: vec![],
         heuristic_hotspots: vec![],
         markdown_summary: "## m1nd Session Report\n- Queries: 0\n- Tokens saved: 0\n".into(),
+        truncated: false,
+        inline_summary: None,
     };
 
     assert_eq!(out.session_queries, 0, "empty session must have 0 queries");

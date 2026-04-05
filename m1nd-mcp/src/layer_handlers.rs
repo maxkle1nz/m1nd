@@ -441,6 +441,18 @@ pub fn handle_seek(
 
     let (next_suggested_tool, next_suggested_target, next_step_hint) = l2_seek_next_step(&results);
     let proof_state = l2_seek_proof_state(&results);
+    state.note_coverage(
+        &input.agent_id,
+        "seek",
+        results
+            .iter()
+            .filter_map(|entry| entry.file_path.clone())
+            .collect::<Vec<_>>(),
+        results
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .collect::<Vec<_>>(),
+    );
 
     Ok(layers::SeekOutput {
         query: input.query,
@@ -2931,7 +2943,10 @@ pub fn handle_hypothesize(
         .collect();
 
     // Unresolvable subject -> early return
-    if subject_ids.is_empty() && parsed.claim_type != L5ClaimType::Unknown {
+    if subject_ids.is_empty()
+        && parsed.claim_type != L5ClaimType::Unknown
+        && parsed.subject != "__repo__"
+    {
         return Ok(layers::HypothesizeOutput {
             claim: input.claim.clone(),
             claim_type: parsed.claim_type.as_str().into(),
@@ -3121,6 +3136,46 @@ pub fn handle_hypothesize(
 
         // --- ISOLATED: zero or very low degree ---
         L5ClaimType::Isolated => {
+            if parsed.subject == "__repo__" {
+                let mut isolated_nodes = Vec::new();
+                for (interned, &nid) in &graph.id_to_node {
+                    let ext_id = graph.strings.resolve(*interned).to_string();
+                    if !ext_id.starts_with("file::") {
+                        continue;
+                    }
+                    let out_deg = graph.csr.out_range(nid).len();
+                    let in_deg = graph.csr.in_range(nid).len();
+                    let total = out_deg + in_deg;
+                    if total == 0 {
+                        isolated_nodes.push(ext_id);
+                    }
+                }
+                isolated_nodes.sort();
+                if isolated_nodes.is_empty() {
+                    contradicting.push(layers::HypothesisEvidence {
+                        evidence_type: "activation_reach".into(),
+                        description: "No degree-0 file nodes were found in the current graph."
+                            .into(),
+                        likelihood_factor: 0.4,
+                        nodes: vec![],
+                        relations: vec![],
+                        path_weight: None,
+                    });
+                } else {
+                    supporting.push(layers::HypothesisEvidence {
+                        evidence_type: "activation_reach".into(),
+                        description: format!(
+                            "Found {} degree-0 file nodes in the current graph.",
+                            isolated_nodes.len()
+                        ),
+                        likelihood_factor: 2.0,
+                        nodes: isolated_nodes,
+                        relations: vec![],
+                        path_weight: None,
+                    });
+                }
+                paths_explored += 1;
+            }
             for &src in &subject_ids {
                 let out_deg = graph.csr.out_range(src).len();
                 let in_deg = graph.csr.in_range(src).len();
@@ -4309,6 +4364,8 @@ fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidateP
             incremental: true,
             adapter: "code".to_string(),
             namespace: None,
+            include_dotfiles: false,
+            dotfile_patterns: Vec::new(),
         };
         let _ = crate::tools::handle_ingest(state, ingest_input);
     }
@@ -6469,6 +6526,22 @@ fn l5_parse_claim(claim: &str) -> L5ParsedClaim {
         };
     }
     // ISOLATED
+    if (lower.contains("files in the repo")
+        || lower.contains("modules in the repo")
+        || lower.contains("nodes in the repo")
+        || lower.contains("files in this repo")
+        || lower.contains("files in the codebase"))
+        && (lower.contains("no connection")
+            || lower.contains("isolated")
+            || lower.contains("orphan")
+            || lower.contains("standalone"))
+    {
+        return L5ParsedClaim {
+            claim_type: L5ClaimType::Isolated,
+            subject: "__repo__".into(),
+            object: String::new(),
+        };
+    }
     if lower.contains("isolated")
         || lower.contains("no dependencies")
         || lower.contains("standalone")
@@ -9054,8 +9127,8 @@ fn generate_dot(
 mod tests {
     use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData};
     use crate::protocol::layers::{
-        LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput, TrailResumeInput,
-        TrailSaveInput, TrailVisitedNodeInput, ValidatePlanInput,
+        HypothesizeInput, LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput,
+        TrailResumeInput, TrailSaveInput, TrailVisitedNodeInput, ValidatePlanInput,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
@@ -9567,6 +9640,79 @@ mod tests {
         assert_eq!(
             super::l5_hypothesize_proof_state("inconclusive", &[], &[], Some(&partial)),
             "proving"
+        );
+    }
+
+    #[test]
+    fn hypothesize_repo_wide_isolation_enumerates_orphan_nodes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let connected_a = graph
+            .add_node("file::src/a.rs", "a.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add a");
+        let connected_b = graph
+            .add_node("file::src/b.rs", "b.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add b");
+        let orphan = graph
+            .add_node(
+                "file::src/orphan.rs",
+                "orphan.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add orphan");
+        graph
+            .add_edge(
+                connected_a,
+                connected_b,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add edge");
+        let _ = orphan;
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+
+        let output = super::handle_hypothesize(
+            &mut state,
+            HypothesizeInput {
+                agent_id: "test".into(),
+                claim: "there are files in the repo that have no connection to any other file or subsystem".into(),
+                max_hops: 6,
+                path_budget: 200,
+                include_ghost_edges: true,
+                include_partial_flow: false,
+            },
+        )
+        .expect("hypothesize should succeed");
+
+        assert!(
+            output
+                .supporting_evidence
+                .iter()
+                .flat_map(|entry| entry.nodes.iter())
+                .any(|node| node == "file::src/orphan.rs"),
+            "repo-wide isolation claims should enumerate orphan file nodes"
         );
     }
 

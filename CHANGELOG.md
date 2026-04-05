@@ -8,6 +8,27 @@ All notable changes to m1nd are documented here.
 
 ### Added
 
+#### Audit Mode + Session Foundations
+
+Six new MCP tools reduce orchestration overhead in long structural sessions:
+
+| Tool | What It Does |
+|------|-------------|
+| `batch_view` | Read multiple files or glob expansions in one call with stable delimiters, optional summaries, and auto-ingest |
+| `scan_all` | Run all structural scan patterns in one call and return grouped findings |
+| `cross_verify` | Compare graph state against current disk truth (`existence`, `loc`, `hash`) |
+| `coverage_session` | Report which files/nodes the current agent has already visited |
+| `external_references` | Discover explicit references to paths outside current ingest roots |
+| `audit` | Profile-aware one-call audit for topology, scans, verification, git state, and recommendations |
+
+Related contract upgrades:
+
+- `health` now exposes git context (`branch`, `clean`, `head`, recent commits, uncommitted files)
+- `ingest` now accepts `include_dotfiles` and `dotfile_patterns`
+- `view`, `search`, `report`, and `audit` now support inline truncation metadata instead of forcing file-only spill paths
+
+Tool count: 71 → 77.
+
 #### RETROBUILDER: 5 Advanced Graph Analysis Tools
 
 Five new MCP tools expose the RETROBUILDER core modules (RB-01 through RB-05),

@@ -441,6 +441,6 @@ AI agents waste 80% of their context window navigating code with grep and file r
 
 ## Next Steps
 
-- [API Reference](API-Reference) — all 61 tools with schemas, examples, and benchmarks
+- [API Reference](API-Reference) — all 77 tools with schemas, examples, and benchmarks
 - [Home](Home) — overview, key numbers, common workflows
 - [EXAMPLES.md](../EXAMPLES.md) — raw output from a production codebase

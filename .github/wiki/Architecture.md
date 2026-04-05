@@ -9,14 +9,14 @@ m1nd/
                  graph-diff with pre/post node snapshots
   m1nd-ingest/   Language extractors (27+ languages), memory adapter, JSON adapter,
                  git enrichment, cross-file resolver, incremental diff
-  m1nd-mcp/      MCP server, 61 tool handlers, JSON-RPC over stdio
+  m1nd-mcp/      MCP server, 77 tool handlers, JSON-RPC over stdio
 ```
 
 ## Dependency Graph
 
 ```mermaid
 graph TD
-    MCP[m1nd-mcp<br/>MCP server · 61 tools · JSON-RPC stdio]
+    MCP[m1nd-mcp<br/>MCP server · 77 tools · JSON-RPC stdio]
     INGEST[m1nd-ingest<br/>File walker · Extractors · Adapters · Diff]
     CORE[m1nd-core<br/>Graph engine · Plasticity · Activation · GraphDiff]
 
@@ -306,7 +306,7 @@ Tool dispatch, session state, protocol types.
 |--------|---------|
 | `main.rs` | Entry point, CLI parsing, transport selection |
 | `cli.rs` | `clap`-based CLI — `--serve`, `--port`, `--bind`, `--open`, `--stdio`, `--dev`, `--event-log` |
-| `server.rs` | `tool_schemas()` — 61 tool registrations, `dispatch_tool()` free function (normalize → match) |
+| `server.rs` | `tool_schemas()` — 77 tool registrations, `dispatch_tool()` free function (normalize → match) |
 | `tools.rs` | Core tool handlers (ingest, activate, impact, learn, drift, ...) |
 | `layer_handlers.rs` | Antibody, flow, epidemic, tremor, trust, layers handlers |
 | `engine_ops.rs` | Shared engine helpers |
@@ -380,7 +380,7 @@ cargo build --release --features serve
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/api/health` | GET | Server health, node/edge counts, uptime, domain |
-| `/api/tools` | GET | List all 61 tool schemas |
+| `/api/tools` | GET | List all 77 tool schemas |
 | `/api/tools/{tool_name}` | POST | Execute any MCP tool via HTTP |
 | `/api/graph/stats` | GET | Graph statistics (node count, edge count, domain) |
 | `/api/graph/subgraph` | GET | Activation-based subgraph for visualization (`?query=...&top_k=N`) |

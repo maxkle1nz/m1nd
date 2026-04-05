@@ -1,17 +1,42 @@
 # API Reference
 
-All 61 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
+All 77 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
 
 All tools require an `agent_id` string parameter (use any stable identifier — your editor session ID, agent name, etc.).
 
 Jump to:
-- [Foundation (13 tools)](#foundation-13-tools)
-- [Perspective Navigation (12 tools)](#perspective-navigation-12-tools)
-- [Lock System (5 tools)](#lock-system-5-tools)
-- [Superpowers (13 tools)](#superpowers-13-tools)
-- [Superpowers Extended (9 tools)](#superpowers-extended-9-tools)
-- [Surgical (4 tools)](#surgical-4-tools)
-- [v0.5.0 — Search & Efficiency (5 tools)](#v050--search--efficiency-5-tools)
+- [Foundation](#foundation-13-tools)
+- [Perspective Navigation](#perspective-navigation-12-tools)
+- [Lock System](#lock-system-5-tools)
+- [Superpowers](#superpowers-13-tools)
+- [Superpowers Extended](#superpowers-extended-9-tools)
+- [RETROBUILDER](#retrobuilder-5-tools)
+- [Surgical](#surgical-4-tools)
+- [Search & Efficiency](#v050--search--efficiency-5-tools)
+- [Audit & Session Ergonomics](#audit--session-ergonomics-6-tools)
+
+---
+
+## RETROBUILDER (5 tools)
+
+These tools are implemented in the live registry and exposed through `tool_schemas()`:
+
+- `m1nd_ghost_edges` — temporal co-change ghost edges from git history
+- `m1nd_taint_trace` — taint propagation over graph structure
+- `m1nd_twins` — structural equivalence / near-equivalence discovery
+- `m1nd_refactor_plan` — graph-native refactoring proposals
+- `m1nd_runtime_overlay` — runtime heat and error overlays from OTel spans
+
+## Audit & Session Ergonomics (6 tools)
+
+These tools reduce orchestration overhead for real agent sessions:
+
+- `m1nd_batch_view` — multi-file read surface with stable delimiters and summaries
+- `m1nd_scan_all` — run all structural patterns in one call
+- `m1nd_cross_verify` — graph vs disk verification (`existence`, `loc`, `hash`)
+- `m1nd_coverage_session` — what this agent has visited so far
+- `m1nd_external_references` — explicit paths outside ingest roots
+- `m1nd_audit` — profile-aware one-call audit
 
 ---
 

@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Lifecycle tools for m1nd — ingest, validate, lock, and operate a local code graph runtime for MCP agents">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,10 +181,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="lifecycle--lock-tools"><a class="header" href="#lifecycle--lock-tools">Lifecycle &amp; Lock Tools</a></h1>
-<p>Eight tools for graph ingestion, health monitoring, plan validation, and subgraph locking with change detection. This part of the runtime is where m1nd becomes operational: you ingest structure, validate risky plans, and keep long-running agent work grounded in live graph state.</p>
+<p>Eight tools for graph ingestion, health monitoring, plan validation, and subgraph locking with change detection.</p>
 <hr>
 <h2 id="m1ndingest"><a class="header" href="#m1ndingest"><code>m1nd.ingest</code></a></h2>
-<p>Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. This is the primary way to load structure into m1nd before guided queries, proof-aware analysis, and connected edit preparation. Supports three adapters (<code>code</code>, <code>json</code>, <code>memory</code>) and two modes (<code>replace</code>, <code>merge</code>).</p>
+<p>Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. This is the primary way to load data into m1nd. Supports three adapters (<code>code</code>, <code>json</code>, <code>memory</code>) and two modes (<code>replace</code>, <code>merge</code>).</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -210,8 +209,8 @@
   "params": {
     "name": "m1nd.ingest",
     "arguments": {
-      "agent_id": "orchestrator",
-      "path": "/path/to/your/project",
+      "agent_id": "jimi",
+      "path": "/Users/cosmophonix/clawd/roomanizer-os/backend",
       "adapter": "code",
       "mode": "replace",
       "incremental": false
@@ -293,7 +292,7 @@
   "params": {
     "name": "m1nd.health",
     "arguments": {
-      "agent_id": "orchestrator"
+      "agent_id": "jimi"
     }
   }
 }
@@ -309,7 +308,7 @@
   "plasticity_state": "active",
   "last_persist_time": "2026-03-13T10:30:00Z",
   "active_sessions": [
-    { "agent_id": "orchestrator", "last_active": "2026-03-13T11:25:00Z" }
+    { "agent_id": "jimi", "last_active": "2026-03-13T11:25:00Z" }
   ]
 }
 </code></pre>
@@ -349,11 +348,11 @@
   "params": {
     "name": "m1nd.validate_plan",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "actions": [
-        { "action_type": "modify", "file_path": "backend/pool.py", "description": "Add connection timeout" },
-        { "action_type": "modify", "file_path": "backend/worker.py", "description": "Update pool acquire to use timeout" },
-        { "action_type": "test", "file_path": "backend/tests/test_pool.py" }
+        { "action_type": "modify", "file_path": "backend/session_pool.py", "description": "Add connection timeout" },
+        { "action_type": "modify", "file_path": "backend/worker_pool.py", "description": "Update pool acquire to use timeout" },
+        { "action_type": "test", "file_path": "backend/tests/test_session_pool.py" }
       ]
     }
   }
@@ -368,14 +367,14 @@
     {
       "file_path": "backend/config.py",
       "node_id": "file::config.py",
-      "reason": "imported by modified file pool.py -- timeout config likely needed here",
+      "reason": "imported by modified file session_pool.py -- timeout config likely needed here",
       "severity": "warning",
       "signal_strength": 0.72
     },
     {
       "file_path": "backend/process_manager.py",
       "node_id": "file::process_manager.py",
-      "reason": "in blast radius of worker.py -- calls worker.submit",
+      "reason": "in blast radius of worker_pool.py -- calls worker_pool.submit",
       "severity": "info",
       "signal_strength": 0.45
     }
@@ -385,12 +384,12 @@
   "test_coverage": {
     "modified_files": 2,
     "tested_files": 1,
-    "untested_files": ["backend/worker.py"],
+    "untested_files": ["backend/worker_pool.py"],
     "coverage_ratio": 0.5
   },
   "suggested_additions": [
     { "action_type": "modify", "file_path": "backend/config.py", "reason": "Timeout configuration likely needed" },
-    { "action_type": "test", "file_path": "backend/tests/test_worker.py", "reason": "Modified file has no test action in plan" }
+    { "action_type": "test", "file_path": "backend/tests/test_worker_pool.py", "reason": "Modified file has no test action in plan" }
   ],
   "blast_radius_total": 47,
   "elapsed_ms": 35.0
@@ -464,9 +463,9 @@
   "params": {
     "name": "m1nd.lock.create",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "scope": "subgraph",
-      "root_nodes": ["file::handler.py"],
+      "root_nodes": ["file::chat_handler.py"],
       "radius": 2
     }
   }
@@ -525,7 +524,7 @@
   "params": {
     "name": "m1nd.lock.watch",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "lock_id": "lock_jimi_001",
       "strategy": "on_ingest"
     }
@@ -573,7 +572,7 @@
   "params": {
     "name": "m1nd.lock.diff",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "lock_id": "lock_jimi_001"
     }
   }
@@ -584,14 +583,14 @@
   "diff": {
     "lock_id": "lock_jimi_001",
     "no_changes": false,
-    "new_nodes": ["file::handler.py::fn::new_method"],
+    "new_nodes": ["file::chat_handler.py::fn::new_method"],
     "removed_nodes": [],
-    "new_edges": ["handler.py|new_method-&gt;parser.py|calls"],
+    "new_edges": ["chat_handler.py|new_method-&gt;stream_parser.py|calls"],
     "removed_edges": [],
     "boundary_edges_added": [],
     "boundary_edges_removed": [],
     "weight_changes": [
-      { "edge_key": "handler.py|parser.py|imports", "old_weight": 0.5, "new_weight": 0.72 }
+      { "edge_key": "chat_handler.py|stream_parser.py|imports", "old_weight": 0.5, "new_weight": 0.72 }
     ],
     "baseline_stale": false,
     "elapsed_ms": 0.08
@@ -654,7 +653,7 @@
   "params": {
     "name": "m1nd.lock.rebase",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "lock_id": "lock_jimi_001"
     }
   }
@@ -704,7 +703,7 @@
   "params": {
     "name": "m1nd.lock.release",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "lock_id": "lock_jimi_001"
     }
   }

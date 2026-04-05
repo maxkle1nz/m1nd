@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents, including proof state, guided handoff, continuity, and recovery workflows.">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-72b55f3c.js"></script>
+        <script src="toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -184,8 +183,8 @@
                         <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
 <h2 id="general"><a class="header" href="#general">General</a></h2>
 <h3 id="what-is-m1nd"><a class="header" href="#what-is-m1nd">What is m1nd?</a></h3>
-<p>m1nd is a local code graph engine for MCP agents. It parses your codebase into a weighted graph and exposes a runtime surface for retrieval, proof, continuity, connected edits, and recovery. Built in Rust, it runs locally as an MCP server and works with MCP-compatible agent clients.</p>
-<p>The key differentiator is not just that the graph learns. Modern m1nd also returns <code>proof_state</code>, next-step guidance, actionable continuity through <code>trail_resume</code>, and observable execution for flows like <code>apply_batch</code>.</p>
+<p>m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 77 MCP tools for structure, impact, connected context, continuity, audit, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.</p>
+<p>The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as <code>proof_state</code>, <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code>, plus observable progress for long-running writes like <code>apply_batch</code>.</p>
 <h3 id="how-is-m1nd-different-from-grep--ripgrep"><a class="header" href="#how-is-m1nd-different-from-grep--ripgrep">How is m1nd different from grep / ripgrep?</a></h3>
 <p>Grep finds <em>text</em>. m1nd finds <em>structure and relationships</em>.</p>
 <p>Grep tells you which files contain the word “authentication”. m1nd tells you which modules are structurally connected to authentication, which ones are likely co-changed when auth changes, which hidden dependencies exist between auth and seemingly unrelated modules, and what would break if you removed the auth module.</p>
@@ -196,10 +195,10 @@
 <p>RAG is useful for semantic similarity search. m1nd is useful for structural reasoning. They are complementary, not competing.</p>
 <h3 id="how-is-m1nd-different-from-static-analysis-tools-tree-sitter-ast-grep-sourcegraph"><a class="header" href="#how-is-m1nd-different-from-static-analysis-tools-tree-sitter-ast-grep-sourcegraph">How is m1nd different from static analysis tools (tree-sitter, ast-grep, Sourcegraph)?</a></h3>
 <p>Static analysis tools parse code into ASTs and compute call graphs, type hierarchies, and cross-references. These are accurate but frozen – they represent the code at a single point in time and cannot answer “what if?” questions.</p>
-<p>m1nd uses similar structural information as a starting point but adds three things static analysis usually does not: (1) adaptive feedback over graph weights, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.</p>
+<p>m1nd uses similar structural information as a starting point but adds three things static analysis cannot: (1) Hebbian learning that adapts the graph based on usage, (2) temporal intelligence from co-change history, and (3) simulation engines for hypotheses and counterfactuals.</p>
 <p>Sourcegraph is a search engine. m1nd is a reasoning engine.</p>
 <h3 id="do-i-need-an-llm-to-use-m1nd"><a class="header" href="#do-i-need-an-llm-to-use-m1nd">Do I need an LLM to use m1nd?</a></h3>
-<p>No. m1nd makes zero LLM calls. It is local Rust computation over your graph and runtime state. No API keys, no network calls, and no code shipping required.</p>
+<p>No. m1nd makes zero LLM calls. It is pure Rust computation: graph algorithms, spreading activation, Hebbian plasticity. No API keys, no network calls, no token costs.</p>
 <p>m1nd is designed to <em>work alongside</em> LLMs (as an MCP tool that agents call), but the graph engine itself is completely self-contained.</p>
 <h3 id="what-languages-does-m1nd-support"><a class="header" href="#what-languages-does-m1nd-support">What languages does m1nd support?</a></h3>
 <p>m1nd has dedicated extractors for:</p>
@@ -324,13 +323,13 @@
 </div>
 <hr>
 <h2 id="plasticity-and-learning"><a class="header" href="#plasticity-and-learning">Plasticity and Learning</a></h2>
-<h3 id="how-does-hebbian-learning-work"><a class="header" href="#how-does-hebbian-learning-work">How does graph learning work?</a></h3>
-<p>When you call <code>learn</code> with <code>feedback: "correct"</code> and a list of node IDs, m1nd identifies edges on the paths that contributed to those results and increases their weights. When you call with <code>feedback: "wrong"</code>, it decreases weights on paths leading to the marked nodes.</p>
+<h3 id="how-does-hebbian-learning-work"><a class="header" href="#how-does-hebbian-learning-work">How does Hebbian learning work?</a></h3>
+<p>“Neurons that fire together wire together.” When you call <code>learn</code> with <code>feedback: "correct"</code> and a list of node IDs, m1nd identifies all edges on paths between those nodes and increases their weights (Long-Term Potentiation, LTP). When you call with <code>feedback: "wrong"</code>, it decreases weights on paths leading to the marked nodes (Long-Term Depression, LTD).</p>
 <p>The <code>strength</code> parameter (default 0.2) controls how aggressively weights shift. The <code>learning_rate</code> server configuration (default 0.08) provides a global scaling factor.</p>
 <h3 id="can-i-reset-learned-weights"><a class="header" href="#can-i-reset-learned-weights">Can I reset learned weights?</a></h3>
 <p>Yes. Delete the <code>plasticity_state.json</code> file and restart the server. Alternatively, re-ingest the codebase, which rebuilds the graph from scratch (but does not clear the plasticity state file – you need to delete it separately or pass <code>"incremental": false</code> and delete the plasticity file).</p>
 <h3 id="does-the-graph-overfit"><a class="header" href="#does-the-graph-overfit">Does the graph overfit?</a></h3>
-<p>The learning loop includes normalization to prevent runaway weight amplification. Edge weights are bounded and periodically normalized so that heavily-used paths do not completely dominate. The <code>decay_rate</code> parameter (default 0.005) provides a slow decay toward baseline weights over time.</p>
+<p>Hebbian learning includes homeostatic normalization to prevent runaway weight amplification. Edge weights are bounded and periodically normalized so that heavily-used paths do not completely dominate. The <code>decay_rate</code> parameter (default 0.005) provides a slow decay toward baseline weights over time.</p>
 <p>In practice, overfitting requires thousands of feedback signals consistently reinforcing the same narrow paths. Normal usage produces a well-distributed weight landscape.</p>
 <h3 id="what-is-partial-feedback"><a class="header" href="#what-is-partial-feedback">What is “partial” feedback?</a></h3>
 <p>The <code>learn</code> tool accepts three feedback types:</p>

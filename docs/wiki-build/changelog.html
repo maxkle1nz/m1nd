@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="m1nd changelog — release history for the local code graph runtime for MCP agents">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-72b55f3c.js"></script>
+        <script src="toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,8 +182,128 @@
                     <main>
                         <h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
 <p>All notable changes to m1nd are documented here. This project uses <a href="https://semver.org/">Semantic Versioning</a>.</p>
-<h2 id="v010--initial-release"><a class="header" href="#v010--initial-release">v0.1.0 – Initial Release</a></h2>
-<p>The first public release of m1nd: a local code graph runtime with adaptive graph weighting, spreading activation, and 43 MCP tools. Built in Rust.</p>
+<h2 id="062--2026-03-26"><a class="header" href="#062--2026-03-26">[0.6.2] — 2026-03-26</a></h2>
+<h3 id="added"><a class="header" href="#added">Added</a></h3>
+<h4 id="universal-knowledge-connectome"><a class="header" href="#universal-knowledge-connectome">Universal Knowledge Connectome</a></h4>
+<p>The ingestion pipeline now supports scholarly and standards documents alongside code:</p>
+<ul>
+<li><strong>Patent adapter</strong> (<code>patent</code>): USPTO/EPO XML with claims, citations, and assignee extraction</li>
+<li><strong>JATS adapter</strong> (<code>article</code>): PubMed NLM / JATS Z39.96 scientific article XML</li>
+<li><strong>BibTeX adapter</strong> (<code>bibtex</code>/<code>bib</code>): BibTeX bibliography file ingestion</li>
+<li><strong>RFC adapter</strong> (<code>rfc</code>): IETF RFC XML v3 with section-level granularity</li>
+<li><strong>CrossRef adapter</strong> (<code>crossref</code>/<code>doi</code>): CrossRef API JSON for DOI metadata</li>
+</ul>
+<h4 id="document-router-auto-detection"><a class="header" href="#document-router-auto-detection">Document Router (Auto-Detection)</a></h4>
+<p><code>DocumentRouter</code> auto-detects file format by extension and content heuristics.
+Used via <code>m1nd.ingest(adapter="auto")</code>.</p>
+<h4 id="cross-domain-resolution--6-bridge-strategies"><a class="header" href="#cross-domain-resolution--6-bridge-strategies">Cross-Domain Resolution — 6 Bridge Strategies</a></h4>
+<p><code>CrossDomainResolver</code> merges outputs from multiple adapters and discovers connections:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bridge</th><th>Weight</th><th>Discovery</th></tr>
+</thead>
+<tbody>
+<tr><td><code>same_as</code></td><td>1.0</td><td>Shared DOI/PMID identity</td></tr>
+<tr><td><code>cross_cites</code></td><td>0.95</td><td>Cross-domain citation targets</td></tr>
+<tr><td><code>same_orcid</code></td><td>0.95</td><td>Researcher identity via ORCID</td></tr>
+<tr><td><code>same_author</code></td><td>0.7</td><td>Name matching across namespaces</td></tr>
+<tr><td><code>shared_keyword</code></td><td>0.6</td><td>Topic clustering via keyword/subject tags (≤20 cap)</td></tr>
+<tr><td><code>citation_chain</code></td><td>0.5</td><td>Transitive A→B→C bridging</td></tr>
+</tbody>
+</table>
+</div>
+<p>All bridges are cross-domain only — same namespace never bridges.</p>
+<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<ul>
+<li>README hero stats added to all 7 translated READMEs</li>
+<li><code>.gitignore</code> updated to exclude <code>.DS_Store</code> and <code>*.bak</code> files</li>
+<li>Architecture docs updated with all new adapters, router, and bridges</li>
+</ul>
+<h3 id="removed"><a class="header" href="#removed">Removed</a></h3>
+<ul>
+<li><code>.DS_Store</code> and <code>antibodies.json.bak</code> removed from repository</li>
+</ul>
+<h3 id="stats"><a class="header" href="#stats">Stats</a></h3>
+<ul>
+<li>10 ingestion adapters registered in MCP CLI</li>
+<li>131+ tests passing</li>
+<li>3/3 domains validated bridging via shared DOIs (RFC × CrossRef × BibTeX)</li>
+</ul>
+<hr>
+<h2 id="061--2026-03-25"><a class="header" href="#061--2026-03-25">[0.6.1] — 2026-03-25</a></h2>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<h4 id="release-and-publish-alignment"><a class="header" href="#release-and-publish-alignment">Release and Publish Alignment</a></h4>
+<p>This patch release aligns the public release surfaces after the <code>v0.6.0</code> rollout.</p>
+<ul>
+<li>workspace crates now include the missing crates.io metadata needed for clean publish</li>
+<li>internal workspace dependencies now use explicit published-version constraints</li>
+<li>the release workflow now skips crates.io publish cleanly when <code>CARGO_REGISTRY_TOKEN</code> is missing instead of failing the full release</li>
+</ul>
+<h2 id="060--2026-03-25"><a class="header" href="#060--2026-03-25">[0.6.0] — 2026-03-25</a></h2>
+<h3 id="added-1"><a class="header" href="#added-1">Added</a></h3>
+<h4 id="guided-proof-state-across-core-agent-flows"><a class="header" href="#guided-proof-state-across-core-agent-flows">Guided Proof State Across Core Agent Flows</a></h4>
+<p>Several high-value tools now surface <code>proof_state</code> plus explicit handoff guidance so an agent can tell whether it is still triaging, actively proving, or ready to move into edit preparation.</p>
+<ul>
+<li><code>seek</code>, <code>trace</code>, <code>impact</code>, <code>timeline</code>, <code>hypothesize</code>, <code>validate_plan</code>, and <code>surgical_context_v2</code> now participate in a shared proof-state model</li>
+<li>guided outputs now include <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code> across the main structural triage and edit-prep paths</li>
+<li><code>trail_resume</code> now behaves more like continuity orchestration than bookmark restore, returning compact resume hints, next-focus guidance, and tool-aware follow-up</li>
+</ul>
+<h4 id="apply_batch-progress-correlation-and-handoff-signals"><a class="header" href="#apply_batch-progress-correlation-and-handoff-signals"><code>apply_batch</code> Progress, Correlation, and Handoff Signals</a></h4>
+<p><code>apply_batch</code> has been upgraded from a “wait until the batch finishes” write surface into an observable execution flow with stable correlation and final handoff data.</p>
+<ul>
+<li>final outputs now expose <code>batch_id</code> for correlating progress and final result</li>
+<li>progress reporting now includes coarse lifecycle fields such as <code>active_phase</code>, <code>completed_phase_count</code>, <code>phase_count</code>, <code>remaining_phase_count</code>, <code>progress_pct</code>, and <code>next_phase</code></li>
+<li><code>phases</code> now act as a structured execution timeline across <code>validate</code>, <code>write</code>, <code>reingest</code>, <code>verify</code>, and <code>done</code></li>
+<li><code>progress_events</code> now provide a streaming-friendly event log for the same lifecycle</li>
+<li>live <code>apply_batch_progress</code> SSE emission now happens during execution in serve mode</li>
+<li>the final <code>batch_completed</code> event now carries the batch’s <code>proof_state</code> and next-step guidance</li>
+</ul>
+<h4 id="benchmark-harness-expansion"><a class="header" href="#benchmark-harness-expansion">Benchmark Harness Expansion</a></h4>
+<p>The benchmark system has been extended so progress UX, guidance, and repair loops can be measured as first-class product behavior, not only token proxy.</p>
+<ul>
+<li>benchmark runs now record <code>execution_origin</code> and <code>source_ref</code></li>
+<li>long-running flows can distinguish <code>live</code>, <code>replay</code>, and <code>snapshot</code> progress delivery</li>
+<li>the harness records progress event counts, proof-state transitions, recovery loops, and guidance-followed behavior</li>
+<li>the current aggregate warm-graph corpus stands at <code>10518 -&gt; 5182</code>, or <code>50.73%</code> savings, while also reducing <code>false_starts</code> from <code>14</code> to <code>0</code></li>
+</ul>
+<h3 id="changed-1"><a class="header" href="#changed-1">Changed</a></h3>
+<h4 id="help-and-docs-are-more-agent-operational"><a class="header" href="#help-and-docs-are-more-agent-operational">Help and Docs Are More Agent-Operational</a></h4>
+<ul>
+<li>help entries now include <code>WHEN TO USE</code>, <code>AVOID WHEN</code>, benchmark-aware guidance, composed workflows, and proof-state handoff cues</li>
+<li>common tool failures are now framed as repair loops with hint/example/next-step guidance</li>
+<li>README, examples, benchmark docs, and public landing surfaces now describe the current guided runtime more accurately</li>
+</ul>
+<hr>
+<h2 id="051--2026-03-24"><a class="header" href="#051--2026-03-24">[0.5.1] — 2026-03-24</a></h2>
+<p>Two-phase transactional editing for LLM agents. Preview before you write.</p>
+<h3 id="new-tools"><a class="header" href="#new-tools">New Tools</a></h3>
+<ul>
+<li><strong><code>edit_preview</code></strong>: Build an in-memory preview of a single-file edit without touching disk. Returns preview handle, source snapshot (hash, bytes, line count), unified diff, and validation report (empty content check, noop detection, ready-to-commit flag).</li>
+<li><strong><code>edit_commit</code></strong>: Commit a previously created preview to disk. Three safety guards:
+<ul>
+<li><strong>Confirm guard</strong>: <code>confirm</code> must be explicitly set to <code>true</code> (default <code>false</code>).</li>
+<li><strong>TTL</strong>: Previews expire after 5 minutes. Garbage-collected on access.</li>
+<li><strong>Source hash verification</strong>: Re-reads the file at commit time; rejects if it changed since preview.</li>
+</ul>
+</li>
+</ul>
+<h3 id="technical-details"><a class="header" href="#technical-details">Technical Details</a></h3>
+<ul>
+<li><code>EditPreviewState</code> stored in <code>SessionState</code> with agent isolation (agent_id must match).</li>
+<li>Preview handles are single-use — consumed on successful commit.</li>
+<li>Delegates to existing <code>handle_apply()</code> path for actual disk write + graph re-ingest.</li>
+<li>7 new integration tests covering: happy path, nonexistent file, commit, TTL expiry, source tampering, confirm guard, invalid handle.</li>
+<li>Help system updated with ToolDoc entries and suggest_next chains.</li>
+</ul>
+<h3 id="stats-1"><a class="header" href="#stats-1">Stats</a></h3>
+<ul>
+<li>77 MCP tools total on the current audit branch (was 71 before the audit/session additions).</li>
+<li>342 tests all passing.</li>
+</ul>
+<hr>
+<h2 id="010--initial-release"><a class="header" href="#010--initial-release">[0.1.0] — Initial Release</a></h2>
+<p>The first public release of m1nd: a graph-grounded code intelligence engine with Hebbian plasticity, spreading activation, and 43 MCP tools. Built in Rust.</p>
 <h3 id="core-engine-m1nd-core"><a class="header" href="#core-engine-m1nd-core">Core Engine (m1nd-core)</a></h3>
 <ul>
 <li><strong>Compressed Sparse Row (CSR) graph</strong> with forward and reverse adjacency</li>
@@ -195,7 +314,7 @@
 <li><strong>Hypothesis engine</strong>: claim testing with Bayesian confidence on graph paths</li>
 <li><strong>Counterfactual engine</strong>: module removal simulation with cascade analysis</li>
 <li><strong>Structural hole detection</strong>: topology-based gap analysis</li>
-<li><strong>Resonance analysis</strong>: reinforcement-pattern computation for structural hub identification</li>
+<li><strong>Resonance analysis</strong>: standing wave computation for structural hub identification</li>
 <li><strong>Fingerprint engine</strong>: activation fingerprinting for structural twin detection</li>
 <li><strong>Trail system</strong>: investigation state persistence, resume, and multi-trail merge with conflict detection</li>
 <li><strong>Lock system</strong>: subgraph pinning with sub-microsecond diff (0.08us)</li>

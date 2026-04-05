@@ -139,6 +139,23 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
             })
             .collect::<String>(),
     );
+    let (markdown_summary, truncated, inline_summary) = if let Some(limit) = input.max_output_chars
+    {
+        if markdown_summary.chars().count() > limit {
+            (
+                markdown_summary.chars().take(limit).collect::<String>(),
+                true,
+                Some(format!(
+                    "report markdown exceeded {} chars and was truncated inline. Raise max_output_chars for the full narrative.",
+                    limit
+                )),
+            )
+        } else {
+            (markdown_summary, false, None)
+        }
+    } else {
+        (markdown_summary, false, None)
+    };
 
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
@@ -153,6 +170,8 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
         recent_queries,
         heuristic_hotspots,
         markdown_summary,
+        truncated,
+        inline_summary,
     })
 }
 
@@ -460,6 +479,7 @@ mod tests {
             &mut state,
             ReportInput {
                 agent_id: "test".into(),
+                max_output_chars: None,
             },
         )
         .expect("report should succeed");

@@ -367,7 +367,7 @@ This matters because m1nd is not just a search endpoint. It is an opinionated gr
 
 ## Tool Surface
 
-The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **64 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
+The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **77 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
 
 | Category | Highlights |
 |----------|------------|
@@ -376,8 +376,10 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | **Lock System** | pin subgraph regions, watch for changes, diff locked state |
 | **Graph Analysis** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
 | **Extended Analysis** | antibody, flow_simulate, epidemic, tremor, trust, layers, heuristics_surface, validate_plan |
+| **RETROBUILDER** | ghost_edges, taint_trace, twins, refactor_plan, runtime_overlay |
+| **Audit & Session** | scan_all, cross_verify, coverage_session, external_references, audit |
 | **Reporting & State** | report, panoramic, savings, persist, boot_memory |
-| **Surgical** | surgical_context, surgical_context_v2, view, symbol_splice, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
+| **Surgical** | surgical_context, surgical_context_v2, view, batch_view, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
 
 <details>
 <summary><strong>Foundation</strong></summary>
@@ -397,6 +399,18 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `diverge` | Structural divergence analysis | varies |
 | `warmup` | Prime graph for an upcoming task | 82-89ms |
 | `federate` | Unify multiple repos into one graph | 1.3s / 2 repos |
+</details>
+
+<details>
+<summary><strong>RETROBUILDER</strong></summary>
+
+| Tool | What It Does |
+|------|-------------|
+| `ghost_edges` | Surface temporal co-change edges between files that move together without explicit static dependencies |
+| `taint_trace` | Propagate taint from entry points through the graph to expose missed trust boundaries |
+| `twins` | Find structurally similar nodes by topology signature |
+| `refactor_plan` | Suggest graph-native extraction/refactor communities |
+| `runtime_overlay` | Paint OpenTelemetry runtime heat, latency, and error signals onto graph nodes |
 </details>
 
 <details>
@@ -468,6 +482,18 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 </details>
 
 <details>
+<summary><strong>Audit & Session</strong></summary>
+
+| Tool | What It Does |
+|------|-------------|
+| `scan_all` | Run all structural scan patterns in one call and return grouped findings |
+| `cross_verify` | Compare graph state against filesystem truth: existence, LOC drift, hash mismatches |
+| `coverage_session` | Show which files/nodes the current agent has already visited |
+| `external_references` | Find explicit path references that point outside current ingest roots |
+| `audit` | One-call profile-aware audit across topology, scans, git state, verification, and recommendations |
+</details>
+
+<details>
 <summary><strong>Surgical</strong></summary>
 
 | Tool | What It Does | Speed |
@@ -475,11 +501,12 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `surgical_context` | Complete context for a code node: source, callers, callees, tests, plus `heuristic_summary` with trust/tremor/antibody/blast radius — in one call | varies |
 | `heuristics_surface` | Explain why a node or file ranked as risky or important using the same heuristic substrate as surgical_context and apply_batch | varies |
 | `surgical_context_v2` | All connected files with source code in ONE call, plus `heuristic_summary` on the primary file and each connected file — complete dependency context without multiple round-trips | 1.3ms |
+| `view` | Fast file reader with line numbers, auto-ingest, and inline truncation controls | varies |
+| `batch_view` | Read multiple files or glob patterns in one call with stable delimiters and summaries | varies |
 | `edit_preview` | **Preview a code change without writing to disk** — returns diff, snapshot, validation. Two-phase safety: see before you write | <1ms |
 | `edit_commit` | **Commit a previewed change** — requires explicit `confirm=true`, TTL 5min, source hash verification. Prevents stale/tampered writes | <1ms + apply |
 | `apply` | Write edited code back to file, atomic write, re-ingest graph, run predict | 3.5ms |
 | `apply_batch` | Write multiple files atomically, single re-ingest pass, returns per-file diffs | 165ms |
-| `symbol_splice` | Rewrite a specific symbol/body/region without hand-rolling a full-file patch | varies |
 | `apply_batch(verify=true)` | All of the above + **5-layer post-write verification** (pattern detection, compile check, graph BFS impact, test execution, anti-pattern analysis) with `heuristic_summary` on `verification.high_impact_files`; heuristic hotspots can promote the verdict to `RISKY` | 165ms + verify |
 </details>
 
@@ -630,6 +657,9 @@ Scans for known bug shapes, assesses blast radius, predicts infection spread.
 
 **Architecture audit:** `layers` -> `layer_inspect` -> `counterfactual`.
 Auto-detects layers, finds violations, simulates what breaks if you remove a module.
+
+**One-call repo audit:** `audit(profile="coordination" | "production" | "security")`.
+Bundles topology, grouped scans, graph-vs-disk verification, git state, external references, and recommendations into one response.
 
 **Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
 New developer asks "how does auth work?" and the graph lights up the path.

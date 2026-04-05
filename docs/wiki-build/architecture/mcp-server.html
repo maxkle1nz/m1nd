@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="m1nd MCP server — JSON-RPC tools for guided graph workflows, proof-aware analysis, and connected edits">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +181,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="mcp-server-m1nd-mcp"><a class="header" href="#mcp-server-m1nd-mcp">MCP Server (m1nd-mcp)</a></h1>
-<p>m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 43 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and provides perspective branching and lock-based change tracking.</p>
+<p>m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 77 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, and observable batch execution.</p>
 <p>Source: <code>mcp/m1nd/m1nd-mcp/src/</code></p>
 <h2 id="module-map"><a class="header" href="#module-map">Module Map</a></h2>
 <div class="table-wrapper">
@@ -194,7 +193,7 @@
 <tr><td><code>main.rs</code></td><td>Binary entry point, config loading, tokio runtime, SIGINT handling</td></tr>
 <tr><td><code>server.rs</code></td><td><code>McpServer</code>, JSON-RPC transport (framed + line), tool schema registry</td></tr>
 <tr><td><code>session.rs</code></td><td><code>SessionState</code>, engine lifecycle, auto-persist, perspective/lock management</td></tr>
-<tr><td><code>tools.rs</code></td><td>Tool handler implementations for all 43 MCP tools</td></tr>
+<tr><td><code>tools.rs</code></td><td>Tool handler implementations for the exported MCP surface</td></tr>
 <tr><td><code>engine_ops.rs</code></td><td>Read-only engine wrappers for perspective synthesis</td></tr>
 <tr><td><code>protocol.rs</code></td><td>JSON-RPC request/response types</td></tr>
 <tr><td><code>perspective/</code></td><td>Perspective branching, lock state, watcher events</td></tr>
@@ -208,10 +207,10 @@
 <p><strong>Framed mode</strong> (HTTP-style headers):</p>
 <pre><code>Content-Length: 142\r\n
 \r\n
-{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"orchestrator"}},"id":1}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
 </code></pre>
 <p><strong>Line mode</strong> (raw JSON):</p>
-<pre><code>{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"orchestrator"}},"id":1}
+<pre><code>{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
 </code></pre>
 <p>Detection is based on the first non-whitespace byte: if it is <code>{</code> or <code>[</code>, the message is treated as line-mode JSON. Otherwise, it is parsed as framed with <code>Content-Length</code> headers. Responses are written in the same mode as the incoming request.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -239,7 +238,7 @@
         "name": "m1nd.activate",
         "arguments": {
             "query": "chat handler",
-            "agent_id": "orchestrator",
+            "agent_id": "jimi",
             "top_k": 20,
             "dimensions": ["structural", "semantic", "temporal", "causal"],
             "xlr": true
@@ -260,7 +259,7 @@
     "id": 1
 }
 </code></pre>
-<p>The <code>tools/list</code> method returns all 43 tool schemas with full <code>inputSchema</code> per MCP spec, enabling auto-discovery by any MCP client.</p>
+<p>The <code>tools/list</code> method returns all 63 tool schemas with full <code>inputSchema</code> per MCP spec, enabling auto-discovery by any MCP client.</p>
 <h2 id="server-lifecycle"><a class="header" href="#server-lifecycle">Server Lifecycle</a></h2>
 <pre><code class="language-mermaid">sequenceDiagram
     participant Main as main.rs
@@ -320,7 +319,7 @@
 <p>The atomic write pattern (temp file + rename) ensures that even if shutdown is interrupted, the previous snapshot remains intact.</p>
 <h2 id="tool-registration-and-dispatch"><a class="header" href="#tool-registration-and-dispatch">Tool Registration and Dispatch</a></h2>
 <h3 id="schema-registry"><a class="header" href="#schema-registry">Schema Registry</a></h3>
-<p><code>tool_schemas()</code> returns a JSON array of all 43 tool definitions with full <code>inputSchema</code> objects. Each tool specifies:</p>
+<p><code>tool_schemas()</code> returns a JSON array of all 77 tool definitions with full <code>inputSchema</code> objects. Each tool specifies:</p>
 <ul>
 <li><code>name</code>: Dot-namespaced (e.g., <code>m1nd.activate</code>)</li>
 <li><code>description</code>: Human-readable purpose</li>
@@ -329,7 +328,7 @@
 <p>Example schema entry:</p>
 <pre><code class="language-json">{
     "name": "m1nd.activate",
-    "description": "Spreading activation query across the connectome",
+    "description": "Spreading activation query across the graph",
     "inputSchema": {
         "type": "object",
         "properties": {

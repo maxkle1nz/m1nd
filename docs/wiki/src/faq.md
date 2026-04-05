@@ -4,7 +4,7 @@
 
 ### What is m1nd?
 
-m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 63 MCP tools for structure, impact, connected context, continuity, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
+m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 77 MCP tools for structure, impact, connected context, continuity, audit, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
 
 The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as `proof_state`, `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`, plus observable progress for long-running writes like `apply_batch`.
 

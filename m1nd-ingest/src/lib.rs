@@ -76,6 +76,8 @@ pub struct IngestConfig {
     pub skip_dirs: Vec<String>,
     pub skip_files: Vec<String>,
     pub parallelism: usize,
+    pub include_dotfiles: bool,
+    pub dotfile_patterns: Vec<String>,
 }
 
 impl Default for IngestConfig {
@@ -104,6 +106,8 @@ impl Default for IngestConfig {
             parallelism: std::thread::available_parallelism()
                 .map(|p| p.get().min(16))
                 .unwrap_or(8),
+            include_dotfiles: false,
+            dotfile_patterns: Vec::new(),
         }
     }
 }
@@ -121,6 +125,7 @@ pub struct IngestStats {
     pub label_collisions: u64,
     pub elapsed_ms: f64,
     pub commit_groups: Vec<Vec<String>>,
+    pub discovered_files: Vec<walker::DiscoveredFile>,
 }
 
 pub struct Ingestor {
@@ -200,10 +205,13 @@ impl Ingestor {
         let dir_walker = walker::DirectoryWalker::new(
             self.config.skip_dirs.clone(),
             self.config.skip_files.clone(),
+            self.config.include_dotfiles,
+            self.config.dotfile_patterns.clone(),
         );
         let walk_result = dir_walker.walk(&self.config.root)?;
         stats.files_scanned = walk_result.files.len() as u64;
         stats.commit_groups = walk_result.commit_groups.clone();
+        stats.discovered_files = walk_result.files.clone();
 
         use rayon::prelude::*;
         let num_threads = self.config.parallelism.clamp(1, 64);

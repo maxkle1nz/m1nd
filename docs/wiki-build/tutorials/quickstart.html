@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="m1nd quickstart — get the local code graph runtime running for MCP agents in minutes">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,32 +181,46 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h1>
-<p>Five minutes from zero to your first query.</p>
+<p>Five minutes from zero to your first useful graph query.</p>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <ul>
-<li><strong>Rust toolchain</strong>: 1.75+ (install via <a href="https://rustup.rs/">rustup</a>)</li>
-<li><strong>A codebase</strong>: Any project with Python, Rust, TypeScript/JavaScript, Go, or Java files. Other languages use a generic fallback extractor.</li>
+<li><strong>Rust toolchain</strong>: current stable recommended if you build from source</li>
+<li><strong>A codebase</strong>: Python, Rust, TypeScript/JavaScript, Go, and Java have the strongest handling; additional languages are available through tree-sitter and fallback extraction</li>
+<li><strong>An MCP client</strong>: Claude Code, Codex, Cursor, Windsurf, Zed, Cline, Continue, or any client that can connect to an MCP server over stdio</li>
 </ul>
-<h2 id="installation"><a class="header" href="#installation">Installation</a></h2>
-<h3 id="from-source-recommended"><a class="header" href="#from-source-recommended">From source (recommended)</a></h3>
-<pre><code class="language-bash">git clone https://github.com/cosmophonix/m1nd.git
+<h2 id="install"><a class="header" href="#install">Install</a></h2>
+<p>Choose one path:</p>
+<h3 id="1-build-from-source"><a class="header" href="#1-build-from-source">1. Build from source</a></h3>
+<pre><code class="language-bash">git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build --release
 </code></pre>
-<p>The binary is at <code>./target/release/m1nd-mcp</code> (~8MB). Copy it wherever you want:</p>
-<pre><code class="language-bash">cp target/release/m1nd-mcp /usr/local/bin/
+<p>The binary will be at:</p>
+<pre><code class="language-bash">./target/release/m1nd-mcp
 </code></pre>
-<h3 id="from-cratesio"><a class="header" href="#from-cratesio">From crates.io</a></h3>
+<p>If you want it on your PATH:</p>
+<pre><code class="language-bash">cp ./target/release/m1nd-mcp /usr/local/bin/
+</code></pre>
+<h3 id="2-install-from-cratesio"><a class="header" href="#2-install-from-cratesio">2. Install from crates.io</a></h3>
 <pre><code class="language-bash">cargo install m1nd-mcp
 </code></pre>
-<h3 id="verify-the-build"><a class="header" href="#verify-the-build">Verify the build</a></h3>
+<h3 id="3-download-a-release-binary"><a class="header" href="#3-download-a-release-binary">3. Download a release binary</a></h3>
+<p>The current release workflow publishes these artifact names:</p>
+<ul>
+<li><code>m1nd-mcp-linux-x86_64</code></li>
+<li><code>m1nd-mcp-macos-x86_64</code></li>
+<li><code>m1nd-mcp-macos-aarch64</code></li>
+</ul>
+<p>If you use release binaries, download them from the latest GitHub release page instead of relying on hardcoded tarball names.</p>
+<h2 id="verify-the-binary"><a class="header" href="#verify-the-binary">Verify the binary</a></h2>
 <pre><code class="language-bash">m1nd-mcp --help
 </code></pre>
-<p>The binary should start and wait for JSON-RPC input on stdin. Press Ctrl+C to exit.</p>
-<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
-<p>m1nd is an MCP server that communicates over stdio using JSON-RPC. You configure it in your AI client’s MCP settings.</p>
+<p>If the binary is healthy, you should see the CLI help for the MCP server.</p>
+<h2 id="configure-your-mcp-client"><a class="header" href="#configure-your-mcp-client">Configure your MCP client</a></h2>
+<p>m1nd is an MCP server over stdio. Your client starts the binary and calls tools through MCP.</p>
 <h3 id="claude-code"><a class="header" href="#claude-code">Claude Code</a></h3>
-<p>Add to your Claude Code MCP configuration (<code>.mcp.json</code> in your project root, or <code>~/.claude/mcp.json</code> globally):</p>
+<p>Add this to your Claude Code MCP config.</p>
+<p>The exact file path depends on how you run Claude Code, but the current repo README uses this shape:</p>
 <pre><code class="language-json">{
   "mcpServers": {
     "m1nd": {
@@ -221,7 +234,7 @@ cargo build --release
 }
 </code></pre>
 <h3 id="cursor"><a class="header" href="#cursor">Cursor</a></h3>
-<p>In Cursor settings, navigate to <strong>MCP Servers</strong> and add:</p>
+<p>In MCP Servers, use the same binary + env setup:</p>
 <pre><code class="language-json">{
   "m1nd": {
     "command": "/path/to/m1nd-mcp",
@@ -232,135 +245,196 @@ cargo build --release
   }
 }
 </code></pre>
-<h3 id="windsurf--cline--roo-code--continue"><a class="header" href="#windsurf--cline--roo-code--continue">Windsurf / Cline / Roo Code / Continue</a></h3>
-<p>Any MCP-compatible client works. The pattern is the same: point the client at the <code>m1nd-mcp</code> binary and optionally set the environment variables for persistence.</p>
-<h3 id="environment-variables"><a class="header" href="#environment-variables">Environment Variables</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Variable</th><th>Purpose</th><th>Default</th></tr>
-</thead>
-<tbody>
-<tr><td><code>M1ND_GRAPH_SOURCE</code></td><td>Path to persist graph state between sessions</td><td>In-memory only (lost on exit)</td></tr>
-<tr><td><code>M1ND_PLASTICITY_STATE</code></td><td>Path to persist learned edge weights</td><td>In-memory only (lost on exit)</td></tr>
-</tbody>
-</table>
-</div>
-<p><strong>Recommendation</strong>: Always set both variables. Without persistence, every restart discards learned weights and you lose the graph’s accumulated intelligence.</p>
-<h3 id="advanced-configuration"><a class="header" href="#advanced-configuration">Advanced Configuration</a></h3>
-<p>The server accepts these configuration parameters (set via environment):</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Parameter</th><th>Default</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>learning_rate</code></td><td>0.08</td><td>How aggressively the graph learns from feedback</td></tr>
-<tr><td><code>decay_rate</code></td><td>0.005</td><td>Rate of edge weight decay over time</td></tr>
-<tr><td><code>xlr_enabled</code></td><td>true</td><td>Enable XLR noise cancellation</td></tr>
-<tr><td><code>auto_persist_interval</code></td><td>50</td><td>Persist state every N queries</td></tr>
-<tr><td><code>max_concurrent_reads</code></td><td>32</td><td>Maximum concurrent read operations</td></tr>
-<tr><td><code>domain</code></td><td>“code”</td><td>Domain preset: <code>code</code>, <code>music</code>, <code>memory</code>, or <code>generic</code></td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="first-run-ingest-a-project"><a class="header" href="#first-run-ingest-a-project">First Run: Ingest a Project</a></h2>
-<p>Once your MCP client is configured and m1nd is running, ingest your codebase. This is the foundation for everything else.</p>
-<p>If you are using m1nd through an MCP client like Claude Code, the client sends the JSON-RPC calls for you when you invoke the tools. The raw JSON-RPC is shown here for clarity.</p>
-<h3 id="step-1-ingest"><a class="header" href="#step-1-ingest">Step 1: Ingest</a></h3>
-<pre><code class="language-jsonc">// Ingest your project
-{
-  "method": "tools/call",
-  "params": {
-    "name": "m1nd.ingest",
-    "arguments": {
-      "path": "/path/to/your/project",
-      "agent_id": "dev"
+<h3 id="antigravity"><a class="header" href="#antigravity">Antigravity</a></h3>
+<p>Antigravity supports a workspace-local <code>mcp_config.json</code> shape.</p>
+<p>Use:</p>
+<pre><code class="language-json">{
+  "mcpServers": {
+    "m1nd": {
+      "command": "python3",
+      "args": ["/path/to/m1nd-antigravity-proxy.py"],
+      "cwd": "/path/to/workspace",
+      "env": {
+        "M1ND_OPENCLAW_SOCKET": "/tmp/m1nd-openclaw.sock",
+        "M1ND_GRAPH_SOURCE": "/tmp/m1nd-graph.json",
+        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json"
+      }
     }
   }
 }
 </code></pre>
-<p>Expected response (times will vary by project size):</p>
+<p>This keeps the host-facing contract stdio-compatible while routing into the hot native daemon.</p>
+<h3 id="other-mcp-clients"><a class="header" href="#other-mcp-clients">Other MCP clients</a></h3>
+<p>The pattern is the same:</p>
+<ul>
+<li>point the client at <code>m1nd-mcp</code></li>
+<li>optionally set graph/plasticity persistence env vars</li>
+<li>then call tools through MCP</li>
+</ul>
+<h2 id="persistence-variables"><a class="header" href="#persistence-variables">Persistence variables</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variable</th><th>Purpose</th><th>If omitted</th></tr>
+</thead>
+<tbody>
+<tr><td><code>M1ND_GRAPH_SOURCE</code></td><td>Persist the graph snapshot</td><td>graph is memory-only</td></tr>
+<tr><td><code>M1ND_PLASTICITY_STATE</code></td><td>Persist learned edge weights</td><td>learning is memory-only</td></tr>
+</tbody>
+</table>
+</div>
+<p>Recommendation: set both if you want continuity across restarts.</p>
+<h2 id="important-note-on-tool-names"><a class="header" href="#important-note-on-tool-names">Important note on tool names</a></h2>
+<p>The live MCP registry exposes bare tool names like:</p>
+<ul>
+<li><code>ingest</code></li>
+<li><code>activate</code></li>
+<li><code>search</code></li>
+<li><code>impact</code></li>
+</ul>
+<p>Some clients or docs may show <code>m1nd.ingest</code>-style names. Treat that as presentation sugar. The canonical live registry names are the bare tool names shown by <code>tools/list</code>.</p>
+<h2 id="first-run"><a class="header" href="#first-run">First run</a></h2>
+<p>Once your client is configured, the first thing to do is ingest a project.</p>
+<h3 id="step-1-ingest-a-repo"><a class="header" href="#step-1-ingest-a-repo">Step 1: ingest a repo</a></h3>
+<pre><code class="language-jsonc">{
+  "method": "tools/call",
+  "params": {
+    "name": "ingest",
+    "arguments": {
+      "agent_id": "dev",
+      "path": "/path/to/your/project"
+    }
+  }
+}
+</code></pre>
+<p>Example response shape:</p>
 <pre><code class="language-json">{
   "files_processed": 335,
   "nodes_created": 9767,
   "edges_created": 26557,
-  "languages": {"python": 335},
+  "languages": {
+    "python": 335
+  },
   "elapsed_ms": 910
 }
 </code></pre>
-<p><strong>What happened</strong>: m1nd parsed every file, extracted structural elements (modules, classes, functions, imports), resolved references between them, built a compressed graph, and computed PageRank centrality for every node.</p>
-<h3 id="step-2-verify-with-health-check"><a class="header" href="#step-2-verify-with-health-check">Step 2: Verify with Health Check</a></h3>
+<p>What happened:</p>
+<ul>
+<li>files were parsed</li>
+<li>structural nodes and edges were created</li>
+<li>references were resolved</li>
+<li>the graph was finalized for querying</li>
+</ul>
+<h3 id="step-2-check-server-health"><a class="header" href="#step-2-check-server-health">Step 2: check server health</a></h3>
 <pre><code class="language-jsonc">{
   "method": "tools/call",
   "params": {
-    "name": "m1nd.health",
+    "name": "health",
     "arguments": {
       "agent_id": "dev"
     }
   }
 }
 </code></pre>
-<p>Expected response:</p>
+<p>Current response shape in the repo:</p>
 <pre><code class="language-json">{
   "status": "ok",
-  "nodes": 9767,
-  "edges": 26557,
-  "finalized": true,
-  "plasticity_records": 0,
-  "agents_seen": ["dev"],
-  "queries_served": 1,
-  "uptime_seconds": 12
+  "node_count": 9767,
+  "edge_count": 26557,
+  "queries_processed": 1,
+  "uptime_seconds": 12.4,
+  "memory_usage_bytes": 0,
+  "plasticity_state": "0 edges tracked",
+  "last_persist_time": null,
+  "active_sessions": [
+    {
+      "agent_id": "dev",
+      "query_count": 1
+    }
+  ]
 }
 </code></pre>
-<p>If you see <code>"nodes": 0</code>, re-check the path you passed to <code>ingest</code>.</p>
-<h3 id="step-3-your-first-query"><a class="header" href="#step-3-your-first-query">Step 3: Your First Query</a></h3>
+<p>If you see <code>node_count: 0</code>, your ingest path was wrong or the ingest did not run.</p>
+<h3 id="step-3-ask-the-graph-something-real"><a class="header" href="#step-3-ask-the-graph-something-real">Step 3: ask the graph something real</a></h3>
 <pre><code class="language-jsonc">{
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+    "name": "activate",
     "arguments": {
-      "query": "authentication",
       "agent_id": "dev",
+      "query": "authentication",
       "top_k": 5
     }
   }
 }
 </code></pre>
-<p>Expected response:</p>
+<p>Example response shape:</p>
 <pre><code class="language-json">{
+  "query": "authentication",
   "activated": [
     {
       "node_id": "file::auth.py",
-      "score": 0.89,
-      "dimension_scores": {
-        "structural": 0.92,
-        "semantic": 0.95,
-        "temporal": 0.78,
-        "causal": 0.71
-      }
+      "score": 0.89
     },
-    {"node_id": "file::middleware.py", "score": 0.72},
-    {"node_id": "file::session.py", "score": 0.61}
+    {
+      "node_id": "file::middleware.py",
+      "score": 0.72
+    },
+    {
+      "node_id": "file::session.py",
+      "score": 0.61
+    }
   ],
   "ghost_edges": [
-    {"from": "file::auth.py", "to": "file::rate_limiter.py", "confidence": 0.34}
-  ]
+    {
+      "from": "file::auth.py",
+      "to": "file::rate_limiter.py",
+      "confidence": 0.34
+    }
+  ],
+  "elapsed_ms": 31,
+  "proof_state": "triaging"
 }
 </code></pre>
-<p><strong>What happened</strong>: m1nd fired a signal into the graph from nodes matching “authentication” and let it propagate across structural, semantic, temporal, and causal dimensions. Noise was cancelled via XLR differential processing. The results are ranked by multi-dimensional activation score, not just text matching.</p>
-<h2 id="what-next"><a class="header" href="#what-next">What Next</a></h2>
-<p>You now have a working m1nd instance. From here:</p>
+<p>What happened:</p>
 <ul>
-<li><strong><a href="first-query.html">First Query Tutorial</a></strong>: Step-by-step walkthrough of the full activate-learn-activate cycle, counterfactual simulation, and structural hole detection.</li>
-<li><strong><a href="multi-agent.html">Multi-Agent Tutorial</a></strong>: How to use m1nd with multiple agents sharing one graph.</li>
-<li><strong><a href="../faq.html">FAQ</a></strong>: Common questions and answers.</li>
+<li>seed nodes were selected from the query</li>
+<li>spreading activation propagated across graph structure</li>
+<li>the result was ranked by graph signal, not just text matching</li>
+</ul>
+<h2 id="what-to-do-next"><a class="header" href="#what-to-do-next">What to do next</a></h2>
+<p>After the first <code>activate</code>, these are the most useful next steps:</p>
+<ul>
+<li><code>search</code> for exact text or regex</li>
+<li><code>seek</code> for intent-based retrieval</li>
+<li><code>impact</code> before touching a central file</li>
+<li><code>surgical_context_v2</code> before multi-file edits</li>
+<li><code>validate_plan</code> when you already know the files you want to touch</li>
 </ul>
 <h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<p><strong>“No graph snapshot found, starting fresh”</strong> – This is normal on first run. The graph is empty until you call <code>ingest</code>.</p>
-<p><strong>Ingest returns 0 files</strong> – Check that the path is correct and contains supported source files. m1nd currently has extractors for Python (.py), Rust (.rs), TypeScript/JavaScript (.ts/.js/.tsx/.jsx), Go (.go), and Java (.java). Other files use a generic fallback extractor.</p>
-<p><strong>MCP client does not see m1nd tools</strong> – Verify the binary path is correct and the binary is executable (<code>chmod +x m1nd-mcp</code>). Check your client’s MCP server logs for connection errors.</p>
-<p><strong>Permission denied</strong> – Ensure the <code>M1ND_GRAPH_SOURCE</code> and <code>M1ND_PLASTICITY_STATE</code> paths are writable.</p>
+<h3 id="no-graph-snapshot-found-starting-fresh"><a class="header" href="#no-graph-snapshot-found-starting-fresh">“No graph snapshot found, starting fresh”</a></h3>
+<p>Normal on first run. The graph is empty until you call <code>ingest</code>.</p>
+<h3 id="ingest-returns-0-files"><a class="header" href="#ingest-returns-0-files">Ingest returns 0 files</a></h3>
+<p>Check the path and confirm it points at a real project root.</p>
+<h3 id="my-client-cannot-see-the-tools"><a class="header" href="#my-client-cannot-see-the-tools">My client cannot see the tools</a></h3>
+<p>Check:</p>
+<ul>
+<li>the <code>m1nd-mcp</code> path</li>
+<li>execute permissions on the binary</li>
+<li>the MCP client logs</li>
+</ul>
+<h3 id="learned-state-disappears-between-restarts"><a class="header" href="#learned-state-disappears-between-restarts">Learned state disappears between restarts</a></h3>
+<p>Set:</p>
+<ul>
+<li><code>M1ND_GRAPH_SOURCE</code></li>
+<li><code>M1ND_PLASTICITY_STATE</code></li>
+</ul>
+<h3 id="i-want-persistent-low-latency-operation-for-a-large-codebase"><a class="header" href="#i-want-persistent-low-latency-operation-for-a-large-codebase">I want persistent low-latency operation for a large codebase</a></h3>
+<p>See:</p>
+<ul>
+<li><a href="../../deployment.html">Deployment</a></li>
+</ul>
+<p>That doc covers the persistent server + stdio proxy pattern for near-zero startup overhead.</p>
 
                     </main>
 

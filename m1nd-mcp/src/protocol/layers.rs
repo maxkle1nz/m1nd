@@ -1854,6 +1854,9 @@ pub struct SearchInput {
     /// None = search all files in scope.
     #[serde(default)]
     pub filename_pattern: Option<String>,
+    /// Optional cap for total returned characters across serialized matches.
+    #[serde(default)]
+    pub max_output_chars: Option<usize>,
 }
 
 fn default_search_top_k() -> u32 {
@@ -1884,6 +1887,9 @@ pub struct SearchOutput {
     /// Paths that were auto-ingested (empty if auto_ingest was not triggered).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub auto_ingested_paths: Vec<String>,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inline_summary: Option<String>,
     pub proof_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_suggested_tool: Option<String>,
@@ -2059,6 +2065,8 @@ pub struct GlobFileEntry {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ReportInput {
     pub agent_id: String,
+    #[serde(default)]
+    pub max_output_chars: Option<usize>,
 }
 
 /// A query record in the session report.
@@ -2100,6 +2108,106 @@ pub struct ReportOutput {
     pub heuristic_hotspots: Vec<ReportHeuristicHotspot>,
     /// Markdown-formatted summary for display.
     pub markdown_summary: String,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inline_summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ScanAllInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default = "default_severity_min")]
+    pub severity_min: f32,
+    #[serde(default = "default_true")]
+    pub graph_validate: bool,
+    #[serde(default = "default_scan_limit")]
+    pub limit_per_pattern: usize,
+    #[serde(default)]
+    pub patterns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ScanAllPatternOutput {
+    pub pattern: String,
+    pub findings: Vec<ScanFinding>,
+    pub files_scanned: usize,
+    pub total_matches_raw: usize,
+    pub total_matches_validated: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ScanAllOutput {
+    pub patterns_run: usize,
+    pub total_findings: usize,
+    pub by_pattern: Vec<ScanAllPatternOutput>,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CrossVerifyInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub check: Vec<String>,
+    #[serde(default)]
+    pub include_dotfiles: bool,
+    #[serde(default)]
+    pub dotfile_patterns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CoverageSessionInput {
+    pub agent_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ExternalReferencesInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AuditInput {
+    pub agent_id: String,
+    pub path: String,
+    #[serde(default = "default_audit_profile")]
+    pub profile: String,
+    #[serde(default = "default_audit_depth")]
+    pub depth: String,
+    #[serde(default = "default_true")]
+    pub cross_verify: bool,
+    #[serde(default = "default_true")]
+    pub include_git: bool,
+    #[serde(default)]
+    pub include_config: bool,
+    #[serde(default = "default_audit_scan_patterns")]
+    pub scan_patterns: String,
+    #[serde(default = "default_true")]
+    pub external_refs: bool,
+    #[serde(default = "default_audit_report_format")]
+    pub report_format: String,
+    #[serde(default)]
+    pub max_output_chars: Option<usize>,
+}
+
+fn default_audit_profile() -> String {
+    "auto".to_string()
+}
+
+fn default_audit_depth() -> String {
+    "full".to_string()
+}
+
+fn default_audit_scan_patterns() -> String {
+    "all".to_string()
+}
+
+fn default_audit_report_format() -> String {
+    "markdown".to_string()
 }
 
 // =========================================================================

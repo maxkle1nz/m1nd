@@ -460,7 +460,7 @@ Non sostituisce un LSP, un compilatore o l'osservabilità di runtime. Fornisce a
 
 ## Tool Surface
 
-L'attuale implementazione di `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) espone **63 MCP tools**.
+L'attuale implementazione di `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) espone **77 strumenti MCP**.
 
 I nomi canonici degli strumenti nello schema MCP esportato usano underscore, come `trail_save`, `perspective_start` e `apply_batch`. Alcuni client possono mostrare i nomi con un prefisso di trasporto come `m1nd.apply_batch`, ma le voci del registry live sono basate su underscore.
 

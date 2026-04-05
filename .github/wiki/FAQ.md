@@ -525,7 +525,7 @@ For development with Vite HMR:
 | Route | Purpose |
 |-------|---------|
 | `GET /api/health` | Server health, uptime, node/edge counts |
-| `GET /api/tools` | List all 61 tool schemas |
+| `GET /api/tools` | List all 77 tool schemas |
 | `POST /api/tools/{tool_name}` | Execute any MCP tool via HTTP |
 | `GET /api/graph/stats` | Graph statistics |
 | `GET /api/graph/subgraph?query=...&top_k=N` | Activation-based subgraph for visualization |
@@ -582,7 +582,7 @@ The extractor interface is straightforward: implement the `LanguageExtractor` tr
 **Graph algorithms** — Improve spreading activation, add community detection, or propose new
 analytical methods. The graph engine lives in `m1nd-core`.
 
-**New MCP tools** — If you have a use case that doesn't fit the current 61 tools, open an issue.
+**New MCP tools** — If you have a use case that doesn't fit the current 77 tools, open an issue.
 The MCP layer in `m1nd-mcp` is thin: most new tools are 20-50 lines of wiring.
 
 **Benchmarks** — Run m1nd against your codebase and report performance. We want to understand

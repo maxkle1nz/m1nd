@@ -2,6 +2,11 @@
 
 Thanks for your interest in contributing to m1nd. This document covers the basics.
 
+If you are contributing through real agent usage, also keep
+[docs/AGENT-TASKNOTES.md](docs/AGENT-TASKNOTES.md) current. It is the running
+capture surface for moments where an agent used `m1nd`, did not get the exact
+answer it needed, and had to compensate outside the graph.
+
 ## Getting Started
 
 ```bash
@@ -16,7 +21,7 @@ cargo test --all
 ```
 m1nd-core/     Graph engine, plasticity, spreading activation, hypothesis engine
 m1nd-ingest/   Language extractors (28 languages), memory adapter, JSON adapter
-m1nd-mcp/      MCP server, 61 tool handlers, JSON-RPC over stdio
+m1nd-mcp/      MCP server, 77 tool handlers, JSON-RPC over stdio
 ```
 
 ---
@@ -88,7 +93,7 @@ Key modules:
 | Module | Purpose |
 |--------|---------|
 | `main.rs` | Entry point, env/config loading, `./m1nd-mcp [config.json]` |
-| `server.rs` | `tool_schemas()` — 61 tool registrations, tool dispatch (normalize → match) |
+| `server.rs` | `tool_schemas()` — 77 tool registrations, tool dispatch (normalize → match) |
 | `tools.rs` | Core tool handlers (ingest, activate, impact, learn, drift, ...) |
 | `layer_handlers.rs` | Antibody, flow, epidemic, tremor, trust, layers handlers |
 | `engine_ops.rs` | Shared engine helpers |

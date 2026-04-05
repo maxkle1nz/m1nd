@@ -408,6 +408,17 @@ pub fn tool_schemas() -> serde_json::Value {
                         "namespace": {
                             "type": "string",
                             "description": "Optional namespace tag for memory/non-code nodes"
+                        },
+                        "include_dotfiles": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Include selected dotfiles and hidden config directories during ingest"
+                        },
+                        "dotfile_patterns": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "default": [],
+                            "description": "Allowed dotfile patterns when include_dotfiles=true (for example '.codex/**')"
                         }
                     },
                     "required": ["path", "agent_id"]
@@ -1005,6 +1016,84 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             // =================================================================
+            // RETROBUILDER modules — temporal edges, taint, twins, refactors,
+            // and runtime overlays
+            // =================================================================
+            {
+                "name": "ghost_edges",
+                "description": "Parse git history and surface temporal co-change ghost edges between files that move together without explicit static dependencies.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "depth": { "type": "string", "default": "30d", "description": "Git history window: 7d, 30d, 90d, all" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "top_k": { "type": "integer", "default": 50, "description": "Maximum ghost edges to return" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "taint_trace",
+                "description": "Inject taint at entry points and trace propagation through the graph to detect missed validation, auth, or sanitization boundaries.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "entry_nodes": { "type": "array", "items": { "type": "string" }, "description": "Entry point node IDs to inject taint" },
+                        "taint_type": { "type": "string", "default": "user_input", "description": "Taint type: user_input, sensitive_data, or custom" },
+                        "boundary_patterns": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Custom boundary patterns when taint_type=custom" },
+                        "max_depth": { "type": "integer", "default": 15, "description": "Maximum propagation depth" },
+                        "min_probability": { "type": "number", "default": 0.01, "description": "Minimum propagation probability to report" }
+                    },
+                    "required": ["agent_id", "entry_nodes"]
+                }
+            },
+            {
+                "name": "twins",
+                "description": "Find structurally similar or identical nodes via topological signature similarity.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "similarity_threshold": { "type": "number", "default": 0.80, "description": "Minimum cosine similarity threshold" },
+                        "top_k": { "type": "integer", "default": 50, "description": "Maximum twin pairs to return" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "node_types": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional node type filter" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "refactor_plan",
+                "description": "Propose graph-native refactoring communities and extraction candidates for a scoped region of the codebase.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "max_communities": { "type": "integer", "default": 10, "description": "Maximum communities to consider" },
+                        "min_community_size": { "type": "integer", "default": 3, "description": "Minimum nodes for an extractable community" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "runtime_overlay",
+                "description": "Overlay OpenTelemetry span activity onto the graph to paint runtime heat, latency, and error signals onto nodes.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "spans": { "type": "array", "items": { "type": "object" }, "description": "OTel spans to ingest" },
+                        "service_name": { "type": "string", "default": "", "description": "Optional service name for scoping" },
+                        "mapping_strategy": { "type": "string", "default": "label_match", "description": "Mapping strategy: label_match, code_attribute, exact_id" },
+                        "boost_strength": { "type": "number", "default": 0.15, "description": "Activation boost strength" }
+                    },
+                    "required": ["agent_id", "spans"]
+                }
+            },
+            // =================================================================
             // Surgical: context + apply
             // =================================================================
             {
@@ -1063,9 +1152,26 @@ pub fn tool_schemas() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "offset": { "type": "integer", "default": 0, "description": "Start line (0-based)" },
                         "limit": { "type": "integer", "description": "Max lines to return (default: all)" },
-                        "auto_ingest": { "type": "boolean", "default": true, "description": "Auto-ingest file into graph if not present" }
+                        "auto_ingest": { "type": "boolean", "default": true, "description": "Auto-ingest file into graph if not present" },
+                        "max_output_chars": { "type": "integer", "description": "Optional cap for returned characters after line-number formatting" }
                     },
                     "required": ["file_path", "agent_id"]
+                }
+            },
+            {
+                "name": "batch_view",
+                "description": "Read multiple files or glob patterns in one call with stable delimiters, optional summaries, and auto-ingest.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "files": { "type": "array", "items": { "type": "string" }, "description": "File paths and/or glob-like patterns to expand" },
+                        "max_lines_per_file": { "type": "integer", "default": 100, "description": "Maximum lines to return per file" },
+                        "summary_mode": { "type": "boolean", "default": true, "description": "Add an inline summary for each returned file" },
+                        "auto_ingest": { "type": "boolean", "default": true, "description": "Auto-ingest discovered files before reading" },
+                        "max_output_chars": { "type": "integer", "description": "Optional cap for the concatenated response body" }
+                    },
+                    "required": ["agent_id", "files"]
                 }
             },
             // =================================================================
@@ -1167,7 +1273,8 @@ pub fn tool_schemas() -> serde_json::Value {
                         "count_only": { "type": "boolean", "default": false, "description": "Return just the count, no results (grep -c)" },
                         "multiline": { "type": "boolean", "default": false, "description": "Enable multiline regex: dot matches newline (rg -U). Only for regex mode." },
                         "auto_ingest": { "type": "boolean", "default": false, "description": "Auto-ingest exactly one resolved scope path outside current ingest roots before searching; ambiguous scopes return an error that lists candidate paths in detail" },
-                        "filename_pattern": { "type": "string", "description": "Glob pattern to filter filenames (e.g. '*.rs', 'test_*.py')" }
+                        "filename_pattern": { "type": "string", "description": "Glob pattern to filter filenames (e.g. '*.rs', 'test_*.py')" },
+                        "max_output_chars": { "type": "integer", "description": "Optional cap for total returned characters across serialized matches" }
                     },
                     "required": ["agent_id", "query"]
                 }
@@ -1193,6 +1300,60 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             {
+                "name": "scan_all",
+                "description": "Run all structural scan patterns in one call and return grouped findings by pattern.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "severity_min": { "type": "number", "default": 0.3, "description": "Minimum severity threshold across all patterns" },
+                        "graph_validate": { "type": "boolean", "default": true, "description": "Whether to validate findings against graph edges" },
+                        "limit_per_pattern": { "type": "integer", "default": 50, "description": "Maximum findings per pattern" },
+                        "patterns": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional subset of patterns to run; empty means all built-ins" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "cross_verify",
+                "description": "Compare graph state against disk truth: missing files, LOC drift, and hash mismatches.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" },
+                        "check": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Checks to run: existence, loc, hash" },
+                        "include_dotfiles": { "type": "boolean", "default": false, "description": "Include selected dotfiles while verifying disk state" },
+                        "dotfile_patterns": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Allowed dotfile patterns when include_dotfiles=true" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "coverage_session",
+                "description": "Report what the current agent session has and has not visited across files, nodes, and tool usage.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "external_references",
+                "description": "Scan graph-tracked files for explicit references to paths outside the current ingest roots.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "File path prefix to limit scope" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
                 "name": "help",
                 "description": "Get help text for m1nd tools. Returns overview or detailed help for a specific tool with visual identity.",
                 "inputSchema": {
@@ -1210,9 +1371,31 @@ pub fn tool_schemas() -> serde_json::Value {
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "max_output_chars": { "type": "integer", "description": "Optional cap for markdown summary size" }
                     },
                     "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "audit",
+                "description": "Profile-aware one-call audit for topology, scans, verification, git state, and recommendations.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "path": { "type": "string", "description": "Root path to audit" },
+                        "profile": { "type": "string", "default": "auto", "description": "Audit profile: auto, quick, coordination, production, security, migration" },
+                        "depth": { "type": "string", "default": "full", "description": "Audit depth: quick, surface, full" },
+                        "cross_verify": { "type": "boolean", "default": true, "description": "Compare graph vs filesystem state" },
+                        "include_git": { "type": "boolean", "default": true, "description": "Include git state and recent history" },
+                        "include_config": { "type": "boolean", "default": false, "description": "Include selected dotfiles/config directories" },
+                        "scan_patterns": { "type": "string", "default": "all", "description": "Scan selection: all, default, or a comma-separated list" },
+                        "external_refs": { "type": "boolean", "default": true, "description": "Discover explicit external path references" },
+                        "report_format": { "type": "string", "default": "markdown", "description": "Output format: markdown or json" },
+                        "max_output_chars": { "type": "integer", "description": "Optional cap for returned narrative/report size" }
+                    },
+                    "required": ["agent_id", "path"]
                 }
             },
             {
@@ -1605,6 +1788,31 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             layer_handlers::handle_layer_inspect(state, input)
         }
+        "ghost_edges" => {
+            let input: layers::GhostEdgesInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_ghost_edges(state, input)
+        }
+        "taint_trace" => {
+            let input: layers::TaintTraceInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_taint_trace(state, input)
+        }
+        "twins" => {
+            let input: layers::TwinsInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_twins(state, input)
+        }
+        "refactor_plan" => {
+            let input: layers::RefactorPlanInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_refactor_plan(state, input)
+        }
+        "runtime_overlay" => {
+            let input: layers::RuntimeOverlayInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_runtime_overlay(state, input)
+        }
         // -----------------------------------------------------------------
         // v0.4.0: search, help, panoramic, savings, report
         // -----------------------------------------------------------------
@@ -1613,6 +1821,26 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = search_handlers::handle_search(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "scan_all" => {
+            let input: layers::ScanAllInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::audit_handlers::handle_scan_all(state, input)
+        }
+        "cross_verify" => {
+            let input: layers::CrossVerifyInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::audit_handlers::handle_cross_verify(state, input)
+        }
+        "coverage_session" => {
+            let input: layers::CoverageSessionInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::audit_handlers::handle_coverage_session(state, input)
+        }
+        "external_references" => {
+            let input: layers::ExternalReferencesInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::audit_handlers::handle_external_references(state, input)
         }
         "glob" => {
             let input: layers::GlobInput =
@@ -1631,6 +1859,11 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = report_handlers::handle_report(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "audit" => {
+            let input: layers::AuditInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::audit_handlers::handle_audit(state, input)
         }
         "panoramic" => {
             let input: layers::PanoramicInput =
@@ -1714,6 +1947,15 @@ fn dispatch_core_tool(
                     detail: e.to_string(),
                 })?;
             let output = surgical_handlers::handle_view(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "batch_view" => {
+            let input: crate::protocol::surgical::BatchViewInput =
+                serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
+                    tool: "batch_view".into(),
+                    detail: e.to_string(),
+                })?;
+            let output = surgical_handlers::handle_batch_view(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "persist" => {
@@ -2224,5 +2466,41 @@ impl McpServer {
         params: &serde_json::Value,
     ) -> M1ndResult<serde_json::Value> {
         dispatch_tool(&mut self.state, tool_name, params)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_schemas;
+
+    #[test]
+    fn tool_schemas_expose_new_audit_surface_and_retrobuilder_tools() {
+        let schema = tool_schemas();
+        let names: Vec<String> = schema["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()))
+            .map(|value| value.to_string())
+            .collect();
+
+        for expected in [
+            "ghost_edges",
+            "taint_trace",
+            "twins",
+            "refactor_plan",
+            "runtime_overlay",
+            "batch_view",
+            "scan_all",
+            "cross_verify",
+            "coverage_session",
+            "external_references",
+            "audit",
+        ] {
+            assert!(
+                names.iter().any(|name| name == expected),
+                "tool_schemas should expose {expected}"
+            );
+        }
     }
 }

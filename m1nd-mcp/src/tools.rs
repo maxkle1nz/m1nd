@@ -8,6 +8,7 @@ use m1nd_core::query::QueryConfig;
 use m1nd_core::temporal::ImpactDirection;
 use m1nd_core::types::*;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,72 @@ fn maybe_store_auto_antibody(
         antibodies.push(candidate);
         true
     }
+}
+
+fn extension_language(ext: Option<&str>) -> String {
+    match ext.unwrap_or_default() {
+        "rs" => "rust",
+        "py" | "pyi" => "python",
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => "typescript",
+        "go" => "go",
+        "java" => "java",
+        "md" => "markdown",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        "json" => "json",
+        "" => "unknown",
+        _ => "text",
+    }
+    .to_string()
+}
+
+fn simple_content_hash(path: &std::path::Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    Some(format!("{:016x}", hasher.finish()))
+}
+
+fn build_file_inventory_entries(
+    graph: &m1nd_core::graph::Graph,
+    discovered_files: &[m1nd_ingest::walker::DiscoveredFile],
+) -> Vec<crate::session::FileInventoryEntry> {
+    let mut loc_by_external_id: HashMap<String, u32> = HashMap::new();
+    for (interned, &nid) in &graph.id_to_node {
+        let ext_id = graph.strings.resolve(*interned);
+        if !ext_id.starts_with("file::") {
+            continue;
+        }
+        let prov = graph.resolve_node_provenance(nid);
+        let loc = prov
+            .line_end
+            .zip(prov.line_start)
+            .map(|(end, start)| end.saturating_sub(start).saturating_add(1))
+            .filter(|loc| *loc > 0);
+        if let Some(loc) = loc {
+            loc_by_external_id
+                .entry(ext_id.to_string())
+                .and_modify(|current: &mut u32| *current = (*current).max(loc))
+                .or_insert(loc);
+        }
+    }
+
+    discovered_files
+        .iter()
+        .map(|file| {
+            let external_id = format!("file::{}", file.relative_path);
+            crate::session::FileInventoryEntry {
+                external_id: external_id.clone(),
+                file_path: file.path.to_string_lossy().to_string(),
+                size_bytes: file.size_bytes,
+                last_modified_ms: (file.last_modified * 1000.0).round() as u64,
+                language: extension_language(file.extension.as_deref()),
+                commit_count: file.commit_count,
+                loc: loc_by_external_id.get(&external_id).copied(),
+                sha256: simple_content_hash(&file.path),
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -163,21 +230,37 @@ fn finalize_ingest(
         }
     }
 
+    let inventory_entries = {
+        let graph = state.graph.read();
+        build_file_inventory_entries(&graph, &stats.discovered_files)
+    };
+    if mode == "replace" {
+        state.reset_file_inventory();
+    }
+    state.record_file_inventory(inventory_entries);
+
     state.rebuild_engines()?;
 
-    // Track ingest roots for L3 git discovery.
-    // Keep the vector ordered oldest -> newest so path resolution can prefer
-    // the most recent matching root deterministically.
-    if let Some(pos) = state
-        .ingest_roots
-        .iter()
-        .position(|root| root == &input.path)
-    {
-        let root = state.ingest_roots.remove(pos);
-        state.ingest_roots.push(root);
-    } else {
+    // Track ingest roots for L3 git discovery and scope normalization.
+    // Replace mode resets the active roots to the new source of truth.
+    if mode == "replace" {
+        state.ingest_roots.clear();
         state.ingest_roots.push(input.path.clone());
+    } else {
+        // Keep the vector ordered oldest -> newest so path resolution can prefer
+        // the most recent matching root deterministically.
+        if let Some(pos) = state
+            .ingest_roots
+            .iter()
+            .position(|root| root == &input.path)
+        {
+            let root = state.ingest_roots.remove(pos);
+            state.ingest_roots.push(root);
+        } else {
+            state.ingest_roots.push(input.path.clone());
+        }
     }
+    state.workspace_root = Some(input.path.clone());
 
     if let Err(e) = state.persist() {
         eprintln!("[m1nd] auto-persist after ingest failed: {}", e);
@@ -413,6 +496,16 @@ pub fn handle_activate(
     };
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let visited_files: Vec<String> = activated
+        .iter()
+        .filter_map(|entry| entry.provenance.as_ref()?.source_path.clone())
+        .collect();
+    let visited_nodes: Vec<String> = activated
+        .iter()
+        .map(|entry| entry.node_id.clone())
+        .collect();
+    drop(graph);
+    state.note_coverage(&input.agent_id, "activate", visited_files, visited_nodes);
 
     Ok(ActivateOutput {
         query: input.query,
@@ -1697,6 +1790,8 @@ pub fn handle_ingest(
             // Existing code ingestion path (default)
             let config = m1nd_ingest::IngestConfig {
                 root: path.clone(),
+                include_dotfiles: input.include_dotfiles,
+                dotfile_patterns: input.dotfile_patterns.clone(),
                 ..m1nd_ingest::IngestConfig::default()
             };
 
@@ -1760,6 +1855,8 @@ pub fn handle_ingest(
                     // Fallback to code adapter
                     let config = m1nd_ingest::IngestConfig {
                         root: path.clone(),
+                        include_dotfiles: input.include_dotfiles,
+                        dotfile_patterns: input.dotfile_patterns.clone(),
                         ..m1nd_ingest::IngestConfig::default()
                     };
                     let ingestor = m1nd_ingest::Ingestor::new(config);
@@ -1913,5 +2010,6 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
         ),
         last_persist_time: last_persist,
         active_sessions: state.session_summary(),
+        git: crate::audit_handlers::collect_git_state(state, 20),
     })
 }

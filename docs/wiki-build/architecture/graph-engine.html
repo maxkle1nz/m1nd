@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +181,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="graph-engine-m1nd-core"><a class="header" href="#graph-engine-m1nd-core">Graph Engine (m1nd-core)</a></h1>
-<p>m1nd-core is the computational core of the runtime. It owns the graph data structure, activation and analysis engines, the adaptive weighting system, and the type-safe numeric primitives that prevent NaN/Inf corruption system-wide.</p>
+<p>m1nd-core is the computational core of the graph runtime. It owns the graph data structure, the activation and analysis engines, the plasticity system, and the type-safe numeric primitives that prevent NaN/Inf corruption system-wide.</p>
 <p>Source: <code>mcp/m1nd/m1nd-core/src/</code></p>
 <h2 id="type-system"><a class="header" href="#type-system">Type System</a></h2>
 <h3 id="numeric-primitives"><a class="header" href="#numeric-primitives">Numeric Primitives</a></h3>
@@ -414,8 +413,8 @@ pub const DIMENSION_WEIGHTS: [f32; 4] = [0.35, 0.25, 0.15, 0.25];
 <p><code>SeedFinder</code> resolves query strings to graph nodes via a 5-level matching cascade:</p>
 <ol>
 <li><strong>Exact label match</strong> (highest priority)</li>
-<li><strong>Prefix match</strong> (e.g., “auth_” matches “auth_handler”)</li>
-<li><strong>Substring match</strong> (e.g., “handler” matches “auth_handler”)</li>
+<li><strong>Prefix match</strong> (e.g., “chat_” matches “chat_handler”)</li>
+<li><strong>Substring match</strong> (e.g., “handler” matches “chat_handler”)</li>
 <li><strong>Tag match</strong> (e.g., “#api” tag)</li>
 <li><strong>Fuzzy trigram</strong> (cosine similarity of trigram vectors, lowest priority)</li>
 </ol>

@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="m1nd multi-agent tutorial — using a shared local graph runtime across coordinated MCP agents">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +181,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="multi-agent-usage"><a class="header" href="#multi-agent-usage">Multi-Agent Usage</a></h1>
-<p>m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how a production system uses m1nd with a fleet of agents.</p>
+<p>m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how ROOMANIZER OS uses m1nd with 19 agents.</p>
 <h2 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h2>
 <p>m1nd runs as a single process with a single shared graph. Multiple MCP clients connect to the same instance (or multiple instances reading from the same persisted state). Every tool call includes an <code>agent_id</code> parameter that identifies the caller.</p>
 <pre><code>  Agent A (Claude Code)  ----+
@@ -194,10 +193,10 @@
 <p>The graph is shared. Learning by one agent benefits all agents. Perspectives are isolated per agent. Trails can be shared across agents.</p>
 <h2 id="agent-id-conventions"><a class="header" href="#agent-id-conventions">Agent ID Conventions</a></h2>
 <p>Every m1nd tool requires an <code>agent_id</code> parameter. This is a free-form string, but consistent naming matters:</p>
-<pre><code>agent_id: "orchestrator"          -- orchestrator
-agent_id: "auditor-1"   -- security hardening agent
-agent_id: "builder-api"     -- API building agent
-agent_id: "analyzer-core"  -- performance analysis agent
+<pre><code>agent_id: "jimi"          -- orchestrator
+agent_id: "hacker-auth"   -- security hardening agent
+agent_id: "forge-api"     -- API building agent
+agent_id: "analyst-perf"  -- performance analysis agent
 </code></pre>
 <p><strong>Recommended convention</strong>: <code>{archetype}-{task}</code> for short-lived task agents, simple names for persistent agents.</p>
 <p>Rules:</p>
@@ -209,7 +208,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 </ul>
 <h2 id="shared-graph-individual-learning"><a class="header" href="#shared-graph-individual-learning">Shared Graph, Individual Learning</a></h2>
 <p>When Agent A calls <code>learn</code> with feedback, the edge weight changes are visible to all agents immediately:</p>
-<pre><code class="language-jsonc">// Agent A: "pool.py was useful for my auth investigation"
+<pre><code class="language-jsonc">// Agent A: "session_pool.py was useful for my auth investigation"
 {
   "method": "tools/call",
   "params": {
@@ -218,13 +217,13 @@ agent_id: "analyzer-core"  -- performance analysis agent
       "query": "authentication flow",
       "agent_id": "agent-a",
       "feedback": "correct",
-      "node_ids": ["file::pool.py"]
+      "node_ids": ["file::session_pool.py"]
     }
   }
 }
 // -&gt; 740 edges strengthened
 </code></pre>
-<pre><code class="language-jsonc">// Agent B: immediately benefits from stronger pool.py edges
+<pre><code class="language-jsonc">// Agent B: immediately benefits from stronger session_pool.py edges
 {
   "method": "tools/call",
   "params": {
@@ -236,7 +235,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
     }
   }
 }
-// -&gt; pool.py scores higher than it would have before Agent A's feedback
+// -&gt; session_pool.py scores higher than it would have before Agent A's feedback
 </code></pre>
 <p>This is by design. The graph represents collective intelligence about the codebase. Every agent’s learning contributes to the whole.</p>
 <h2 id="perspective-isolation"><a class="header" href="#perspective-isolation">Perspective Isolation</a></h2>
@@ -246,7 +245,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 <pre><code class="language-jsonc">{
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.start",
+    "name": "perspective_start",
     "arguments": {
       "agent_id": "agent-a",
       "query": "authentication middleware",
@@ -270,7 +269,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 <pre><code class="language-jsonc">{
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.start",
+    "name": "perspective_start",
     "arguments": {
       "agent_id": "agent-b",
       "query": "worker pool scaling"
@@ -285,7 +284,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.list",
+    "name": "perspective_list",
     "arguments": {"agent_id": "agent-a"}
   }
 }
@@ -295,18 +294,18 @@ agent_id: "analyzer-core"  -- performance analysis agent
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.list",
+    "name": "perspective_list",
     "arguments": {"agent_id": "agent-b"}
   }
 }
-// -&gt; [{"perspective_id": "persp-d4e5f6", "focus": "file::worker.py", ...}]
+// -&gt; [{"perspective_id": "persp-d4e5f6", "focus": "file::worker_pool.py", ...}]
 </code></pre>
 <h3 id="comparing-perspectives-across-agents"><a class="header" href="#comparing-perspectives-across-agents">Comparing Perspectives Across Agents</a></h3>
 <p>You <em>can</em> explicitly compare two perspectives from different agents using <code>perspective.compare</code>. This is useful for discovering where two independent investigations overlap:</p>
 <pre><code class="language-jsonc">{
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.compare",
+    "name": "perspective_compare",
     "arguments": {
       "agent_id": "agent-a",
       "perspective_id_a": "persp-a1b2c3",
@@ -319,7 +318,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 <pre><code class="language-json">{
   "shared_nodes": ["file::process_manager.py", "file::config.py"],
   "unique_to_a": ["file::auth.py", "file::middleware.py"],
-  "unique_to_b": ["file::worker.py", "file::worker.py"],
+  "unique_to_b": ["file::worker_pool.py", "file::spawner.py"],
   "dimension_deltas": {
     "structural": 0.12,
     "semantic": 0.34,
@@ -405,7 +404,7 @@ agent_id: "analyzer-core"  -- performance analysis agent
 <pre><code class="language-jsonc">{
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.save",
+    "name": "trail_save",
     "arguments": {
       "agent_id": "agent-a",
       "label": "auth-token-leak-investigation",
@@ -502,47 +501,47 @@ agent_id: "analyzer-core"  -- performance analysis agent
   }
 }
 </code></pre>
-<h2 id="real-world-example-production-system"><a class="header" href="#real-world-example-production-system">Real-World Example: Multi-Agent Production System</a></h2>
-<p>a production system is a multi-agent orchestration system that uses m1nd as its shared code intelligence layer. Here is how it works in production:</p>
+<h2 id="real-world-example-roomanizer-os"><a class="header" href="#real-world-example-roomanizer-os">Real-World Example: ROOMANIZER OS</a></h2>
+<p>ROOMANIZER OS is a multi-agent orchestration system that uses m1nd as its shared code intelligence layer. Here is how it works in production:</p>
 <h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
-<pre><code>orchestrator
+<pre><code>JIMI (orchestrator)
   |
-  +-- auditor-1 (security agent)     --+
-  +-- builder-api (API builder)           --+-- All share one m1nd instance
-  +-- analyzer-core (performance)        --+
+  +-- hacker-auth (security agent)     --+
+  +-- forge-api (API builder)           --+-- All share one m1nd instance
+  +-- analyst-perf (performance)        --+
   +-- sentinel-files (file watcher)     --+
   +-- critic-quality (code reviewer)    --+
   +-- ... 14 more agents               --+
 </code></pre>
-<p>One m1nd instance serves all agents. The graph covers a 335-file Python backend (~52K lines), a React frontend, and MCP server infrastructure.</p>
+<p>One m1nd instance serves 19 agents. The graph covers a 335-file Python backend (~52K lines), a React frontend, and MCP server infrastructure.</p>
 <h3 id="orchestrator-boot-sequence"><a class="header" href="#orchestrator-boot-sequence">Orchestrator Boot Sequence</a></h3>
-<p>When the orchestrator starts a session:</p>
+<p>When JIMI (the orchestrator) starts a session:</p>
 <pre><code class="language-jsonc">// Step 1: Check m1nd health
-{"method":"tools/call","params":{"name":"m1nd.health","arguments":{"agent_id":"orchestrator"}}}
+{"method":"tools/call","params":{"name":"m1nd.health","arguments":{"agent_id":"jimi"}}}
 
 // Step 2: Check what changed since last session
-{"method":"tools/call","params":{"name":"m1nd.drift","arguments":{"agent_id":"orchestrator","since":"last_session"}}}
+{"method":"tools/call","params":{"name":"m1nd.drift","arguments":{"agent_id":"jimi","since":"last_session"}}}
 
 // Step 3: Re-ingest if the graph is stale
 {"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{
-  "path":"/project/backend","agent_id":"orchestrator","incremental":true
+  "path":"/project/backend","agent_id":"jimi","incremental":true
 }}}
 </code></pre>
 <h3 id="task-delegation-with-graph-context"><a class="header" href="#task-delegation-with-graph-context">Task Delegation with Graph Context</a></h3>
-<p>When the orchestrator delegates a security hardening task:</p>
+<p>When JIMI delegates a security hardening task:</p>
 <pre><code class="language-jsonc">// Before spawning the security agent, get blast radius context
 {"method":"tools/call","params":{"name":"m1nd.impact","arguments":{
-  "node_id":"file::auth.py","agent_id":"orchestrator"
+  "node_id":"file::auth.py","agent_id":"jimi"
 }}}
 
 // Warm up the graph for the security task
 {"method":"tools/call","params":{"name":"m1nd.warmup","arguments":{
-  "task_description":"harden authentication token validation","agent_id":"orchestrator"
+  "task_description":"harden authentication token validation","agent_id":"jimi"
 }}}
 
 // The security agent then uses the primed graph
 {"method":"tools/call","params":{"name":"m1nd.activate","arguments":{
-  "query":"token validation vulnerabilities","agent_id":"auditor-1"
+  "query":"token validation vulnerabilities","agent_id":"hacker-auth"
 }}}
 </code></pre>
 <h3 id="collective-learning"><a class="header" href="#collective-learning">Collective Learning</a></h3>
@@ -550,32 +549,32 @@ agent_id: "analyzer-core"  -- performance analysis agent
 <pre><code class="language-jsonc">// Security agent found useful results
 {"method":"tools/call","params":{"name":"m1nd.learn","arguments":{
   "query":"token validation vulnerabilities",
-  "agent_id":"auditor-1",
+  "agent_id":"hacker-auth",
   "feedback":"correct",
-  "node_ids":["file::auth.py","file::middleware.py","file::pool.py"]
+  "node_ids":["file::auth.py","file::middleware.py","file::session_pool.py"]
 }}}
 
 // Performance agent found different useful results
 {"method":"tools/call","params":{"name":"m1nd.learn","arguments":{
   "query":"connection pool bottleneck",
-  "agent_id":"analyzer-core",
+  "agent_id":"analyst-perf",
   "feedback":"correct",
-  "node_ids":["file::worker.py","file::process_manager.py"]
+  "node_ids":["file::worker_pool.py","file::process_manager.py"]
 }}}
 </code></pre>
-<p>Over a session with many agents, the graph accumulates thousands of learning signals. Each agent benefits from every other agent’s discoveries.</p>
+<p>Over a session with 19 agents, the graph accumulates thousands of learning signals. Each agent benefits from every other agent’s discoveries.</p>
 <h3 id="investigation-handoff"><a class="header" href="#investigation-handoff">Investigation Handoff</a></h3>
 <p>When Agent A finds something that Agent B needs to investigate:</p>
 <pre><code class="language-jsonc">// Agent A saves its investigation
-{"method":"tools/call","params":{"name":"m1nd.trail.save","arguments":{
-  "agent_id":"auditor-1",
+{"method":"tools/call","params":{"name":"trail_save","arguments":{
+  "agent_id":"hacker-auth",
   "label":"session-hijack-vector",
   "tags":["security","critical"]
 }}}
 
 // Orchestrator merges with Agent B's independent findings
 {"method":"tools/call","params":{"name":"m1nd.trail.merge","arguments":{
-  "agent_id":"orchestrator",
+  "agent_id":"jimi",
   "trail_ids":["trail-hacker-001","trail-analyst-002"]
 }}}
 </code></pre>

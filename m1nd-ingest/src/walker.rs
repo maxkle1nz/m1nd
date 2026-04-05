@@ -36,14 +36,55 @@ pub struct WalkResult {
 pub struct DirectoryWalker {
     skip_dirs: Vec<String>,
     skip_files: Vec<String>,
+    include_dotfiles: bool,
+    dotfile_patterns: Vec<String>,
 }
 
 impl DirectoryWalker {
-    pub fn new(skip_dirs: Vec<String>, skip_files: Vec<String>) -> Self {
+    pub fn new(
+        skip_dirs: Vec<String>,
+        skip_files: Vec<String>,
+        include_dotfiles: bool,
+        dotfile_patterns: Vec<String>,
+    ) -> Self {
         Self {
             skip_dirs,
             skip_files,
+            include_dotfiles,
+            dotfile_patterns,
         }
+    }
+
+    fn normalize_rel_path(path: &Path, root: &Path) -> String {
+        path.strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .trim_start_matches("./")
+            .trim_matches('/')
+            .to_string()
+    }
+
+    fn dotfile_pattern_matches(pattern: &str, rel_path: &str) -> bool {
+        let pattern = pattern.trim().trim_start_matches("./");
+        let rel_path = rel_path.trim().trim_start_matches("./").trim_matches('/');
+        if pattern.is_empty() {
+            return false;
+        }
+        if let Some(prefix) = pattern.strip_suffix("/**") {
+            return rel_path == prefix || rel_path.starts_with(&format!("{}/", prefix));
+        }
+        if let Some(prefix) = pattern.strip_suffix("/*") {
+            return rel_path == prefix || rel_path.starts_with(&format!("{}/", prefix));
+        }
+        rel_path == pattern
+    }
+
+    fn allow_hidden_path(&self, rel_path: &str) -> bool {
+        self.include_dotfiles
+            && self
+                .dotfile_patterns
+                .iter()
+                .any(|pattern| Self::dotfile_pattern_matches(pattern, rel_path))
     }
 
     /// Walk directory and return all non-binary, non-skipped files.
@@ -68,8 +109,9 @@ impl DirectoryWalker {
             .filter_entry(|e| {
                 if e.file_type().is_dir() {
                     let name = e.file_name().to_string_lossy();
+                    let rel_path = Self::normalize_rel_path(e.path(), &root_canonical);
                     // Skip hidden dirs and configured skip dirs
-                    if name.starts_with('.') && name != "." {
+                    if name.starts_with('.') && name != "." && !self.allow_hidden_path(&rel_path) {
                         return false;
                     }
                     return !self.skip_dirs.iter().any(|s| name == s.as_str());
@@ -93,8 +135,10 @@ impl DirectoryWalker {
                 continue;
             }
 
-            // Skip hidden files
-            if file_name.starts_with('.') {
+            let rel_path = Self::normalize_rel_path(entry.path(), &root_canonical);
+
+            // Skip hidden files unless explicitly allowed.
+            if file_name.starts_with('.') && !self.allow_hidden_path(&rel_path) {
                 continue;
             }
 
@@ -112,11 +156,7 @@ impl DirectoryWalker {
                 Err(_) => continue,
             };
 
-            let relative_path = path
-                .strip_prefix(&root_canonical)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+            let relative_path = rel_path;
 
             let extension = path.extension().map(|e| e.to_string_lossy().to_string());
 
