@@ -172,6 +172,8 @@ pub struct DaemonRuntimeState {
     pub last_tick_changed_files: usize,
     pub last_tick_deleted_files: usize,
     pub last_tick_alerts_emitted: usize,
+    pub idle_streak: u32,
+    pub max_backoff_multiplier: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
