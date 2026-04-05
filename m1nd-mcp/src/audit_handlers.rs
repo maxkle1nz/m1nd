@@ -983,6 +983,7 @@ struct FederateAutoCandidateAccumulator {
     evidence_types: BTreeSet<String>,
     sampled_paths: BTreeSet<String>,
     best_confidence_rank: u8,
+    best_evidence_rank: u8,
 }
 
 struct SemanticRepoSignal {
@@ -1017,6 +1018,24 @@ fn confidence_label(rank: u8) -> &'static str {
         1 => "medium",
         2 => "low",
         _ => "unknown",
+    }
+}
+
+fn evidence_rank(value: &str) -> u8 {
+    match value {
+        "markdown_link" | "keyed_assignment" => 0,
+        "quoted_path" => 1,
+        "cargo_workspace_member"
+        | "cargo_path_dependency"
+        | "npm_workspace"
+        | "npm_file_dependency"
+        | "pnpm_workspace"
+        | "uv_workspace_member"
+        | "python_path_dependency"
+        | "go_workspace_use" => 2,
+        "import_identity_match" => 3,
+        "api_route_match" => 4,
+        _ => 5,
     }
 }
 
@@ -1438,13 +1457,14 @@ fn collect_repo_api_routes(repo_root: &Path, limit_files: usize) -> BTreeMap<Str
 fn discover_import_repo_signals(
     state: &SessionState,
     workspace_root: &Path,
+    scope: Option<&str>,
 ) -> Vec<SemanticRepoSignal> {
     let inventory = if state.file_inventory.is_empty() {
         inventory_from_roots(state, false, &[])
     } else {
         state.file_inventory.clone()
     };
-    let disk_entries = filter_inventory_by_scope(state, &inventory, None);
+    let disk_entries = filter_inventory_by_scope(state, &inventory, scope);
     let neighbors = discover_neighbor_repo_identities(workspace_root);
     if neighbors.is_empty() {
         return Vec::new();
@@ -1484,13 +1504,14 @@ fn discover_import_repo_signals(
 fn discover_api_contract_repo_signals(
     state: &SessionState,
     workspace_root: &Path,
+    scope: Option<&str>,
 ) -> Vec<SemanticRepoSignal> {
     let inventory = if state.file_inventory.is_empty() {
         inventory_from_roots(state, false, &[])
     } else {
         state.file_inventory.clone()
     };
-    let disk_entries = filter_inventory_by_scope(state, &inventory, None);
+    let disk_entries = filter_inventory_by_scope(state, &inventory, scope);
     let mut current_routes: BTreeMap<String, (String, String)> = BTreeMap::new();
     for entry in disk_entries {
         let kind = classify_file_kind(&entry.file_path, &entry.language);
@@ -1556,6 +1577,7 @@ fn discover_api_contract_repo_signals(
 fn discover_semantic_repo_signals(
     state: &SessionState,
     workspace_root: &Path,
+    scope: Option<&str>,
 ) -> Vec<SemanticRepoSignal> {
     let mut signals = Vec::new();
     for manifest in manifest_files_for_discovery(workspace_root) {
@@ -1595,8 +1617,12 @@ fn discover_semantic_repo_signals(
             }
         }
     }
-    signals.extend(discover_import_repo_signals(state, workspace_root));
-    signals.extend(discover_api_contract_repo_signals(state, workspace_root));
+    signals.extend(discover_import_repo_signals(state, workspace_root, scope));
+    signals.extend(discover_api_contract_repo_signals(
+        state,
+        workspace_root,
+        scope,
+    ));
     signals
 }
 
@@ -1702,6 +1728,7 @@ pub fn handle_federate_auto(
                 repo_root: repo_root_str.clone(),
                 marker: marker.clone(),
                 best_confidence_rank: confidence_rank(confidence),
+                best_evidence_rank: evidence_rank(&evidence_type),
                 ..Default::default()
             }
         });
@@ -1709,6 +1736,7 @@ pub fn handle_federate_auto(
             .marker
             .get_or_insert_with(|| marker.unwrap_or_default());
         entry.best_confidence_rank = entry.best_confidence_rank.min(confidence_rank(confidence));
+        entry.best_evidence_rank = entry.best_evidence_rank.min(evidence_rank(&evidence_type));
         if let Some(source_node) = source_node {
             entry.source_nodes.insert(source_node);
         }
@@ -1719,13 +1747,15 @@ pub fn handle_federate_auto(
         entry.sampled_paths.insert(external_path);
     }
 
-    for signal in discover_semantic_repo_signals(state, &current_root_path) {
+    for signal in discover_semantic_repo_signals(state, &current_root_path, input.scope.as_deref())
+    {
         let repo_root_str = signal.repo_root.to_string_lossy().to_string();
         let entry = candidates.entry(repo_root_str.clone()).or_insert_with(|| {
             FederateAutoCandidateAccumulator {
                 repo_root: repo_root_str.clone(),
                 marker: signal.marker.clone(),
                 best_confidence_rank: confidence_rank(Some(signal.confidence)),
+                best_evidence_rank: evidence_rank(&signal.evidence_type),
                 ..Default::default()
             }
         });
@@ -1735,6 +1765,9 @@ pub fn handle_federate_auto(
         entry.best_confidence_rank = entry
             .best_confidence_rank
             .min(confidence_rank(Some(signal.confidence)));
+        entry.best_evidence_rank = entry
+            .best_evidence_rank
+            .min(evidence_rank(&signal.evidence_type));
         if let Some(source_node) = signal.source_node {
             entry.source_nodes.insert(source_node);
         }
@@ -1769,8 +1802,24 @@ pub fn handle_federate_auto(
         .collect::<Vec<_>>();
 
     discovered_repos.sort_by(|a, b| {
-        confidence_rank(Some(a.confidence.as_str()))
-            .cmp(&confidence_rank(Some(b.confidence.as_str())))
+        let a_evidence = a
+            .evidence_types
+            .iter()
+            .map(|value| evidence_rank(value))
+            .min()
+            .unwrap_or(255);
+        let b_evidence = b
+            .evidence_types
+            .iter()
+            .map(|value| evidence_rank(value))
+            .min()
+            .unwrap_or(255);
+        a_evidence
+            .cmp(&b_evidence)
+            .then_with(|| {
+                confidence_rank(Some(a.confidence.as_str()))
+                    .cmp(&confidence_rank(Some(b.confidence.as_str())))
+            })
             .then_with(|| b.source_nodes.len().cmp(&a.source_nodes.len()))
             .then_with(|| a.repo_root.cmp(&b.repo_root))
     });

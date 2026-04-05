@@ -52,6 +52,16 @@ The rule:
 
 ## Resolved Notes
 
+### 2026-04-05 — `federate_auto(scope="docs")` was polluted by non-doc semantic signals
+
+- Context: real `execute=true` smoke on the live `m1nd` repo
+- Root cause: semantic discovery lanes ignored the requested `scope`, so
+  import/API heuristics could outrank the explicit doc evidence and surface
+  nearby worktrees instead of the external repos actually referenced in docs
+- Resolution: semantic discovery now respects scope and candidate ranking now
+  prefers stronger evidence families over weaker heuristic matches
+- Landed in branch: `codex/m1nd-federate-field-hardening`
+
 ### 2026-04-05 — `cross_verify` counted symbol nodes as missing files
 
 - Context: real MCP smoke on the `m1nd` repo returned a wildly inflated
