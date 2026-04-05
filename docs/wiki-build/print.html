@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-1c1b5857.js";
+            window.path_to_searchindex_js = "searchindex-ce661f27.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a37108d1.js"></script>
@@ -4469,7 +4469,7 @@ if fallback {
 <li><a href="#m1ndwhy"><code>m1nd.why</code></a> – path explanation (traverses cross-repo edges)</li>
 </ul>
 <h2 id="m1ndfederate_auto"><a class="header" href="#m1ndfederate_auto"><code>m1nd.federate_auto</code></a></h2>
-<p>Turn explicit external path evidence into repo candidates, namespace suggestions, and an optional one-shot <code>federate</code> call.</p>
+<p>Turn explicit external path evidence or local manifest/workspace hints into repo candidates, namespace suggestions, and an optional one-shot <code>federate</code> call.</p>
 <h3 id="parameters-6-2"><a class="header" href="#parameters-6-2">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -4529,6 +4529,7 @@ if fallback {
 <h3 id="when-to-use-6-2"><a class="header" href="#when-to-use-6-2">When to Use</a></h3>
 <ul>
 <li><strong>Cross-repo audits</strong> – when <code>audit</code> or <code>external_references</code> already surfaced sibling repo paths</li>
+<li><strong>Manifest-driven workspaces</strong> – when <code>Cargo.toml</code>, <code>package.json</code>, <code>pnpm-workspace.yaml</code>, <code>pyproject.toml</code>, or <code>go.work</code> already point at sibling repos</li>
 <li><strong>Planning/doc hubs</strong> – when docs point to runtime repos and you want a namespace plan without manual copy-paste</li>
 <li><strong>Worktree-heavy setups</strong> – when the current workspace path is a worktree but you still want repo-shaped namespace suggestions</li>
 </ul>

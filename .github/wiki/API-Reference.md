@@ -36,7 +36,7 @@ These tools reduce orchestration overhead for real agent sessions:
 - `m1nd_cross_verify` — graph vs disk verification (`existence`, `loc`, `hash`)
 - `m1nd_coverage_session` — what this agent has visited so far
 - `m1nd_external_references` — explicit paths outside ingest roots
-- `m1nd_federate_auto` — turn external path evidence into repo candidates and optional federation
+- `m1nd_federate_auto` — turn external path or manifest/workspace evidence into repo candidates and optional federation
 - `m1nd_audit` — profile-aware one-call audit
 
 ---
@@ -509,7 +509,7 @@ Unify multiple repositories into one graph — cross-repo blast radius and depen
 
 ### `m1nd_federate_auto`
 
-Discover candidate sibling repositories from explicit external path references and optionally execute federation in one step.
+Discover candidate sibling repositories from explicit external path references or local manifest/workspace hints and optionally execute federation in one step.
 
 **Inputs:**
 

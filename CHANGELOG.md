@@ -17,6 +17,13 @@ federation plan.
 - lifts referenced files to detected repo roots via `.git` or common manifest markers
 - suggests stable namespace names for the current repo and discovered sibling repos
 - can optionally execute `federate` directly in one call
+- now also discovers sibling repos from local manifest/workspace signals such as:
+  - `Cargo.toml` path dependencies
+  - `Cargo.toml` workspace members
+  - `package.json` workspaces and `file:` dependencies
+  - `pnpm-workspace.yaml` package globs
+  - `pyproject.toml` workspace/path dependencies
+  - `go.work` use directives
 
 This is the first bridge from audit-era repo-truth tooling into automatic
 cross-repo graph expansion. It reduces the manual step where an agent had to

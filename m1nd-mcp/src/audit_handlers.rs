@@ -252,13 +252,17 @@ fn discover_repo_root_for_external_path(path: &Path) -> Option<(PathBuf, Option<
 
     for ancestor in start.ancestors() {
         if ancestor.join(".git").exists() {
-            return Some((ancestor.to_path_buf(), Some(".git".to_string())));
+            let canonical =
+                std::fs::canonicalize(ancestor).unwrap_or_else(|_| ancestor.to_path_buf());
+            return Some((canonical, Some(".git".to_string())));
         }
     }
 
     for ancestor in start.ancestors() {
         if let Some(marker) = repo_marker_for_dir(ancestor) {
-            return Some((ancestor.to_path_buf(), Some(marker)));
+            let canonical =
+                std::fs::canonicalize(ancestor).unwrap_or_else(|_| ancestor.to_path_buf());
+            return Some((canonical, Some(marker)));
         }
     }
 
@@ -981,6 +985,16 @@ struct FederateAutoCandidateAccumulator {
     best_confidence_rank: u8,
 }
 
+struct SemanticRepoSignal {
+    repo_root: PathBuf,
+    marker: Option<String>,
+    source_file: String,
+    source_node: Option<String>,
+    evidence_type: String,
+    sampled_path: String,
+    confidence: &'static str,
+}
+
 fn confidence_rank(value: Option<&str>) -> u8 {
     match value {
         Some("high") => 0,
@@ -997,6 +1011,237 @@ fn confidence_label(rank: u8) -> &'static str {
         2 => "low",
         _ => "unknown",
     }
+}
+
+fn source_node_for_file(state: &SessionState, file_path: &Path) -> Option<String> {
+    let file_path_str = file_path.to_string_lossy();
+    state
+        .file_inventory
+        .values()
+        .find(|entry| entry.file_path == file_path_str)
+        .map(|entry| entry.external_id.clone())
+}
+
+fn source_node_or_fallback(
+    state: &SessionState,
+    workspace_root: &Path,
+    file_path: &Path,
+) -> Option<String> {
+    source_node_for_file(state, file_path).or_else(|| {
+        file_path
+            .strip_prefix(workspace_root)
+            .ok()
+            .and_then(|relative| relative.to_str())
+            .map(|relative| format!("file::{}", relative.replace('\\', "/")))
+    })
+}
+
+fn parse_quoted_string_array(content: &str, key: &str) -> Vec<String> {
+    let pattern = format!(r#"(?s)"{}"\s*:\s*\[(?P<body>.*?)\]"#, regex::escape(key));
+    let Ok(section_regex) = Regex::new(&pattern) else {
+        return Vec::new();
+    };
+    let Ok(item_regex) = Regex::new(r#""([^"]+)""#) else {
+        return Vec::new();
+    };
+    section_regex
+        .captures_iter(content)
+        .flat_map(|captures| {
+            captures
+                .name("body")
+                .into_iter()
+                .flat_map(|body| item_regex.captures_iter(body.as_str()))
+                .filter_map(|item| item.get(1).map(|m| m.as_str().to_string()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn parse_manifest_relative_paths(
+    file_name: &str,
+    content: &str,
+) -> Vec<(String, &'static str, &'static str)> {
+    let mut results = Vec::new();
+    match file_name {
+        "cargo.toml" => {
+            if let Ok(workspace_members) =
+                Regex::new(r#"(?s)\[workspace\].*?members\s*=\s*\[(?P<body>.*?)\]"#)
+            {
+                if let Ok(item_regex) = Regex::new(r#""([^"]+)""#) {
+                    for captures in workspace_members.captures_iter(content) {
+                        if let Some(body) = captures.name("body") {
+                            for item in item_regex.captures_iter(body.as_str()) {
+                                if let Some(path) = item.get(1).map(|m| m.as_str()) {
+                                    results.push((
+                                        path.to_string(),
+                                        "cargo_workspace_member",
+                                        "high",
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Ok(path_dep) = Regex::new(r#"(?m)path\s*=\s*"([^"]+)""#) {
+                for captures in path_dep.captures_iter(content) {
+                    if let Some(path) = captures.get(1).map(|m| m.as_str()) {
+                        results.push((path.to_string(), "cargo_path_dependency", "high"));
+                    }
+                }
+            }
+        }
+        "package.json" => {
+            for workspace in parse_quoted_string_array(content, "workspaces") {
+                results.push((workspace, "npm_workspace", "high"));
+            }
+            if let Ok(workspaces_object) =
+                Regex::new(r#"(?s)"workspaces"\s*:\s*\{.*?"packages"\s*:\s*\[(?P<body>.*?)\]"#)
+            {
+                if let Ok(item_regex) = Regex::new(r#""([^"]+)""#) {
+                    for captures in workspaces_object.captures_iter(content) {
+                        if let Some(body) = captures.name("body") {
+                            for item in item_regex.captures_iter(body.as_str()) {
+                                if let Some(path) = item.get(1).map(|m| m.as_str()) {
+                                    results.push((path.to_string(), "npm_workspace", "high"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Ok(file_dep) = Regex::new(r#""[^"]+"\s*:\s*"file:([^"]+)""#) {
+                for captures in file_dep.captures_iter(content) {
+                    if let Some(path) = captures.get(1).map(|m| m.as_str()) {
+                        results.push((path.to_string(), "npm_file_dependency", "high"));
+                    }
+                }
+            }
+        }
+        "pnpm-workspace.yaml" => {
+            if let Ok(item_regex) = Regex::new(r#"(?m)^\s*-\s*['"]?([^'"\n]+)['"]?\s*$"#) {
+                for captures in item_regex.captures_iter(content) {
+                    if let Some(path) = captures.get(1).map(|m| m.as_str()) {
+                        results.push((path.to_string(), "pnpm_workspace", "high"));
+                    }
+                }
+            }
+        }
+        "pyproject.toml" => {
+            if let Ok(uv_members) =
+                Regex::new(r#"(?s)\[tool\.uv\.workspace\].*?members\s*=\s*\[(?P<body>.*?)\]"#)
+            {
+                if let Ok(item_regex) = Regex::new(r#""([^"]+)""#) {
+                    for captures in uv_members.captures_iter(content) {
+                        if let Some(body) = captures.name("body") {
+                            for item in item_regex.captures_iter(body.as_str()) {
+                                if let Some(path) = item.get(1).map(|m| m.as_str()) {
+                                    results.push((path.to_string(), "uv_workspace_member", "high"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Ok(path_dep) = Regex::new(r#"path\s*=\s*"([^"]+)""#) {
+                for captures in path_dep.captures_iter(content) {
+                    if let Some(path) = captures.get(1).map(|m| m.as_str()) {
+                        results.push((path.to_string(), "python_path_dependency", "medium"));
+                    }
+                }
+            }
+        }
+        "go.work" => {
+            if let Ok(use_path) = Regex::new(r#"(?m)^\s*use\s+(\.[^\s]*)\s*$"#) {
+                for captures in use_path.captures_iter(content) {
+                    if let Some(path) = captures.get(1).map(|m| m.as_str()) {
+                        results.push((path.to_string(), "go_workspace_use", "high"));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    results
+}
+
+fn expand_relative_pattern(base_dir: &Path, pattern: &str) -> Vec<PathBuf> {
+    let joined = base_dir.join(pattern);
+    let candidate = joined.to_string_lossy().to_string();
+    let has_glob = pattern.contains('*') || pattern.contains('?') || pattern.contains('[');
+    if has_glob {
+        let mut matches = Vec::new();
+        if let Ok(paths) = glob::glob(&candidate) {
+            for path in paths.flatten() {
+                matches.push(path);
+            }
+        }
+        matches
+    } else {
+        vec![joined]
+    }
+}
+
+fn manifest_files_for_discovery(workspace_root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for manifest in [
+        "Cargo.toml",
+        "package.json",
+        "pnpm-workspace.yaml",
+        "pyproject.toml",
+        "go.work",
+    ] {
+        let path = workspace_root.join(manifest);
+        if path.exists() {
+            files.push(path);
+        }
+    }
+    files
+}
+
+fn discover_semantic_repo_signals(
+    state: &SessionState,
+    workspace_root: &Path,
+) -> Vec<SemanticRepoSignal> {
+    let mut signals = Vec::new();
+    for manifest in manifest_files_for_discovery(workspace_root) {
+        let Some(file_name) = manifest.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Ok(content) = std::fs::read_to_string(&manifest) else {
+            continue;
+        };
+        for (relative_path, evidence_type, confidence) in
+            parse_manifest_relative_paths(&file_name.to_lowercase(), &content)
+        {
+            if relative_path.is_empty() {
+                continue;
+            }
+            for candidate_path in expand_relative_pattern(workspace_root, &relative_path) {
+                if !candidate_path.exists() {
+                    continue;
+                }
+                let Some((repo_root, marker)) =
+                    discover_repo_root_for_external_path(&candidate_path)
+                else {
+                    continue;
+                };
+                if repo_root == workspace_root {
+                    continue;
+                }
+                signals.push(SemanticRepoSignal {
+                    repo_root,
+                    marker,
+                    source_file: manifest.to_string_lossy().to_string(),
+                    source_node: source_node_or_fallback(state, workspace_root, &manifest),
+                    evidence_type: evidence_type.to_string(),
+                    sampled_path: candidate_path.to_string_lossy().to_string(),
+                    confidence,
+                });
+            }
+        }
+    }
+    signals
 }
 
 pub fn handle_federate_auto(
@@ -1116,6 +1361,30 @@ pub fn handle_federate_auto(
         }
         entry.evidence_types.insert(evidence_type);
         entry.sampled_paths.insert(external_path);
+    }
+
+    for signal in discover_semantic_repo_signals(state, &current_root_path) {
+        let repo_root_str = signal.repo_root.to_string_lossy().to_string();
+        let entry = candidates.entry(repo_root_str.clone()).or_insert_with(|| {
+            FederateAutoCandidateAccumulator {
+                repo_root: repo_root_str.clone(),
+                marker: signal.marker.clone(),
+                best_confidence_rank: confidence_rank(Some(signal.confidence)),
+                ..Default::default()
+            }
+        });
+        if let Some(marker) = signal.marker.clone() {
+            entry.marker.get_or_insert(marker);
+        }
+        entry.best_confidence_rank = entry
+            .best_confidence_rank
+            .min(confidence_rank(Some(signal.confidence)));
+        if let Some(source_node) = signal.source_node {
+            entry.source_nodes.insert(source_node);
+        }
+        entry.source_files.insert(signal.source_file);
+        entry.evidence_types.insert(signal.evidence_type);
+        entry.sampled_paths.insert(signal.sampled_path);
     }
 
     let mut discovered_repos = candidates
@@ -2333,9 +2602,10 @@ mod tests {
             .as_array()
             .expect("discovered repos");
         assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&external_root).expect("canonical external root");
         assert_eq!(
             discovered[0]["repo_root"].as_str(),
-            Some(external_root.to_string_lossy().as_ref())
+            Some(expected_root.to_string_lossy().as_ref())
         );
         assert_eq!(discovered[0]["marker"].as_str(), Some(".git"));
     }
@@ -2396,6 +2666,133 @@ mod tests {
                 .map(|items| items.len()),
             Some(2)
         );
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_cargo_path_dependency_without_absolute_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("Cargo.toml"),
+            "[package]\nname = \"current\"\nversion = \"0.1.0\"\n[dependencies]\nruntime = { path = \"../runtime\" }\n",
+        )
+        .expect("write cargo");
+        std::fs::write(current_root.join("src/lib.rs"), "pub fn current() {}\n")
+            .expect("write current");
+
+        let runtime_root = temp.path().join("runtime");
+        std::fs::create_dir_all(runtime_root.join(".git")).expect("runtime git");
+        std::fs::create_dir_all(runtime_root.join("src")).expect("runtime src");
+        std::fs::write(
+            runtime_root.join("Cargo.toml"),
+            "[package]\nname = \"runtime\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write runtime cargo");
+        std::fs::write(runtime_root.join("src/lib.rs"), "pub fn runtime() {}\n")
+            .expect("write runtime");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::Cargo.toml".into(),
+            file_path: current_root
+                .join("Cargo.toml")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "toml".into(),
+            commit_count: 0,
+            loc: Some(1),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&runtime_root).expect("canonical runtime root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "cargo_path_dependency")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_package_workspace_pattern() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(&current_root).expect("current root");
+        std::fs::write(
+            current_root.join("package.json"),
+            "{\n  \"name\": \"current\",\n  \"workspaces\": [\"../packages/*\"]\n}\n",
+        )
+        .expect("write package json");
+
+        let package_root = temp.path().join("packages/runtime");
+        std::fs::create_dir_all(package_root.join(".git")).expect("package git");
+        std::fs::write(
+            package_root.join("package.json"),
+            "{ \"name\": \"runtime\", \"version\": \"0.1.0\" }\n",
+        )
+        .expect("write runtime package");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::package.json".into(),
+            file_path: current_root
+                .join("package.json")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "json".into(),
+            commit_count: 0,
+            loc: Some(1),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&package_root).expect("canonical package root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "npm_workspace")));
     }
 
     #[test]

@@ -127,7 +127,7 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
             "seek(query) or search(query) to close the highest-value unread gap".into(),
         ],
         "external_references" => vec![
-            "federate_auto when you want m1nd to discover sibling repos and suggest namespaces for you".into(),
+            "federate_auto when you want m1nd to discover sibling repos from explicit paths or manifest/workspace hints and suggest namespaces for you".into(),
             "audit(path, external_refs=true) to fold the signal into a larger report".into(),
         ],
         "federate_auto" => vec![
@@ -409,8 +409,8 @@ fn when_to_use(tool_name: &str) -> &'static [&'static str] {
             "Best in coordination or planning repos that describe other systems.",
         ],
         "federate_auto" => &[
-            "Use when external path evidence is real and you want m1nd to turn it into repo candidates instead of assembling the federate input by hand.",
-            "Best after external_references or audit surfaces sibling repos you probably need in the graph.",
+            "Use when external path evidence or local manifest/workspace hints are real and you want m1nd to turn them into repo candidates instead of assembling the federate input by hand.",
+            "Best after external_references or audit, or when the current repo uses path/workspace manifests to point at sibling repos.",
         ],
         "audit" => &[
             "Use when you want one top-level structural pass instead of manually chaining health, panoramic, layers, scans, verification, and git context.",
@@ -552,7 +552,7 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
             "Use this when you want raw path evidence first; use federate_auto when you want m1nd to bridge into repo discovery.",
         ],
         "federate_auto" => &[
-            "This is the bridge from external path evidence into an actionable federation plan.",
+            "This is the bridge from external path evidence and manifest/workspace hints into an actionable federation plan.",
         ],
         "audit" => &[
             "Use audit as the top-level orienter, then drop to narrower tools for proof and execution.",
@@ -1235,7 +1235,7 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             name: "federate_auto",
             category: "Extended",
             glyph: GLYPH_CONNECTION,
-            one_liner: "Turn external path evidence into repo candidates and optional one-shot federation",
+            one_liner: "Turn external path or manifest/workspace evidence into repo candidates and optional one-shot federation",
             params: &[
                 ("agent_id", "Calling agent identifier", true),
                 ("scope", "File path prefix to limit discovery sources", false),
