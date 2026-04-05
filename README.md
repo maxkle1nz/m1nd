@@ -490,7 +490,7 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `cross_verify` | Compare graph state against filesystem truth: existence, LOC drift, hash mismatches |
 | `coverage_session` | Show which files/nodes the current agent has already visited |
 | `external_references` | Find explicit path references that point outside current ingest roots |
-| `federate_auto` | Turn external paths, manifest/workspace hints, import/package names, shared API-route evidence, or contract artifacts like `.proto`, MCP tools, and OpenAPI into repo candidates and an optional one-shot federation plan |
+| `federate_auto` | Turn external paths, manifest/workspace hints, import/package names, shared API-route evidence, or contract artifacts like `.proto` messages/enums, MCP tools, and OpenAPI schema/components into repo candidates and an optional one-shot federation plan |
 | `audit` | One-call profile-aware audit across topology, scans, git state, verification, and recommendations |
 </details>
 

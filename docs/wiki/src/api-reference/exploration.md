@@ -616,6 +616,7 @@ Turn explicit external path evidence, local manifest/workspace hints, import/pac
 - **Import-driven discovery** -- when code already imports a sibling package/crate name but the current repo has no explicit path hint
 - **Contract-driven discovery** -- when nearby repos expose `.proto` or MCP tool contracts that the current workspace already references by name
 - **OpenAPI-driven discovery** -- when the current workspace references `operationId`s or routes defined in a nearby OpenAPI/Swagger spec
+- **Schema-driven discovery** -- when the current workspace references message/component names defined in `.proto` or OpenAPI schemas
 - **Planning/doc hubs** -- when docs point to runtime repos and you want a namespace plan without manual copy-paste
 - **Worktree-heavy setups** -- when the current workspace path is a worktree but you still want repo-shaped namespace suggestions
 
