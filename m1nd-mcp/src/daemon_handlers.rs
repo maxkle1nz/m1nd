@@ -153,6 +153,11 @@ pub fn handle_daemon_start(
     state.daemon_state.watch_paths = watch_paths;
     state.daemon_state.poll_interval_ms = input.poll_interval_ms;
     state.daemon_state.tracked_files = tracked_files_from_inventory(&initial_inventory);
+    state.daemon_state.tick_count = 0;
+    state.daemon_state.last_tick_duration_ms = None;
+    state.daemon_state.last_tick_changed_files = 0;
+    state.daemon_state.last_tick_deleted_files = 0;
+    state.daemon_state.last_tick_alerts_emitted = 0;
     state.persist_daemon_state()?;
     Ok(json!({
         "status": "started",
@@ -191,6 +196,11 @@ pub fn handle_daemon_status(
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
         "alert_count": state.daemon_alerts.len(),
         "tracked_files": state.daemon_state.tracked_files.len(),
+        "tick_count": state.daemon_state.tick_count,
+        "last_tick_duration_ms": state.daemon_state.last_tick_duration_ms,
+        "last_tick_changed_files": state.daemon_state.last_tick_changed_files,
+        "last_tick_deleted_files": state.daemon_state.last_tick_deleted_files,
+        "last_tick_alerts_emitted": state.daemon_state.last_tick_alerts_emitted,
         "runtime_root": state.runtime_root,
         "graph_generation": state.graph_generation,
         "cache_generation": state.cache_generation,
@@ -201,6 +211,7 @@ pub fn handle_daemon_tick(
     state: &mut SessionState,
     input: layers::DaemonTickInput,
 ) -> M1ndResult<serde_json::Value> {
+    let start = std::time::Instant::now();
     if !state.daemon_state.active {
         return Err(M1ndError::InvalidParams {
             tool: "daemon_tick".into(),
@@ -250,6 +261,7 @@ pub fn handle_daemon_tick(
     changed_entries.truncate(input.max_files);
 
     let mut ingested_files = Vec::new();
+    let mut heuristic_alerts_emitted = 0usize;
     for entry in &changed_entries {
         let ingest_result = crate::tools::handle_ingest(
             state,
@@ -280,7 +292,7 @@ pub fn handle_daemon_tick(
             &entry.file_path,
             None,
         );
-        crate::surgical_handlers::persist_daemon_alerts_from_insights(
+        heuristic_alerts_emitted += crate::surgical_handlers::persist_daemon_alerts_from_insights(
             state,
             &proactive_insights,
             Some(&entry.file_path),
@@ -323,6 +335,12 @@ pub fn handle_daemon_tick(
 
     let tick_ms = now_ms();
     state.daemon_state.last_tick_ms = Some(tick_ms);
+    state.daemon_state.tick_count = state.daemon_state.tick_count.saturating_add(1);
+    state.daemon_state.last_tick_duration_ms = Some(start.elapsed().as_secs_f64() * 1000.0);
+    state.daemon_state.last_tick_changed_files = changed_entries.len();
+    state.daemon_state.last_tick_deleted_files = deleted_entries.len();
+    state.daemon_state.last_tick_alerts_emitted =
+        emitted_alert_ids.len() + heuristic_alerts_emitted;
     state.persist_daemon_state()?;
     state.persist_daemon_alerts()?;
 
@@ -338,7 +356,7 @@ pub fn handle_daemon_tick(
             "file_path": entry.file_path,
             "external_id": entry.external_id,
         })).collect::<Vec<_>>(),
-        "alerts_emitted": emitted_alert_ids.len(),
+        "alerts_emitted": emitted_alert_ids.len() + heuristic_alerts_emitted,
         "alert_ids": emitted_alert_ids,
     }))
 }
@@ -533,6 +551,7 @@ mod tests {
         .expect("daemon status");
         assert_eq!(status["active"], true);
         assert_eq!(status["alert_count"], 1);
+        assert_eq!(status["tick_count"], 0);
 
         let stopped = handle_daemon_stop(
             &mut state,
@@ -604,6 +623,16 @@ mod tests {
         assert!(ticked["ingested_files"][0]["file_path"]
             .as_str()
             .is_some_and(|path| path.ends_with("src/core.py")));
+        let status = handle_daemon_status(
+            &mut state,
+            layers::DaemonStatusInput {
+                agent_id: "test".into(),
+            },
+        )
+        .expect("daemon status after tick");
+        assert_eq!(status["tick_count"], 2);
+        assert_eq!(status["last_tick_changed_files"], 1);
+        assert_eq!(status["last_tick_deleted_files"], 0);
     }
 
     #[test]
@@ -698,6 +727,18 @@ mod tests {
             }),
             "daemon tick should persist heuristic alerts for risky changed files"
         );
+        let status = handle_daemon_status(
+            &mut state,
+            layers::DaemonStatusInput {
+                agent_id: "test".into(),
+            },
+        )
+        .expect("daemon status after risky tick");
+        assert_eq!(status["last_tick_changed_files"], 1);
+        assert!(
+            status["last_tick_alerts_emitted"].as_u64().unwrap_or(0) >= 1,
+            "risky daemon tick should emit at least one alert"
+        );
     }
 
     #[test]
@@ -749,5 +790,15 @@ mod tests {
             .daemon_alerts
             .iter()
             .any(|alert| alert.kind == "graph_vs_disk_drift"));
+        let status = handle_daemon_status(
+            &mut state,
+            layers::DaemonStatusInput {
+                agent_id: "test".into(),
+            },
+        )
+        .expect("daemon status after delete tick");
+        assert_eq!(status["last_tick_deleted_files"], 1);
+        assert_eq!(status["last_tick_alerts_emitted"], 1);
+        assert!(status["last_tick_duration_ms"].as_f64().is_some());
     }
 }

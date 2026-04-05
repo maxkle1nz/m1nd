@@ -339,9 +339,9 @@ pub(crate) fn persist_daemon_alerts_from_insights(
     proactive_insights: &[surgical::ProactiveInsight],
     default_file_path: Option<&str>,
     default_node_id: Option<&str>,
-) {
+) -> usize {
     if !state.daemon_state.active || proactive_insights.is_empty() {
-        return;
+        return 0;
     }
 
     let tick_ms = SystemTime::now()
@@ -350,6 +350,7 @@ pub(crate) fn persist_daemon_alerts_from_insights(
         .unwrap_or(0);
     state.daemon_state.last_tick_ms = Some(tick_ms);
 
+    let emitted_count = proactive_insights.iter().take(3).count();
     for insight in proactive_insights.iter().take(3) {
         let alert_file_path = insight
             .suggested_target
@@ -389,6 +390,7 @@ pub(crate) fn persist_daemon_alerts_from_insights(
             error
         );
     }
+    emitted_count
 }
 
 fn surgical_dampened_trust_factor(raw_factor: f32) -> f32 {
@@ -2194,7 +2196,7 @@ pub fn handle_apply(
 
     let applied_file_path = validated_path.to_string_lossy().to_string();
     let proactive_insights = daemon_proactive_insights_for_file(state, &applied_file_path, None);
-    persist_daemon_alerts_from_insights(
+    let _ = persist_daemon_alerts_from_insights(
         state,
         &proactive_insights,
         Some(&applied_file_path),
@@ -3732,7 +3734,7 @@ pub fn handle_apply_batch(
             .first()
             .map(|impact| impact.node_id.as_str())
     });
-    persist_daemon_alerts_from_insights(
+    let _ = persist_daemon_alerts_from_insights(
         state,
         &proactive_insights,
         primary_file_path,
