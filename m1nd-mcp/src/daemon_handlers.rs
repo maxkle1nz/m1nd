@@ -178,6 +178,57 @@ fn git_head_ref(root: &Path) -> Option<String> {
     }
 }
 
+fn git_upstream_ref(root: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args([
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn git_merge_base(root: &Path, lhs: &str, rhs: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["merge-base", lhs, rhs])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn git_initial_baseline(root: &Path) -> (Option<String>, Option<String>, Option<String>) {
+    let head = git_head_ref(root);
+    let upstream = git_upstream_ref(root);
+    if let (Some(head_ref), Some(upstream_ref)) = (head.as_deref(), upstream.as_deref()) {
+        if let Some(merge_base) = git_merge_base(root, head_ref, upstream_ref) {
+            return (Some(merge_base), Some("merge_base".to_string()), upstream);
+        }
+    }
+
+    (head, Some("head".to_string()), upstream)
+}
+
 fn git_changed_absolute_paths(
     root: &Path,
     since_ref: Option<&str>,
@@ -272,11 +323,15 @@ pub fn handle_daemon_start(
     state.daemon_state.last_watch_event_ms = None;
     state.daemon_state.git_root = git_root_for_watch_paths(&state.daemon_state.watch_paths)
         .map(|root| root.to_string_lossy().to_string());
-    state.daemon_state.git_since_ref = state
+    let (git_baseline_ref, git_baseline_kind, _git_upstream_ref) = state
         .daemon_state
         .git_root
         .as_deref()
-        .and_then(|root| git_head_ref(Path::new(root)));
+        .map(|root| git_initial_baseline(Path::new(root)))
+        .unwrap_or((None, None, None));
+    state.daemon_state.git_baseline_ref = git_baseline_ref.clone();
+    state.daemon_state.git_baseline_kind = git_baseline_kind;
+    state.daemon_state.git_since_ref = git_baseline_ref;
     state.daemon_state.last_git_scan_ms = None;
     state.daemon_state.last_git_changed_files = 0;
     state.daemon_state.git_backend_error = None;
@@ -297,6 +352,8 @@ pub fn handle_daemon_start(
         "tracked_files": state.daemon_state.tracked_files.len(),
         "watch_backend": state.daemon_state.watch_backend,
         "git_root": state.daemon_state.git_root,
+        "git_baseline_ref": state.daemon_state.git_baseline_ref,
+        "git_baseline_kind": state.daemon_state.git_baseline_kind,
         "git_since_ref": state.daemon_state.git_since_ref,
         "git_operation_in_progress": state.daemon_state.git_operation_in_progress,
         "git_operation_kind": state.daemon_state.git_operation_kind,
@@ -358,6 +415,8 @@ pub fn handle_daemon_status(
         "watch_events_dropped": state.daemon_state.watch_events_dropped,
         "last_watch_event_ms": state.daemon_state.last_watch_event_ms,
         "git_root": state.daemon_state.git_root,
+        "git_baseline_ref": state.daemon_state.git_baseline_ref,
+        "git_baseline_kind": state.daemon_state.git_baseline_kind,
         "git_since_ref": state.daemon_state.git_since_ref,
         "last_git_scan_ms": state.daemon_state.last_git_scan_ms,
         "last_git_changed_files": state.daemon_state.last_git_changed_files,
@@ -1141,6 +1200,100 @@ mod tests {
 
         assert_eq!(started["watch_backend"], "git_native_fs");
         assert!(started["git_root"].as_str().is_some());
+        assert!(started["git_since_ref"].as_str().is_some());
+        assert!(started["git_baseline_ref"].as_str().is_some());
+        assert_eq!(started["git_baseline_kind"], "head");
+    }
+
+    #[test]
+    fn daemon_start_prefers_merge_base_when_upstream_exists() {
+        let (temp, mut state) = build_state();
+        let remote = temp.path().join("remote.git");
+        let seed = temp.path().join("seed");
+        std::fs::create_dir_all(seed.join("src")).expect("seed src");
+        std::fs::write(seed.join("src/core.py"), "def core():\n    return 1\n").expect("write");
+
+        Command::new("git")
+            .args(["init", "--bare", remote.to_string_lossy().as_ref()])
+            .output()
+            .expect("bare init");
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&seed)
+            .output()
+            .expect("git init seed");
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(&seed)
+            .output()
+            .expect("git email");
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&seed)
+            .output()
+            .expect("git name");
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&seed)
+            .output()
+            .expect("git add");
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&seed)
+            .output()
+            .expect("git commit");
+        Command::new("git")
+            .args(["branch", "-M", "main"])
+            .current_dir(&seed)
+            .output()
+            .expect("branch main");
+        Command::new("git")
+            .args(["remote", "add", "origin", remote.to_string_lossy().as_ref()])
+            .current_dir(&seed)
+            .output()
+            .expect("remote add");
+        Command::new("git")
+            .args(["push", "-u", "origin", "main"])
+            .current_dir(&seed)
+            .output()
+            .expect("push main");
+
+        Command::new("git")
+            .args(["checkout", "-b", "feature"])
+            .current_dir(&seed)
+            .output()
+            .expect("feature branch");
+        Command::new("git")
+            .args(["branch", "--set-upstream-to", "origin/main"])
+            .current_dir(&seed)
+            .output()
+            .expect("set upstream");
+        std::fs::write(seed.join("src/core.py"), "def core():\n    return 2\n").expect("rewrite");
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&seed)
+            .output()
+            .expect("add feature");
+        Command::new("git")
+            .args(["commit", "-m", "feature"])
+            .current_dir(&seed)
+            .output()
+            .expect("commit feature");
+
+        let started = handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![seed.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+
+        assert_eq!(started["watch_backend"], "git_native_fs");
+        assert_eq!(started["git_baseline_kind"], "merge_base");
+        assert!(started["git_baseline_ref"].as_str().is_some());
         assert!(started["git_since_ref"].as_str().is_some());
     }
 
