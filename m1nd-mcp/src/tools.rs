@@ -241,19 +241,26 @@ fn finalize_ingest(
 
     state.rebuild_engines()?;
 
-    // Track ingest roots for L3 git discovery.
-    // Keep the vector ordered oldest -> newest so path resolution can prefer
-    // the most recent matching root deterministically.
-    if let Some(pos) = state
-        .ingest_roots
-        .iter()
-        .position(|root| root == &input.path)
-    {
-        let root = state.ingest_roots.remove(pos);
-        state.ingest_roots.push(root);
-    } else {
+    // Track ingest roots for L3 git discovery and scope normalization.
+    // Replace mode resets the active roots to the new source of truth.
+    if mode == "replace" {
+        state.ingest_roots.clear();
         state.ingest_roots.push(input.path.clone());
+    } else {
+        // Keep the vector ordered oldest -> newest so path resolution can prefer
+        // the most recent matching root deterministically.
+        if let Some(pos) = state
+            .ingest_roots
+            .iter()
+            .position(|root| root == &input.path)
+        {
+            let root = state.ingest_roots.remove(pos);
+            state.ingest_roots.push(root);
+        } else {
+            state.ingest_roots.push(input.path.clone());
+        }
     }
+    state.workspace_root = Some(input.path.clone());
 
     if let Err(e) = state.persist() {
         eprintln!("[m1nd] auto-persist after ingest failed: {}", e);

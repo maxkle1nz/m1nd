@@ -379,6 +379,9 @@ pub fn handle_cross_verify(
         if !ext_id.starts_with("file::") {
             continue;
         }
+        if graph.nodes.node_type[nid.as_usize()] != m1nd_core::types::NodeType::File {
+            continue;
+        }
         if let Some(ref scope) = normalized_scope {
             if !ext_id
                 .strip_prefix("file::")
