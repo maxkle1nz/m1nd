@@ -24,7 +24,7 @@ This branch also closes surface drift by exposing the already-implemented RETROB
 - `refactor_plan`
 - `runtime_overlay`
 
-Projected tool count on this branch: **77 MCP tools**.
+Projected tool count on this branch: **78 MCP tools**.
 
 ---
 

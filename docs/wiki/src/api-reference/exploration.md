@@ -547,3 +547,76 @@ Node IDs in the federated graph use `{repo_name}::file::path` format.
 - [`m1nd.ingest`](lifecycle.md#m1ndingest) -- single-repo ingestion
 - [`m1nd.impact`](analysis.md#m1ndimpact) -- blast radius analysis (works across federated repos)
 - [`m1nd.why`](memory.md#m1ndwhy) -- path explanation (traverses cross-repo edges)
+
+## `m1nd.federate_auto`
+
+Turn explicit external path evidence into repo candidates, namespace suggestions, and an optional one-shot `federate` call.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `scope` | `string` | No | -- | File path prefix to limit discovery sources. |
+| `current_repo_name` | `string` | No | auto | Optional namespace override for the current workspace. |
+| `max_repos` | `integer` | No | `8` | Maximum discovered external repos to include. |
+| `detect_cross_repo_edges` | `boolean` | No | `true` | Whether `execute=true` should auto-detect cross-repo edges. |
+| `execute` | `boolean` | No | `false` | If true, immediately run `m1nd.federate` with the current repo plus discovered candidates. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.federate_auto",
+    "arguments": {
+      "agent_id": "jimi",
+      "scope": "docs",
+      "execute": false
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "current_repo": { "namespace": "m1nd", "repo_root": "/repo/m1nd" },
+  "discovered_repos": [
+    {
+      "namespace": "runtime",
+      "repo_root": "/repo/runtime",
+      "marker": ".git",
+      "confidence": "high",
+      "evidence_types": ["markdown_link"],
+      "source_nodes": ["file::docs/architecture.md"],
+      "source_files": ["/repo/m1nd/docs/architecture.md"],
+      "sampled_paths": ["/repo/runtime/docs/ARCH.md"],
+      "suggested_action": "run federate_auto with execute=true or pass suggested_repos into federate"
+    }
+  ],
+  "suggested_repos": [
+    { "name": "runtime", "path": "/repo/runtime", "adapter": "code" }
+  ],
+  "skipped_paths": [],
+  "executed": false,
+  "federate_result": null,
+  "elapsed_ms": 42.0
+}
+```
+
+### When to Use
+
+- **Cross-repo audits** -- when `audit` or `external_references` already surfaced sibling repo paths
+- **Planning/doc hubs** -- when docs point to runtime repos and you want a namespace plan without manual copy-paste
+- **Worktree-heavy setups** -- when the current workspace path is a worktree but you still want repo-shaped namespace suggestions
+
+### Related Tools
+
+- [`m1nd.external_references`](overview.md) -- raw external path evidence
+- [`m1nd.federate`](#m1ndfederate) -- explicit multi-repo federation
+- [`m1nd.audit`](overview.md) -- broader audit that can surface the evidence before auto-federation

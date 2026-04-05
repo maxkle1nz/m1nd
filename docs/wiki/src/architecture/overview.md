@@ -9,7 +9,7 @@ m1nd is a local code graph engine for MCP agents. Internally it is still a graph
 - observable multi-file writes through `apply_batch`
 - repair-friendly errors when a tool call goes wrong
 
-The workspace currently exposes 77 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.
+The workspace currently exposes 78 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.
 
 ## Three-Crate Workspace
 

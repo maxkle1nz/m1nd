@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-71adba98.js";
+            window.path_to_searchindex_js = "searchindex-1c1b5857.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a37108d1.js"></script>
@@ -183,7 +183,7 @@
                         <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
 <h2 id="general"><a class="header" href="#general">General</a></h2>
 <h3 id="what-is-m1nd"><a class="header" href="#what-is-m1nd">What is m1nd?</a></h3>
-<p>m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 77 MCP tools for structure, impact, connected context, continuity, audit, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.</p>
+<p>m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 78 MCP tools for structure, impact, connected context, continuity, audit, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.</p>
 <p>The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as <code>proof_state</code>, <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code>, plus observable progress for long-running writes like <code>apply_batch</code>.</p>
 <h3 id="how-is-m1nd-different-from-grep--ripgrep"><a class="header" href="#how-is-m1nd-different-from-grep--ripgrep">How is m1nd different from grep / ripgrep?</a></h3>
 <p>Grep finds <em>text</em>. m1nd finds <em>structure and relationships</em>.</p>
@@ -239,13 +239,21 @@
 <h3 id="how-much-memory-does-m1nd-use"><a class="header" href="#how-much-memory-does-m1nd-use">How much memory does m1nd use?</a></h3>
 <p>The graph itself is compact: ~2MB for a 10,000-node graph with 26,000 edges (Compressed Sparse Row format). The MCP server process uses additional memory for the JSON-RPC layer, perspective state, lock baselines, and trail storage. A typical production instance serving a 335-file codebase uses under 50MB total.</p>
 <h3 id="can-i-ingest-multiple-codebases-into-one-graph"><a class="header" href="#can-i-ingest-multiple-codebases-into-one-graph">Can I ingest multiple codebases into one graph?</a></h3>
-<p>Yes, through the <code>federate</code> tool. It ingests multiple repositories into a unified graph with automatic cross-repository edge detection:</p>
+<p>Yes. If you already know the repo list, use <code>federate</code>. If the current workspace only contains explicit path evidence to sibling repos, use <code>federate_auto</code> first and let m1nd suggest the namespace plan for you.</p>
+<p>Direct federation:</p>
 <pre><code class="language-jsonc">{"method":"tools/call","params":{"name":"m1nd.federate","arguments":{
   "agent_id":"dev",
   "repos":[
     {"name":"backend","path":"/project/backend"},
     {"name":"frontend","path":"/project/frontend"}
   ]
+}}}
+</code></pre>
+<p>Auto-discovery first:</p>
+<pre><code class="language-jsonc">{"method":"tools/call","params":{"name":"m1nd.federate_auto","arguments":{
+  "agent_id":"dev",
+  "scope":"docs",
+  "execute":false
 }}}
 </code></pre>
 <h3 id="can-i-do-incremental-ingests"><a class="header" href="#can-i-do-incremental-ingests">Can I do incremental ingests?</a></h3>

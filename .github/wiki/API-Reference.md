@@ -1,6 +1,6 @@
 # API Reference
 
-All 77 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
+All 78 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
 
 All tools require an `agent_id` string parameter (use any stable identifier — your editor session ID, agent name, etc.).
 
@@ -13,7 +13,7 @@ Jump to:
 - [RETROBUILDER](#retrobuilder-5-tools)
 - [Surgical](#surgical-4-tools)
 - [Search & Efficiency](#v050--search--efficiency-5-tools)
-- [Audit & Session Ergonomics](#audit--session-ergonomics-6-tools)
+- [Audit & Session Ergonomics](#audit--session-ergonomics-7-tools)
 
 ---
 
@@ -27,7 +27,7 @@ These tools are implemented in the live registry and exposed through `tool_schem
 - `m1nd_refactor_plan` — graph-native refactoring proposals
 - `m1nd_runtime_overlay` — runtime heat and error overlays from OTel spans
 
-## Audit & Session Ergonomics (6 tools)
+## Audit & Session Ergonomics (7 tools)
 
 These tools reduce orchestration overhead for real agent sessions:
 
@@ -36,6 +36,7 @@ These tools reduce orchestration overhead for real agent sessions:
 - `m1nd_cross_verify` — graph vs disk verification (`existence`, `loc`, `hash`)
 - `m1nd_coverage_session` — what this agent has visited so far
 - `m1nd_external_references` — explicit paths outside ingest roots
+- `m1nd_federate_auto` — turn external path evidence into repo candidates and optional federation
 - `m1nd_audit` — profile-aware one-call audit
 
 ---
@@ -502,6 +503,61 @@ Unify multiple repositories into one graph — cross-repo blast radius and depen
   ]
 }}}
 // → activate("API contract") returns both backend handlers AND frontend consumers
+```
+
+---
+
+### `m1nd_federate_auto`
+
+Discover candidate sibling repositories from explicit external path references and optionally execute federation in one step.
+
+**Inputs:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | yes | Caller identity |
+| `scope` | string | no | Limit discovery to a file path prefix |
+| `current_repo_name` | string | no | Optional namespace override for the current workspace |
+| `max_repos` | integer | no | Maximum discovered repos to include (default: 8) |
+| `detect_cross_repo_edges` | bool | no | Whether `execute=true` should auto-detect cross-repo edges (default: true) |
+| `execute` | bool | no | If true, immediately run `federate` with the current repo plus discovered candidates |
+
+**Output:**
+
+```json
+{
+  "current_repo": {"namespace": "m1nd", "repo_root": "/repo/m1nd"},
+  "discovered_repos": [
+    {
+      "namespace": "runtime",
+      "repo_root": "/repo/runtime",
+      "marker": ".git",
+      "confidence": "high",
+      "evidence_types": ["markdown_link"],
+      "source_nodes": ["file::docs/architecture.md"],
+      "source_files": ["/repo/m1nd/docs/architecture.md"],
+      "sampled_paths": ["/repo/runtime/docs/ARCH.md"],
+      "suggested_action": "run federate_auto with execute=true or pass suggested_repos into federate"
+    }
+  ],
+  "suggested_repos": [
+    {"name": "runtime", "path": "/repo/runtime", "adapter": "code"}
+  ],
+  "skipped_paths": [],
+  "executed": false,
+  "federate_result": null,
+  "elapsed_ms": 42.0
+}
+```
+
+**Example:**
+
+```jsonc
+{"method":"tools/call","params":{"name":"m1nd_federate_auto","arguments":{
+  "agent_id":"dev",
+  "scope":"docs",
+  "execute":false
+}}}
 ```
 
 ---

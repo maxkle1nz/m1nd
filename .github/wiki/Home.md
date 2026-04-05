@@ -4,7 +4,7 @@
   <strong>The adaptive code graph. It learns.</strong>
 </p>
 
-Neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 77 MCP tools. Built in Rust for AI agents.
+Neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 78 MCP tools. Built in Rust for AI agents.
 
 **39 bugs found in one audit session · 89% hypothesis accuracy · 12/12 verification accuracy · Zero LLM tokens**
 
@@ -27,7 +27,7 @@ It is not a search engine. It is not a RAG pipeline. It is not a static analysis
 
 | Metric | Value |
 |--------|-------|
-| Tools | **77 MCP tools** |
+| Tools | **78 MCP tools** |
 | Languages supported | **27+** (5 built-in + tier1 + tier2 via tree-sitter) |
 | Bugs found in one session | **39** (production Python backend, 52K lines) |
 | Bugs invisible to grep | **8 of 28 (28.5%)** — required structural analysis |
@@ -85,7 +85,7 @@ Antibody system (bug immune memory), Epidemic engine (SIR propagation prediction
 
 ---
 
-## 61 Tools — Quick Reference
+## Current Tools — Quick Reference
 
 | Category | Tools | Count |
 |----------|-------|-------|

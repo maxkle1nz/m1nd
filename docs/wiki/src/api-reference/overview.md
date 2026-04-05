@@ -1,6 +1,6 @@
 # API Reference Overview
 
-m1nd currently exposes **77 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
+m1nd currently exposes **78 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
 
 Several tools now do more than return raw results. On the main structural flows you should expect some combination of:
 
@@ -55,6 +55,7 @@ That matters for how you integrate m1nd into an agent loop: treat many responses
 | [`trace`](exploration.md#m1ndtrace) | Map runtime errors to structural root causes |
 | [`timeline`](exploration.md#m1ndtimeline) | Git-based temporal history for a node |
 | [`federate`](exploration.md#m1ndfederate) | Multi-repository federated graph ingestion |
+| [`federate_auto`](exploration.md#m1ndfederate_auto) | Discover repo candidates from external path evidence and optionally federate them |
 
 ### Perspectives
 

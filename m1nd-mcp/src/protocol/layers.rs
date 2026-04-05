@@ -1033,7 +1033,7 @@ pub struct FederateInput {
 }
 
 /// A single repository in a federation request.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct FederateRepo {
     /// Repository name (used as namespace prefix in external_ids).
     pub name: String,
@@ -2168,6 +2168,63 @@ pub struct ExternalReferencesInput {
     pub agent_id: String,
     #[serde(default)]
     pub scope: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct FederateAutoInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub current_repo_name: Option<String>,
+    #[serde(default = "default_federate_auto_max_repos")]
+    pub max_repos: usize,
+    #[serde(default = "default_true")]
+    pub detect_cross_repo_edges: bool,
+    #[serde(default)]
+    pub execute: bool,
+}
+
+fn default_federate_auto_max_repos() -> usize {
+    8
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FederateAutoCurrentRepo {
+    pub namespace: String,
+    pub repo_root: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FederateAutoRepoCandidate {
+    pub namespace: String,
+    pub repo_root: String,
+    pub marker: Option<String>,
+    pub confidence: String,
+    pub source_nodes: Vec<String>,
+    pub source_files: Vec<String>,
+    pub evidence_types: Vec<String>,
+    pub sampled_paths: Vec<String>,
+    pub suggested_action: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FederateAutoSkippedPath {
+    pub external_path: String,
+    pub reason: String,
+    pub source_node: Option<String>,
+    pub file_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FederateAutoOutput {
+    pub current_repo: FederateAutoCurrentRepo,
+    pub discovered_repos: Vec<FederateAutoRepoCandidate>,
+    pub suggested_repos: Vec<FederateRepo>,
+    pub skipped_paths: Vec<FederateAutoSkippedPath>,
+    pub executed: bool,
+    pub federate_result: Option<FederateOutput>,
+    pub elapsed_ms: f64,
 }
 
 #[derive(Clone, Debug, Deserialize)]

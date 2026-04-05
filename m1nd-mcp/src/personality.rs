@@ -127,8 +127,12 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
             "seek(query) or search(query) to close the highest-value unread gap".into(),
         ],
         "external_references" => vec![
-            "federate when the external path is a real sibling repo".into(),
+            "federate_auto when you want m1nd to discover sibling repos and suggest namespaces for you".into(),
             "audit(path, external_refs=true) to fold the signal into a larger report".into(),
+        ],
+        "federate_auto" => vec![
+            "federate when you already know the exact repo list and want direct execution".into(),
+            "audit(path, external_refs=true) when you want discovery wrapped in a broader structural report".into(),
         ],
         "audit" => vec![
             "batch_view(files) on the strongest evidence files".into(),
@@ -404,6 +408,10 @@ fn when_to_use(tool_name: &str) -> &'static [&'static str] {
             "Use when the repo likely points outside its own root and you want those paths surfaced quickly.",
             "Best in coordination or planning repos that describe other systems.",
         ],
+        "federate_auto" => &[
+            "Use when external path evidence is real and you want m1nd to turn it into repo candidates instead of assembling the federate input by hand.",
+            "Best after external_references or audit surfaces sibling repos you probably need in the graph.",
+        ],
         "audit" => &[
             "Use when you want one top-level structural pass instead of manually chaining health, panoramic, layers, scans, verification, and git context.",
             "Best as a session opener on unfamiliar or changing repos.",
@@ -541,7 +549,10 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
             "Use it as attention control for the session: it answers what you still have not touched.",
         ],
         "external_references" => &[
-            "The current version surfaces external path evidence; federation is still a follow-up step.",
+            "Use this when you want raw path evidence first; use federate_auto when you want m1nd to bridge into repo discovery.",
+        ],
+        "federate_auto" => &[
+            "This is the bridge from external path evidence into an actionable federation plan.",
         ],
         "audit" => &[
             "Use audit as the top-level orienter, then drop to narrower tools for proof and execution.",
@@ -767,6 +778,7 @@ fn workflow_patterns(tool_name: &str) -> &'static [&'static str] {
             "batch_view/search/seek -> coverage_session -> batch_view on the top unread files",
         ],
         "external_references" => &["audit(external_refs=true) -> external_references -> federate"],
+        "federate_auto" => &["audit(external_refs=true) -> federate_auto -> federate or direct execute=true"],
         "ghost_edges" => &["ghost_edges -> timeline -> impact"],
         "taint_trace" => &["taint_trace -> validate_plan -> flow_simulate"],
         "twins" => &["twins -> refactor_plan -> validate_plan"],
@@ -1217,6 +1229,23 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             ],
             returns: "External paths with existence checks and suggested follow-up action",
             example: r#"{"agent_id": "jimi", "scope": "docs"}"#,
+            next: &["federate_auto", "audit"],
+        },
+        ToolDoc {
+            name: "federate_auto",
+            category: "Extended",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Turn external path evidence into repo candidates and optional one-shot federation",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("scope", "File path prefix to limit discovery sources", false),
+                ("current_repo_name", "Optional namespace override for the current workspace", false),
+                ("max_repos", "Maximum discovered repos to include", false),
+                ("detect_cross_repo_edges", "Whether execute=true should auto-detect cross-repo edges", false),
+                ("execute", "Immediately run federate with current + discovered repos", false),
+            ],
+            returns: "Suggested namespaces, repo roots, skipped paths, and optional federate result",
+            example: r#"{"agent_id": "jimi", "scope": "docs", "execute": false}"#,
             next: &["federate", "audit"],
         },
         // --- Superpowers: Immunology, Seismology, etc. ---

@@ -30,6 +30,15 @@ const SECURITY_SCAN_PATTERNS: &[&str] = &[
     "state_mutation",
     "dependency_injection",
 ];
+const FEDERATE_AUTO_MARKERS: &[&str] = &[
+    ".git",
+    "Cargo.toml",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "pyproject.toml",
+    "go.mod",
+    "deno.json",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AuditFileKind {
@@ -174,11 +183,14 @@ fn is_placeholder_external_path(path: &Path) -> bool {
         || value == "/your/project"
         || value == "/your/docs"
         || value == "/your/domain.json"
+        || value.starts_with("/Users/youruser/")
         || value.starts_with("/path/")
         || value.starts_with("/path/to/")
         || value.starts_with("/app/")
+        || value.starts_with("/repo/")
         || value.starts_with("/project/")
         || value.starts_with("/workspace/")
+        || value.contains("...")
 }
 
 fn is_system_path(path: &Path) -> bool {
@@ -197,7 +209,7 @@ fn is_plausible_external_path(path: &Path) -> bool {
         return false;
     }
     let value = path.to_string_lossy();
-    if value == "/" || value == "//" || value.len() < 4 {
+    if value == "/" || value == "//" || value.starts_with("//") || value.len() < 4 {
         return false;
     }
     if value.contains('[')
@@ -210,6 +222,129 @@ fn is_plausible_external_path(path: &Path) -> bool {
     }
     let component_count = path.components().count();
     component_count >= 2 && value.chars().any(|ch| ch.is_ascii_alphanumeric())
+}
+
+fn is_actionable_repo_candidate_path(path: &Path) -> bool {
+    if path.components().count() <= 2 {
+        return false;
+    }
+    !matches!(
+        path.extension().and_then(|value| value.to_str()),
+        Some("sock" | "pid" | "lock")
+    )
+}
+
+fn repo_marker_for_dir(dir: &Path) -> Option<String> {
+    for marker in FEDERATE_AUTO_MARKERS {
+        if dir.join(marker).exists() {
+            return Some((*marker).to_string());
+        }
+    }
+    None
+}
+
+fn discover_repo_root_for_external_path(path: &Path) -> Option<(PathBuf, Option<String>)> {
+    let start = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()?.to_path_buf()
+    };
+
+    for ancestor in start.ancestors() {
+        if ancestor.join(".git").exists() {
+            return Some((ancestor.to_path_buf(), Some(".git".to_string())));
+        }
+    }
+
+    for ancestor in start.ancestors() {
+        if let Some(marker) = repo_marker_for_dir(ancestor) {
+            return Some((ancestor.to_path_buf(), Some(marker)));
+        }
+    }
+
+    None
+}
+
+fn slugify_namespace(input: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in input.chars() {
+        let normalized = ch.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() {
+            slug.push(normalized);
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        "repo".to_string()
+    } else {
+        slug
+    }
+}
+
+fn repo_name_from_git_remote(root: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["config", "--get", "remote.origin.url"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let remote = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if remote.is_empty() {
+        return None;
+    }
+    let tail = remote
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(".git");
+    if tail.is_empty() {
+        None
+    } else {
+        Some(slugify_namespace(tail))
+    }
+}
+
+fn suggest_repo_namespace(root: &Path, used: &mut BTreeSet<String>) -> String {
+    let base = repo_name_from_git_remote(root)
+        .or_else(|| {
+            root.file_name()
+                .and_then(|value| value.to_str())
+                .map(slugify_namespace)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| "repo".to_string());
+    if used.insert(base.clone()) {
+        return base;
+    }
+
+    if let Some(parent) = root
+        .parent()
+        .and_then(|value| value.file_name())
+        .and_then(|value| value.to_str())
+        .map(slugify_namespace)
+        .filter(|value| !value.is_empty())
+    {
+        let candidate = format!("{parent}-{base}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+
+    let mut index = 2usize;
+    loop {
+        let candidate = format!("{base}-{index}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+        index += 1;
+    }
 }
 
 fn counts_for_grading(kind: AuditFileKind, profile: &str) -> bool {
@@ -833,6 +968,234 @@ pub fn handle_external_references(
         "results": results,
         "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
     }))
+}
+
+#[derive(Default)]
+struct FederateAutoCandidateAccumulator {
+    repo_root: String,
+    marker: Option<String>,
+    source_nodes: BTreeSet<String>,
+    source_files: BTreeSet<String>,
+    evidence_types: BTreeSet<String>,
+    sampled_paths: BTreeSet<String>,
+    best_confidence_rank: u8,
+}
+
+fn confidence_rank(value: Option<&str>) -> u8 {
+    match value {
+        Some("high") => 0,
+        Some("medium") => 1,
+        Some("low") => 2,
+        _ => 3,
+    }
+}
+
+fn confidence_label(rank: u8) -> &'static str {
+    match rank {
+        0 => "high",
+        1 => "medium",
+        2 => "low",
+        _ => "unknown",
+    }
+}
+
+pub fn handle_federate_auto(
+    state: &mut SessionState,
+    input: layers::FederateAutoInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+    let current_root = state
+        .workspace_root
+        .clone()
+        .or_else(|| state.ingest_roots.last().cloned())
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "federate_auto".into(),
+            detail: "No active workspace root is known yet. Ingest or audit a workspace before calling federate_auto.".into(),
+        })?;
+    let current_root_path = PathBuf::from(&current_root);
+    if !current_root_path.exists() {
+        return Err(M1ndError::InvalidParams {
+            tool: "federate_auto".into(),
+            detail: format!("Current workspace root does not exist on disk: {current_root}"),
+        });
+    }
+
+    let mut used_namespaces = BTreeSet::new();
+    let current_namespace = input
+        .current_repo_name
+        .as_deref()
+        .map(slugify_namespace)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| suggest_repo_namespace(&current_root_path, &mut used_namespaces));
+    used_namespaces.insert(current_namespace.clone());
+
+    let external_refs = handle_external_references(
+        state,
+        layers::ExternalReferencesInput {
+            agent_id: input.agent_id.clone(),
+            scope: input.scope.clone(),
+        },
+    )?;
+
+    let mut candidates: BTreeMap<String, FederateAutoCandidateAccumulator> = BTreeMap::new();
+    let mut skipped_paths = Vec::new();
+    for item in external_refs["results"].as_array().into_iter().flatten() {
+        let external_path = item
+            .get("external_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if external_path.is_empty() {
+            continue;
+        }
+        let source_node = item
+            .get("source_node")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
+        let file_path = item
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
+        let evidence_type = item
+            .get("evidence_type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let confidence = item.get("confidence").and_then(|value| value.as_str());
+
+        let path = PathBuf::from(&external_path);
+        if !is_actionable_repo_candidate_path(&path) {
+            continue;
+        }
+        if !path.exists() {
+            let value = path.to_string_lossy();
+            if value.starts_with("/tmp/") || value.starts_with("/var/folders/") {
+                continue;
+            }
+            skipped_paths.push(layers::FederateAutoSkippedPath {
+                external_path,
+                reason: "path_missing_on_disk".into(),
+                source_node,
+                file_path,
+            });
+            continue;
+        }
+
+        let Some((repo_root, marker)) = discover_repo_root_for_external_path(&path) else {
+            skipped_paths.push(layers::FederateAutoSkippedPath {
+                external_path,
+                reason: "repo_root_not_detected".into(),
+                source_node,
+                file_path,
+            });
+            continue;
+        };
+
+        if repo_root == current_root_path {
+            continue;
+        }
+
+        let repo_root_str = repo_root.to_string_lossy().to_string();
+        let entry = candidates.entry(repo_root_str.clone()).or_insert_with(|| {
+            FederateAutoCandidateAccumulator {
+                repo_root: repo_root_str.clone(),
+                marker: marker.clone(),
+                best_confidence_rank: confidence_rank(confidence),
+                ..Default::default()
+            }
+        });
+        entry
+            .marker
+            .get_or_insert_with(|| marker.unwrap_or_default());
+        entry.best_confidence_rank = entry.best_confidence_rank.min(confidence_rank(confidence));
+        if let Some(source_node) = source_node {
+            entry.source_nodes.insert(source_node);
+        }
+        if let Some(file_path) = file_path {
+            entry.source_files.insert(file_path);
+        }
+        entry.evidence_types.insert(evidence_type);
+        entry.sampled_paths.insert(external_path);
+    }
+
+    let mut discovered_repos = candidates
+        .into_values()
+        .map(|entry| {
+            let namespace =
+                suggest_repo_namespace(Path::new(&entry.repo_root), &mut used_namespaces);
+            let source_nodes: Vec<String> = entry.source_nodes.into_iter().collect();
+            let source_files: Vec<String> = entry.source_files.into_iter().collect();
+            let evidence_types: Vec<String> = entry.evidence_types.into_iter().collect();
+            let sampled_paths: Vec<String> = entry.sampled_paths.into_iter().take(5).collect();
+            layers::FederateAutoRepoCandidate {
+                namespace,
+                repo_root: entry.repo_root,
+                marker: entry.marker.filter(|value| !value.is_empty()),
+                confidence: confidence_label(entry.best_confidence_rank).to_string(),
+                source_nodes,
+                source_files,
+                evidence_types,
+                sampled_paths,
+                suggested_action:
+                    "run federate_auto with execute=true or pass suggested_repos into federate"
+                        .into(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    discovered_repos.sort_by(|a, b| {
+        confidence_rank(Some(a.confidence.as_str()))
+            .cmp(&confidence_rank(Some(b.confidence.as_str())))
+            .then_with(|| b.source_nodes.len().cmp(&a.source_nodes.len()))
+            .then_with(|| a.repo_root.cmp(&b.repo_root))
+    });
+    if discovered_repos.len() > input.max_repos {
+        discovered_repos.truncate(input.max_repos);
+    }
+
+    let suggested_repos: Vec<layers::FederateRepo> = discovered_repos
+        .iter()
+        .map(|candidate| layers::FederateRepo {
+            name: candidate.namespace.clone(),
+            path: candidate.repo_root.clone(),
+            adapter: "code".into(),
+        })
+        .collect();
+
+    let federate_result = if input.execute && !suggested_repos.is_empty() {
+        let mut repos = Vec::with_capacity(suggested_repos.len() + 1);
+        repos.push(layers::FederateRepo {
+            name: current_namespace.clone(),
+            path: current_root.clone(),
+            adapter: "code".into(),
+        });
+        repos.extend(suggested_repos.iter().cloned());
+        Some(layer_handlers::handle_federate(
+            state,
+            layers::FederateInput {
+                agent_id: input.agent_id,
+                repos,
+                detect_cross_repo_edges: input.detect_cross_repo_edges,
+                incremental: false,
+            },
+        )?)
+    } else {
+        None
+    };
+
+    serde_json::to_value(layers::FederateAutoOutput {
+        current_repo: layers::FederateAutoCurrentRepo {
+            namespace: current_namespace,
+            repo_root: current_root,
+        },
+        discovered_repos,
+        suggested_repos,
+        skipped_paths,
+        executed: input.execute && federate_result.is_some(),
+        federate_result,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+    })
+    .map_err(M1ndError::Serde)
 }
 
 fn detect_profile(path: &Path, requested_profile: &str) -> String {
@@ -1924,5 +2287,140 @@ mod tests {
             results[0]["external_path"].as_str(),
             Some(external_path.to_string_lossy().as_ref())
         );
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_roots_from_external_paths() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(root.join("docs")).expect("docs dir");
+
+        let external_root = temp.path().join("runtime");
+        std::fs::create_dir_all(external_root.join(".git")).expect("git dir");
+        let external_file = external_root.join("docs/ARCH.md");
+        std::fs::create_dir_all(external_file.parent().expect("parent")).expect("parent dir");
+        std::fs::write(&external_file, "# runtime\n").expect("write external");
+
+        let source = format!("[runtime]({})\n", external_file.to_string_lossy());
+        std::fs::write(root.join("docs/plan.md"), source).expect("write source");
+
+        let mut state = build_empty_state(&root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::docs/plan.md".into(),
+            file_path: root.join("docs/plan.md").to_string_lossy().to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "markdown".into(),
+            commit_count: 0,
+            loc: Some(1),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(external_root.to_string_lossy().as_ref())
+        );
+        assert_eq!(discovered[0]["marker"].as_str(), Some(".git"));
+    }
+
+    #[test]
+    fn federate_auto_can_execute_federation_with_discovered_repo() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(current_root.join("src/lib.rs"), "pub fn current() {}\n")
+            .expect("write current lib");
+        std::fs::create_dir_all(current_root.join("docs")).expect("current docs");
+
+        let external_root = temp.path().join("runtime");
+        std::fs::create_dir_all(external_root.join(".git")).expect("external git");
+        std::fs::create_dir_all(external_root.join("src")).expect("external src");
+        std::fs::write(external_root.join("src/lib.rs"), "pub fn external() {}\n")
+            .expect("write external lib");
+
+        let source = format!(
+            "RUNTIME_ROOT = \"{}\"\n",
+            external_root.join("src/lib.rs").to_string_lossy()
+        );
+        std::fs::write(current_root.join("docs/plan.md"), source).expect("write doc");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::docs/plan.md".into(),
+            file_path: current_root
+                .join("docs/plan.md")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "markdown".into(),
+            commit_count: 0,
+            loc: Some(1),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: Some("current-repo".into()),
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: true,
+            },
+        )
+        .expect("federate_auto");
+
+        assert_eq!(output["executed"], true);
+        assert_eq!(
+            output["federate_result"]["repos_ingested"]
+                .as_array()
+                .map(|items| items.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn suggest_repo_namespace_prefers_git_remote_name() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        std::fs::write(root.join("README.md"), "# repo\n").expect("write readme");
+        Command::new("git")
+            .current_dir(root)
+            .args(["init"])
+            .output()
+            .expect("git init");
+        Command::new("git")
+            .current_dir(root)
+            .args([
+                "remote",
+                "add",
+                "origin",
+                "git@github.com:maxkle1nz/m1nd.git",
+            ])
+            .output()
+            .expect("git remote add");
+
+        let mut used = BTreeSet::new();
+        let namespace = suggest_repo_namespace(root, &mut used);
+        assert_eq!(namespace, "m1nd");
     }
 }
