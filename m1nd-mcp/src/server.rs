@@ -2170,15 +2170,23 @@ fn daemon_wait_duration_ms(state: &SessionState) -> u64 {
         return 1000;
     }
 
+    let exponent = state
+        .daemon_state
+        .idle_streak
+        .min(state.daemon_state.max_backoff_multiplier.saturating_sub(1));
+    let effective_poll_interval_ms = state
+        .daemon_state
+        .poll_interval_ms
+        .saturating_mul(2u64.pow(exponent))
+        .clamp(25, 10_000);
+
     match state.daemon_state.last_tick_ms {
         Some(last_tick_ms) => {
             let elapsed = now_ms().saturating_sub(last_tick_ms);
-            if elapsed >= state.daemon_state.poll_interval_ms {
+            if elapsed >= effective_poll_interval_ms {
                 25
             } else {
-                state
-                    .daemon_state
-                    .poll_interval_ms
+                effective_poll_interval_ms
                     .saturating_sub(elapsed)
                     .clamp(25, 1000)
             }
@@ -2868,5 +2876,21 @@ mod tests {
         state.daemon_state.last_tick_ms = Some(0);
         let overdue_wait_ms = daemon_wait_duration_ms(&state);
         assert_eq!(overdue_wait_ms, 25);
+    }
+
+    #[test]
+    fn daemon_wait_duration_expands_with_idle_backoff() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.active = true;
+        state.daemon_state.poll_interval_ms = 200;
+        state.daemon_state.last_tick_ms = Some(super::now_ms());
+        state.daemon_state.idle_streak = 2;
+        state.daemon_state.max_backoff_multiplier = 8;
+
+        let wait_ms = daemon_wait_duration_ms(&state);
+        assert!(
+            (700..=800).contains(&wait_ms),
+            "idle streak should expand effective wait close to 4x the base interval"
+        );
     }
 }

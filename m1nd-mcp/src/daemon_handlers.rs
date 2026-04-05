@@ -158,6 +158,8 @@ pub fn handle_daemon_start(
     state.daemon_state.last_tick_changed_files = 0;
     state.daemon_state.last_tick_deleted_files = 0;
     state.daemon_state.last_tick_alerts_emitted = 0;
+    state.daemon_state.idle_streak = 0;
+    state.daemon_state.max_backoff_multiplier = 8;
     state.persist_daemon_state()?;
     Ok(json!({
         "status": "started",
@@ -198,6 +200,14 @@ pub fn handle_daemon_status(
         None
     };
     let overdue_ms = next_tick_due_ms.map(|due| now.saturating_sub(due));
+    let effective_poll_interval_ms = state.daemon_state.poll_interval_ms.saturating_mul(
+        2u64.pow(
+            state
+                .daemon_state
+                .idle_streak
+                .min(state.daemon_state.max_backoff_multiplier.saturating_sub(1)),
+        ),
+    );
     Ok(json!({
         "active": state.daemon_state.active,
         "started_at_ms": state.daemon_state.started_at_ms,
@@ -206,6 +216,7 @@ pub fn handle_daemon_status(
         "overdue_ms": overdue_ms,
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
+        "effective_poll_interval_ms": effective_poll_interval_ms,
         "alert_count": state.daemon_alerts.len(),
         "tracked_files": state.daemon_state.tracked_files.len(),
         "tick_count": state.daemon_state.tick_count,
@@ -213,6 +224,8 @@ pub fn handle_daemon_status(
         "last_tick_changed_files": state.daemon_state.last_tick_changed_files,
         "last_tick_deleted_files": state.daemon_state.last_tick_deleted_files,
         "last_tick_alerts_emitted": state.daemon_state.last_tick_alerts_emitted,
+        "idle_streak": state.daemon_state.idle_streak,
+        "max_backoff_multiplier": state.daemon_state.max_backoff_multiplier,
         "runtime_root": state.runtime_root,
         "graph_generation": state.graph_generation,
         "cache_generation": state.cache_generation,
@@ -346,13 +359,18 @@ pub fn handle_daemon_tick(
     }
 
     let tick_ms = now_ms();
+    let emitted_alerts_total = emitted_alert_ids.len() + heuristic_alerts_emitted;
     state.daemon_state.last_tick_ms = Some(tick_ms);
     state.daemon_state.tick_count = state.daemon_state.tick_count.saturating_add(1);
     state.daemon_state.last_tick_duration_ms = Some(start.elapsed().as_secs_f64() * 1000.0);
     state.daemon_state.last_tick_changed_files = changed_entries.len();
     state.daemon_state.last_tick_deleted_files = deleted_entries.len();
-    state.daemon_state.last_tick_alerts_emitted =
-        emitted_alert_ids.len() + heuristic_alerts_emitted;
+    state.daemon_state.last_tick_alerts_emitted = emitted_alerts_total;
+    if changed_entries.is_empty() && deleted_entries.is_empty() && emitted_alerts_total == 0 {
+        state.daemon_state.idle_streak = state.daemon_state.idle_streak.saturating_add(1);
+    } else {
+        state.daemon_state.idle_streak = 0;
+    }
     state.persist_daemon_state()?;
     state.persist_daemon_alerts()?;
 
@@ -368,7 +386,7 @@ pub fn handle_daemon_tick(
             "file_path": entry.file_path,
             "external_id": entry.external_id,
         })).collect::<Vec<_>>(),
-        "alerts_emitted": emitted_alert_ids.len() + heuristic_alerts_emitted,
+        "alerts_emitted": emitted_alerts_total,
         "alert_ids": emitted_alert_ids,
     }))
 }
@@ -566,6 +584,7 @@ mod tests {
         assert_eq!(status["tick_count"], 0);
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["overdue_ms"], 0);
+        assert_eq!(status["idle_streak"], 0);
 
         let stopped = handle_daemon_stop(
             &mut state,
@@ -648,6 +667,7 @@ mod tests {
         assert_eq!(status["last_tick_changed_files"], 1);
         assert_eq!(status["last_tick_deleted_files"], 0);
         assert!(status["next_tick_due_ms"].as_u64().is_some());
+        assert_eq!(status["idle_streak"], 0);
     }
 
     #[test]
@@ -754,6 +774,7 @@ mod tests {
             status["last_tick_alerts_emitted"].as_u64().unwrap_or(0) >= 1,
             "risky daemon tick should emit at least one alert"
         );
+        assert_eq!(status["idle_streak"], 0);
     }
 
     #[test]
@@ -816,5 +837,6 @@ mod tests {
         assert_eq!(status["last_tick_alerts_emitted"], 1);
         assert!(status["last_tick_duration_ms"].as_f64().is_some());
         assert!(status["next_tick_due_ms"].as_u64().is_some());
+        assert_eq!(status["idle_streak"], 0);
     }
 }
