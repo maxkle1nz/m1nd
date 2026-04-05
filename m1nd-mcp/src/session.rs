@@ -185,6 +185,11 @@ pub struct DaemonRuntimeState {
     pub watch_events_seen: u64,
     pub watch_events_dropped: u64,
     pub last_watch_event_ms: Option<u64>,
+    pub git_root: Option<String>,
+    pub git_since_ref: Option<String>,
+    pub last_git_scan_ms: Option<u64>,
+    pub last_git_changed_files: usize,
+    pub git_backend_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
