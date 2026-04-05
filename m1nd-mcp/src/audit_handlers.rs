@@ -1034,7 +1034,7 @@ fn evidence_rank(value: &str) -> u8 {
         | "python_path_dependency"
         | "go_workspace_use" => 2,
         "import_identity_match" => 3,
-        "proto_contract_match" | "mcp_tool_contract_match" => 4,
+        "proto_contract_match" | "mcp_tool_contract_match" | "openapi_contract_match" => 4,
         "api_route_match" => 5,
         _ => 6,
     }
@@ -1627,6 +1627,28 @@ fn extract_mcp_tool_tokens(content: &str) -> BTreeSet<String> {
     tokens
 }
 
+fn extract_openapi_contract_tokens(content: &str) -> BTreeSet<String> {
+    let lower = content.to_lowercase();
+    if !(lower.contains("openapi") || lower.contains("swagger") || lower.contains("operationid")) {
+        return BTreeSet::new();
+    }
+
+    let mut tokens = BTreeSet::new();
+    if let Ok(operation_regex) =
+        Regex::new(r#"(?i)operationId["']?\s*[:=]\s*["']?([A-Za-z0-9_.-]+)"#)
+    {
+        for captures in operation_regex.captures_iter(content) {
+            if let Some(value) = captures.get(1).map(|m| m.as_str().trim()) {
+                if !value.is_empty() {
+                    tokens.insert(value.to_string());
+                }
+            }
+        }
+    }
+    tokens.extend(extract_api_routes_from_text(content));
+    tokens
+}
+
 fn contract_token_appears_in_content(token: &str, content: &str) -> bool {
     if content.contains(token) {
         return true;
@@ -1716,7 +1738,19 @@ fn discover_contract_artifact_repo_signals(
                         "proto_contract_match",
                         "medium",
                     ),
-                    "rs" | "ts" | "js" | "tsx" | "jsx" | "md" | "json" => (
+                    "yaml" | "yml" | "json" => {
+                        let openapi_tokens = extract_openapi_contract_tokens(&content);
+                        if openapi_tokens.is_empty() {
+                            (
+                                extract_mcp_tool_tokens(&content),
+                                "mcp_tool_contract_match",
+                                "medium",
+                            )
+                        } else {
+                            (openapi_tokens, "openapi_contract_match", "medium")
+                        }
+                    }
+                    "rs" | "ts" | "js" | "tsx" | "jsx" | "md" => (
                         extract_mcp_tool_tokens(&content),
                         "mcp_tool_contract_match",
                         "medium",
@@ -3685,6 +3719,68 @@ mod tests {
         assert!(discovered[0]["evidence_types"]
             .as_array()
             .is_some_and(|items| items.iter().any(|item| item == "mcp_tool_contract_match")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_openapi_contract_match() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/client.ts"),
+            "const op = 'listUsers';\nconst path = '/api/users';\n",
+        )
+        .expect("write current source");
+
+        let api_root = temp.path().join("api-provider");
+        std::fs::create_dir_all(api_root.join(".git")).expect("api git");
+        std::fs::create_dir_all(api_root.join("spec")).expect("spec dir");
+        std::fs::write(
+            api_root.join("spec/openapi.yaml"),
+            "openapi: 3.1.0\npaths:\n  /api/users:\n    get:\n      operationId: listUsers\n",
+        )
+        .expect("write openapi");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/client.ts".into(),
+            file_path: current_root
+                .join("src/client.ts")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "typescript".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&api_root).expect("canonical api root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "openapi_contract_match")));
     }
 
     #[test]

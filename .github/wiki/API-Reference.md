@@ -36,7 +36,7 @@ These tools reduce orchestration overhead for real agent sessions:
 - `m1nd_cross_verify` — graph vs disk verification (`existence`, `loc`, `hash`)
 - `m1nd_coverage_session` — what this agent has visited so far
 - `m1nd_external_references` — explicit paths outside ingest roots
-- `m1nd_federate_auto` — turn external paths, manifest/workspace hints, import/package-name evidence, shared API-route signals, or basic contract artifacts into repo candidates and optional federation
+- `m1nd_federate_auto` — turn external paths, manifest/workspace hints, import/package-name evidence, shared API-route signals, or contract artifacts such as `.proto`, MCP tools, and OpenAPI into repo candidates and optional federation
 - `m1nd_audit` — profile-aware one-call audit
 
 ---

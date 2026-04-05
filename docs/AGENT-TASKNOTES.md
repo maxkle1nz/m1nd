@@ -34,10 +34,10 @@ The rule:
 - Context: `federate_auto` now bridges explicit path evidence, manifest/workspace
   signals, package/import identity matches, shared `/api/...` routes, and basic
   contract artifacts into repo candidates, namespaces, and optional one-shot federation
-- Friction: repos that are only implied by higher-level service contracts,
-  schema boundaries, or indirect protocol surfaces still need manual enumeration
+- Friction: repos that are only implied by richer schemas, operation groups,
+  or indirect service contracts still need manual enumeration
 - Desired behavior:
-  - deeper schema discovery beyond simple `.proto` service names or MCP tool-name matches
+  - richer OpenAPI/schema discovery beyond simple `operationId` or route matching
   - future semantic linking donor lane (stack-graphs / SCIP-class ideas)
 
 ### 2026-04-05 — `coverage_session` is useful but still shallow
