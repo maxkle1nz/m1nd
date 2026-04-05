@@ -153,6 +153,11 @@ pub fn handle_daemon_start(
     state.daemon_state.last_tick_trigger = None;
     state.daemon_state.watch_paths = watch_paths;
     state.daemon_state.poll_interval_ms = input.poll_interval_ms;
+    state.daemon_state.coalesce_window_ms = 75;
+    state.daemon_state.pending_rerun = false;
+    state.daemon_state.tick_in_flight = false;
+    state.daemon_state.last_coalesced_event_ms = None;
+    state.daemon_state.coalesced_event_count = 0;
     state.daemon_state.tracked_files = tracked_files_from_inventory(&initial_inventory);
     state.daemon_state.tick_count = 0;
     state.daemon_state.last_tick_duration_ms = None;
@@ -173,6 +178,7 @@ pub fn handle_daemon_start(
         "started_at_ms": started_at_ms,
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
+        "coalesce_window_ms": state.daemon_state.coalesce_window_ms,
         "tracked_files": state.daemon_state.tracked_files.len(),
         "watch_backend": state.daemon_state.watch_backend,
     }))
@@ -226,11 +232,16 @@ pub fn handle_daemon_status(
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
         "effective_poll_interval_ms": effective_poll_interval_ms,
+        "coalesce_window_ms": state.daemon_state.coalesce_window_ms,
         "watch_backend": state.daemon_state.watch_backend,
         "watch_backend_error": state.daemon_state.watch_backend_error,
         "watch_events_seen": state.daemon_state.watch_events_seen,
         "watch_events_dropped": state.daemon_state.watch_events_dropped,
         "last_watch_event_ms": state.daemon_state.last_watch_event_ms,
+        "pending_rerun": state.daemon_state.pending_rerun,
+        "tick_in_flight": state.daemon_state.tick_in_flight,
+        "last_coalesced_event_ms": state.daemon_state.last_coalesced_event_ms,
+        "coalesced_event_count": state.daemon_state.coalesced_event_count,
         "alert_count": state.daemon_alerts.len(),
         "tracked_files": state.daemon_state.tracked_files.len(),
         "tick_count": state.daemon_state.tick_count,
@@ -599,6 +610,9 @@ mod tests {
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["overdue_ms"], 0);
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["coalesce_window_ms"], 75);
+        assert_eq!(status["pending_rerun"], false);
+        assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
         assert_eq!(status["watch_events_seen"], 0);
         assert_eq!(status["watch_events_dropped"], 0);
@@ -685,6 +699,8 @@ mod tests {
         assert_eq!(status["last_tick_deleted_files"], 0);
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["pending_rerun"], false);
+        assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
     }
 
@@ -793,6 +809,8 @@ mod tests {
             "risky daemon tick should emit at least one alert"
         );
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["pending_rerun"], false);
+        assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
     }
 
@@ -857,6 +875,8 @@ mod tests {
         assert!(status["last_tick_duration_ms"].as_f64().is_some());
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["pending_rerun"], false);
+        assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
     }
 }
