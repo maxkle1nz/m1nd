@@ -550,7 +550,7 @@ Node IDs in the federated graph use `{repo_name}::file::path` format.
 
 ## `m1nd.federate_auto`
 
-Turn explicit external path evidence or local manifest/workspace hints into repo candidates, namespace suggestions, and an optional one-shot `federate` call.
+Turn explicit external path evidence, local manifest/workspace hints, or import/package-name evidence into repo candidates, namespace suggestions, and an optional one-shot `federate` call.
 
 ### Parameters
 

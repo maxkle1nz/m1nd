@@ -509,7 +509,7 @@ Unify multiple repositories into one graph — cross-repo blast radius and depen
 
 ### `m1nd_federate_auto`
 
-Discover candidate sibling repositories from explicit external path references or local manifest/workspace hints and optionally execute federation in one step.
+Discover candidate sibling repositories from explicit external path references, local manifest/workspace hints, or import/package-name evidence and optionally execute federation in one step.
 
 **Inputs:**
 
