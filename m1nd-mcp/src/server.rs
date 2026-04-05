@@ -13,6 +13,7 @@ use m1nd_core::domain::DomainConfig;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // MCP protocol instructions — injected into initialize response so agents
@@ -2118,6 +2119,25 @@ fn dispatch_core_tool(
     }
 }
 
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn should_autotick_daemon(tool_name: &str) -> bool {
+    !matches!(
+        tool_name,
+        "daemon_start"
+            | "daemon_stop"
+            | "daemon_status"
+            | "daemon_tick"
+            | "alerts_list"
+            | "alerts_ack"
+    )
+}
+
 /// Dispatch perspective tools (12 tools).
 fn dispatch_perspective_tool(
     state: &mut SessionState,
@@ -2537,6 +2557,21 @@ impl McpServer {
                 // Track agent session from arguments
                 if let Some(agent_id) = arguments.get("agent_id").and_then(|v| v.as_str()) {
                     self.state.track_agent(agent_id);
+                    if self.state.daemon_state.active
+                        && should_autotick_daemon(tool_name)
+                        && self.state.daemon_state.last_tick_ms.is_some_and(|last| {
+                            now_ms().saturating_sub(last)
+                                >= self.state.daemon_state.poll_interval_ms
+                        })
+                    {
+                        let _ = crate::daemon_handlers::handle_daemon_tick(
+                            &mut self.state,
+                            layers::DaemonTickInput {
+                                agent_id: agent_id.to_string(),
+                                max_files: 32,
+                            },
+                        );
+                    }
                 }
 
                 // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
@@ -2594,7 +2629,7 @@ impl McpServer {
 
 #[cfg(test)]
 mod tests {
-    use super::tool_schemas;
+    use super::{should_autotick_daemon, tool_schemas};
 
     #[test]
     fn tool_schemas_expose_new_audit_surface_and_retrobuilder_tools() {
@@ -2620,11 +2655,36 @@ mod tests {
             "external_references",
             "federate_auto",
             "audit",
+            "daemon_start",
+            "daemon_stop",
+            "daemon_status",
+            "daemon_tick",
+            "alerts_list",
+            "alerts_ack",
         ] {
             assert!(
                 names.iter().any(|name| name == expected),
                 "tool_schemas should expose {expected}"
             );
         }
+    }
+
+    #[test]
+    fn autotick_skips_daemon_control_tools() {
+        for skipped in [
+            "daemon_start",
+            "daemon_stop",
+            "daemon_status",
+            "daemon_tick",
+            "alerts_list",
+            "alerts_ack",
+        ] {
+            assert!(
+                !should_autotick_daemon(skipped),
+                "autotick should skip {skipped}"
+            );
+        }
+        assert!(should_autotick_daemon("search"));
+        assert!(should_autotick_daemon("apply"));
     }
 }
