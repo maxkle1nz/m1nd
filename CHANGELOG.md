@@ -29,6 +29,7 @@ federation plan.
 - now also discovers sibling repos from contract artifacts such as:
   - `.proto` package/service definitions
   - MCP tool-name surfaces in nearby providers
+  - OpenAPI/Swagger `operationId` and route surfaces
 - now also discovers sibling repos from shared `/api/...` route evidence between
   the current workspace and nearby repos, even when no path/import/package hint exists
 - now also discovers sibling repos from import/package-name matches against
