@@ -188,10 +188,22 @@ pub fn handle_daemon_status(
     state: &mut SessionState,
     _input: layers::DaemonStatusInput,
 ) -> M1ndResult<serde_json::Value> {
+    let now = now_ms();
+    let next_tick_due_ms = if state.daemon_state.active && state.daemon_state.poll_interval_ms > 0 {
+        state
+            .daemon_state
+            .last_tick_ms
+            .map(|last| last.saturating_add(state.daemon_state.poll_interval_ms))
+    } else {
+        None
+    };
+    let overdue_ms = next_tick_due_ms.map(|due| now.saturating_sub(due));
     Ok(json!({
         "active": state.daemon_state.active,
         "started_at_ms": state.daemon_state.started_at_ms,
         "last_tick_ms": state.daemon_state.last_tick_ms,
+        "next_tick_due_ms": next_tick_due_ms,
+        "overdue_ms": overdue_ms,
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
         "alert_count": state.daemon_alerts.len(),
@@ -552,6 +564,8 @@ mod tests {
         assert_eq!(status["active"], true);
         assert_eq!(status["alert_count"], 1);
         assert_eq!(status["tick_count"], 0);
+        assert!(status["next_tick_due_ms"].as_u64().is_some());
+        assert_eq!(status["overdue_ms"], 0);
 
         let stopped = handle_daemon_stop(
             &mut state,
@@ -633,6 +647,7 @@ mod tests {
         assert_eq!(status["tick_count"], 2);
         assert_eq!(status["last_tick_changed_files"], 1);
         assert_eq!(status["last_tick_deleted_files"], 0);
+        assert!(status["next_tick_due_ms"].as_u64().is_some());
     }
 
     #[test]
@@ -800,5 +815,6 @@ mod tests {
         assert_eq!(status["last_tick_deleted_files"], 1);
         assert_eq!(status["last_tick_alerts_emitted"], 1);
         assert!(status["last_tick_duration_ms"].as_f64().is_some());
+        assert!(status["next_tick_due_ms"].as_u64().is_some());
     }
 }
