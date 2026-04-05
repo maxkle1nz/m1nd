@@ -189,6 +189,8 @@ pub struct DaemonRuntimeState {
     pub git_baseline_ref: Option<String>,
     pub git_baseline_kind: Option<String>,
     pub git_since_ref: Option<String>,
+    pub git_head_ref: Option<String>,
+    pub git_last_clean_ref: Option<String>,
     pub last_git_scan_ms: Option<u64>,
     pub last_git_changed_files: usize,
     pub git_backend_error: Option<String>,

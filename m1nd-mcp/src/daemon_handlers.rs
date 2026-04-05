@@ -329,9 +329,16 @@ pub fn handle_daemon_start(
         .as_deref()
         .map(|root| git_initial_baseline(Path::new(root)))
         .unwrap_or((None, None, None));
+    let git_head_ref = state
+        .daemon_state
+        .git_root
+        .as_deref()
+        .and_then(|root| git_head_ref(Path::new(root)));
     state.daemon_state.git_baseline_ref = git_baseline_ref.clone();
     state.daemon_state.git_baseline_kind = git_baseline_kind;
-    state.daemon_state.git_since_ref = git_baseline_ref;
+    state.daemon_state.git_since_ref = git_baseline_ref.clone();
+    state.daemon_state.git_head_ref = git_head_ref;
+    state.daemon_state.git_last_clean_ref = git_baseline_ref;
     state.daemon_state.last_git_scan_ms = None;
     state.daemon_state.last_git_changed_files = 0;
     state.daemon_state.git_backend_error = None;
@@ -355,6 +362,8 @@ pub fn handle_daemon_start(
         "git_baseline_ref": state.daemon_state.git_baseline_ref,
         "git_baseline_kind": state.daemon_state.git_baseline_kind,
         "git_since_ref": state.daemon_state.git_since_ref,
+        "git_head_ref": state.daemon_state.git_head_ref,
+        "git_last_clean_ref": state.daemon_state.git_last_clean_ref,
         "git_operation_in_progress": state.daemon_state.git_operation_in_progress,
         "git_operation_kind": state.daemon_state.git_operation_kind,
     }))
@@ -418,6 +427,8 @@ pub fn handle_daemon_status(
         "git_baseline_ref": state.daemon_state.git_baseline_ref,
         "git_baseline_kind": state.daemon_state.git_baseline_kind,
         "git_since_ref": state.daemon_state.git_since_ref,
+        "git_head_ref": state.daemon_state.git_head_ref,
+        "git_last_clean_ref": state.daemon_state.git_last_clean_ref,
         "last_git_scan_ms": state.daemon_state.last_git_scan_ms,
         "last_git_changed_files": state.daemon_state.last_git_changed_files,
         "git_backend_error": state.daemon_state.git_backend_error,
@@ -495,6 +506,7 @@ pub fn handle_daemon_tick(
                 state.daemon_state.git_since_ref.as_deref(),
             ) {
                 Ok(paths) => {
+                    let current_head = git_head_ref(Path::new(&root));
                     state.daemon_state.last_git_scan_ms = Some(now_ms());
                     state.daemon_state.last_git_changed_files = paths.len();
                     state.daemon_state.git_backend_error = None;
@@ -508,8 +520,11 @@ pub fn handle_daemon_tick(
                             changed_entries.push(entry);
                         }
                     }
-                    state.daemon_state.git_since_ref =
-                        git_head_ref(Path::new(&root)).or(state.daemon_state.git_since_ref.clone());
+                    state.daemon_state.git_head_ref = current_head.clone();
+                    state.daemon_state.git_since_ref = current_head
+                        .clone()
+                        .or(state.daemon_state.git_since_ref.clone());
+                    state.daemon_state.git_last_clean_ref = current_head;
                 }
                 Err(error) => {
                     state.daemon_state.git_backend_error = Some(error);
@@ -1202,7 +1217,11 @@ mod tests {
         assert!(started["git_root"].as_str().is_some());
         assert!(started["git_since_ref"].as_str().is_some());
         assert!(started["git_baseline_ref"].as_str().is_some());
+        assert!(started["git_head_ref"].as_str().is_some());
+        assert!(started["git_last_clean_ref"].as_str().is_some());
         assert_eq!(started["git_baseline_kind"], "head");
+        assert_eq!(started["git_since_ref"], started["git_baseline_ref"]);
+        assert_eq!(started["git_last_clean_ref"], started["git_baseline_ref"]);
     }
 
     #[test]
@@ -1295,6 +1314,11 @@ mod tests {
         assert_eq!(started["git_baseline_kind"], "merge_base");
         assert!(started["git_baseline_ref"].as_str().is_some());
         assert!(started["git_since_ref"].as_str().is_some());
+        assert!(started["git_head_ref"].as_str().is_some());
+        assert!(started["git_last_clean_ref"].as_str().is_some());
+        assert_eq!(started["git_since_ref"], started["git_baseline_ref"]);
+        assert_eq!(started["git_last_clean_ref"], started["git_baseline_ref"]);
+        assert_ne!(started["git_head_ref"], started["git_baseline_ref"]);
     }
 
     #[test]
@@ -1373,6 +1397,16 @@ mod tests {
         assert_eq!(state.daemon_state.last_git_changed_files, 1);
         assert!(state.daemon_state.last_git_scan_ms.is_some());
         assert!(state.daemon_state.git_backend_error.is_none());
+        assert!(state.daemon_state.git_head_ref.is_some());
+        assert!(state.daemon_state.git_last_clean_ref.is_some());
+        assert_eq!(
+            state.daemon_state.git_since_ref,
+            state.daemon_state.git_head_ref
+        );
+        assert_eq!(
+            state.daemon_state.git_last_clean_ref,
+            state.daemon_state.git_head_ref
+        );
     }
 
     #[test]
