@@ -550,7 +550,7 @@ Node IDs in the federated graph use `{repo_name}::file::path` format.
 
 ## `m1nd.federate_auto`
 
-Turn explicit external path evidence into repo candidates, namespace suggestions, and an optional one-shot `federate` call.
+Turn explicit external path evidence or local manifest/workspace hints into repo candidates, namespace suggestions, and an optional one-shot `federate` call.
 
 ### Parameters
 
@@ -612,6 +612,7 @@ Turn explicit external path evidence into repo candidates, namespace suggestions
 ### When to Use
 
 - **Cross-repo audits** -- when `audit` or `external_references` already surfaced sibling repo paths
+- **Manifest-driven workspaces** -- when `Cargo.toml`, `package.json`, `pnpm-workspace.yaml`, `pyproject.toml`, or `go.work` already point at sibling repos
 - **Planning/doc hubs** -- when docs point to runtime repos and you want a namespace plan without manual copy-paste
 - **Worktree-heavy setups** -- when the current workspace path is a worktree but you still want repo-shaped namespace suggestions
 
