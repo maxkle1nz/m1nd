@@ -164,6 +164,7 @@ pub struct DaemonRuntimeState {
     pub active: bool,
     pub started_at_ms: Option<u64>,
     pub last_tick_ms: Option<u64>,
+    pub last_tick_trigger: Option<String>,
     pub watch_paths: Vec<String>,
     pub poll_interval_ms: u64,
     pub tracked_files: HashMap<String, DaemonTrackedFile>,
@@ -174,6 +175,11 @@ pub struct DaemonRuntimeState {
     pub last_tick_alerts_emitted: usize,
     pub idle_streak: u32,
     pub max_backoff_multiplier: u32,
+    pub watch_backend: String,
+    pub watch_backend_error: Option<String>,
+    pub watch_events_seen: u64,
+    pub watch_events_dropped: u64,
+    pub last_watch_event_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

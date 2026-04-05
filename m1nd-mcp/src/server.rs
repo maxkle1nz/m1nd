@@ -11,9 +11,12 @@ use crate::surgical_handlers;
 use crate::tools;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::error::{M1ndError, M1ndResult};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -215,6 +218,25 @@ impl Default for McpConfig {
 pub struct McpServer {
     config: McpConfig,
     state: SessionState,
+    daemon_runtime: Option<DaemonRuntimeControl>,
+}
+
+#[derive(Debug)]
+enum ServerEvent {
+    Request(String, TransportMode),
+    StdinClosed,
+    WatchNotice,
+    WatchError(String),
+}
+
+struct LiveDaemonWatcher {
+    _watcher: RecommendedWatcher,
+    dropped_counter: Arc<AtomicU64>,
+}
+
+struct DaemonRuntimeControl {
+    event_tx: mpsc::SyncSender<ServerEvent>,
+    watcher: Option<LiveDaemonWatcher>,
 }
 
 /// List of all registered MCP tool schemas with full inputSchema per MCP spec.
@@ -2162,6 +2184,17 @@ fn background_tick_if_due(state: &mut SessionState) {
     );
 }
 
+fn run_daemon_tick(state: &mut SessionState, trigger: &str) {
+    state.daemon_state.last_tick_trigger = Some(trigger.to_string());
+    let _ = crate::daemon_handlers::handle_daemon_tick(
+        state,
+        layers::DaemonTickInput {
+            agent_id: "daemon".into(),
+            max_files: 32,
+        },
+    );
+}
+
 fn daemon_wait_duration_ms(state: &SessionState) -> u64 {
     if !state.daemon_state.active {
         return 1000;
@@ -2179,19 +2212,67 @@ fn daemon_wait_duration_ms(state: &SessionState) -> u64 {
         .poll_interval_ms
         .saturating_mul(2u64.pow(exponent))
         .clamp(25, 10_000);
+    let scheduler_interval_ms = if state.daemon_state.watch_backend == "native_fs" {
+        effective_poll_interval_ms.max(5_000)
+    } else {
+        effective_poll_interval_ms
+    };
 
     match state.daemon_state.last_tick_ms {
         Some(last_tick_ms) => {
             let elapsed = now_ms().saturating_sub(last_tick_ms);
-            if elapsed >= effective_poll_interval_ms {
+            if elapsed >= scheduler_interval_ms {
                 25
             } else {
-                effective_poll_interval_ms
+                scheduler_interval_ms
                     .saturating_sub(elapsed)
                     .clamp(25, 1000)
             }
         }
         None => 25,
+    }
+}
+
+impl LiveDaemonWatcher {
+    fn start(
+        watch_paths: &[String],
+        event_tx: mpsc::SyncSender<ServerEvent>,
+    ) -> Result<Self, String> {
+        let dropped_counter = Arc::new(AtomicU64::new(0));
+        let dropped_for_cb = dropped_counter.clone();
+        let tx_for_cb = event_tx.clone();
+
+        let mut watcher =
+            notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+                let event = match result {
+                    Ok(_) => ServerEvent::WatchNotice,
+                    Err(error) => ServerEvent::WatchError(error.to_string()),
+                };
+                match tx_for_cb.try_send(event) {
+                    Ok(_) => {}
+                    Err(mpsc::TrySendError::Full(_)) | Err(mpsc::TrySendError::Disconnected(_)) => {
+                        dropped_for_cb.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+
+        for raw_path in watch_paths {
+            let path = PathBuf::from(raw_path);
+            let mode = if path.is_dir() {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+            watcher
+                .watch(path.as_path(), mode)
+                .map_err(|error| error.to_string())?;
+        }
+
+        Ok(Self {
+            _watcher: watcher,
+            dropped_counter,
+        })
     }
 }
 
@@ -2364,6 +2445,45 @@ fn dispatch_lock_tool(
 }
 
 impl McpServer {
+    fn sync_watcher_drop_counter(&mut self) {
+        if let Some(runtime) = &self.daemon_runtime {
+            if let Some(watcher) = &runtime.watcher {
+                self.state.daemon_state.watch_events_dropped =
+                    watcher.dropped_counter.load(Ordering::Relaxed);
+            }
+        }
+    }
+
+    fn refresh_daemon_watcher(&mut self) {
+        let Some(runtime) = &mut self.daemon_runtime else {
+            return;
+        };
+
+        runtime.watcher = None;
+        if !self.state.daemon_state.active {
+            self.state.daemon_state.watch_backend = "polling".into();
+            self.state.daemon_state.watch_backend_error = None;
+            let _ = self.state.persist_daemon_state();
+            return;
+        }
+
+        match LiveDaemonWatcher::start(
+            &self.state.daemon_state.watch_paths,
+            runtime.event_tx.clone(),
+        ) {
+            Ok(watcher) => {
+                runtime.watcher = Some(watcher);
+                self.state.daemon_state.watch_backend = "native_fs".into();
+                self.state.daemon_state.watch_backend_error = None;
+            }
+            Err(error) => {
+                self.state.daemon_state.watch_backend = "polling".into();
+                self.state.daemon_state.watch_backend_error = Some(error);
+            }
+        }
+        let _ = self.state.persist_daemon_state();
+    }
+
     /// Create server with config. Does not start serving yet.
     ///
     /// Startup sequence:
@@ -2453,7 +2573,11 @@ impl McpServer {
             }
         }
 
-        Ok(Self { config, state })
+        Ok(Self {
+            config,
+            state,
+            daemon_runtime: None,
+        })
     }
 
     /// Consume the McpServer and return the SessionState.
@@ -2486,7 +2610,12 @@ impl McpServer {
     pub fn serve(&mut self) -> M1ndResult<()> {
         let stdout = std::io::stdout();
         let mut writer = stdout.lock();
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(1024);
+        self.daemon_runtime = Some(DaemonRuntimeControl {
+            event_tx: tx.clone(),
+            watcher: None,
+        });
+        self.refresh_daemon_watcher();
 
         thread::spawn(move || {
             let stdin = std::io::stdin();
@@ -2495,30 +2624,99 @@ impl McpServer {
                 let next = read_request_payload(&mut reader);
                 match next {
                     Ok(Some(value)) => {
-                        if tx.send(Some(value)).is_err() {
+                        if tx.send(ServerEvent::Request(value.0, value.1)).is_err() {
                             break;
                         }
                     }
                     Ok(None) => {
-                        let _ = tx.send(None);
+                        let _ = tx.send(ServerEvent::StdinClosed);
                         break;
                     }
                     Err(_) => {
-                        let _ = tx.send(None);
+                        let _ = tx.send(ServerEvent::StdinClosed);
                         break;
                     }
                 }
             }
         });
 
+        let mut pending_request: Option<(String, TransportMode)> = None;
         loop {
-            let (payload, transport_mode) = match rx
-                .recv_timeout(Duration::from_millis(daemon_wait_duration_ms(&self.state)))
-            {
-                Ok(Some(value)) => value,
-                Ok(None) => break,
+            self.sync_watcher_drop_counter();
+
+            let next_event = if let Some((payload, mode)) = pending_request.take() {
+                Ok(ServerEvent::Request(payload, mode))
+            } else {
+                rx.recv_timeout(Duration::from_millis(daemon_wait_duration_ms(&self.state)))
+            };
+
+            let (payload, transport_mode) = match next_event {
+                Ok(ServerEvent::Request(payload, mode)) => (payload, mode),
+                Ok(ServerEvent::StdinClosed) => break,
+                Ok(ServerEvent::WatchNotice) => {
+                    let mut watch_events_seen = 1u64;
+                    self.state.daemon_state.last_watch_event_ms = Some(now_ms());
+                    loop {
+                        match rx.try_recv() {
+                            Ok(ServerEvent::WatchNotice) => {
+                                watch_events_seen = watch_events_seen.saturating_add(1);
+                            }
+                            Ok(ServerEvent::WatchError(error)) => {
+                                self.state.daemon_state.watch_events_dropped = self
+                                    .state
+                                    .daemon_state
+                                    .watch_events_dropped
+                                    .saturating_add(1);
+                                self.state.daemon_state.watch_backend_error = Some(error);
+                            }
+                            Ok(ServerEvent::Request(payload, mode)) => {
+                                pending_request = Some((payload, mode));
+                                break;
+                            }
+                            Ok(ServerEvent::StdinClosed) => {
+                                pending_request = None;
+                                break;
+                            }
+                            Err(mpsc::TryRecvError::Empty)
+                            | Err(mpsc::TryRecvError::Disconnected) => break,
+                        }
+                    }
+                    self.state.daemon_state.watch_events_seen = self
+                        .state
+                        .daemon_state
+                        .watch_events_seen
+                        .saturating_add(watch_events_seen);
+                    run_daemon_tick(&mut self.state, "watch_event");
+                    continue;
+                }
+                Ok(ServerEvent::WatchError(error)) => {
+                    self.state.daemon_state.watch_events_dropped = self
+                        .state
+                        .daemon_state
+                        .watch_events_dropped
+                        .saturating_add(1);
+                    self.state.daemon_state.watch_backend_error = Some(error);
+                    self.state.daemon_state.last_watch_event_ms = Some(now_ms());
+                    run_daemon_tick(&mut self.state, "reconciliation");
+                    continue;
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    background_tick_if_due(&mut self.state);
+                    let trigger = if self.state.daemon_state.watch_backend == "native_fs" {
+                        "reconciliation"
+                    } else {
+                        "idle_timeout"
+                    };
+                    if !self.state.daemon_state.active
+                        || self.state.daemon_state.poll_interval_ms == 0
+                    {
+                        continue;
+                    }
+                    let due = self.state.daemon_state.last_tick_ms.is_none_or(|last| {
+                        now_ms().saturating_sub(last) >= daemon_wait_duration_ms(&self.state)
+                    });
+                    if due {
+                        run_daemon_tick(&mut self.state, trigger);
+                    }
                     continue;
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -2649,29 +2847,28 @@ impl McpServer {
                                 >= self.state.daemon_state.poll_interval_ms
                         })
                     {
-                        let _ = crate::daemon_handlers::handle_daemon_tick(
-                            &mut self.state,
-                            layers::DaemonTickInput {
-                                agent_id: agent_id.to_string(),
-                                max_files: 32,
-                            },
-                        );
+                        run_daemon_tick(&mut self.state, "traffic");
                     }
                 }
 
                 // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
                 match self.dispatch_tool_call(tool_name, &arguments) {
-                    Ok(result) => Ok(JsonRpcResponse {
-                        jsonrpc: "2.0".into(),
-                        id: request.id.clone(),
-                        result: Some(serde_json::json!({
-                            "content": [{
-                                "type": "text",
-                                "text": serde_json::to_string_pretty(&result).unwrap_or_default(),
-                            }]
-                        })),
-                        error: None,
-                    }),
+                    Ok(result) => {
+                        if matches!(tool_name, "daemon_start" | "daemon_stop") {
+                            self.refresh_daemon_watcher();
+                        }
+                        Ok(JsonRpcResponse {
+                            jsonrpc: "2.0".into(),
+                            id: request.id.clone(),
+                            result: Some(serde_json::json!({
+                                "content": [{
+                                    "type": "text",
+                                    "text": serde_json::to_string_pretty(&result).unwrap_or_default(),
+                                }]
+                            })),
+                            error: None,
+                        })
+                    }
                     Err(e) => Ok(JsonRpcResponse {
                         jsonrpc: "2.0".into(),
                         id: request.id.clone(),
@@ -2716,11 +2913,13 @@ impl McpServer {
 mod tests {
     use super::{
         background_tick_if_due, daemon_wait_duration_ms, should_autotick_daemon, tool_schemas,
+        DaemonRuntimeControl, McpServer,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
+    use std::sync::mpsc;
 
     fn build_state() -> (tempfile::TempDir, SessionState) {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -2735,6 +2934,20 @@ mod tests {
         let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
             .expect("init session");
         (temp, state)
+    }
+
+    fn build_server() -> (tempfile::TempDir, McpServer) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let server = McpServer::new(config).expect("server");
+        (temp, server)
     }
 
     #[test]
@@ -2892,5 +3105,53 @@ mod tests {
             (700..=800).contains(&wait_ms),
             "idle streak should expand effective wait close to 4x the base interval"
         );
+    }
+
+    #[test]
+    fn native_watcher_refresh_falls_back_to_polling_for_invalid_path() {
+        let (_temp, mut server) = build_server();
+        let (tx, _rx) = mpsc::sync_channel(8);
+        server.daemon_runtime = Some(DaemonRuntimeControl {
+            event_tx: tx,
+            watcher: None,
+        });
+        server.state.daemon_state.active = true;
+        server.state.daemon_state.watch_paths = vec!["/definitely/not/present".into()];
+
+        server.refresh_daemon_watcher();
+
+        assert_eq!(server.state.daemon_state.watch_backend, "polling");
+        assert!(server.state.daemon_state.watch_backend_error.is_some());
+    }
+
+    #[test]
+    fn native_watcher_refresh_uses_native_fs_for_real_root() {
+        let (temp, mut server) = build_server();
+        let watch_root = temp.path().join("watch-root");
+        std::fs::create_dir_all(&watch_root).expect("watch-root");
+        let (tx, _rx) = mpsc::sync_channel(8);
+        server.daemon_runtime = Some(DaemonRuntimeControl {
+            event_tx: tx,
+            watcher: None,
+        });
+        server.state.daemon_state.active = true;
+        server.state.daemon_state.watch_paths = vec![watch_root.to_string_lossy().to_string()];
+
+        server.refresh_daemon_watcher();
+
+        assert_eq!(server.state.daemon_state.watch_backend, "native_fs");
+        assert!(server.state.daemon_state.watch_backend_error.is_none());
+    }
+
+    #[test]
+    fn native_backend_uses_coarse_reconciliation_interval() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.active = true;
+        state.daemon_state.poll_interval_ms = 200;
+        state.daemon_state.watch_backend = "native_fs".into();
+        state.daemon_state.last_tick_ms = Some(super::now_ms());
+
+        let wait_ms = daemon_wait_duration_ms(&state);
+        assert_eq!(wait_ms, 1000);
     }
 }
