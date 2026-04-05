@@ -1331,6 +1331,110 @@ fn identity_appears_in_content(identity: &str, content: &str) -> bool {
     })
 }
 
+fn normalize_api_route_for_discovery(route: &str) -> String {
+    let mut n = route.trim().to_lowercase();
+    if n.ends_with('/') {
+        n.pop();
+    }
+    n.split('/')
+        .map(|segment| {
+            if (segment.starts_with('{') && segment.ends_with('}')) || segment.starts_with(':') {
+                "_".to_string()
+            } else {
+                segment.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn extract_api_routes_from_text(content: &str) -> BTreeSet<String> {
+    let Ok(route_regex) = Regex::new(r#"(?i)(/api/[A-Za-z0-9_\-/{}/:]+)"#) else {
+        return BTreeSet::new();
+    };
+    route_regex
+        .captures_iter(content)
+        .filter_map(|captures| {
+            captures
+                .get(1)
+                .map(|m| normalize_api_route_for_discovery(m.as_str()))
+        })
+        .filter(|route| route.len() > 4)
+        .collect()
+}
+
+fn should_scan_api_contract_file(path: &Path) -> bool {
+    let lower = path.to_string_lossy().to_lowercase();
+    if lower.contains("/.git/")
+        || lower.contains("/target/")
+        || lower.contains("/node_modules/")
+        || lower.contains("/dist/")
+        || lower.contains("/build/")
+        || lower.contains("/docs/wiki-build/")
+    {
+        return false;
+    }
+    matches!(
+        path.extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default(),
+        "rs" | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "py"
+            | "go"
+            | "java"
+            | "json"
+            | "yaml"
+            | "yml"
+            | "toml"
+    )
+}
+
+fn collect_repo_api_routes(repo_root: &Path, limit_files: usize) -> BTreeMap<String, String> {
+    fn walk_dir(
+        dir: &Path,
+        visited: &mut usize,
+        limit_files: usize,
+        routes: &mut BTreeMap<String, String>,
+    ) {
+        if *visited >= limit_files {
+            return;
+        }
+        let Ok(read_dir) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in read_dir.flatten() {
+            if *visited >= limit_files {
+                return;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                walk_dir(&path, visited, limit_files, routes);
+                continue;
+            }
+            if !should_scan_api_contract_file(&path) {
+                continue;
+            }
+            *visited += 1;
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            for route in extract_api_routes_from_text(&content) {
+                routes
+                    .entry(route)
+                    .or_insert_with(|| path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let mut visited = 0usize;
+    let mut routes = BTreeMap::new();
+    walk_dir(repo_root, &mut visited, limit_files, &mut routes);
+    routes
+}
+
 fn discover_import_repo_signals(
     state: &SessionState,
     workspace_root: &Path,
@@ -1373,6 +1477,78 @@ fn discover_import_repo_signals(
                 confidence: "medium",
             });
         }
+    }
+    signals
+}
+
+fn discover_api_contract_repo_signals(
+    state: &SessionState,
+    workspace_root: &Path,
+) -> Vec<SemanticRepoSignal> {
+    let inventory = if state.file_inventory.is_empty() {
+        inventory_from_roots(state, false, &[])
+    } else {
+        state.file_inventory.clone()
+    };
+    let disk_entries = filter_inventory_by_scope(state, &inventory, None);
+    let mut current_routes: BTreeMap<String, (String, String)> = BTreeMap::new();
+    for entry in disk_entries {
+        let kind = classify_file_kind(&entry.file_path, &entry.language);
+        if !matches!(kind, AuditFileKind::Code | AuditFileKind::Config) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&entry.file_path) else {
+            continue;
+        };
+        for route in extract_api_routes_from_text(&content) {
+            current_routes
+                .entry(route)
+                .or_insert_with(|| (entry.external_id.clone(), entry.file_path.clone()));
+        }
+    }
+    if current_routes.is_empty() {
+        return Vec::new();
+    }
+
+    let neighbors = discover_neighbor_repo_identities(workspace_root);
+    let mut signals = Vec::new();
+    for neighbor in neighbors {
+        let neighbor_routes = collect_repo_api_routes(&neighbor.repo_root, 300);
+        let mut matched_routes = Vec::new();
+        for (route, neighbor_file) in &neighbor_routes {
+            if let Some((source_node, source_file)) = current_routes.get(route) {
+                matched_routes.push((
+                    route.clone(),
+                    neighbor_file.clone(),
+                    source_node.clone(),
+                    source_file.clone(),
+                ));
+            }
+        }
+        if matched_routes.is_empty() {
+            continue;
+        }
+        let confidence = if matched_routes.len() >= 2 {
+            "high"
+        } else {
+            "medium"
+        };
+        let sampled = matched_routes
+            .iter()
+            .take(3)
+            .map(|(route, _, _, _)| route.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let (route, _neighbor_file, source_node, source_file) = matched_routes[0].clone();
+        signals.push(SemanticRepoSignal {
+            repo_root: neighbor.repo_root.clone(),
+            marker: neighbor.marker.clone(),
+            source_file,
+            source_node: Some(source_node),
+            evidence_type: "api_route_match".to_string(),
+            sampled_path: if sampled.is_empty() { route } else { sampled },
+            confidence,
+        });
     }
     signals
 }
@@ -1420,6 +1596,7 @@ fn discover_semantic_repo_signals(
         }
     }
     signals.extend(discover_import_repo_signals(state, workspace_root));
+    signals.extend(discover_api_contract_repo_signals(state, workspace_root));
     signals
 }
 
@@ -3094,6 +3271,68 @@ mod tests {
         assert!(discovered[0]["evidence_types"]
             .as_array()
             .is_some_and(|items| items.iter().any(|item| item == "import_identity_match")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_api_route_match_without_path_or_import_hint() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/client.ts"),
+            "fetch('/api/users');\nexport const ok = true;\n",
+        )
+        .expect("write current source");
+
+        let service_root = temp.path().join("service");
+        std::fs::create_dir_all(service_root.join(".git")).expect("service git");
+        std::fs::create_dir_all(service_root.join("src")).expect("service src");
+        std::fs::write(
+            service_root.join("src/routes.ts"),
+            "router.get('/api/users', handler)\n",
+        )
+        .expect("write service source");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/client.ts".into(),
+            file_path: current_root
+                .join("src/client.ts")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "typescript".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&service_root).expect("canonical service root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "api_route_match")));
     }
 
     #[test]
