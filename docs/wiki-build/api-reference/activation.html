@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Activation tools for the m1nd guided runtime: connected retrieval, priming, and resonance analysis over the local code graph.">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,10 +181,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="activation-tools"><a class="header" href="#activation-tools">Activation Tools</a></h1>
-<p>Three tools for connected retrieval and priming across the local code graph: activation, warmup, and resonance analysis.</p>
+<p>Three tools for querying the graph through spreading activation, task-based priming, and resonance analysis.</p>
 <hr>
-<h2 id="m1ndactivate"><a class="header" href="#m1ndactivate"><code>m1nd.activate</code></a></h2>
-<p>Spreading activation query across the graph. This is one of the core discovery tools in the guided runtime: it propagates signal from seed nodes across structural, semantic, temporal, and causal dimensions, then returns the most relevant connected results.</p>
+<h2 id="activate"><a class="header" href="#activate"><code>activate</code></a></h2>
+<p>Spreading activation query across the graph. The primary structural search tool – propagates signal from seed nodes through the graph across four dimensions (structural, semantic, temporal, causal), with XLR noise cancellation and optional ghost edge / structural hole detection.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -209,9 +208,9 @@
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+    "name": "activate",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "query": "session pool management",
       "top_k": 5,
       "include_ghost_edges": true
@@ -223,34 +222,34 @@
 <pre><code class="language-json">{
   "query": "session pool management",
   "seeds": [
-    { "node_id": "file::pool.py", "label": "pool.py", "relevance": 0.95 }
+    { "node_id": "file::session_pool.py", "label": "session_pool.py", "relevance": 0.95 }
   ],
   "activated": [
     {
-      "node_id": "file::pool.py",
-      "label": "pool.py",
+      "node_id": "file::session_pool.py",
+      "label": "session_pool.py",
       "type": "file",
       "activation": 0.89,
       "dimensions": { "structural": 0.92, "semantic": 0.95, "temporal": 0.78, "causal": 0.71 },
       "pagerank": 0.635,
       "tags": ["session", "pool"],
       "provenance": {
-        "source_path": "backend/pool.py",
+        "source_path": "backend/session_pool.py",
         "line_start": 1,
         "line_end": 245,
         "canonical": true
       }
     },
     {
-      "node_id": "file::pool.py::class::ConnectionPool",
-      "label": "ConnectionPool",
+      "node_id": "file::session_pool.py::class::SessionPool",
+      "label": "SessionPool",
       "type": "class",
       "activation": 0.84,
       "dimensions": { "structural": 0.88, "semantic": 0.91, "temporal": 0.72, "causal": 0.65 },
       "pagerank": 0.412,
       "tags": ["pool", "session"],
       "provenance": {
-        "source_path": "backend/pool.py",
+        "source_path": "backend/session_pool.py",
         "line_start": 15,
         "line_end": 180,
         "canonical": true
@@ -259,8 +258,8 @@
   ],
   "ghost_edges": [
     {
-      "source": "pool.py",
-      "target": "recovery.py",
+      "source": "session_pool.py",
+      "target": "healing_manager.py",
       "shared_dimensions": ["semantic", "causal"],
       "strength": 0.34
     }
@@ -286,13 +285,13 @@
 <p>Activate has <strong>plasticity side effects</strong>: it strengthens edges between activated nodes and decays inactive edges. This makes the graph learn from usage patterns over time.</p>
 <h3 id="related-tools"><a class="header" href="#related-tools">Related Tools</a></h3>
 <ul>
-<li><a href="#m1ndwarmup"><code>m1nd.warmup</code></a> – activate + prime for a specific task</li>
-<li><a href="exploration.html#m1ndseek"><code>m1nd.seek</code></a> – intent-aware search (finds code by purpose, not just keywords)</li>
-<li><a href="perspectives.html#m1ndperspectivestart"><code>m1nd.perspective.start</code></a> – wraps activate into a navigable perspective</li>
-<li><a href="memory.html#m1ndlearn"><code>m1nd.learn</code></a> – explicitly provide feedback on activation results</li>
+<li><a href="#m1ndwarmup"><code>warmup</code></a> – activate + prime for a specific task</li>
+<li><a href="exploration.html#m1ndseek"><code>seek</code></a> – intent-aware search (finds code by purpose, not just keywords)</li>
+<li><a href="perspectives.html#m1ndperspectivestart"><code>perspective_start</code></a> – wraps activate into a navigable perspective</li>
+<li><a href="memory.html#m1ndlearn"><code>learn</code></a> – explicitly provide feedback on activation results</li>
 </ul>
 <hr>
-<h2 id="m1ndwarmup"><a class="header" href="#m1ndwarmup"><code>m1nd.warmup</code></a></h2>
+<h2 id="warmup"><a class="header" href="#warmup"><code>warmup</code></a></h2>
 <p>Task-based warmup and priming. Activates the graph around a task description and applies a temporary boost to relevant nodes, preparing the graph for focused work. The boost decays naturally over time.</p>
 <h3 id="parameters-1"><a class="header" href="#parameters-1">Parameters</a></h3>
 <div class="table-wrapper">
@@ -313,10 +312,10 @@
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.warmup",
+    "name": "warmup",
     "arguments": {
-      "agent_id": "orchestrator",
-      "task_description": "Refactor the messaging routing module to support group chats",
+      "agent_id": "jimi",
+      "task_description": "Refactor the WhatsApp message routing to support group chats",
       "boost_strength": 0.2
     }
   }
@@ -324,13 +323,13 @@
 </code></pre>
 <h3 id="example-response-1"><a class="header" href="#example-response-1">Example Response</a></h3>
 <pre><code class="language-json">{
-  "task": "Refactor the messaging routing module to support group chats",
+  "task": "Refactor the WhatsApp message routing to support group chats",
   "primed_nodes": 23,
   "top_primed": [
-    { "node_id": "file::messaging_routes.py", "label": "messaging_routes.py", "boost": 0.2 },
-    { "node_id": "file::messaging.py", "label": "messaging.py", "boost": 0.18 },
-    { "node_id": "file::messaging_models.py", "label": "messaging_models.py", "boost": 0.15 },
-    { "node_id": "file::handler.py", "label": "handler.py", "boost": 0.12 }
+    { "node_id": "file::whatsapp_routes.py", "label": "whatsapp_routes.py", "boost": 0.2 },
+    { "node_id": "file::whatsapp_manager.py", "label": "whatsapp_manager.py", "boost": 0.18 },
+    { "node_id": "file::whatsapp_models.py", "label": "whatsapp_models.py", "boost": 0.15 },
+    { "node_id": "file::chat_handler.py", "label": "chat_handler.py", "boost": 0.12 }
   ],
   "elapsed_ms": 18.5
 }
@@ -345,12 +344,12 @@
 <p>Applies temporary priming boosts to node activations. These boosts decay naturally and are NOT persisted across server restarts.</p>
 <h3 id="related-tools-1"><a class="header" href="#related-tools-1">Related Tools</a></h3>
 <ul>
-<li><a href="#m1ndactivate"><code>m1nd.activate</code></a> – raw activation query without the priming boost</li>
-<li><a href="memory.html#m1ndtrailresume"><code>m1nd.trail.resume</code></a> – restores a full investigation context including activation boosts</li>
+<li><a href="#m1ndactivate"><code>activate</code></a> – raw activation query without the priming boost</li>
+<li><a href="memory.html#m1ndtrailresume"><code>trail_resume</code></a> – restores a full investigation context including activation boosts</li>
 </ul>
 <hr>
-<h2 id="m1ndresonate"><a class="header" href="#m1ndresonate"><code>m1nd.resonate</code></a></h2>
-<p>Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant frequencies in the graph. Identifies nodes that form natural clusters of mutual reinforcement – the “harmonics” of the connectome.</p>
+<h2 id="resonate"><a class="header" href="#resonate"><code>resonate</code></a></h2>
+<p>Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant frequencies in the graph. Identifies nodes that form natural clusters of mutual reinforcement.</p>
 <h3 id="parameters-2"><a class="header" href="#parameters-2">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -371,9 +370,9 @@
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.resonate",
+    "name": "resonate",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "query": "authentication flow",
       "top_k": 10
     }

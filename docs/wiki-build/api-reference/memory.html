@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Memory and learning tools in m1nd — feedback, trail continuity, drift, and path explanation for MCP agents">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,10 +181,10 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="memory--learning-tools"><a class="header" href="#memory--learning-tools">Memory &amp; Learning Tools</a></h1>
-<p>Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management. This is where m1nd stores continuity, reinforces useful paths, and helps an agent resume work without rediscovering the repo from scratch.</p>
+<p>Seven tools for feedback-based learning, drift analysis, path explanation, and investigation trail management.</p>
 <hr>
 <h2 id="m1ndlearn"><a class="header" href="#m1ndlearn"><code>m1nd.learn</code></a></h2>
-<p>Explicit feedback-based edge adjustment. After using <code>activate</code> or other query tools, call <code>learn</code> to tell m1nd whether the results were correct, wrong, or partial. This updates edge weights so future guided queries and route suggestions are shaped a little more by what actually worked.</p>
+<p>Explicit feedback-based edge adjustment. After using <code>activate</code> or other query tools, call <code>learn</code> to tell m1nd whether the results were correct, wrong, or partial. This applies Hebbian learning to strengthen or weaken edges between the query seeds and the reported nodes.</p>
 <h3 id="parameters"><a class="header" href="#parameters">Parameters</a></h3>
 <div class="table-wrapper">
 <table>
@@ -209,10 +208,10 @@
   "params": {
     "name": "m1nd.learn",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "query": "session pool management",
       "feedback": "correct",
-      "node_ids": ["file::pool.py", "file::worker.py"],
+      "node_ids": ["file::session_pool.py", "file::worker_pool.py"],
       "strength": 0.3
     }
   }
@@ -265,7 +264,7 @@
   "params": {
     "name": "m1nd.drift",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "since": "last_session",
       "include_weight_drift": true
     }
@@ -280,8 +279,8 @@
   "new_nodes": ["file::forem_publisher.py", "file::forem_routes.py"],
   "removed_nodes": [],
   "top_weight_drifts": [
-    { "edge": "pool.py -&gt; worker.py", "old": 0.45, "new": 0.72, "delta": 0.27 },
-    { "edge": "handler.py -&gt; parser.py", "old": 0.60, "new": 0.48, "delta": -0.12 }
+    { "edge": "session_pool.py -&gt; worker_pool.py", "old": 0.45, "new": 0.72, "delta": 0.27 },
+    { "edge": "chat_handler.py -&gt; stream_parser.py", "old": 0.60, "new": 0.48, "delta": -0.12 }
   ],
   "elapsed_ms": 12.0
 }
@@ -322,9 +321,9 @@
   "params": {
     "name": "m1nd.why",
     "arguments": {
-      "agent_id": "orchestrator",
-      "source": "file::worker.py",
-      "target": "file::messaging.py",
+      "agent_id": "jimi",
+      "source": "file::worker_pool.py",
+      "target": "file::whatsapp_manager.py",
       "max_hops": 4
     }
   }
@@ -332,17 +331,17 @@
 </code></pre>
 <h3 id="example-response-2"><a class="header" href="#example-response-2">Example Response</a></h3>
 <pre><code class="language-json">{
-  "source": "file::worker.py",
-  "target": "file::messaging.py",
+  "source": "file::worker_pool.py",
+  "target": "file::whatsapp_manager.py",
   "paths": [
     {
-      "nodes": ["worker.py", "process_manager.py", "messaging.py"],
+      "nodes": ["worker_pool.py", "process_manager.py", "whatsapp_manager.py"],
       "relations": ["calls::cancel", "imports"],
       "cumulative_strength": 0.68,
       "hops": 2
     },
     {
-      "nodes": ["worker.py", "worker.py", "handler.py", "messaging.py"],
+      "nodes": ["worker_pool.py", "spawner.py", "chat_handler.py", "whatsapp_manager.py"],
       "relations": ["imported_by", "calls", "imports"],
       "cumulative_strength": 0.31,
       "hops": 3
@@ -364,7 +363,7 @@
 <li><a href="analysis.html#m1ndimpact"><code>m1nd.impact</code></a> – finds all affected nodes (broader scope)</li>
 </ul>
 <hr>
-<h2 id="m1ndtrailsave"><a class="header" href="#m1ndtrailsave"><code>m1nd.trail.save</code></a></h2>
+<h2 id="trail_save"><a class="header" href="#trail_save"><code>trail_save</code></a></h2>
 <p>Persist the current investigation state – nodes visited, hypotheses formed, conclusions reached, and open questions. Captures activation boosts for later restoration.</p>
 <h3 id="parameters-3"><a class="header" href="#parameters-3">Parameters</a></h3>
 <div class="table-wrapper">
@@ -391,15 +390,15 @@
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.save",
+    "name": "trail_save",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "label": "auth-leak-investigation",
       "hypotheses": [
         {
           "statement": "Auth tokens leak through session pool",
           "confidence": 0.7,
-          "supporting_nodes": ["file::pool.py", "file::auth_discovery.py"]
+          "supporting_nodes": ["file::session_pool.py", "file::auth_discovery.py"]
         },
         {
           "statement": "Rate limiter missing from auth chain",
@@ -410,7 +409,7 @@
       "open_questions": ["Does the rate limiter apply to WebSocket connections?"],
       "tags": ["security", "auth", "session"],
       "activation_boosts": {
-        "file::pool.py": 0.8,
+        "file::session_pool.py": 0.8,
         "file::auth_discovery.py": 0.6
       }
     }
@@ -421,7 +420,7 @@
 <pre><code class="language-json">{
   "trail_id": "trail_jimi_001_a1b2c3",
   "label": "auth-leak-investigation",
-  "agent_id": "orchestrator",
+  "agent_id": "jimi",
   "nodes_saved": 47,
   "hypotheses_saved": 2,
   "conclusions_saved": 0,
@@ -438,12 +437,12 @@
 </ul>
 <h3 id="related-tools-3"><a class="header" href="#related-tools-3">Related Tools</a></h3>
 <ul>
-<li><a href="#m1ndtrailresume"><code>m1nd.trail.resume</code></a> – restore a saved trail</li>
-<li><a href="#m1ndtraillist"><code>m1nd.trail.list</code></a> – find saved trails</li>
-<li><a href="#m1ndtrailmerge"><code>m1nd.trail.merge</code></a> – combine trails from parallel investigations</li>
+<li><a href="#m1ndtrailresume"><code>trail_resume</code></a> – restore a saved trail</li>
+<li><a href="#m1ndtraillist"><code>trail_list</code></a> – find saved trails</li>
+<li><a href="#m1ndtrailmerge"><code>trail_merge</code></a> – combine trails from parallel investigations</li>
 </ul>
 <hr>
-<h2 id="m1ndtrailresume"><a class="header" href="#m1ndtrailresume"><code>m1nd.trail.resume</code></a></h2>
+<h2 id="trail_resume"><a class="header" href="#trail_resume"><code>trail_resume</code></a></h2>
 <p>Restore a saved investigation. Re-injects activation boosts into the graph, validates that saved nodes still exist, detects staleness, and optionally downgrades hypotheses whose supporting nodes are missing.</p>
 <h3 id="parameters-4"><a class="header" href="#parameters-4">Parameters</a></h3>
 <div class="table-wrapper">
@@ -453,7 +452,7 @@
 </thead>
 <tbody>
 <tr><td><code>agent_id</code></td><td><code>string</code></td><td>Yes</td><td>–</td><td>Calling agent identifier.</td></tr>
-<tr><td><code>trail_id</code></td><td><code>string</code></td><td>Yes</td><td>–</td><td>Trail ID to resume (from <code>trail.save</code> or <code>trail.list</code>).</td></tr>
+<tr><td><code>trail_id</code></td><td><code>string</code></td><td>Yes</td><td>–</td><td>Trail ID to resume (from <code>trail_save</code> or <code>trail_list</code>).</td></tr>
 <tr><td><code>force</code></td><td><code>boolean</code></td><td>No</td><td><code>false</code></td><td>Resume even if trail is stale (&gt;50% missing nodes). Default behavior: refuse to resume stale trails.</td></tr>
 </tbody>
 </table>
@@ -464,9 +463,9 @@
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.resume",
+    "name": "trail_resume",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "trail_id": "trail_jimi_001_a1b2c3"
     }
   }
@@ -483,7 +482,7 @@
   "hypotheses_downgraded": [],
   "trail": {
     "trail_id": "trail_jimi_001_a1b2c3",
-    "agent_id": "orchestrator",
+    "agent_id": "jimi",
     "label": "auth-leak-investigation",
     "status": "active",
     "created_at_ms": 1710300000000,
@@ -506,11 +505,11 @@
 </ul>
 <h3 id="related-tools-4"><a class="header" href="#related-tools-4">Related Tools</a></h3>
 <ul>
-<li><a href="#m1ndtrailsave"><code>m1nd.trail.save</code></a> – save a trail to resume later</li>
-<li><a href="activation.html#m1ndwarmup"><code>m1nd.warmup</code></a> – simpler priming without full trail restoration</li>
+<li><a href="#m1ndtrailsave"><code>trail_save</code></a> – save a trail to resume later</li>
+<li><a href="activation.html#m1ndwarmup"><code>warmup</code></a> – simpler priming without full trail restoration</li>
 </ul>
 <hr>
-<h2 id="m1ndtraillist"><a class="header" href="#m1ndtraillist"><code>m1nd.trail.list</code></a></h2>
+<h2 id="trail_list"><a class="header" href="#trail_list"><code>trail_list</code></a></h2>
 <p>List saved investigation trails with optional filters. Returns compact summaries suitable for selecting a trail to resume.</p>
 <h3 id="parameters-5"><a class="header" href="#parameters-5">Parameters</a></h3>
 <div class="table-wrapper">
@@ -532,9 +531,9 @@
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.list",
+    "name": "trail_list",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "filter_status": "saved",
       "filter_tags": ["security"]
     }
@@ -546,7 +545,7 @@
   "trails": [
     {
       "trail_id": "trail_jimi_001_a1b2c3",
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "label": "auth-leak-investigation",
       "status": "saved",
       "created_at_ms": 1710300000000,
@@ -569,8 +568,8 @@
 </ul>
 <h3 id="related-tools-5"><a class="header" href="#related-tools-5">Related Tools</a></h3>
 <ul>
-<li><a href="#m1ndtrailresume"><code>m1nd.trail.resume</code></a> – resume a trail from this list</li>
-<li><a href="#m1ndtrailmerge"><code>m1nd.trail.merge</code></a> – combine related trails</li>
+<li><a href="#m1ndtrailresume"><code>trail_resume</code></a> – resume a trail from this list</li>
+<li><a href="#m1ndtrailmerge"><code>trail_merge</code></a> – combine related trails</li>
 </ul>
 <hr>
 <h2 id="m1ndtrailmerge"><a class="header" href="#m1ndtrailmerge"><code>m1nd.trail.merge</code></a></h2>
@@ -596,7 +595,7 @@
   "params": {
     "name": "m1nd.trail.merge",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "trail_ids": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
       "label": "combined-auth-investigation"
     }
@@ -624,7 +623,7 @@
       "type": "bridge_edge",
       "detail": "auth_discovery.py connects the auth trail to the session trail",
       "from_node": "file::auth_discovery.py",
-      "to_node": "file::pool.py",
+      "to_node": "file::session_pool.py",
       "weight": 0.72
     }
   ],
@@ -646,7 +645,7 @@
 </ul>
 <h3 id="related-tools-6"><a class="header" href="#related-tools-6">Related Tools</a></h3>
 <ul>
-<li><a href="#m1ndtrailsave"><code>m1nd.trail.save</code></a> – save individual trails</li>
+<li><a href="#m1ndtrailsave"><code>trail_save</code></a> – save individual trails</li>
 <li><a href="#m1ndtraillist"><code>m1nd.trail.list</code></a> – find trails to merge</li>
 </ul>
 

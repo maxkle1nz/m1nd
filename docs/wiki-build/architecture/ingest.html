@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="m1nd ingest pipeline — how code, memory, and structured data become a local graph runtime">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -201,11 +200,19 @@
 <tr><td><code>extract/java.rs</code></td><td>Java: classes, interfaces, methods, packages</td></tr>
 <tr><td><code>extract/generic.rs</code></td><td>Fallback: file-level node with tag extraction</td></tr>
 <tr><td><code>resolve.rs</code></td><td><code>ReferenceResolver</code>, proximity disambiguation</td></tr>
-<tr><td><code>cross_file.rs</code></td><td>Cross-file edge generation (directory contains, sibling)</td></tr>
+<tr><td><code>cargo_workspace.rs</code></td><td>Cargo workspace/crate/dependency enrichment for Rust repos</td></tr>
+<tr><td><code>cross_file.rs</code></td><td>Python-weighted cross-file enrichment (<code>imports</code>, <code>tests</code>, <code>registers</code>)</td></tr>
 <tr><td><code>diff.rs</code></td><td><code>GraphDiff</code> for incremental updates</td></tr>
 <tr><td><code>json_adapter.rs</code></td><td>Generic JSON-to-graph adapter</td></tr>
 <tr><td><code>memory_adapter.rs</code></td><td>Markdown/memory document adapter</td></tr>
 <tr><td><code>merge.rs</code></td><td>Graph merge utilities</td></tr>
+<tr><td><code>patent_adapter.rs</code></td><td>USPTO/EPO patent XML ingestion</td></tr>
+<tr><td><code>jats_adapter.rs</code></td><td>PubMed/JATS scientific article XML ingestion</td></tr>
+<tr><td><code>bibtex_adapter.rs</code></td><td>BibTeX bibliography file ingestion</td></tr>
+<tr><td><code>rfc_adapter.rs</code></td><td>IETF RFC XML v3 ingestion</td></tr>
+<tr><td><code>crossref_adapter.rs</code></td><td>CrossRef API JSON (DOI metadata) ingestion</td></tr>
+<tr><td><code>document_router.rs</code></td><td>Auto-detect document format and route to correct adapter</td></tr>
+<tr><td><code>cross_domain.rs</code></td><td>Cross-domain edge resolution (DOI, ORCID, keyword bridges)</td></tr>
 </tbody>
 </table>
 </div>
@@ -236,11 +243,12 @@
         CAUSAL["Causal strength assignment&lt;br/&gt;contains=0.8, imports=0.6, etc."]
     end
 
-    subgraph "Phase 4: Resolve"
+    subgraph "Phase 4: Resolve + Enrich"
         REFS["ReferenceResolver&lt;br/&gt;ref:: → actual nodes"]
         PROX["Proximity Disambiguation&lt;br/&gt;same file &gt; same dir &gt; same project"]
         HINTS["Import Hints&lt;br/&gt;module path → target preference"]
-        XFILE["Cross-File Edges&lt;br/&gt;directory contains, siblings"]
+        CARGO["Cargo Workspace&lt;br/&gt;workspace/crate/dependency graph"]
+        XFILE["Cross-File Enrichment&lt;br/&gt;currently strongest for Python"]
     end
 
     subgraph "Phase 5: Finalize"
@@ -256,7 +264,7 @@
     PY &amp; TS &amp; RS &amp; GO &amp; JAVA &amp; GEN --&gt; RESULTS
     RESULTS --&gt; NODES --&gt; EDGES --&gt; CAUSAL
     CAUSAL --&gt; REFS --&gt; PROX
-    PROX --&gt; HINTS --&gt; XFILE
+    PROX --&gt; HINTS --&gt; CARGO --&gt; XFILE
     XFILE --&gt; CSR --&gt; BIDIR --&gt; REV --&gt; PR
 </code></pre>
 <h2 id="phase-1-directory-walking"><a class="header" href="#phase-1-directory-walking">Phase 1: Directory Walking</a></h2>
@@ -313,6 +321,12 @@ skip_files: vec![
 </tbody>
 </table>
 </div>
+<p>This stack is hybrid:</p>
+<ul>
+<li>native/manual extractors for Python, TypeScript/JavaScript, Rust, Go, and Java</li>
+<li>tree-sitter-backed tiers for additional languages</li>
+<li>generic fallback for unsupported files</li>
+</ul>
 <h3 id="extractor-interface"><a class="header" href="#extractor-interface">Extractor Interface</a></h3>
 <p>All extractors implement the <code>Extractor</code> trait:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -335,7 +349,7 @@ skip_files: vec![
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub struct ExtractedNode {
-    pub id: String,        // e.g. "file::backend/handler.py::ChatHandler"
+    pub id: String,        // e.g. "file::backend/chat_handler.py::ChatHandler"
     pub label: String,     // e.g. "ChatHandler"
     pub node_type: NodeType,
     pub tags: Vec&lt;String&gt;,
@@ -358,9 +372,9 @@ skip_files: vec![
 <h3 id="node-id-format"><a class="header" href="#node-id-format">Node ID Format</a></h3>
 <p>Extracted nodes use a hierarchical ID scheme: <code>file::{relative_path}::{entity_name}</code>. For example:</p>
 <ul>
-<li><code>file::backend/handler.py</code> (file node)</li>
-<li><code>file::backend/handler.py::ChatHandler</code> (class node)</li>
-<li><code>file::backend/handler.py::ChatHandler::handle_message</code> (method node)</li>
+<li><code>file::backend/chat_handler.py</code> (file node)</li>
+<li><code>file::backend/chat_handler.py::ChatHandler</code> (class node)</li>
+<li><code>file::backend/chat_handler.py::ChatHandler::handle_message</code> (method node)</li>
 </ul>
 <p>Unresolved references use the prefix <code>ref::</code>: <code>ref::Config</code>, <code>ref::react</code>. These are resolved to actual nodes in Phase 4.</p>
 <h2 id="phase-3-graph-building"><a class="header" href="#phase-3-graph-building">Phase 3: Graph Building</a></h2>
@@ -403,7 +417,7 @@ skip_files: vec![
 <li><strong>Node budget</strong>: If <code>nodes &gt;= config.max_nodes</code> (default 500K), stop processing.</li>
 </ul>
 <p>Both log a warning and break from the build loop, producing a partial but consistent graph from whatever was processed.</p>
-<h2 id="phase-4-reference-resolution"><a class="header" href="#phase-4-reference-resolution">Phase 4: Reference Resolution</a></h2>
+<h2 id="phase-4-reference-resolution-and-enrichment"><a class="header" href="#phase-4-reference-resolution-and-enrichment">Phase 4: Reference Resolution And Enrichment</a></h2>
 <h3 id="referenceresolver"><a class="header" href="#referenceresolver">ReferenceResolver</a></h3>
 <p>Unresolved references (<code>ref::Config</code>, <code>ref::FastAPI</code>, etc.) are resolved to actual graph nodes using the <code>ReferenceResolver</code>.</p>
 <p><strong>Multi-value label index</strong> (FM-ING-008): The resolver builds a HashMap from labels to lists of matching NodeIds. When multiple nodes share a label (e.g., multiple files define a <code>Config</code> class), proximity disambiguation selects the best match:</p>
@@ -426,12 +440,25 @@ skip_files: vec![
 <li><strong>Ambiguous</strong>: Multiple matches with equal proximity. Best guess selected, counted in stats.</li>
 <li><strong>Unresolved</strong>: No match found. Counted in stats, no edge created.</li>
 </ul>
-<h3 id="cross-file-edges"><a class="header" href="#cross-file-edges">Cross-File Edges</a></h3>
-<p>After reference resolution, <code>cross_file.rs</code> generates structural edges that span files:</p>
+<h3 id="cargo-workspace-enrichment"><a class="header" href="#cargo-workspace-enrichment">Cargo Workspace Enrichment</a></h3>
+<p>For Rust repos, <code>cargo_workspace.rs</code> adds a workspace-aware layer before finalization:</p>
 <ul>
-<li><strong>Directory contains</strong>: <code>dir::backend/ --contains--&gt; file::backend/main.py</code></li>
-<li><strong>Sibling edges</strong>: Files in the same directory get weak bidirectional edges.</li>
+<li>workspace nodes</li>
+<li>crate nodes</li>
+<li>crate -&gt; file <code>contains</code> edges</li>
+<li>crate -&gt; crate <code>depends_on</code> edges for internal workspace dependencies</li>
+<li>external dependency nodes for non-workspace dependencies</li>
 </ul>
+<p>This means Rust repos are no longer represented only as file graphs.</p>
+<h3 id="cross-file-enrichment"><a class="header" href="#cross-file-enrichment">Cross-File Enrichment</a></h3>
+<p>After reference resolution and Cargo enrichment, <code>cross_file.rs</code> adds a narrower set of shipped cross-file edges.</p>
+<p>Today this pass is strongest for Python and focuses on:</p>
+<ul>
+<li><code>imports</code></li>
+<li><code>tests</code></li>
+<li><code>registers</code></li>
+</ul>
+<p>It should not be described as a language-uniform cross-file engine yet.</p>
 <h2 id="phase-5-finalization"><a class="header" href="#phase-5-finalization">Phase 5: Finalization</a></h2>
 <p><code>Graph.finalize()</code> transforms the mutable graph into its read-optimized CSR form:</p>
 <ol>
@@ -518,16 +545,85 @@ skip_files: vec![
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Adapter</th><th>Domain</th><th>Input</th></tr>
+<tr><th>Adapter</th><th>Domain</th><th>Input</th><th>MCP <code>adapter=</code></th></tr>
 </thead>
 <tbody>
-<tr><td><code>Ingestor</code></td><td><code>"code"</code></td><td>Source code directories</td></tr>
-<tr><td><code>MemoryIngestAdapter</code></td><td><code>"memory"</code></td><td>Markdown/text documents</td></tr>
-<tr><td><code>JsonIngestAdapter</code></td><td><code>"generic"</code></td><td>Arbitrary JSON with <code>nodes[]</code> and <code>edges[]</code></td></tr>
+<tr><td><code>Ingestor</code></td><td><code>"code"</code></td><td>Source code directories</td><td><code>code</code></td></tr>
+<tr><td><code>MemoryIngestAdapter</code></td><td><code>"memory"</code></td><td>Markdown/text documents</td><td><code>memory</code></td></tr>
+<tr><td><code>JsonIngestAdapter</code></td><td><code>"generic"</code></td><td>Arbitrary JSON with <code>nodes[]</code> and <code>edges[]</code></td><td><code>json</code></td></tr>
+<tr><td><code>PatentIngestAdapter</code></td><td><code>"patent"</code></td><td>USPTO/EPO patent XML</td><td><code>patent</code></td></tr>
+<tr><td><code>JatsArticleAdapter</code></td><td><code>"article"</code></td><td>PubMed NLM / JATS Z39.96 XML</td><td><code>article</code></td></tr>
+<tr><td><code>BibTexAdapter</code></td><td><code>"bibtex"</code></td><td>BibTeX bibliography files</td><td><code>bibtex</code>, <code>bib</code></td></tr>
+<tr><td><code>RfcAdapter</code></td><td><code>"rfc"</code></td><td>IETF RFC XML v3</td><td><code>rfc</code></td></tr>
+<tr><td><code>CrossRefAdapter</code></td><td><code>"crossref"</code></td><td>CrossRef API JSON (DOI metadata)</td><td><code>crossref</code>, <code>doi</code></td></tr>
+<tr><td><code>L1ghtIngestAdapter</code></td><td><code>"light"</code></td><td>L1GHT protocol Markdown</td><td><code>light</code></td></tr>
 </tbody>
 </table>
 </div>
 <p>The JSON adapter is the escape hatch for importing graphs from external tools. It expects a JSON document with <code>nodes</code> (array of <code>{id, label, type, tags}</code>) and <code>edges</code> (array of <code>{source, target, relation, weight}</code>).</p>
+<h2 id="document-router-auto-detection"><a class="header" href="#document-router-auto-detection">Document Router (Auto-Detection)</a></h2>
+<p><code>DocumentRouter</code> inspects file content and extension to auto-detect the correct adapter:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let (format, adapter) = DocumentRouter::detect(path);
+let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20 files
+<span class="boring">}</span></code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Detection Method</th><th>Format</th><th>Heuristic</th></tr>
+</thead>
+<tbody>
+<tr><td>Extension <code>.bib</code> / <code>.bibtex</code></td><td>BibTeX</td><td>Extension only</td></tr>
+<tr><td>Extension <code>.md</code> + <code>Protocol: L1GHT</code></td><td>L1GHT</td><td>Content check</td></tr>
+<tr><td>Extension <code>.xml</code> / <code>.nxml</code></td><td>Patent, JATS, or RFC</td><td>Root element inspection</td></tr>
+<tr><td>Extension <code>.json</code></td><td>CrossRef</td><td>Checks for <code>DOI</code> + <code>publisher</code> + <code>type</code> keys</td></tr>
+<tr><td>Fallback</td><td>Code</td><td>Default pipeline</td></tr>
+</tbody>
+</table>
+</div>
+<p>Used via MCP: <code>m1nd.ingest(adapter="auto")</code> or <code>adapter="document"</code>.</p>
+<p>For directory detection, the router samples up to 20 files and returns the dominant format.</p>
+<h2 id="cross-domain-resolution"><a class="header" href="#cross-domain-resolution">Cross-Domain Resolution</a></h2>
+<p><code>CrossDomainResolver</code> merges multiple adapter outputs and discovers cross-domain connections automatically.</p>
+<h3 id="bridge-strategies"><a class="header" href="#bridge-strategies">Bridge Strategies</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bridge</th><th>Weight</th><th>Source</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>same_as</code></td><td>1.0</td><td>DOI/PMID</td><td>Same identifier in different domains → identity edge</td></tr>
+<tr><td><code>cross_cites</code></td><td>0.95</td><td>Citation edges</td><td>Citation target exists as a full node in another domain</td></tr>
+<tr><td><code>same_orcid</code></td><td>0.95</td><td>ORCID tags</td><td>Same researcher ORCID across different domains</td></tr>
+<tr><td><code>same_author</code></td><td>0.7</td><td>Author name</td><td>Same author name across different namespaces</td></tr>
+<tr><td><code>shared_keyword</code></td><td>0.6</td><td>Keyword tags</td><td>Shared <code>keyword:</code>, <code>article:keyword:</code>, or <code>subject:</code> tags</td></tr>
+<tr><td><code>citation_chain</code></td><td>0.5</td><td>Citation adjacency</td><td>Transitive A→B→C bridging with decayed weight</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="safety-guards"><a class="header" href="#safety-guards">Safety Guards</a></h3>
+<ul>
+<li><strong>Keyword cap</strong>: Keywords shared by &gt;20 nodes are ignored to prevent hub explosion.</li>
+<li><strong>Cross-domain only</strong>: All bridges require nodes from ≥2 different namespaces. Same-domain matches are skipped.</li>
+<li><strong>Self-loop prevention</strong>: Citation chains A→B→A do not generate self-loop edges.</li>
+<li><strong>Deduplication</strong>: Nodes with identical external IDs are deduplicated (first wins).</li>
+</ul>
+<h3 id="resolution-statistics"><a class="header" href="#resolution-statistics">Resolution Statistics</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct ResolutionStats {
+    pub graphs_merged: usize,
+    pub total_nodes: u32,
+    pub total_edges: usize,
+    pub cross_edges_created: usize,
+    pub identity_matches: usize,
+    pub author_bridges: usize,
+    pub keyword_bridges: usize,
+    pub orcid_bridges: usize,
+    pub citation_chains: usize,
+}
+<span class="boring">}</span></code></pre>
 <h2 id="configuration-reference"><a class="header" href="#configuration-reference">Configuration Reference</a></h2>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {

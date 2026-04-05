@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="API reference for the m1nd guided runtime: retrieval, proof, continuity, perspectives, lifecycle, and recovery-aware MCP workflows.">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,111 +181,120 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="api-reference-overview"><a class="header" href="#api-reference-overview">API Reference Overview</a></h1>
-<p>m1nd exposes a guided MCP runtime over JSON-RPC 2.0 via stdio and HTTP/SSE. The surface is organized around retrieval, proof, continuity, exploration, perspectives, and lifecycle workflows. Many outputs now carry <code>proof_state</code>, <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code> so agents can keep moving without rediscovery.</p>
+<p>m1nd currently exposes <strong>77 MCP tools</strong> over JSON-RPC 2.0 via stdio. Every tool requires <code>agent_id</code> as a parameter. The exported MCP schema uses underscore-based canonical names such as <code>trail_resume</code>, <code>perspective_start</code>, and <code>apply_batch</code>.</p>
+<p>Several tools now do more than return raw results. On the main structural flows you should expect some combination of:</p>
+<ul>
+<li><code>proof_state</code></li>
+<li><code>next_suggested_tool</code></li>
+<li><code>next_suggested_target</code></li>
+<li><code>next_step_hint</code></li>
+</ul>
+<p>That matters for how you integrate m1nd into an agent loop: treat many responses as workflow guidance, not just data blobs.</p>
 <h2 id="tool-index"><a class="header" href="#tool-index">Tool Index</a></h2>
-<h3 id="core-activation-3-tools"><a class="header" href="#core-activation-3-tools">Core Activation (3 tools)</a></h3>
+<h3 id="core-activation"><a class="header" href="#core-activation">Core Activation</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Tool</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="activation.html#m1ndactivate"><code>m1nd.activate</code></a></td><td>Spreading activation query across the graph runtime</td></tr>
-<tr><td><a href="activation.html#m1ndwarmup"><code>m1nd.warmup</code></a></td><td>Task-based warmup and priming</td></tr>
-<tr><td><a href="activation.html#m1ndresonate"><code>m1nd.resonate</code></a></td><td>Resonance analysis: harmonics, sympathetic pairs, and resonant frequencies</td></tr>
+<tr><td><a href="activation.html#m1ndactivate"><code>activate</code></a></td><td>Spreading activation query across the graph</td></tr>
+<tr><td><a href="activation.html#m1ndwarmup"><code>warmup</code></a></td><td>Task-based warmup and priming</td></tr>
+<tr><td><a href="activation.html#m1ndresonate"><code>resonate</code></a></td><td>Resonance analysis: harmonics, sympathetic pairs, and resonant frequencies</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="analysis-7-tools"><a class="header" href="#analysis-7-tools">Analysis (7 tools)</a></h3>
+<h3 id="analysis"><a class="header" href="#analysis">Analysis</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Tool</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="analysis.html#m1ndimpact"><code>m1nd.impact</code></a></td><td>Impact radius / blast analysis for a node</td></tr>
-<tr><td><a href="analysis.html#m1ndpredict"><code>m1nd.predict</code></a></td><td>Co-change prediction for a modified node</td></tr>
-<tr><td><a href="analysis.html#m1ndcounterfactual"><code>m1nd.counterfactual</code></a></td><td>What-if node removal simulation</td></tr>
-<tr><td><a href="analysis.html#m1ndfingerprint"><code>m1nd.fingerprint</code></a></td><td>Activation fingerprint and equivalence detection</td></tr>
-<tr><td><a href="analysis.html#m1ndhypothesize"><code>m1nd.hypothesize</code></a></td><td>Graph-based hypothesis testing against structural claims</td></tr>
-<tr><td><a href="analysis.html#m1nddifferential"><code>m1nd.differential</code></a></td><td>Focused structural diff between two graph snapshots</td></tr>
-<tr><td><a href="analysis.html#m1nddiverge"><code>m1nd.diverge</code></a></td><td>Structural drift between a baseline and current graph state</td></tr>
+<tr><td><a href="analysis.html#m1ndimpact"><code>impact</code></a></td><td>Impact radius / blast analysis for a node</td></tr>
+<tr><td><a href="analysis.html#m1ndpredict"><code>predict</code></a></td><td>Co-change prediction for a modified node</td></tr>
+<tr><td><a href="analysis.html#m1ndcounterfactual"><code>counterfactual</code></a></td><td>What-if node removal simulation</td></tr>
+<tr><td><a href="analysis.html#m1ndfingerprint"><code>fingerprint</code></a></td><td>Activation fingerprint and equivalence detection</td></tr>
+<tr><td><a href="analysis.html#m1ndhypothesize"><code>hypothesize</code></a></td><td>Graph-based hypothesis testing against structural claims</td></tr>
+<tr><td><a href="analysis.html#m1nddifferential"><code>differential</code></a></td><td>Focused structural diff between two graph snapshots</td></tr>
+<tr><td><a href="analysis.html#m1nddiverge"><code>diverge</code></a></td><td>Structural drift between a baseline and current graph state</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="memory--learning-7-tools"><a class="header" href="#memory--learning-7-tools">Memory &amp; Learning (7 tools)</a></h3>
+<h3 id="memory-trails-and-learning"><a class="header" href="#memory-trails-and-learning">Memory, Trails, and Learning</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Tool</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="memory.html#m1ndlearn"><code>m1nd.learn</code></a></td><td>Explicit feedback-based edge adjustment</td></tr>
-<tr><td><a href="memory.html#m1nddrift"><code>m1nd.drift</code></a></td><td>Weight and structural drift analysis</td></tr>
-<tr><td><a href="memory.html#m1ndwhy"><code>m1nd.why</code></a></td><td>Path explanation between two nodes</td></tr>
-<tr><td><a href="memory.html#m1ndtrailsave"><code>m1nd.trail.save</code></a></td><td>Persist current investigation state</td></tr>
-<tr><td><a href="memory.html#m1ndtrailresume"><code>m1nd.trail.resume</code></a></td><td>Restore a saved investigation</td></tr>
-<tr><td><a href="memory.html#m1ndtraillist"><code>m1nd.trail.list</code></a></td><td>List saved investigation trails</td></tr>
-<tr><td><a href="memory.html#m1ndtrailmerge"><code>m1nd.trail.merge</code></a></td><td>Combine two or more investigation trails</td></tr>
+<tr><td><a href="memory.html#m1ndlearn"><code>learn</code></a></td><td>Explicit feedback-based edge adjustment</td></tr>
+<tr><td><a href="memory.html#m1nddrift"><code>drift</code></a></td><td>Weight and structural drift analysis</td></tr>
+<tr><td><a href="memory.html#m1ndwhy"><code>why</code></a></td><td>Path explanation between two nodes</td></tr>
+<tr><td><a href="memory.html#m1ndtrailsave"><code>trail_save</code></a></td><td>Persist current investigation state</td></tr>
+<tr><td><a href="memory.html#m1ndtrailresume"><code>trail_resume</code></a></td><td>Restore a saved investigation with next-step guidance</td></tr>
+<tr><td><a href="memory.html#m1ndtraillist"><code>trail_list</code></a></td><td>List saved investigation trails</td></tr>
+<tr><td><a href="memory.html#m1ndtrailmerge"><code>trail_merge</code></a></td><td>Combine two or more investigation trails</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="exploration-6-tools"><a class="header" href="#exploration-6-tools">Exploration (6 tools)</a></h3>
+<h3 id="exploration"><a class="header" href="#exploration">Exploration</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Tool</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="exploration.html#m1ndseek"><code>m1nd.seek</code></a></td><td>Intent-aware semantic code search</td></tr>
-<tr><td><a href="exploration.html#m1ndscan"><code>m1nd.scan</code></a></td><td>Pattern-aware structural code analysis</td></tr>
-<tr><td><a href="exploration.html#m1ndmissing"><code>m1nd.missing</code></a></td><td>Detect structural holes and missing connections</td></tr>
-<tr><td><a href="exploration.html#m1ndtrace"><code>m1nd.trace</code></a></td><td>Map runtime errors to structural root causes</td></tr>
-<tr><td><a href="exploration.html#m1ndtimeline"><code>m1nd.timeline</code></a></td><td>Git-based temporal history for a node</td></tr>
-<tr><td><a href="exploration.html#m1ndfederate"><code>m1nd.federate</code></a></td><td>Multi-repository federated graph ingestion</td></tr>
+<tr><td><a href="exploration.html#m1ndseek"><code>seek</code></a></td><td>Intent-aware semantic code search</td></tr>
+<tr><td><a href="exploration.html#m1ndscan"><code>scan</code></a></td><td>Pattern-aware structural code analysis</td></tr>
+<tr><td><a href="exploration.html#m1ndmissing"><code>missing</code></a></td><td>Detect structural holes and missing connections</td></tr>
+<tr><td><a href="exploration.html#m1ndtrace"><code>trace</code></a></td><td>Map runtime errors to structural root causes</td></tr>
+<tr><td><a href="exploration.html#m1ndtimeline"><code>timeline</code></a></td><td>Git-based temporal history for a node</td></tr>
+<tr><td><a href="exploration.html#m1ndfederate"><code>federate</code></a></td><td>Multi-repository federated graph ingestion</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="perspectives-12-tools"><a class="header" href="#perspectives-12-tools">Perspectives (12 tools)</a></h3>
+<h3 id="perspectives"><a class="header" href="#perspectives">Perspectives</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Tool</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="perspectives.html#m1ndperspectivestart"><code>m1nd.perspective.start</code></a></td><td>Enter a perspective: navigable route surface from a query</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectiveroutes"><code>m1nd.perspective.routes</code></a></td><td>Browse the current route set with pagination</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectiveinspect"><code>m1nd.perspective.inspect</code></a></td><td>Expand a route with metrics, provenance, and affinity</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectivepeek"><code>m1nd.perspective.peek</code></a></td><td>Extract a code/doc slice from a route target</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectivefollow"><code>m1nd.perspective.follow</code></a></td><td>Follow a route: move focus to target, synthesize new routes</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectivesuggest"><code>m1nd.perspective.suggest</code></a></td><td>Get the next best move suggestion</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectiveaffinity"><code>m1nd.perspective.affinity</code></a></td><td>Discover probable connections a route target might have</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectivebranch"><code>m1nd.perspective.branch</code></a></td><td>Fork navigation state into a new branch</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectiveback"><code>m1nd.perspective.back</code></a></td><td>Navigate back to previous focus</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectivecompare"><code>m1nd.perspective.compare</code></a></td><td>Compare two perspectives on shared/unique nodes</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectivelist"><code>m1nd.perspective.list</code></a></td><td>List all perspectives for an agent</td></tr>
-<tr><td><a href="perspectives.html#m1ndperspectiveclose"><code>m1nd.perspective.close</code></a></td><td>Close a perspective and release associated locks</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectivestart"><code>perspective_start</code></a></td><td>Enter a perspective: navigable route surface from a query</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectiveroutes"><code>perspective_routes</code></a></td><td>Browse the current route set with pagination</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectiveinspect"><code>perspective_inspect</code></a></td><td>Expand a route with metrics, provenance, and affinity</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectivepeek"><code>perspective_peek</code></a></td><td>Extract a code/doc slice from a route target</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectivefollow"><code>perspective_follow</code></a></td><td>Follow a route: move focus to target, synthesize new routes</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectivesuggest"><code>perspective_suggest</code></a></td><td>Get the next best move suggestion</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectiveaffinity"><code>perspective_affinity</code></a></td><td>Discover probable connections a route target might have</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectivebranch"><code>perspective_branch</code></a></td><td>Fork navigation state into a new branch</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectiveback"><code>perspective_back</code></a></td><td>Navigate back to previous focus</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectivecompare"><code>perspective_compare</code></a></td><td>Compare two perspectives on shared/unique nodes</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectivelist"><code>perspective_list</code></a></td><td>List all perspectives for an agent</td></tr>
+<tr><td><a href="perspectives.html#m1ndperspectiveclose"><code>perspective_close</code></a></td><td>Close a perspective and release associated locks</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="lifecycle--locks-8-tools"><a class="header" href="#lifecycle--locks-8-tools">Lifecycle &amp; Locks (8 tools)</a></h3>
+<h3 id="lifecycle-search-and-surgical"><a class="header" href="#lifecycle-search-and-surgical">Lifecycle, Search, and Surgical</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Tool</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="lifecycle.html#m1ndingest"><code>m1nd.ingest</code></a></td><td>Ingest or re-ingest a codebase, descriptor, or memory corpus</td></tr>
-<tr><td><a href="lifecycle.html#m1ndhealth"><code>m1nd.health</code></a></td><td>Server health and statistics</td></tr>
-<tr><td><a href="lifecycle.html#m1ndvalidate_plan"><code>m1nd.validate_plan</code></a></td><td>Validate a modification plan against the code graph</td></tr>
-<tr><td><a href="lifecycle.html#m1ndlockcreate"><code>m1nd.lock.create</code></a></td><td>Pin a subgraph region and capture a baseline</td></tr>
-<tr><td><a href="lifecycle.html#m1ndlockwatch"><code>m1nd.lock.watch</code></a></td><td>Set a watcher strategy on a lock</td></tr>
-<tr><td><a href="lifecycle.html#m1ndlockdiff"><code>m1nd.lock.diff</code></a></td><td>Compute what changed in a locked region since baseline</td></tr>
-<tr><td><a href="lifecycle.html#m1ndlockrebase"><code>m1nd.lock.rebase</code></a></td><td>Re-capture lock baseline from current graph</td></tr>
-<tr><td><a href="lifecycle.html#m1ndlockrelease"><code>m1nd.lock.release</code></a></td><td>Release a lock and free its resources</td></tr>
+<tr><td><a href="lifecycle.html#m1ndingest"><code>ingest</code></a></td><td>Ingest or re-ingest a codebase, descriptor, or memory corpus</td></tr>
+<tr><td><a href="lifecycle.html#m1ndhealth"><code>health</code></a></td><td>Server health and statistics</td></tr>
+<tr><td><a href="lifecycle.html#m1ndsearch"><code>search</code></a></td><td>Literal, regex, or semantic-graph-aware content search</td></tr>
+<tr><td><a href="lifecycle.html#m1ndglob"><code>glob</code></a></td><td>Graph-aware file globbing</td></tr>
+<tr><td><a href="lifecycle.html#m1ndview"><code>view</code></a></td><td>Fast line-numbered file inspection</td></tr>
+<tr><td><a href="lifecycle.html#m1ndvalidate_plan"><code>validate_plan</code></a></td><td>Validate a modification plan against the code graph</td></tr>
+<tr><td><a href="lifecycle.html#m1ndsurgicalcontextv2"><code>surgical_context_v2</code></a></td><td>Pull connected edit context with proof-oriented options</td></tr>
+<tr><td><a href="lifecycle.html#m1ndapplybatch"><code>apply_batch</code></a></td><td>Atomic multi-file write with progress, verification, and handoff</td></tr>
 </tbody>
 </table>
 </div>
+<p>The grouped reference pages below still organize the surface by area, but the current best operational map is in <code>help</code>, the README tool table, and the live <code>tools/list</code> response.</p>
 <hr>
 <h2 id="common-parameters"><a class="header" href="#common-parameters">Common Parameters</a></h2>
 <p>Every tool requires the <code>agent_id</code> parameter:</p>
@@ -300,7 +308,7 @@
 </tbody>
 </table>
 </div>
-<p>Agent IDs are free-form strings. Convention: use the agent’s name or role identifier (e.g. <code>"orchestrator"</code>, <code>"auditor-1"</code>, <code>"builder-api"</code>).</p>
+<p>Agent IDs are free-form strings. Convention: use the agent’s name or role identifier (e.g. <code>"jimi"</code>, <code>"hacker-auth"</code>, <code>"forge-build"</code>).</p>
 <h2 id="json-rpc-request-format"><a class="header" href="#json-rpc-request-format">JSON-RPC Request Format</a></h2>
 <p>m1nd uses the <a href="https://modelcontextprotocol.io/">MCP protocol</a> over JSON-RPC 2.0 via stdio. All tool calls use the <code>tools/call</code> method.</p>
 <h3 id="request-structure"><a class="header" href="#request-structure">Request structure</a></h3>
@@ -309,9 +317,9 @@
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+        "name": "activate",
     "arguments": {
-      "agent_id": "orchestrator",
+      "agent_id": "jimi",
       "query": "session management"
     }
   }
@@ -333,7 +341,7 @@
 </code></pre>
 <p>The <code>text</code> field contains the tool-specific output as a pretty-printed JSON string. Parse it to get the structured result.</p>
 <h3 id="error-response-tool-execution-error"><a class="header" href="#error-response-tool-execution-error">Error response (tool execution error)</a></h3>
-<p>Tool execution errors are returned as MCP <code>isError</code> content, <strong>not</strong> as JSON-RPC errors:</p>
+<p>Tool execution errors are returned as MCP <code>isError</code> content, <strong>not</strong> as JSON-RPC errors. Many current errors are recovery-oriented and may include fields such as <code>hint</code>, <code>workflow_hint</code>, <code>example</code>, or <code>suggested_next_step</code>.</p>
 <pre><code class="language-json">{
   "jsonrpc": "2.0",
   "id": 1,
@@ -341,7 +349,7 @@
     "content": [
       {
         "type": "text",
-        "text": "Error: Node not found: file::nonexistent.py"
+        "text": "{ \"error\": \"...\", \"hint\": \"...\", \"suggested_next_step\": \"...\" }"
       }
     ],
     "isError": true
@@ -381,12 +389,13 @@
 </ul>
 <p>The server auto-detects which mode each incoming message uses and responds in the same mode.</p>
 <h2 id="tool-name-normalization"><a class="header" href="#tool-name-normalization">Tool Name Normalization</a></h2>
-<p>Tool names accept both dots and underscores as separators. The server normalizes <code>_</code> to <code>.</code> before dispatch:</p>
+<p>The exported MCP schema uses underscore-based canonical names, but the server still accepts legacy dotted and underscored aliases when possible:</p>
 <ul>
-<li><code>m1nd.activate</code> and <code>m1nd_activate</code> both work</li>
-<li><code>m1nd.perspective.start</code> and <code>m1nd_perspective_start</code> both work</li>
-<li><code>m1nd.lock.create</code> and <code>m1nd_lock_create</code> both work</li>
+<li><code>activate</code> is canonical</li>
+<li><code>m1nd.activate</code> is accepted as a compatibility alias</li>
+<li><code>m1nd_activate</code> is also accepted where normalization applies</li>
 </ul>
+<p>If you are generating tool calls from an MCP client, prefer the canonical schema names returned by <code>tools/list</code>.</p>
 <h2 id="protocol-handshake"><a class="header" href="#protocol-handshake">Protocol Handshake</a></h2>
 <p>Before calling tools, MCP clients perform a handshake:</p>
 <pre><code class="language-json">{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}
@@ -397,7 +406,7 @@
   "id": 0,
   "result": {
     "protocolVersion": "2024-11-05",
-    "serverInfo": { "name": "m1nd-mcp", "version": "0.1.0" },
+    "serverInfo": { "name": "m1nd-mcp", "version": "0.6.1" },
     "capabilities": { "tools": {} }
   }
 }
@@ -405,7 +414,7 @@
 <p>Then list available tools:</p>
 <pre><code class="language-json">{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
 </code></pre>
-<p>This returns the full schema for all 43 tools with <code>inputSchema</code> for each.</p>
+<p>This returns the full schema for all 63 tools with <code>inputSchema</code> for each.</p>
 
                     </main>
 

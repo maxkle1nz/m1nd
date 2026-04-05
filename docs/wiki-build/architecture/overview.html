@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the neuro-symbolic connectome engine">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,7 +181,16 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="system-architecture-overview"><a class="header" href="#system-architecture-overview">System Architecture Overview</a></h1>
-<p>m1nd is a local code graph runtime that transforms codebases (and other structured domains) into a weighted property graph, then runs graph-native analysis over it: spreading activation, adaptive weighting, spectral noise cancellation, multi-source resonance analysis, and temporal co-change analysis. It exposes these capabilities as 43 MCP tools over JSON-RPC stdio, serving multiple agents concurrently from a single process.</p>
+<p>m1nd is a local code graph engine for MCP agents. Internally it is still a graph-and-analysis system, but the current public runtime is organized around a more agent-operational contract:</p>
+<ul>
+<li>graph-grounded retrieval and ranking</li>
+<li>proof-aware structural flows</li>
+<li>next-step handoff on high-value tools</li>
+<li>continuity through trails and perspectives</li>
+<li>observable multi-file writes through <code>apply_batch</code></li>
+<li>repair-friendly errors when a tool call goes wrong</li>
+</ul>
+<p>The workspace currently exposes 77 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.</p>
 <h2 id="three-crate-workspace"><a class="header" href="#three-crate-workspace">Three-Crate Workspace</a></h2>
 <p>The system is organized as a Cargo workspace with three crates:</p>
 <pre><code class="language-toml">[workspace]
@@ -215,7 +223,7 @@ static_assertions = "1"
 <pre><code class="language-mermaid">graph TD
     subgraph "m1nd-mcp (Transport)"
         STDIO["JSON-RPC stdio&lt;br/&gt;dual: framed + line"]
-        DISPATCH["Tool Dispatch&lt;br/&gt;43 tools"]
+        DISPATCH["Tool Dispatch&lt;br/&gt;63 tools"]
         SESSION["SessionState&lt;br/&gt;SharedGraph + Engines"]
         PERSIST["Auto-Persist&lt;br/&gt;every 50 queries"]
     end
@@ -268,7 +276,8 @@ static_assertions = "1"
     GRAPH --&gt; NODES
 </code></pre>
 <h2 id="request-lifecycle"><a class="header" href="#request-lifecycle">Request Lifecycle</a></h2>
-<p>A typical <code>m1nd.activate</code> query flows through these stages:</p>
+<p>A typical structural workflow now has two layers: graph execution and agent handoff.</p>
+<h3 id="example-activate"><a class="header" href="#example-activate">Example: <code>activate</code></a></h3>
 <ol>
 <li><strong>Transport</strong>: JSON-RPC message arrives on stdin (either Content-Length framed or raw line JSON).</li>
 <li><strong>Dispatch</strong>: <code>McpServer.serve()</code> parses the JSON-RPC request, matches the tool name, extracts parameters.</li>
@@ -281,6 +290,13 @@ static_assertions = "1"
 <li><strong>Plasticity</strong>: <code>PlasticityEngine.update()</code> runs the 5-step Hebbian cycle on co-activated edges.</li>
 <li><strong>Response</strong>: Results serialized to JSON-RPC response, written to stdout in the same transport mode as the request.</li>
 </ol>
+<h3 id="example-guided-structural-flow"><a class="header" href="#example-guided-structural-flow">Example: guided structural flow</a></h3>
+<p>A more agent-native flow such as <code>trace -&gt; view -&gt; surgical_context_v2 -&gt; validate_plan -&gt; apply_batch</code> adds two extra kinds of behavior on top of the graph work:</p>
+<ol>
+<li><strong>Cognitive state</strong>: tools can expose <code>proof_state</code> such as <code>triaging</code>, <code>proving</code>, or <code>ready_to_edit</code></li>
+<li><strong>Next-step guidance</strong>: tools can return <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code></li>
+</ol>
+<p>This is one of the biggest architectural changes in <code>v0.6.0</code>: the MCP layer is no longer just a transport for graph answers. It is a transport for graph answers plus workflow guidance.</p>
 <h2 id="key-design-decisions"><a class="header" href="#key-design-decisions">Key Design Decisions</a></h2>
 <h3 id="compressed-sparse-row-csr-graph"><a class="header" href="#compressed-sparse-row-csr-graph">Compressed Sparse Row (CSR) Graph</a></h3>
 <p>The graph uses CSR format rather than adjacency lists or adjacency matrices. CSR provides O(1) neighbor iteration start, cache-friendly sequential access, and compact memory layout. Edge weights are stored as <code>AtomicU32</code> (bit-reinterpreted <code>f32</code>) for lock-free plasticity updates via CAS with a 64-retry limit.</p>
@@ -317,7 +333,13 @@ impl FiniteF32 {
 <h3 id="atomic-persistence"><a class="header" href="#atomic-persistence">Atomic Persistence</a></h3>
 <p>Graph and plasticity state are saved via atomic write: serialize to a temporary file, then <code>rename()</code> over the target. This prevents corruption on crash (FM-PL-008). The NaN firewall at the export boundary rejects any non-finite values that might have leaked through.</p>
 <h2 id="performance-characteristics"><a class="header" href="#performance-characteristics">Performance Characteristics</a></h2>
-<p>Benchmarks on the a production codebase (335 files, ~52K lines, Python + Rust + TypeScript):</p>
+<p>There are two truths worth separating:</p>
+<ol>
+<li>engine/runtime timings</li>
+<li>workflow-level benchmark truth</li>
+</ol>
+<p>Engine timings still matter, especially for ingest and structural queries. Workflow benchmarks matter when the goal is to reduce context churn, false starts, and repair loops.</p>
+<p>Representative measured engine timings:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -327,12 +349,20 @@ impl FiniteF32 {
 <tr><td>Full ingest</td><td>~910ms</td><td>Walk + parallel extract + resolve + finalize (CSR + PageRank)</td></tr>
 <tr><td>Activate query</td><td>~31ms</td><td>4-dimension with XLR, top-20 results</td></tr>
 <tr><td>Impact analysis</td><td>~5ms</td><td>BFS blast radius, 3-hop default</td></tr>
-<tr><td>Predict (co-change)</td><td>~8ms</td><td>Co-change matrix lookup + velocity scoring</td></tr>
-<tr><td>Graph persist</td><td>~45ms</td><td>Atomic JSON write, ~2MB snapshot</td></tr>
-<tr><td>Plasticity update</td><td>~2ms</td><td>5-step Hebbian cycle on co-activated edges</td></tr>
+<tr><td>Trace analysis</td><td>~3.5ms</td><td>Stacktrace to ranked suspects</td></tr>
+<tr><td>Trail resume</td><td>~0.2ms</td><td>Restore continuity and next-step hints</td></tr>
+<tr><td>Apply batch</td><td>~165ms</td><td>Atomic multi-file write before deeper verification</td></tr>
 </tbody>
 </table>
 </div>
+<p>Workflow benchmark truth lives on the <a href="../benchmarks.html">Benchmarks</a> page. The current recorded warm-graph corpus shows:</p>
+<ul>
+<li><code>10518 -&gt; 5182</code> aggregate token proxy</li>
+<li><code>50.73%</code> aggregate reduction</li>
+<li><code>14 -&gt; 0</code> false starts</li>
+<li><code>39</code> guided follow-throughs</li>
+<li><code>12</code> successful recovery loops</li>
+</ul>
 <p>Memory footprint scales linearly with graph size. A 10K-node graph with 25K edges uses approximately 15MB of heap (graph + all engine indexes). The CSR representation is 3-5x more compact than equivalent adjacency list representations.</p>
 <h3 id="scaling-bounds"><a class="header" href="#scaling-bounds">Scaling Bounds</a></h3>
 <ul>
@@ -344,7 +374,14 @@ impl FiniteF32 {
 </ul>
 <h2 id="multi-agent-model"><a class="header" href="#multi-agent-model">Multi-Agent Model</a></h2>
 <p>m1nd runs as a single process serving multiple agents through the same JSON-RPC stdio channel. All agents share one graph and one set of engines. Writes (plasticity updates, ingestion) are immediately visible to all readers through <code>SharedGraph = Arc&lt;parking_lot::RwLock&lt;Graph&gt;&gt;</code>.</p>
-<p>Each agent gets its own <code>AgentSession</code> tracking first/last seen timestamps and query count. The perspective system (per-agent branching views) and lock system (per-agent change tracking) provide isolation where needed without duplicating the underlying graph.</p>
+<p>Each agent gets its own <code>AgentSession</code> tracking first/last seen timestamps and query count. The perspective system, trail system, and shared runtime state provide isolation where needed without duplicating the underlying graph.</p>
+<p>The important modern detail is that agent-facing state is not limited to ownership and transport. Several flows now expose cognitive runtime state directly, including:</p>
+<ul>
+<li><code>proof_state</code></li>
+<li>next-step guidance fields</li>
+<li>trail continuation hints</li>
+<li>batch progress and handoff metadata</li>
+</ul>
 <p><code>parking_lot::RwLock</code> is used instead of <code>std::sync::RwLock</code> to prevent writer starvation – a critical property when plasticity updates (writes) must interleave with activation queries (reads).</p>
 
                     </main>

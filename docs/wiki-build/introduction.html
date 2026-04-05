@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents, with proof state, guided next steps, recovery loops, and observable execution.">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-72b55f3c.js"></script>
+        <script src="toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,90 +181,96 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
-<p>m1nd is a local code graph engine built in Rust for <a href="https://modelcontextprotocol.io/">MCP</a> agents. It ingests a codebase into a weighted graph and turns that structure into retrieval, proof, continuity, and guided next-step behavior. Modern m1nd is not just a graph query layer: it exposes <code>proof_state</code>, handoff metadata such as <code>next_suggested_tool</code> and <code>next_suggested_target</code>, recovery loops when the agent gets a call wrong, and observable execution for long-running flows like <code>apply_batch</code>.</p>
-<h2 id="the-problem"><a class="header" href="#the-problem">The Problem</a></h2>
-<p>AI coding agents are powerful reasoners but terrible navigators. An LLM can analyze a function you paste into its context window, but it cannot <em>find</em> the right function in a codebase of 10,000 files without burning tokens on speculative grep, glob, and tree walks. The existing tools fail in different ways:</p>
+<p>m1nd is a local code graph engine for MCP agents. It ingests a repository once, turns it into a queryable graph, and helps agents ask for structure, impact, connected context, continuity, and likely risk instead of reconstructing the repo from raw files every time.</p>
+<p>The current public shape of the product is not just “graph search.” It is a guided runtime with:</p>
 <ul>
-<li><strong>Full-text search</strong> finds what you <em>said</em>, not what you <em>meant</em>. Searching for “authentication” won’t surface the session middleware that enforces it.</li>
-<li><strong>RAG</strong> retrieves chunks by embedding similarity, but each retrieval is stateless. It has no memory of what it retrieved last time, and no way to express relationships between results.</li>
-<li><strong>Static analysis</strong> produces call graphs and ASTs, but they are frozen snapshots. They cannot answer “what if I remove this module?” or “what changed since my last session?”</li>
-<li><strong>Knowledge graphs</strong> require manual curation and only return what was explicitly encoded.</li>
+<li>graph-grounded retrieval and impact analysis</li>
+<li><code>proof_state</code> on the main structural flows</li>
+<li><code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code></li>
+<li>actionable continuity through <code>trail_resume</code></li>
+<li>observable multi-file writes through <code>apply_batch</code></li>
+<li>recovery loops that teach the next valid move when a tool is used badly</li>
 </ul>
-<p>m1nd solves this by grounding agent work in graph structure instead of forcing the model to rediscover the repo from raw text every time. It can retrieve connected files, reason about impact, preserve continuity across sessions, surface the next likely move, and keep the agent inside a repair loop instead of letting it drift into trial-and-error search.</p>
-<pre><code>335 files -&gt; 9,767 nodes -&gt; 26,557 edges in 0.91s
-activate in 31ms | impact in 5ms | trace in 3.5ms | learn in &lt;1ms
-</code></pre>
-<p>No LLM calls. No API keys. No network. The binary is ~8MB of pure Rust.</p>
-<h2 id="key-capabilities"><a class="header" href="#key-capabilities">Key Capabilities</a></h2>
-<h3 id="spreading-activation"><a class="header" href="#spreading-activation">Spreading Activation</a></h3>
-<p>The core query primitive. Fire a signal into the graph from one or more seed nodes. The signal propagates through the CSR adjacency structure, decaying at each hop, inhibited by negative edges, and scored across four dimensions:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Dimension</th><th>Source</th><th>What It Captures</th></tr>
-</thead>
-<tbody>
-<tr><td>Structural</td><td>CSR adjacency + PageRank</td><td>Graph distance, edge types, centrality</td></tr>
-<tr><td>Semantic</td><td>Trigram matching on identifiers</td><td>Naming patterns, token overlap</td></tr>
-<tr><td>Temporal</td><td>Git history + learn feedback</td><td>Co-change frequency, recency decay</td></tr>
-<tr><td>Causal</td><td>Stacktrace mapping + call chains</td><td>Error proximity, suspiciousness</td></tr>
-</tbody>
-</table>
-</div>
-<p>The engine selects between a wavefront (BFS-parallel) and a heap (priority-queue) propagation strategy at runtime based on seed density and average degree. Results are merged with adaptive dimension weighting and a resonance bonus for nodes that score across 3 or 4 dimensions.</p>
-<pre><code class="language-jsonc">// Ask: "What's related to authentication?"
-{"method": "tools/call", "params": {
-  "name": "m1nd.activate",
-  "arguments": {"query": "authentication", "agent_id": "dev"}
-}}
-// -&gt; auth.py fires -&gt; propagates to session, middleware, JWT, user model
-//    4-dimensional relevance ranking in 31ms
-</code></pre>
-<h3 id="hebbian-plasticity"><a class="header" href="#hebbian-plasticity">Hebbian Plasticity</a></h3>
-<p>The graph learns. When you tell m1nd that results were useful, edge weights strengthen along the activated paths (<code>delta_w = learning_rate * activation_src * activation_tgt</code>). When results go unused, inactive edges decay. After sustained strengthening, edges receive a permanent Long-Term Potentiation (LTP) bonus. After sustained weakening, Long-Term Depression (LTD) applies a permanent penalty. Homeostatic normalization prevents runaway weights by scaling incoming edges when their sum exceeds a ceiling.</p>
-<pre><code class="language-jsonc">// Tell the graph what was useful
-{"method": "tools/call", "params": {
-  "name": "m1nd.learn",
-  "arguments": {
-    "feedback": "correct",
-    "node_ids": ["file::auth.py", "file::middleware.py"],
-    "agent_id": "dev"
-  }
-}}
-// -&gt; 740 edges strengthened. Next query for "authentication" is smarter.
-</code></pre>
-<p>Plasticity state persists to disk. Across sessions, the graph evolves to match how your team navigates the codebase.</p>
-<h3 id="structural-hole-detection"><a class="header" href="#structural-hole-detection">Structural Hole Detection</a></h3>
-<p><code>m1nd.missing</code> finds gaps in the graph — nodes or edges that <em>should</em> exist based on the surrounding topology but don’t. If every other module in a cluster has error handling and one doesn’t, that’s a structural hole. If two subsystems communicate through a single bridge node, that’s a fragility point. This turns the graph into a specification-free audit tool.</p>
-<h3 id="counterfactual-simulation"><a class="header" href="#counterfactual-simulation">Counterfactual Simulation</a></h3>
-<p>“What breaks if I delete <code>worker.py</code>?” The counterfactual engine uses a zero-allocation bitset mask (no graph clone) to virtually remove nodes and their incident edges, then re-runs spreading activation to measure the impact. The output includes orphaned nodes, weakened nodes, reachability loss, and cascade depth. Synergy analysis reveals whether removing two modules together is worse than the sum of removing them individually.</p>
-<pre><code>counterfactual("worker.py") -&gt; 4,189 affected nodes, cascade at depth 3
-counterfactual("config.py")  -&gt; 2,531 affected nodes (despite being universally imported)
-</code></pre>
-<h3 id="perspectives"><a class="header" href="#perspectives">Perspectives</a></h3>
-<p>Stateful graph navigation. Open a perspective anchored to a node, list available routes, follow edges, peek at source code, and branch explorations. Perspectives carry confidence calibration and epistemic safety checks. Two agents can open independent perspectives on the same graph and later compare them to find shared nodes and divergent conclusions.</p>
-<h3 id="xlr-noise-cancellation"><a class="header" href="#xlr-noise-cancellation">XLR Noise Cancellation</a></h3>
-<p>Borrowed from professional audio engineering. Like a balanced XLR cable, m1nd transmits signal on two inverted channels — hot (from your query seeds) and cold (from automatically selected anti-seeds that are structurally similar but semantically distant). The cold signal cancels common-mode noise: the generic infrastructure that every query touches. What survives is the differential signal specific to your actual question. Sigmoid gating, density-adaptive strength, and seed immunity prevent over-cancellation.</p>
+<p>m1nd ships as an <a href="https://modelcontextprotocol.io/">MCP</a> server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 77 MCP tools.</p>
+<h2 id="the-problem"><a class="header" href="#the-problem">The Problem</a></h2>
+<p>Most agent loops still waste time in the same place: navigation.</p>
+<p>An LLM can reason about a file once it has the file. The expensive part is getting the right file, the right neighbors, and enough proof to act without reopening half the repo.</p>
+<p>Without a structural layer, the loop usually looks like this:</p>
+<ol>
+<li>grep for a symbol or phrase</li>
+<li>open a file</li>
+<li>grep for callers, callees, or related paths</li>
+<li>open more files</li>
+<li>repeat until the subsystem shape becomes clear</li>
+</ol>
+<p>That cost shows up as:</p>
+<ul>
+<li>more file reads than necessary</li>
+<li>more token burn on repo reconstruction</li>
+<li>weaker stopping rules during triage</li>
+<li>more false starts before editing</li>
+<li>more friction resuming prior investigations</li>
+</ul>
+<h2 id="what-m1nd-changes"><a class="header" href="#what-m1nd-changes">What m1nd Changes</a></h2>
+<p>m1nd keeps the graph local and lets an agent ask for structure directly:</p>
+<ul>
+<li><code>trace</code> maps stacktraces to likely suspects</li>
+<li><code>impact</code> inspects blast radius before edits</li>
+<li><code>seek</code> and <code>activate</code> find intent and connected structure</li>
+<li><code>validate_plan</code> and <code>surgical_context_v2</code> prepare safer multi-file changes</li>
+<li><code>trail_resume</code> restores investigations with next-focus and next-tool hints</li>
+<li><code>apply_batch</code> exposes progress, phases, and final handoff signals</li>
+</ul>
+<p>The result is less context churn and better decision quality per step.</p>
+<p>Current benchmark truth from the recorded warm-graph corpus:</p>
+<ul>
+<li><code>10518 -&gt; 5182</code> aggregate token proxy</li>
+<li><code>50.73%</code> aggregate reduction</li>
+<li><code>14 -&gt; 0</code> false starts</li>
+<li><code>39</code> guided follow-throughs</li>
+<li><code>12</code> successful recovery loops</li>
+</ul>
+<p>Not every scenario is a token win. Some wins are continuity, recovery, or execution clarity. That is part of the product truth too.</p>
+<h2 id="core-runtime-ideas"><a class="header" href="#core-runtime-ideas">Core Runtime Ideas</a></h2>
+<h3 id="graph-grounded-retrieval"><a class="header" href="#graph-grounded-retrieval">Graph-grounded retrieval</a></h3>
+<p>The graph is still the foundation. Activation, semantic retrieval, path search, temporal history, and blast-radius analysis all sit on top of a shared structural model rather than a stateless grep loop.</p>
+<h3 id="guided-handoff"><a class="header" href="#guided-handoff">Guided handoff</a></h3>
+<p>Several high-value tools now return more than raw results. They can expose:</p>
+<ul>
+<li><code>proof_state</code></li>
+<li><code>next_suggested_tool</code></li>
+<li><code>next_suggested_target</code></li>
+<li><code>next_step_hint</code></li>
+</ul>
+<p>That turns the server from a catalog of answers into a layer that helps the agent decide what to do next.</p>
+<h3 id="continuity"><a class="header" href="#continuity">Continuity</a></h3>
+<p><code>trail_resume</code> is no longer just bookmark restore. It can return compact resume hints, reactivated nodes, the next focus node, the next open question, and the likely next tool. This is one of the main reasons the benchmark corpus now records fewer false starts.</p>
+<h3 id="observable-execution"><a class="header" href="#observable-execution">Observable execution</a></h3>
+<p><code>apply_batch</code> is now an observable write surface:</p>
+<ul>
+<li><code>status_message</code></li>
+<li><code>proof_state</code></li>
+<li>lifecycle phases such as <code>validate</code>, <code>write</code>, <code>reingest</code>, <code>verify</code>, and <code>done</code></li>
+<li>coarse progress fields like <code>progress_pct</code></li>
+<li>structured <code>progress_events</code></li>
+<li>live SSE progress in serve mode</li>
+</ul>
+<h3 id="recovery-loops"><a class="header" href="#recovery-loops">Recovery loops</a></h3>
+<p>Common failures no longer have to be dead ends. Many invalid calls now return hints, examples, and a suggested next step so the agent can repair the call instead of rediscovering the workflow from scratch.</p>
 <h2 id="who-this-is-for"><a class="header" href="#who-this-is-for">Who This Is For</a></h2>
 <ul>
-<li><strong>AI agent developers</strong> who need their agents to navigate code without wasting context tokens on trial-and-error search.</li>
-<li><strong>IDE and tool builders</strong> looking for an MCP-compatible code intelligence backend that goes beyond static analysis.</li>
-<li><strong>Anyone using MCP clients</strong> (Claude Code, Cursor, Windsurf, Zed, Cline, Roo Code, Continue, OpenCode, Amazon Q, GitHub Copilot) who wants a graph that learns from their workflow.</li>
-<li><strong>Multi-agent orchestrators</strong> who need a shared, persistent code graph that multiple agents can query, learn from, and lock regions of concurrently.</li>
+<li>agent builders who want a local structural layer for navigation and edit prep</li>
+<li>MCP client users who want better triage, continuity, and connected context</li>
+<li>multi-agent systems that need shared graph truth without shipping code to an API</li>
+<li>teams that want safer workflow around stacktrace triage, blast radius, and multi-file changes</li>
 </ul>
-<p>m1nd is <em>not</em> a replacement for full-text search, and it does not use neural embeddings (v1 uses trigram matching for the semantic dimension). If you need “find code that <em>means</em> X but never uses the word,” m1nd will not do it yet. See <a href="faq.html">the FAQ</a> for more on current limitations.</p>
-<h2 id="how-to-read-this-wiki"><a class="header" href="#how-to-read-this-wiki">How to Read This Wiki</a></h2>
-<p>This wiki is organized into four sections. Read them in order for a full understanding, or jump to the section you need.</p>
-<p><strong><a href="architecture/overview.html">Architecture</a></strong> — How m1nd is built. The three crates (<code>m1nd-core</code>, <code>m1nd-ingest</code>, <code>m1nd-mcp</code>), the CSR graph representation, the activation engine hierarchy, and the MCP server protocol layer. Start here if you want to contribute or understand the internals.</p>
-<p><strong><a href="concepts/spreading-activation.html">Concepts</a></strong> — The ideas behind the implementation. Spreading activation, Hebbian plasticity, XLR noise cancellation, and structural hole detection explained with enough depth to reason about behavior and tune parameters.</p>
-<p><strong><a href="api-reference/overview.html">API Reference</a></strong> — The runtime surface documented with parameters, return types, and usage examples. Organized by retrieval, proof, continuity, exploration, perspectives, and lifecycle administration.</p>
-<p><strong><a href="tutorials/quickstart.html">Tutorials</a></strong> — Practical walkthroughs. Quick start, your first query, and multi-agent workflows with trail save/resume/merge.</p>
-<p>The <strong><a href="benchmarks.html">Benchmarks</a></strong> page has real performance numbers from a production codebase (335 files, ~52K lines, 9,767 nodes, 26,557 edges). The <strong><a href="changelog.html">Changelog</a></strong> tracks what changed between versions.</p>
-<hr>
-<pre><code>cargo build --release
-./target/release/m1nd-mcp
-</code></pre>
-<p>The server starts, listens on stdio, and waits for JSON-RPC. The graph is empty until you call <code>m1nd.ingest</code>. From there, every query teaches it something.</p>
+<p>m1nd is not a compiler, debugger, or test runner replacement. It is best when the real bottleneck is structural understanding and repo navigation.</p>
+<h2 id="how-to-read-this-wiki"><a class="header" href="#how-to-read-this-wiki">How To Read This Wiki</a></h2>
+<p><strong><a href="architecture/overview.html">Architecture</a></strong> explains how the three crates fit together and how the MCP server turns graph truth into agent-facing runtime behavior.</p>
+<p><strong><a href="concepts/spreading-activation.html">Concepts</a></strong> covers the underlying graph ideas such as activation, plasticity, and structural holes.</p>
+<p><strong><a href="api-reference/overview.html">API Reference</a></strong> documents the current MCP surface, including underscore-based canonical tool names, guided outputs, and transport behavior.</p>
+<p><strong><a href="tutorials/quickstart.html">Tutorials</a></strong> walks through the main workflows from first ingest to connected edit prep.</p>
+<p>The <strong><a href="benchmarks.html">Benchmarks</a></strong> page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The <strong><a href="changelog.html">Changelog</a></strong> tracks the release history from <code>v0.6.0</code> and <code>v0.6.1</code> onward.</p>
 
                     </main>
 

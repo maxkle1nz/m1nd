@@ -8,7 +8,7 @@
 
         <!-- Custom HTML head -->
 
-        <meta name="description" content="XLR noise cancellation in m1nd — how the runtime suppresses hub noise and keeps graph queries focused">
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
@@ -28,7 +28,6 @@
         <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
 
         <!-- Custom theme stylesheets -->
-        <link rel="stylesheet" href="../theme/custom-a18dc32c.css">
 
 
         <!-- Provide site root and default themes to javascript -->
@@ -36,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7447e1d8.js";
+            window.path_to_searchindex_js = "../searchindex-71adba98.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-72b55f3c.js"></script>
+        <script src="../toc-a37108d1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,8 +181,8 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="xlr-noise-cancellation"><a class="header" href="#xlr-noise-cancellation">XLR Noise Cancellation</a></h1>
-<p>Every code graph is noisy. Utility modules, shared constants, logging wrappers — they connect to everything, and they show up in activation queries whether they are relevant or not. m1nd uses an XLR-inspired cancellation pass to suppress that hub noise so agents can see the task-specific structure more clearly.</p>
-<h2 id="the-origin-balanced-audio-cables"><a class="header" href="#the-origin-balanced-audio-cables">The signal-processing analogy</a></h2>
+<p>Every code graph is noisy. Utility modules, shared constants, logging wrappers – they connect to everything, and they show up in every activation query whether they are relevant or not. m1nd solves this with a technique borrowed from professional audio engineering: differential signal processing with inverted channels. The same principle that makes balanced XLR cables immune to electromagnetic interference makes m1nd’s activation queries immune to structural noise.</p>
+<h2 id="the-origin-balanced-audio-cables"><a class="header" href="#the-origin-balanced-audio-cables">The origin: balanced audio cables</a></h2>
 <p>In a recording studio, audio signals travel over long cables. The cable acts as an antenna, picking up electromagnetic interference (EMI) from power supplies, lighting, and radio transmissions. An unbalanced cable delivers a noisy signal: the audio you want plus the interference you do not.</p>
 <p>A balanced XLR cable solves this by carrying <strong>two copies</strong> of the audio signal: one normal (hot, pin 2) and one inverted (cold, pin 3). Both signals travel the same physical path, so they pick up the same interference. At the receiving end, the cold signal is flipped back and added to the hot signal. The audio doubles in strength. The interference – identical on both channels – cancels out.</p>
 <pre><code>Hot channel:  signal + noise
