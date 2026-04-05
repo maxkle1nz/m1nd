@@ -1,6 +1,6 @@
 # MCP Server (m1nd-mcp)
 
-m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 63 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, and observable batch execution.
+m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 77 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, and observable batch execution.
 
 Source: `mcp/m1nd/m1nd-mcp/src/`
 
@@ -162,7 +162,7 @@ The atomic write pattern (temp file + rename) ensures that even if shutdown is i
 
 ### Schema Registry
 
-`tool_schemas()` returns a JSON array of all 43 tool definitions with full `inputSchema` objects. Each tool specifies:
+`tool_schemas()` returns a JSON array of all 77 tool definitions with full `inputSchema` objects. Each tool specifies:
 
 - `name`: Dot-namespaced (e.g., `m1nd.activate`)
 - `description`: Human-readable purpose

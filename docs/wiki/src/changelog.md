@@ -130,7 +130,7 @@ Two-phase transactional editing for LLM agents. Preview before you write.
 
 ### Stats
 
-- 63 MCP tools total (was 61).
+- 77 MCP tools total on the current audit branch (was 71 before the audit/session additions).
 - 342 tests all passing.
 
 ---

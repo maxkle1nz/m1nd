@@ -1,6 +1,6 @@
 # API Reference Overview
 
-m1nd currently exposes **63 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
+m1nd currently exposes **77 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
 
 Several tools now do more than return raw results. On the main structural flows you should expect some combination of:
 

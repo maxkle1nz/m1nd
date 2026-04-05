@@ -407,7 +407,7 @@ Prefer plain tools for single-file edits, exact string chores, and runtime/build
 
 ## 工具表面
 
-当前 [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) 中的 `tool_schemas()` 实现暴露了 **63 个 MCP 工具**。
+当前 [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) 中的 `tool_schemas()` 实现暴露了 **77 个 MCP 工具**。
 
 导出的 MCP schema 里，规范工具名使用下划线，例如 `trail_save`、`perspective_start` 和 `apply_batch`。某些客户端可能会显示带 transport 前缀的名字，比如 `m1nd.apply_batch`，但 live registry 里的条目是以下划线为准的。
 

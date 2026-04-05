@@ -339,7 +339,7 @@ Das ist wichtig, weil m1nd nicht nur ein Such-Endpunkt ist. Es ist eine opiniona
 <a id="tool-surface"></a>
 ## Tool-Oberfläche
 
-Die aktuelle Implementierung von `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) stellt **64 MCP-Tools** bereit. Die Zahl kann sich ändern; die Kategorien darunter sind wichtiger.
+Die aktuelle Implementierung von `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) stellt **77 MCP-Tools** bereit. Die Zahl kann sich ändern; die Kategorien darunter sind wichtiger.
 
 Kanonsiche Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `trail_save`, `perspective_start` und `apply_batch`. Manche Clients zeigen Namen mit einem Transportpräfix wie `m1nd.apply_batch` an, aber die Live-Registry-Einträge basieren auf Unterstrichen.
 

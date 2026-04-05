@@ -361,7 +361,7 @@ Isso importa porque m1nd não é só um endpoint de busca. Ele é uma camada opi
 
 ## Superfície de Ferramentas
 
-A implementação atual de `tool_schemas()` em [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) expõe **64 ferramentas MCP**. Esse número pode mudar. As categorias abaixo importam mais, mas a contagem atual está ancorada no registro vivo.
+A implementação atual de `tool_schemas()` em [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) expõe **77 ferramentas MCP**. Esse número pode mudar. As categorias abaixo importam mais, mas a contagem atual está ancorada no registro vivo.
 
 | Categoria | Destaques |
 |----------|------------|
