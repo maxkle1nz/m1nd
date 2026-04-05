@@ -31,6 +31,18 @@ const SECURITY_SCAN_PATTERNS: &[&str] = &[
     "dependency_injection",
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AuditFileKind {
+    Code,
+    Script,
+    Config,
+    Doc,
+    BenchmarkArtifact,
+    Generated,
+    Asset,
+    Unknown,
+}
+
 fn truncate_text(
     content: String,
     max_output_chars: Option<usize>,
@@ -65,6 +77,162 @@ fn extension_language(ext: Option<&str>) -> String {
         _ => "text",
     }
     .to_string()
+}
+
+fn classify_file_kind(file_path: &str, language: &str) -> AuditFileKind {
+    let lower = file_path.to_lowercase();
+    let file_name = Path::new(file_path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    let ext = Path::new(file_path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+
+    if lower.contains("/target/")
+        || lower.contains("/dist/")
+        || lower.contains("/build/")
+        || lower.contains("/.next/")
+        || lower.contains("/docs/wiki-build/")
+        || lower.contains("/wiki-build/")
+    {
+        return AuditFileKind::Generated;
+    }
+
+    if lower.contains("/docs/benchmarks/runs/")
+        || lower.contains("/docs/benchmarks/events/")
+        || lower.contains("/docs/benchmarks/scenarios/")
+    {
+        return AuditFileKind::BenchmarkArtifact;
+    }
+
+    if matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "svg" | "woff" | "woff2" | "ttf" | "ico"
+    ) {
+        return AuditFileKind::Asset;
+    }
+
+    if matches!(
+        ext.as_str(),
+        "rs" | "py" | "pyi" | "ts" | "tsx" | "js" | "jsx" | "go" | "java"
+    ) || matches!(language, "rust" | "python" | "typescript" | "go" | "java")
+    {
+        return AuditFileKind::Code;
+    }
+
+    if matches!(ext.as_str(), "sh" | "bash" | "zsh")
+        || file_name.ends_with(".plist")
+        || file_name == "dockerfile"
+    {
+        return AuditFileKind::Script;
+    }
+
+    if matches!(
+        file_name.as_str(),
+        "cargo.toml" | "package.json" | "package-lock.json" | "pyproject.toml" | "deno.json"
+    ) || matches!(
+        ext.as_str(),
+        "toml" | "yaml" | "yml" | "json" | "ini" | "cfg" | "conf"
+    ) {
+        return AuditFileKind::Config;
+    }
+
+    if matches!(ext.as_str(), "md" | "txt" | "rst" | "adoc") {
+        return AuditFileKind::Doc;
+    }
+
+    AuditFileKind::Unknown
+}
+
+fn counts_for_orphan_detection(kind: AuditFileKind, profile: &str) -> bool {
+    let _ = profile;
+    matches!(kind, AuditFileKind::Code)
+}
+
+fn is_auxiliary_code_path(file_path: &str) -> bool {
+    let lower = file_path.to_lowercase();
+    lower.contains("/tests/")
+        || lower.contains("/test_")
+        || lower.contains("/fixtures/")
+        || lower.contains("/mocks/")
+        || lower.contains("/examples/")
+        || lower.contains("/scripts/")
+        || lower.contains("/bench")
+        || lower.contains("/benchmark")
+        || lower.contains("/m1nd-demo/")
+        || lower.contains("/m1nd-ui/")
+        || lower.contains("/m1nd-viz/")
+}
+
+fn is_placeholder_external_path(path: &Path) -> bool {
+    let value = path.to_string_lossy();
+    value.starts_with("/your/")
+        || value == "/your/project"
+        || value == "/your/docs"
+        || value == "/your/domain.json"
+        || value.starts_with("/path/")
+        || value.starts_with("/path/to/")
+        || value.starts_with("/app/")
+        || value.starts_with("/project/")
+        || value.starts_with("/workspace/")
+}
+
+fn is_system_path(path: &Path) -> bool {
+    let value = path.to_string_lossy();
+    value.starts_with("/usr/")
+        || value.starts_with("/dev/")
+        || value.starts_with("/bin/")
+        || value.starts_with("/sbin/")
+        || value.starts_with("/System/")
+        || value.starts_with("/Library/")
+        || value.starts_with("/opt/homebrew/")
+}
+
+fn is_plausible_external_path(path: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    let value = path.to_string_lossy();
+    if value == "/" || value == "//" || value.len() < 4 {
+        return false;
+    }
+    if value.contains('[')
+        || value.contains(']')
+        || value.contains('{')
+        || value.contains('}')
+        || value.contains('\\')
+    {
+        return false;
+    }
+    let component_count = path.components().count();
+    component_count >= 2 && value.chars().any(|ch| ch.is_ascii_alphanumeric())
+}
+
+fn counts_for_grading(kind: AuditFileKind, profile: &str) -> bool {
+    match profile {
+        "coordination" => matches!(
+            kind,
+            AuditFileKind::Code
+                | AuditFileKind::Config
+                | AuditFileKind::Script
+                | AuditFileKind::Doc
+        ),
+        _ => matches!(
+            kind,
+            AuditFileKind::Code | AuditFileKind::Config | AuditFileKind::Script
+        ),
+    }
+}
+
+fn supports_external_reference_scan(kind: AuditFileKind) -> bool {
+    matches!(
+        kind,
+        AuditFileKind::Code | AuditFileKind::Config | AuditFileKind::Script | AuditFileKind::Doc
+    )
 }
 
 fn simple_content_hash(path: &Path) -> Option<String> {
@@ -201,6 +369,24 @@ fn filter_inventory_by_scope(
         .collect();
     entries.sort_by(|a, b| a.file_path.cmp(&b.file_path));
     entries
+}
+
+fn inventory_breakdown(entries: &[FileInventoryEntry]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for entry in entries {
+        let label = match classify_file_kind(&entry.file_path, &entry.language) {
+            AuditFileKind::Code => "code",
+            AuditFileKind::Script => "script",
+            AuditFileKind::Config => "config",
+            AuditFileKind::Doc => "doc",
+            AuditFileKind::BenchmarkArtifact => "benchmark_artifact",
+            AuditFileKind::Generated => "generated",
+            AuditFileKind::Asset => "asset",
+            AuditFileKind::Unknown => "unknown",
+        };
+        *counts.entry(label.to_string()).or_insert(0) += 1;
+    }
+    counts
 }
 
 pub fn resolve_git_root_from_state(state: &SessionState) -> Option<PathBuf> {
@@ -547,8 +733,20 @@ pub fn handle_external_references(
     };
     let disk_entries = filter_inventory_by_scope(state, &inventory, input.scope.as_deref());
     let roots: Vec<PathBuf> = state.ingest_roots.iter().map(PathBuf::from).collect();
-    let path_regex =
-        Regex::new(r#"(/[^ \n\r\t"'<>()]+)"#).map_err(|error| M1ndError::InvalidParams {
+    let markdown_link_regex =
+        Regex::new(r#"\[[^\]]*\]\((/[^)\s]+)\)"#).map_err(|error| M1ndError::InvalidParams {
+            tool: "external_references".into(),
+            detail: error.to_string(),
+        })?;
+    let keyed_path_regex = Regex::new(
+        r#"(?i)(path|root|repo|workspace|graph_source|plasticity_state|runtime_dir)[^=\n:]*[:=]\s*["']?(/[^"'\s]+)"#,
+    )
+    .map_err(|error| M1ndError::InvalidParams {
+        tool: "external_references".into(),
+        detail: error.to_string(),
+    })?;
+    let quoted_path_regex =
+        Regex::new(r#"["'](/[^"'\s]+)["']"#).map_err(|error| M1ndError::InvalidParams {
             tool: "external_references".into(),
             detail: error.to_string(),
         })?;
@@ -556,40 +754,80 @@ pub fn handle_external_references(
     let mut results = Vec::new();
 
     for entry in disk_entries {
+        let kind = classify_file_kind(&entry.file_path, &entry.language);
+        if !supports_external_reference_scan(kind) {
+            continue;
+        }
         let Ok(content) = std::fs::read_to_string(&entry.file_path) else {
             continue;
         };
-        for capture in path_regex.captures_iter(&content) {
-            let Some(matched) = capture.get(1) else {
-                continue;
-            };
-            let raw_path = matched.as_str().trim().trim_matches('"');
-            let path = PathBuf::from(raw_path);
-            if !path.is_absolute() {
-                continue;
+        let scans: [(&Regex, &str, &str); 3] = [
+            (&markdown_link_regex, "markdown_link", "high"),
+            (&keyed_path_regex, "keyed_assignment", "high"),
+            (&quoted_path_regex, "quoted_path", "medium"),
+        ];
+        for (regex, evidence_type, confidence) in scans {
+            for capture in regex.captures_iter(&content) {
+                let Some(matched) = capture.get(capture.len() - 1) else {
+                    continue;
+                };
+                let raw_path = matched.as_str().trim().trim_matches('"').trim_matches('\'');
+                let path = PathBuf::from(raw_path);
+                if !is_plausible_external_path(&path) {
+                    continue;
+                }
+                if is_placeholder_external_path(&path) {
+                    continue;
+                }
+                if is_system_path(&path) {
+                    continue;
+                }
+                if roots.iter().any(|root| path.starts_with(root)) {
+                    continue;
+                }
+                let key = format!(
+                    "{}::{}::{}",
+                    entry.external_id,
+                    evidence_type,
+                    path.display()
+                );
+                if !seen.insert(key) {
+                    continue;
+                }
+                let exists = path.exists();
+                let suggested_action = if exists {
+                    "consider federate or audit with external_refs enabled"
+                } else {
+                    "reference points to a missing path on disk"
+                };
+                results.push(json!({
+                    "source_node": entry.external_id,
+                    "file_path": entry.file_path,
+                    "external_path": path,
+                    "exists": exists,
+                    "evidence_type": evidence_type,
+                    "confidence": confidence,
+                    "suggested_action": suggested_action,
+                }));
             }
-            if roots.iter().any(|root| path.starts_with(root)) {
-                continue;
-            }
-            let key = format!("{}::{}", entry.external_id, path.display());
-            if !seen.insert(key) {
-                continue;
-            }
-            let exists = path.exists();
-            let suggested_action = if exists {
-                "consider federate or audit with external_refs enabled"
-            } else {
-                "reference points to a missing path on disk"
-            };
-            results.push(json!({
-                "source_node": entry.external_id,
-                "file_path": entry.file_path,
-                "external_path": path,
-                "exists": exists,
-                "suggested_action": suggested_action,
-            }));
         }
     }
+
+    results.sort_by(|a, b| {
+        let confidence_rank = |value: &serde_json::Value| match value
+            .get("confidence")
+            .and_then(|item| item.as_str())
+        {
+            Some("high") => 0,
+            Some("medium") => 1,
+            _ => 2,
+        };
+        confidence_rank(a).cmp(&confidence_rank(b)).then_with(|| {
+            b.get("exists")
+                .and_then(|item| item.as_bool())
+                .cmp(&a.get("exists").and_then(|item| item.as_bool()))
+        })
+    });
 
     Ok(json!({
         "results": results,
@@ -692,12 +930,26 @@ fn profile_patterns(profile: &str, scan_patterns: &str) -> Vec<String> {
     }
 }
 
-fn compute_orphan_nodes(state: &SessionState) -> Vec<String> {
+fn compute_orphan_nodes(state: &SessionState, profile: &str) -> Vec<String> {
     let graph = state.graph.read();
     let mut nodes = Vec::new();
     for (interned, &nid) in &graph.id_to_node {
         let ext_id = graph.strings.resolve(*interned).to_string();
         if !ext_id.starts_with("file::") {
+            continue;
+        }
+        if graph.nodes.node_type[nid.as_usize()] != m1nd_core::types::NodeType::File {
+            continue;
+        }
+        let file_path = ext_id.trim_start_matches("file::");
+        let kind = classify_file_kind(
+            file_path,
+            &extension_language(Path::new(file_path).extension().and_then(|e| e.to_str())),
+        );
+        if !counts_for_orphan_detection(kind, profile) {
+            continue;
+        }
+        if is_auxiliary_code_path(file_path) {
             continue;
         }
         let total_degree = graph.csr.out_range(nid).len() + graph.csr.in_range(nid).len();
@@ -721,6 +973,143 @@ fn grade_from_ratio(ratio: f64) -> &'static str {
     } else {
         "F"
     }
+}
+
+fn grade_or_na(ratio: Option<f64>) -> String {
+    ratio.map(grade_from_ratio).unwrap_or("N/A").to_string()
+}
+
+fn tasknotes_summary(root: &Path) -> serde_json::Value {
+    let path = root.join("docs/AGENT-TASKNOTES.md");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return json!({
+            "available": false,
+            "path": path.to_string_lossy(),
+        });
+    };
+
+    let mut open = 0usize;
+    let mut resolved = 0usize;
+    let mut mode = "";
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "## Open Notes" {
+            mode = "open";
+            continue;
+        }
+        if trimmed == "## Resolved Notes" {
+            mode = "resolved";
+            continue;
+        }
+        if trimmed.starts_with("### ") {
+            match mode {
+                "open" => open += 1,
+                "resolved" => resolved += 1,
+                _ => {}
+            }
+        }
+    }
+
+    json!({
+        "available": true,
+        "path": path.to_string_lossy(),
+        "open_notes": open,
+        "resolved_notes": resolved,
+    })
+}
+
+fn release_metadata(root: &Path, git_state: &serde_json::Value) -> serde_json::Value {
+    let crates = [
+        ("m1nd-core", root.join("m1nd-core/Cargo.toml")),
+        ("m1nd-ingest", root.join("m1nd-ingest/Cargo.toml")),
+        ("m1nd-mcp", root.join("m1nd-mcp/Cargo.toml")),
+    ];
+    let mut versions = BTreeMap::new();
+    let version_regex = Regex::new(r#"^version\s*=\s*"([^"]+)""#).ok();
+    for (name, path) in crates {
+        if let (Ok(content), Some(regex)) = (std::fs::read_to_string(&path), version_regex.as_ref())
+        {
+            if let Some(captures) = content.lines().find_map(|line| regex.captures(line)) {
+                if let Some(value) = captures.get(1) {
+                    versions.insert(name.to_string(), value.as_str().to_string());
+                }
+            }
+        }
+    }
+
+    json!({
+        "crate_versions": versions,
+        "head": git_state.get("head"),
+        "branch": git_state.get("branch"),
+        "clean": git_state.get("clean"),
+    })
+}
+
+fn trail_summary(state: &SessionState) -> serde_json::Value {
+    let dir = state.runtime_root.join("trails");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return json!({
+            "available": false,
+            "path": dir.to_string_lossy(),
+        });
+    };
+
+    let mut count = 0usize;
+    let mut latest = Vec::new();
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    files.sort();
+    for path in &files {
+        count += 1;
+    }
+    for path in files.into_iter().rev().take(5) {
+        if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+            latest.push(name.to_string());
+        }
+    }
+    json!({
+        "available": true,
+        "path": dir.to_string_lossy(),
+        "trail_count": count,
+        "latest": latest,
+    })
+}
+
+fn filter_external_reference_results_for_profile(
+    profile: &str,
+    results: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
+    results
+        .iter()
+        .filter(|entry| {
+            let file_path = entry
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let kind = classify_file_kind(
+                file_path,
+                &extension_language(Path::new(file_path).extension().and_then(|e| e.to_str())),
+            );
+            let exists = entry
+                .get("exists")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            match profile {
+                "coordination" => supports_external_reference_scan(kind),
+                _ => {
+                    matches!(
+                        kind,
+                        AuditFileKind::Code | AuditFileKind::Config | AuditFileKind::Script
+                    ) && !is_auxiliary_code_path(file_path)
+                        && exists
+                }
+            }
+        })
+        .cloned()
+        .collect()
 }
 
 pub fn handle_audit(
@@ -850,6 +1239,16 @@ pub fn handle_audit(
     } else {
         json!({ "results": [] })
     };
+    let filtered_external_references = json!({
+        "results": filter_external_reference_results_for_profile(
+            &effective_profile,
+            external_references
+                .get("results")
+                .and_then(|value| value.as_array())
+                .map(|value| value.as_slice())
+                .unwrap_or(&[]),
+        )
+    });
 
     let fingerprint = if graph_is_empty {
         json!({ "equivalent_pairs": [] })
@@ -867,7 +1266,7 @@ pub fn handle_audit(
     let orphan_nodes = if graph_is_empty {
         Vec::new()
     } else {
-        compute_orphan_nodes(state)
+        compute_orphan_nodes(state, &effective_profile)
     };
     let harmonic_center = if graph_is_empty {
         None
@@ -895,6 +1294,16 @@ pub fn handle_audit(
             json!({
                 "external_id": entry.external_id,
                 "file_path": entry.file_path,
+                "kind": match classify_file_kind(&entry.file_path, &entry.language) {
+                    AuditFileKind::Code => "code",
+                    AuditFileKind::Script => "script",
+                    AuditFileKind::Config => "config",
+                    AuditFileKind::Doc => "doc",
+                    AuditFileKind::BenchmarkArtifact => "benchmark_artifact",
+                    AuditFileKind::Generated => "generated",
+                    AuditFileKind::Asset => "asset",
+                    AuditFileKind::Unknown => "unknown",
+                },
                 "loc": entry.loc,
                 "language": entry.language,
                 "size_bytes": entry.size_bytes,
@@ -903,11 +1312,91 @@ pub fn handle_audit(
             })
         })
         .collect();
+    let actionable_for_grades: Vec<&FileInventoryEntry> = inventory_entries
+        .iter()
+        .filter(|entry| {
+            counts_for_grading(
+                classify_file_kind(&entry.file_path, &entry.language),
+                &effective_profile,
+            )
+        })
+        .collect();
+    let core_actionable_for_connectivity: Vec<&FileInventoryEntry> = actionable_for_grades
+        .iter()
+        .copied()
+        .filter(|entry| !is_auxiliary_code_path(&entry.file_path))
+        .collect();
 
     let git_state = if input.include_git {
         collect_git_state(state, 20)
     } else {
         json!({ "available": false })
+    };
+    let temporal_intelligence = if graph_is_empty {
+        json!({
+            "trust": null,
+            "tremor": null,
+            "ghost_edges": null,
+        })
+    } else {
+        let trust = if matches!(
+            effective_profile.as_str(),
+            "production" | "security" | "migration"
+        ) {
+            layer_handlers::handle_trust(
+                state,
+                layers::TrustInput {
+                    agent_id: input.agent_id.clone(),
+                    scope: "file".into(),
+                    min_history: 1,
+                    top_k: 10,
+                    node_filter: None,
+                    sort_by: "trust_asc".into(),
+                    decay_half_life_days: 30.0,
+                    risk_cap: 3.0,
+                },
+            )?
+        } else {
+            json!({ "available": false })
+        };
+        let tremor = if matches!(
+            effective_profile.as_str(),
+            "production" | "security" | "migration"
+        ) {
+            layer_handlers::handle_tremor(
+                state,
+                layers::TremorInput {
+                    agent_id: input.agent_id.clone(),
+                    window: "30d".into(),
+                    threshold: 0.1,
+                    top_k: 10,
+                    node_filter: None,
+                    include_history: false,
+                    min_observations: 3,
+                    sensitivity: 1.0,
+                },
+            )?
+        } else {
+            json!({ "available": false })
+        };
+        let ghost_edges = if input.include_git {
+            layer_handlers::handle_ghost_edges(
+                state,
+                layers::GhostEdgesInput {
+                    agent_id: input.agent_id.clone(),
+                    depth: "30d".into(),
+                    scope: None,
+                    top_k: 20,
+                },
+            )?
+        } else {
+            json!({ "available": false })
+        };
+        json!({
+            "trust": trust,
+            "tremor": tremor,
+            "ghost_edges": ghost_edges,
+        })
     };
 
     let scan_total_findings = scan_results
@@ -923,27 +1412,98 @@ pub fn handle_audit(
         .and_then(|value| value.as_array())
         .map_or(0, |value| value.len()) as f64;
     let total_inventory = inventory.len().max(1) as f64;
+    let actionable_inventory = actionable_for_grades.len();
     let critical_modules = panoramic.critical_alerts.len() as f64;
+    let actionable_orphans = orphan_nodes.len();
+    let test_coverage_findings = scan_results
+        .get("by_pattern")
+        .and_then(|value| value.as_array())
+        .and_then(|patterns| {
+            patterns.iter().find(|entry| {
+                entry.get("pattern").and_then(|value| value.as_str()) == Some("test_coverage")
+            })
+        })
+        .and_then(|entry| entry.get("findings"))
+        .and_then(|value| value.as_array())
+        .map_or(0, |value| value.len()) as f64;
+    let external_reference_count = filtered_external_references
+        .get("results")
+        .and_then(|value| value.as_array())
+        .map_or(0, |value| value.len()) as f64;
 
     let health_grades = json!({
-        "connectivity": grade_from_ratio(orphan_nodes.len() as f64 / total_inventory),
-        "test_coverage": grade_from_ratio(scan_total_findings / total_inventory),
-        "duplication": grade_from_ratio(
+        "connectivity": grade_or_na(if actionable_inventory > 0 {
+            let denom = core_actionable_for_connectivity.len();
+            if denom > 0 {
+                Some(actionable_orphans as f64 / denom as f64)
+            } else {
+                None
+            }
+        } else {
+            None
+        }),
+        "test_coverage": grade_or_na(if actionable_inventory > 0 {
+            Some(test_coverage_findings / actionable_inventory as f64)
+        } else {
+            None
+        }),
+        "duplication": grade_or_na(Some(
             fingerprint
                 .get("equivalent_pairs")
                 .and_then(|value| value.as_array())
-                .map_or(0, |pairs| pairs.len()) as f64 / total_inventory
-        ),
-        "risk_concentration": grade_from_ratio(critical_modules / total_inventory),
-        "staleness": grade_from_ratio((missing_from_graph_count + missing_from_disk_count) / total_inventory),
+                .map_or(0, |pairs| pairs.len()) as f64 / total_inventory,
+        )),
+        "risk_concentration": grade_or_na(if actionable_inventory > 0 {
+            Some(critical_modules / actionable_inventory as f64)
+        } else {
+            None
+        }),
+        "staleness": grade_or_na(if actionable_inventory > 0 {
+            Some((missing_from_graph_count + missing_from_disk_count) / actionable_inventory as f64)
+        } else {
+            None
+        }),
+        "coordination_truth": grade_or_na(match effective_profile.as_str() {
+            "coordination" => Some(external_reference_count / total_inventory),
+            _ => None,
+        }),
     });
 
     let mut recommendations = Vec::new();
     if scan_total_findings > 0.0 {
+        let next_target = scan_results
+            .get("by_pattern")
+            .and_then(|value| value.as_array())
+            .and_then(|patterns| {
+                patterns.iter().find_map(|pattern| {
+                    pattern
+                        .get("findings")
+                        .and_then(|value| value.as_array())
+                        .and_then(|findings| findings.first())
+                        .and_then(|finding| {
+                            finding
+                                .get("file_path")
+                                .and_then(|value| value.as_str())
+                                .filter(|value| !value.is_empty())
+                                .map(|value| value.to_string())
+                                .or_else(|| {
+                                    finding
+                                        .get("node_id")
+                                        .and_then(|value| value.as_str())
+                                        .filter(|value| !value.is_empty())
+                                        .map(|value| value.to_string())
+                                })
+                        })
+                })
+            });
         recommendations.push(json!({
             "priority": "high",
             "category": "scan",
             "description": "Triage grouped scan findings before broad refactors; the audit found structural issues worth resolving first.",
+            "next_step_tool": "batch_view",
+            "next_target": next_target,
+            "confidence": "high",
+            "expected_payoff": "high",
         }));
     }
     if !orphan_nodes.is_empty() {
@@ -952,9 +1512,12 @@ pub fn handle_audit(
             "category": "integrity",
             "description": "Review isolated file nodes and confirm whether they are intentionally disconnected or stale.",
             "affected_nodes": orphan_nodes,
+            "next_step_tool": "batch_view",
+            "confidence": "medium",
+            "expected_payoff": "medium",
         }));
     }
-    if external_references
+    if filtered_external_references
         .get("results")
         .and_then(|value| value.as_array())
         .is_some_and(|results| !results.is_empty())
@@ -963,8 +1526,31 @@ pub fn handle_audit(
             "priority": "medium",
             "category": "federation",
             "description": "Consider federating or explicitly tracking external repositories referenced by this workspace.",
+            "next_step_tool": "external_references",
+            "confidence": "medium",
+            "expected_payoff": "high",
         }));
     }
+    if actionable_inventory > 0 && test_coverage_findings > 0.0 {
+        recommendations.push(json!({
+            "priority": "medium",
+            "category": "tests",
+            "description": "The audit found test-coverage gaps on actionable files; inspect the worst findings before treating this surface as release-ready.",
+            "expected_payoff": "medium",
+            "next_step_tool": "batch_view",
+            "confidence": "medium",
+        }));
+    }
+    let system_context = json!({
+        "boot_memory": {
+            "available": !state.boot_memory.is_empty(),
+            "count": state.boot_memory.len(),
+            "keys": state.boot_memory.keys().take(10).cloned().collect::<Vec<_>>(),
+        },
+        "tasknotes": tasknotes_summary(&path),
+        "trail_summary": trail_summary(state),
+        "release_metadata": release_metadata(&path, &git_state),
+    });
 
     let report = json!({
         "identity": {
@@ -978,6 +1564,7 @@ pub fn handle_audit(
         },
         "inventory": {
             "files": inventory,
+            "kind_breakdown": inventory_breakdown(&inventory_entries),
         },
         "topology": {
             "nodes": health.node_count,
@@ -995,9 +1582,52 @@ pub fn handle_audit(
         "scan_results": scan_results,
         "git_state": git_state,
         "filesystem_verification": cross_verify,
-        "external_references": external_references,
+        "external_references": filtered_external_references,
+        "system_context": system_context,
         "health_grades": health_grades,
         "recommendations": recommendations,
+        "planes": {
+            "repo_truth": {
+                "identity": {
+                    "branch": git_state.get("branch"),
+                    "head": git_state.get("head"),
+                    "clean": git_state.get("clean"),
+                },
+                "inventory_summary": inventory_breakdown(&inventory_entries),
+                "filesystem_verification": cross_verify,
+                "config_visibility": {
+                    "include_config": input.include_config,
+                    "dotfile_patterns": dotfile_patterns,
+                },
+            },
+            "structural_topology": {
+                "topology": {
+                    "nodes": health.node_count,
+                    "edges": health.edge_count,
+                    "critical_alerts": panoramic.critical_alerts,
+                },
+                "structural_integrity": {
+                    "orphan_nodes": orphan_nodes,
+                    "equivalent_pairs": fingerprint.get("equivalent_pairs").cloned().unwrap_or(json!([])),
+                    "harmonic_center": harmonic_center,
+                },
+            },
+            "temporal_intelligence": {
+                "git_state": git_state,
+                "signals": temporal_intelligence,
+            },
+            "runtime_evidence": {
+                "available": false,
+                "reason": "no runtime overlay input was provided to this audit",
+            },
+            "security_flow": {
+                "scan_results": scan_results,
+            },
+            "agent_action": {
+                "recommendations": recommendations,
+                "health_grades": health_grades,
+            }
+        },
         "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
     });
 
@@ -1160,7 +1790,7 @@ mod tests {
         std::fs::write(root.join("docs/runbook.md"), "# runbook\n").expect("runbook");
         std::fs::write(root.join("notes.md"), "# notes\n").expect("notes");
 
-        let mut state = build_empty_state(root);
+        let mut state = build_empty_state(&root);
         let output = handle_audit(
             &mut state,
             layers::AuditInput {
@@ -1181,5 +1811,118 @@ mod tests {
 
         assert_eq!(output["identity"]["profile"], "coordination");
         assert!(output["inventory"]["files"].as_array().is_some());
+    }
+
+    #[test]
+    fn audit_orphan_detection_ignores_non_code_orphans() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(runtime_dir.clone()).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let code = graph
+            .add_node(
+                "file::src/orphan.rs",
+                "orphan.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("code");
+        graph.set_node_provenance(
+            code,
+            NodeProvenanceInput {
+                source_path: Some("src/orphan.rs"),
+                line_start: Some(1),
+                line_end: Some(10),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        let config_node = graph
+            .add_node(
+                "file::package.json",
+                "package.json",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("config");
+        graph.set_node_provenance(
+            config_node,
+            NodeProvenanceInput {
+                source_path: Some("package.json"),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+
+        let orphans = compute_orphan_nodes(&state, "production");
+        assert_eq!(orphans, vec!["file::src/orphan.rs"]);
+    }
+
+    #[test]
+    fn audit_filters_placeholder_and_system_external_references_for_production() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("project");
+        std::fs::create_dir_all(root.join("src")).expect("src dir");
+        let external_root = temp.path().join("external-repo");
+        std::fs::create_dir_all(&external_root).expect("external root");
+        let external_path = external_root.join("src/lib.rs");
+        std::fs::create_dir_all(external_path.parent().expect("parent")).expect("parent");
+        std::fs::write(&external_path, "pub fn ext() {}\n").expect("write external");
+
+        let source = format!(
+            "const A: &str = \"/usr/lib/\";\nconst B: &str = \"/your/project\";\nconst C: &str = \"{}\";\n",
+            external_path.to_string_lossy()
+        );
+        std::fs::write(root.join("src/lib.rs"), source).expect("write source");
+
+        let mut state = build_empty_state(&root);
+        let output = handle_audit(
+            &mut state,
+            layers::AuditInput {
+                agent_id: "test".into(),
+                path: root.to_string_lossy().to_string(),
+                profile: "production".into(),
+                depth: "quick".into(),
+                cross_verify: true,
+                include_git: false,
+                include_config: false,
+                scan_patterns: "default".into(),
+                external_refs: true,
+                report_format: "json".into(),
+                max_output_chars: None,
+            },
+        )
+        .expect("audit");
+
+        let results = output["external_references"]["results"]
+            .as_array()
+            .expect("external reference results");
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0]["external_path"].as_str(),
+            Some(external_path.to_string_lossy().as_ref())
+        );
     }
 }
