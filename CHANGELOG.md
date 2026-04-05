@@ -6,6 +6,10 @@ All notable changes to m1nd are documented here.
 
 ## [Unreleased]
 
+---
+
+## [0.7.0] — 2026-04-05
+
 ### Added
 
 #### Audit Mode + Session Foundations

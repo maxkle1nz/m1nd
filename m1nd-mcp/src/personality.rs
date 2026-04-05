@@ -109,6 +109,52 @@ pub fn suggest_next(tool_name: &str) -> Vec<String> {
             "predict(changed_node) for ripple effects".into(),
             "learn(feedback) to update graph".into(),
         ],
+        "batch_view" => vec![
+            "coverage_session to see what remains unread".into(),
+            "search(query) when the next move depends on exact text inside the returned files"
+                .into(),
+        ],
+        "scan_all" => vec![
+            "batch_view(file_paths) on the strongest findings".into(),
+            "validate_plan when grouped findings imply a connected edit surface".into(),
+        ],
+        "cross_verify" => vec![
+            "audit(path) when you need recommendations and topology around the drift".into(),
+            "batch_view(file_paths) on the mismatched files".into(),
+        ],
+        "coverage_session" => vec![
+            "batch_view(unvisited_files) for compact catch-up".into(),
+            "seek(query) or search(query) to close the highest-value unread gap".into(),
+        ],
+        "external_references" => vec![
+            "federate when the external path is a real sibling repo".into(),
+            "audit(path, external_refs=true) to fold the signal into a larger report".into(),
+        ],
+        "audit" => vec![
+            "batch_view(files) on the strongest evidence files".into(),
+            "cross_verify(scope) for a narrower graph-vs-disk pass after the top-level report"
+                .into(),
+        ],
+        "ghost_edges" => vec![
+            "timeline(file) to compare historical coupling evidence".into(),
+            "impact(node) when a ghost edge suggests a hidden blast seam".into(),
+        ],
+        "taint_trace" => vec![
+            "validate_plan before touching a suspected trust boundary".into(),
+            "flow_simulate when the taint path implies runtime coordination risk".into(),
+        ],
+        "twins" => vec![
+            "refactor_plan to turn duplication into extraction candidates".into(),
+            "impact(node) to compare blast radius before consolidating twins".into(),
+        ],
+        "refactor_plan" => vec![
+            "validate_plan to ground the proposed extraction before editing".into(),
+            "apply_batch after the split surface is fully proved".into(),
+        ],
+        "runtime_overlay" => vec![
+            "trace when runtime heat and failure text need to converge on one file".into(),
+            "panoramic to compare runtime heat with structural risk concentration".into(),
+        ],
         "missing" => vec![
             "activate(topic) to explore the gap".into(),
             "hypothesize(claim) about the missing piece".into(),
@@ -338,6 +384,45 @@ fn when_to_use(tool_name: &str) -> &'static [&'static str] {
             "Use when you already know the multi-file edit set and want one write, one re-ingest, and one verdict.",
             "Best for execution after plan/proof, not for discovery.",
         ],
+        "batch_view" => &[
+            "Use when you need to read several files at once without paying one tool call per file.",
+            "Best for audit sweeps, proof packets, and compact repo reading after glob/search/audit.",
+        ],
+        "scan_all" => &[
+            "Use when you want grouped structural findings without manually calling scan eight times.",
+            "Best at the start of an audit or before prioritizing a hardening pass.",
+        ],
+        "cross_verify" => &[
+            "Use when you need filesystem truth, not just graph truth.",
+            "Best for checking whether the graph, docs, and disk still agree before trusting an audit claim.",
+        ],
+        "coverage_session" => &[
+            "Use when you are asking yourself what you have not inspected yet.",
+            "Best during long sessions where rediscovery and duplicate reading become a risk.",
+        ],
+        "external_references" => &[
+            "Use when the repo likely points outside its own root and you want those paths surfaced quickly.",
+            "Best in coordination or planning repos that describe other systems.",
+        ],
+        "audit" => &[
+            "Use when you want one top-level structural pass instead of manually chaining health, panoramic, layers, scans, verification, and git context.",
+            "Best as a session opener on unfamiliar or changing repos.",
+        ],
+        "ghost_edges" => &[
+            "Use when you suspect historical hidden coupling that static imports or calls do not explain.",
+        ],
+        "taint_trace" => &[
+            "Use when the question is about trust boundaries, validation, sanitization, or auth paths.",
+        ],
+        "twins" => &[
+            "Use when you want to find structural duplication or near-equivalence before refactoring.",
+        ],
+        "refactor_plan" => &[
+            "Use when you want graph-native extraction candidates instead of ad-hoc refactor instincts.",
+        ],
+        "runtime_overlay" => &[
+            "Use when you have span data and want runtime heat painted onto the structural graph.",
+        ],
         _ => &[
             "Use when this tool is the shortest path to the answer you need right now.",
         ],
@@ -376,6 +461,33 @@ fn avoid_when(tool_name: &str) -> &'static [&'static str] {
         "apply_batch" => &[
             "Avoid while you are still discovering the plan or proving the target files.",
         ],
+        "batch_view" => &["Avoid for one-file questions where view is enough."],
+        "scan_all" => &["Avoid when you only need one specific pattern; plain scan is cheaper."],
+        "cross_verify" => &[
+            "Avoid when the question is purely structural and does not depend on current disk truth.",
+        ],
+        "coverage_session" => &[
+            "Avoid at the very start of a session before any meaningful exploration has happened.",
+        ],
+        "external_references" => &[
+            "Avoid when you already know the repo is self-contained and there are no outside path references to chase.",
+        ],
+        "audit" => &[
+            "Avoid for tiny one-file questions where view, search, or impact already gives the answer directly.",
+        ],
+        "ghost_edges" => &[
+            "Avoid when the repo has no meaningful git history or the question is only about current static structure.",
+        ],
+        "taint_trace" => &[
+            "Avoid when the question is ordinary impact or duplication rather than trust-boundary flow.",
+        ],
+        "twins" => &[
+            "Avoid when you need exact clone detection by text alone rather than structural similarity.",
+        ],
+        "refactor_plan" => &[
+            "Avoid before you know the target region; use audit, scan_all, or twins first.",
+        ],
+        "runtime_overlay" => &["Avoid when you do not have runtime span data to overlay."],
         _ => &["Avoid when a simpler tool answers the question more directly."],
     }
 }
@@ -415,6 +527,41 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
             "progress_events mirrors the same lifecycle in a streaming-friendly event shape for future MCP emission.",
             "Read proof_state plus next_suggested_tool after the batch finishes; apply_batch now hands off the next verification or inspection step instead of only returning a verdict.",
         ],
+        "batch_view" => &[
+            "Use this to keep the read loop compact during audits instead of opening files one by one.",
+            "Pair with coverage_session when you want to know what is still unread after a broad sweep.",
+        ],
+        "scan_all" => &[
+            "Treat grouped findings as a prioritization surface, not as proof to edit immediately.",
+        ],
+        "cross_verify" => &[
+            "This is the graph-vs-disk truth check; prefer it before shell wc/ls/test fallbacks.",
+        ],
+        "coverage_session" => &[
+            "Use it as attention control for the session: it answers what you still have not touched.",
+        ],
+        "external_references" => &[
+            "The current version surfaces external path evidence; federation is still a follow-up step.",
+        ],
+        "audit" => &[
+            "Use audit as the top-level orienter, then drop to narrower tools for proof and execution.",
+            "Profiles change the emphasis, not just the labeling.",
+        ],
+        "ghost_edges" => &[
+            "Ghost edges are historical evidence, not proof of a current static dependency.",
+        ],
+        "taint_trace" => &[
+            "Read taint output as trust-boundary guidance, not as CodeQL-class formal proof.",
+        ],
+        "twins" => &[
+            "Twins are candidates for consolidation; always check blast radius before acting on them.",
+        ],
+        "refactor_plan" => &[
+            "Use this to turn structural duplication into a plan, then validate the plan before writing.",
+        ],
+        "runtime_overlay" => &[
+            "This is strongest when you can compare runtime heat with structural risk or failure traces.",
+        ],
         _ => &[],
     }
 }
@@ -448,6 +595,39 @@ fn error_recovery_notes(tool_name: &str) -> &'static [&'static str] {
         "trail_resume" => &[
             "If the trail is stale or thin, use the resume hints as a compact restart plan instead of rebuilding the whole investigation from scratch.",
             "If there is no next focus, resume into search or activate rather than reopening every prior file.",
+        ],
+        "batch_view" => &[
+            "If the response is too wide, lower max_lines_per_file or use max_output_chars to keep the sweep compact.",
+        ],
+        "scan_all" => &[
+            "If findings are too noisy, narrow the scope or limit patterns instead of reading every result at once.",
+        ],
+        "cross_verify" => &[
+            "If drift looks surprising, narrow scope to one subtree before assuming the whole graph is stale.",
+        ],
+        "coverage_session" => &[
+            "If coverage is low, follow with batch_view on the top unread files instead of reopening files you already saw.",
+        ],
+        "external_references" => &[
+            "If the outside paths matter, hand off into federate or a broader audit instead of switching immediately to raw shell find.",
+        ],
+        "audit" => &[
+            "If audit feels too broad, rerun it with a narrower profile or scope and then drop to a proof-focused tool.",
+        ],
+        "ghost_edges" => &[
+            "If history is too thin, use timeline or current structural tools instead of over-reading ghost edges.",
+        ],
+        "taint_trace" => &[
+            "If the entry points are wrong, tighten the starting nodes before trusting the propagation output.",
+        ],
+        "twins" => &[
+            "If similarity is too loose, raise the threshold before turning a pair into refactor work.",
+        ],
+        "refactor_plan" => &[
+            "If the communities are too broad, narrow scope before treating the plan as actionable.",
+        ],
+        "runtime_overlay" => &[
+            "If runtime mapping is weak, improve span-node mapping before drawing structural conclusions from the overlay.",
         ],
         _ => &[
             "When a tool fails, look for the hint, example, and next-step guidance before reformulating from scratch.",
@@ -490,6 +670,37 @@ fn benchmark_notes(tool_name: &str) -> &'static [&'static str] {
             "Benchmark value here is mostly safety, verification, and better progress UX.",
             "Use after discovery and proof; this is execution, not exploration.",
             "The newer wins here are about observability and handoff quality, not only token savings.",
+        ],
+        "batch_view" => &[
+            "Benchmark value is mostly round-trip reduction during long read sweeps.",
+        ],
+        "scan_all" => &[
+            "The win is orchestration compression: one grouped scan pass instead of eight tool calls.",
+        ],
+        "cross_verify" => &[
+            "The value is trust calibration between graph state and filesystem truth, not token savings alone.",
+        ],
+        "coverage_session" => &[
+            "The win is attention control in long sessions, not raw retrieval precision.",
+        ],
+        "external_references" => &[
+            "The value is discovering outside-path evidence quickly; it is not yet automatic federation.",
+        ],
+        "audit" => &["The main gain is replacing long manual tool chains with one profile-aware entrypoint."],
+        "ghost_edges" => &[
+            "Best when git history is rich enough to expose hidden co-change coupling.",
+        ],
+        "taint_trace" => &[
+            "Strongest on trust-boundary investigations, not as a universal flow tool.",
+        ],
+        "twins" => &[
+            "Best as a fast structural duplication lens before refactor planning.",
+        ],
+        "refactor_plan" => &[
+            "The win is graph-native extraction guidance, not automatic refactoring by itself.",
+        ],
+        "runtime_overlay" => &[
+            "Strongest when paired with traces, hotspots, or structural risk views.",
         ],
         "timeline" => &[
             "Usually strongest when historical proof is the missing piece after localization.",
@@ -539,6 +750,28 @@ fn workflow_patterns(tool_name: &str) -> &'static [&'static str] {
             "validate_plan -> heuristics_surface -> apply_batch(verify=true)",
             "apply_batch -> next_suggested_tool when verification says the batch still needs review",
         ],
+        "audit" => &[
+            "audit -> batch_view on the strongest evidence files",
+            "audit -> cross_verify when the top-level report suggests graph/disk drift",
+        ],
+        "scan_all" => &[
+            "audit -> scan_all -> batch_view on the strongest findings",
+            "scan_all -> validate_plan when grouped findings imply a connected edit surface",
+        ],
+        "cross_verify" => &["audit -> cross_verify -> batch_view on the mismatched files"],
+        "batch_view" => &[
+            "audit or glob -> batch_view -> coverage_session",
+            "batch_view -> search when the next move depends on exact text inside the returned files",
+        ],
+        "coverage_session" => &[
+            "batch_view/search/seek -> coverage_session -> batch_view on the top unread files",
+        ],
+        "external_references" => &["audit(external_refs=true) -> external_references -> federate"],
+        "ghost_edges" => &["ghost_edges -> timeline -> impact"],
+        "taint_trace" => &["taint_trace -> validate_plan -> flow_simulate"],
+        "twins" => &["twins -> refactor_plan -> validate_plan"],
+        "refactor_plan" => &["twins -> refactor_plan -> validate_plan -> apply_batch"],
+        "runtime_overlay" => &["runtime_overlay -> trace -> impact"],
         "timeline" => &["trace or trail_resume -> timeline -> view"],
         _ => &[],
     }
@@ -578,6 +811,16 @@ fn state_handoffs(tool_name: &str) -> &'static [&'static str] {
             "triaging: the batch wrote cleanly, but it still needs a verification pass before you trust it.",
             "proving: the batch finished, but the verification verdict is still risky and needs hotspot review.",
             "ready_to_edit: the batch verification is strong enough that follow-up work can continue safely.",
+        ],
+        "audit" => &[
+            "triaging: the audit is a broad orienter; follow the strongest files or drift seams before editing.",
+            "ready_to_edit: rare here; use it as a signal that the repo surface is already narrowed enough for plan/execution tools.",
+        ],
+        "scan_all" => &[
+            "triaging: grouped findings tell you where to inspect next, not what to edit immediately.",
+        ],
+        "cross_verify" => &[
+            "triaging: inspect mismatches before trusting a graph or documentation claim.",
         ],
         _ => &[],
     }
@@ -853,6 +1096,23 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             example: r#"{"query": "ANTHROPIC_API_KEY", "agent_id": "jimi", "mode": "literal"}"#,
             next: &["impact", "learn"],
         },
+        ToolDoc {
+            name: "scan_all",
+            category: "Superpowers",
+            glyph: GLYPH_STRUCTURE,
+            one_liner: "Run all structural scan patterns in one grouped pass",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("scope", "File path prefix to limit scope", false),
+                ("severity_min", "Minimum severity threshold", false),
+                ("graph_validate", "Validate findings against graph edges", false),
+                ("limit_per_pattern", "Maximum findings per pattern", false),
+                ("patterns", "Optional subset of patterns", false),
+            ],
+            returns: "Grouped findings by pattern with per-pattern counts",
+            example: r#"{"agent_id": "jimi", "scope": "src", "severity_min": 0.3}"#,
+            next: &["batch_view", "validate_plan"],
+        },
         // --- Extended ---
         ToolDoc {
             name: "hypothesize",
@@ -919,6 +1179,45 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             returns: "Results from all namespaces with provenance",
             example: r#"{"query": "authentication", "agent_id": "jimi"}"#,
             next: &["activate", "why"],
+        },
+        ToolDoc {
+            name: "cross_verify",
+            category: "Extended",
+            glyph: GLYPH_DIMENSION,
+            one_liner: "Compare graph state against disk truth: files, LOC drift, and hashes",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("scope", "File path prefix to limit scope", false),
+                ("check", "Checks: existence, loc, hash", false),
+                ("include_dotfiles", "Include selected dotfiles", false),
+                ("dotfile_patterns", "Allowed dotfile patterns", false),
+            ],
+            returns: "Graph-vs-disk mismatches with stale confidence",
+            example: r#"{"agent_id": "jimi", "scope": "src", "check": ["existence", "loc", "hash"]}"#,
+            next: &["batch_view", "audit"],
+        },
+        ToolDoc {
+            name: "coverage_session",
+            category: "Extended",
+            glyph: GLYPH_DIMENSION,
+            one_liner: "Show what this agent session has and has not inspected yet",
+            params: &[("agent_id", "Calling agent identifier", true)],
+            returns: "Visited files, unvisited files, coverage percentage, tools used",
+            example: r#"{"agent_id": "jimi"}"#,
+            next: &["batch_view", "seek", "search"],
+        },
+        ToolDoc {
+            name: "external_references",
+            category: "Extended",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Find explicit file path references that point outside current ingest roots",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("scope", "File path prefix to limit scope", false),
+            ],
+            returns: "External paths with existence checks and suggested follow-up action",
+            example: r#"{"agent_id": "jimi", "scope": "docs"}"#,
+            next: &["federate", "audit"],
         },
         // --- Superpowers: Immunology, Seismology, etc. ---
         ToolDoc {
@@ -1017,6 +1316,82 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             returns: "Layer members, statistics, violations",
             example: r#"{"layer": "api", "agent_id": "jimi"}"#,
             next: &["layers", "impact"],
+        },
+        ToolDoc {
+            name: "ghost_edges",
+            category: "Superpowers",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Surface historical co-change edges with no explicit static dependency",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("depth", "Git history window: 7d, 30d, 90d, all", false),
+                ("scope", "File path prefix to limit scope", false),
+                ("top_k", "Maximum ghost edges to return", false),
+            ],
+            returns: "Ghost edges ranked by temporal coupling strength",
+            example: r#"{"agent_id": "jimi", "depth": "30d", "scope": "src"}"#,
+            next: &["timeline", "impact"],
+        },
+        ToolDoc {
+            name: "taint_trace",
+            category: "Superpowers",
+            glyph: GLYPH_STRUCTURE,
+            one_liner: "Trace taint propagation from entry nodes through trust boundaries",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("entry_nodes", "Entry point node IDs to inject taint", true),
+                ("taint_type", "user_input, sensitive_data, or custom", false),
+                ("boundary_patterns", "Custom boundary patterns", false),
+                ("max_depth", "Maximum propagation depth", false),
+            ],
+            returns: "Propagation graph, suspicious sinks, and boundary misses",
+            example: r#"{"agent_id": "jimi", "entry_nodes": ["file::src/api.rs"]}"#,
+            next: &["validate_plan", "flow_simulate"],
+        },
+        ToolDoc {
+            name: "twins",
+            category: "Superpowers",
+            glyph: GLYPH_STRUCTURE,
+            one_liner: "Find structurally equivalent or near-equivalent nodes",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("similarity_threshold", "Minimum cosine similarity threshold", false),
+                ("top_k", "Maximum twin pairs to return", false),
+                ("scope", "File path prefix to limit scope", false),
+            ],
+            returns: "Twin pairs with structural similarity scores",
+            example: r#"{"agent_id": "jimi", "similarity_threshold": 0.8}"#,
+            next: &["refactor_plan", "impact"],
+        },
+        ToolDoc {
+            name: "refactor_plan",
+            category: "Superpowers",
+            glyph: GLYPH_STRUCTURE,
+            one_liner: "Suggest graph-native extraction communities for refactoring",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("scope", "File path prefix to limit scope", false),
+                ("max_communities", "Maximum communities to consider", false),
+                ("min_community_size", "Minimum nodes per candidate", false),
+            ],
+            returns: "Proposed extraction communities and refactor candidates",
+            example: r#"{"agent_id": "jimi", "scope": "src/payment"}"#,
+            next: &["validate_plan", "apply_batch"],
+        },
+        ToolDoc {
+            name: "runtime_overlay",
+            category: "Superpowers",
+            glyph: GLYPH_DIMENSION,
+            one_liner: "Overlay runtime span heat, latency, and error signals onto the graph",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("spans", "OpenTelemetry spans to ingest", true),
+                ("service_name", "Optional service name scope", false),
+                ("mapping_strategy", "label_match, code_attribute, exact_id", false),
+            ],
+            returns: "Runtime heat overlay attached to graph nodes",
+            example: r#"{"agent_id": "jimi", "spans": [{\"name\": \"auth.request\", \"duration_us\": 1200, \"parent\": null}]}"#,
+            next: &["trace", "panoramic"],
         },
         // --- Surgical ---
         ToolDoc {
@@ -1579,6 +1954,29 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             next: &["savings", "trail_save"],
         },
         ToolDoc {
+            name: "audit",
+            category: "Report",
+            glyph: GLYPH_STRUCTURE,
+            one_liner: "Profile-aware one-call audit over topology, scans, verification, and git state",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("path", "Root path to audit", true),
+                (
+                    "profile",
+                    "auto | quick | coordination | production | security | migration",
+                    false,
+                ),
+                ("depth", "quick | surface | full", false),
+                ("cross_verify", "Compare graph vs filesystem state", false),
+                ("include_git", "Include git state and recent history", false),
+                ("include_config", "Include selected dotfiles/config directories", false),
+                ("external_refs", "Discover explicit external path references", false),
+            ],
+            returns: "Identity, inventory, topology, scan results, verification, health grades, recommendations",
+            example: r#"{"agent_id": "jimi", "path": "/project", "profile": "auto"}"#,
+            next: &["batch_view", "cross_verify", "scan_all"],
+        },
+        ToolDoc {
             name: "help",
             category: "Help",
             glyph: GLYPH_DIMENSION,
@@ -1614,6 +2012,22 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             returns: "File content with line numbers, total_lines, lines_returned",
             example: r#"{"file_path": "src/main.rs", "offset": 50, "limit": 20, "agent_id": "jimi"}"#,
             next: &["apply", "surgical_context_v2", "impact"],
+        },
+        ToolDoc {
+            name: "batch_view",
+            category: "Surgical",
+            glyph: GLYPH_CONNECTION,
+            one_liner: "Read multiple files or globs in one call with summaries and stable delimiters",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("files", "File paths and/or glob-like patterns", true),
+                ("max_lines_per_file", "Maximum lines per file", false),
+                ("summary_mode", "Add per-file summaries", false),
+                ("auto_ingest", "Auto-ingest discovered files", false),
+            ],
+            returns: "Multi-file read payload with per-file summaries and truncation metadata",
+            example: r#"{"agent_id": "jimi", "files": ["README.md", "src/**/*.rs"]}"#,
+            next: &["coverage_session", "search"],
         },
         ToolDoc {
             name: "glob",
