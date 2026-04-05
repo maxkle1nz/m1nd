@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-22b077a7.js";
+            window.path_to_searchindex_js = "searchindex-f21ec352.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-a37108d1.js"></script>
@@ -4533,6 +4533,7 @@ if fallback {
 <li><strong>Import-driven discovery</strong> – when code already imports a sibling package/crate name but the current repo has no explicit path hint</li>
 <li><strong>Contract-driven discovery</strong> – when nearby repos expose <code>.proto</code> or MCP tool contracts that the current workspace already references by name</li>
 <li><strong>OpenAPI-driven discovery</strong> – when the current workspace references <code>operationId</code>s or routes defined in a nearby OpenAPI/Swagger spec</li>
+<li><strong>Schema-driven discovery</strong> – when the current workspace references message/component names defined in <code>.proto</code> or OpenAPI schemas</li>
 <li><strong>Planning/doc hubs</strong> – when docs point to runtime repos and you want a namespace plan without manual copy-paste</li>
 <li><strong>Worktree-heavy setups</strong> – when the current workspace path is a worktree but you still want repo-shaped namespace suggestions</li>
 </ul>

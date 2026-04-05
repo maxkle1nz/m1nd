@@ -1595,6 +1595,20 @@ fn extract_proto_contract_tokens(content: &str) -> BTreeSet<String> {
             }
         }
     }
+    for pattern in [
+        r#"(?m)^\s*message\s+([A-Za-z0-9_]+)\s*\{"#,
+        r#"(?m)^\s*enum\s+([A-Za-z0-9_]+)\s*\{"#,
+    ] {
+        if let Ok(regex) = Regex::new(pattern) {
+            for captures in regex.captures_iter(content) {
+                if let Some(value) = captures.get(1).map(|m| m.as_str().trim()) {
+                    if !value.is_empty() {
+                        tokens.insert(value.to_string());
+                    }
+                }
+            }
+        }
+    }
     tokens
 }
 
@@ -1641,6 +1655,17 @@ fn extract_openapi_contract_tokens(content: &str) -> BTreeSet<String> {
             if let Some(value) = captures.get(1).map(|m| m.as_str().trim()) {
                 if !value.is_empty() {
                     tokens.insert(value.to_string());
+                }
+            }
+        }
+    }
+    if lower.contains("components:") && lower.contains("schemas:") {
+        if let Ok(schema_regex) = Regex::new(r#"(?m)^\s{4}([A-Za-z0-9_.-]+)\s*:\s*$"#) {
+            for captures in schema_regex.captures_iter(content) {
+                if let Some(value) = captures.get(1).map(|m| m.as_str().trim()) {
+                    if !value.is_empty() {
+                        tokens.insert(value.to_string());
+                    }
                 }
             }
         }
@@ -3660,6 +3685,68 @@ mod tests {
     }
 
     #[test]
+    fn federate_auto_discovers_repo_from_proto_message_match() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/client.ts"),
+            "const typeName = 'UserProfile';\nexport const ok = typeName;\n",
+        )
+        .expect("write current source");
+
+        let contract_root = temp.path().join("contracts");
+        std::fs::create_dir_all(contract_root.join(".git")).expect("contracts git");
+        std::fs::create_dir_all(contract_root.join("proto")).expect("contracts proto");
+        std::fs::write(
+            contract_root.join("proto/users.proto"),
+            "syntax = \"proto3\";\nmessage UserProfile {}\nenum UserStatus { USER_STATUS_UNKNOWN = 0; }\n",
+        )
+        .expect("write proto");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/client.ts".into(),
+            file_path: current_root
+                .join("src/client.ts")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "typescript".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&contract_root).expect("canonical contracts");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "proto_contract_match")));
+    }
+
+    #[test]
     fn federate_auto_discovers_repo_from_mcp_tool_contract_match() {
         let temp = tempfile::tempdir().expect("tempdir");
         let current_root = temp.path().join("current");
@@ -3738,6 +3825,68 @@ mod tests {
         std::fs::write(
             api_root.join("spec/openapi.yaml"),
             "openapi: 3.1.0\npaths:\n  /api/users:\n    get:\n      operationId: listUsers\n",
+        )
+        .expect("write openapi");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/client.ts".into(),
+            file_path: current_root
+                .join("src/client.ts")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "typescript".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&api_root).expect("canonical api root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "openapi_contract_match")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_openapi_schema_match() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/client.ts"),
+            "const schema = 'UserProfile';\nconst op = 'listUsers';\n",
+        )
+        .expect("write current source");
+
+        let api_root = temp.path().join("api-provider");
+        std::fs::create_dir_all(api_root.join(".git")).expect("api git");
+        std::fs::create_dir_all(api_root.join("spec")).expect("spec dir");
+        std::fs::write(
+            api_root.join("spec/openapi.yaml"),
+            "openapi: 3.1.0\npaths:\n  /api/users:\n    get:\n      operationId: listUsers\ncomponents:\n  schemas:\n    UserProfile:\n      type: object\n",
         )
         .expect("write openapi");
 
