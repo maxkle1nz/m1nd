@@ -2185,6 +2185,12 @@ fn background_tick_if_due(state: &mut SessionState) {
 }
 
 fn run_daemon_tick(state: &mut SessionState, trigger: &str) {
+    if state.daemon_state.tick_in_flight {
+        state.daemon_state.pending_rerun = true;
+        return;
+    }
+
+    state.daemon_state.tick_in_flight = true;
     state.daemon_state.last_tick_trigger = Some(trigger.to_string());
     let _ = crate::daemon_handlers::handle_daemon_tick(
         state,
@@ -2193,6 +2199,21 @@ fn run_daemon_tick(state: &mut SessionState, trigger: &str) {
             max_files: 32,
         },
     );
+    state.daemon_state.tick_in_flight = false;
+
+    if state.daemon_state.pending_rerun {
+        state.daemon_state.pending_rerun = false;
+        state.daemon_state.tick_in_flight = true;
+        state.daemon_state.last_tick_trigger = Some("reconciliation".into());
+        let _ = crate::daemon_handlers::handle_daemon_tick(
+            state,
+            layers::DaemonTickInput {
+                agent_id: "daemon".into(),
+                max_files: 32,
+            },
+        );
+        state.daemon_state.tick_in_flight = false;
+    }
 }
 
 fn daemon_wait_duration_ms(state: &SessionState) -> u64 {
@@ -2655,11 +2676,15 @@ impl McpServer {
                 Ok(ServerEvent::StdinClosed) => break,
                 Ok(ServerEvent::WatchNotice) => {
                     let mut watch_events_seen = 1u64;
-                    self.state.daemon_state.last_watch_event_ms = Some(now_ms());
+                    let coalesced_at_ms = now_ms();
+                    self.state.daemon_state.last_watch_event_ms = Some(coalesced_at_ms);
                     loop {
-                        match rx.try_recv() {
+                        match rx.recv_timeout(Duration::from_millis(
+                            self.state.daemon_state.coalesce_window_ms.max(1),
+                        )) {
                             Ok(ServerEvent::WatchNotice) => {
                                 watch_events_seen = watch_events_seen.saturating_add(1);
+                                self.state.daemon_state.last_watch_event_ms = Some(now_ms());
                             }
                             Ok(ServerEvent::WatchError(error)) => {
                                 self.state.daemon_state.watch_events_dropped = self
@@ -2677,14 +2702,20 @@ impl McpServer {
                                 pending_request = None;
                                 break;
                             }
-                            Err(mpsc::TryRecvError::Empty)
-                            | Err(mpsc::TryRecvError::Disconnected) => break,
+                            Err(mpsc::RecvTimeoutError::Timeout)
+                            | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                         }
                     }
                     self.state.daemon_state.watch_events_seen = self
                         .state
                         .daemon_state
                         .watch_events_seen
+                        .saturating_add(watch_events_seen);
+                    self.state.daemon_state.last_coalesced_event_ms = Some(coalesced_at_ms);
+                    self.state.daemon_state.coalesced_event_count = self
+                        .state
+                        .daemon_state
+                        .coalesced_event_count
                         .saturating_add(watch_events_seen);
                     run_daemon_tick(&mut self.state, "watch_event");
                     continue;
@@ -2912,8 +2943,8 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::{
-        background_tick_if_due, daemon_wait_duration_ms, should_autotick_daemon, tool_schemas,
-        DaemonRuntimeControl, McpServer,
+        background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick,
+        should_autotick_daemon, tool_schemas, DaemonRuntimeControl, McpServer,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
@@ -3105,6 +3136,18 @@ mod tests {
             (700..=800).contains(&wait_ms),
             "idle streak should expand effective wait close to 4x the base interval"
         );
+    }
+
+    #[test]
+    fn run_daemon_tick_marks_pending_rerun_when_already_in_flight() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.tick_in_flight = true;
+        state.daemon_state.pending_rerun = false;
+
+        run_daemon_tick(&mut state, "traffic");
+
+        assert!(state.daemon_state.pending_rerun);
+        assert!(state.daemon_state.tick_in_flight);
     }
 
     #[test]
