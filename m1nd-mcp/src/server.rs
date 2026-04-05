@@ -2162,6 +2162,31 @@ fn background_tick_if_due(state: &mut SessionState) {
     );
 }
 
+fn daemon_wait_duration_ms(state: &SessionState) -> u64 {
+    if !state.daemon_state.active {
+        return 1000;
+    }
+    if state.daemon_state.poll_interval_ms == 0 {
+        return 1000;
+    }
+
+    match state.daemon_state.last_tick_ms {
+        Some(last_tick_ms) => {
+            let elapsed = now_ms().saturating_sub(last_tick_ms);
+            if elapsed >= state.daemon_state.poll_interval_ms {
+                25
+            } else {
+                state
+                    .daemon_state
+                    .poll_interval_ms
+                    .saturating_sub(elapsed)
+                    .clamp(25, 1000)
+            }
+        }
+        None => 25,
+    }
+}
+
 /// Dispatch perspective tools (12 tools).
 fn dispatch_perspective_tool(
     state: &mut SessionState,
@@ -2479,22 +2504,17 @@ impl McpServer {
         });
 
         loop {
-            let daemon_wait = if self.state.daemon_state.active {
-                self.state.daemon_state.poll_interval_ms.clamp(25, 1000)
-            } else {
-                1000
+            let (payload, transport_mode) = match rx
+                .recv_timeout(Duration::from_millis(daemon_wait_duration_ms(&self.state)))
+            {
+                Ok(Some(value)) => value,
+                Ok(None) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    background_tick_if_due(&mut self.state);
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
-
-            let (payload, transport_mode) =
-                match rx.recv_timeout(Duration::from_millis(daemon_wait)) {
-                    Ok(Some(value)) => value,
-                    Ok(None) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        background_tick_if_due(&mut self.state);
-                        continue;
-                    }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                };
             let trimmed = payload.trim();
             if trimmed.is_empty() {
                 continue;
@@ -2686,7 +2706,9 @@ impl McpServer {
 
 #[cfg(test)]
 mod tests {
-    use super::{background_tick_if_due, should_autotick_daemon, tool_schemas};
+    use super::{
+        background_tick_if_due, daemon_wait_duration_ms, should_autotick_daemon, tool_schemas,
+    };
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
@@ -2828,5 +2850,23 @@ mod tests {
                 .any(|result| { result.matched_line.contains("return 9") }),
             "background tick should refresh the graph before the next explicit tool call"
         );
+    }
+
+    #[test]
+    fn daemon_wait_duration_uses_remaining_time_until_next_tick() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.active = true;
+        state.daemon_state.poll_interval_ms = 500;
+        state.daemon_state.last_tick_ms = Some(super::now_ms().saturating_sub(125));
+
+        let wait_ms = daemon_wait_duration_ms(&state);
+        assert!(
+            (300..=400).contains(&wait_ms),
+            "remaining wait should be close to the poll interval remainder"
+        );
+
+        state.daemon_state.last_tick_ms = Some(0);
+        let overdue_wait_ms = daemon_wait_duration_ms(&state);
+        assert_eq!(overdue_wait_ms, 25);
     }
 }
