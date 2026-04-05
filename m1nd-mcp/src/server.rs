@@ -13,6 +13,9 @@ use m1nd_core::domain::DomainConfig;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
@@ -2138,6 +2141,27 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
     )
 }
 
+fn background_tick_if_due(state: &mut SessionState) {
+    if !state.daemon_state.active || state.daemon_state.poll_interval_ms == 0 {
+        return;
+    }
+    let due = state
+        .daemon_state
+        .last_tick_ms
+        .is_none_or(|last| now_ms().saturating_sub(last) >= state.daemon_state.poll_interval_ms);
+    if !due {
+        return;
+    }
+
+    let _ = crate::daemon_handlers::handle_daemon_tick(
+        state,
+        layers::DaemonTickInput {
+            agent_id: "daemon".into(),
+            max_files: 32,
+        },
+    );
+}
+
 /// Dispatch perspective tools (12 tools).
 fn dispatch_perspective_tool(
     state: &mut SessionState,
@@ -2427,17 +2451,50 @@ impl McpServer {
     /// Main event loop: read JSON-RPC from stdin, dispatch, write response to stdout.
     /// Blocks until EOF or shutdown signal.
     pub fn serve(&mut self) -> M1ndResult<()> {
-        let stdin = std::io::stdin();
         let stdout = std::io::stdout();
-        let mut reader = stdin.lock();
         let mut writer = stdout.lock();
+        let (tx, rx) = mpsc::channel();
+
+        thread::spawn(move || {
+            let stdin = std::io::stdin();
+            let mut reader = stdin.lock();
+            loop {
+                let next = read_request_payload(&mut reader);
+                match next {
+                    Ok(Some(value)) => {
+                        if tx.send(Some(value)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = tx.send(None);
+                        break;
+                    }
+                    Err(_) => {
+                        let _ = tx.send(None);
+                        break;
+                    }
+                }
+            }
+        });
 
         loop {
-            let (payload, transport_mode) = match read_request_payload(&mut reader) {
-                Ok(Some(value)) => value,
-                Ok(None) => break,
-                Err(_) => break,
+            let daemon_wait = if self.state.daemon_state.active {
+                self.state.daemon_state.poll_interval_ms.clamp(25, 1000)
+            } else {
+                1000
             };
+
+            let (payload, transport_mode) =
+                match rx.recv_timeout(Duration::from_millis(daemon_wait)) {
+                    Ok(Some(value)) => value,
+                    Ok(None) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        background_tick_if_due(&mut self.state);
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                };
             let trimmed = payload.trim();
             if trimmed.is_empty() {
                 continue;
@@ -2629,7 +2686,26 @@ impl McpServer {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_autotick_daemon, tool_schemas};
+    use super::{background_tick_if_due, should_autotick_daemon, tool_schemas};
+    use crate::server::McpConfig;
+    use crate::session::SessionState;
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::Graph;
+
+    fn build_state() -> (tempfile::TempDir, SessionState) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        (temp, state)
+    }
 
     #[test]
     fn tool_schemas_expose_new_audit_surface_and_retrobuilder_tools() {
@@ -2686,5 +2762,71 @@ mod tests {
         }
         assert!(should_autotick_daemon("search"));
         assert!(should_autotick_daemon("apply"));
+    }
+
+    #[test]
+    fn background_tick_runs_when_daemon_is_due() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file_path = repo.join("src/core.py");
+        std::fs::write(&file_path, "def core():\n    return 1\n").expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("initial ingest");
+
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 25,
+            },
+        )
+        .expect("daemon start");
+
+        std::fs::write(&file_path, "def core():\n    return 9\n").expect("rewrite file");
+        state.daemon_state.last_tick_ms = Some(0);
+
+        background_tick_if_due(&mut state);
+
+        let hit = crate::search_handlers::handle_search(
+            &mut state,
+            crate::protocol::layers::SearchInput {
+                query: "return 9".into(),
+                agent_id: "test".into(),
+                mode: crate::protocol::layers::SearchMode::Literal,
+                scope: None,
+                filename_pattern: None,
+                top_k: 5,
+                case_sensitive: false,
+                context_lines: 0,
+                invert: false,
+                count_only: false,
+                multiline: false,
+                auto_ingest: false,
+                max_output_chars: None,
+            },
+        )
+        .expect("search after background tick");
+
+        assert!(
+            hit.results
+                .iter()
+                .any(|result| { result.matched_line.contains("return 9") }),
+            "background tick should refresh the graph before the next explicit tool call"
+        );
     }
 }
