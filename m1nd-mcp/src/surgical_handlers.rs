@@ -21,6 +21,294 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+fn proactive_severity_rank(value: &str) -> u8 {
+    match value {
+        "critical" => 0,
+        "warning" => 1,
+        _ => 2,
+    }
+}
+
+fn push_proactive_insight(
+    insights: &mut Vec<surgical::ProactiveInsight>,
+    insight: surgical::ProactiveInsight,
+) {
+    insights.push(insight);
+}
+
+fn current_repo_prefix(external_id: &str) -> Option<&str> {
+    external_id.split_once("::file::").map(|(prefix, _)| prefix)
+}
+
+fn likely_test_companions(path: &Path) -> Vec<String> {
+    let mut companions = Vec::new();
+    let Some(parent) = path.parent() else {
+        return companions;
+    };
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return companions;
+    };
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+
+    let candidates: Vec<PathBuf> = match ext {
+        "py" => vec![
+            parent.join(format!("test_{}.py", stem)),
+            parent.join(format!("{}_test.py", stem)),
+            parent.join("tests").join(format!("test_{}.py", stem)),
+        ],
+        "ts" | "tsx" | "js" | "jsx" => vec![
+            parent.join(format!("{}.test.{}", stem, ext)),
+            parent.join(format!("{}.spec.{}", stem, ext)),
+            parent
+                .join("__tests__")
+                .join(format!("{}.test.{}", stem, ext)),
+        ],
+        "go" => vec![parent.join(format!("{}_test.go", stem))],
+        "rs" => vec![
+            parent.join(format!("{}_test.rs", stem)),
+            parent
+                .parent()
+                .unwrap_or(parent)
+                .join("tests")
+                .join(format!("{}.rs", stem)),
+        ],
+        _ => Vec::new(),
+    };
+
+    for candidate in candidates {
+        if candidate.exists() {
+            companions.push(candidate.to_string_lossy().to_string());
+        }
+    }
+    companions
+}
+
+fn resolve_external_id_for_node(
+    graph: &m1nd_core::graph::Graph,
+    node_id: NodeId,
+) -> Option<String> {
+    graph.id_to_node.iter().find_map(|(interned, &nid)| {
+        if nid == node_id {
+            Some(graph.strings.resolve(*interned).to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn is_file_node(graph: &m1nd_core::graph::Graph, node_id: NodeId) -> bool {
+    graph
+        .nodes
+        .node_type
+        .get(node_id.as_usize())
+        .is_some_and(|node_type| matches!(node_type, NodeType::File))
+}
+
+fn build_proactive_insights(
+    state: &SessionState,
+    file_path: &str,
+    external_id: Option<&str>,
+    heuristic_summary: Option<&surgical::SurgicalHeuristicSummary>,
+    verification: Option<&surgical::VerificationReport>,
+) -> Vec<surgical::ProactiveInsight> {
+    let mut insights = Vec::new();
+
+    if let Some(summary) = heuristic_summary {
+        if summary.antibody_hits > 0 {
+            push_proactive_insight(
+                &mut insights,
+                surgical::ProactiveInsight {
+                    severity: "warning".into(),
+                    kind: "antibody_recurrence".into(),
+                    message: format!(
+                        "{} recurring antibody pattern(s) already point at this edit surface.",
+                        summary.antibody_hits
+                    ),
+                    confidence: (0.45 + (summary.antibody_hits.min(3) as f32 * 0.15)).min(0.95),
+                    evidence: vec![format!("antibody_hits={}", summary.antibody_hits)],
+                    suggested_tool: Some("antibody_scan".into()),
+                    suggested_target: external_id.map(|value| value.to_string()),
+                },
+            );
+        }
+
+        if summary.heuristic_signals.trust_risk_multiplier > 1.1 || summary.risk_score >= 0.45 {
+            push_proactive_insight(
+                &mut insights,
+                surgical::ProactiveInsight {
+                    severity: if summary.heuristic_signals.trust_risk_multiplier > 1.35 {
+                        "critical".into()
+                    } else {
+                        "warning".into()
+                    },
+                    kind: "trust_drop".into(),
+                    message: format!(
+                        "This file sits in a low-trust zone (trust {:.2}, risk multiplier {:.2}).",
+                        summary.heuristic_signals.trust_score,
+                        summary.heuristic_signals.trust_risk_multiplier
+                    ),
+                    confidence: (summary.risk_score + 0.2).min(0.95),
+                    evidence: vec![
+                        format!("trust_score={:.2}", summary.heuristic_signals.trust_score),
+                        format!(
+                            "trust_risk_multiplier={:.2}",
+                            summary.heuristic_signals.trust_risk_multiplier
+                        ),
+                    ],
+                    suggested_tool: Some("heuristics_surface".into()),
+                    suggested_target: Some(file_path.to_string()),
+                },
+            );
+        }
+
+        if summary.heuristic_signals.tremor_observation_count >= 3
+            || summary
+                .heuristic_signals
+                .tremor_magnitude
+                .is_some_and(|value| value > 0.0)
+        {
+            push_proactive_insight(
+                &mut insights,
+                surgical::ProactiveInsight {
+                    severity: "warning".into(),
+                    kind: "tremor_hotspot".into(),
+                    message: format!(
+                        "This file shows tremor activity ({} observations).",
+                        summary.heuristic_signals.tremor_observation_count
+                    ),
+                    confidence: 0.7,
+                    evidence: vec![
+                        format!(
+                            "tremor_observation_count={}",
+                            summary.heuristic_signals.tremor_observation_count
+                        ),
+                        summary
+                            .heuristic_signals
+                            .tremor_magnitude
+                            .map(|value| format!("tremor_magnitude={value:.2}"))
+                            .unwrap_or_else(|| "tremor_magnitude=unknown".into()),
+                    ],
+                    suggested_tool: Some("tremor".into()),
+                    suggested_target: external_id.map(|value| value.to_string()),
+                },
+            );
+        }
+
+        if let Some(external_id) = external_id {
+            let prefix = current_repo_prefix(external_id).unwrap_or_default();
+            if let Some(cross_repo_target) = summary.top_affected.iter().find(|target| {
+                current_repo_prefix(target).is_some_and(|target_prefix| {
+                    !target_prefix.is_empty() && target_prefix != prefix
+                })
+            }) {
+                push_proactive_insight(
+                    &mut insights,
+                    surgical::ProactiveInsight {
+                        severity: "warning".into(),
+                        kind: "cross_repo_contract_risk".into(),
+                        message: "This edit appears to reverberate into a federated repo boundary."
+                            .into(),
+                        confidence: 0.72,
+                        evidence: vec![cross_repo_target.clone()],
+                        suggested_tool: Some("why".into()),
+                        suggested_target: Some(cross_repo_target.clone()),
+                    },
+                );
+            }
+
+            let graph = state.graph.read();
+            if let Some((file_node, _)) = find_nodes_for_file(&graph, file_path)
+                .into_iter()
+                .find(|(node_id, ext)| is_file_node(&graph, *node_id) && ext.starts_with("file::"))
+            {
+                let co_changes = state.temporal.co_change.predict(file_node, 1);
+                if let Some(partner) = co_changes.first() {
+                    if let Some(target_ext_id) =
+                        resolve_external_id_for_node(&graph, partner.target)
+                    {
+                        push_proactive_insight(
+                            &mut insights,
+                            surgical::ProactiveInsight {
+                                severity: "info".into(),
+                                kind: "co_change_prediction".into(),
+                                message: "Historical co-change suggests another file likely needs attention."
+                                    .into(),
+                                confidence: partner.strength.get().clamp(0.0, 1.0),
+                                evidence: vec![
+                                    format!("co_change_strength={:.2}", partner.strength.get()),
+                                    target_ext_id.clone(),
+                                ],
+                                suggested_tool: Some("batch_view".into()),
+                                suggested_target: Some(target_ext_id),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let companion_tests = likely_test_companions(Path::new(file_path));
+    let tests_run = verification
+        .and_then(|report| report.tests_run)
+        .unwrap_or(0);
+    if !companion_tests.is_empty() && tests_run == 0 {
+        push_proactive_insight(
+            &mut insights,
+            surgical::ProactiveInsight {
+                severity: "warning".into(),
+                kind: "untouched_test_companion".into(),
+                message: "A nearby test companion exists but was not exercised by this write."
+                    .into(),
+                confidence: 0.78,
+                evidence: companion_tests.clone(),
+                suggested_tool: Some("batch_view".into()),
+                suggested_target: companion_tests.first().cloned(),
+            },
+        );
+    }
+
+    if let Some(report) = verification {
+        if report.layer_violations.iter().any(|entry| {
+            let lower = entry.to_lowercase();
+            lower.contains("schema") || lower.contains("proto") || lower.contains("openapi")
+        }) {
+            push_proactive_insight(
+                &mut insights,
+                surgical::ProactiveInsight {
+                    severity: "warning".into(),
+                    kind: "schema_contract_drift".into(),
+                    message: "The verification surface hints at contract/schema drift introduced by this write.".into(),
+                    confidence: 0.76,
+                    evidence: report
+                        .layer_violations
+                        .iter()
+                        .filter(|entry| {
+                            let lower = entry.to_lowercase();
+                            lower.contains("schema") || lower.contains("proto") || lower.contains("openapi")
+                        })
+                        .take(3)
+                        .cloned()
+                        .collect(),
+                    suggested_tool: Some("federate_auto".into()),
+                    suggested_target: Some(file_path.to_string()),
+                },
+            );
+        }
+    }
+
+    insights.sort_by(|a, b| {
+        proactive_severity_rank(&a.severity)
+            .cmp(&proactive_severity_rank(&b.severity))
+            .then_with(|| b.confidence.total_cmp(&a.confidence))
+    });
+    insights.truncate(3);
+    insights
+}
+
 fn surgical_dampened_trust_factor(raw_factor: f32) -> f32 {
     1.0 + (raw_factor - 1.0) * 0.2
 }
@@ -1822,6 +2110,27 @@ pub fn handle_apply(
     // Track agent session
     state.track_agent(&input.agent_id);
 
+    let proactive_insights = {
+        let graph = state.graph.read();
+        let path_str = validated_path.to_string_lossy().to_string();
+        let file_node = find_nodes_for_file(&graph, &path_str)
+            .into_iter()
+            .find(|(node_id, ext)| is_file_node(&graph, *node_id) && ext.starts_with("file::"))
+            .map(|(_, ext)| ext);
+        drop(graph);
+
+        let heuristic_summary = file_node
+            .as_deref()
+            .map(|external_id| build_surgical_heuristic_summary(state, external_id, &path_str));
+        build_proactive_insights(
+            state,
+            &path_str,
+            file_node.as_deref(),
+            heuristic_summary.as_ref(),
+            None,
+        )
+    };
+
     Ok(surgical::ApplyOutput {
         file_path: validated_path.to_string_lossy().to_string(),
         bytes_written,
@@ -1829,6 +2138,7 @@ pub fn handle_apply(
         lines_removed,
         reingested,
         updated_node_ids,
+        proactive_insights,
         elapsed_ms,
     })
 }
@@ -2272,6 +2582,7 @@ pub fn handle_apply_batch(
             next_suggested_tool: None,
             next_suggested_target: None,
             next_step_hint: None,
+            proactive_insights: Vec::new(),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
             message: "No edits were provided.".into(),
         };
@@ -2285,6 +2596,7 @@ pub fn handle_apply_batch(
             reingested: false,
             total_bytes_written: 0,
             verification: None,
+            proactive_insights: Vec::new(),
             next_suggested_tool: None,
             next_suggested_target: None,
             next_step_hint: None,
@@ -2350,6 +2662,7 @@ pub fn handle_apply_batch(
         next_suggested_tool: None,
         next_suggested_target: None,
         next_step_hint: None,
+        proactive_insights: Vec::new(),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!("Validated {} edit targets.", input.edits.len()),
     };
@@ -2590,6 +2903,7 @@ pub fn handle_apply_batch(
         next_suggested_tool: None,
         next_suggested_target: None,
         next_step_hint: None,
+        proactive_insights: Vec::new(),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: format!(
             "Wrote {} of {} files.",
@@ -2686,6 +3000,7 @@ pub fn handle_apply_batch(
         next_suggested_tool: None,
         next_suggested_target: None,
         next_step_hint: None,
+        proactive_insights: Vec::new(),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if input.reingest {
             if reingested {
@@ -3251,6 +3566,7 @@ pub fn handle_apply_batch(
         next_suggested_tool: None,
         next_suggested_target: None,
         next_step_hint: None,
+        proactive_insights: Vec::new(),
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         message: if let Some(report) = verification.as_ref() {
             format!("Verification finished with verdict {}.", report.verdict)
@@ -3286,6 +3602,56 @@ pub fn handle_apply_batch(
             input.edits.len()
         )
     };
+    let proactive_insights = {
+        let mut insights = Vec::new();
+        for impact in verification
+            .as_ref()
+            .map(|report| report.high_impact_files.iter().collect::<Vec<_>>())
+            .unwrap_or_default()
+        {
+            let mut per_file = build_proactive_insights(
+                state,
+                &impact.file_path,
+                Some(&impact.node_id),
+                impact.heuristic_summary.as_ref(),
+                verification.as_ref(),
+            );
+            insights.append(&mut per_file);
+        }
+        if insights.is_empty() {
+            for result in &results {
+                if !result.success {
+                    continue;
+                }
+                let graph = state.graph.read();
+                let file_node = find_nodes_for_file(&graph, &result.file_path)
+                    .into_iter()
+                    .find(|(node_id, ext)| {
+                        is_file_node(&graph, *node_id) && ext.starts_with("file::")
+                    })
+                    .map(|(_, ext)| ext);
+                drop(graph);
+                let heuristic_summary = file_node.as_deref().map(|external_id| {
+                    build_surgical_heuristic_summary(state, external_id, &result.file_path)
+                });
+                let mut per_file = build_proactive_insights(
+                    state,
+                    &result.file_path,
+                    file_node.as_deref(),
+                    heuristic_summary.as_ref(),
+                    verification.as_ref(),
+                );
+                insights.append(&mut per_file);
+            }
+        }
+        insights.sort_by(|a, b| {
+            proactive_severity_rank(&a.severity)
+                .cmp(&proactive_severity_rank(&b.severity))
+                .then_with(|| b.confidence.total_cmp(&a.confidence))
+        });
+        insights.truncate(3);
+        insights
+    };
     phases.push(surgical::ApplyBatchPhase {
         phase: "done".into(),
         phase_index: 4,
@@ -3317,6 +3683,7 @@ pub fn handle_apply_batch(
         next_suggested_tool: next_suggested_tool.clone(),
         next_suggested_target: next_suggested_target.clone(),
         next_step_hint: next_step_hint.clone(),
+        proactive_insights: proactive_insights.clone(),
         elapsed_ms,
         message: status_message.clone(),
     };
@@ -3332,6 +3699,7 @@ pub fn handle_apply_batch(
         reingested,
         total_bytes_written,
         verification,
+        proactive_insights,
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
@@ -4641,6 +5009,71 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_surfaces_proactive_insights_for_risky_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+        std::fs::write(
+            root.join("src/test_core.py"),
+            "def test_core():\n    assert True\n",
+        )
+        .expect("write companion test");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let now = 60_000.0;
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{}", primary_str), now - 60.0);
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.0,
+            4,
+            now - 50.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.1,
+            4,
+            now - 40.0,
+        );
+        state.tremor_registry.record_observation(
+            &format!("file::{}", primary_str),
+            1.2,
+            4,
+            now - 30.0,
+        );
+
+        let output = handle_apply(
+            &mut state,
+            surgical::ApplyInput {
+                file_path: primary_str,
+                agent_id: "test".into(),
+                new_content: "def core():\n    return 2\n".into(),
+                description: Some("update return".into()),
+                reingest: true,
+            },
+        )
+        .expect("apply");
+
+        assert!(
+            !output.proactive_insights.is_empty(),
+            "apply should surface proactive insights for a risky file"
+        );
+        assert!(output.proactive_insights.iter().any(|insight| {
+            insight.kind == "trust_drop"
+                || insight.kind == "tremor_hotspot"
+                || insight.kind == "untouched_test_companion"
+        }));
+    }
+
+    #[test]
     fn test_apply_batch_verdict_becomes_risky_for_high_heuristic_hotspot() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
@@ -4764,6 +5197,14 @@ mod tests {
         assert_eq!(
             done_event.next_suggested_tool.as_deref(),
             Some("heuristics_surface")
+        );
+        assert!(
+            !output.proactive_insights.is_empty(),
+            "apply_batch should surface proactive insights"
+        );
+        assert!(
+            !done_event.proactive_insights.is_empty(),
+            "final batch progress event should carry proactive insights"
         );
         assert!(
             output

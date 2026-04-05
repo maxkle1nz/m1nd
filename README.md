@@ -506,8 +506,8 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `batch_view` | Read multiple files or glob patterns in one call with stable delimiters and summaries | varies |
 | `edit_preview` | **Preview a code change without writing to disk** — returns diff, snapshot, validation. Two-phase safety: see before you write | <1ms |
 | `edit_commit` | **Commit a previewed change** — requires explicit `confirm=true`, TTL 5min, source hash verification. Prevents stale/tampered writes | <1ms + apply |
-| `apply` | Write edited code back to file, atomic write, re-ingest graph, run predict | 3.5ms |
-| `apply_batch` | Write multiple files atomically, single re-ingest pass, returns per-file diffs | 165ms |
+| `apply` | Write edited code back to file, atomic write, re-ingest graph, and attach proactive follow-up insights | 3.5ms + insights |
+| `apply_batch` | Write multiple files atomically, single re-ingest pass, returns per-file diffs and proactive follow-up insights | 165ms + insights |
 | `apply_batch(verify=true)` | All of the above + **5-layer post-write verification** (pattern detection, compile check, graph BFS impact, test execution, anti-pattern analysis) with `heuristic_summary` on `verification.high_impact_files`; heuristic hotspots can promote the verdict to `RISKY` | 165ms + verify |
 </details>
 

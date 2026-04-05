@@ -1769,6 +1769,9 @@ Return complete context for a file in one call: full source, symbol table, calle
 
 ### `m1nd_apply`
 
+`m1nd_apply` now returns `proactive_insights` when a write lands on a risky or
+historically unstable surface.
+
 Write LLM-edited code back to a file and trigger incremental re-ingest so the graph stays coherent. Always call `m1nd_surgical_context` or `m1nd_surgical_context_v2` first to get the current file contents.
 
 **Inputs:**
@@ -1881,6 +1884,9 @@ curl -s http://localhost:1337/api/tools/m1nd_surgical_context_v2 \
 ---
 
 ### `m1nd_apply_batch`
+
+`m1nd_apply_batch` now returns `proactive_insights`, and the final
+`batch_completed` progress event carries the same payload for streaming clients.
 
 Atomically write multiple files and trigger a single bulk re-ingest. All-or-nothing by default — if any file fails, all writes are rolled back. Optionally runs post-write verification (5-layer analysis: graph diff, anti-pattern detection, BFS blast radius, test execution, compile check). **12/12 accuracy validated.**
 

@@ -17,6 +17,16 @@ The rule:
 
 ## Open Notes
 
+### 2026-04-05 — proactive write insights still lack runtime-backed mismatch signals
+
+- Context: first proactive-insight slice on `apply` / `apply_batch`
+- Friction: the system now emits useful structural guidance after writes, but it
+  still does not compare those edits against runtime overlay evidence
+- Desired behavior:
+  - `runtime_hotspot_mismatch`
+  - stronger cross-repo contract drift when federation is active
+  - per-insight latency budgets in benchmarks
+
 ### 2026-04-05 — `audit` still composes more than it understands
 
 - Context: first implementation of `m1nd.audit`
