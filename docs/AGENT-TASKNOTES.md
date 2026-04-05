@@ -27,16 +27,15 @@ The rule:
   - stronger cross-repo contract drift when federation is active
   - per-insight latency budgets in benchmarks
 
-### 2026-04-05 — daemon alerts exist, but the daemon still does not watch or ingest deltas by itself
+### 2026-04-05 — daemon can tick for delta ingest, but it still is not a background watcher
 
-- Context: first daemon surface (`daemon_start`, `daemon_stop`, `daemon_status`,
-  `alerts_list`, `alerts_ack`)
-- Friction: write paths can now persist alerts when the daemon is active, but
-  the daemon is still a persisted control plane, not yet a live file-watching
-  incremental ingest loop
+- Context: daemon control plane + explicit `daemon_tick`
+- Friction: the daemon can now poll watched roots and incrementally re-ingest
+  changed files, but it still needs an explicit tick call instead of a true
+  background filesystem / SCM watcher
 - Desired behavior:
-  - filesystem / SCM-triggered delta ingest
-  - alert emission without requiring an explicit `apply`
+  - autonomous background ticks
+  - watchman/native notify acceleration
   - latency budgets for `single-file changed -> alert available`
 
 ### 2026-04-05 — `audit` still composes more than it understands

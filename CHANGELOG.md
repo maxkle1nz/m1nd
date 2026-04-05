@@ -15,6 +15,7 @@ The MCP surface now exposes the first daemon-era tools:
 - `daemon_start`
 - `daemon_stop`
 - `daemon_status`
+- `daemon_tick`
 - `alerts_list`
 - `alerts_ack`
 
@@ -25,6 +26,10 @@ one-shot event.
 When the daemon is active, `apply` and `apply_batch` now feed their strongest
 `proactive_insights` into that queue so agents can list, acknowledge, and
 revisit post-write structural risk without recomputing it immediately.
+
+`daemon_tick` is the first live delta-processing slice on top of that control
+plane: it polls watched roots once, incrementally re-ingests changed files, and
+emits drift alerts when watched files disappear from disk.
 
 #### Proactive write insights on `apply` and `apply_batch`
 

@@ -1,7 +1,10 @@
 use crate::protocol::layers;
-use crate::session::{DaemonAlert, SessionState};
+use crate::session::{DaemonAlert, DaemonTrackedFile, FileInventoryEntry, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde_json::json;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_ms() -> u64 {
@@ -11,20 +14,145 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn simple_content_hash(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    Some(format!("{:016x}", hasher.finish()))
+}
+
+fn extension_language(extension: Option<&str>) -> String {
+    match extension.unwrap_or_default() {
+        "rs" => "rust",
+        "py" => "python",
+        "js" => "javascript",
+        "jsx" => "javascript",
+        "ts" => "typescript",
+        "tsx" => "typescript",
+        "go" => "go",
+        "java" => "java",
+        "md" => "markdown",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        "json" => "json",
+        "sh" => "bash",
+        _ => "text",
+    }
+    .to_string()
+}
+
+fn inventory_from_watch_paths(watch_paths: &[String]) -> HashMap<String, FileInventoryEntry> {
+    let mut inventory = HashMap::new();
+
+    for root in watch_paths {
+        let root_path = PathBuf::from(root);
+        if !root_path.exists() {
+            continue;
+        }
+
+        if root_path.is_file() {
+            let Ok(metadata) = std::fs::metadata(&root_path) else {
+                continue;
+            };
+            let extension = root_path.extension().and_then(|ext| ext.to_str());
+            let external_id = root_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| format!("file::{}", name))
+                .unwrap_or_else(|| format!("file::{}", root_path.to_string_lossy()));
+            inventory.insert(
+                external_id.clone(),
+                FileInventoryEntry {
+                    external_id,
+                    file_path: root_path.to_string_lossy().to_string(),
+                    size_bytes: metadata.len(),
+                    last_modified_ms: metadata
+                        .modified()
+                        .ok()
+                        .and_then(|ts| ts.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|value| value.as_millis() as u64)
+                        .unwrap_or(0),
+                    language: extension_language(extension),
+                    commit_count: 0,
+                    loc: None,
+                    sha256: simple_content_hash(&root_path),
+                },
+            );
+            continue;
+        }
+
+        let config = m1nd_ingest::IngestConfig {
+            root: root_path.clone(),
+            ..m1nd_ingest::IngestConfig::default()
+        };
+        let walker = m1nd_ingest::walker::DirectoryWalker::new(
+            config.skip_dirs.clone(),
+            config.skip_files.clone(),
+            config.include_dotfiles,
+            config.dotfile_patterns.clone(),
+        );
+        let Ok(walk) = walker.walk(&root_path) else {
+            continue;
+        };
+
+        for file in walk.files {
+            let external_id = format!("file::{}", file.relative_path);
+            inventory.insert(
+                external_id.clone(),
+                FileInventoryEntry {
+                    external_id,
+                    file_path: file.path.to_string_lossy().to_string(),
+                    size_bytes: file.size_bytes,
+                    last_modified_ms: (file.last_modified * 1000.0).round() as u64,
+                    language: extension_language(file.extension.as_deref()),
+                    commit_count: file.commit_count,
+                    loc: None,
+                    sha256: simple_content_hash(&file.path),
+                },
+            );
+        }
+    }
+
+    inventory
+}
+
+fn tracked_files_from_inventory(
+    inventory: &HashMap<String, FileInventoryEntry>,
+) -> HashMap<String, DaemonTrackedFile> {
+    inventory
+        .iter()
+        .map(|(external_id, entry)| {
+            (
+                external_id.clone(),
+                DaemonTrackedFile {
+                    external_id: external_id.clone(),
+                    file_path: entry.file_path.clone(),
+                    last_modified_ms: entry.last_modified_ms,
+                    size_bytes: entry.size_bytes,
+                    sha256: entry.sha256.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
 pub fn handle_daemon_start(
     state: &mut SessionState,
     input: layers::DaemonStartInput,
 ) -> M1ndResult<serde_json::Value> {
     let started_at_ms = now_ms();
-    state.daemon_state.active = true;
-    state.daemon_state.started_at_ms = Some(started_at_ms);
-    state.daemon_state.last_tick_ms = Some(started_at_ms);
-    state.daemon_state.watch_paths = if input.watch_paths.is_empty() {
+    let watch_paths = if input.watch_paths.is_empty() {
         state.ingest_roots.clone()
     } else {
         input.watch_paths
     };
+    let initial_inventory = inventory_from_watch_paths(&watch_paths);
+    state.daemon_state.active = true;
+    state.daemon_state.started_at_ms = Some(started_at_ms);
+    state.daemon_state.last_tick_ms = Some(started_at_ms);
+    state.daemon_state.watch_paths = watch_paths;
     state.daemon_state.poll_interval_ms = input.poll_interval_ms;
+    state.daemon_state.tracked_files = tracked_files_from_inventory(&initial_inventory);
     state.persist_daemon_state()?;
     Ok(json!({
         "status": "started",
@@ -32,6 +160,7 @@ pub fn handle_daemon_start(
         "started_at_ms": started_at_ms,
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
+        "tracked_files": state.daemon_state.tracked_files.len(),
     }))
 }
 
@@ -61,9 +190,144 @@ pub fn handle_daemon_status(
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
         "alert_count": state.daemon_alerts.len(),
+        "tracked_files": state.daemon_state.tracked_files.len(),
         "runtime_root": state.runtime_root,
         "graph_generation": state.graph_generation,
         "cache_generation": state.cache_generation,
+    }))
+}
+
+pub fn handle_daemon_tick(
+    state: &mut SessionState,
+    input: layers::DaemonTickInput,
+) -> M1ndResult<serde_json::Value> {
+    if !state.daemon_state.active {
+        return Err(M1ndError::InvalidParams {
+            tool: "daemon_tick".into(),
+            detail: "Start the daemon before ticking it.".into(),
+        });
+    }
+
+    let live_inventory = inventory_from_watch_paths(&state.daemon_state.watch_paths);
+    let mut changed_entries = Vec::new();
+    let mut deleted_entries = Vec::new();
+
+    for (external_id, live_entry) in &live_inventory {
+        let changed = state
+            .daemon_state
+            .tracked_files
+            .get(external_id)
+            .is_none_or(|known| {
+                known.last_modified_ms != live_entry.last_modified_ms
+                    || known.size_bytes != live_entry.size_bytes
+                    || known.sha256 != live_entry.sha256
+            });
+        if changed {
+            changed_entries.push(live_entry.clone());
+        }
+    }
+
+    for (external_id, known_entry) in &state.daemon_state.tracked_files {
+        if !live_inventory.contains_key(external_id) {
+            deleted_entries.push(FileInventoryEntry {
+                external_id: known_entry.external_id.clone(),
+                file_path: known_entry.file_path.clone(),
+                size_bytes: known_entry.size_bytes,
+                last_modified_ms: known_entry.last_modified_ms,
+                language: extension_language(
+                    Path::new(&known_entry.file_path)
+                        .extension()
+                        .and_then(|ext| ext.to_str()),
+                ),
+                commit_count: 0,
+                loc: None,
+                sha256: known_entry.sha256.clone(),
+            });
+        }
+    }
+
+    changed_entries.sort_by(|a, b| b.last_modified_ms.cmp(&a.last_modified_ms));
+    changed_entries.truncate(input.max_files);
+
+    let mut ingested_files = Vec::new();
+    for entry in &changed_entries {
+        let ingest_result = crate::tools::handle_ingest(
+            state,
+            crate::protocol::IngestInput {
+                path: entry.file_path.clone(),
+                agent_id: input.agent_id.clone(),
+                mode: "merge".into(),
+                incremental: true,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )?;
+        state.record_file_inventory([entry.clone()]);
+        state.daemon_state.tracked_files.insert(
+            entry.external_id.clone(),
+            DaemonTrackedFile {
+                external_id: entry.external_id.clone(),
+                file_path: entry.file_path.clone(),
+                last_modified_ms: entry.last_modified_ms,
+                size_bytes: entry.size_bytes,
+                sha256: entry.sha256.clone(),
+            },
+        );
+        ingested_files.push(json!({
+            "file_path": entry.file_path,
+            "external_id": entry.external_id,
+            "nodes_created": ingest_result.get("nodes_created").cloned().unwrap_or(json!(0)),
+            "edges_created": ingest_result.get("edges_created").cloned().unwrap_or(json!(0)),
+        }));
+    }
+
+    let mut emitted_alert_ids = Vec::new();
+    for entry in &deleted_entries {
+        let alert = make_daemon_alert(DaemonAlertSeed {
+            severity: "warning".into(),
+            kind: "graph_vs_disk_drift".into(),
+            message: format!(
+                "Watched file disappeared from disk after ingest: {}",
+                entry.file_path
+            ),
+            confidence: 0.86,
+            evidence: vec![
+                entry.external_id.clone(),
+                entry.file_path.clone(),
+                "daemon_tick detected file deletion under a watched root".into(),
+            ],
+            suggested_tool: Some("cross_verify".into()),
+            suggested_target: Some(entry.file_path.clone()),
+            file_path: Some(entry.file_path.clone()),
+            node_id: Some(entry.external_id.clone()),
+        });
+        emitted_alert_ids.push(alert.alert_id.clone());
+        state.record_daemon_alert(alert);
+        state.daemon_state.tracked_files.remove(&entry.external_id);
+        state.file_inventory.remove(&entry.external_id);
+    }
+
+    let tick_ms = now_ms();
+    state.daemon_state.last_tick_ms = Some(tick_ms);
+    state.persist_daemon_state()?;
+    state.persist_daemon_alerts()?;
+
+    Ok(json!({
+        "active": true,
+        "tick_at_ms": tick_ms,
+        "watch_paths": state.daemon_state.watch_paths,
+        "changed_files_detected": changed_entries.len(),
+        "deleted_files_detected": deleted_entries.len(),
+        "files_reingested": ingested_files.len(),
+        "ingested_files": ingested_files,
+        "deleted_files": deleted_entries.into_iter().map(|entry| json!({
+            "file_path": entry.file_path,
+            "external_id": entry.external_id,
+        })).collect::<Vec<_>>(),
+        "alerts_emitted": emitted_alert_ids.len(),
+        "alert_ids": emitted_alert_ids,
     }))
 }
 
@@ -266,5 +530,118 @@ mod tests {
         )
         .expect("daemon stop");
         assert_eq!(stopped["active"], false);
+    }
+
+    #[test]
+    fn daemon_tick_reingests_changed_files() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file_path = repo.join("src/core.py");
+        std::fs::write(&file_path, "def core():\n    return 1\n").expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("initial ingest");
+
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 500,
+            },
+        )
+        .expect("daemon start");
+
+        let noop = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("noop tick");
+        assert_eq!(noop["changed_files_detected"], 0);
+        assert_eq!(noop["files_reingested"], 0);
+
+        std::fs::write(&file_path, "def core():\n    return 2\n").expect("rewrite file");
+
+        let ticked = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("changed tick");
+        assert_eq!(ticked["changed_files_detected"], 1);
+        assert_eq!(ticked["files_reingested"], 1);
+        assert_eq!(ticked["alerts_emitted"], 0);
+        assert!(ticked["ingested_files"][0]["file_path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("src/core.py")));
+    }
+
+    #[test]
+    fn daemon_tick_emits_drift_alert_for_deleted_file() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file_path = repo.join("src/core.py");
+        std::fs::write(&file_path, "def core():\n    return 1\n").expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("initial ingest");
+
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 500,
+            },
+        )
+        .expect("daemon start");
+
+        std::fs::remove_file(&file_path).expect("remove file");
+
+        let ticked = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("deleted tick");
+        assert_eq!(ticked["deleted_files_detected"], 1);
+        assert_eq!(ticked["alerts_emitted"], 1);
+        assert!(state
+            .daemon_alerts
+            .iter()
+            .any(|alert| alert.kind == "graph_vs_disk_drift"));
     }
 }
