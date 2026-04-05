@@ -159,6 +159,13 @@ pub struct IngestInput {
     pub mode: String,
     /// Optional namespace tag for non-code adapters.
     pub namespace: Option<String>,
+    /// Include selected dotfiles and hidden config directories during ingest.
+    #[serde(default)]
+    pub include_dotfiles: bool,
+    /// Prefix-style patterns (for example `.codex/**`) that are allowed when
+    /// include_dotfiles=true.
+    #[serde(default)]
+    pub dotfile_patterns: Vec<String>,
 }
 
 /// Input for m1nd.resonate (resonance analysis).
@@ -376,6 +383,7 @@ pub struct HealthOutput {
     pub plasticity_state: String,
     pub last_persist_time: Option<String>,
     pub active_sessions: Vec<serde_json::Value>,
+    pub git: serde_json::Value,
 }
 
 #[cfg(test)]

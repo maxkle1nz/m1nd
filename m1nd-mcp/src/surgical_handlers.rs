@@ -1498,6 +1498,23 @@ pub fn handle_surgical_context(
 
     // Track agent session
     state.track_agent(&input.agent_id);
+    let mut visited_files = vec![path_str.clone()];
+    visited_files.extend(callers.iter().map(|entry| entry.file_path.clone()));
+    visited_files.extend(callees.iter().map(|entry| entry.file_path.clone()));
+    visited_files.extend(tests.iter().map(|entry| entry.file_path.clone()));
+    let mut visited_nodes = Vec::new();
+    if !node_id_str.is_empty() {
+        visited_nodes.push(node_id_str.clone());
+    }
+    visited_nodes.extend(callers.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(callees.iter().map(|entry| entry.node_id.clone()));
+    visited_nodes.extend(tests.iter().map(|entry| entry.node_id.clone()));
+    state.note_coverage(
+        &input.agent_id,
+        "surgical_context",
+        visited_files,
+        visited_nodes,
+    );
 
     Ok(surgical::SurgicalContextOutput {
         file_path: path_str,
@@ -1767,6 +1784,8 @@ pub fn handle_apply(
             incremental: true,
             adapter: "code".to_string(),
             namespace: None,
+            include_dotfiles: false,
+            dotfile_patterns: Vec::new(),
         };
 
         match crate::tools::handle_ingest(state, ingest_input) {
@@ -2011,6 +2030,29 @@ pub fn handle_surgical_context_v2(
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     state.track_agent(&input.agent_id);
+    let mut visited_files = vec![primary.file_path.clone()];
+    visited_files.extend(
+        connected_files
+            .iter()
+            .map(|entry| entry.file_path.clone())
+            .collect::<Vec<_>>(),
+    );
+    let mut visited_nodes = Vec::new();
+    if !primary.node_id.is_empty() {
+        visited_nodes.push(primary.node_id.clone());
+    }
+    visited_nodes.extend(
+        connected_files
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .collect::<Vec<_>>(),
+    );
+    state.note_coverage(
+        &input.agent_id,
+        "surgical_context_v2",
+        visited_files,
+        visited_nodes,
+    );
 
     Ok(surgical::SurgicalContextV2Output {
         file_path: primary.file_path,
@@ -2578,6 +2620,8 @@ pub fn handle_apply_batch(
                 incremental: true,
                 adapter: "code".to_string(),
                 namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
             };
 
             match crate::tools::handle_ingest(state, ingest_input) {
@@ -3381,6 +3425,33 @@ fn apply_batch_next_step(
     )
 }
 
+fn truncate_output(
+    content: String,
+    max_output_chars: Option<usize>,
+    label: &str,
+) -> (String, bool, Option<String>) {
+    let Some(limit) = max_output_chars else {
+        return (content, false, None);
+    };
+    if content.chars().count() <= limit {
+        return (content, false, None);
+    }
+
+    let truncated_content: String = content.chars().take(limit).collect();
+    let summary = format!(
+        "{} output exceeded {} chars and was truncated inline. Refine scope or raise max_output_chars to inspect the full payload.",
+        label, limit
+    );
+    (truncated_content, true, Some(summary))
+}
+
+fn summarize_file_excerpt(file_path: &str, total_lines: usize, lines_returned: usize) -> String {
+    format!(
+        "{} — returned {} of {} lines",
+        file_path, lines_returned, total_lines
+    )
+}
+
 // ---------------------------------------------------------------------------
 // m1nd.view — lightweight file reader
 // ---------------------------------------------------------------------------
@@ -3419,7 +3490,7 @@ pub fn handle_view(
     } else {
         1
     };
-    let content = slice
+    let rendered = slice
         .iter()
         .enumerate()
         .map(|(i, line)| format!("{:>w$}  {}", offset + i + 1, line, w = width))
@@ -3442,6 +3513,8 @@ pub fn handle_view(
                 incremental: true,
                 adapter: "code".to_string(),
                 namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
             };
             if crate::tools::handle_ingest(state, ingest_input).is_ok() {
                 auto_ingested = true;
@@ -3450,15 +3523,156 @@ pub fn handle_view(
     }
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let file_path = resolved_path.to_string_lossy().to_string();
+    let (content, truncated, inline_summary) =
+        truncate_output(rendered, input.max_output_chars, &file_path);
+    state.note_coverage(
+        &input.agent_id,
+        "view",
+        vec![file_path.clone()],
+        std::iter::empty::<String>(),
+    );
 
     Ok(surgical::ViewOutput {
-        file_path: resolved_path.to_string_lossy().to_string(),
+        file_path,
         content,
         total_lines,
         offset,
         lines_returned: limit,
         auto_ingested,
+        truncated,
+        inline_summary,
         elapsed_ms,
+    })
+}
+
+/// Handle m1nd.batch_view: read multiple files or globs in one call.
+pub fn handle_batch_view(
+    state: &mut SessionState,
+    input: surgical::BatchViewInput,
+) -> M1ndResult<surgical::BatchViewOutput> {
+    let start = Instant::now();
+    let max_lines = input.max_lines_per_file.max(1);
+    let mut requested_files: Vec<(String, std::path::PathBuf)> = Vec::new();
+
+    for requested in &input.files {
+        if requested.contains('*') || requested.contains('?') || requested.contains('[') {
+            let pattern = if std::path::Path::new(requested).is_absolute() {
+                requested.clone()
+            } else if let Some(root) = state.ingest_roots.last() {
+                format!("{}/{}", root.trim_end_matches('/'), requested)
+            } else {
+                requested.clone()
+            };
+            let entries = glob::glob(&pattern).map_err(|e| M1ndError::InvalidParams {
+                tool: "batch_view".into(),
+                detail: format!("invalid glob '{}': {}", requested, e),
+            })?;
+            for entry in entries.flatten() {
+                if entry.is_file() {
+                    requested_files.push((requested.clone(), entry));
+                }
+            }
+        } else {
+            requested_files.push((
+                requested.clone(),
+                resolve_file_path(requested, &state.ingest_roots),
+            ));
+        }
+    }
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut entries = Vec::new();
+    let mut total_lines = 0usize;
+    let mut visited_files = Vec::new();
+
+    for (requested, resolved_path) in requested_files {
+        let file_path = resolved_path.to_string_lossy().to_string();
+        if !resolved_path.is_file() || !seen.insert(file_path.clone()) {
+            continue;
+        }
+
+        let raw_content =
+            std::fs::read_to_string(&resolved_path).map_err(|e| M1ndError::InvalidParams {
+                tool: "batch_view".into(),
+                detail: format!("cannot read file {}: {}", resolved_path.display(), e),
+            })?;
+        let all_lines: Vec<&str> = raw_content.lines().collect();
+        let total = all_lines.len();
+        total_lines += total;
+        let lines_returned = total.min(max_lines);
+        let width = if lines_returned > 0 {
+            (lines_returned as f64).log10().floor() as usize + 1
+        } else {
+            1
+        };
+        let rendered = all_lines[..lines_returned]
+            .iter()
+            .enumerate()
+            .map(|(i, line)| format!("{:>w$}  {}", i + 1, line, w = width))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let mut auto_ingested = false;
+        if input.auto_ingest {
+            let graph = state.graph.read();
+            let existing = find_nodes_for_file(&graph, &file_path);
+            drop(graph);
+
+            if existing.is_empty() {
+                let ingest_input = crate::protocol::IngestInput {
+                    path: file_path.clone(),
+                    agent_id: input.agent_id.clone(),
+                    mode: "merge".to_string(),
+                    incremental: true,
+                    adapter: "code".to_string(),
+                    namespace: None,
+                    include_dotfiles: false,
+                    dotfile_patterns: Vec::new(),
+                };
+                if crate::tools::handle_ingest(state, ingest_input).is_ok() {
+                    auto_ingested = true;
+                }
+            }
+        }
+
+        visited_files.push(file_path.clone());
+        entries.push(surgical::BatchViewFileOutput {
+            requested,
+            file_path: file_path.clone(),
+            total_lines: total,
+            lines_returned,
+            auto_ingested,
+            truncated: total > lines_returned,
+            summary: input
+                .summary_mode
+                .then(|| summarize_file_excerpt(&file_path, total, lines_returned)),
+            content: rendered,
+        });
+    }
+
+    let aggregated = entries
+        .iter()
+        .map(|entry| format!("===== {} =====\n{}\n", entry.file_path, entry.content))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (_, truncated, inline_summary) =
+        truncate_output(aggregated, input.max_output_chars, "batch_view");
+
+    state.note_coverage(
+        &input.agent_id,
+        "batch_view",
+        visited_files,
+        std::iter::empty::<String>(),
+    );
+
+    Ok(surgical::BatchViewOutput {
+        files_read: entries.len(),
+        total_lines,
+        entries,
+        truncated,
+        inline_summary,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
 }
 
@@ -4613,5 +4827,48 @@ mod tests {
             events.iter().any(|(phase, _)| phase == "done"),
             "live sink should receive done phase"
         );
+    }
+
+    #[test]
+    fn batch_view_reads_multiple_files_and_tracks_coverage() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary = root.join("src/core.rs");
+        let secondary = root.join("src/extra.rs");
+        std::fs::create_dir_all(primary.parent().expect("parent")).expect("mkdirs");
+        std::fs::write(&primary, "fn core() {}\n").expect("write primary");
+        std::fs::write(&secondary, "fn extra() {}\n").expect("write secondary");
+
+        let primary_str = primary.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let output = handle_batch_view(
+            &mut state,
+            surgical::BatchViewInput {
+                agent_id: "test".into(),
+                files: vec![primary_str.clone(), secondary.to_string_lossy().to_string()],
+                max_lines_per_file: 10,
+                summary_mode: true,
+                auto_ingest: false,
+                max_output_chars: None,
+            },
+        )
+        .expect("batch_view should succeed");
+
+        assert_eq!(output.files_read, 2);
+        assert_eq!(output.entries.len(), 2);
+        assert!(output
+            .entries
+            .iter()
+            .any(|entry| entry.file_path == primary_str));
+        let coverage = state
+            .coverage_sessions
+            .get("test")
+            .expect("coverage should be tracked");
+        assert!(coverage
+            .visited_files
+            .contains(&primary.to_string_lossy().to_string()));
+        assert!(coverage
+            .visited_files
+            .contains(&secondary.to_string_lossy().to_string()));
     }
 }

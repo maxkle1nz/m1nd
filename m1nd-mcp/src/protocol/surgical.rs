@@ -618,6 +618,9 @@ pub struct ViewInput {
     /// Auto-ingest the file if not already in the graph. Default: true.
     #[serde(default = "default_true")]
     pub auto_ingest: bool,
+    /// Optional cap for returned characters after line-number formatting.
+    #[serde(default)]
+    pub max_output_chars: Option<usize>,
 }
 
 /// Output for m1nd.view.
@@ -635,7 +638,60 @@ pub struct ViewOutput {
     pub lines_returned: usize,
     /// Whether the file was auto-ingested into the graph.
     pub auto_ingested: bool,
+    /// Whether the returned content had to be truncated.
+    pub truncated: bool,
+    /// Inline summary when truncation or chunking occurs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inline_summary: Option<String>,
     /// Elapsed milliseconds.
+    pub elapsed_ms: f64,
+}
+
+/// Input for m1nd.batch_view.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BatchViewInput {
+    pub agent_id: String,
+    /// File paths and/or glob-like patterns to expand.
+    pub files: Vec<String>,
+    /// Maximum lines per file. Default: 100.
+    #[serde(default = "default_batch_view_lines")]
+    pub max_lines_per_file: usize,
+    /// Add file summaries to each entry. Default: true.
+    #[serde(default = "default_true")]
+    pub summary_mode: bool,
+    /// Auto-ingest discovered files before reading. Default: true.
+    #[serde(default = "default_true")]
+    pub auto_ingest: bool,
+    /// Optional cap for the concatenated response body.
+    #[serde(default)]
+    pub max_output_chars: Option<usize>,
+}
+
+fn default_batch_view_lines() -> usize {
+    100
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BatchViewFileOutput {
+    pub requested: String,
+    pub file_path: String,
+    pub total_lines: usize,
+    pub lines_returned: usize,
+    pub auto_ingested: bool,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BatchViewOutput {
+    pub files_read: usize,
+    pub total_lines: usize,
+    pub entries: Vec<BatchViewFileOutput>,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inline_summary: Option<String>,
     pub elapsed_ms: f64,
 }
 

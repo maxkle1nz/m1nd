@@ -1,6 +1,7 @@
 #![allow(unused)]
 #![recursion_limit = "512"]
 
+pub mod audit_handlers;
 pub mod cli;
 pub mod protocol;
 pub mod server;

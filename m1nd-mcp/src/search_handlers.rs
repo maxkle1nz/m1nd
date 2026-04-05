@@ -86,6 +86,34 @@ fn glob_contract(files: &[GlobFileEntry]) -> GuidedRuntimeTuple {
     }
 }
 
+fn truncate_search_results(
+    results: Vec<SearchResultEntry>,
+    max_output_chars: Option<usize>,
+) -> (Vec<SearchResultEntry>, bool, Option<String>) {
+    let Some(limit) = max_output_chars else {
+        return (results, false, None);
+    };
+
+    let mut kept = Vec::new();
+    let mut used = 0usize;
+    for result in results {
+        let approx = serde_json::to_string(&result)
+            .map(|value| value.chars().count())
+            .unwrap_or(0);
+        if !kept.is_empty() && used + approx > limit {
+            let summary = format!(
+                "search output exceeded {} chars; results were truncated inline. Narrow scope/top_k or raise max_output_chars for the full set.",
+                limit
+            );
+            return (kept, true, Some(summary));
+        }
+        used += approx;
+        kept.push(result);
+    }
+
+    (kept, false, None)
+}
+
 // ---------------------------------------------------------------------------
 // Shared normalization helpers
 // ---------------------------------------------------------------------------
@@ -499,6 +527,20 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             }
 
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+            let (results, truncated, inline_summary) =
+                truncate_search_results(results, input.max_output_chars);
+            state.note_coverage(
+                &input.agent_id,
+                "search",
+                results
+                    .iter()
+                    .map(|entry| entry.file_path.clone())
+                    .collect::<Vec<_>>(),
+                results
+                    .iter()
+                    .map(|entry| entry.node_id.clone())
+                    .collect::<Vec<_>>(),
+            );
             return Ok(SearchOutput {
                 query: input.query,
                 mode: "semantic".into(),
@@ -509,6 +551,8 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 auto_ingested,
                 match_count: None,
                 auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
+                truncated,
+                inline_summary,
                 proof_state: "triaging".into(),
                 next_suggested_tool: None,
                 next_suggested_target: None,
@@ -540,6 +584,21 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         results.truncate(top_k);
         results
     };
+    drop(graph);
+    let (final_results, truncated, inline_summary) =
+        truncate_search_results(final_results, input.max_output_chars);
+    state.note_coverage(
+        &input.agent_id,
+        "search",
+        final_results
+            .iter()
+            .map(|entry| entry.file_path.clone())
+            .collect::<Vec<_>>(),
+        final_results
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .collect::<Vec<_>>(),
+    );
     Ok(SearchOutput {
         query: input.query,
         mode: format!("{:?}", input.mode).to_lowercase(),
@@ -550,6 +609,8 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         auto_ingested,
         match_count,
         auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
+        truncated,
+        inline_summary,
         proof_state: "triaging".into(),
         next_suggested_tool: None,
         next_suggested_target: None,
@@ -604,6 +665,8 @@ fn maybe_auto_ingest_search_scope(
             incremental: true,
             adapter: "code".to_string(),
             namespace: None,
+            include_dotfiles: false,
+            dotfile_patterns: Vec::new(),
         },
     )?;
 
@@ -1668,6 +1731,7 @@ mod tests {
                 multiline: false,
                 auto_ingest: false,
                 filename_pattern: Some("*.rs".into()),
+                max_output_chars: None,
             };
 
             let output = handle_search(state, input).expect("search output");
@@ -1762,6 +1826,7 @@ mod tests {
             multiline: false,
             auto_ingest: false,
             filename_pattern: Some("*.rs".into()),
+            max_output_chars: None,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -1804,6 +1869,7 @@ mod tests {
             multiline: false,
             auto_ingest: true,
             filename_pattern: Some("*.rs".into()),
+            max_output_chars: None,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -1849,6 +1915,7 @@ mod tests {
             multiline: false,
             auto_ingest: true,
             filename_pattern: Some("*.rs".into()),
+            max_output_chars: None,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -1902,6 +1969,7 @@ mod tests {
             multiline: false,
             auto_ingest: true,
             filename_pattern: Some("*.rs".into()),
+            max_output_chars: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err();
@@ -1933,6 +2001,7 @@ mod tests {
             multiline: false,
             auto_ingest: false,
             filename_pattern: Some("*.rs".into()),
+            max_output_chars: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();
@@ -1961,6 +2030,7 @@ mod tests {
             multiline: false,
             auto_ingest: false,
             filename_pattern: Some("[".into()),
+            max_output_chars: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();
@@ -1989,6 +2059,7 @@ mod tests {
             multiline: false,
             auto_ingest: false,
             filename_pattern: None,
+            max_output_chars: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();

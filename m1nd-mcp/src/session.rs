@@ -14,7 +14,7 @@ use m1nd_core::tremor::TremorRegistry;
 use m1nd_core::trust::TrustLedger;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -139,6 +139,26 @@ pub struct BootMemoryEntry {
     pub updated_by_agent: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileInventoryEntry {
+    pub external_id: String,
+    pub file_path: String,
+    pub size_bytes: u64,
+    pub last_modified_ms: u64,
+    pub language: String,
+    pub commit_count: u32,
+    pub loc: Option<u32>,
+    pub sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CoverageSessionState {
+    pub started_at_ms: u64,
+    pub visited_files: BTreeSet<String>,
+    pub visited_nodes: BTreeSet<String>,
+    pub tools_used: HashMap<String, u64>,
+}
+
 pub type ApplyBatchProgressSink =
     Arc<dyn Fn(&crate::protocol::surgical::ApplyBatchProgressEvent) + Send + Sync>;
 
@@ -255,6 +275,10 @@ pub struct SessionState {
     pub boot_memory_path: PathBuf,
     /// Hot runtime cache of canonical boot memory entries.
     pub boot_memory: HashMap<String, BootMemoryEntry>,
+    /// Lightweight metadata index for files seen during ingest or verification.
+    pub file_inventory: HashMap<String, FileInventoryEntry>,
+    /// Per-agent exploration coverage state for visited files/nodes.
+    pub coverage_sessions: HashMap<String, CoverageSessionState>,
 }
 
 impl SessionState {
@@ -409,6 +433,8 @@ impl SessionState {
                 let boot_path = runtime_root.join("boot_memory_state.json");
                 Self::load_boot_memory(&boot_path)
             },
+            file_inventory: HashMap::new(),
+            coverage_sessions: HashMap::new(),
         })
     }
 
@@ -810,6 +836,47 @@ impl SessionState {
                 })
             })
             .collect()
+    }
+
+    pub fn record_file_inventory(&mut self, entries: impl IntoIterator<Item = FileInventoryEntry>) {
+        for entry in entries {
+            self.file_inventory.insert(entry.external_id.clone(), entry);
+        }
+    }
+
+    pub fn reset_file_inventory(&mut self) {
+        self.file_inventory.clear();
+    }
+
+    pub fn note_coverage(
+        &mut self,
+        agent_id: &str,
+        tool: &str,
+        files: impl IntoIterator<Item = String>,
+        nodes: impl IntoIterator<Item = String>,
+    ) {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let entry = self
+            .coverage_sessions
+            .entry(agent_id.to_string())
+            .or_insert_with(|| CoverageSessionState {
+                started_at_ms: now_ms,
+                ..CoverageSessionState::default()
+            });
+        *entry.tools_used.entry(tool.to_string()).or_insert(0) += 1;
+        for file in files {
+            if !file.is_empty() {
+                entry.visited_files.insert(file);
+            }
+        }
+        for node in nodes {
+            if !node.is_empty() {
+                entry.visited_nodes.insert(node);
+            }
+        }
     }
 }
 

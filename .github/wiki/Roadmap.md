@@ -5,6 +5,29 @@ next, and where the project is headed long-term.
 
 ---
 
+## In Flight — Audit Mode & Session Foundations
+
+The current audit branch adds a new composed workflow layer on top of the existing graph engine:
+
+- `scan_all` — grouped structural scans in one call
+- `cross_verify` — graph vs filesystem truth checks
+- `coverage_session` — per-agent visit coverage across files/nodes/tools
+- `external_references` — explicit path references outside current ingest roots
+- `batch_view` — multi-file read surface with delimiters and summaries
+- `audit` — profile-aware one-call audit (`auto`, `quick`, `coordination`, `production`, `security`, `migration`)
+
+This branch also closes surface drift by exposing the already-implemented RETROBUILDER tools:
+
+- `ghost_edges`
+- `taint_trace`
+- `twins`
+- `refactor_plan`
+- `runtime_overlay`
+
+Projected tool count on this branch: **77 MCP tools**.
+
+---
+
 ## Shipped — v0.1.0
 
 The first public release. 43 MCP tools across four categories.
