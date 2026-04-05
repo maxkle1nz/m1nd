@@ -995,6 +995,13 @@ struct SemanticRepoSignal {
     confidence: &'static str,
 }
 
+#[derive(Clone)]
+struct NeighborRepoIdentity {
+    repo_root: PathBuf,
+    marker: Option<String>,
+    identifiers: Vec<String>,
+}
+
 fn confidence_rank(value: Option<&str>) -> u8 {
     match value {
         Some("high") => 0,
@@ -1199,6 +1206,177 @@ fn manifest_files_for_discovery(workspace_root: &Path) -> Vec<PathBuf> {
     files
 }
 
+fn parse_manifest_identities(manifest: &Path) -> Vec<String> {
+    let Some(file_name) = manifest.file_name().and_then(|value| value.to_str()) else {
+        return Vec::new();
+    };
+    let Ok(content) = std::fs::read_to_string(manifest) else {
+        return Vec::new();
+    };
+    let mut identities = BTreeSet::new();
+    match file_name.to_lowercase().as_str() {
+        "cargo.toml" => {
+            if let Ok(package_name) = Regex::new(r#"(?s)\[package\].*?name\s*=\s*"([^"]+)""#) {
+                for captures in package_name.captures_iter(&content) {
+                    if let Some(name) = captures.get(1).map(|m| m.as_str().trim()) {
+                        if !name.is_empty() {
+                            identities.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        "package.json" => {
+            if let Ok(package_name) = Regex::new(r#""name"\s*:\s*"([^"]+)""#) {
+                for captures in package_name.captures_iter(&content) {
+                    if let Some(name) = captures.get(1).map(|m| m.as_str().trim()) {
+                        if !name.is_empty() {
+                            identities.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        "pyproject.toml" => {
+            for pattern in [
+                r#"(?s)\[project\].*?name\s*=\s*"([^"]+)""#,
+                r#"(?s)\[tool\.poetry\].*?name\s*=\s*"([^"]+)""#,
+            ] {
+                if let Ok(regex) = Regex::new(pattern) {
+                    for captures in regex.captures_iter(&content) {
+                        if let Some(name) = captures.get(1).map(|m| m.as_str().trim()) {
+                            if !name.is_empty() {
+                                identities.insert(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "go.mod" => {
+            if let Ok(module_name) = Regex::new(r#"(?m)^\s*module\s+([^\s]+)\s*$"#) {
+                for captures in module_name.captures_iter(&content) {
+                    if let Some(name) = captures.get(1).map(|m| m.as_str().trim()) {
+                        if !name.is_empty() {
+                            identities.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    identities.into_iter().collect()
+}
+
+fn discover_neighbor_repo_identities(workspace_root: &Path) -> Vec<NeighborRepoIdentity> {
+    let Some(parent) = workspace_root.parent() else {
+        return Vec::new();
+    };
+    let mut repos = Vec::new();
+    let Ok(read_dir) = std::fs::read_dir(parent) else {
+        return repos;
+    };
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if !path.is_dir() || path == workspace_root {
+            continue;
+        }
+        let Some((repo_root, marker)) = discover_repo_root_for_external_path(&path) else {
+            continue;
+        };
+        if repo_root == workspace_root {
+            continue;
+        }
+        let mut identifiers = BTreeSet::new();
+        for manifest_name in ["Cargo.toml", "package.json", "pyproject.toml", "go.mod"] {
+            let manifest = repo_root.join(manifest_name);
+            for identity in parse_manifest_identities(&manifest) {
+                identifiers.insert(identity);
+            }
+        }
+        if identifiers.is_empty() {
+            if let Some(name) = repo_root.file_name().and_then(|value| value.to_str()) {
+                let slug = slugify_namespace(name);
+                if !slug.is_empty() {
+                    identifiers.insert(slug);
+                }
+            }
+        }
+        repos.push(NeighborRepoIdentity {
+            repo_root,
+            marker,
+            identifiers: identifiers.into_iter().collect(),
+        });
+    }
+    repos.sort_by(|a, b| a.repo_root.cmp(&b.repo_root));
+    repos.dedup_by(|a, b| a.repo_root == b.repo_root);
+    repos
+}
+
+fn identity_appears_in_content(identity: &str, content: &str) -> bool {
+    let escaped = regex::escape(identity);
+    let patterns = [
+        format!(r#"(?m)\buse\s+{}\s*::"#, escaped),
+        format!(r#"(?m)\bfrom\s+{}\b"#, escaped),
+        format!(r#"(?m)\bimport\s+{}\b"#, escaped),
+        format!(r#"(?m)from\s+["']{}(?:/[^"']*)?["']"#, escaped),
+        format!(r#"(?m)require\(\s*["']{}(?:/[^"']*)?["']\s*\)"#, escaped),
+        format!(r#"(?m)["']{}(?:/[^"']*)?["']"#, escaped),
+    ];
+    patterns.into_iter().any(|pattern| {
+        Regex::new(&pattern)
+            .map(|regex| regex.is_match(content))
+            .unwrap_or(false)
+    })
+}
+
+fn discover_import_repo_signals(
+    state: &SessionState,
+    workspace_root: &Path,
+) -> Vec<SemanticRepoSignal> {
+    let inventory = if state.file_inventory.is_empty() {
+        inventory_from_roots(state, false, &[])
+    } else {
+        state.file_inventory.clone()
+    };
+    let disk_entries = filter_inventory_by_scope(state, &inventory, None);
+    let neighbors = discover_neighbor_repo_identities(workspace_root);
+    if neighbors.is_empty() {
+        return Vec::new();
+    }
+
+    let mut signals = Vec::new();
+    for entry in disk_entries {
+        let kind = classify_file_kind(&entry.file_path, &entry.language);
+        if !matches!(kind, AuditFileKind::Code | AuditFileKind::Config) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&entry.file_path) else {
+            continue;
+        };
+        for neighbor in &neighbors {
+            let matched = neighbor
+                .identifiers
+                .iter()
+                .find(|identity| identity_appears_in_content(identity, &content));
+            let Some(identity) = matched else {
+                continue;
+            };
+            signals.push(SemanticRepoSignal {
+                repo_root: neighbor.repo_root.clone(),
+                marker: neighbor.marker.clone(),
+                source_file: entry.file_path.clone(),
+                source_node: Some(entry.external_id.clone()),
+                evidence_type: "import_identity_match".to_string(),
+                sampled_path: identity.clone(),
+                confidence: "medium",
+            });
+        }
+    }
+    signals
+}
+
 fn discover_semantic_repo_signals(
     state: &SessionState,
     workspace_root: &Path,
@@ -1241,6 +1419,7 @@ fn discover_semantic_repo_signals(
             }
         }
     }
+    signals.extend(discover_import_repo_signals(state, workspace_root));
     signals
 }
 
@@ -2793,6 +2972,128 @@ mod tests {
         assert!(discovered[0]["evidence_types"]
             .as_array()
             .is_some_and(|items| items.iter().any(|item| item == "npm_workspace")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_rust_use_identity_without_path_hint() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/lib.rs"),
+            "use runtime::client::Client;\npub fn current() {}\n",
+        )
+        .expect("write current source");
+
+        let runtime_root = temp.path().join("runtime");
+        std::fs::create_dir_all(runtime_root.join(".git")).expect("runtime git");
+        std::fs::write(
+            runtime_root.join("Cargo.toml"),
+            "[package]\nname = \"runtime\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write runtime cargo");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/lib.rs".into(),
+            file_path: current_root
+                .join("src/lib.rs")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "rust".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&runtime_root).expect("canonical runtime root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "import_identity_match")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_package_name_import_without_manifest_path_hint() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/index.ts"),
+            "import { client } from '@acme/runtime/client';\nexport const ok = client;\n",
+        )
+        .expect("write current source");
+
+        let runtime_root = temp.path().join("runtime");
+        std::fs::create_dir_all(runtime_root.join(".git")).expect("runtime git");
+        std::fs::write(
+            runtime_root.join("package.json"),
+            "{ \"name\": \"@acme/runtime\", \"version\": \"0.1.0\" }\n",
+        )
+        .expect("write runtime package");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/index.ts".into(),
+            file_path: current_root
+                .join("src/index.ts")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "typescript".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&runtime_root).expect("canonical runtime root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "import_identity_match")));
     }
 
     #[test]

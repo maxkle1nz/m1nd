@@ -24,6 +24,8 @@ federation plan.
   - `pnpm-workspace.yaml` package globs
   - `pyproject.toml` workspace/path dependencies
   - `go.work` use directives
+- now also discovers sibling repos from import/package-name matches against
+  nearby repo identities, even when no path-style hint exists
 
 This is the first bridge from audit-era repo-truth tooling into automatic
 cross-repo graph expansion. It reduces the manual step where an agent had to

@@ -29,14 +29,14 @@ The rule:
 - Likely next step: strengthen the profile registry so `audit` changes not only
   tool selection but also grading, recommendation logic, and narrative output
 
-### 2026-04-05 — `federate_auto` covers explicit paths and manifests, but import/API discovery is still missing
+### 2026-04-05 — `federate_auto` covers explicit paths, manifests, and import/package-name matches, but API-contract discovery is still missing
 
-- Context: `federate_auto` now bridges explicit path evidence and manifest/workspace
-  signals into repo candidates, namespaces, and optional one-shot federation
-- Friction: repos that are only implied by imports, package names, or API
-  contracts still need manual enumeration
+- Context: `federate_auto` now bridges explicit path evidence, manifest/workspace
+  signals, and package/import identity matches into repo candidates, namespaces,
+  and optional one-shot federation
+- Friction: repos that are only implied by API contracts or service boundaries
+  still need manual enumeration
 - Desired behavior:
-  - import-driven discovery without requiring path-style manifest hints
   - API-contract discovery across client/server repos with no filesystem pointer
   - future semantic linking donor lane (stack-graphs / SCIP-class ideas)
 
