@@ -1,6 +1,6 @@
 # API Reference
 
-All 78 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
+All 83 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
 
 All tools require an `agent_id` string parameter (use any stable identifier — your editor session ID, agent name, etc.).
 
@@ -13,7 +13,7 @@ Jump to:
 - [RETROBUILDER](#retrobuilder-5-tools)
 - [Surgical](#surgical-4-tools)
 - [Search & Efficiency](#v050--search--efficiency-5-tools)
-- [Audit & Session Ergonomics](#audit--session-ergonomics-7-tools)
+- [Audit & Session Ergonomics](#audit--session-ergonomics-12-tools)
 
 ---
 
@@ -27,7 +27,7 @@ These tools are implemented in the live registry and exposed through `tool_schem
 - `m1nd_refactor_plan` — graph-native refactoring proposals
 - `m1nd_runtime_overlay` — runtime heat and error overlays from OTel spans
 
-## Audit & Session Ergonomics (7 tools)
+## Audit & Session Ergonomics (12 tools)
 
 These tools reduce orchestration overhead for real agent sessions:
 
@@ -38,6 +38,11 @@ These tools reduce orchestration overhead for real agent sessions:
 - `m1nd_external_references` — explicit paths outside ingest roots
 - `m1nd_federate_auto` — turn external paths, manifest/workspace hints, import/package-name evidence, shared API-route signals, or contract artifacts such as `.proto` messages/enums, MCP tools, and OpenAPI schema/components into repo candidates and optional federation
 - `m1nd_audit` — profile-aware one-call audit
+- `m1nd_daemon_start` — activate the persisted daemon control plane and set watch roots / poll interval
+- `m1nd_daemon_stop` — stop the daemon control plane without discarding alert history
+- `m1nd_daemon_status` — inspect daemon runtime state, watch roots, and alert counts
+- `m1nd_alerts_list` — list persisted daemon/proactive alerts
+- `m1nd_alerts_ack` — acknowledge one or more persisted daemon/proactive alerts
 
 ---
 

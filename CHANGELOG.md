@@ -8,6 +8,24 @@ All notable changes to m1nd are documented here.
 
 ### Added
 
+#### `m1ndd` foundations: daemon state + persistent alerts
+
+The MCP surface now exposes the first daemon-era tools:
+
+- `daemon_start`
+- `daemon_stop`
+- `daemon_status`
+- `alerts_list`
+- `alerts_ack`
+
+These tools persist daemon state under the runtime root and keep a small alert
+queue alive across sessions instead of treating every structural warning as a
+one-shot event.
+
+When the daemon is active, `apply` and `apply_batch` now feed their strongest
+`proactive_insights` into that queue so agents can list, acknowledge, and
+revisit post-write structural risk without recomputing it immediately.
+
 #### Proactive write insights on `apply` and `apply_batch`
 
 `apply` and `apply_batch` now attach `proactive_insights` directly to write

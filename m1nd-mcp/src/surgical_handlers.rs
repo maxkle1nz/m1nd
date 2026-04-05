@@ -11,6 +11,7 @@
 //
 // Pattern: identical to layer_handlers.rs -- parse typed input -> call engine -> return output.
 
+use crate::daemon_handlers::{make_daemon_alert, DaemonAlertSeed};
 use crate::protocol::{layers, surgical};
 use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
@@ -307,6 +308,63 @@ fn build_proactive_insights(
     });
     insights.truncate(3);
     insights
+}
+
+fn persist_daemon_alerts_from_insights(
+    state: &mut SessionState,
+    proactive_insights: &[surgical::ProactiveInsight],
+    default_file_path: Option<&str>,
+    default_node_id: Option<&str>,
+) {
+    if !state.daemon_state.active || proactive_insights.is_empty() {
+        return;
+    }
+
+    let tick_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0);
+    state.daemon_state.last_tick_ms = Some(tick_ms);
+
+    for insight in proactive_insights.iter().take(3) {
+        let alert_file_path = insight
+            .suggested_target
+            .as_deref()
+            .and_then(|target| target.strip_prefix("file::").or(Some(target)))
+            .map(str::to_string)
+            .or_else(|| default_file_path.map(str::to_string));
+        let alert_node_id = insight
+            .suggested_target
+            .as_deref()
+            .filter(|target| target.starts_with("file::"))
+            .map(str::to_string)
+            .or_else(|| default_node_id.map(str::to_string));
+        let alert = make_daemon_alert(DaemonAlertSeed {
+            severity: insight.severity.clone(),
+            kind: insight.kind.clone(),
+            message: insight.message.clone(),
+            confidence: insight.confidence,
+            evidence: insight.evidence.clone(),
+            suggested_tool: insight.suggested_tool.clone(),
+            suggested_target: insight.suggested_target.clone(),
+            file_path: alert_file_path,
+            node_id: alert_node_id,
+        });
+        state.record_daemon_alert(alert);
+    }
+
+    if let Err(error) = state.persist_daemon_state() {
+        eprintln!(
+            "[m1nd] WARNING: daemon state persist failed during apply: {}",
+            error
+        );
+    }
+    if let Err(error) = state.persist_daemon_alerts() {
+        eprintln!(
+            "[m1nd] WARNING: daemon alert persist failed during apply: {}",
+            error
+        );
+    }
 }
 
 fn surgical_dampened_trust_factor(raw_factor: f32) -> f32 {
@@ -2110,26 +2168,32 @@ pub fn handle_apply(
     // Track agent session
     state.track_agent(&input.agent_id);
 
+    let applied_file_path = validated_path.to_string_lossy().to_string();
     let proactive_insights = {
         let graph = state.graph.read();
-        let path_str = validated_path.to_string_lossy().to_string();
-        let file_node = find_nodes_for_file(&graph, &path_str)
+        let file_node = find_nodes_for_file(&graph, &applied_file_path)
             .into_iter()
             .find(|(node_id, ext)| is_file_node(&graph, *node_id) && ext.starts_with("file::"))
             .map(|(_, ext)| ext);
         drop(graph);
 
-        let heuristic_summary = file_node
-            .as_deref()
-            .map(|external_id| build_surgical_heuristic_summary(state, external_id, &path_str));
+        let heuristic_summary = file_node.as_deref().map(|external_id| {
+            build_surgical_heuristic_summary(state, external_id, &applied_file_path)
+        });
         build_proactive_insights(
             state,
-            &path_str,
+            &applied_file_path,
             file_node.as_deref(),
             heuristic_summary.as_ref(),
             None,
         )
     };
+    persist_daemon_alerts_from_insights(
+        state,
+        &proactive_insights,
+        Some(&applied_file_path),
+        updated_node_ids.first().map(String::as_str),
+    );
 
     Ok(surgical::ApplyOutput {
         file_path: validated_path.to_string_lossy().to_string(),
@@ -3652,6 +3716,22 @@ pub fn handle_apply_batch(
         insights.truncate(3);
         insights
     };
+    let primary_file_path = results
+        .iter()
+        .find(|result| result.success)
+        .map(|result| result.file_path.as_str());
+    let primary_node_id = verification.as_ref().and_then(|report| {
+        report
+            .high_impact_files
+            .first()
+            .map(|impact| impact.node_id.as_str())
+    });
+    persist_daemon_alerts_from_insights(
+        state,
+        &proactive_insights,
+        primary_file_path,
+        primary_node_id,
+    );
     phases.push(surgical::ApplyBatchPhase {
         phase: "done".into(),
         phase_index: 4,
@@ -5071,6 +5151,71 @@ mod tests {
                 || insight.kind == "tremor_hotspot"
                 || insight.kind == "untouched_test_companion"
         }));
+    }
+
+    #[test]
+    fn test_apply_records_daemon_alerts_when_daemon_is_active() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+        std::fs::write(
+            root.join("src/test_core.py"),
+            "def test_core():\n    assert True\n",
+        )
+        .expect("write companion test");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![root.to_string_lossy().to_string()],
+                poll_interval_ms: 500,
+            },
+        )
+        .expect("daemon start");
+
+        let output = handle_apply(
+            &mut state,
+            surgical::ApplyInput {
+                file_path: primary_str.clone(),
+                agent_id: "test".into(),
+                new_content: "def core():\n    return 2\n".into(),
+                description: Some("update return".into()),
+                reingest: true,
+            },
+        )
+        .expect("apply");
+
+        assert!(
+            !output.proactive_insights.is_empty(),
+            "apply should still surface proactive insights when daemon is active"
+        );
+        assert!(
+            !state.daemon_alerts.is_empty(),
+            "active daemon should persist alerts from proactive insights"
+        );
+        assert!(
+            state.daemon_alerts.iter().any(|alert| {
+                alert
+                    .file_path
+                    .as_deref()
+                    .is_some_and(|path| path.contains("core.py"))
+                    || alert
+                        .node_id
+                        .as_deref()
+                        .is_some_and(|node| node.contains("core.py"))
+                    || alert
+                        .evidence
+                        .iter()
+                        .any(|evidence| evidence.contains("core.py"))
+            }),
+            "daemon alerts should retain file-level evidence for the modified surface"
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 pub mod audit_handlers;
 pub mod cli;
+pub mod daemon_handlers;
 pub mod protocol;
 pub mod server;
 pub mod session;

@@ -159,6 +159,32 @@ pub struct CoverageSessionState {
     pub tools_used: HashMap<String, u64>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DaemonRuntimeState {
+    pub active: bool,
+    pub started_at_ms: Option<u64>,
+    pub last_tick_ms: Option<u64>,
+    pub watch_paths: Vec<String>,
+    pub poll_interval_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DaemonAlert {
+    pub alert_id: String,
+    pub severity: String,
+    pub kind: String,
+    pub message: String,
+    pub confidence: f32,
+    pub evidence: Vec<String>,
+    pub suggested_tool: Option<String>,
+    pub suggested_target: Option<String>,
+    pub file_path: Option<String>,
+    pub node_id: Option<String>,
+    pub created_at_ms: u64,
+    pub acked: bool,
+    pub acked_at_ms: Option<u64>,
+}
+
 pub type ApplyBatchProgressSink =
     Arc<dyn Fn(&crate::protocol::surgical::ApplyBatchProgressEvent) + Send + Sync>;
 
@@ -275,6 +301,14 @@ pub struct SessionState {
     pub boot_memory_path: PathBuf,
     /// Hot runtime cache of canonical boot memory entries.
     pub boot_memory: HashMap<String, BootMemoryEntry>,
+    /// Path to daemon state persisted next to the graph.
+    pub daemon_state_path: PathBuf,
+    /// Current persisted daemon runtime state.
+    pub daemon_state: DaemonRuntimeState,
+    /// Path to persisted daemon/proactive alerts.
+    pub daemon_alerts_path: PathBuf,
+    /// Persisted daemon/proactive alerts.
+    pub daemon_alerts: Vec<DaemonAlert>,
     /// Lightweight metadata index for files seen during ingest or verification.
     pub file_inventory: HashMap<String, FileInventoryEntry>,
     /// Per-agent exploration coverage state for visited files/nodes.
@@ -433,6 +467,16 @@ impl SessionState {
                 let boot_path = runtime_root.join("boot_memory_state.json");
                 Self::load_boot_memory(&boot_path)
             },
+            daemon_state_path: runtime_root.join("daemon_state.json"),
+            daemon_state: {
+                let path = runtime_root.join("daemon_state.json");
+                Self::load_daemon_state(&path)
+            },
+            daemon_alerts_path: runtime_root.join("daemon_alerts.json"),
+            daemon_alerts: {
+                let path = runtime_root.join("daemon_alerts.json");
+                Self::load_daemon_alerts(&path)
+            },
             file_inventory: HashMap::new(),
             coverage_sessions: HashMap::new(),
         })
@@ -500,6 +544,12 @@ impl SessionState {
         if let Err(e) = self.persist_boot_memory() {
             eprintln!("[m1nd] WARNING: boot memory persist failed: {}", e);
         }
+        if let Err(e) = self.persist_daemon_state() {
+            eprintln!("[m1nd] WARNING: daemon state persist failed: {}", e);
+        }
+        if let Err(e) = self.persist_daemon_alerts() {
+            eprintln!("[m1nd] WARNING: daemon alert persist failed: {}", e);
+        }
 
         self.last_persist_time = Some(Instant::now());
         Ok(())
@@ -546,6 +596,36 @@ impl SessionState {
             .and_then(|s| serde_json::from_str::<BootMemoryState>(&s).ok())
             .map(|state| state.entries)
             .unwrap_or_default()
+    }
+
+    pub fn persist_daemon_state(&self) -> M1ndResult<()> {
+        save_json_atomic(&self.daemon_state_path, &self.daemon_state)
+    }
+
+    fn load_daemon_state(path: &Path) -> DaemonRuntimeState {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<DaemonRuntimeState>(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn persist_daemon_alerts(&self) -> M1ndResult<()> {
+        save_json_atomic(&self.daemon_alerts_path, &self.daemon_alerts)
+    }
+
+    fn load_daemon_alerts(path: &Path) -> Vec<DaemonAlert> {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<DaemonAlert>>(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn record_daemon_alert(&mut self, alert: DaemonAlert) {
+        self.daemon_alerts.push(alert);
+        if self.daemon_alerts.len() > 500 {
+            let drain = self.daemon_alerts.len() - 500;
+            self.daemon_alerts.drain(0..drain);
+        }
     }
 
     pub fn reload_heuristic_sidecars(&mut self) {
