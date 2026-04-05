@@ -1415,6 +1415,66 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             {
+                "name": "daemon_start",
+                "description": "Start persisted daemon state and store watched paths for continuous structural monitoring.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "watch_paths": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Paths the daemon should treat as watched roots" },
+                        "poll_interval_ms": { "type": "integer", "default": 500, "description": "Fallback polling interval in milliseconds" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "daemon_stop",
+                "description": "Stop persisted daemon state without deleting alerts or runtime state.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "daemon_status",
+                "description": "Report daemon state, watched paths, alert counts, and generation counters.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "alerts_list",
+                "description": "List persisted daemon/proactive alerts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "include_acked": { "type": "boolean", "default": false, "description": "Include acknowledged alerts" },
+                        "limit": { "type": "integer", "default": 50, "description": "Maximum number of alerts to return" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "alerts_ack",
+                "description": "Acknowledge one or more daemon/proactive alerts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "alert_ids": { "type": "array", "items": { "type": "string" }, "description": "Alert IDs to acknowledge" }
+                    },
+                    "required": ["agent_id", "alert_ids"]
+                }
+            },
+            {
                 "name": "panoramic",
                 "description": "Panoramic graph health overview: per-module risk scores combining blast radius, centrality, and churn signals.",
                 "inputSchema": {
@@ -1885,6 +1945,31 @@ fn dispatch_core_tool(
             let input: layers::AuditInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::audit_handlers::handle_audit(state, input)
+        }
+        "daemon_start" => {
+            let input: layers::DaemonStartInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_start(state, input)
+        }
+        "daemon_stop" => {
+            let input: layers::DaemonStopInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_stop(state, input)
+        }
+        "daemon_status" => {
+            let input: layers::DaemonStatusInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_status(state, input)
+        }
+        "alerts_list" => {
+            let input: layers::AlertsListInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_alerts_list(state, input)
+        }
+        "alerts_ack" => {
+            let input: layers::AlertsAckInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_alerts_ack(state, input)
         }
         "panoramic" => {
             let input: layers::PanoramicInput =

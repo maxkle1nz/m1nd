@@ -27,6 +27,18 @@ The rule:
   - stronger cross-repo contract drift when federation is active
   - per-insight latency budgets in benchmarks
 
+### 2026-04-05 — daemon alerts exist, but the daemon still does not watch or ingest deltas by itself
+
+- Context: first daemon surface (`daemon_start`, `daemon_stop`, `daemon_status`,
+  `alerts_list`, `alerts_ack`)
+- Friction: write paths can now persist alerts when the daemon is active, but
+  the daemon is still a persisted control plane, not yet a live file-watching
+  incremental ingest loop
+- Desired behavior:
+  - filesystem / SCM-triggered delta ingest
+  - alert emission without requiring an explicit `apply`
+  - latency budgets for `single-file changed -> alert available`
+
 ### 2026-04-05 — `audit` still composes more than it understands
 
 - Context: first implementation of `m1nd.audit`
