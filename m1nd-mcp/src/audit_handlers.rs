@@ -1338,9 +1338,7 @@ fn normalize_api_route_for_discovery(route: &str) -> String {
     }
     n.split('/')
         .map(|segment| {
-            if segment.starts_with('{') && segment.ends_with('}') {
-                "_".to_string()
-            } else if segment.starts_with(':') {
+            if (segment.starts_with('{') && segment.ends_with('}')) || segment.starts_with(':') {
                 "_".to_string()
             } else {
                 segment.to_string()
