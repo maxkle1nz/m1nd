@@ -2494,7 +2494,12 @@ impl McpServer {
         ) {
             Ok(watcher) => {
                 runtime.watcher = Some(watcher);
-                self.state.daemon_state.watch_backend = "native_fs".into();
+                self.state.daemon_state.watch_backend =
+                    if self.state.daemon_state.git_root.is_some() {
+                        "git_native_fs".into()
+                    } else {
+                        "native_fs".into()
+                    };
                 self.state.daemon_state.watch_backend_error = None;
             }
             Err(error) => {

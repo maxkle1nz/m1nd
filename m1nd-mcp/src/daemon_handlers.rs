@@ -5,6 +5,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_ms() -> u64 {
@@ -136,6 +137,86 @@ fn tracked_files_from_inventory(
         .collect()
 }
 
+fn git_root_for_watch_paths(watch_paths: &[String]) -> Option<PathBuf> {
+    for raw_path in watch_paths {
+        let path = PathBuf::from(raw_path);
+        let root_hint = if path.is_dir() {
+            path
+        } else {
+            path.parent().map(Path::to_path_buf).unwrap_or(path)
+        };
+
+        let output = Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .current_dir(&root_hint)
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !value.is_empty() {
+                return Some(PathBuf::from(value));
+            }
+        }
+    }
+    None
+}
+
+fn git_head_ref(root: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn git_changed_absolute_paths(
+    root: &Path,
+    since_ref: Option<&str>,
+) -> Result<Vec<PathBuf>, String> {
+    let mut changed = Vec::new();
+    let diff_args: Vec<&str> = if let Some(reference) = since_ref {
+        vec!["diff", "--name-only", reference, "--"]
+    } else {
+        vec!["status", "--porcelain"]
+    };
+    let output = Command::new("git")
+        .args(&diff_args)
+        .current_dir(root)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for raw_line in stdout.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let rel = if since_ref.is_some() {
+            line.to_string()
+        } else {
+            line.get(3..).unwrap_or(line).trim().to_string()
+        };
+        if rel.is_empty() {
+            continue;
+        }
+        changed.push(root.join(rel));
+    }
+
+    Ok(changed)
+}
+
 pub fn handle_daemon_start(
     state: &mut SessionState,
     input: layers::DaemonStartInput,
@@ -171,6 +252,19 @@ pub fn handle_daemon_start(
     state.daemon_state.watch_events_seen = 0;
     state.daemon_state.watch_events_dropped = 0;
     state.daemon_state.last_watch_event_ms = None;
+    state.daemon_state.git_root = git_root_for_watch_paths(&state.daemon_state.watch_paths)
+        .map(|root| root.to_string_lossy().to_string());
+    state.daemon_state.git_since_ref = state
+        .daemon_state
+        .git_root
+        .as_deref()
+        .and_then(|root| git_head_ref(Path::new(root)));
+    state.daemon_state.last_git_scan_ms = None;
+    state.daemon_state.last_git_changed_files = 0;
+    state.daemon_state.git_backend_error = None;
+    if state.daemon_state.git_root.is_some() {
+        state.daemon_state.watch_backend = "git_native_fs".into();
+    }
     state.persist_daemon_state()?;
     Ok(json!({
         "status": "started",
@@ -181,6 +275,8 @@ pub fn handle_daemon_start(
         "coalesce_window_ms": state.daemon_state.coalesce_window_ms,
         "tracked_files": state.daemon_state.tracked_files.len(),
         "watch_backend": state.daemon_state.watch_backend,
+        "git_root": state.daemon_state.git_root,
+        "git_since_ref": state.daemon_state.git_since_ref,
     }))
 }
 
@@ -238,6 +334,11 @@ pub fn handle_daemon_status(
         "watch_events_seen": state.daemon_state.watch_events_seen,
         "watch_events_dropped": state.daemon_state.watch_events_dropped,
         "last_watch_event_ms": state.daemon_state.last_watch_event_ms,
+        "git_root": state.daemon_state.git_root,
+        "git_since_ref": state.daemon_state.git_since_ref,
+        "last_git_scan_ms": state.daemon_state.last_git_scan_ms,
+        "last_git_changed_files": state.daemon_state.last_git_changed_files,
+        "git_backend_error": state.daemon_state.git_backend_error,
         "pending_rerun": state.daemon_state.pending_rerun,
         "tick_in_flight": state.daemon_state.tick_in_flight,
         "last_coalesced_event_ms": state.daemon_state.last_coalesced_event_ms,
@@ -273,18 +374,77 @@ pub fn handle_daemon_tick(
     let mut changed_entries = Vec::new();
     let mut deleted_entries = Vec::new();
 
-    for (external_id, live_entry) in &live_inventory {
-        let changed = state
-            .daemon_state
-            .tracked_files
-            .get(external_id)
-            .is_none_or(|known| {
-                known.last_modified_ms != live_entry.last_modified_ms
-                    || known.size_bytes != live_entry.size_bytes
-                    || known.sha256 != live_entry.sha256
-            });
-        if changed {
-            changed_entries.push(live_entry.clone());
+    if state.daemon_state.watch_backend == "git_native_fs" {
+        if let Some(root) = state.daemon_state.git_root.clone() {
+            match git_changed_absolute_paths(
+                Path::new(&root),
+                state.daemon_state.git_since_ref.as_deref(),
+            ) {
+                Ok(paths) => {
+                    state.daemon_state.last_git_scan_ms = Some(now_ms());
+                    state.daemon_state.last_git_changed_files = paths.len();
+                    state.daemon_state.git_backend_error = None;
+                    for path in paths {
+                        let path_str = path.to_string_lossy().to_string();
+                        if let Some(entry) = live_inventory
+                            .values()
+                            .find(|entry| entry.file_path == path_str)
+                            .cloned()
+                        {
+                            changed_entries.push(entry);
+                        }
+                    }
+                    state.daemon_state.git_since_ref =
+                        git_head_ref(Path::new(&root)).or(state.daemon_state.git_since_ref.clone());
+                }
+                Err(error) => {
+                    state.daemon_state.git_backend_error = Some(error);
+                    for (external_id, live_entry) in &live_inventory {
+                        let changed = state
+                            .daemon_state
+                            .tracked_files
+                            .get(external_id)
+                            .is_none_or(|known| {
+                                known.last_modified_ms != live_entry.last_modified_ms
+                                    || known.size_bytes != live_entry.size_bytes
+                                    || known.sha256 != live_entry.sha256
+                            });
+                        if changed {
+                            changed_entries.push(live_entry.clone());
+                        }
+                    }
+                }
+            }
+        } else {
+            for (external_id, live_entry) in &live_inventory {
+                let changed = state
+                    .daemon_state
+                    .tracked_files
+                    .get(external_id)
+                    .is_none_or(|known| {
+                        known.last_modified_ms != live_entry.last_modified_ms
+                            || known.size_bytes != live_entry.size_bytes
+                            || known.sha256 != live_entry.sha256
+                    });
+                if changed {
+                    changed_entries.push(live_entry.clone());
+                }
+            }
+        }
+    } else {
+        for (external_id, live_entry) in &live_inventory {
+            let changed = state
+                .daemon_state
+                .tracked_files
+                .get(external_id)
+                .is_none_or(|known| {
+                    known.last_modified_ms != live_entry.last_modified_ms
+                        || known.size_bytes != live_entry.size_bytes
+                        || known.sha256 != live_entry.sha256
+                });
+            if changed {
+                changed_entries.push(live_entry.clone());
+            }
         }
     }
 
@@ -503,6 +663,7 @@ mod tests {
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
+    use std::process::Command;
 
     fn build_state() -> (tempfile::TempDir, SessionState) {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -878,5 +1039,131 @@ mod tests {
         assert_eq!(status["pending_rerun"], false);
         assert_eq!(status["tick_in_flight"], false);
         assert_eq!(status["watch_backend"], "polling");
+    }
+
+    #[test]
+    fn daemon_start_detects_git_root_and_head() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(repo.join("src/core.py"), "def core():\n    return 1\n").expect("write");
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .output()
+            .expect("git init");
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(&repo)
+            .output()
+            .expect("git email");
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&repo)
+            .output()
+            .expect("git name");
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo)
+            .output()
+            .expect("git add");
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&repo)
+            .output()
+            .expect("git commit");
+
+        let started = handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+
+        assert_eq!(started["watch_backend"], "git_native_fs");
+        assert!(started["git_root"].as_str().is_some());
+        assert!(started["git_since_ref"].as_str().is_some());
+    }
+
+    #[test]
+    fn daemon_tick_uses_git_changed_set_when_available() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file_path = repo.join("src/core.py");
+        std::fs::write(&file_path, "def core():\n    return 1\n").expect("write");
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .output()
+            .expect("git init");
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(&repo)
+            .output()
+            .expect("git email");
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&repo)
+            .output()
+            .expect("git name");
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo)
+            .output()
+            .expect("git add");
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&repo)
+            .output()
+            .expect("git commit");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("initial ingest");
+
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+
+        std::fs::write(&file_path, "def core():\n    return 2\n").expect("rewrite");
+
+        let ticked = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("git tick");
+
+        assert_eq!(state.daemon_state.watch_backend, "git_native_fs");
+        assert_eq!(ticked["changed_files_detected"], 1);
+        assert_eq!(ticked["files_reingested"], 1);
+        assert_eq!(state.daemon_state.last_git_changed_files, 1);
+        assert!(state.daemon_state.last_git_scan_ms.is_some());
+        assert!(state.daemon_state.git_backend_error.is_none());
     }
 }
