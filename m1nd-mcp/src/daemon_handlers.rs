@@ -150,6 +150,7 @@ pub fn handle_daemon_start(
     state.daemon_state.active = true;
     state.daemon_state.started_at_ms = Some(started_at_ms);
     state.daemon_state.last_tick_ms = Some(started_at_ms);
+    state.daemon_state.last_tick_trigger = None;
     state.daemon_state.watch_paths = watch_paths;
     state.daemon_state.poll_interval_ms = input.poll_interval_ms;
     state.daemon_state.tracked_files = tracked_files_from_inventory(&initial_inventory);
@@ -160,6 +161,11 @@ pub fn handle_daemon_start(
     state.daemon_state.last_tick_alerts_emitted = 0;
     state.daemon_state.idle_streak = 0;
     state.daemon_state.max_backoff_multiplier = 8;
+    state.daemon_state.watch_backend = "polling".into();
+    state.daemon_state.watch_backend_error = None;
+    state.daemon_state.watch_events_seen = 0;
+    state.daemon_state.watch_events_dropped = 0;
+    state.daemon_state.last_watch_event_ms = None;
     state.persist_daemon_state()?;
     Ok(json!({
         "status": "started",
@@ -168,6 +174,7 @@ pub fn handle_daemon_start(
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
         "tracked_files": state.daemon_state.tracked_files.len(),
+        "watch_backend": state.daemon_state.watch_backend,
     }))
 }
 
@@ -183,6 +190,7 @@ pub fn handle_daemon_stop(
         "active": false,
         "started_at_ms": state.daemon_state.started_at_ms,
         "last_tick_ms": state.daemon_state.last_tick_ms,
+        "watch_backend": state.daemon_state.watch_backend,
     }))
 }
 
@@ -212,11 +220,17 @@ pub fn handle_daemon_status(
         "active": state.daemon_state.active,
         "started_at_ms": state.daemon_state.started_at_ms,
         "last_tick_ms": state.daemon_state.last_tick_ms,
+        "last_tick_trigger": state.daemon_state.last_tick_trigger,
         "next_tick_due_ms": next_tick_due_ms,
         "overdue_ms": overdue_ms,
         "watch_paths": state.daemon_state.watch_paths,
         "poll_interval_ms": state.daemon_state.poll_interval_ms,
         "effective_poll_interval_ms": effective_poll_interval_ms,
+        "watch_backend": state.daemon_state.watch_backend,
+        "watch_backend_error": state.daemon_state.watch_backend_error,
+        "watch_events_seen": state.daemon_state.watch_events_seen,
+        "watch_events_dropped": state.daemon_state.watch_events_dropped,
+        "last_watch_event_ms": state.daemon_state.last_watch_event_ms,
         "alert_count": state.daemon_alerts.len(),
         "tracked_files": state.daemon_state.tracked_files.len(),
         "tick_count": state.daemon_state.tick_count,
@@ -585,6 +599,9 @@ mod tests {
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["overdue_ms"], 0);
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["watch_backend"], "polling");
+        assert_eq!(status["watch_events_seen"], 0);
+        assert_eq!(status["watch_events_dropped"], 0);
 
         let stopped = handle_daemon_stop(
             &mut state,
@@ -668,6 +685,7 @@ mod tests {
         assert_eq!(status["last_tick_deleted_files"], 0);
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["watch_backend"], "polling");
     }
 
     #[test]
@@ -775,6 +793,7 @@ mod tests {
             "risky daemon tick should emit at least one alert"
         );
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["watch_backend"], "polling");
     }
 
     #[test]
@@ -838,5 +857,6 @@ mod tests {
         assert!(status["last_tick_duration_ms"].as_f64().is_some());
         assert!(status["next_tick_due_ms"].as_u64().is_some());
         assert_eq!(status["idle_streak"], 0);
+        assert_eq!(status["watch_backend"], "polling");
     }
 }
