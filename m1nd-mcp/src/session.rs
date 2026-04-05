@@ -190,6 +190,9 @@ pub struct DaemonRuntimeState {
     pub last_git_scan_ms: Option<u64>,
     pub last_git_changed_files: usize,
     pub git_backend_error: Option<String>,
+    pub git_operation_in_progress: bool,
+    pub git_operation_kind: Option<String>,
+    pub deferred_ticks: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -217,6 +217,24 @@ fn git_changed_absolute_paths(
     Ok(changed)
 }
 
+fn git_operation_in_progress(root: &Path) -> Option<String> {
+    let git_dir = root.join(".git");
+    let checks = [
+        ("rebase-merge", "rebase"),
+        ("rebase-apply", "rebase"),
+        ("MERGE_HEAD", "merge"),
+        ("CHERRY_PICK_HEAD", "cherry-pick"),
+        ("BISECT_LOG", "bisect"),
+        ("index.lock", "index-lock"),
+    ];
+    for (relative, kind) in checks {
+        if git_dir.join(relative).exists() {
+            return Some(kind.to_string());
+        }
+    }
+    None
+}
+
 pub fn handle_daemon_start(
     state: &mut SessionState,
     input: layers::DaemonStartInput,
@@ -262,6 +280,9 @@ pub fn handle_daemon_start(
     state.daemon_state.last_git_scan_ms = None;
     state.daemon_state.last_git_changed_files = 0;
     state.daemon_state.git_backend_error = None;
+    state.daemon_state.git_operation_in_progress = false;
+    state.daemon_state.git_operation_kind = None;
+    state.daemon_state.deferred_ticks = 0;
     if state.daemon_state.git_root.is_some() {
         state.daemon_state.watch_backend = "git_native_fs".into();
     }
@@ -277,6 +298,8 @@ pub fn handle_daemon_start(
         "watch_backend": state.daemon_state.watch_backend,
         "git_root": state.daemon_state.git_root,
         "git_since_ref": state.daemon_state.git_since_ref,
+        "git_operation_in_progress": state.daemon_state.git_operation_in_progress,
+        "git_operation_kind": state.daemon_state.git_operation_kind,
     }))
 }
 
@@ -339,6 +362,9 @@ pub fn handle_daemon_status(
         "last_git_scan_ms": state.daemon_state.last_git_scan_ms,
         "last_git_changed_files": state.daemon_state.last_git_changed_files,
         "git_backend_error": state.daemon_state.git_backend_error,
+        "git_operation_in_progress": state.daemon_state.git_operation_in_progress,
+        "git_operation_kind": state.daemon_state.git_operation_kind,
+        "deferred_ticks": state.daemon_state.deferred_ticks,
         "pending_rerun": state.daemon_state.pending_rerun,
         "tick_in_flight": state.daemon_state.tick_in_flight,
         "last_coalesced_event_ms": state.daemon_state.last_coalesced_event_ms,
@@ -376,6 +402,35 @@ pub fn handle_daemon_tick(
 
     if state.daemon_state.watch_backend == "git_native_fs" {
         if let Some(root) = state.daemon_state.git_root.clone() {
+            if let Some(kind) = git_operation_in_progress(Path::new(&root)) {
+                state.daemon_state.git_operation_in_progress = true;
+                state.daemon_state.git_operation_kind = Some(kind);
+                state.daemon_state.deferred_ticks =
+                    state.daemon_state.deferred_ticks.saturating_add(1);
+                state.daemon_state.last_tick_trigger = Some("reconciliation".into());
+                state.daemon_state.last_tick_ms = Some(now_ms());
+                state.daemon_state.tick_count = state.daemon_state.tick_count.saturating_add(1);
+                state.daemon_state.last_tick_duration_ms =
+                    Some(start.elapsed().as_secs_f64() * 1000.0);
+                state.daemon_state.last_tick_changed_files = 0;
+                state.daemon_state.last_tick_deleted_files = 0;
+                state.daemon_state.last_tick_alerts_emitted = 0;
+                state.persist_daemon_state()?;
+                return Ok(json!({
+                    "active": true,
+                    "status": "deferred",
+                    "deferred_reason": state.daemon_state.git_operation_kind,
+                    "changed_files_detected": 0,
+                    "deleted_files_detected": 0,
+                    "files_reingested": 0,
+                    "ingested_files": [],
+                    "deleted_files": [],
+                    "alerts_emitted": 0,
+                    "alert_ids": [],
+                }));
+            }
+            state.daemon_state.git_operation_in_progress = false;
+            state.daemon_state.git_operation_kind = None;
             match git_changed_absolute_paths(
                 Path::new(&root),
                 state.daemon_state.git_since_ref.as_deref(),
@@ -1165,5 +1220,86 @@ mod tests {
         assert_eq!(state.daemon_state.last_git_changed_files, 1);
         assert!(state.daemon_state.last_git_scan_ms.is_some());
         assert!(state.daemon_state.git_backend_error.is_none());
+    }
+
+    #[test]
+    fn daemon_tick_defers_when_git_operation_is_in_progress() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file_path = repo.join("src/core.py");
+        std::fs::write(&file_path, "def core():\n    return 1\n").expect("write");
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .output()
+            .expect("git init");
+        Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(&repo)
+            .output()
+            .expect("git email");
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&repo)
+            .output()
+            .expect("git name");
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(&repo)
+            .output()
+            .expect("git add");
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(&repo)
+            .output()
+            .expect("git commit");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("initial ingest");
+
+        handle_daemon_start(
+            &mut state,
+            layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 200,
+            },
+        )
+        .expect("daemon start");
+
+        std::fs::write(repo.join(".git").join("MERGE_HEAD"), "deadbeef\n").expect("merge head");
+
+        let ticked = handle_daemon_tick(
+            &mut state,
+            layers::DaemonTickInput {
+                agent_id: "test".into(),
+                max_files: 8,
+            },
+        )
+        .expect("deferred tick");
+
+        assert_eq!(state.daemon_state.watch_backend, "git_native_fs");
+        assert_eq!(ticked["status"], "deferred");
+        assert_eq!(ticked["files_reingested"], 0);
+        assert_eq!(state.daemon_state.git_operation_in_progress, true);
+        assert_eq!(
+            state.daemon_state.git_operation_kind.as_deref(),
+            Some("merge")
+        );
+        assert!(state.daemon_state.deferred_ticks >= 1);
     }
 }
