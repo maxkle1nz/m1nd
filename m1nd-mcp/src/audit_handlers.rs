@@ -1034,8 +1034,9 @@ fn evidence_rank(value: &str) -> u8 {
         | "python_path_dependency"
         | "go_workspace_use" => 2,
         "import_identity_match" => 3,
-        "api_route_match" => 4,
-        _ => 5,
+        "proto_contract_match" | "mcp_tool_contract_match" => 4,
+        "api_route_match" => 5,
+        _ => 6,
     }
 }
 
@@ -1574,6 +1575,179 @@ fn discover_api_contract_repo_signals(
     signals
 }
 
+fn extract_proto_contract_tokens(content: &str) -> BTreeSet<String> {
+    let mut tokens = BTreeSet::new();
+    if let Ok(package_regex) = Regex::new(r#"(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;"#) {
+        for captures in package_regex.captures_iter(content) {
+            if let Some(value) = captures.get(1).map(|m| m.as_str().trim()) {
+                if !value.is_empty() {
+                    tokens.insert(value.to_string());
+                }
+            }
+        }
+    }
+    if let Ok(service_regex) = Regex::new(r#"(?m)^\s*service\s+([A-Za-z0-9_]+)\s*\{"#) {
+        for captures in service_regex.captures_iter(content) {
+            if let Some(value) = captures.get(1).map(|m| m.as_str().trim()) {
+                if !value.is_empty() {
+                    tokens.insert(value.to_string());
+                }
+            }
+        }
+    }
+    tokens
+}
+
+fn extract_mcp_tool_tokens(content: &str) -> BTreeSet<String> {
+    let lower = content.to_lowercase();
+    if !(lower.contains("tools/call")
+        || lower.contains("tooldoc")
+        || lower.contains("tool_schemas")
+        || lower.contains("json-rpc")
+        || lower.contains("mcp"))
+    {
+        return BTreeSet::new();
+    }
+
+    let mut tokens = BTreeSet::new();
+    for pattern in [
+        r#"name\s*:\s*"([A-Za-z0-9_.-]+)""#,
+        r#""name"\s*:\s*"([A-Za-z0-9_.-]+)""#,
+    ] {
+        if let Ok(regex) = Regex::new(pattern) {
+            for captures in regex.captures_iter(content) {
+                if let Some(value) = captures.get(1).map(|m| m.as_str().trim()) {
+                    if !value.is_empty() && value != "agent_id" {
+                        tokens.insert(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+    tokens
+}
+
+fn contract_token_appears_in_content(token: &str, content: &str) -> bool {
+    if content.contains(token) {
+        return true;
+    }
+    let escaped = regex::escape(token);
+    let patterns = [
+        format!(r#"(?m)\b{}\b"#, escaped),
+        format!(r#"(?m)["']{}["']"#, escaped),
+        format!(r#"(?m)m1nd[._]{}"#, escaped),
+    ];
+    patterns.into_iter().any(|pattern| {
+        Regex::new(&pattern)
+            .map(|regex| regex.is_match(content))
+            .unwrap_or(false)
+    })
+}
+
+fn discover_contract_artifact_repo_signals(
+    state: &SessionState,
+    workspace_root: &Path,
+    scope: Option<&str>,
+) -> Vec<SemanticRepoSignal> {
+    let inventory = if state.file_inventory.is_empty() {
+        inventory_from_roots(state, false, &[])
+    } else {
+        state.file_inventory.clone()
+    };
+    let disk_entries = filter_inventory_by_scope(state, &inventory, scope);
+    let mut current_contents = Vec::new();
+    for entry in disk_entries {
+        let kind = classify_file_kind(&entry.file_path, &entry.language);
+        if !matches!(
+            kind,
+            AuditFileKind::Code | AuditFileKind::Config | AuditFileKind::Doc
+        ) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&entry.file_path) else {
+            continue;
+        };
+        current_contents.push((entry.external_id.clone(), entry.file_path.clone(), content));
+    }
+    if current_contents.is_empty() {
+        return Vec::new();
+    }
+
+    let neighbors = discover_neighbor_repo_identities(workspace_root);
+    let mut signals = Vec::new();
+    for neighbor in neighbors {
+        let mut visited = 0usize;
+        let mut stack = vec![neighbor.repo_root.clone()];
+        while let Some(dir) = stack.pop() {
+            if visited >= 200 {
+                break;
+            }
+            let Ok(read_dir) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in read_dir.flatten() {
+                if visited >= 200 {
+                    break;
+                }
+                let path = entry.path();
+                if path.is_dir() {
+                    let lower = path.to_string_lossy().to_lowercase();
+                    if lower.contains("/.git/")
+                        || lower.contains("/target/")
+                        || lower.contains("/node_modules/")
+                        || lower.contains("/dist/")
+                        || lower.contains("/build/")
+                    {
+                        continue;
+                    }
+                    stack.push(path);
+                    continue;
+                }
+                visited += 1;
+                let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
+                    continue;
+                };
+                let Ok(content) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let (tokens, evidence_type, confidence) = match ext {
+                    "proto" => (
+                        extract_proto_contract_tokens(&content),
+                        "proto_contract_match",
+                        "medium",
+                    ),
+                    "rs" | "ts" | "js" | "tsx" | "jsx" | "md" | "json" => (
+                        extract_mcp_tool_tokens(&content),
+                        "mcp_tool_contract_match",
+                        "medium",
+                    ),
+                    _ => continue,
+                };
+                if tokens.is_empty() {
+                    continue;
+                }
+                for token in tokens {
+                    for (source_node, source_file, current_content) in &current_contents {
+                        if contract_token_appears_in_content(&token, current_content) {
+                            signals.push(SemanticRepoSignal {
+                                repo_root: neighbor.repo_root.clone(),
+                                marker: neighbor.marker.clone(),
+                                source_file: source_file.clone(),
+                                source_node: Some(source_node.clone()),
+                                evidence_type: evidence_type.to_string(),
+                                sampled_path: token.clone(),
+                                confidence,
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    signals
+}
+
 fn discover_semantic_repo_signals(
     state: &SessionState,
     workspace_root: &Path,
@@ -1619,6 +1793,11 @@ fn discover_semantic_repo_signals(
     }
     signals.extend(discover_import_repo_signals(state, workspace_root, scope));
     signals.extend(discover_api_contract_repo_signals(
+        state,
+        workspace_root,
+        scope,
+    ));
+    signals.extend(discover_contract_artifact_repo_signals(
         state,
         workspace_root,
         scope,
@@ -3382,6 +3561,130 @@ mod tests {
         assert!(discovered[0]["evidence_types"]
             .as_array()
             .is_some_and(|items| items.iter().any(|item| item == "api_route_match")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_proto_contract_match() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/client.ts"),
+            "const service = 'UserService';\nexport const ok = service;\n",
+        )
+        .expect("write current source");
+
+        let contract_root = temp.path().join("contracts");
+        std::fs::create_dir_all(contract_root.join(".git")).expect("contracts git");
+        std::fs::create_dir_all(contract_root.join("proto")).expect("contracts proto");
+        std::fs::write(
+            contract_root.join("proto/users.proto"),
+            "syntax = \"proto3\";\npackage users.v1;\nservice UserService {}\n",
+        )
+        .expect("write proto");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/client.ts".into(),
+            file_path: current_root
+                .join("src/client.ts")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "typescript".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&contract_root).expect("canonical contracts");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "proto_contract_match")));
+    }
+
+    #[test]
+    fn federate_auto_discovers_repo_from_mcp_tool_contract_match() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let current_root = temp.path().join("current");
+        std::fs::create_dir_all(current_root.join("src")).expect("current src");
+        std::fs::write(
+            current_root.join("src/client.ts"),
+            "const tool = 'runtime_overlay';\nconst method = 'tools/call';\n",
+        )
+        .expect("write current source");
+
+        let mcp_root = temp.path().join("mcp-provider");
+        std::fs::create_dir_all(mcp_root.join(".git")).expect("mcp git");
+        std::fs::create_dir_all(mcp_root.join("src")).expect("mcp src");
+        std::fs::write(
+            mcp_root.join("src/server.rs"),
+            "fn tool_schemas() { let x = serde_json::json!({\"name\": \"runtime_overlay\"}); }\n",
+        )
+        .expect("write server");
+
+        let mut state = build_empty_state(&current_root);
+        state.record_file_inventory([FileInventoryEntry {
+            external_id: "file::src/client.ts".into(),
+            file_path: current_root
+                .join("src/client.ts")
+                .to_string_lossy()
+                .to_string(),
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "typescript".into(),
+            commit_count: 0,
+            loc: Some(2),
+            sha256: None,
+        }]);
+
+        let output = handle_federate_auto(
+            &mut state,
+            layers::FederateAutoInput {
+                agent_id: "test".into(),
+                scope: None,
+                current_repo_name: None,
+                max_repos: 8,
+                detect_cross_repo_edges: true,
+                execute: false,
+            },
+        )
+        .expect("federate_auto");
+
+        let discovered = output["discovered_repos"]
+            .as_array()
+            .expect("discovered repos");
+        assert_eq!(discovered.len(), 1);
+        let expected_root = std::fs::canonicalize(&mcp_root).expect("canonical mcp root");
+        assert_eq!(
+            discovered[0]["repo_root"].as_str(),
+            Some(expected_root.to_string_lossy().as_ref())
+        );
+        assert!(discovered[0]["evidence_types"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "mcp_tool_contract_match")));
     }
 
     #[test]
