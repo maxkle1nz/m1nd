@@ -2275,6 +2275,17 @@ pub struct DaemonStatusInput {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct DaemonTickInput {
+    pub agent_id: String,
+    #[serde(default = "default_daemon_tick_limit")]
+    pub max_files: usize,
+}
+
+fn default_daemon_tick_limit() -> usize {
+    32
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct AlertsListInput {
     pub agent_id: String,
     #[serde(default)]

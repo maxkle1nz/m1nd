@@ -1450,6 +1450,18 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             {
+                "name": "daemon_tick",
+                "description": "Poll watched roots once, incrementally re-ingest changed files, and surface drift alerts for deleted files.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "max_files": { "type": "integer", "default": 32, "description": "Maximum changed files to process in one tick" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
                 "name": "alerts_list",
                 "description": "List persisted daemon/proactive alerts.",
                 "inputSchema": {
@@ -1960,6 +1972,11 @@ fn dispatch_core_tool(
             let input: layers::DaemonStatusInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::daemon_handlers::handle_daemon_status(state, input)
+        }
+        "daemon_tick" => {
+            let input: layers::DaemonTickInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_tick(state, input)
         }
         "alerts_list" => {
             let input: layers::AlertsListInput =

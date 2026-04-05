@@ -166,6 +166,16 @@ pub struct DaemonRuntimeState {
     pub last_tick_ms: Option<u64>,
     pub watch_paths: Vec<String>,
     pub poll_interval_ms: u64,
+    pub tracked_files: HashMap<String, DaemonTrackedFile>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DaemonTrackedFile {
+    pub external_id: String,
+    pub file_path: String,
+    pub last_modified_ms: u64,
+    pub size_bytes: u64,
+    pub sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
