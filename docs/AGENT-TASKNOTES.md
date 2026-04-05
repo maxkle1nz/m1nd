@@ -29,15 +29,15 @@ The rule:
 - Likely next step: strengthen the profile registry so `audit` changes not only
   tool selection but also grading, recommendation logic, and narrative output
 
-### 2026-04-05 — `federate_auto` now covers explicit paths, manifests, imports, and route-level API matches, but deeper service-contract discovery is still missing
+### 2026-04-05 — `federate_auto` now covers explicit paths, manifests, imports, route-level API matches, and basic contract artifacts, but deeper schema/service discovery is still missing
 
 - Context: `federate_auto` now bridges explicit path evidence, manifest/workspace
-  signals, and package/import identity matches into repo candidates, namespaces,
-  and optional one-shot federation
+  signals, package/import identity matches, shared `/api/...` routes, and basic
+  contract artifacts into repo candidates, namespaces, and optional one-shot federation
 - Friction: repos that are only implied by higher-level service contracts,
   schema boundaries, or indirect protocol surfaces still need manual enumeration
 - Desired behavior:
-  - service/schema discovery beyond raw shared `/api/...` routes
+  - deeper schema discovery beyond simple `.proto` service names or MCP tool-name matches
   - future semantic linking donor lane (stack-graphs / SCIP-class ideas)
 
 ### 2026-04-05 — `coverage_session` is useful but still shallow

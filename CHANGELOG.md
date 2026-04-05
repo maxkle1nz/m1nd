@@ -26,6 +26,9 @@ federation plan.
   - `go.work` use directives
 - now also discovers sibling repos from import/package-name matches against
   nearby repo identities, even when no path-style hint exists
+- now also discovers sibling repos from contract artifacts such as:
+  - `.proto` package/service definitions
+  - MCP tool-name surfaces in nearby providers
 - now also discovers sibling repos from shared `/api/...` route evidence between
   the current workspace and nearby repos, even when no path/import/package hint exists
 - now also discovers sibling repos from import/package-name matches against
