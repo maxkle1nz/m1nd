@@ -625,3 +625,179 @@ Turn explicit external path evidence, local manifest/workspace hints, import/pac
 - [`m1nd.external_references`](overview.md) -- raw external path evidence
 - [`m1nd.federate`](#m1ndfederate) -- explicit multi-repo federation
 - [`m1nd.audit`](overview.md) -- broader audit that can surface the evidence before auto-federation
+
+---
+
+## `m1nd.batch_view`
+
+Read multiple files or glob-resolved files in one call with stable delimiters, optional summaries, and optional auto-ingest.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `files` | `string[]` | Yes | File paths and/or glob patterns to expand. |
+| `auto_ingest` | `boolean` | No | Auto-ingest discovered files before reading. |
+| `summary_mode` | `boolean` | No | Add inline per-file summaries. |
+
+### When to Use
+
+- Audit proof packets
+- Compact multi-file reading after search/glob
+- Agent handoff packages
+
+### Related Tools
+
+- [`m1nd.glob`](#m1ndglob)
+- [`m1nd.coverage_session`](#m1ndcoverage_session)
+- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
+
+---
+
+## `m1nd.scan_all`
+
+Run all structural scan patterns in one call and return grouped findings by pattern.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `scope` | `string` | No | Scope path prefix. |
+| `patterns` | `string[]` | No | Subset of scan patterns to run. |
+| `limit_per_pattern` | `integer` | No | Maximum findings per pattern. |
+
+### When to Use
+
+- Broad first-pass quality/security audit
+- Pre-hardening sweep before prioritizing fixes
+
+### Related Tools
+
+- [`m1nd.scan`](#m1ndscan)
+- [`m1nd.batch_view`](#m1ndbatch_view)
+- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
+
+---
+
+## `m1nd.cross_verify`
+
+Compare graph state against filesystem truth: existence, LOC drift, and optional hash mismatches.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `scope` | `string` | No | Path prefix to limit verification. |
+| `check` | `string[]` | No | Checks to run such as `existence`, `loc`, `hash`. |
+| `include_dotfiles` | `boolean` | No | Include selected dotfiles in verification. |
+
+### When to Use
+
+- To verify graph and disk still agree
+- After daemon drift alerts
+- Before trusting an audit result on a changing repo
+
+### Related Tools
+
+- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
+- [`m1nd.external_references`](#m1ndexternal_references)
+
+---
+
+## `m1nd.coverage_session`
+
+Report what the current agent session has already read or touched.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+
+### When to Use
+
+- To avoid re-reading files during long sessions
+- To build a compact unread-next list after search/audit sweeps
+
+### Related Tools
+
+- [`m1nd.batch_view`](#m1ndbatch_view)
+- [`m1nd.search`](../api-reference/lifecycle.md#m1ndsearch)
+
+---
+
+## `m1nd.external_references`
+
+Find explicit path references that point outside current ingest roots.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `scope` | `string` | No | Optional scope prefix. |
+
+### When to Use
+
+- Before federation when docs/config already point outside the repo
+- To surface repo-boundary evidence in audits
+
+### Related Tools
+
+- [`m1nd.federate_auto`](#m1ndfederate_auto)
+- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
+
+---
+
+## `m1nd.glob`
+
+Graph-aware file globbing over already indexed files.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `pattern` | `string` | Yes | Glob pattern. |
+| `scope` | `string` | No | Optional path prefix. |
+| `sort` | `string` | No | Sort order such as `path` or `activation`. |
+
+### When to Use
+
+- When you need filenames by pattern, not content
+- Before `batch_view` on a file family
+
+### Related Tools
+
+- [`m1nd.search`](../api-reference/lifecycle.md#m1ndsearch)
+- [`m1nd.batch_view`](#m1ndbatch_view)
+
+---
+
+## `m1nd.view`
+
+Fast line-numbered file inspection with optional auto-ingest if the file is not yet in the graph.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `file_path` | `string` | Yes | Absolute or workspace-relative file path. |
+| `auto_ingest` | `boolean` | No | Auto-ingest file into the graph if not present. |
+| `offset` | `integer` | No | Start line offset. |
+| `limit` | `integer` | No | Max lines to return. |
+
+### When to Use
+
+- Quick inspection when you already know the file
+- Narrow, bounded reads before a surgical context call
+
+### Related Tools
+
+- [`m1nd.batch_view`](#m1ndbatch_view)
+- [`m1nd.surgical_context`](../api-reference/lifecycle.md#m1ndsurgical_context)
+

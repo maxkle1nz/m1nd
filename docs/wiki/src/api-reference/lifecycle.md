@@ -561,3 +561,324 @@ Release a lock and free its resources. Removes the lock state, cleans up pending
 
 - [`m1nd.lock.create`](#m1ndlockcreate) -- create a new lock
 - [`m1nd.perspective.close`](perspectives.md#m1ndperspectiveclose) -- cascade-releases associated locks
+
+---
+
+## `m1nd.daemon_start`
+
+Start the persisted daemon control plane. Stores watched roots, initializes daemon counters, and begins the long-lived structural monitoring lane.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `watch_paths` | `string[]` | No | current ingest roots | Paths the daemon should monitor. |
+| `poll_interval_ms` | `integer` | No | `500` | Poll interval fallback in milliseconds. |
+
+### When to Use
+
+- Start of a long-lived agent session
+- Before relying on daemon alerts or `daemon_tick`
+- Before background/idle reconciliation should run
+
+### Related Tools
+
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+- [`m1nd.daemon_tick`](#m1nddaemon_tick)
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+
+---
+
+## `m1nd.daemon_stop`
+
+Stop the daemon control plane without deleting persisted alert history.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+
+### When to Use
+
+- End of a daemon-backed session
+- Before shutting down a host that should not keep reconciling
+
+### Related Tools
+
+- [`m1nd.daemon_start`](#m1nddaemon_start)
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+
+---
+
+## `m1nd.daemon_status`
+
+Inspect daemon liveness and runtime counters. Returns watched roots, tracked files, recent tick metrics, and alert counts.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+
+### Typical Output Fields
+
+- `active`
+- `watch_paths`
+- `poll_interval_ms`
+- `tracked_files`
+- `tick_count`
+- `last_tick_duration_ms`
+- `last_tick_changed_files`
+- `last_tick_deleted_files`
+- `last_tick_alerts_emitted`
+- `alert_count`
+
+### When to Use
+
+- To verify daemon startup worked
+- To inspect whether reconciliation is actually happening
+- To debug daemon slowness or alert silence
+
+### Related Tools
+
+- [`m1nd.daemon_start`](#m1nddaemon_start)
+- [`m1nd.daemon_tick`](#m1nddaemon_tick)
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+
+---
+
+## `m1nd.daemon_tick`
+
+Run one explicit daemon reconciliation pass. Polls watched roots, re-ingests changed files, detects deletions, and emits drift alerts.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `max_files` | `integer` | No | `32` | Maximum changed files to process in one tick. |
+
+### Typical Output Fields
+
+- `changed_files_detected`
+- `deleted_files_detected`
+- `files_reingested`
+- `ingested_files[]`
+- `alerts_emitted`
+- `alert_ids[]`
+- `tick_at_ms`
+
+### When to Use
+
+- To force one reconciliation before reading daemon status
+- To debug watched-root drift deterministically
+- To reproduce daemon ingest issues outside background ticking
+
+### Related Tools
+
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+- [`m1nd.cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
+
+---
+
+## `m1nd.alerts_list`
+
+List persisted daemon and proactive alerts.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `include_acked` | `boolean` | No | `false` | Include already acknowledged alerts. |
+| `limit` | `integer` | No | `50` | Maximum alerts to return. |
+
+### When to Use
+
+- Reviewing daemon findings after a session
+- Building an alert inbox for an agent or UI
+
+### Related Tools
+
+- [`m1nd.alerts_ack`](#m1ndalerts_ack)
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+
+---
+
+## `m1nd.alerts_ack`
+
+Acknowledge one or more persisted daemon/proactive alerts so they stop resurfacing in the unread queue.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `alert_ids` | `string[]` | Yes | Alert IDs to acknowledge. |
+
+### When to Use
+
+- After reviewing or actioning daemon findings
+- To keep the alert queue focused on new drift
+
+### Related Tools
+
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+
+---
+
+## `m1nd.edit_preview`
+
+Preview a full-file write without touching disk. Returns a diff, freshness snapshot, and validation report so the caller can inspect before committing.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `file_path` | `string` | Yes | Absolute or workspace-relative file path. |
+| `new_content` | `string` | Yes | Candidate replacement content. |
+| `description` | `string` | No | Human-readable summary of the edit. |
+
+### When to Use
+
+- Before risky writes
+- When you want a two-phase edit protocol
+- When a human or another agent should inspect the diff first
+
+### Related Tools
+
+- [`m1nd.edit_commit`](#m1ndedit_commit)
+- [`m1nd.apply`](../api-reference/lifecycle.md)
+
+---
+
+## `m1nd.edit_commit`
+
+Commit a previously previewed edit after freshness re-check and explicit confirmation.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `preview_id` | `string` | Yes | Preview handle returned by `edit_preview`. |
+| `confirm` | `boolean` | Yes | Must be `true` to commit the preview. |
+| `reingest` | `boolean` | No | Re-ingest the modified file after commit. |
+
+### When to Use
+
+- After a human/agent approves an `edit_preview`
+- When stale-source protection matters more than speed
+
+### Related Tools
+
+- [`m1nd.edit_preview`](#m1ndedit_preview)
+- [`m1nd.apply`](../api-reference/lifecycle.md)
+
+---
+
+## `m1nd.persist`
+
+Force graph and sidecar persistence immediately.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `action` | `string` | Yes | Persistence action, such as save/load semantics supported by the current implementation. |
+
+### When to Use
+
+- Before shutdown
+- Before risky host lifecycle transitions
+- When you want an explicit persistence checkpoint
+
+### Related Tools
+
+- [`m1nd.health`](#m1ndhealth)
+- [`m1nd.boot_memory`](#m1ndboot_memory)
+
+---
+
+## `m1nd.boot_memory`
+
+Persist small canonical hot-state values next to the graph without polluting larger investigation trails.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `action` | `string` | Yes | Memory action (`set`, `get`, `list`, `delete`, etc.). |
+| `key` | `string` | No | Canonical key to address. |
+| `value` | `json` | No | JSON value to store. |
+
+### When to Use
+
+- Short doctrine/state values that should stay hot
+- Session bootstrapping facts an agent should retrieve quickly
+
+### Related Tools
+
+- [`m1nd.persist`](#m1ndpersist)
+- [`m1nd.trail_save`](memory.md#m1ndtrailsave)
+
+---
+
+## `m1nd.heuristics_surface`
+
+Explain why a node or file is currently ranked as risky or important. Surfaces trust/tremor/antibody/blast-style heuristic factors in one payload.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `node_id` | `string` | No | Graph node to inspect. |
+| `file_path` | `string` | No | File path to inspect. |
+
+### When to Use
+
+- After `predict`, `validate_plan`, or surgical flows rank something unexpectedly high
+- When an agent needs explainability before editing or escalating
+
+### Related Tools
+
+- [`m1nd.validate_plan`](#m1ndvalidate_plan)
+- [`m1nd.apply_batch`](../api-reference/lifecycle.md)
+- [`m1nd.daemon_tick`](#m1nddaemon_tick)
+
+---
+
+## `m1nd.audit`
+
+Profile-aware one-call audit over topology, scans, verification, filesystem truth, and git state.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `path` | `string` | Yes | Root path to audit. |
+| `profile` | `string` | No | Audit profile such as `auto`, `quick`, `coordination`, or `production`. |
+| `depth` | `string` | No | Audit depth. |
+| `cross_verify` | `boolean` | No | Include graph-vs-disk verification. |
+| `external_refs` | `boolean` | No | Include explicit external reference discovery. |
+
+### When to Use
+
+- First pass on an unfamiliar repo
+- Long-running session orientation
+- Pre-handoff or pre-merge structural review
+
+### Related Tools
+
+- [`m1nd.batch_view`](../api-reference/exploration.md#m1ndbatch_view)
+- [`m1nd.cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
+- [`m1nd.coverage_session`](../api-reference/exploration.md#m1ndcoverage_session)
+
