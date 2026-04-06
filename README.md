@@ -367,7 +367,7 @@ This matters because m1nd is not just a search endpoint. It is an opinionated gr
 
 ## Tool Surface
 
-The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **78 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
+The current live dispatch surface in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **89 callable MCP tools**. The category tables below are the human overview; the machine-oriented source of truth now lives in the [Tool Matrix SSOT](docs/wiki/src/tool-matrix.md).
 
 | Category | Highlights |
 |----------|------------|

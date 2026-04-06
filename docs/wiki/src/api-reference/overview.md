@@ -1,6 +1,6 @@
 # API Reference Overview
 
-m1nd currently exposes **78 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
+m1nd currently exposes **89 callable MCP tools** over JSON-RPC 2.0 via stdio when you take the live dispatch surface in `m1nd-mcp/src/server.rs` as the counting source of truth. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
 
 Several tools now do more than return raw results. On the main structural flows you should expect some combination of:
 
@@ -10,6 +10,8 @@ Several tools now do more than return raw results. On the main structural flows 
 - `next_step_hint`
 
 That matters for how you integrate m1nd into an agent loop: treat many responses as workflow guidance, not just data blobs.
+
+For routing, selection, and canonical count reconciliation, start with the [Tool Matrix SSOT](../tool-matrix.md). This overview remains the human-readable map, but the matrix is the machine-oriented source of truth.
 
 ## Tool Index
 

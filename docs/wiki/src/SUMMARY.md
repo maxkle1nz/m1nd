@@ -22,8 +22,9 @@
 
 ---
 
-# API Reference — 63 Tools
+# API Reference — Tool Matrix SSOT + Reference Pages
 
+- [Tool Matrix SSOT](tool-matrix.md)
 - [Overview](api-reference/overview.md)
 - [Activation & Queries](api-reference/activation.md)
 - [Analysis & Prediction](api-reference/analysis.md)
