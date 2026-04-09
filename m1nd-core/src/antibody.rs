@@ -1344,28 +1344,14 @@ pub fn save_antibodies(antibodies: &[Antibody], path: &Path) -> M1ndResult<()> {
     let json = serde_json::to_string_pretty(&data)
         .map_err(|e| M1ndError::PersistenceFailed(format!("antibody serialization: {}", e)))?;
 
-    // Atomic write: write to temp, then rename (FM-PL-008)
-    let tmp_path = path.with_extension("json.tmp");
-
-    // If old file exists, back it up
+    // If old file exists, back it up before overwriting
     if path.exists() {
         let bak_path = path.with_extension("json.bak");
         let _ = std::fs::copy(path, &bak_path);
     }
 
-    let file = std::fs::File::create(&tmp_path)
-        .map_err(|e| M1ndError::PersistenceFailed(format!("antibody temp file create: {}", e)))?;
-    let mut writer = std::io::BufWriter::new(file);
-    writer
-        .write_all(json.as_bytes())
-        .map_err(|e| M1ndError::PersistenceFailed(format!("antibody write: {}", e)))?;
-    writer
-        .flush()
-        .map_err(|e| M1ndError::PersistenceFailed(format!("antibody flush: {}", e)))?;
-    drop(writer);
-
-    std::fs::rename(&tmp_path, path)
-        .map_err(|e| M1ndError::PersistenceFailed(format!("antibody rename: {}", e)))?;
+    // FM-PL-008: atomic write with cleanup on error
+    crate::atomic_write::write_atomic(path, json.as_bytes())?;
 
     Ok(())
 }

@@ -534,32 +534,40 @@ impl SessionState {
     /// Ordering: graph first (source of truth), then plasticity.
     /// If graph save fails, skip plasticity to avoid inconsistent state.
     /// If plasticity save fails after graph succeeds, log warning but don't crash.
+    ///
+    /// The graph read lock is held during both graph and plasticity saves to
+    /// guarantee they represent the same snapshot (no mutations in between).
     pub fn persist(&mut self) -> M1ndResult<()> {
         self.persist_ingest_roots();
-        let graph = self.graph.read();
 
-        // Graph is the source of truth — save it first.
-        m1nd_core::snapshot::save_graph(&graph, &self.graph_path)?;
+        // Hold graph read lock for the entire graph+plasticity save to ensure
+        // they are consistent with each other.
+        {
+            let graph = self.graph.read();
 
-        // Graph succeeded. Now try plasticity — failure here is non-fatal.
-        match self.plasticity.export_state(&graph) {
-            Ok(states) => {
-                if let Err(e) =
-                    m1nd_core::snapshot::save_plasticity_state(&states, &self.plasticity_path)
-                {
+            // Graph is the source of truth — save it first.
+            m1nd_core::snapshot::save_graph(&graph, &self.graph_path)?;
+
+            // Graph succeeded. Now try plasticity — failure here is non-fatal.
+            match self.plasticity.export_state(&graph) {
+                Ok(states) => {
+                    if let Err(e) =
+                        m1nd_core::snapshot::save_plasticity_state(&states, &self.plasticity_path)
+                    {
+                        eprintln!(
+                            "[m1nd] WARNING: graph saved but plasticity persist failed: {}",
+                            e
+                        );
+                    }
+                }
+                Err(e) => {
                     eprintln!(
-                        "[m1nd] WARNING: graph saved but plasticity persist failed: {}",
+                        "[m1nd] WARNING: graph saved but plasticity export failed: {}",
                         e
                     );
                 }
             }
-            Err(e) => {
-                eprintln!(
-                    "[m1nd] WARNING: graph saved but plasticity export failed: {}",
-                    e
-                );
-            }
-        }
+        } // graph read lock released here
 
         // Antibodies — failure here is non-fatal.
         if !self.antibodies.is_empty() {
@@ -630,11 +638,14 @@ impl SessionState {
     }
 
     fn load_boot_memory(path: &Path) -> HashMap<String, BootMemoryEntry> {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<BootMemoryState>(&s).ok())
-            .map(|state| state.entries)
-            .unwrap_or_default()
+        m1nd_core::atomic_write::read_to_string_with_limit(
+            path,
+            m1nd_core::atomic_write::MAX_SIDECAR_BYTES,
+        )
+        .ok()
+        .and_then(|s| serde_json::from_str::<BootMemoryState>(&s).ok())
+        .map(|state| state.entries)
+        .unwrap_or_default()
     }
 
     pub fn persist_daemon_state(&self) -> M1ndResult<()> {
@@ -1003,9 +1014,7 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("tmp");
     let payload = serde_json::to_vec_pretty(value)?;
-    std::fs::write(&tmp, payload)?;
-    std::fs::rename(&tmp, path)?;
+    m1nd_core::atomic_write::write_atomic(path, &payload)?;
     Ok(())
 }

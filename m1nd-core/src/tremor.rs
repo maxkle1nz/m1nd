@@ -440,16 +440,8 @@ pub fn save_tremor_state(registry: &TremorRegistry, path: &Path) -> M1ndResult<(
 
     let json = serde_json::to_string_pretty(&format).map_err(crate::error::M1ndError::Serde)?;
 
-    // Atomic write: temp file + rename
-    let temp_path = path.with_extension("tmp");
-    {
-        use std::io::Write;
-        let file = std::fs::File::create(&temp_path)?;
-        let mut writer = std::io::BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
-        writer.flush()?;
-    }
-    std::fs::rename(&temp_path, path)?;
+    // Atomic write: temp file + rename (with cleanup on error)
+    crate::atomic_write::write_atomic(path, json.as_bytes())?;
 
     Ok(())
 }

@@ -2,6 +2,7 @@
 
 pub mod activation;
 pub mod antibody;
+pub mod atomic_write;
 pub mod builder;
 pub mod counterfactual;
 pub mod domain;
