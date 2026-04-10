@@ -7,6 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub mod bibtex_adapter;
+pub mod canonical;
 pub mod cargo_workspace;
 pub mod cross_domain;
 pub mod cross_file;
@@ -22,6 +23,7 @@ pub mod merge;
 pub mod patent_adapter;
 pub mod resolve;
 pub mod rfc_adapter;
+pub mod universal_adapter;
 pub mod walker;
 
 pub use bibtex_adapter::BibTexAdapter;
@@ -30,6 +32,14 @@ pub use jats_adapter::JatsArticleAdapter;
 pub use l1ght_adapter::L1ghtIngestAdapter;
 pub use patent_adapter::PatentIngestAdapter;
 pub use rfc_adapter::RfcAdapter;
+pub use universal_adapter::{ProviderAvailability, UniversalIngestAdapter, UniversalIngestBundle};
+
+pub(crate) fn extension_of(path: &Path) -> String {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default()
+}
 
 fn is_valid_relative_file_path(rel_path: &str) -> bool {
     let trimmed = rel_path.trim();
@@ -49,6 +59,21 @@ fn build_file_external_id(rel_path: &str) -> Option<String> {
     }
 
     Some(format!("file::{}", trimmed))
+}
+
+pub(crate) fn relative_source_path(root: &Path, path: &Path) -> String {
+    if root.is_file() {
+        return path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_string())
+            .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"));
+    }
+
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn is_valid_external_id(external_id: &str) -> bool {

@@ -3,6 +3,7 @@
 use crate::protocol::*;
 use crate::result_shaping::dedupe_ranked;
 use crate::session::SessionState;
+use crate::universal_docs;
 use m1nd_core::error::M1ndResult;
 use m1nd_core::query::QueryConfig;
 use m1nd_core::temporal::ImpactDirection;
@@ -240,6 +241,9 @@ fn finalize_ingest(
     state.record_file_inventory(inventory_entries);
 
     state.rebuild_engines()?;
+    if !state.document_cache.entries.is_empty() {
+        universal_docs::refresh_all_document_semantics(state);
+    }
 
     // Track ingest roots for L3 git discovery and scope normalization.
     // Replace mode resets the active roots to the new source of truth.
@@ -260,7 +264,16 @@ fn finalize_ingest(
             state.ingest_roots.push(input.path.clone());
         }
     }
-    state.workspace_root = Some(input.path.clone());
+    let input_path = std::path::Path::new(&input.path);
+    state.workspace_root = Some(if input_path.is_dir() {
+        input.path.clone()
+    } else {
+        input_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_string_lossy()
+            .to_string()
+    });
 
     if let Err(e) = state.persist() {
         eprintln!("[m1nd] auto-persist after ingest failed: {}", e);
@@ -1842,6 +1855,46 @@ pub fn handle_ingest(
             let (new_graph, stats) = adapter.ingest(&path)?;
             finalize_ingest(state, &input, "crossref", new_graph, stats)
         }
+        "universal" => {
+            let namespace = input
+                .namespace
+                .clone()
+                .unwrap_or_else(|| "universal".to_string());
+            let adapter = m1nd_ingest::UniversalIngestAdapter::new(Some(namespace.clone()));
+            let bundle = adapter.ingest_bundle(&path)?;
+            let artifacts = universal_docs::write_canonical_artifacts_with_source_root(
+                &state.runtime_root,
+                Some(&path),
+                &bundle.documents,
+                &namespace,
+            )?;
+            universal_docs::ensure_cache_root_in_ingest_roots(state);
+            let mut graph = bundle.graph;
+            universal_docs::rewrite_graph_provenance_to_canonical(
+                &mut graph,
+                &artifacts.entries,
+                &namespace,
+            );
+            for entry in artifacts.entries {
+                state
+                    .document_cache
+                    .entries
+                    .insert(entry.source_path.clone(), entry);
+            }
+            let mut output = finalize_ingest(state, &input, "universal", graph, bundle.stats)?;
+            if let Some(obj) = output.as_object_mut() {
+                obj.insert(
+                    "canonical_artifact_count".into(),
+                    serde_json::json!(state.document_cache.entries.len()),
+                );
+                let providers = universal_docs::provider_availability();
+                obj.insert(
+                    "provider_status".into(),
+                    serde_json::to_value(providers).unwrap_or(serde_json::json!({})),
+                );
+            }
+            Ok(output)
+        }
         "auto" | "document" => {
             // Auto-detect format from file content
             let (format, adapter) =
@@ -1866,7 +1919,7 @@ pub fn handle_ingest(
             }
         }
         other => Ok(serde_json::json!({
-            "error": format!("Unknown adapter: '{}'. Supported: 'code', 'json', 'memory', 'light', 'patent', 'article', 'bibtex', 'rfc', 'crossref', 'auto'", other),
+            "error": format!("Unknown adapter: '{}'. Supported: 'code', 'json', 'memory', 'light', 'patent', 'article', 'bibtex', 'rfc', 'crossref', 'universal', 'auto'", other),
         })),
     }
 }

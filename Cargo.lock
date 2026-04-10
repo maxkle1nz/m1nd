@@ -1289,6 +1289,7 @@ dependencies = [
  "quick-xml",
  "rayon",
  "regex",
+ "serde",
  "serde_json",
  "tree-sitter",
  "tree-sitter-bash",
