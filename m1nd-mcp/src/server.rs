@@ -1,5 +1,6 @@
 // === crates/m1nd-mcp/src/server.rs ===
 
+use crate::auto_ingest;
 use crate::layer_handlers;
 use crate::personality;
 use crate::protocol::layers;
@@ -9,6 +10,7 @@ use crate::search_handlers;
 use crate::session::SessionState;
 use crate::surgical_handlers;
 use crate::tools;
+use crate::universal_docs;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -448,6 +450,111 @@ pub fn tool_schemas() -> serde_json::Value {
                         }
                     },
                     "required": ["path", "agent_id"]
+                }
+            },
+            {
+                "name": "document_resolve",
+                "description": "Resolve a canonical universal-document artifact by source path or node id",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "path": { "type": "string", "description": "Original source path or canonical markdown path" },
+                        "node_id": { "type": "string", "description": "Graph node id emitted from universal ingest" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "document_provider_health",
+                "description": "Report availability and install hints for universal document providers",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "document_bindings",
+                "description": "Resolve deterministic document-to-code bindings for a universal document",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "path": { "type": "string", "description": "Original source path or canonical markdown path" },
+                        "node_id": { "type": "string", "description": "Graph node id emitted from universal ingest" },
+                        "top_k": { "type": "integer", "default": 10, "description": "Maximum bindings to return" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "document_drift",
+                "description": "Analyze stale, missing, or ambiguous document/code bindings for a universal document",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "path": { "type": "string", "description": "Original source path or canonical markdown path" },
+                        "node_id": { "type": "string", "description": "Graph node id emitted from universal ingest" },
+                        "scope": { "type": "string", "description": "Optional drift scope hint" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "auto_ingest_start",
+                "description": "Start local-first document auto-ingest watchers for supported l1ght-family formats",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "roots": { "type": "array", "items": { "type": "string" }, "description": "Filesystem roots to watch recursively" },
+                        "formats": {
+                            "type": "array",
+                            "items": { "type": "string", "enum": ["universal", "light", "article", "bibtex", "crossref", "rfc", "patent"] },
+                            "default": ["universal", "light", "article", "bibtex", "crossref", "rfc", "patent"],
+                            "description": "Supported document formats to auto-ingest"
+                        },
+                        "debounce_ms": { "type": "integer", "default": 200, "description": "Minimum quiet period before a change is eligible for ingestion" },
+                        "namespace": { "type": "string", "description": "Optional namespace for non-code document nodes" }
+                    },
+                    "required": ["agent_id", "roots"]
+                }
+            },
+            {
+                "name": "auto_ingest_stop",
+                "description": "Stop active document auto-ingest watchers and persist manifest state",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "auto_ingest_status",
+                "description": "Report current auto-ingest runtime state, counters, manifest size, and queue depth",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "auto_ingest_tick",
+                "description": "Drain queued document changes immediately and apply them to the active graph",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
                 }
             },
             {
@@ -1658,6 +1765,8 @@ pub fn dispatch_tool(
         })
         .to_string();
 
+    auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
+
     let result = match normalized.as_str() {
         name if name.starts_with("perspective_") => dispatch_perspective_tool(state, name, params),
         name if name.starts_with("lock_") => dispatch_lock_tool(state, name, params),
@@ -1757,6 +1866,46 @@ fn dispatch_core_tool(
             let input: IngestInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             tools::handle_ingest(state, input)
+        }
+        "document_resolve" => {
+            let input: DocumentResolveInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::resolve_document(state, input)
+        }
+        "document_provider_health" => {
+            let input: DocumentProviderHealthInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::provider_health(input)
+        }
+        "document_bindings" => {
+            let input: DocumentBindingsInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::document_bindings(state, input)
+        }
+        "document_drift" => {
+            let input: DocumentDriftInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::document_drift(state, input)
+        }
+        "auto_ingest_start" => {
+            let input: AutoIngestStartInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_start(state, input)
+        }
+        "auto_ingest_stop" => {
+            let input: AutoIngestStopInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_stop(state, input)
+        }
+        "auto_ingest_status" => {
+            let input: AutoIngestStatusInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_status(state, input)
+        }
+        "auto_ingest_tick" => {
+            let input: AutoIngestTickInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_tick(state, input)
         }
         "resonate" => {
             let input: ResonateInput =

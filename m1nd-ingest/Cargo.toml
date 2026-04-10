@@ -42,6 +42,7 @@ tier2 = [
 
 [dependencies]
 m1nd-core = { path = "../m1nd-core", version = "0.7.0" }
+serde = { workspace = true }
 regex = "1"
 walkdir = "2"
 rayon = "1.10"

@@ -19,9 +19,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::auto_ingest::AutoIngestState;
 use crate::perspective::state::{
     LockState, PeekSecurityConfig, PerspectiveLimits, PerspectiveState, WatchTrigger, WatcherEvent,
 };
+use crate::universal_docs::{load_document_cache, persist_document_cache, DocumentCacheState};
 
 // ---------------------------------------------------------------------------
 // AgentSession — per-agent session tracking
@@ -352,6 +354,10 @@ pub struct SessionState {
     pub file_inventory: HashMap<String, FileInventoryEntry>,
     /// Per-agent exploration coverage state for visited files/nodes.
     pub coverage_sessions: HashMap<String, CoverageSessionState>,
+    /// Local document auto-ingest runtime.
+    pub auto_ingest: AutoIngestState,
+    /// Universal document artifact/cache index.
+    pub document_cache: DocumentCacheState,
 }
 
 impl SessionState {
@@ -518,6 +524,8 @@ impl SessionState {
             },
             file_inventory: HashMap::new(),
             coverage_sessions: HashMap::new(),
+            auto_ingest: AutoIngestState::load(&runtime_root),
+            document_cache: load_document_cache(&runtime_root),
         })
     }
 
@@ -589,6 +597,12 @@ impl SessionState {
         if let Err(e) = self.persist_daemon_alerts() {
             eprintln!("[m1nd] WARNING: daemon alert persist failed: {}", e);
         }
+        if let Err(e) = self.auto_ingest.persist(&self.runtime_root) {
+            eprintln!("[m1nd] WARNING: auto-ingest persist failed: {}", e);
+        }
+        if let Err(e) = persist_document_cache(&self.runtime_root, &self.document_cache) {
+            eprintln!("[m1nd] WARNING: document cache persist failed: {}", e);
+        }
 
         self.last_persist_time = Some(Instant::now());
         Ok(())
@@ -603,7 +617,13 @@ impl SessionState {
             return;
         };
 
-        let ingest_roots_path = std::path::Path::new(&root).join("ingest_roots.json");
+        let root_path = std::path::Path::new(&root);
+        let persist_root = if root_path.is_dir() {
+            root_path.to_path_buf()
+        } else {
+            self.runtime_root.clone()
+        };
+        let ingest_roots_path = persist_root.join("ingest_roots.json");
         if let Ok(json) = serde_json::to_string_pretty(&self.ingest_roots) {
             if let Err(e) = std::fs::write(&ingest_roots_path, json) {
                 eprintln!("[m1nd] WARNING: ingest roots persist failed: {}", e);
