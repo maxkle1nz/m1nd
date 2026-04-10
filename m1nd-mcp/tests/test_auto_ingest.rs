@@ -68,17 +68,24 @@ fn search_file_paths(state: &mut SessionState, query: &str) -> Vec<String> {
 }
 
 fn wait_for_queue(state: &mut SessionState, expected_min: usize) {
+    let mut last_queue_depth = 0;
     for _ in 0..50 {
         let status = call(state, "auto_ingest_status", json!({ "agent_id": "tester" }));
         let queue_depth = status
             .get("queue_depth")
             .and_then(|value| value.as_u64())
             .unwrap_or(0) as usize;
+        last_queue_depth = queue_depth;
         if queue_depth >= expected_min {
             return;
         }
         thread::sleep(Duration::from_millis(20));
     }
+    panic!(
+        "timed out waiting for auto-ingest queue depth to reach at least {}; last observed queue depth was {} after 50 retries with 20ms sleep",
+        expected_min,
+        last_queue_depth
+    );
 }
 
 fn write(path: &Path, content: &str) {

@@ -396,9 +396,6 @@ impl AutoIngestState {
         }
 
         state.rebuild_engines()?;
-        if let Err(error) = state.persist() {
-            eprintln!("[m1nd] auto-ingest persist failed: {}", error);
-        }
         Ok(())
     }
 
@@ -490,8 +487,14 @@ impl AutoIngestState {
         })?;
 
         for root in &self.persistent.roots {
+            let root_path = Path::new(root);
+            let mode = if root_path.is_file() {
+                RecursiveMode::NonRecursive
+            } else {
+                RecursiveMode::Recursive
+            };
             watcher
-                .watch(Path::new(root), RecursiveMode::Recursive)
+                .watch(root_path, mode)
                 .map_err(|error| M1ndError::InvalidParams {
                     tool: "auto_ingest_start".into(),
                     detail: format!("failed to watch {}: {}", root, error),
