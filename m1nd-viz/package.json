@@ -12,7 +12,7 @@
     "@motion-canvas/core": "^3.17.2",
     "@motion-canvas/ui": "^3.17.2",
     "@motion-canvas/vite-plugin": "^3.17.2",
-    "vite": "^5.4.21"
+    "vite": "^6.4.2"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
