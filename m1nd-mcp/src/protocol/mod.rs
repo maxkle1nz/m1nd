@@ -5,6 +5,7 @@
 // - perspective:  11 perspective tool + 2 management tool types
 // - lock:         5 lock tool types
 
+pub mod auto_ingest;
 pub mod core;
 pub mod layers;
 pub mod lock;
@@ -12,4 +13,5 @@ pub mod perspective;
 pub mod surgical;
 
 // Re-export core types so existing `use crate::protocol::*` continues to work.
+pub use self::auto_ingest::*;
 pub use self::core::*;

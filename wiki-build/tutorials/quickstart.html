@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-32e1bda5.js";
+            window.path_to_searchindex_js = "../searchindex-66ca2934.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-a37108d1.js"></script>
+        <script src="../toc-0a73bcc5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -354,8 +354,36 @@ cargo build --release
   ]
 }
 </code></pre>
+<h3 id="step-3-ingest-a-document-root-with-the-universal-lane"><a class="header" href="#step-3-ingest-a-document-root-with-the-universal-lane">Step 3: ingest a document root with the universal lane</a></h3>
+<p>If your investigation spans specs, notes, wiki pages, or office/PDF artifacts, ingest them into the same graph instead of keeping them outside the runtime:</p>
+<pre><code class="language-jsonc">{
+  "method": "tools/call",
+  "params": {
+    "name": "ingest",
+    "arguments": {
+      "agent_id": "dev",
+      "path": "/path/to/your/docs",
+      "adapter": "universal",
+      "mode": "merge"
+    }
+  }
+}
+</code></pre>
+<p>Then resolve the canonical artifact set:</p>
+<pre><code class="language-jsonc">{
+  "method": "tools/call",
+  "params": {
+    "name": "document_resolve",
+    "arguments": {
+      "agent_id": "dev",
+      "path": "docs/specs/auth.md"
+    }
+  }
+}
+</code></pre>
+<p>This is the shortest path from “there is a doc” to “the agent can reason over the canonical local copy, bind it to code, and check drift later.”</p>
 <p>If you see <code>node_count: 0</code>, your ingest path was wrong or the ingest did not run.</p>
-<h3 id="step-3-ask-the-graph-something-real"><a class="header" href="#step-3-ask-the-graph-something-real">Step 3: ask the graph something real</a></h3>
+<h3 id="step-4-ask-the-graph-something-real"><a class="header" href="#step-4-ask-the-graph-something-real">Step 4: ask the graph something real</a></h3>
 <pre><code class="language-jsonc">{
   "method": "tools/call",
   "params": {

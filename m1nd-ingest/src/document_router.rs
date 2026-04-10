@@ -6,7 +6,7 @@
 
 use crate::{
     BibTexAdapter, CrossRefAdapter, IngestAdapter, JatsArticleAdapter, L1ghtIngestAdapter,
-    PatentIngestAdapter, RfcAdapter,
+    PatentIngestAdapter, RfcAdapter, UniversalIngestAdapter,
 };
 use std::path::Path;
 
@@ -25,6 +25,8 @@ pub enum DocumentFormat {
     BibTeX,
     /// L1GHT protocol Markdown
     L1ght,
+    /// Universal document lane
+    Universal,
     /// Source code or unknown format
     Code,
 }
@@ -38,6 +40,7 @@ impl std::fmt::Display for DocumentFormat {
             Self::CrossRef => write!(f, "crossref"),
             Self::BibTeX => write!(f, "bibtex"),
             Self::L1ght => write!(f, "light"),
+            Self::Universal => write!(f, "universal"),
             Self::Code => write!(f, "code"),
         }
     }
@@ -74,7 +77,20 @@ impl DocumentRouter {
                     );
                 }
             }
-            return (DocumentFormat::Code, None);
+            return (
+                DocumentFormat::Universal,
+                Some(Box::new(UniversalIngestAdapter::new(None))),
+            );
+        }
+
+        if matches!(
+            ext.as_str(),
+            "txt" | "rst" | "adoc" | "html" | "htm" | "pdf" | "docx" | "pptx" | "xlsx"
+        ) {
+            return (
+                DocumentFormat::Universal,
+                Some(Box::new(UniversalIngestAdapter::new(None))),
+            );
         }
 
         // XML — inspect content header
@@ -152,7 +168,7 @@ impl DocumentRouter {
             return Self::detect(root);
         }
 
-        let mut counts = [0u32; 6]; // Patent, Article, BibTeX, L1ght, Rfc, CrossRef
+        let mut counts = [0u32; 7]; // Patent, Article, BibTeX, L1ght, Rfc, CrossRef, Universal
 
         for entry in walkdir::WalkDir::new(root)
             .max_depth(3)
@@ -169,6 +185,7 @@ impl DocumentRouter {
                 DocumentFormat::L1ght => counts[3] += 1,
                 DocumentFormat::Rfc => counts[4] += 1,
                 DocumentFormat::CrossRef => counts[5] += 1,
+                DocumentFormat::Universal => counts[6] += 1,
                 DocumentFormat::Code => {}
             }
         }
@@ -206,6 +223,10 @@ impl DocumentRouter {
             5 => (
                 DocumentFormat::CrossRef,
                 Some(Box::new(CrossRefAdapter::new(None))),
+            ),
+            6 => (
+                DocumentFormat::Universal,
+                Some(Box::new(UniversalIngestAdapter::new(None))),
             ),
             _ => (DocumentFormat::Code, None),
         }
@@ -290,6 +311,21 @@ mod tests {
         .unwrap();
         let (fmt, adapter) = DocumentRouter::detect(&dir.join("work.json"));
         assert_eq!(fmt, DocumentFormat::CrossRef);
+        assert!(adapter.is_some());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn detects_universal_markdown_without_l1ght() {
+        let dir = std::env::temp_dir().join("router-universal-md");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("notes.md"),
+            "# Overview\n\nTokenValidator appears here.\n",
+        )
+        .unwrap();
+        let (fmt, adapter) = DocumentRouter::detect(&dir.join("notes.md"));
+        assert_eq!(fmt, DocumentFormat::Universal);
         assert!(adapter.is_some());
         std::fs::remove_dir_all(&dir).ok();
     }

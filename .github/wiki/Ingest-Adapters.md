@@ -1,12 +1,19 @@
 # Ingest Adapters
 
-m1nd supports three ingestion adapters plus a federation tool for multi-repo ingestion. The `adapter` parameter in the MCP `m1nd_ingest` call selects the adapter:
+m1nd now supports ten ingest adapters plus federation. The `adapter` parameter in the MCP `m1nd_ingest` call selects the lane:
 
 | Adapter | `adapter` value | Input | Use case |
 |---------|----------------|-------|---------|
 | Code (default) | `"code"` or omit | Source files (27+ languages) | Software codebases |
 | Memory | `"memory"` | `.md`, `.txt`, `.markdown` files | Agent memory, docs, wikis |
 | JSON | `"json"` | A single JSON descriptor file | Any other domain |
+| L1GHT | `"light"` | Typed markdown protocol docs | Structured specs, design docs, KBs |
+| Patent | `"patent"` | USPTO/EPO XML | Patent claims and citations |
+| Article | `"article"` | PubMed/JATS XML | Scholarly article metadata and references |
+| BibTeX | `"bibtex"` / `"bib"` | `.bib` bibliographies | Citation graphs |
+| CrossRef | `"crossref"` / `"doi"` | DOI work JSON | DOI metadata and reference links |
+| RFC | `"rfc"` | IETF RFC XML v3 | Structured RFC sections and references |
+| Universal | `"universal"` | Markdown, HTML/wiki, office docs, PDFs | Canonical local docs/specs/wiki/paper workflows |
 | Federate | — | Two or more repo roots | Multi-repo unified graph |
 
 All adapters produce a `(Graph, IngestStats)` and implement the same trait:
@@ -19,6 +26,20 @@ pub trait IngestAdapter: Send + Sync {
 ```
 
 > **Note:** The MCP tool name uses underscores. Both `m1nd_ingest` and `m1nd.ingest` are accepted (the server normalizes dots to underscores before dispatch). Throughout this wiki, underscore form is canonical.
+
+`adapter="auto"` and `adapter="document"` route through the document router and select the appropriate structured or universal adapter automatically.
+
+## Universal Adapter
+
+The universal lane adds a local-first document substrate on top of ingest:
+
+- original source copy (`source.<ext>`) when reachable
+- `canonical.md`
+- `canonical.json`
+- `claims.json`
+- `metadata.json`
+
+That artifact set is what powers `document_resolve`, `document_bindings`, `document_drift`, `document_provider_health`, and the `auto_ingest_*` runtime in `m1nd-mcp`.
 
 ---
 

@@ -518,6 +518,162 @@ This is useful when the right answer lives across implementation and docs, not o
 
 ## 15. Honest boundary: when not to use m1nd
 
+If you already have the exact file and exact line, `view` or your editor is cheaper than a broader structural workflow.
+
+If the question is a compiler error with an exact span, the compiler and test runner still outrank the graph.
+
+If the question is “where did this spec land in code?” or “which docs got stale after this edit?”, that is where the new document surfaces matter.
+
+## 16. Ingest a document through the universal lane
+
+Use the universal lane when the source is not authored in `L1GHT` but you still want it inside the graph.
+
+```jsonc
+{"method":"tools/call","params":{"name":"ingest","arguments":{
+  "agent_id":"dev",
+  "path":"/project/specs/session-contract.md",
+  "adapter":"universal",
+  "mode":"merge"
+}}}
+```
+
+This writes canonical local artifacts for the document and merges the resulting document graph into the current graph.
+
+Typical outputs to expect from the resulting cache entry:
+
+- original source copy
+- `canonical.md`
+- `canonical.json`
+- `claims.json`
+- `metadata.json`
+
+## 17. Resolve canonical document artifacts
+
+```jsonc
+{"method":"tools/call","params":{"name":"document_resolve","arguments":{
+  "agent_id":"dev",
+  "path":"session-contract.md"
+}}}
+```
+
+Illustrative response shape:
+
+```jsonc
+{
+  "source_path":"session-contract.md",
+  "canonical_markdown_path":"/tmp/m1nd-runtime/l1ght-cache/sources/abcd/canonical.md",
+  "canonical_json_path":"/tmp/m1nd-runtime/l1ght-cache/sources/abcd/canonical.json",
+  "claims_path":"/tmp/m1nd-runtime/l1ght-cache/sources/abcd/claims.json",
+  "producer":"universal:internal",
+  "section_count":4,
+  "entity_count":6,
+  "claim_count":3,
+  "citation_count":1,
+  "binding_count":2
+}
+```
+
+Use this when an agent needs the durable local artifact path instead of re-fetching or re-parsing the source.
+
+## 18. Ask which code a document points to
+
+```jsonc
+{"method":"tools/call","params":{"name":"document_bindings","arguments":{
+  "agent_id":"dev",
+  "path":"session-contract.md",
+  "top_k":5
+}}}
+```
+
+Illustrative response shape:
+
+```jsonc
+{
+  "source_path":"session-contract.md",
+  "bindings":[
+    {
+      "target_node_id":"file::src/session_pool.rs",
+      "target_label":"SessionPool",
+      "relation":"mentions_symbol",
+      "score":0.92,
+      "confidence":"parsed",
+      "reason":"exact label match"
+    }
+  ]
+}
+```
+
+This is the right surface when the question is:
+
+- which file likely implements this spec?
+- which symbol does this note refer to?
+- what should I inspect before editing code to match the doc?
+
+## 19. Detect stale document/code links
+
+```jsonc
+{"method":"tools/call","params":{"name":"document_drift","arguments":{
+  "agent_id":"dev",
+  "path":"session-contract.md"
+}}}
+```
+
+Look here for:
+
+- missing bindings
+- ambiguous bindings
+- moved targets
+- code changes that happened after the document snapshot
+- unbacked claims
+
+This is especially useful after refactors or repo moves.
+
+## 20. Inspect provider health before relying on richer extraction
+
+```jsonc
+{"method":"tools/call","params":{"name":"document_provider_health","arguments":{
+  "agent_id":"dev"
+}}}
+```
+
+This tells you:
+
+- which optional providers are currently available
+- which mode each provider serves
+- endpoint/config detail where relevant
+- install hints for missing providers
+
+Use it before expecting richer HTML/PDF/office extraction in an automated workflow.
+
+## 21. Keep docs roots watched locally
+
+```jsonc
+{"method":"tools/call","params":{"name":"auto_ingest_start","arguments":{
+  "agent_id":"dev",
+  "roots":["/project/specs","/project/wiki"],
+  "formats":["universal","light","article","bibtex","crossref","rfc","patent"],
+  "debounce_ms":200
+}}}
+```
+
+Check status:
+
+```jsonc
+{"method":"tools/call","params":{"name":"auto_ingest_status","arguments":{
+  "agent_id":"dev"
+}}}
+```
+
+Force a drain:
+
+```jsonc
+{"method":"tools/call","params":{"name":"auto_ingest_tick","arguments":{
+  "agent_id":"dev"
+}}}
+```
+
+This is the local-first loop for keeping documents and document-derived graph state current while you work.
+
 Use plain tools when:
 
 - you already know the one file to edit

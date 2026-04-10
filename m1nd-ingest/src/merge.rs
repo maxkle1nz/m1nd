@@ -1,6 +1,7 @@
 use m1nd_core::error::M1ndResult;
 use m1nd_core::graph::{Graph, NodeProvenanceInput};
 use m1nd_core::types::{EdgeDirection, EdgeIdx, NodeId};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -17,6 +18,22 @@ struct EdgeRecord {
     key: EdgeKey,
     weight: f32,
     causal_strength: f32,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct ClaimedEdgeKey {
+    pub source: String,
+    pub target: String,
+    pub relation: String,
+    pub direction: u8,
+    pub inhibitory: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SourceClaims {
+    pub source_hint: Option<String>,
+    pub node_ids: Vec<String>,
+    pub edges: Vec<ClaimedEdgeKey>,
 }
 
 fn is_valid_relative_file_path(rel_path: &str) -> bool {
@@ -84,6 +101,26 @@ fn canonical_edge_key(
     }
 }
 
+fn edge_key_to_claimed(key: &EdgeKey) -> ClaimedEdgeKey {
+    ClaimedEdgeKey {
+        source: key.source.clone(),
+        target: key.target.clone(),
+        relation: key.relation.clone(),
+        direction: key.direction,
+        inhibitory: key.inhibitory,
+    }
+}
+
+fn claimed_to_edge_key(key: &ClaimedEdgeKey) -> EdgeKey {
+    EdgeKey {
+        source: key.source.clone(),
+        target: key.target.clone(),
+        relation: key.relation.clone(),
+        direction: key.direction,
+        inhibitory: key.inhibitory,
+    }
+}
+
 fn merge_tags(existing: &[String], incoming: &[String]) -> Vec<String> {
     let mut merged = Vec::with_capacity(existing.len() + incoming.len());
     let mut seen = HashSet::new();
@@ -136,6 +173,172 @@ fn collect_edges(graph: &Graph) -> (Vec<EdgeRecord>, u64) {
     }
 
     (out, skipped_invalid_edges)
+}
+
+pub fn collect_source_claims(graph: &Graph) -> SourceClaims {
+    let node_ids = node_external_ids(graph);
+    let mut claims = SourceClaims::default();
+    let mut claimed_nodes = HashSet::new();
+    let mut claimed_edges = HashSet::new();
+
+    for (idx, external_id) in node_ids.iter().enumerate() {
+        if !is_valid_external_id(external_id) {
+            continue;
+        }
+
+        let provenance = graph.resolve_node_provenance(NodeId::new(idx as u32));
+        if provenance.canonical {
+            if claims.source_hint.is_none() {
+                claims.source_hint = provenance.source_path.clone();
+            }
+            if claimed_nodes.insert(external_id.clone()) {
+                claims.node_ids.push(external_id.clone());
+            }
+        }
+    }
+
+    let (edges, _) = collect_edges(graph);
+    for record in edges {
+        let claimed = edge_key_to_claimed(&record.key);
+        if claimed_edges.insert(claimed.clone()) {
+            claims.edges.push(claimed);
+        }
+    }
+
+    claims
+}
+
+pub fn prune_source_claims(
+    base: &Graph,
+    target_source: &str,
+    claims_by_source: &HashMap<String, SourceClaims>,
+) -> M1ndResult<Graph> {
+    let Some(target_claims) = claims_by_source.get(target_source) else {
+        return merge_graphs(&Graph::new(), base);
+    };
+
+    let mut node_claim_counts: HashMap<&str, usize> = HashMap::new();
+    let mut edge_claim_counts: HashMap<ClaimedEdgeKey, usize> = HashMap::new();
+
+    for (source, claims) in claims_by_source {
+        if source == target_source {
+            continue;
+        }
+        for node_id in &claims.node_ids {
+            *node_claim_counts.entry(node_id.as_str()).or_insert(0) += 1;
+        }
+        for edge in &claims.edges {
+            *edge_claim_counts.entry(edge.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let removed_node_ids: HashSet<String> = target_claims
+        .node_ids
+        .iter()
+        .filter(|node_id| !node_claim_counts.contains_key(node_id.as_str()))
+        .cloned()
+        .collect();
+    let removed_edge_keys: HashSet<EdgeKey> = target_claims
+        .edges
+        .iter()
+        .filter(|edge| !edge_claim_counts.contains_key(*edge))
+        .map(claimed_to_edge_key)
+        .collect();
+
+    let base_ids = node_external_ids(base);
+    let mut pruned = Graph::with_capacity(base.num_nodes() as usize, base.num_edges());
+    let mut retained_node_ids = HashSet::new();
+
+    for (idx, external_id) in base_ids.iter().enumerate() {
+        if !is_valid_external_id(external_id) || removed_node_ids.contains(external_id) {
+            continue;
+        }
+
+        let label = base.strings.resolve(base.nodes.label[idx]).to_string();
+        let tags: Vec<String> = base.nodes.tags[idx]
+            .iter()
+            .map(|&tag| base.strings.resolve(tag).to_string())
+            .collect();
+        let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
+        let node_id = pruned.add_node(
+            external_id,
+            &label,
+            base.nodes.node_type[idx],
+            &tag_refs,
+            base.nodes.last_modified[idx],
+            base.nodes.change_frequency[idx].get(),
+        )?;
+        let provenance = base.resolve_node_provenance(NodeId::new(idx as u32));
+        pruned.set_node_provenance(
+            node_id,
+            NodeProvenanceInput {
+                source_path: provenance.source_path.as_deref(),
+                line_start: provenance.line_start,
+                line_end: provenance.line_end,
+                excerpt: provenance.excerpt.as_deref(),
+                namespace: provenance.namespace.as_deref(),
+                canonical: provenance.canonical,
+            },
+        );
+        retained_node_ids.insert(external_id.clone());
+    }
+
+    for src in 0..base.num_nodes() as usize {
+        let src_ext = &base_ids[src];
+        if !retained_node_ids.contains(src_ext) {
+            continue;
+        }
+
+        for edge_idx in base.csr.out_range(NodeId::new(src as u32)) {
+            let target = base.csr.targets[edge_idx].as_usize();
+            let tgt_ext = &base_ids[target];
+            if !retained_node_ids.contains(tgt_ext) {
+                continue;
+            }
+
+            let direction = base.csr.directions[edge_idx];
+            if direction == EdgeDirection::Bidirectional && src > target {
+                continue;
+            }
+
+            let relation = base
+                .strings
+                .resolve(base.csr.relations[edge_idx])
+                .to_string();
+            let edge_key = canonical_edge_key(
+                src_ext,
+                tgt_ext,
+                &relation,
+                direction,
+                base.csr.inhibitory[edge_idx],
+            );
+            if removed_edge_keys.contains(&edge_key) {
+                continue;
+            }
+
+            let source = pruned
+                .resolve_id(src_ext)
+                .expect("retained source node must exist");
+            let target = pruned
+                .resolve_id(tgt_ext)
+                .expect("retained target node must exist");
+            pruned.add_edge(
+                source,
+                target,
+                &relation,
+                base.csr.read_weight(EdgeIdx::new(edge_idx as u32)),
+                direction,
+                base.csr.inhibitory[edge_idx],
+                base.csr.causal_strengths[edge_idx],
+            )?;
+        }
+    }
+
+    if pruned.num_nodes() > 0 {
+        pruned.finalize()?;
+    }
+
+    Ok(pruned)
 }
 
 pub fn merge_graphs(base: &Graph, overlay: &Graph) -> M1ndResult<Graph> {

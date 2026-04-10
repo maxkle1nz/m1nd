@@ -11,7 +11,7 @@ The current public shape of the product is not just “graph search.” It is a 
 - observable multi-file writes through `apply_batch`
 - recovery loops that teach the next valid move when a tool is used badly
 
-m1nd ships as an [MCP](https://modelcontextprotocol.io/) server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 78 MCP tools.
+m1nd ships as an [MCP](https://modelcontextprotocol.io/) server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 93 MCP tools.
 
 ## The Problem
 
@@ -42,11 +42,27 @@ m1nd keeps the graph local and lets an agent ask for structure directly:
 - `trace` maps stacktraces to likely suspects
 - `impact` inspects blast radius before edits
 - `seek` and `activate` find intent and connected structure
+- `document_resolve`, `document_bindings`, and `document_drift` connect docs/specs to likely code targets and surface stale links
+- `document_provider_health` and `auto_ingest_*` expose the local-first document runtime
 - `validate_plan` and `surgical_context_v2` prepare safer multi-file changes
 - `trail_resume` restores investigations with next-focus and next-tool hints
 - `apply_batch` exposes progress, phases, and final handoff signals
 
 The result is less context churn and better decision quality per step.
+
+## Documents And Knowledge Artifacts
+
+The public shape of m1nd is no longer just code plus optional markdown memory.
+
+The merged universal lane can ingest and operationalize:
+
+- markdown notes
+- HTML/wiki pages
+- office documents
+- scholarly PDFs
+- structured standards and citation corpora
+
+When a document enters through the universal lane, m1nd can preserve canonical local artifacts, bind that document to likely code, and surface document/code drift when the implementation moves faster than the docs.
 
 Current benchmark truth from the recorded warm-graph corpus:
 
@@ -105,7 +121,7 @@ m1nd is not a compiler, debugger, or test runner replacement. It is best when th
 
 ## How To Read This Wiki
 
-**[Architecture](architecture/overview.md)** explains how the three crates fit together and how the MCP server turns graph truth into agent-facing runtime behavior.
+**[Architecture](architecture/overview.md)** explains how the core crates and auxiliary bridge surfaces fit together and how the MCP server turns graph truth into agent-facing runtime behavior.
 
 **[Concepts](concepts/spreading-activation.md)** covers the underlying graph ideas such as activation, plasticity, and structural holes.
 
@@ -113,4 +129,4 @@ m1nd is not a compiler, debugger, or test runner replacement. It is best when th
 
 **[Tutorials](tutorials/quickstart.md)** walks through the main workflows from first ingest to connected edit prep.
 
-The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history from `v0.6.0` and `v0.6.1` onward.
+The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history from `v0.6.x` through `v0.8.0` and onward.

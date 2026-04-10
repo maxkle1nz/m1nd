@@ -2,6 +2,7 @@
 #![recursion_limit = "512"]
 
 pub mod audit_handlers;
+pub mod auto_ingest;
 pub mod cli;
 pub mod daemon_handlers;
 pub mod protocol;
@@ -25,6 +26,7 @@ pub mod report_handlers;
 pub mod result_shaping;
 pub mod scope;
 pub mod search_handlers;
+pub mod universal_docs;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]

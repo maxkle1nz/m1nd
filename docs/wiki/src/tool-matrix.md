@@ -4,10 +4,9 @@ Machine-oriented routing matrix for the current `m1nd` tool surface.
 
 ## Source Of Truth
 
-- `m1nd-mcp/src/server.rs` dispatch union is the live callable surface: **89 tools**.
-- `.github/wiki/API-Reference.md` contains **62 detailed tool sections** plus summary bullets for additional groups.
-- Published Pages at `m1nd.world/wiki` still advertise older counts (`78` / `63`) and are therefore **not the counting SSOT**.
-- This matrix is intended to be the routing SSOT for agent-to-agent and LLM-to-LLM tool selection.
+- `m1nd-mcp/src/server.rs` tool schema registry is the live callable surface: **93 schema names** in the current exported MCP surface.
+- This matrix is the routing SSOT for the canonical tool surface used by agents and LLMs.
+- Public prose pages that still advertise older counts (`78` / `63` / `89`) are stale and should not be used as counting truth.
 
 ## Row Contract
 
@@ -40,6 +39,19 @@ Machine-oriented routing matrix for the current `m1nd` tool surface.
 | `m1nd_warmup` | Prime the graph for an upcoming task — pre-activates seed nodes to improve subsequent query relevance. | Prime the graph for an upcoming task — pre-activates seed nodes to improve subsequent query relevance. | Avoid when you already have the exact file/line or only need raw compiler/runtime truth. | `agent_id; task_description` | `tool-specific JSON payload; inspect API reference / tools/list` | `activate -> impact -> why` |
 | `m1nd_federate` | Unify multiple repositories into one graph — cross-repo blast radius and dependency analysis. | Use when you already know the repo list to unify. | Avoid when you already have the exact file/line or only need raw compiler/runtime truth. | `agent_id; repos` | `tool-specific JSON payload; inspect API reference / tools/list` | `activate -> impact -> why` |
 | `m1nd_federate_auto` | Discover candidate sibling repositories from explicit external path references, local manifest/workspace hints, import/package-name evidence, shared API-route signals, or basic contract artifacts and optionally execute federation in one step. | Use when you suspect neighboring repos matter but only have path/import/contract evidence. | Avoid when you already have the exact file/line or only need raw compiler/runtime truth. | `agent_id` | `discovered_repos; suggested_repos; executed; federate_result` | `activate -> impact -> why` |
+
+## Document Intelligence
+
+| command | core_function | choose_when | avoid_when | required | returns | next |
+|---|---|---|---|---|---|---|
+| `m1nd_document_resolve` | resolve canonical local artifacts for a universally ingested document | Use when a doc already exists in the graph and you need the local canonical artifact paths. | Avoid when you only need a fresh ingest or raw source text. | `agent_id` | `canonical_markdown_path; canonical_json_path; claims_path; producer; binding_count; drift_summary` | `document_bindings -> document_drift -> view` |
+| `m1nd_document_provider_health` | report optional provider availability, mode, detail, and install hints | Use before relying on richer HTML/PDF/office extraction or when a provider lane seems to be falling back unexpectedly. | Avoid when provider setup is irrelevant to the current task. | `agent_id` | `python; providers[]` | `ingest -> document_resolve -> auto_ingest_start` |
+| `m1nd_document_bindings` | show deterministic document-to-code bindings for a universal document | Use when the question is “which code implements this doc?” or “what should I inspect first?” | Avoid when you only need the artifact paths or provider status. | `agent_id` | `bindings[]; source_path` | `document_drift -> impact -> surgical_context_v2` |
+| `m1nd_document_drift` | detect stale, missing, or ambiguous document/code links | Use after refactors, repo moves, or suspected stale specs. | Avoid before the document has been ingested or bound. | `agent_id` | `findings[]; summary` | `document_bindings -> impact -> timeline` |
+| `m1nd_auto_ingest_start` | start local-first document watchers for supported roots and formats | Use when a docs/specs/wiki root should stay synchronized with the graph while you work. | Avoid for one-shot ingest or read-only inspection. | `agent_id; roots` | `running; provider_status; bootstrap` | `auto_ingest_status -> auto_ingest_tick -> document_resolve` |
+| `m1nd_auto_ingest_status` | inspect the document auto-ingest runtime, semantic counts, provider status, and route/fallback counts | Use to monitor watcher state, queue depth, or document runtime telemetry. | Avoid if you only need a direct document refresh or binding result. | `agent_id` | `running; queue_depth; semantic_*; provider_*; recent_events` | `auto_ingest_tick -> document_drift -> document_provider_health` |
+| `m1nd_auto_ingest_tick` | drain queued document changes immediately and apply them to the graph | Use when a caller needs deterministic immediate reconciliation instead of waiting for opportunistic ticks. | Avoid when no watched roots are active. | `agent_id` | `ingested_paths; removed_paths; skipped_paths; errored_paths` | `document_resolve -> document_drift -> lock_diff` |
+| `m1nd_auto_ingest_stop` | stop document watchers and persist manifest state | Use when shutting down or changing watched roots. | Avoid during active watch-driven reconciliation you still need. | `agent_id` | `stopped; manifest_entries` | `auto_ingest_start -> auto_ingest_status` |
 
 ## Perspective Navigation
 
@@ -158,9 +170,8 @@ Machine-oriented routing matrix for the current `m1nd` tool surface.
 
 ## Documentation Gaps
 
-- Live callable surface count: **89**
-- Detailed API-reference sections found: **62**
-- Tools covered only by summary bullets / manual fill-ins here: **27**
+- Live callable surface count: **93 schema names**
+- Public prose pages previously advertising `78` / `63` / `89` have been updated as part of the docs wave
 - Remaining undocumented names after synthesis: **0**
 - Remaining names: none
 

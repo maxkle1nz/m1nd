@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-32e1bda5.js";
+            window.path_to_searchindex_js = "../searchindex-66ca2934.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-a37108d1.js"></script>
+        <script src="../toc-0a73bcc5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,7 +181,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="api-reference-overview"><a class="header" href="#api-reference-overview">API Reference Overview</a></h1>
-<p>m1nd currently exposes <strong>78 MCP tools</strong> over JSON-RPC 2.0 via stdio. Every tool requires <code>agent_id</code> as a parameter. The exported MCP schema uses underscore-based canonical names such as <code>trail_resume</code>, <code>perspective_start</code>, and <code>apply_batch</code>.</p>
+<p>m1nd currently exposes <strong>93 MCP tools</strong> over JSON-RPC 2.0 via stdio. Every tool requires <code>agent_id</code> as a parameter. The exported MCP schema uses underscore-based canonical names such as <code>trail_resume</code>, <code>perspective_start</code>, and <code>apply_batch</code>.</p>
 <p>Several tools now do more than return raw results. On the main structural flows you should expect some combination of:</p>
 <ul>
 <li><code>proof_state</code></li>
@@ -285,6 +285,14 @@
 </thead>
 <tbody>
 <tr><td><a href="lifecycle.html#m1ndingest"><code>ingest</code></a></td><td>Ingest or re-ingest a codebase, descriptor, or memory corpus</td></tr>
+<tr><td><a href="lifecycle.html#m1nddocument_resolve"><code>document_resolve</code></a></td><td>Resolve canonical local artifacts for a universal document</td></tr>
+<tr><td><a href="lifecycle.html#m1nddocument_provider_health"><code>document_provider_health</code></a></td><td>Report optional document provider availability and install hints</td></tr>
+<tr><td><a href="lifecycle.html#m1nddocument_bindings"><code>document_bindings</code></a></td><td>Show deterministic document-to-code bindings</td></tr>
+<tr><td><a href="lifecycle.html#m1nddocument_drift"><code>document_drift</code></a></td><td>Detect stale, missing, or ambiguous document/code links</td></tr>
+<tr><td><a href="lifecycle.html#m1ndauto_ingest_start"><code>auto_ingest_start</code></a></td><td>Start local-first document auto-ingest watchers</td></tr>
+<tr><td><a href="lifecycle.html#m1ndauto_ingest_status"><code>auto_ingest_status</code></a></td><td>Inspect the document auto-ingest runtime and counters</td></tr>
+<tr><td><a href="lifecycle.html#m1ndauto_ingest_tick"><code>auto_ingest_tick</code></a></td><td>Drain queued document changes immediately</td></tr>
+<tr><td><a href="lifecycle.html#m1ndauto_ingest_stop"><code>auto_ingest_stop</code></a></td><td>Stop document watchers and persist manifest state</td></tr>
 <tr><td><a href="lifecycle.html#m1ndhealth"><code>health</code></a></td><td>Server health and statistics</td></tr>
 <tr><td><a href="lifecycle.html#m1ndsearch"><code>search</code></a></td><td>Literal, regex, or semantic-graph-aware content search</td></tr>
 <tr><td><a href="lifecycle.html#m1ndglob"><code>glob</code></a></td><td>Graph-aware file globbing</td></tr>
@@ -415,7 +423,7 @@
 <p>Then list available tools:</p>
 <pre><code class="language-json">{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
 </code></pre>
-<p>This returns the full schema for all 63 tools with <code>inputSchema</code> for each.</p>
+<p>This returns the full schema for all 93 tools with <code>inputSchema</code> for each.</p>
 
                     </main>
 
