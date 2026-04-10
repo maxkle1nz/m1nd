@@ -19,9 +19,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::auto_ingest::AutoIngestState;
 use crate::perspective::state::{
     LockState, PeekSecurityConfig, PerspectiveLimits, PerspectiveState, WatchTrigger, WatcherEvent,
 };
+use crate::universal_docs::{load_document_cache, persist_document_cache, DocumentCacheState};
 
 // ---------------------------------------------------------------------------
 // AgentSession — per-agent session tracking
@@ -159,6 +161,71 @@ pub struct CoverageSessionState {
     pub tools_used: HashMap<String, u64>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DaemonRuntimeState {
+    pub active: bool,
+    pub started_at_ms: Option<u64>,
+    pub last_tick_ms: Option<u64>,
+    pub last_tick_trigger: Option<String>,
+    pub watch_paths: Vec<String>,
+    pub poll_interval_ms: u64,
+    pub coalesce_window_ms: u64,
+    pub pending_rerun: bool,
+    pub tick_in_flight: bool,
+    pub last_coalesced_event_ms: Option<u64>,
+    pub coalesced_event_count: u64,
+    pub tracked_files: HashMap<String, DaemonTrackedFile>,
+    pub tick_count: u64,
+    pub last_tick_duration_ms: Option<f64>,
+    pub last_tick_changed_files: usize,
+    pub last_tick_deleted_files: usize,
+    pub last_tick_alerts_emitted: usize,
+    pub idle_streak: u32,
+    pub max_backoff_multiplier: u32,
+    pub watch_backend: String,
+    pub watch_backend_error: Option<String>,
+    pub watch_events_seen: u64,
+    pub watch_events_dropped: u64,
+    pub last_watch_event_ms: Option<u64>,
+    pub git_root: Option<String>,
+    pub git_baseline_ref: Option<String>,
+    pub git_baseline_kind: Option<String>,
+    pub git_since_ref: Option<String>,
+    pub git_head_ref: Option<String>,
+    pub last_git_scan_ms: Option<u64>,
+    pub last_git_changed_files: usize,
+    pub git_backend_error: Option<String>,
+    pub git_operation_in_progress: bool,
+    pub git_operation_kind: Option<String>,
+    pub deferred_ticks: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DaemonTrackedFile {
+    pub external_id: String,
+    pub file_path: String,
+    pub last_modified_ms: u64,
+    pub size_bytes: u64,
+    pub sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DaemonAlert {
+    pub alert_id: String,
+    pub severity: String,
+    pub kind: String,
+    pub message: String,
+    pub confidence: f32,
+    pub evidence: Vec<String>,
+    pub suggested_tool: Option<String>,
+    pub suggested_target: Option<String>,
+    pub file_path: Option<String>,
+    pub node_id: Option<String>,
+    pub created_at_ms: u64,
+    pub acked: bool,
+    pub acked_at_ms: Option<u64>,
+}
+
 pub type ApplyBatchProgressSink =
     Arc<dyn Fn(&crate::protocol::surgical::ApplyBatchProgressEvent) + Send + Sync>;
 
@@ -275,10 +342,22 @@ pub struct SessionState {
     pub boot_memory_path: PathBuf,
     /// Hot runtime cache of canonical boot memory entries.
     pub boot_memory: HashMap<String, BootMemoryEntry>,
+    /// Path to daemon state persisted next to the graph.
+    pub daemon_state_path: PathBuf,
+    /// Current persisted daemon runtime state.
+    pub daemon_state: DaemonRuntimeState,
+    /// Path to persisted daemon/proactive alerts.
+    pub daemon_alerts_path: PathBuf,
+    /// Persisted daemon/proactive alerts.
+    pub daemon_alerts: Vec<DaemonAlert>,
     /// Lightweight metadata index for files seen during ingest or verification.
     pub file_inventory: HashMap<String, FileInventoryEntry>,
     /// Per-agent exploration coverage state for visited files/nodes.
     pub coverage_sessions: HashMap<String, CoverageSessionState>,
+    /// Local document auto-ingest runtime.
+    pub auto_ingest: AutoIngestState,
+    /// Universal document artifact/cache index.
+    pub document_cache: DocumentCacheState,
 }
 
 impl SessionState {
@@ -433,8 +512,20 @@ impl SessionState {
                 let boot_path = runtime_root.join("boot_memory_state.json");
                 Self::load_boot_memory(&boot_path)
             },
+            daemon_state_path: runtime_root.join("daemon_state.json"),
+            daemon_state: {
+                let path = runtime_root.join("daemon_state.json");
+                Self::load_daemon_state(&path)
+            },
+            daemon_alerts_path: runtime_root.join("daemon_alerts.json"),
+            daemon_alerts: {
+                let path = runtime_root.join("daemon_alerts.json");
+                Self::load_daemon_alerts(&path)
+            },
             file_inventory: HashMap::new(),
             coverage_sessions: HashMap::new(),
+            auto_ingest: AutoIngestState::load(&runtime_root),
+            document_cache: load_document_cache(&runtime_root),
         })
     }
 
@@ -500,6 +591,18 @@ impl SessionState {
         if let Err(e) = self.persist_boot_memory() {
             eprintln!("[m1nd] WARNING: boot memory persist failed: {}", e);
         }
+        if let Err(e) = self.persist_daemon_state() {
+            eprintln!("[m1nd] WARNING: daemon state persist failed: {}", e);
+        }
+        if let Err(e) = self.persist_daemon_alerts() {
+            eprintln!("[m1nd] WARNING: daemon alert persist failed: {}", e);
+        }
+        if let Err(e) = self.auto_ingest.persist(&self.runtime_root) {
+            eprintln!("[m1nd] WARNING: auto-ingest persist failed: {}", e);
+        }
+        if let Err(e) = persist_document_cache(&self.runtime_root, &self.document_cache) {
+            eprintln!("[m1nd] WARNING: document cache persist failed: {}", e);
+        }
 
         self.last_persist_time = Some(Instant::now());
         Ok(())
@@ -514,7 +617,13 @@ impl SessionState {
             return;
         };
 
-        let ingest_roots_path = std::path::Path::new(&root).join("ingest_roots.json");
+        let root_path = std::path::Path::new(&root);
+        let persist_root = if root_path.is_dir() {
+            root_path.to_path_buf()
+        } else {
+            self.runtime_root.clone()
+        };
+        let ingest_roots_path = persist_root.join("ingest_roots.json");
         if let Ok(json) = serde_json::to_string_pretty(&self.ingest_roots) {
             if let Err(e) = std::fs::write(&ingest_roots_path, json) {
                 eprintln!("[m1nd] WARNING: ingest roots persist failed: {}", e);
@@ -546,6 +655,36 @@ impl SessionState {
             .and_then(|s| serde_json::from_str::<BootMemoryState>(&s).ok())
             .map(|state| state.entries)
             .unwrap_or_default()
+    }
+
+    pub fn persist_daemon_state(&self) -> M1ndResult<()> {
+        save_json_atomic(&self.daemon_state_path, &self.daemon_state)
+    }
+
+    fn load_daemon_state(path: &Path) -> DaemonRuntimeState {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<DaemonRuntimeState>(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn persist_daemon_alerts(&self) -> M1ndResult<()> {
+        save_json_atomic(&self.daemon_alerts_path, &self.daemon_alerts)
+    }
+
+    fn load_daemon_alerts(path: &Path) -> Vec<DaemonAlert> {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<DaemonAlert>>(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn record_daemon_alert(&mut self, alert: DaemonAlert) {
+        self.daemon_alerts.push(alert);
+        if self.daemon_alerts.len() > 500 {
+            let drain = self.daemon_alerts.len() - 500;
+            self.daemon_alerts.drain(0..drain);
+        }
     }
 
     pub fn reload_heuristic_sidecars(&mut self) {

@@ -1,11 +1,12 @@
 # API Reference
 
-All 78 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
+This mirror summarizes the live 93-tool MCP surface. The exhaustive canonical reference lives in `docs/wiki/src/api-reference/` and the generated `wiki-build/` site. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
 
 All tools require an `agent_id` string parameter (use any stable identifier — your editor session ID, agent name, etc.).
 
 Jump to:
 - [Foundation](#foundation-13-tools)
+- [Document Intelligence](#document-intelligence-8-tools)
 - [Perspective Navigation](#perspective-navigation-12-tools)
 - [Lock System](#lock-system-5-tools)
 - [Superpowers](#superpowers-13-tools)
@@ -13,7 +14,24 @@ Jump to:
 - [RETROBUILDER](#retrobuilder-5-tools)
 - [Surgical](#surgical-4-tools)
 - [Search & Efficiency](#v050--search--efficiency-5-tools)
-- [Audit & Session Ergonomics](#audit--session-ergonomics-7-tools)
+- [Audit & Session Ergonomics](#audit--session-ergonomics-13-tools)
+
+---
+
+## Document Intelligence (8 tools)
+
+These tools expose the local-first document runtime that now sits on top of universal ingest:
+
+- `m1nd_document_resolve` — resolve canonical local artifacts for a universal document
+- `m1nd_document_provider_health` — inspect optional provider availability, detail, and install hints
+- `m1nd_document_bindings` — show likely deterministic document-to-code bindings
+- `m1nd_document_drift` — detect stale, missing, or ambiguous document/code links
+- `m1nd_auto_ingest_start` — start local-first watchers for docs/specs/wiki roots
+- `m1nd_auto_ingest_status` — inspect watcher state, semantic counts, provider routes, and fallbacks
+- `m1nd_auto_ingest_tick` — drain queued document changes immediately
+- `m1nd_auto_ingest_stop` — stop watchers and persist manifest state
+
+Use these after `m1nd_ingest(adapter="universal")` or when a caller needs document/runtime observability rather than only graph nodes.
 
 ---
 
@@ -27,7 +45,7 @@ These tools are implemented in the live registry and exposed through `tool_schem
 - `m1nd_refactor_plan` — graph-native refactoring proposals
 - `m1nd_runtime_overlay` — runtime heat and error overlays from OTel spans
 
-## Audit & Session Ergonomics (7 tools)
+## Audit & Session Ergonomics (13 tools)
 
 These tools reduce orchestration overhead for real agent sessions:
 
@@ -36,8 +54,14 @@ These tools reduce orchestration overhead for real agent sessions:
 - `m1nd_cross_verify` — graph vs disk verification (`existence`, `loc`, `hash`)
 - `m1nd_coverage_session` — what this agent has visited so far
 - `m1nd_external_references` — explicit paths outside ingest roots
-- `m1nd_federate_auto` — turn external paths, manifest/workspace hints, import/package-name evidence, shared API-route signals, or contract artifacts such as `.proto`, MCP tools, and OpenAPI into repo candidates and optional federation
+- `m1nd_federate_auto` — turn external paths, manifest/workspace hints, import/package-name evidence, shared API-route signals, or contract artifacts such as `.proto` messages/enums, MCP tools, and OpenAPI schema/components into repo candidates and optional federation
 - `m1nd_audit` — profile-aware one-call audit
+- `m1nd_daemon_start` — activate the persisted daemon control plane and set watch roots / poll interval
+- `m1nd_daemon_stop` — stop the daemon control plane without discarding alert history
+- `m1nd_daemon_status` — inspect daemon runtime state, watch roots, and alert counts
+- `m1nd_daemon_tick` — poll watched roots once, incrementally re-ingest changed files, and emit deletion drift alerts
+- `m1nd_alerts_list` — list persisted daemon/proactive alerts
+- `m1nd_alerts_ack` — acknowledge one or more persisted daemon/proactive alerts
 
 ---
 
@@ -1769,6 +1793,9 @@ Return complete context for a file in one call: full source, symbol table, calle
 
 ### `m1nd_apply`
 
+`m1nd_apply` now returns `proactive_insights` when a write lands on a risky or
+historically unstable surface.
+
 Write LLM-edited code back to a file and trigger incremental re-ingest so the graph stays coherent. Always call `m1nd_surgical_context` or `m1nd_surgical_context_v2` first to get the current file contents.
 
 **Inputs:**
@@ -1881,6 +1908,9 @@ curl -s http://localhost:1337/api/tools/m1nd_surgical_context_v2 \
 ---
 
 ### `m1nd_apply_batch`
+
+`m1nd_apply_batch` now returns `proactive_insights`, and the final
+`batch_completed` progress event carries the same payload for streaming clients.
 
 Atomically write multiple files and trigger a single bulk re-ingest. All-or-nothing by default — if any file fails, all writes are rolled back. Optionally runs post-write verification (5-layer analysis: graph diff, anti-pattern detection, BFS blast radius, test execution, compile check). **12/12 accuracy validated.**
 

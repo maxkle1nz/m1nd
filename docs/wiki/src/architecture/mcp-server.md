@@ -1,8 +1,8 @@
 # MCP Server (m1nd-mcp)
 
-m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 78 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, and observable batch execution.
+m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 93 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, observable batch execution, and a local-first document runtime.
 
-Source: `mcp/m1nd/m1nd-mcp/src/`
+Source: `m1nd-mcp/src/`
 
 ## Module Map
 
@@ -12,8 +12,10 @@ Source: `mcp/m1nd/m1nd-mcp/src/`
 | `server.rs` | `McpServer`, JSON-RPC transport (framed + line), tool schema registry |
 | `session.rs` | `SessionState`, engine lifecycle, auto-persist, perspective/lock management |
 | `tools.rs` | Tool handler implementations for the exported MCP surface |
+| `auto_ingest.rs` | Document watcher runtime, persisted manifest, queue/tick orchestration |
+| `universal_docs.rs` | Canonical document artifacts, provider health, resolve/bindings/drift surfaces |
 | `engine_ops.rs` | Read-only engine wrappers for perspective synthesis |
-| `protocol.rs` | JSON-RPC request/response types |
+| `protocol/auto_ingest.rs` | Request/response types for document and auto-ingest tools |
 | `perspective/` | Perspective branching, lock state, watcher events |
 | `layer_handlers.rs` | Layer-based tool dispatch |
 
@@ -91,7 +93,7 @@ Responses:
 }
 ```
 
-The `tools/list` method returns all 63 tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client.
+The `tools/list` method returns all 93 tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client.
 
 ## Server Lifecycle
 
@@ -162,11 +164,22 @@ The atomic write pattern (temp file + rename) ensures that even if shutdown is i
 
 ### Schema Registry
 
-`tool_schemas()` returns a JSON array of all 77 tool definitions with full `inputSchema` objects. Each tool specifies:
+`tool_schemas()` returns a JSON array of all 93 tool definitions with full `inputSchema` objects. Each tool specifies:
 
 - `name`: Dot-namespaced (e.g., `m1nd.activate`)
 - `description`: Human-readable purpose
 - `inputSchema`: JSON Schema with `properties`, `required`, `type`, defaults
+
+The current surface now includes a document runtime in addition to the code graph runtime:
+
+- `document_resolve`
+- `document_provider_health`
+- `document_bindings`
+- `document_drift`
+- `auto_ingest_start`
+- `auto_ingest_stop`
+- `auto_ingest_status`
+- `auto_ingest_tick`
 
 Example schema entry:
 

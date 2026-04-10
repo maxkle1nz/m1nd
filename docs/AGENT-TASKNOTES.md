@@ -17,6 +17,27 @@ The rule:
 
 ## Open Notes
 
+### 2026-04-05 — proactive write insights still lack runtime-backed mismatch signals
+
+- Context: first proactive-insight slice on `apply` / `apply_batch`
+- Friction: the system now emits useful structural guidance after writes, but it
+  still does not compare those edits against runtime overlay evidence
+- Desired behavior:
+  - `runtime_hotspot_mismatch`
+  - stronger cross-repo contract drift when federation is active
+  - per-insight latency budgets in benchmarks
+
+### 2026-04-05 — daemon can tick for delta ingest, but it still is not a background watcher
+
+- Context: daemon control plane + explicit `daemon_tick`
+- Friction: the daemon can now poll watched roots and incrementally re-ingest
+  changed files, but it still needs an explicit tick call instead of a true
+  background filesystem / SCM watcher
+- Desired behavior:
+  - autonomous background ticks
+  - watchman/native notify acceleration
+  - latency budgets for `single-file changed -> alert available`
+
 ### 2026-04-05 — `audit` still composes more than it understands
 
 - Context: first implementation of `m1nd.audit`
@@ -29,15 +50,15 @@ The rule:
 - Likely next step: strengthen the profile registry so `audit` changes not only
   tool selection but also grading, recommendation logic, and narrative output
 
-### 2026-04-05 — `federate_auto` now covers explicit paths, manifests, imports, route-level API matches, and basic contract artifacts, but deeper schema/service discovery is still missing
+### 2026-04-05 — `federate_auto` now covers explicit paths, manifests, imports, route-level API matches, contract artifacts, and schema/component names, but deeper service discovery is still missing
 
 - Context: `federate_auto` now bridges explicit path evidence, manifest/workspace
   signals, package/import identity matches, shared `/api/...` routes, and basic
   contract artifacts into repo candidates, namespaces, and optional one-shot federation
-- Friction: repos that are only implied by richer schemas, operation groups,
-  or indirect service contracts still need manual enumeration
+- Friction: repos that are only implied by multi-artifact service contracts,
+  behavior-level protocol flow, or deeper schema structure still need manual enumeration
 - Desired behavior:
-  - richer OpenAPI/schema discovery beyond simple `operationId` or route matching
+  - stronger schema discovery beyond token-level message/component/operation matches
   - future semantic linking donor lane (stack-graphs / SCIP-class ideas)
 
 ### 2026-04-05 — `coverage_session` is useful but still shallow

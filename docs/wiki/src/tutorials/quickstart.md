@@ -224,9 +224,45 @@ Current response shape in the repo:
 }
 ```
 
+### Step 3: ingest a document root with the universal lane
+
+If your investigation spans specs, notes, wiki pages, or office/PDF artifacts, ingest them into the same graph instead of keeping them outside the runtime:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "ingest",
+    "arguments": {
+      "agent_id": "dev",
+      "path": "/path/to/your/docs",
+      "adapter": "universal",
+      "mode": "merge"
+    }
+  }
+}
+```
+
+Then resolve the canonical artifact set:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "document_resolve",
+    "arguments": {
+      "agent_id": "dev",
+      "path": "docs/specs/auth.md"
+    }
+  }
+}
+```
+
+This is the shortest path from “there is a doc” to “the agent can reason over the canonical local copy, bind it to code, and check drift later.”
+
 If you see `node_count: 0`, your ingest path was wrong or the ingest did not run.
 
-### Step 3: ask the graph something real
+### Step 4: ask the graph something real
 
 ```jsonc
 {

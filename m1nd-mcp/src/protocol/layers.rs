@@ -2251,6 +2251,59 @@ pub struct AuditInput {
     pub max_output_chars: Option<usize>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct DaemonStartInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub watch_paths: Vec<String>,
+    #[serde(default = "default_daemon_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+}
+
+fn default_daemon_poll_interval_ms() -> u64 {
+    500
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DaemonStopInput {
+    pub agent_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DaemonStatusInput {
+    pub agent_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DaemonTickInput {
+    pub agent_id: String,
+    #[serde(default = "default_daemon_tick_limit")]
+    pub max_files: usize,
+}
+
+fn default_daemon_tick_limit() -> usize {
+    32
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AlertsListInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub include_acked: bool,
+    #[serde(default = "default_alert_limit")]
+    pub limit: usize,
+}
+
+fn default_alert_limit() -> usize {
+    50
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AlertsAckInput {
+    pub agent_id: String,
+    pub alert_ids: Vec<String>,
+}
+
 fn default_audit_profile() -> String {
     "auto".to_string()
 }

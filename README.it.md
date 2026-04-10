@@ -85,11 +85,12 @@ Questo significa che può rispondere alle domande che contano davvero:
 - dov'è il contesto connesso per una modifica?
 - cosa dovrei verificare dopo?
 
-Sotto il cofano, il workspace ha tre parti principali:
+Sotto il cofano, il workspace ha tre crate core più un crate ponte ausiliario:
 
 - `m1nd-core`: motore del grafo, propagazione, plasticità, euristiche e livelli di analisi
 - `m1nd-ingest`: ingestione di codice e documenti, extractor, resolver, percorsi di merge e costruzione del grafo
 - `m1nd-mcp`: server MCP su stdio, più una superficie HTTP/UI nella build predefinita attuale
+- `m1nd-openclaw`: crate ponte ausiliario per le superfici di integrazione rivolte a OpenClaw
 
 Punti di forza attuali:
 
@@ -109,6 +110,9 @@ Oggi include:
 - arricchimento Cargo workspace per repository Rust
 - ingestione di documenti per brevetti (USPTO/EPO XML), articoli scientifici (PubMed/JATS), bibliografie BibTeX, metadati DOI CrossRef e RFC IETF
 - segnali euristici ispezionabili sui percorsi di recupero di livello superiore, così `seek` e `predict` possono esporre più di un semplice punteggio
+- una lane documentale universale per markdown, pagine HTML/wiki, documenti office e PDF
+- artefatti locali canonici come `source.<ext>`, `canonical.md`, `canonical.json`, `claims.json` e `metadata.json`
+- workflow MCP documentali come `document_resolve`, `document_bindings`, `document_drift`, `document_provider_health` e `auto_ingest_*`
 
 La copertura linguistica è ampia, ma la profondità semantica varia ancora da linguaggio a linguaggio. Python e Rust hanno oggi un trattamento più specializzato rispetto a molti linguaggi basati su tree-sitter.
 
@@ -141,7 +145,7 @@ Il vantaggio pratico è semplice:
 
 ## What m1nd Is
 
-m1nd è un workspace Rust locale con tre parti principali:
+m1nd è un workspace Rust locale con tre crate core e un crate ponte ausiliario:
 
 - `m1nd-core`: motore a grafo, ranking, propagazione, euristiche e livelli di analisi
 - `m1nd-ingest`: ingestione di codice e documenti, extractor, resolver, percorsi di merge e costruzione del grafo
@@ -460,13 +464,14 @@ Non sostituisce un LSP, un compilatore o l'osservabilità di runtime. Fornisce a
 
 ## Tool Surface
 
-L'attuale implementazione di `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) espone **77 strumenti MCP**.
+L'attuale implementazione di `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) espone **93 strumenti MCP**.
 
 I nomi canonici degli strumenti nello schema MCP esportato usano underscore, come `trail_save`, `perspective_start` e `apply_batch`. Alcuni client possono mostrare i nomi con un prefisso di trasporto come `m1nd.apply_batch`, ma le voci del registry live sono basate su underscore.
 
 | Category | Highlights |
 |----------|------------|
 | Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
+| Document Intelligence | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
 | Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |

@@ -1,12 +1,12 @@
-# Lifecycle & Lock Tools
+# Lifecycle, Document & Lock Tools
 
-Eight tools for graph ingestion, health monitoring, plan validation, and subgraph locking with change detection.
+This page covers graph ingestion, document runtime operations, health monitoring, plan validation, persistence, and subgraph locking with change detection.
 
 ---
 
 ## `m1nd.ingest`
 
-Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. This is the primary way to load data into m1nd. Supports three adapters (`code`, `json`, `memory`) and two modes (`replace`, `merge`).
+Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the graph. This is the primary way to load data into m1nd. It now supports code-first, structured-document, and universal document adapters.
 
 ### Parameters
 
@@ -15,7 +15,7 @@ Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. Thi
 | `path` | `string` | Yes | -- | Filesystem path to the source root or memory corpus. |
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
 | `incremental` | `boolean` | No | `false` | Incremental ingest (code adapter only). Only re-processes files that changed since the last ingest. |
-| `adapter` | `string` | No | `"code"` | Adapter to use for parsing. Values: `"code"` (source code -- Python, Rust, TypeScript, etc.), `"json"` (graph snapshot JSON), `"memory"` (markdown memory corpus). |
+| `adapter` | `string` | No | `"code"` | Adapter to use for parsing. Values include `"code"`, `"json"`, `"memory"`, `"light"`, `"patent"`, `"article"`, `"bibtex"`, `"rfc"`, `"crossref"`, `"universal"`, and `"auto"` / `"document"` for format detection. |
 | `mode` | `string` | No | `"replace"` | How to handle the existing graph. Values: `"replace"` (clear and rebuild), `"merge"` (add new nodes/edges into existing graph). |
 | `namespace` | `string` | No | -- | Optional namespace tag for non-code nodes. Used by `memory` and `json` adapters to prefix node external_ids. |
 
@@ -58,6 +58,10 @@ Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. Thi
 | `code` | Source code directory | file, class, function, struct, module | imports, calls, registers, configures, tests, inherits |
 | `json` | Graph snapshot JSON | (preserved from snapshot) | (preserved from snapshot) |
 | `memory` | Markdown files | document, concept, entity | references, relates_to |
+| `light` | L1GHT protocol markdown | document, section, entity, typed semantic nodes | explicit semantic edges from frontmatter and markers |
+| `patent` / `article` / `bibtex` / `rfc` / `crossref` | Structured document formats | document, section, citation, entity | citation and cross-domain edges |
+| `universal` | Best-effort document canonicalization | document, section, block, table, citation, entity, claim | document containment, references, bindings, supports |
+| `auto` / `document` | Format detection wrapper | routes to the strongest detected adapter | adapter-specific |
 
 ### Mode Behavior
 
@@ -83,6 +87,254 @@ Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. Thi
 - [`m1nd.health`](#m1ndhealth) -- check graph status before deciding to ingest
 - [`m1nd.drift`](memory.md#m1nddrift) -- see what changed since last session
 - [`m1nd.federate`](exploration.md#m1ndfederate) -- multi-repo ingestion
+- [`m1nd.document_resolve`](#m1nddocument_resolve) -- resolve canonical artifacts for a universal document
+- [`m1nd.auto_ingest_start`](#m1ndauto_ingest_start) -- keep document roots synchronized after ingest
+
+---
+
+## `m1nd.document_resolve`
+
+Resolve the canonical local artifact set for a universally ingested document by source path or universal node id.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `path` | `string` | No | Original source path or canonical markdown path. |
+| `node_id` | `string` | No | Universal graph node id for the document. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.document_resolve",
+    "arguments": {
+      "agent_id": "jimi",
+      "path": "docs/specs/auth.md"
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "source_path": "docs/specs/auth.md",
+  "canonical_markdown_path": "/tmp/m1nd-runtime/l1ght-cache/sources/abcd/canonical.md",
+  "canonical_json_path": "/tmp/m1nd-runtime/l1ght-cache/sources/abcd/canonical.json",
+  "claims_path": "/tmp/m1nd-runtime/l1ght-cache/sources/abcd/claims.json",
+  "producer": "universal:internal",
+  "section_count": 4,
+  "claim_count": 3,
+  "binding_count": 2
+}
+```
+
+### When to Use
+
+- when an agent needs the durable local artifact path
+- when a doc has already been ingested and you want its canonical projection
+- before opening `canonical.md` or `claims.json` directly
+
+### Related Tools
+
+- [`m1nd.document_bindings`](#m1nddocument_bindings)
+- [`m1nd.document_drift`](#m1nddocument_drift)
+
+---
+
+## `m1nd.document_provider_health`
+
+Report availability, mode, detail, and install hints for optional universal-document providers.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+
+### Example Response
+
+```json
+{
+  "python": "python3",
+  "providers": [
+    { "name": "docling", "available": true, "mode": "broad-spectrum canonicalizer" },
+    { "name": "grobid", "available": false, "mode": "scholarly pdf lane", "install_hint": "Set M1ND_GROBID_URL to a reachable GROBID service." }
+  ]
+}
+```
+
+### When to Use
+
+- before assuming richer HTML/PDF/office extraction exists
+- during environment setup
+- when a provider-backed lane seems to be falling back unexpectedly
+
+### Related Tools
+
+- [`m1nd.ingest`](#m1ndingest)
+- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+
+---
+
+## `m1nd.document_bindings`
+
+Resolve deterministic document-to-code bindings for a universal document.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `path` | `string` | No | Original source path or canonical markdown path. |
+| `node_id` | `string` | No | Universal graph node id for the document. |
+| `top_k` | `integer` | No | Maximum bindings to return. |
+
+### Example Response
+
+```json
+{
+  "source_path": "docs/specs/auth.md",
+  "bindings": [
+    {
+      "target_node_id": "file::src/auth/session.rs",
+      "target_label": "SessionPool",
+      "relation": "mentions_symbol",
+      "score": 0.92,
+      "confidence": "parsed",
+      "reason": "exact label match"
+    }
+  ]
+}
+```
+
+### When to Use
+
+- when the question is “which code implements this doc?”
+- when preparing an implementation map from a spec, paper, or note
+- before editing code to match a document
+
+### Related Tools
+
+- [`m1nd.document_resolve`](#m1nddocument_resolve)
+- [`m1nd.document_drift`](#m1nddocument_drift)
+
+---
+
+## `m1nd.document_drift`
+
+Analyze stale, missing, or ambiguous document/code bindings for a universal document.
+
+### Example Response
+
+```json
+{
+  "source_path": "docs/specs/auth.md",
+  "summary": {
+    "total_findings": 1,
+    "stale_bindings": 1,
+    "missing_targets": 0,
+    "ambiguous_targets": 0,
+    "unbacked_claims": 0,
+    "code_change_unreflected": 1
+  }
+}
+```
+
+### When to Use
+
+- after refactors or repo moves
+- when document claims may no longer be backed by current code
+- when a spec feels “probably stale” and you want a grounded first pass
+
+### Related Tools
+
+- [`m1nd.document_bindings`](#m1nddocument_bindings)
+- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+
+---
+
+## `m1nd.auto_ingest_start`
+
+Start local-first document watchers for one or more roots and supported document families.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `roots` | `string[]` | Yes | Filesystem roots to watch recursively. |
+| `formats` | `string[]` | No | Supported document formats to auto-ingest. |
+| `debounce_ms` | `integer` | No | Minimum quiet period before a change is eligible for ingestion. |
+| `namespace` | `string` | No | Optional namespace for non-code document nodes. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.auto_ingest_start",
+    "arguments": {
+      "agent_id": "jimi",
+      "roots": ["/project/docs", "/project/wiki"],
+      "formats": ["universal", "light"],
+      "debounce_ms": 200
+    }
+  }
+}
+```
+
+## `m1nd.auto_ingest_status`
+
+Inspect the current auto-ingest runtime, queue depth, semantic counts, provider status, and provider route/fallback counts.
+
+### Example Response
+
+```json
+{
+  "running": true,
+  "queue_depth": 0,
+  "semantic_document_count": 12,
+  "semantic_claim_count": 34,
+  "drift_document_count": 1,
+  "provider_status": { "docling": true, "trafilatura": true, "grobid": false }
+}
+```
+
+## `m1nd.auto_ingest_tick`
+
+Drain queued document changes immediately and apply them to the active graph.
+
+### Example Response
+
+```json
+{
+  "ingested_paths": ["/project/docs/specs/auth.md"],
+  "removed_paths": [],
+  "skipped_paths": [],
+  "errored_paths": []
+}
+```
+
+## `m1nd.auto_ingest_stop`
+
+Stop active document watchers and persist the manifest state.
+
+### Related Tools
+
+- [`m1nd.auto_ingest_start`](#m1ndauto_ingest_start)
+- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+- [`m1nd.document_resolve`](#m1nddocument_resolve)
 
 ---
 
@@ -561,3 +813,323 @@ Release a lock and free its resources. Removes the lock state, cleans up pending
 
 - [`m1nd.lock.create`](#m1ndlockcreate) -- create a new lock
 - [`m1nd.perspective.close`](perspectives.md#m1ndperspectiveclose) -- cascade-releases associated locks
+
+---
+
+## `m1nd.daemon_start`
+
+Start the persisted daemon control plane. Stores watched roots, initializes daemon counters, and begins the long-lived structural monitoring lane.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `watch_paths` | `string[]` | No | current ingest roots | Paths the daemon should monitor. |
+| `poll_interval_ms` | `integer` | No | `500` | Poll interval fallback in milliseconds. |
+
+### When to Use
+
+- Start of a long-lived agent session
+- Before relying on daemon alerts or `daemon_tick`
+- Before background/idle reconciliation should run
+
+### Related Tools
+
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+- [`m1nd.daemon_tick`](#m1nddaemon_tick)
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+
+---
+
+## `m1nd.daemon_stop`
+
+Stop the daemon control plane without deleting persisted alert history.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+
+### When to Use
+
+- End of a daemon-backed session
+- Before shutting down a host that should not keep reconciling
+
+### Related Tools
+
+- [`m1nd.daemon_start`](#m1nddaemon_start)
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+
+---
+
+## `m1nd.daemon_status`
+
+Inspect daemon liveness and runtime counters. Returns watched roots, tracked files, recent tick metrics, and alert counts.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+
+### Typical Output Fields
+
+- `active`
+- `watch_paths`
+- `poll_interval_ms`
+- `tracked_files`
+- `tick_count`
+- `last_tick_duration_ms`
+- `last_tick_changed_files`
+- `last_tick_deleted_files`
+- `last_tick_alerts_emitted`
+- `alert_count`
+
+### When to Use
+
+- To verify daemon startup worked
+- To inspect whether reconciliation is actually happening
+- To debug daemon slowness or alert silence
+
+### Related Tools
+
+- [`m1nd.daemon_start`](#m1nddaemon_start)
+- [`m1nd.daemon_tick`](#m1nddaemon_tick)
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+
+---
+
+## `m1nd.daemon_tick`
+
+Run one explicit daemon reconciliation pass. Polls watched roots, re-ingests changed files, detects deletions, and emits drift alerts.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `max_files` | `integer` | No | `32` | Maximum changed files to process in one tick. |
+
+### Typical Output Fields
+
+- `changed_files_detected`
+- `deleted_files_detected`
+- `files_reingested`
+- `ingested_files[]`
+- `alerts_emitted`
+- `alert_ids[]`
+- `tick_at_ms`
+
+### When to Use
+
+- To force one reconciliation before reading daemon status
+- To debug watched-root drift deterministically
+- To reproduce daemon ingest issues outside background ticking
+
+### Related Tools
+
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+- [`m1nd.cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
+
+---
+
+## `m1nd.alerts_list`
+
+List persisted daemon and proactive alerts.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `include_acked` | `boolean` | No | `false` | Include already acknowledged alerts. |
+| `limit` | `integer` | No | `50` | Maximum alerts to return. |
+
+### When to Use
+
+- Reviewing daemon findings after a session
+- Building an alert inbox for an agent or UI
+
+### Related Tools
+
+- [`m1nd.alerts_ack`](#m1ndalerts_ack)
+- [`m1nd.daemon_status`](#m1nddaemon_status)
+
+---
+
+## `m1nd.alerts_ack`
+
+Acknowledge one or more persisted daemon/proactive alerts so they stop resurfacing in the unread queue.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `alert_ids` | `string[]` | Yes | Alert IDs to acknowledge. |
+
+### When to Use
+
+- After reviewing or actioning daemon findings
+- To keep the alert queue focused on new drift
+
+### Related Tools
+
+- [`m1nd.alerts_list`](#m1ndalerts_list)
+
+---
+
+## `m1nd.edit_preview`
+
+Preview a full-file write without touching disk. Returns a diff, freshness snapshot, and validation report so the caller can inspect before committing.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `file_path` | `string` | Yes | Absolute or workspace-relative file path. |
+| `new_content` | `string` | Yes | Candidate replacement content. |
+| `description` | `string` | No | Human-readable summary of the edit. |
+
+### When to Use
+
+- Before risky writes
+- When you want a two-phase edit protocol
+- When a human or another agent should inspect the diff first
+
+### Related Tools
+
+- [`m1nd.edit_commit`](#m1ndedit_commit)
+- [`m1nd.apply`](../api-reference/lifecycle.md)
+
+---
+
+## `m1nd.edit_commit`
+
+Commit a previously previewed edit after freshness re-check and explicit confirmation.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `preview_id` | `string` | Yes | Preview handle returned by `edit_preview`. |
+| `confirm` | `boolean` | Yes | Must be `true` to commit the preview. |
+| `reingest` | `boolean` | No | Re-ingest the modified file after commit. |
+
+### When to Use
+
+- After a human/agent approves an `edit_preview`
+- When stale-source protection matters more than speed
+
+### Related Tools
+
+- [`m1nd.edit_preview`](#m1ndedit_preview)
+- [`m1nd.apply`](../api-reference/lifecycle.md)
+
+---
+
+## `m1nd.persist`
+
+Force graph and sidecar persistence immediately.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `action` | `string` | Yes | Persistence action, such as save/load semantics supported by the current implementation. |
+
+### When to Use
+
+- Before shutdown
+- Before risky host lifecycle transitions
+- When you want an explicit persistence checkpoint
+
+### Related Tools
+
+- [`m1nd.health`](#m1ndhealth)
+- [`m1nd.boot_memory`](#m1ndboot_memory)
+
+---
+
+## `m1nd.boot_memory`
+
+Persist small canonical hot-state values next to the graph without polluting larger investigation trails.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `action` | `string` | Yes | Memory action (`set`, `get`, `list`, `delete`, etc.). |
+| `key` | `string` | No | Canonical key to address. |
+| `value` | `json` | No | JSON value to store. |
+
+### When to Use
+
+- Short doctrine/state values that should stay hot
+- Session bootstrapping facts an agent should retrieve quickly
+
+### Related Tools
+
+- [`m1nd.persist`](#m1ndpersist)
+- [`m1nd.trail_save`](memory.md#m1ndtrailsave)
+
+---
+
+## `m1nd.heuristics_surface`
+
+Explain why a node or file is currently ranked as risky or important. Surfaces trust/tremor/antibody/blast-style heuristic factors in one payload.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `node_id` | `string` | No | Graph node to inspect. |
+| `file_path` | `string` | No | File path to inspect. |
+
+### When to Use
+
+- After `predict`, `validate_plan`, or surgical flows rank something unexpectedly high
+- When an agent needs explainability before editing or escalating
+
+### Related Tools
+
+- [`m1nd.validate_plan`](#m1ndvalidate_plan)
+- [`m1nd.apply_batch`](../api-reference/lifecycle.md)
+- [`m1nd.daemon_tick`](#m1nddaemon_tick)
+
+---
+
+## `m1nd.audit`
+
+Profile-aware one-call audit over topology, scans, verification, filesystem truth, and git state.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `path` | `string` | Yes | Root path to audit. |
+| `profile` | `string` | No | Audit profile such as `auto`, `quick`, `coordination`, or `production`. |
+| `depth` | `string` | No | Audit depth. |
+| `cross_verify` | `boolean` | No | Include graph-vs-disk verification. |
+| `external_refs` | `boolean` | No | Include explicit external reference discovery. |
+
+### When to Use
+
+- First pass on an unfamiliar repo
+- Long-running session orientation
+- Pre-handoff or pre-merge structural review
+
+### Related Tools
+
+- [`m1nd.batch_view`](../api-reference/exploration.md#m1ndbatch_view)
+- [`m1nd.cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
+- [`m1nd.coverage_session`](../api-reference/exploration.md#m1ndcoverage_session)

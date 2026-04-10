@@ -1,43 +1,155 @@
 # Changelog
 
-All notable changes to m1nd are documented here.
+All notable changes to m1nd are documented here. This project uses [Semantic Versioning](https://semver.org/).
 
 ---
 
 ## [Unreleased]
 
+The next release train starts here.
+
+---
+
+## [0.8.0] — 2026-04-10
+
 ### Added
 
-#### `federate_auto` — evidence-to-federation bridge
+#### Daemon control plane + persistent structural alerts
 
-`federate_auto` turns explicit external path evidence into an actionable
-federation plan.
+The audit/runtime layer now graduates from one-shot inspection into a persisted daemon-era control plane:
 
-- scans the current workspace's `external_references` signal
-- lifts referenced files to detected repo roots via `.git` or common manifest markers
-- suggests stable namespace names for the current repo and discovered sibling repos
-- can optionally execute `federate` directly in one call
-- now also discovers sibling repos from local manifest/workspace signals such as:
-  - `Cargo.toml` path dependencies
-  - `Cargo.toml` workspace members
-  - `package.json` workspaces and `file:` dependencies
-  - `pnpm-workspace.yaml` package globs
-  - `pyproject.toml` workspace/path dependencies
-  - `go.work` use directives
-- now also discovers sibling repos from import/package-name matches against
-  nearby repo identities, even when no path-style hint exists
-- now also discovers sibling repos from contract artifacts such as:
-  - `.proto` package/service definitions
-  - MCP tool-name surfaces in nearby providers
-  - OpenAPI/Swagger `operationId` and route surfaces
-- now also discovers sibling repos from shared `/api/...` route evidence between
-  the current workspace and nearby repos, even when no path/import/package hint exists
-- now also discovers sibling repos from import/package-name matches against
-  nearby repo identities, even when no path-style hint exists
+- `daemon_start`
+- `daemon_stop`
+- `daemon_status`
+- `daemon_tick`
+- `alerts_list`
+- `alerts_ack`
 
-This is the first bridge from audit-era repo-truth tooling into automatic
-cross-repo graph expansion. It reduces the manual step where an agent had to
-copy paths out of `external_references` and hand-assemble a `federate` request.
+These tools keep daemon state and a small proactive alert queue alive under the runtime root, so structural warnings can survive past the exact write or ingest that produced them.
+
+The daemon control plane also gained the operational behavior needed to make it useful in live agent sessions:
+
+- opportunistic auto-ticks between ordinary tool calls
+- daemon ticks during idle server time
+- scheduler timing exposure in `daemon_status`
+- tick metrics exposure in `daemon_status`
+- adaptive backoff when watch activity is low
+- native filesystem watcher wakeups
+- burst coalescing before reconciliation
+- Git-aware changed-set reconciliation when watched roots are repositories
+- SCM-aware daemon baselines instead of a moving cursor model
+
+#### Proactive structural insights on writes
+
+`apply` and `apply_batch` now attach `proactive_insights` directly to write results instead of forcing the agent to remember the next structural checks.
+
+Initial insight kinds include:
+
+- `co_change_prediction`
+- `untouched_test_companion`
+- `antibody_recurrence`
+- `trust_drop`
+- `tremor_hotspot`
+- `cross_repo_contract_risk`
+- `schema_contract_drift`
+
+When the daemon is active, the strongest write-time insights are also promoted into the persisted alert queue so they can be reviewed and acknowledged later.
+
+#### `federate_auto` becomes a real evidence-to-federation bridge
+
+`federate_auto` now turns external evidence into an actionable federation plan instead of just reporting raw hints.
+
+It can:
+
+- scan `external_references` output
+- lift referenced files to repo roots via `.git` or manifest markers
+- suggest stable namespace names for the current repo and sibling repos
+- optionally execute `federate` directly in one call
+
+Its discovery surface now includes:
+
+- manifest/workspace evidence such as Cargo workspaces, `package.json` workspaces, `pnpm-workspace.yaml`, `pyproject.toml`, and `go.work`
+- import/package-name matches against nearby repo identities
+- contract artifacts such as `.proto` definitions, MCP tool-name surfaces, and OpenAPI/Swagger routes and schemas
+- shared `/api/...` route evidence between the current workspace and nearby repos
+- schema and component-name recognition for stronger contract matching
+- scope/evidence-strength hardening so the bridge stays conservative
+
+#### Universal document intelligence in the canonical engine
+
+The universal document lane is now ported into canonical `m1nd` instead of living only in the integration repo.
+
+This adds:
+
+- canonical local artifact resolution for universal documents
+- deterministic document-to-code bindings
+- document/code drift detection
+- provider health reporting
+- local-first document watcher/runtime control
+
+New MCP surfaces:
+
+- `document_resolve`
+- `document_bindings`
+- `document_drift`
+- `document_provider_health`
+- `auto_ingest_start`
+- `auto_ingest_status`
+- `auto_ingest_tick`
+- `auto_ingest_stop`
+
+The universal lane also now preserves source-byte fidelity and writes a fuller canonical artifact set:
+
+- `source.<ext>`
+- `canonical.md`
+- `canonical.json`
+- `claims.json`
+- `metadata.json`
+
+Optional provider lanes are now surfaced operationally instead of implicitly:
+
+- `Docling`
+- `Trafilatura`
+- `MarkItDown`
+- `GROBID`
+
+`auto_ingest_status` also reports provider route/fallback counts so agents can see whether rich extraction actually happened or whether the runtime fell back.
+
+### Changed
+
+#### The public surface is finally aligned with the live runtime
+
+The docs and public product surfaces now match the real engine instead of the pre-document-runtime story.
+
+- the tool matrix SSOT is now published and wired into the docs flow
+- API coverage is complete for the current MCP surface
+- GitHub Pages now publishes the real `wiki-build` output
+- the canonical docs wave aligned README, examples, wiki pages, API docs, and the published tool matrix with the universal document runtime
+- the GitHub wiki mirror and localized READMEs were synced with the canonical docs
+- stale public counts from the old `63` / `77` / `78` eras were replaced with the live `93`-tool surface
+
+#### Document runtime hardening
+
+The universal runtime was tightened in several ways before and after the port:
+
+- post-ingest semantic refresh is now restricted to the universal document lane
+- file-root watchers use non-recursive mode when the watched root is a single file
+- queue waiting now fails with explicit diagnostics instead of a silent timeout
+- false `binding_ambiguous` cases were reduced when multiple relations hit the same target
+
+Tool count: 77 → 93.
+
+### Fixed
+
+#### Provider-gated regression coverage for scholarly PDFs
+
+The `GROBID` lane now has a provider-gated regression path that verifies the runtime resolves to `universal:grobid` for a minimal generated PDF when the provider environment is configured.
+
+#### Canonical artifact correctness
+
+- universal content hashes now track original source bytes instead of only the normalized canonical text
+- canonical caches preserve reachable original source bytes instead of quietly rewriting everything into plain text
+- binding/drift summaries refresh against graph generation instead of reusing stale semantic state
 
 ---
 
@@ -68,9 +180,7 @@ Tool count: 71 → 77.
 
 #### RETROBUILDER: 5 Advanced Graph Analysis Tools
 
-Five new MCP tools expose the RETROBUILDER core modules (RB-01 through RB-05),
-adding temporal analysis, security taint propagation, structural duplication
-detection, refactoring planning, and runtime observability to the tool surface.
+Five new MCP tools expose the RETROBUILDER core modules (RB-01 through RB-05), adding temporal analysis, security taint propagation, structural duplication detection, refactoring planning, and runtime observability to the tool surface.
 
 | Tool | Module | What It Does |
 |------|--------|-------------|
@@ -80,16 +190,13 @@ detection, refactoring planning, and runtime observability to the tool surface.
 | `refactor_plan` | RB-04: Intent-Driven Refactoring | Community detection + bridge analysis + counterfactual simulation for safe module extraction planning |
 | `runtime_overlay` | RB-05: OTel Overlay | Ingest OpenTelemetry trace data to paint runtime heat (call counts, latency, error rates) onto graph nodes |
 
-New types in `protocol/layers.rs`: `GhostEdgesInput`, `TaintTraceInput`,
-`TwinsInput`, `RefactorPlanInput`, `RuntimeOverlayInput`, `RuntimeOverlaySpan`.
+New types in `protocol/layers.rs`: `GhostEdgesInput`, `TaintTraceInput`, `TwinsInput`, `RefactorPlanInput`, `RuntimeOverlayInput`, `RuntimeOverlaySpan`.
 
 Tool count: 63 → 68.
 
 #### Diagnostic Tools: 3 Structural Observability Tools
 
-Three new MCP tools provide structural observability, type-dependency tracing,
-and visual graph generation — moving m1nd from a passive graph engine to an
-active diagnostic platform.
+Three new MCP tools provide structural observability, type-dependency tracing, and visual graph generation — moving m1nd from a passive graph engine to an active diagnostic platform.
 
 | Tool | What It Does |
 |------|-------------|
@@ -97,14 +204,38 @@ active diagnostic platform.
 | `type_trace` | Cross-file type usage tracing via BFS from a type/struct/enum node. 4-tier target resolution (exact ID → label exact → segment match → substring) with explicit preference for type-defining nodes over impl blocks. Forward, reverse, and bidirectional tracing with file grouping. |
 | `diagram` | Generate visual graph diagrams in Mermaid or DOT format. Centers on a node/query via BFS or shows top-N by PageRank. Supports scope filtering, type filtering, edge label display, PageRank annotation, and layout direction (TD/LR). |
 
-New types in `protocol/layers.rs`: `MetricsInput`, `MetricsOutput`, `MetricsEntry`,
-`MetricsSummary`, `TypeTraceInput`, `TypeTraceOutput`, `TypeTraceUsage`,
-`TypeTraceFileGroup`, `DiagramInput`, `DiagramOutput`.
+New types in `protocol/layers.rs`: `MetricsInput`, `MetricsOutput`, `MetricsEntry`, `MetricsSummary`, `TypeTraceInput`, `TypeTraceOutput`, `TypeTraceUsage`, `TypeTraceFileGroup`, `DiagramInput`, `DiagramOutput`.
 
 Tool count: 68 → 71.
 
----
+#### Native OpenClaw fast path
 
+`m1nd` now includes a native OpenClaw-facing bridge crate and fast path so the project can integrate with that execution fabric without giving up the MCP-first contract.
+
+- `m1nd-openclaw` was added as an auxiliary bridge crate
+- the native fast path preserves MCP compatibility instead of forking the product
+
+### Changed
+
+#### Public product surfaces were repositioned around the real runtime
+
+The product story was reworked around current agent use, speed, and grounded structural navigation:
+
+- the visual wiki became the primary documentation surface
+- the landing/site flow was rebuilt around the product story instead of the old root page
+- editor/client integration entrypoints were documented across the major MCP clients
+- localized READMEs were refreshed to match the new public story
+- README language around limits, scope, and grounded retrieval was clarified
+
+### Fixed
+
+#### CI and release operations were re-stabilized
+
+- fresh rustfmt/clippy regressions on main were resolved
+- the required `Test` status was restored for branch protection
+- release prep and help/workflow surfaces were aligned before the `v0.7.0` cut
+
+---
 ## [0.6.1] — 2026-03-25
 
 ### Fixed

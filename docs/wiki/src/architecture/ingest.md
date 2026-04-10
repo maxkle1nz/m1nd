@@ -2,7 +2,7 @@
 
 m1nd-ingest transforms codebases and structured documents into the property graph consumed by m1nd-core. It handles file discovery, language-specific code extraction, cross-file reference resolution, incremental diff computation, and memory/markdown ingestion.
 
-Source: `mcp/m1nd/m1nd-ingest/src/`
+Source: `m1nd-ingest/src/`
 
 ## Module Map
 
@@ -23,6 +23,7 @@ Source: `mcp/m1nd/m1nd-ingest/src/`
 | `diff.rs` | `GraphDiff` for incremental updates |
 | `json_adapter.rs` | Generic JSON-to-graph adapter |
 | `memory_adapter.rs` | Markdown/memory document adapter |
+| `canonical.rs` | Canonical document substrate used by the universal lane |
 | `merge.rs` | Graph merge utilities |
 | `patent_adapter.rs` | USPTO/EPO patent XML ingestion |
 | `jats_adapter.rs` | PubMed/JATS scientific article XML ingestion |
@@ -30,6 +31,7 @@ Source: `mcp/m1nd/m1nd-ingest/src/`
 | `rfc_adapter.rs` | IETF RFC XML v3 ingestion |
 | `crossref_adapter.rs` | CrossRef API JSON (DOI metadata) ingestion |
 | `document_router.rs` | Auto-detect document format and route to correct adapter |
+| `universal_adapter.rs` | Best-effort document canonicalization, provider routing, and graphification |
 | `cross_domain.rs` | Cross-domain edge resolution (DOI, ORCID, keyword bridges) |
 
 ## Pipeline Overview
@@ -400,6 +402,25 @@ Implemented adapters:
 
 The JSON adapter is the escape hatch for importing graphs from external tools. It expects a JSON document with `nodes` (array of `{id, label, type, tags}`) and `edges` (array of `{source, target, relation, weight}`).
 
+### Universal Document Lane
+
+The universal lane is the best-effort document path for sources that are not authored in `L1GHT` and are not already handled by a stronger native structured adapter.
+
+Its flow is:
+
+1. detect document family
+2. normalize into a `CanonicalDocument`
+3. graphify sections, blocks, tables, citations, entities, and claims
+
+Optional providers can enrich the lane when available:
+
+- `Trafilatura` for HTML/wiki/article extraction
+- `Docling` for office and broad document canonicalization
+- `MarkItDown` as a lightweight fallback lane
+- `GROBID` for scholarly PDFs
+
+This provider stack is intentionally optional. The default green path does not require these providers; richer extraction appears only when the environment supports it.
+
 ## Document Router (Auto-Detection)
 
 `DocumentRouter` inspects file content and extension to auto-detect the correct adapter:
@@ -413,11 +434,12 @@ let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20
 |-----------------|--------|----------|
 | Extension `.bib` / `.bibtex` | BibTeX | Extension only |
 | Extension `.md` + `Protocol: L1GHT` | L1GHT | Content check |
+| Extension `.md` without `L1GHT`, `.txt`, `.rst`, `.adoc`, `.html`, `.pdf`, `.docx`, `.pptx`, `.xlsx` | Universal | Extension + universal lane |
 | Extension `.xml` / `.nxml` | Patent, JATS, or RFC | Root element inspection |
 | Extension `.json` | CrossRef | Checks for `DOI` + `publisher` + `type` keys |
 | Fallback | Code | Default pipeline |
 
-Used via MCP: `m1nd.ingest(adapter="auto")` or `adapter="document"`.
+Used via MCP: `m1nd.ingest(adapter="auto")`, `adapter="document"`, or `adapter="universal"` when you want best-effort document normalization directly.
 
 For directory detection, the router samples up to 20 files and returns the dominant format.
 

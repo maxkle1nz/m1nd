@@ -1,6 +1,6 @@
 [package]
 name = "m1nd-mcp"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "MCP Server for m1nd. Stop letting AI grep your codebase. Neuro-symbolic connectome for AI agents."
 license = "MIT"
@@ -11,8 +11,8 @@ default = ["serve"]
 serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures"]
 
 [dependencies]
-m1nd-core = { path = "../m1nd-core", version = "0.7.0" }
-m1nd-ingest = { path = "../m1nd-ingest", version = "0.7.0" }
+m1nd-core = { path = "../m1nd-core", version = "0.8.0" }
+m1nd-ingest = { path = "../m1nd-ingest", version = "0.8.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = { workspace = true }
@@ -20,6 +20,7 @@ tokio = { version = "1", features = ["io-std", "rt-multi-thread", "macros", "sig
 clap = { version = "4", features = ["derive"] }
 regex = "1"
 glob = "0.3"
+notify = "8.2"
 
 # HTTP server (behind "serve" feature)
 axum = { version = "0.8", optional = true }

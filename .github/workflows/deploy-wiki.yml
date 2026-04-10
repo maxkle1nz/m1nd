@@ -52,7 +52,7 @@ jobs:
           rm -rf site-dist
           mkdir -p site-dist/wiki
           cp -R m1nd-demo/dist/. site-dist/
-          cp -R docs/wiki-build/. site-dist/wiki/
+          cp -R wiki-build/. site-dist/wiki/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

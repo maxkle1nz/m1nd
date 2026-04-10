@@ -1,5 +1,6 @@
 // === crates/m1nd-mcp/src/server.rs ===
 
+use crate::auto_ingest;
 use crate::layer_handlers;
 use crate::personality;
 use crate::protocol::layers;
@@ -9,10 +10,18 @@ use crate::search_handlers;
 use crate::session::SessionState;
 use crate::surgical_handlers;
 use crate::tools;
+use crate::universal_docs;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::error::{M1ndError, M1ndResult};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // MCP protocol instructions — injected into initialize response so agents
@@ -211,6 +220,25 @@ impl Default for McpConfig {
 pub struct McpServer {
     config: McpConfig,
     state: SessionState,
+    daemon_runtime: Option<DaemonRuntimeControl>,
+}
+
+#[derive(Debug)]
+enum ServerEvent {
+    Request(String, TransportMode),
+    StdinClosed,
+    WatchNotice,
+    WatchError(String),
+}
+
+struct LiveDaemonWatcher {
+    _watcher: RecommendedWatcher,
+    dropped_counter: Arc<AtomicU64>,
+}
+
+struct DaemonRuntimeControl {
+    event_tx: mpsc::SyncSender<ServerEvent>,
+    watcher: Option<LiveDaemonWatcher>,
 }
 
 /// List of all registered MCP tool schemas with full inputSchema per MCP spec.
@@ -422,6 +450,111 @@ pub fn tool_schemas() -> serde_json::Value {
                         }
                     },
                     "required": ["path", "agent_id"]
+                }
+            },
+            {
+                "name": "document_resolve",
+                "description": "Resolve a canonical universal-document artifact by source path or node id",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "path": { "type": "string", "description": "Original source path or canonical markdown path" },
+                        "node_id": { "type": "string", "description": "Graph node id emitted from universal ingest" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "document_provider_health",
+                "description": "Report availability and install hints for universal document providers",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "document_bindings",
+                "description": "Resolve deterministic document-to-code bindings for a universal document",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "path": { "type": "string", "description": "Original source path or canonical markdown path" },
+                        "node_id": { "type": "string", "description": "Graph node id emitted from universal ingest" },
+                        "top_k": { "type": "integer", "default": 10, "description": "Maximum bindings to return" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "document_drift",
+                "description": "Analyze stale, missing, or ambiguous document/code bindings for a universal document",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "path": { "type": "string", "description": "Original source path or canonical markdown path" },
+                        "node_id": { "type": "string", "description": "Graph node id emitted from universal ingest" },
+                        "scope": { "type": "string", "description": "Optional drift scope hint" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "auto_ingest_start",
+                "description": "Start local-first document auto-ingest watchers for supported l1ght-family formats",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "roots": { "type": "array", "items": { "type": "string" }, "description": "Filesystem roots to watch recursively" },
+                        "formats": {
+                            "type": "array",
+                            "items": { "type": "string", "enum": ["universal", "light", "article", "bibtex", "crossref", "rfc", "patent"] },
+                            "default": ["universal", "light", "article", "bibtex", "crossref", "rfc", "patent"],
+                            "description": "Supported document formats to auto-ingest"
+                        },
+                        "debounce_ms": { "type": "integer", "default": 200, "description": "Minimum quiet period before a change is eligible for ingestion" },
+                        "namespace": { "type": "string", "description": "Optional namespace for non-code document nodes" }
+                    },
+                    "required": ["agent_id", "roots"]
+                }
+            },
+            {
+                "name": "auto_ingest_stop",
+                "description": "Stop active document auto-ingest watchers and persist manifest state",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "auto_ingest_status",
+                "description": "Report current auto-ingest runtime state, counters, manifest size, and queue depth",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "auto_ingest_tick",
+                "description": "Drain queued document changes immediately and apply them to the active graph",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
                 }
             },
             {
@@ -1415,6 +1548,78 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             {
+                "name": "daemon_start",
+                "description": "Start persisted daemon state and store watched paths for continuous structural monitoring.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "watch_paths": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Paths the daemon should treat as watched roots" },
+                        "poll_interval_ms": { "type": "integer", "default": 500, "description": "Fallback polling interval in milliseconds" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "daemon_stop",
+                "description": "Stop persisted daemon state without deleting alerts or runtime state.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "daemon_status",
+                "description": "Report daemon state, watched paths, alert counts, and generation counters.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "daemon_tick",
+                "description": "Poll watched roots once, incrementally re-ingest changed files, and surface drift alerts for deleted files.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "max_files": { "type": "integer", "default": 32, "description": "Maximum changed files to process in one tick" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "alerts_list",
+                "description": "List persisted daemon/proactive alerts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "include_acked": { "type": "boolean", "default": false, "description": "Include acknowledged alerts" },
+                        "limit": { "type": "integer", "default": 50, "description": "Maximum number of alerts to return" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "alerts_ack",
+                "description": "Acknowledge one or more daemon/proactive alerts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "alert_ids": { "type": "array", "items": { "type": "string" }, "description": "Alert IDs to acknowledge" }
+                    },
+                    "required": ["agent_id", "alert_ids"]
+                }
+            },
+            {
                 "name": "panoramic",
                 "description": "Panoramic graph health overview: per-module risk scores combining blast radius, centrality, and churn signals.",
                 "inputSchema": {
@@ -1560,6 +1765,8 @@ pub fn dispatch_tool(
         })
         .to_string();
 
+    auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
+
     let result = match normalized.as_str() {
         name if name.starts_with("perspective_") => dispatch_perspective_tool(state, name, params),
         name if name.starts_with("lock_") => dispatch_lock_tool(state, name, params),
@@ -1659,6 +1866,46 @@ fn dispatch_core_tool(
             let input: IngestInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             tools::handle_ingest(state, input)
+        }
+        "document_resolve" => {
+            let input: DocumentResolveInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::resolve_document(state, input)
+        }
+        "document_provider_health" => {
+            let input: DocumentProviderHealthInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::provider_health(input)
+        }
+        "document_bindings" => {
+            let input: DocumentBindingsInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::document_bindings(state, input)
+        }
+        "document_drift" => {
+            let input: DocumentDriftInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            universal_docs::document_drift(state, input)
+        }
+        "auto_ingest_start" => {
+            let input: AutoIngestStartInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_start(state, input)
+        }
+        "auto_ingest_stop" => {
+            let input: AutoIngestStopInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_stop(state, input)
+        }
+        "auto_ingest_status" => {
+            let input: AutoIngestStatusInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_status(state, input)
+        }
+        "auto_ingest_tick" => {
+            let input: AutoIngestTickInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            auto_ingest::handle_auto_ingest_tick(state, input)
         }
         "resonate" => {
             let input: ResonateInput =
@@ -1886,6 +2133,36 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::audit_handlers::handle_audit(state, input)
         }
+        "daemon_start" => {
+            let input: layers::DaemonStartInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_start(state, input)
+        }
+        "daemon_stop" => {
+            let input: layers::DaemonStopInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_stop(state, input)
+        }
+        "daemon_status" => {
+            let input: layers::DaemonStatusInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_status(state, input)
+        }
+        "daemon_tick" => {
+            let input: layers::DaemonTickInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_daemon_tick(state, input)
+        }
+        "alerts_list" => {
+            let input: layers::AlertsListInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_alerts_list(state, input)
+        }
+        "alerts_ack" => {
+            let input: layers::AlertsAckInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::daemon_handlers::handle_alerts_ack(state, input)
+        }
         "panoramic" => {
             let input: layers::PanoramicInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -2013,6 +2290,159 @@ fn dispatch_core_tool(
         _ => Err(M1ndError::UnknownTool {
             name: tool_name.to_string(),
         }),
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn should_autotick_daemon(tool_name: &str) -> bool {
+    !matches!(
+        tool_name,
+        "daemon_start"
+            | "daemon_stop"
+            | "daemon_status"
+            | "daemon_tick"
+            | "alerts_list"
+            | "alerts_ack"
+    )
+}
+
+fn background_tick_if_due(state: &mut SessionState) {
+    if !state.daemon_state.active || state.daemon_state.poll_interval_ms == 0 {
+        return;
+    }
+    let due = state
+        .daemon_state
+        .last_tick_ms
+        .is_none_or(|last| now_ms().saturating_sub(last) >= state.daemon_state.poll_interval_ms);
+    if !due {
+        return;
+    }
+
+    let _ = crate::daemon_handlers::handle_daemon_tick(
+        state,
+        layers::DaemonTickInput {
+            agent_id: "daemon".into(),
+            max_files: 32,
+        },
+    );
+}
+
+fn run_daemon_tick(state: &mut SessionState, trigger: &str) {
+    if state.daemon_state.tick_in_flight {
+        state.daemon_state.pending_rerun = true;
+        return;
+    }
+
+    state.daemon_state.tick_in_flight = true;
+    state.daemon_state.last_tick_trigger = Some(trigger.to_string());
+    let _ = crate::daemon_handlers::handle_daemon_tick(
+        state,
+        layers::DaemonTickInput {
+            agent_id: "daemon".into(),
+            max_files: 32,
+        },
+    );
+    state.daemon_state.tick_in_flight = false;
+
+    if state.daemon_state.pending_rerun {
+        state.daemon_state.pending_rerun = false;
+        state.daemon_state.last_tick_trigger = Some("reconciliation".into());
+        state.daemon_state.tick_in_flight = true;
+        let _ = crate::daemon_handlers::handle_daemon_tick(
+            state,
+            layers::DaemonTickInput {
+                agent_id: "daemon".into(),
+                max_files: 32,
+            },
+        );
+        state.daemon_state.tick_in_flight = false;
+    }
+}
+
+fn daemon_wait_duration_ms(state: &SessionState) -> u64 {
+    if !state.daemon_state.active {
+        return 1000;
+    }
+    if state.daemon_state.poll_interval_ms == 0 {
+        return 1000;
+    }
+
+    let exponent = state
+        .daemon_state
+        .idle_streak
+        .min(state.daemon_state.max_backoff_multiplier.saturating_sub(1));
+    let effective_poll_interval_ms = state
+        .daemon_state
+        .poll_interval_ms
+        .saturating_mul(2u64.pow(exponent))
+        .clamp(25, 10_000);
+    let scheduler_interval_ms = if state.daemon_state.watch_backend == "native_fs" {
+        effective_poll_interval_ms.max(5_000)
+    } else {
+        effective_poll_interval_ms
+    };
+
+    match state.daemon_state.last_tick_ms {
+        Some(last_tick_ms) => {
+            let elapsed = now_ms().saturating_sub(last_tick_ms);
+            if elapsed >= scheduler_interval_ms {
+                25
+            } else {
+                scheduler_interval_ms
+                    .saturating_sub(elapsed)
+                    .clamp(25, 1000)
+            }
+        }
+        None => 25,
+    }
+}
+
+impl LiveDaemonWatcher {
+    fn start(
+        watch_paths: &[String],
+        event_tx: mpsc::SyncSender<ServerEvent>,
+    ) -> Result<Self, String> {
+        let dropped_counter = Arc::new(AtomicU64::new(0));
+        let dropped_for_cb = dropped_counter.clone();
+        let tx_for_cb = event_tx.clone();
+
+        let mut watcher =
+            notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+                let event = match result {
+                    Ok(_) => ServerEvent::WatchNotice,
+                    Err(error) => ServerEvent::WatchError(error.to_string()),
+                };
+                match tx_for_cb.try_send(event) {
+                    Ok(_) => {}
+                    Err(mpsc::TrySendError::Full(_)) | Err(mpsc::TrySendError::Disconnected(_)) => {
+                        dropped_for_cb.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+
+        for raw_path in watch_paths {
+            let path = PathBuf::from(raw_path);
+            let mode = if path.is_dir() {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+            watcher
+                .watch(path.as_path(), mode)
+                .map_err(|error| error.to_string())?;
+        }
+
+        Ok(Self {
+            _watcher: watcher,
+            dropped_counter,
+        })
     }
 }
 
@@ -2185,6 +2615,50 @@ fn dispatch_lock_tool(
 }
 
 impl McpServer {
+    fn sync_watcher_drop_counter(&mut self) {
+        if let Some(runtime) = &self.daemon_runtime {
+            if let Some(watcher) = &runtime.watcher {
+                self.state.daemon_state.watch_events_dropped =
+                    watcher.dropped_counter.load(Ordering::Relaxed);
+            }
+        }
+    }
+
+    fn refresh_daemon_watcher(&mut self) {
+        let Some(runtime) = &mut self.daemon_runtime else {
+            return;
+        };
+
+        runtime.watcher = None;
+        if !self.state.daemon_state.active {
+            self.state.daemon_state.watch_backend = "polling".into();
+            self.state.daemon_state.watch_backend_error = None;
+            let _ = self.state.persist_daemon_state();
+            return;
+        }
+
+        match LiveDaemonWatcher::start(
+            &self.state.daemon_state.watch_paths,
+            runtime.event_tx.clone(),
+        ) {
+            Ok(watcher) => {
+                runtime.watcher = Some(watcher);
+                self.state.daemon_state.watch_backend =
+                    if self.state.daemon_state.git_root.is_some() {
+                        "git_native_fs".into()
+                    } else {
+                        "native_fs".into()
+                    };
+                self.state.daemon_state.watch_backend_error = None;
+            }
+            Err(error) => {
+                self.state.daemon_state.watch_backend = "polling".into();
+                self.state.daemon_state.watch_backend_error = Some(error);
+            }
+        }
+        let _ = self.state.persist_daemon_state();
+    }
+
     /// Create server with config. Does not start serving yet.
     ///
     /// Startup sequence:
@@ -2274,7 +2748,11 @@ impl McpServer {
             }
         }
 
-        Ok(Self { config, state })
+        Ok(Self {
+            config,
+            state,
+            daemon_runtime: None,
+        })
     }
 
     /// Consume the McpServer and return the SessionState.
@@ -2305,16 +2783,127 @@ impl McpServer {
     /// Main event loop: read JSON-RPC from stdin, dispatch, write response to stdout.
     /// Blocks until EOF or shutdown signal.
     pub fn serve(&mut self) -> M1ndResult<()> {
-        let stdin = std::io::stdin();
         let stdout = std::io::stdout();
-        let mut reader = stdin.lock();
         let mut writer = stdout.lock();
+        let (tx, rx) = mpsc::sync_channel(1024);
+        self.daemon_runtime = Some(DaemonRuntimeControl {
+            event_tx: tx.clone(),
+            watcher: None,
+        });
+        self.refresh_daemon_watcher();
 
+        thread::spawn(move || {
+            let stdin = std::io::stdin();
+            let mut reader = stdin.lock();
+            loop {
+                let next = read_request_payload(&mut reader);
+                match next {
+                    Ok(Some(value)) => {
+                        if tx.send(ServerEvent::Request(value.0, value.1)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = tx.send(ServerEvent::StdinClosed);
+                        break;
+                    }
+                    Err(_) => {
+                        let _ = tx.send(ServerEvent::StdinClosed);
+                        break;
+                    }
+                }
+            }
+        });
+
+        let mut pending_request: Option<(String, TransportMode)> = None;
         loop {
-            let (payload, transport_mode) = match read_request_payload(&mut reader) {
-                Ok(Some(value)) => value,
-                Ok(None) => break,
-                Err(_) => break,
+            self.sync_watcher_drop_counter();
+
+            let next_event = if let Some((payload, mode)) = pending_request.take() {
+                Ok(ServerEvent::Request(payload, mode))
+            } else {
+                rx.recv_timeout(Duration::from_millis(daemon_wait_duration_ms(&self.state)))
+            };
+
+            let (payload, transport_mode) = match next_event {
+                Ok(ServerEvent::Request(payload, mode)) => (payload, mode),
+                Ok(ServerEvent::StdinClosed) => break,
+                Ok(ServerEvent::WatchNotice) => {
+                    let mut watch_events_seen = 1u64;
+                    let coalesced_at_ms = now_ms();
+                    self.state.daemon_state.last_watch_event_ms = Some(coalesced_at_ms);
+                    loop {
+                        match rx.recv_timeout(Duration::from_millis(
+                            self.state.daemon_state.coalesce_window_ms.max(1),
+                        )) {
+                            Ok(ServerEvent::WatchNotice) => {
+                                watch_events_seen = watch_events_seen.saturating_add(1);
+                            }
+                            Ok(ServerEvent::WatchError(error)) => {
+                                self.state.daemon_state.watch_events_dropped = self
+                                    .state
+                                    .daemon_state
+                                    .watch_events_dropped
+                                    .saturating_add(1);
+                                self.state.daemon_state.watch_backend_error = Some(error);
+                            }
+                            Ok(ServerEvent::Request(payload, mode)) => {
+                                pending_request = Some((payload, mode));
+                                break;
+                            }
+                            Ok(ServerEvent::StdinClosed) => {
+                                pending_request = None;
+                                break;
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout)
+                            | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                    self.state.daemon_state.watch_events_seen = self
+                        .state
+                        .daemon_state
+                        .watch_events_seen
+                        .saturating_add(watch_events_seen);
+                    self.state.daemon_state.last_coalesced_event_ms = Some(coalesced_at_ms);
+                    self.state.daemon_state.coalesced_event_count = self
+                        .state
+                        .daemon_state
+                        .coalesced_event_count
+                        .saturating_add(watch_events_seen);
+                    run_daemon_tick(&mut self.state, "watch_event");
+                    continue;
+                }
+                Ok(ServerEvent::WatchError(error)) => {
+                    self.state.daemon_state.watch_events_dropped = self
+                        .state
+                        .daemon_state
+                        .watch_events_dropped
+                        .saturating_add(1);
+                    self.state.daemon_state.watch_backend_error = Some(error);
+                    self.state.daemon_state.last_watch_event_ms = Some(now_ms());
+                    run_daemon_tick(&mut self.state, "reconciliation");
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    let trigger = if self.state.daemon_state.watch_backend == "native_fs" {
+                        "reconciliation"
+                    } else {
+                        "idle_timeout"
+                    };
+                    if !self.state.daemon_state.active
+                        || self.state.daemon_state.poll_interval_ms == 0
+                    {
+                        continue;
+                    }
+                    let due = self.state.daemon_state.last_tick_ms.is_none_or(|last| {
+                        now_ms().saturating_sub(last) >= daemon_wait_duration_ms(&self.state)
+                    });
+                    if due {
+                        run_daemon_tick(&mut self.state, trigger);
+                    }
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
             let trimmed = payload.trim();
             if trimmed.is_empty() {
@@ -2435,21 +3024,35 @@ impl McpServer {
                 // Track agent session from arguments
                 if let Some(agent_id) = arguments.get("agent_id").and_then(|v| v.as_str()) {
                     self.state.track_agent(agent_id);
+                    if self.state.daemon_state.active
+                        && should_autotick_daemon(tool_name)
+                        && self.state.daemon_state.last_tick_ms.is_some_and(|last| {
+                            now_ms().saturating_sub(last)
+                                >= self.state.daemon_state.poll_interval_ms
+                        })
+                    {
+                        run_daemon_tick(&mut self.state, "traffic");
+                    }
                 }
 
                 // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
                 match self.dispatch_tool_call(tool_name, &arguments) {
-                    Ok(result) => Ok(JsonRpcResponse {
-                        jsonrpc: "2.0".into(),
-                        id: request.id.clone(),
-                        result: Some(serde_json::json!({
-                            "content": [{
-                                "type": "text",
-                                "text": serde_json::to_string_pretty(&result).unwrap_or_default(),
-                            }]
-                        })),
-                        error: None,
-                    }),
+                    Ok(result) => {
+                        if matches!(tool_name, "daemon_start" | "daemon_stop") {
+                            self.refresh_daemon_watcher();
+                        }
+                        Ok(JsonRpcResponse {
+                            jsonrpc: "2.0".into(),
+                            id: request.id.clone(),
+                            result: Some(serde_json::json!({
+                                "content": [{
+                                    "type": "text",
+                                    "text": serde_json::to_string_pretty(&result).unwrap_or_default(),
+                                }]
+                            })),
+                            error: None,
+                        })
+                    }
                     Err(e) => Ok(JsonRpcResponse {
                         jsonrpc: "2.0".into(),
                         id: request.id.clone(),
@@ -2492,7 +3095,44 @@ impl McpServer {
 
 #[cfg(test)]
 mod tests {
-    use super::tool_schemas;
+    use super::{
+        background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick, should_autotick_daemon,
+        tool_schemas, DaemonRuntimeControl, McpServer,
+    };
+    use crate::server::McpConfig;
+    use crate::session::SessionState;
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::Graph;
+    use std::sync::mpsc;
+
+    fn build_state() -> (tempfile::TempDir, SessionState) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        (temp, state)
+    }
+
+    fn build_server() -> (tempfile::TempDir, McpServer) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let server = McpServer::new(config).expect("server");
+        (temp, server)
+    }
 
     #[test]
     fn tool_schemas_expose_new_audit_surface_and_retrobuilder_tools() {
@@ -2518,11 +3158,196 @@ mod tests {
             "external_references",
             "federate_auto",
             "audit",
+            "daemon_start",
+            "daemon_stop",
+            "daemon_status",
+            "daemon_tick",
+            "alerts_list",
+            "alerts_ack",
         ] {
             assert!(
                 names.iter().any(|name| name == expected),
                 "tool_schemas should expose {expected}"
             );
         }
+    }
+
+    #[test]
+    fn autotick_skips_daemon_control_tools() {
+        for skipped in [
+            "daemon_start",
+            "daemon_stop",
+            "daemon_status",
+            "daemon_tick",
+            "alerts_list",
+            "alerts_ack",
+        ] {
+            assert!(
+                !should_autotick_daemon(skipped),
+                "autotick should skip {skipped}"
+            );
+        }
+        assert!(should_autotick_daemon("search"));
+        assert!(should_autotick_daemon("apply"));
+    }
+
+    #[test]
+    fn background_tick_runs_when_daemon_is_due() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file_path = repo.join("src/core.py");
+        std::fs::write(&file_path, "def core():\n    return 1\n").expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("initial ingest");
+
+        crate::daemon_handlers::handle_daemon_start(
+            &mut state,
+            crate::protocol::layers::DaemonStartInput {
+                agent_id: "test".into(),
+                watch_paths: vec![repo.to_string_lossy().to_string()],
+                poll_interval_ms: 25,
+            },
+        )
+        .expect("daemon start");
+
+        std::fs::write(&file_path, "def core():\n    return 9\n").expect("rewrite file");
+        state.daemon_state.last_tick_ms = Some(0);
+
+        background_tick_if_due(&mut state);
+
+        let hit = crate::search_handlers::handle_search(
+            &mut state,
+            crate::protocol::layers::SearchInput {
+                query: "return 9".into(),
+                agent_id: "test".into(),
+                mode: crate::protocol::layers::SearchMode::Literal,
+                scope: None,
+                filename_pattern: None,
+                top_k: 5,
+                case_sensitive: false,
+                context_lines: 0,
+                invert: false,
+                count_only: false,
+                multiline: false,
+                auto_ingest: false,
+                max_output_chars: None,
+            },
+        )
+        .expect("search after background tick");
+
+        assert!(
+            hit.results
+                .iter()
+                .any(|result| { result.matched_line.contains("return 9") }),
+            "background tick should refresh the graph before the next explicit tool call"
+        );
+    }
+
+    #[test]
+    fn daemon_wait_duration_uses_remaining_time_until_next_tick() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.active = true;
+        state.daemon_state.poll_interval_ms = 500;
+        state.daemon_state.last_tick_ms = Some(super::now_ms().saturating_sub(125));
+
+        let wait_ms = daemon_wait_duration_ms(&state);
+        assert!(
+            (300..=400).contains(&wait_ms),
+            "remaining wait should be close to the poll interval remainder"
+        );
+
+        state.daemon_state.last_tick_ms = Some(0);
+        let overdue_wait_ms = daemon_wait_duration_ms(&state);
+        assert_eq!(overdue_wait_ms, 25);
+    }
+
+    #[test]
+    fn daemon_wait_duration_expands_with_idle_backoff() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.active = true;
+        state.daemon_state.poll_interval_ms = 200;
+        state.daemon_state.last_tick_ms = Some(super::now_ms());
+        state.daemon_state.idle_streak = 2;
+        state.daemon_state.max_backoff_multiplier = 8;
+
+        let wait_ms = daemon_wait_duration_ms(&state);
+        assert!(
+            (700..=800).contains(&wait_ms),
+            "idle streak should expand effective wait close to 4x the base interval"
+        );
+    }
+
+    #[test]
+    fn run_daemon_tick_marks_pending_rerun_when_already_in_flight() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.tick_in_flight = true;
+        state.daemon_state.pending_rerun = false;
+
+        run_daemon_tick(&mut state, "traffic");
+
+        assert!(state.daemon_state.pending_rerun);
+        assert!(state.daemon_state.tick_in_flight);
+    }
+
+    #[test]
+    fn native_watcher_refresh_falls_back_to_polling_for_invalid_path() {
+        let (_temp, mut server) = build_server();
+        let (tx, _rx) = mpsc::sync_channel(8);
+        server.daemon_runtime = Some(DaemonRuntimeControl {
+            event_tx: tx,
+            watcher: None,
+        });
+        server.state.daemon_state.active = true;
+        server.state.daemon_state.watch_paths = vec!["/definitely/not/present".into()];
+
+        server.refresh_daemon_watcher();
+
+        assert_eq!(server.state.daemon_state.watch_backend, "polling");
+        assert!(server.state.daemon_state.watch_backend_error.is_some());
+    }
+
+    #[test]
+    fn native_watcher_refresh_uses_native_fs_for_real_root() {
+        let (temp, mut server) = build_server();
+        let watch_root = temp.path().join("watch-root");
+        std::fs::create_dir_all(&watch_root).expect("watch-root");
+        let (tx, _rx) = mpsc::sync_channel(8);
+        server.daemon_runtime = Some(DaemonRuntimeControl {
+            event_tx: tx,
+            watcher: None,
+        });
+        server.state.daemon_state.active = true;
+        server.state.daemon_state.watch_paths = vec![watch_root.to_string_lossy().to_string()];
+
+        server.refresh_daemon_watcher();
+
+        assert_eq!(server.state.daemon_state.watch_backend, "native_fs");
+        assert!(server.state.daemon_state.watch_backend_error.is_none());
+    }
+
+    #[test]
+    fn native_backend_uses_coarse_reconciliation_interval() {
+        let (_temp, mut state) = build_state();
+        state.daemon_state.active = true;
+        state.daemon_state.poll_interval_ms = 200;
+        state.daemon_state.watch_backend = "native_fs".into();
+        state.daemon_state.last_tick_ms = Some(super::now_ms());
+
+        let wait_ms = daemon_wait_duration_ms(&state);
+        assert_eq!(wait_ms, 1000);
     }
 }

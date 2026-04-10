@@ -483,3 +483,206 @@ Structural drift detection between a baseline and the current graph state. Highe
 - [`m1nd.drift`](memory.md#m1nddrift) -- weight-level drift (lighter, faster)
 - [`m1nd.differential`](#m1nddifferential) -- lower-level snapshot diff
 - [`m1nd.timeline`](exploration.md#m1ndtimeline) -- single-node temporal history
+
+---
+
+## `m1nd.ghost_edges`
+
+Parse git history and surface temporal co-change ghost edges: files that move together without an explicit static dependency.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `scope` | `string` | No | Optional path prefix. |
+| `depth` | `string` | No | Git history window such as `7d`, `30d`, `90d`, or `all`. |
+| `top_k` | `integer` | No | Maximum ghost edges to return. |
+
+### When to Use
+
+- To find hidden temporal coupling
+- Before refactors in churn-heavy areas
+
+### Related Tools
+
+- [`m1nd.timeline`](../api-reference/exploration.md#m1ndtimeline)
+- [`m1nd.predict`](#m1ndpredict)
+
+---
+
+## `m1nd.taint_trace`
+
+Inject taint at entry points and trace propagation through the graph to expose missed validation, auth, or sanitization boundaries.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `entry_nodes` | `string[]` | Yes | Entry points to taint. |
+| `taint_type` | `string` | No | `user_input`, `sensitive_data`, or `custom`. |
+| `max_depth` | `integer` | No | Maximum propagation depth. |
+
+### When to Use
+
+- Security reviews on trust boundaries
+- Input validation and auth flow audits
+
+### Related Tools
+
+- [`m1nd.scan`](../api-reference/exploration.md#m1ndscan)
+- [`m1nd.trace`](../api-reference/exploration.md#m1ndtrace)
+
+---
+
+## `m1nd.twins`
+
+Find structurally similar or identical nodes by topology signature.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `scope` | `string` | No | Optional path prefix. |
+| `node_types` | `string[]` | No | Restrict to node families. |
+| `similarity_threshold` | `number` | No | Minimum similarity threshold. |
+
+### When to Use
+
+- Duplicate logic detection
+- Consolidation/refactor candidate discovery
+
+### Related Tools
+
+- [`m1nd.fingerprint`](#m1ndfingerprint)
+- [`m1nd.refactor_plan`](#m1ndrefactor_plan)
+
+---
+
+## `m1nd.refactor_plan`
+
+Graph-native refactoring proposals: community detection and extraction candidates for a scoped region.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `scope` | `string` | No | Optional path prefix. |
+| `max_communities` | `integer` | No | Upper bound on candidate communities. |
+| `min_community_size` | `integer` | No | Smallest extractable group to report. |
+
+### When to Use
+
+- Before modularization/extraction work
+- To identify communities with high internal cohesion
+
+### Related Tools
+
+- [`m1nd.twins`](#m1ndtwins)
+- [`m1nd.impact`](#m1ndimpact)
+
+---
+
+## `m1nd.runtime_overlay`
+
+Overlay OpenTelemetry span activity onto the graph to paint runtime heat, latency, and error signals onto nodes.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `spans` | `object[]` | Yes | OTel-like spans to ingest. |
+| `service_name` | `string` | No | Optional service scope. |
+| `mapping_strategy` | `string` | No | Mapping mode such as `label_match`, `code_attribute`, `exact_id`. |
+
+### When to Use
+
+- Correlating runtime hotspots with structural risk
+- Prioritizing where to inspect first after a production incident
+
+### Related Tools
+
+- [`m1nd.trace`](../api-reference/exploration.md#m1ndtrace)
+- [`m1nd.impact`](#m1ndimpact)
+- [`m1nd.daemon_tick`](../api-reference/lifecycle.md#m1nddaemon_tick)
+
+---
+
+## `m1nd.metrics`
+
+Return structural metrics per file, function, class, struct, or module.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `scope` | `string` | No | Optional path prefix. |
+| `node_types` | `string[]` | No | Restrict output to certain node types. |
+| `sort` | `string` | No | Sort order such as `loc_desc`, `complexity_desc`, `name_asc`. |
+
+### When to Use
+
+- To rank hot modules by size/degree/centrality
+- To anchor audits with hard structural numbers
+
+### Related Tools
+
+- [`m1nd.panoramic`](../api-reference/lifecycle.md#m1ndpanoramic)
+- [`m1nd.diagram`](#m1nddiagram)
+
+---
+
+## `m1nd.type_trace`
+
+Trace where a type, struct, or enum is used across the graph.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `target` | `string` | Yes | Type name or external_id to trace. |
+| `direction` | `string` | No | `forward`, `reverse`, or `both`. |
+| `group_by_file` | `boolean` | No | Group usage sites by file. |
+
+### When to Use
+
+- Following type spread before edits
+- Understanding where a central data model is consumed
+
+### Related Tools
+
+- [`m1nd.search`](../api-reference/lifecycle.md#m1ndsearch)
+- [`m1nd.impact`](#m1ndimpact)
+
+---
+
+## `m1nd.diagram`
+
+Generate Mermaid or DOT graph diagrams from a query or node-centered slice.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `center` | `string` | No | Seed query or node_id to center the diagram. |
+| `format` | `string` | No | `mermaid` or `dot`. |
+| `direction` | `string` | No | `TD` or `LR`. |
+| `max_nodes` | `integer` | No | Maximum nodes to include. |
+
+### When to Use
+
+- Human-readable architecture explanations
+- Sharing graph context with another agent or reviewer
+
+### Related Tools
+
+- [`m1nd.metrics`](#m1ndmetrics)
+- [`m1nd.perspective_inspect`](../api-reference/perspectives.md#m1ndperspectiveinspect)
+
