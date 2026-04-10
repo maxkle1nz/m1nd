@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-32e1bda5.js";
+            window.path_to_searchindex_js = "searchindex-177e4674.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-a37108d1.js"></script>
+        <script src="toc-0a73bcc5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -191,7 +191,7 @@
 <li>observable multi-file writes through <code>apply_batch</code></li>
 <li>recovery loops that teach the next valid move when a tool is used badly</li>
 </ul>
-<p>m1nd ships as an <a href="https://modelcontextprotocol.io/">MCP</a> server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 78 MCP tools.</p>
+<p>m1nd ships as an <a href="https://modelcontextprotocol.io/">MCP</a> server, runs locally, and works with any MCP-compatible client over stdio. The current exported schema exposes 93 MCP tools.</p>
 <h2 id="the-problem"><a class="header" href="#the-problem">The Problem</a></h2>
 <p>Most agent loops still waste time in the same place: navigation.</p>
 <p>An LLM can reason about a file once it has the file. The expensive part is getting the right file, the right neighbors, and enough proof to act without reopening half the repo.</p>
@@ -217,11 +217,24 @@
 <li><code>trace</code> maps stacktraces to likely suspects</li>
 <li><code>impact</code> inspects blast radius before edits</li>
 <li><code>seek</code> and <code>activate</code> find intent and connected structure</li>
+<li><code>document_resolve</code>, <code>document_bindings</code>, and <code>document_drift</code> connect docs/specs to likely code targets and surface stale links</li>
+<li><code>document_provider_health</code> and <code>auto_ingest_*</code> expose the local-first document runtime</li>
 <li><code>validate_plan</code> and <code>surgical_context_v2</code> prepare safer multi-file changes</li>
 <li><code>trail_resume</code> restores investigations with next-focus and next-tool hints</li>
 <li><code>apply_batch</code> exposes progress, phases, and final handoff signals</li>
 </ul>
 <p>The result is less context churn and better decision quality per step.</p>
+<h2 id="documents-and-knowledge-artifacts"><a class="header" href="#documents-and-knowledge-artifacts">Documents And Knowledge Artifacts</a></h2>
+<p>The public shape of m1nd is no longer just code plus optional markdown memory.</p>
+<p>The merged universal lane can ingest and operationalize:</p>
+<ul>
+<li>markdown notes</li>
+<li>HTML/wiki pages</li>
+<li>office documents</li>
+<li>scholarly PDFs</li>
+<li>structured standards and citation corpora</li>
+</ul>
+<p>When a document enters through the universal lane, m1nd can preserve canonical local artifacts, bind that document to likely code, and surface document/code drift when the implementation moves faster than the docs.</p>
 <p>Current benchmark truth from the recorded warm-graph corpus:</p>
 <ul>
 <li><code>10518 -&gt; 5182</code> aggregate token proxy</li>
@@ -266,7 +279,7 @@
 </ul>
 <p>m1nd is not a compiler, debugger, or test runner replacement. It is best when the real bottleneck is structural understanding and repo navigation.</p>
 <h2 id="how-to-read-this-wiki"><a class="header" href="#how-to-read-this-wiki">How To Read This Wiki</a></h2>
-<p><strong><a href="architecture/overview.html">Architecture</a></strong> explains how the three crates fit together and how the MCP server turns graph truth into agent-facing runtime behavior.</p>
+<p><strong><a href="architecture/overview.html">Architecture</a></strong> explains how the core crates and auxiliary bridge surfaces fit together and how the MCP server turns graph truth into agent-facing runtime behavior.</p>
 <p><strong><a href="concepts/spreading-activation.html">Concepts</a></strong> covers the underlying graph ideas such as activation, plasticity, and structural holes.</p>
 <p><strong><a href="api-reference/overview.html">API Reference</a></strong> documents the current MCP surface, including underscore-based canonical tool names, guided outputs, and transport behavior.</p>
 <p><strong><a href="tutorials/quickstart.html">Tutorials</a></strong> walks through the main workflows from first ingest to connected edit prep.</p>
