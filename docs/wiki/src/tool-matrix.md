@@ -168,13 +168,6 @@ Machine-oriented routing matrix for the current `m1nd` tool surface.
 | `m1nd_persist` | Force graph and sidecar state persistence to disk. | Use when you want to force-save graph and sidecars now. | Avoid for tiny one-file questions; these are orchestration and session-shaping tools. | `agent_id` | `status; snapshot_path; plasticity_path` | `audit -> batch_view -> cross_verify` |
 | `m1nd_boot_memory` | Persist small canonical hot-state values next to the graph. | Use for tiny canonical doctrine/state values that should stay hot. | Avoid for tiny one-file questions; these are orchestration and session-shaping tools. | `agent_id` | `action; key; value; entries` | `audit -> batch_view -> cross_verify` |
 
-## Documentation Gaps
-
-- Live callable surface count: **93 schema names**
-- Public prose pages previously advertising `78` / `63` / `89` have been updated as part of the docs wave
-- Remaining undocumented names after synthesis: **0**
-- Remaining names: none
-
 ## Routing Rules
 
 1. Prefer the cheapest tool that preserves structural truth.
