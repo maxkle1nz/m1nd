@@ -110,7 +110,7 @@ Antibody system (bug immune memory), Epidemic engine (SIR propagation prediction
 | [Surgical](API-Reference#surgical-4-tools) | surgical_context, apply, surgical_context_v2, apply_batch | 4 |
 | [v0.4.0 — Search & Efficiency](API-Reference#v040-search--efficiency-5-tools) | search, help, panoramic, savings, report | 5 |
 | [v0.5.0 — Verified Writes & File Tools](API-Reference#v050-verified-writes--file-tools) | apply_batch verify, view, glob | 3 |
-| v0.6.1 — Guided Runtime & Recovery | proof_state, next-step guidance, trail continuity, apply_batch progress, benchmarked recovery, release alignment | 6 |
+| Current runtime waves | audit, batch_view, cross_verify, federate_auto, daemon_*, alerts_*, document_*, auto_ingest_* | 21 |
 
 ---
 
@@ -175,7 +175,7 @@ Claude Code · Cursor · Windsurf · GitHub Copilot · Zed · Cline · Roo Code 
 
 ## On crates.io
 
-m1nd v0.6.1 is the current release line. Add it from [crates.io](https://crates.io/crates/m1nd-core) or build the binary from source — both paths are fully supported.
+m1nd v0.8.0 is the current release line. Add it from [crates.io](https://crates.io/crates/m1nd-core) or build the binary from source — both paths are fully supported.
 
 ---
 
