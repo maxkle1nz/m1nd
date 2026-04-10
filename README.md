@@ -35,7 +35,7 @@
   <a href="#configure-your-agent">Configure Your Agent</a> &middot;
   <a href="#results-and-measurements">Results</a> &middot;
   <a href="#tool-surface">Tools</a> &middot;
-  <a href="https://github.com/maxkle1nz/m1nd/wiki">Wiki</a> &middot;
+  <a href="https://m1nd.world/wiki/">Wiki</a> &middot;
   <a href="EXAMPLES.md">Examples</a>
 </p>
 
@@ -587,7 +587,7 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `savings` | Session/global token, CO2, and cost savings summary | ~0ms |
 </details>
 
-[Full API reference with examples ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
+[Full API reference with examples ->](https://m1nd.world/wiki/api-reference/overview.html)
 
 ## Post-Write Verification
 
@@ -691,7 +691,7 @@ graph LR
 27+ languages/file formats total.
 Today that means 5 native/manual extractors (`Python`, `TypeScript/JavaScript`, `Rust`, `Go`, `Java`) plus 22 tree-sitter-backed languages across Tier 1 + Tier 2.
 Default build already includes Tier 2, which includes both tree-sitter tiers.
-Language count is broad, but depth varies by language. [Language details ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
+Language count is broad, but depth varies by language. [Language details ->](https://m1nd.world/wiki/architecture/ingest.html)
 
 The current default build also includes an HTTP/UI surface. Keep it bound to localhost unless you intentionally want remote access; there is no built-in authentication layer for arbitrary public exposure.
 
