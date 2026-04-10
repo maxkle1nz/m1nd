@@ -14,6 +14,7 @@ preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/maxkle1nz/m1nd"
 edit-url-template = "https://github.com/maxkle1nz/m1nd/edit/main/docs/wiki/src/{path}"
 site-url = "/wiki/"
+additional-css = ["theme/m1nd.css"]
 
 [output.html.search]
 enable = true

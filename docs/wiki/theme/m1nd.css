@@ -1,0 +1,181 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap");
+
+:root {
+  --m1nd-signal: #00f5ff;
+  --m1nd-path: #7b61ff;
+  --m1nd-structure: #00ff88;
+  --m1nd-dimension: #ffb700;
+  --m1nd-connection: #ff00aa;
+  --m1nd-bg: #050510;
+  --m1nd-bg-soft: #0b1020;
+  --m1nd-panel: rgba(12, 16, 28, 0.82);
+  --m1nd-border: rgba(0, 245, 255, 0.14);
+  --m1nd-text: #e2e8f0;
+  --m1nd-text-soft: rgba(226, 232, 240, 0.74);
+}
+
+html.navy,
+html.coal,
+html.ayu {
+  background:
+    radial-gradient(circle at top, rgba(0, 245, 255, 0.08), transparent 28%),
+    radial-gradient(circle at 85% 18%, rgba(123, 97, 255, 0.09), transparent 24%),
+    radial-gradient(circle at 18% 80%, rgba(0, 255, 136, 0.06), transparent 22%),
+    var(--m1nd-bg);
+}
+
+body {
+  color: var(--m1nd-text);
+  font-family: "Space Grotesk", system-ui, sans-serif;
+}
+
+.menu-bar,
+.sidebar,
+.page-wrapper,
+.searchresults-outer,
+.theme-popup {
+  backdrop-filter: blur(16px);
+}
+
+#mdbook-menu-bar {
+  border-bottom: 1px solid var(--m1nd-border);
+  background: linear-gradient(180deg, rgba(5, 5, 16, 0.92), rgba(8, 12, 24, 0.88));
+}
+
+#mdbook-menu-bar .menu-title {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--m1nd-text);
+}
+
+#mdbook-menu-bar .menu-title::before {
+  content: "⍌ ⍐ ⍂ 𝔻 ⟁";
+  display: block;
+  margin-bottom: 0.18rem;
+  font-family: "Space Mono", monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--m1nd-signal);
+  opacity: 0.8;
+  text-shadow:
+    0 0 8px rgba(0, 245, 255, 0.25),
+    0 0 14px rgba(123, 97, 255, 0.18);
+}
+
+#mdbook-sidebar {
+  background:
+    linear-gradient(180deg, rgba(8, 12, 24, 0.96), rgba(5, 5, 16, 0.94)),
+    var(--m1nd-bg-soft);
+  border-right: 1px solid rgba(123, 97, 255, 0.12);
+}
+
+.sidebar .chapter li a {
+  border-left: 2px solid transparent;
+  color: var(--m1nd-text-soft);
+  transition: all 0.18s ease;
+}
+
+.sidebar .chapter li a:hover,
+.sidebar .chapter li a.active {
+  border-left-color: var(--m1nd-signal);
+  color: var(--m1nd-text);
+  background: rgba(0, 245, 255, 0.06);
+}
+
+#mdbook-content {
+  background: transparent;
+}
+
+.content main {
+  max-width: 960px;
+}
+
+.content main h1:first-of-type::before {
+  content: "⍌  signal   ⍐  path   ⍂  structure   𝔻  dimension   ⟁  connection";
+  display: inline-block;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(0, 245, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(0, 245, 255, 0.05);
+  font-family: "Space Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: rgba(226, 232, 240, 0.78);
+}
+
+.content h1,
+.content h2,
+.content h3 {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.content h1 {
+  color: var(--m1nd-text);
+}
+
+.content h2 {
+  margin-top: 2.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(123, 97, 255, 0.14);
+  color: #f3f7ff;
+}
+
+.content a {
+  color: var(--m1nd-signal);
+}
+
+.content a:hover {
+  color: #9bf7ff;
+}
+
+.content code {
+  border: 1px solid rgba(0, 245, 255, 0.12);
+  border-radius: 0.35rem;
+  background: rgba(0, 245, 255, 0.06);
+  color: #b9fbff;
+}
+
+.content pre {
+  border: 1px solid rgba(123, 97, 255, 0.16);
+  border-radius: 1rem;
+  background: rgba(8, 12, 24, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(0, 245, 255, 0.04),
+    0 18px 40px rgba(0, 0, 0, 0.26);
+}
+
+.content table {
+  overflow: hidden;
+  border-radius: 1rem;
+  background: rgba(10, 14, 26, 0.82);
+}
+
+.content table thead {
+  background: linear-gradient(90deg, rgba(0, 245, 255, 0.12), rgba(123, 97, 255, 0.12));
+}
+
+.content table td,
+.content table th {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.content blockquote {
+  border-left: 3px solid var(--m1nd-signal);
+  background: rgba(0, 245, 255, 0.04);
+  border-radius: 0 0.8rem 0.8rem 0;
+}
+
+#mdbook-searchbar,
+.searchresults-outer {
+  background: rgba(10, 14, 26, 0.96);
+  border-color: rgba(0, 245, 255, 0.14);
+}
+
+.icon-button:hover,
+.chapter-item:hover {
+  filter: brightness(1.08);
+}
