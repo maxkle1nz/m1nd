@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  m1nd gives AI agents durable operational context before they search, edit, review, or change code.<br/>
-  It makes code, docs, and change operable as one system.<br/>
+  m1nd gives agents a clear view of what changes will touch before they get lost in grep loops and endless file hunting.<br/>
+  It pulls code, docs, and system details into a single layer AI agents can actually work with.<br/>
   <em>Local execution. MCP over stdio. Optional HTTP/UI surface in the default build.</em>
 </p>
 
@@ -128,7 +128,9 @@ flowchart LR
 
 ## What m1nd Operationalizes
 
-`m1nd` does more than index code. It turns multiple kinds of technical reality into one operable layer for agents:
+`m1nd` goes beyond just indexing code.
+
+It pulls together all sorts of technical pieces into one layer agents can actually work with:
 
 - code
 - docs
@@ -138,17 +140,22 @@ flowchart LR
 - runtime state
 - multi-repo edges
 
-<p align="center">
-  <img src=".github/m1nd-operability-surface.svg" alt="m1nd operational intelligence surface" width="960" />
-</p>
+That is why it is not merely code search, review, or docs tooling.
 
-That is why `m1nd` is not just code search, not just review, and not just docs tooling.
-
-It is the layer that makes those surfaces legible and actionable together.
+It makes those surfaces legible and usable as one.
 
 ## What Ships Today
 
-The current live MCP surface exposes **93 tools**. What matters more than the count is the shape of the system.
+The current live MCP surface exposes **93 tools**, but readers should understand the jobs first:
+
+| Job | What it means | Representative tools |
+|---|---|---|
+| Understand the system | turn repos, docs, and concepts into connected structural truth | `ingest`, `activate`, `seek`, `why`, `search`, `document_resolve` |
+| Predict and verify change | see blast radius, drift, and safe mutation context before and after edits | `impact`, `predict`, `validate_plan`, `surgical_context_v2`, `apply_batch(verify=true)` |
+| Keep context alive over time | monitor, audit, persist, and coordinate beyond one turn or one repo | `audit`, `cross_verify`, `daemon_*`, `alerts_*`, `boot_memory`, `federate_auto` |
+
+<details>
+<summary><strong>Expanded layer view</strong></summary>
 
 | Layer | What it enables | Representative tools |
 |---|---|---|
@@ -159,14 +166,7 @@ The current live MCP surface exposes **93 tools**. What matters more than the co
 | Operational runtime | keep the system live, watched, and continuity-aware | `audit`, `cross_verify`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`, `boot_memory` |
 | Federation | operate beyond a single repo | `federate`, `federate_auto`, `external_references` |
 
-### What that means in practice
-
-- **Code + docs in one graph** through `memory`, `light`, `universal`, `json`, and structured document adapters
-- **Canonical local document artifacts** through `document_resolve`
-- **Doc-to-code grounding** through `document_bindings`
-- **Spec drift detection** through `document_drift`
-- **Watcher/runtime continuity** through `auto_ingest_*`, `daemon_*`, and `alerts_*`
-- **Safe multi-file mutation** through `apply_batch(verify=true)`
+</details>
 
 ## Quick Start
 
@@ -202,13 +202,11 @@ If docs/specs matter too:
 
 ## Make It The First Layer
 
-The highest-leverage adoption move is not “install m1nd.”
-
-It is:
+The highest-leverage adoption move is simple:
 
 > **make m1nd mandatory before search, edit, review, or change.**
 
-### Minimal system-prompt rule
+### Minimum rule
 
 ```text
 You have m1nd available via MCP.
@@ -224,44 +222,25 @@ Use m1nd before grep, glob, or manual file reads when the task depends on struct
 - use m1nd.help when unsure
 ```
 
-### Claude Code snippet
-
-```markdown
-## Code Intelligence
-m1nd is the first layer before grep/glob/read loops.
-Use it for structural understanding, docs grounding, blast radius, plan validation, and connected edit context.
-```
-
-### Cursor snippet
-
-```text
-Use m1nd before grep or opening lots of files:
-- search for exact text
-- activate/seek for connected structure
-- impact before edits
-- surgical_context_v2 before multi-file changes
-```
+Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world/wiki/) and deeper examples live in [EXAMPLES.md](EXAMPLES.md).
 
 ## Proof
 
-These are grounded in current code, tests, and docs. They are evidence, not slogans.
+These are grounded in current code, tests, and docs. They are receipts, not slogans.
 
 | Metric | Observed result |
 |---|---|
-| Public MCP surface | **93 tools** |
-| Bugs found in one documented audit session | **39** |
-| Findings invisible to grep in that session | **8 of 28** |
-| Hypothesis accuracy in live claims | **89%** |
+| Public MCP surface | **93 tools** ([tool matrix](https://m1nd.world/wiki/tool-matrix.html)) |
+| `activate` on 1K nodes | **1.36 µs** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
+| `impact` depth=3 | **543 ns** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | Post-write validation sample | **12/12** classified correctly |
-| `activate` on 1K nodes | **1.36 µs** |
-| `impact` depth=3 | **543 ns** |
-| `antibody_scan` on 50 patterns | **2.68 ms** |
 
 The important product claim is not “fast graph queries” by itself.
 
 It is this:
 
-> `m1nd` reduces context waste and blind change by giving the agent operational understanding before action.
+> Fast graph queries are not the real point.
+> `m1nd` cuts context waste and blind changes by giving the agent operational understanding before it acts.
 
 ## Where It Fits
 
@@ -295,6 +274,10 @@ Current crate versions:
 - `m1nd-core` `0.8.0`
 - `m1nd-ingest` `0.8.0`
 - `m1nd-mcp` `0.8.0`
+
+<p align="center">
+  <img src=".github/m1nd-operability-surface.svg" alt="m1nd operational intelligence surface" width="960" />
+</p>
 
 ## Learn More
 
