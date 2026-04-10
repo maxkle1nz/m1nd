@@ -129,4 +129,4 @@ m1nd is not a compiler, debugger, or test runner replacement. It is best when th
 
 **[Tutorials](tutorials/quickstart.md)** walks through the main workflows from first ingest to connected edit prep.
 
-The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history from `v0.6.0` and `v0.6.1` onward.
+The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history from `v0.6.x` through `v0.8.0` and onward.
