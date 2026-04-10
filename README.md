@@ -86,18 +86,21 @@ That means it can answer the questions that actually matter:
 - where is the connected edit context?
 - what should I verify next?
 
-Under the hood, the workspace has three main parts:
+Under the hood, the workspace has three core parts plus one auxiliary bridge crate:
 
 - `m1nd-core`: the graph engine
 - `m1nd-ingest`: repo walking, extraction, reference resolution, and graph construction
 - `m1nd-mcp`: the MCP server over stdio, plus an HTTP/UI surface in the current default build
+- `m1nd-openclaw`: auxiliary OpenClaw integration surface
 
 The project is strongest at structural grounding:
 
 - ingesting code into a graph instead of navigating only by text search
+- ingesting documents and knowledge artifacts into the same graph as code
 - resolving relationships between files, functions, types, modules, and graph neighborhoods
 - exposing that graph through MCP tools for navigation, impact analysis, tracing, prediction, and editing workflows
 - merging code with markdown or structured memory graphs when needed
+- resolving canonical local document artifacts, document/code bindings, and document drift when docs are part of the investigation
 - retaining heuristic memory over time so feedback can shape future retrieval through `learn`, `trust`, `tremor`, and `antibody` sidecars
 - surfacing why a result was ranked, not just what matched
 
@@ -297,11 +300,12 @@ It is not trying to replace your LSP, Sourcegraph, CodeQL, or compiler. It sits 
 
 **It puts structural claims to the test.** Tools like `hypothesize`, `why`, `impact`, and `counterfactual` operate on graph relationships rather than on text matches alone.
 
-**It can merge code and documentation into the same graph.** m1nd provides nine ingest adapters:
+**It can merge code and documentation into the same graph.** m1nd now provides ten ingest adapters:
 
 - **`code`** (default) — code extractors across 27+ languages/file formats. Build the full code graph from source files.
 - **`json`** — Custom graph descriptors and structured data imports.
 - **`memory`** — Unstructured `.md`/`.txt` corpus as a lightweight knowledge graph.
+- **`universal`** — Best-effort document canonicalization for markdown, HTML, text, office documents, and PDFs. Produces canonical local artifacts and graph-native document structure even when the source was not authored in `L1GHT`.
 - **`light`** — [L1GHT Protocol](docs/wiki-build/l1ght.html): structured markdown with typed YAML frontmatter and inline semantic markers. Transforms specs, design decisions, and knowledge bases into first-class graph nodes with typed edges.
 - **`patent`** — USPTO Red Book / Yellow Book and EPO DocDB XML. Parses patent claims, descriptions, inventors, applicants, and classification codes into graph nodes with citation edges.
 - **`article`** — PubMed NLM and NISO JATS Z39.96 XML. Extracts article metadata, authors (with ORCID when available), abstracts, and reference lists.
@@ -314,6 +318,41 @@ Format detection is automatic: `DocumentRouter` inspects file extensions and con
 `CrossDomainResolver` merges multiple adapter outputs and discovers cross-domain connections automatically — DOI identity edges, ORCID matches, shared authors, keyword bridges, and citation chains.
 
 With `mode: "merge"`, these graphs can be queried together. That means a query can return code, patents, papers, and specs from the same graph.
+
+### Universal Document Intelligence
+
+The universal lane adds a practical bridge between code and everything around the codebase:
+
+- design docs
+- markdown notes
+- HTML/wiki pages
+- office documents
+- scholarly PDFs
+
+When the universal lane ingests a document, `m1nd` keeps a canonical local cache and graph surface for it:
+
+- original source copy
+- `canonical.md`
+- `canonical.json`
+- `claims.json`
+- `metadata.json`
+
+That enables a second layer of MCP workflows on top of raw ingest:
+
+- `document_resolve` — find the local canonical artifacts for a document
+- `document_bindings` — see likely deterministic bindings from document content to code
+- `document_drift` — detect missing, stale, or ambiguous document/code links
+- `document_provider_health` — inspect optional provider availability and install hints
+- `auto_ingest_start` / `auto_ingest_status` / `auto_ingest_tick` — keep document roots watched and incrementally reconciled
+
+Optional providers enrich the universal lane when available:
+
+- `Docling` for broad-spectrum office and structured document canonicalization
+- `Trafilatura` for HTML/wiki/article extraction
+- `MarkItDown` as a lightweight fallback lane
+- `GROBID` for scholarly PDF extraction
+
+These providers are intentionally optional. The default green path does not require them, and provider-gated tests skip cleanly when the provider environment is absent or unreachable.
 
 ```
 # Example L1GHT document (any .md file)
@@ -367,11 +406,12 @@ This matters because m1nd is not just a search endpoint. It is an opinionated gr
 
 ## Tool Surface
 
-The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **78 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
+The current `tool_schemas()` implementation in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) exposes **93 MCP tools**. That number will move. The categories below matter more, but the count itself is now grounded in the live registry.
 
 | Category | Highlights |
 |----------|------------|
 | **Foundation** | ingest, health, activate, impact, why, learn, drift, seek, scan, warmup, federate |
+| **Document Intelligence** | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
 | **Perspective Navigation** | start, follow, peek, routes, branch, compare, inspect, suggest, affinity |
 | **Lock System** | pin subgraph regions, watch for changes, diff locked state |
 | **Graph Analysis** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
@@ -399,6 +439,21 @@ The current `tool_schemas()` implementation in [server.rs](https://github.com/ma
 | `diverge` | Structural divergence analysis | varies |
 | `warmup` | Prime graph for an upcoming task | 82-89ms |
 | `federate` | Unify multiple repos into one graph | 1.3s / 2 repos |
+</details>
+
+<details>
+<summary><strong>Document Intelligence</strong></summary>
+
+| Tool | What It Does |
+|------|-------------|
+| `document.resolve` | Resolve canonical artifacts for a universal document |
+| `document.bindings` | Show deterministic document-to-code bindings |
+| `document.drift` | Surface stale, missing, or ambiguous document/code links |
+| `document.provider_health` | Show optional document-provider availability and install hints |
+| `auto_ingest.start` | Start local-first document auto-ingest watchers |
+| `auto_ingest.status` | Inspect document auto-ingest runtime state, counts, and provider routes |
+| `auto_ingest.tick` | Drain queued document changes immediately |
+| `auto_ingest.stop` | Stop watchers and persist manifest state |
 </details>
 
 <details>

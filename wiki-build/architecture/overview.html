@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "navy";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-32e1bda5.js";
+            window.path_to_searchindex_js = "../searchindex-177e4674.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-a37108d1.js"></script>
+        <script src="../toc-0a73bcc5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -190,11 +190,11 @@
 <li>observable multi-file writes through <code>apply_batch</code></li>
 <li>repair-friendly errors when a tool call goes wrong</li>
 </ul>
-<p>The workspace currently exposes 78 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.</p>
-<h2 id="three-crate-workspace"><a class="header" href="#three-crate-workspace">Three-Crate Workspace</a></h2>
-<p>The system is organized as a Cargo workspace with three crates:</p>
+<p>The workspace currently exposes 93 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.</p>
+<h2 id="four-crate-workspace"><a class="header" href="#four-crate-workspace">Four-Crate Workspace</a></h2>
+<p>The system is organized as a Cargo workspace with three core crates plus one auxiliary bridge crate:</p>
 <pre><code class="language-toml">[workspace]
-members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp"]
+members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -215,6 +215,7 @@ static_assertions = "1"
 <tr><td><strong>m1nd-core</strong></td><td>Graph engine, activation, plasticity, XLR, resonance, temporal, semantic</td><td><code>parking_lot</code>, <code>smallvec</code>, <code>static_assertions</code></td></tr>
 <tr><td><strong>m1nd-ingest</strong></td><td>File walking, language-specific extraction, reference resolution, diff</td><td><code>rayon</code>, <code>walkdir</code>, <code>regex</code></td></tr>
 <tr><td><strong>m1nd-mcp</strong></td><td>JSON-RPC transport, tool dispatch, session management, persistence</td><td><code>tokio</code>, <code>serde_json</code></td></tr>
+<tr><td><strong>m1nd-openclaw</strong></td><td>Auxiliary OpenClaw bridge and transport integration</td><td><code>m1nd-core</code>, <code>m1nd-mcp</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -223,7 +224,7 @@ static_assertions = "1"
 <pre><code class="language-mermaid">graph TD
     subgraph "m1nd-mcp (Transport)"
         STDIO["JSON-RPC stdio&lt;br/&gt;dual: framed + line"]
-        DISPATCH["Tool Dispatch&lt;br/&gt;63 tools"]
+        DISPATCH["Tool Dispatch&lt;br/&gt;93 tools"]
         SESSION["SessionState&lt;br/&gt;SharedGraph + Engines"]
         PERSIST["Auto-Persist&lt;br/&gt;every 50 queries"]
     end
@@ -234,6 +235,7 @@ static_assertions = "1"
         RESOLVE["ReferenceResolver&lt;br/&gt;proximity disambiguation"]
         DIFF["GraphDiff&lt;br/&gt;incremental updates"]
         MEMORY["MemoryAdapter&lt;br/&gt;markdown → graph"]
+        UNIVERSAL["Universal + Document Adapters&lt;br/&gt;canonical docs → graph"]
     end
 
     subgraph "m1nd-core (Engine)"
@@ -257,6 +259,7 @@ static_assertions = "1"
     WALK --&gt; EXTRACT
     EXTRACT --&gt; RESOLVE
     RESOLVE --&gt; GRAPH
+    UNIVERSAL --&gt; GRAPH
     DIFF --&gt;|incremental| GRAPH
 
     SESSION --&gt;|activate| ACT
@@ -297,6 +300,16 @@ static_assertions = "1"
 <li><strong>Next-step guidance</strong>: tools can return <code>next_suggested_tool</code>, <code>next_suggested_target</code>, and <code>next_step_hint</code></li>
 </ol>
 <p>This is one of the biggest architectural changes in <code>v0.6.0</code>: the MCP layer is no longer just a transport for graph answers. It is a transport for graph answers plus workflow guidance.</p>
+<h3 id="example-code-plus-document-workflow"><a class="header" href="#example-code-plus-document-workflow">Example: code plus document workflow</a></h3>
+<p>The current architecture also supports a second operating loop:</p>
+<ol>
+<li>ingest code</li>
+<li>ingest or auto-ingest document roots through the universal lane</li>
+<li>resolve canonical document artifacts</li>
+<li>bind documents to likely code</li>
+<li>inspect document/code drift after implementation moves</li>
+</ol>
+<p>This is what turns m1nd from a code-only graph into a local code + knowledge runtime.</p>
 <h2 id="key-design-decisions"><a class="header" href="#key-design-decisions">Key Design Decisions</a></h2>
 <h3 id="compressed-sparse-row-csr-graph"><a class="header" href="#compressed-sparse-row-csr-graph">Compressed Sparse Row (CSR) Graph</a></h3>
 <p>The graph uses CSR format rather than adjacency lists or adjacency matrices. CSR provides O(1) neighbor iteration start, cache-friendly sequential access, and compact memory layout. Edge weights are stored as <code>AtomicU32</code> (bit-reinterpreted <code>f32</code>) for lock-free plasticity updates via CAS with a 64-retry limit.</p>

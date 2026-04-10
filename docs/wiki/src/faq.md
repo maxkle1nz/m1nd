@@ -4,7 +4,7 @@
 
 ### What is m1nd?
 
-m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 78 MCP tools for structure, impact, connected context, continuity, audit, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
+m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 93 MCP tools for structure, impact, connected context, continuity, audit, document intelligence, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
 
 The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as `proof_state`, `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`, plus observable progress for long-running writes like `apply_batch`.
 
@@ -40,18 +40,13 @@ m1nd is designed to *work alongside* LLMs (as an MCP tool that agents call), but
 
 ### What languages does m1nd support?
 
-m1nd has dedicated extractors for:
+m1nd currently has:
 
-- Python (.py)
-- Rust (.rs)
-- TypeScript (.ts, .tsx)
-- JavaScript (.js, .jsx)
-- Go (.go)
-- Java (.java)
+- native/manual extractors for Python, Rust, TypeScript/JavaScript, Go, and Java
+- 22 additional tree-sitter-backed languages across Tier 1 and Tier 2
+- a generic fallback extractor for unsupported text files
 
-All other file types use a generic fallback extractor that identifies functions, classes, and imports through heuristic pattern matching. The generic extractor produces a less detailed graph but still captures useful structure.
-
-Tree-sitter integration is planned, which would add support for 64+ languages.
+Language breadth is broad, but semantic depth still varies by language. Python and Rust currently have more specialized handling than many of the tree-sitter-backed languages.
 
 ### Is m1nd open source?
 
@@ -93,7 +88,17 @@ At 400K+ files, the in-memory graph starts to become a consideration (~80MB), bu
 
 ### Does it work with non-code files?
 
-Yes. m1nd has a `json` adapter for structured data and a `memory` adapter for text corpora. You can also use the generic fallback extractor for any text file. The graph is not limited to source code -- it is a general-purpose knowledge graph that happens to have excellent code extractors.
+Yes. The current ingestion surface is not code-only.
+
+m1nd can now ingest:
+
+- structured data through `json`
+- text corpora through `memory`
+- `L1GHT` specs through `light`
+- native document adapters for patents, articles, BibTeX, CrossRef, and RFCs
+- best-effort ordinary documents through `universal`
+
+The universal lane can normalize markdown, HTML/wiki pages, office documents, and PDFs into canonical local artifacts and graph-native document structure. That is what powers `document_resolve`, `document_bindings`, `document_drift`, and the document `auto_ingest_*` runtime.
 
 ### How much memory does m1nd use?
 

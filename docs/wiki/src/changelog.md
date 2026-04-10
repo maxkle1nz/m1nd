@@ -2,6 +2,19 @@
 
 All notable changes to m1nd are documented here. This project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+#### Documentation alignment for universal document intelligence
+
+The public docs now reflect the merged universal document runtime:
+
+- README and examples now describe canonical document artifacts, document/code bindings, document drift, provider health, and local-first document auto-ingest
+- wiki/API pages now document `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, and `auto_ingest_*`
+- counts were updated to match the current MCP surface instead of the older `78` / `63` era numbers
+- the tool matrix now includes the document and auto-ingest surfaces as first-class routing entries
+
 ## [0.6.2] — 2026-03-26
 
 ### Added

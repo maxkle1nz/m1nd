@@ -22,7 +22,7 @@
 
 ---
 
-# API Reference — 63 Tools
+# API Reference — 93 Tools
 
 - [Overview](api-reference/overview.md)
 - [Activation & Queries](api-reference/activation.md)
@@ -45,5 +45,6 @@
 # Reference
 
 - [FAQ](faq.md)
+- [Tool Matrix](tool-matrix.md)
 - [Benchmarks](benchmarks.md)
 - [Changelog](changelog.md)
