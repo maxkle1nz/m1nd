@@ -1,12 +1,12 @@
-# Lifecycle & Lock Tools
+# Lifecycle, Document & Lock Tools
 
-Eight tools for graph ingestion, health monitoring, plan validation, and subgraph locking with change detection.
+This page covers graph ingestion, document runtime operations, health monitoring, plan validation, persistence, and subgraph locking with change detection.
 
 ---
 
 ## `m1nd.ingest`
 
-Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. This is the primary way to load data into m1nd. Supports three adapters (`code`, `json`, `memory`) and two modes (`replace`, `merge`).
+Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the graph. This is the primary way to load data into m1nd. It now supports code-first, structured-document, and universal document adapters.
 
 ### Parameters
 
@@ -15,7 +15,7 @@ Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. Thi
 | `path` | `string` | Yes | -- | Filesystem path to the source root or memory corpus. |
 | `agent_id` | `string` | Yes | -- | Calling agent identifier. |
 | `incremental` | `boolean` | No | `false` | Incremental ingest (code adapter only). Only re-processes files that changed since the last ingest. |
-| `adapter` | `string` | No | `"code"` | Adapter to use for parsing. Values: `"code"` (source code -- Python, Rust, TypeScript, etc.), `"json"` (graph snapshot JSON), `"memory"` (markdown memory corpus). |
+| `adapter` | `string` | No | `"code"` | Adapter to use for parsing. Values include `"code"`, `"json"`, `"memory"`, `"light"`, `"patent"`, `"article"`, `"bibtex"`, `"rfc"`, `"crossref"`, `"universal"`, and `"auto"` / `"document"` for format detection. |
 | `mode` | `string` | No | `"replace"` | How to handle the existing graph. Values: `"replace"` (clear and rebuild), `"merge"` (add new nodes/edges into existing graph). |
 | `namespace` | `string` | No | -- | Optional namespace tag for non-code nodes. Used by `memory` and `json` adapters to prefix node external_ids. |
 
@@ -58,6 +58,10 @@ Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. Thi
 | `code` | Source code directory | file, class, function, struct, module | imports, calls, registers, configures, tests, inherits |
 | `json` | Graph snapshot JSON | (preserved from snapshot) | (preserved from snapshot) |
 | `memory` | Markdown files | document, concept, entity | references, relates_to |
+| `light` | L1GHT protocol markdown | document, section, entity, typed semantic nodes | explicit semantic edges from frontmatter and markers |
+| `patent` / `article` / `bibtex` / `rfc` / `crossref` | Structured document formats | document, section, citation, entity | citation and cross-domain edges |
+| `universal` | Best-effort document canonicalization | document, section, block, table, citation, entity, claim | document containment, references, bindings, supports |
+| `auto` / `document` | Format detection wrapper | routes to the strongest detected adapter | adapter-specific |
 
 ### Mode Behavior
 
@@ -83,6 +87,254 @@ Ingest or re-ingest a codebase, descriptor, or memory corpus into the graph. Thi
 - [`m1nd.health`](#m1ndhealth) -- check graph status before deciding to ingest
 - [`m1nd.drift`](memory.md#m1nddrift) -- see what changed since last session
 - [`m1nd.federate`](exploration.md#m1ndfederate) -- multi-repo ingestion
+- [`m1nd.document_resolve`](#m1nddocument_resolve) -- resolve canonical artifacts for a universal document
+- [`m1nd.auto_ingest_start`](#m1ndauto_ingest_start) -- keep document roots synchronized after ingest
+
+---
+
+## `m1nd.document_resolve`
+
+Resolve the canonical local artifact set for a universally ingested document by source path or universal node id.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `path` | `string` | No | Original source path or canonical markdown path. |
+| `node_id` | `string` | No | Universal graph node id for the document. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.document_resolve",
+    "arguments": {
+      "agent_id": "jimi",
+      "path": "docs/specs/auth.md"
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "source_path": "docs/specs/auth.md",
+  "canonical_markdown_path": "/tmp/m1nd-runtime/l1ght-cache/sources/abcd/canonical.md",
+  "canonical_json_path": "/tmp/m1nd-runtime/l1ght-cache/sources/abcd/canonical.json",
+  "claims_path": "/tmp/m1nd-runtime/l1ght-cache/sources/abcd/claims.json",
+  "producer": "universal:internal",
+  "section_count": 4,
+  "claim_count": 3,
+  "binding_count": 2
+}
+```
+
+### When to Use
+
+- when an agent needs the durable local artifact path
+- when a doc has already been ingested and you want its canonical projection
+- before opening `canonical.md` or `claims.json` directly
+
+### Related Tools
+
+- [`m1nd.document_bindings`](#m1nddocument_bindings)
+- [`m1nd.document_drift`](#m1nddocument_drift)
+
+---
+
+## `m1nd.document_provider_health`
+
+Report availability, mode, detail, and install hints for optional universal-document providers.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+
+### Example Response
+
+```json
+{
+  "python": "python3",
+  "providers": [
+    { "name": "docling", "available": true, "mode": "broad-spectrum canonicalizer" },
+    { "name": "grobid", "available": false, "mode": "scholarly pdf lane", "install_hint": "Set M1ND_GROBID_URL to a reachable GROBID service." }
+  ]
+}
+```
+
+### When to Use
+
+- before assuming richer HTML/PDF/office extraction exists
+- during environment setup
+- when a provider-backed lane seems to be falling back unexpectedly
+
+### Related Tools
+
+- [`m1nd.ingest`](#m1ndingest)
+- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+
+---
+
+## `m1nd.document_bindings`
+
+Resolve deterministic document-to-code bindings for a universal document.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `path` | `string` | No | Original source path or canonical markdown path. |
+| `node_id` | `string` | No | Universal graph node id for the document. |
+| `top_k` | `integer` | No | Maximum bindings to return. |
+
+### Example Response
+
+```json
+{
+  "source_path": "docs/specs/auth.md",
+  "bindings": [
+    {
+      "target_node_id": "file::src/auth/session.rs",
+      "target_label": "SessionPool",
+      "relation": "mentions_symbol",
+      "score": 0.92,
+      "confidence": "parsed",
+      "reason": "exact label match"
+    }
+  ]
+}
+```
+
+### When to Use
+
+- when the question is “which code implements this doc?”
+- when preparing an implementation map from a spec, paper, or note
+- before editing code to match a document
+
+### Related Tools
+
+- [`m1nd.document_resolve`](#m1nddocument_resolve)
+- [`m1nd.document_drift`](#m1nddocument_drift)
+
+---
+
+## `m1nd.document_drift`
+
+Analyze stale, missing, or ambiguous document/code bindings for a universal document.
+
+### Example Response
+
+```json
+{
+  "source_path": "docs/specs/auth.md",
+  "summary": {
+    "total_findings": 1,
+    "stale_bindings": 1,
+    "missing_targets": 0,
+    "ambiguous_targets": 0,
+    "unbacked_claims": 0,
+    "code_change_unreflected": 1
+  }
+}
+```
+
+### When to Use
+
+- after refactors or repo moves
+- when document claims may no longer be backed by current code
+- when a spec feels “probably stale” and you want a grounded first pass
+
+### Related Tools
+
+- [`m1nd.document_bindings`](#m1nddocument_bindings)
+- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+
+---
+
+## `m1nd.auto_ingest_start`
+
+Start local-first document watchers for one or more roots and supported document families.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Calling agent identifier. |
+| `roots` | `string[]` | Yes | Filesystem roots to watch recursively. |
+| `formats` | `string[]` | No | Supported document formats to auto-ingest. |
+| `debounce_ms` | `integer` | No | Minimum quiet period before a change is eligible for ingestion. |
+| `namespace` | `string` | No | Optional namespace for non-code document nodes. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "m1nd.auto_ingest_start",
+    "arguments": {
+      "agent_id": "jimi",
+      "roots": ["/project/docs", "/project/wiki"],
+      "formats": ["universal", "light"],
+      "debounce_ms": 200
+    }
+  }
+}
+```
+
+## `m1nd.auto_ingest_status`
+
+Inspect the current auto-ingest runtime, queue depth, semantic counts, provider status, and provider route/fallback counts.
+
+### Example Response
+
+```json
+{
+  "running": true,
+  "queue_depth": 0,
+  "semantic_document_count": 12,
+  "semantic_claim_count": 34,
+  "drift_document_count": 1,
+  "provider_status": { "docling": true, "trafilatura": true, "grobid": false }
+}
+```
+
+## `m1nd.auto_ingest_tick`
+
+Drain queued document changes immediately and apply them to the active graph.
+
+### Example Response
+
+```json
+{
+  "ingested_paths": ["/project/docs/specs/auth.md"],
+  "removed_paths": [],
+  "skipped_paths": [],
+  "errored_paths": []
+}
+```
+
+## `m1nd.auto_ingest_stop`
+
+Stop active document watchers and persist the manifest state.
+
+### Related Tools
+
+- [`m1nd.auto_ingest_start`](#m1ndauto_ingest_start)
+- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+- [`m1nd.document_resolve`](#m1nddocument_resolve)
 
 ---
 
@@ -881,4 +1133,3 @@ Profile-aware one-call audit over topology, scans, verification, filesystem trut
 - [`m1nd.batch_view`](../api-reference/exploration.md#m1ndbatch_view)
 - [`m1nd.cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
 - [`m1nd.coverage_session`](../api-reference/exploration.md#m1ndcoverage_session)
-

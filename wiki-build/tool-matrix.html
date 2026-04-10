@@ -1,0 +1,478 @@
+<!DOCTYPE HTML>
+<html lang="en" class="navy sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Tool Matrix - m1nd Documentation</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Complete documentation for m1nd — the local code graph engine for MCP agents">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "navy";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-66ca2934.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-0a73bcc5.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('navy')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">m1nd Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/maxkle1nz/m1nd" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/maxkle1nz/m1nd/edit/main/docs/wiki/src/src/tool-matrix.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="tool-matrix-ssot"><a class="header" href="#tool-matrix-ssot">Tool Matrix SSOT</a></h1>
+<p>Machine-oriented routing matrix for the current <code>m1nd</code> tool surface.</p>
+<h2 id="source-of-truth"><a class="header" href="#source-of-truth">Source Of Truth</a></h2>
+<ul>
+<li><code>m1nd-mcp/src/server.rs</code> tool schema registry is the live callable surface: <strong>93 schema names</strong> in the current exported MCP surface.</li>
+<li>This matrix is the routing SSOT for the canonical tool surface used by agents and LLMs.</li>
+<li>Public prose pages that still advertise older counts (<code>78</code> / <code>63</code> / <code>89</code>) are stale and should not be used as counting truth.</li>
+</ul>
+<h2 id="row-contract"><a class="header" href="#row-contract">Row Contract</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>field</th><th>meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>command</code></td><td>canonical MCP call name, underscore transport form</td></tr>
+<tr><td><code>category</code></td><td>routing bucket</td></tr>
+<tr><td><code>core_function</code></td><td>shortest truthful description of what the tool does</td></tr>
+<tr><td><code>choose_when</code></td><td>positive routing trigger</td></tr>
+<tr><td><code>avoid_when</code></td><td>disqualifier / better alternative</td></tr>
+<tr><td><code>required</code></td><td>minimum required args</td></tr>
+<tr><td><code>returns</code></td><td>stable output surface an LLM can plan around</td></tr>
+<tr><td><code>next</code></td><td>adjacent tools / likely next hop</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="foundation"><a class="header" href="#foundation">Foundation</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_ingest</code></td><td>Parse a codebase, markdown docs, or JSON domain graph into the semantic graph.</td><td>Start or refresh graph truth for a repo, file, docs corpus, or descriptor before higher-order queries.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; path</code></td><td><code>graph_counts; files_scanned; files_parsed; nodes_created; edges_created; elapsed_ms</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_activate</code></td><td>Spreading activation query — fires signal into the graph and returns a 4D-scored activation pattern.</td><td>Use when the query is associative or subsystem-shaped and you want connected structure, not exact text.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; query</code></td><td><code>seeds; activated; ghost_edges; structural_holes; plasticity; elapsed_ms</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_impact</code></td><td>Blast radius of a code change — BFS-propagated signal strength from a source node.</td><td>Use before edits to estimate blast radius.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; node_id</code></td><td><code>blast_radius; total_energy; causal_chains</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_why</code></td><td>Shortest path between two nodes — understand how A depends on B.</td><td>Use to explain how two nodes are connected.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; source; target</code></td><td><code>path; hops; edge_types; path_weight</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_learn</code></td><td>Hebbian feedback — tell the graph which results were correct or wrong. Edge weights strengthen or weaken accordingly.</td><td>Hebbian feedback — tell the graph which results were correct or wrong. Edge weights strengthen or weaken accordingly.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; query; feedback; node_ids</code></td><td><code>edges_modified; trust_records_updated; tremor_observations_recorded</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_drift</code></td><td>What changed in the graph since your last session — structural delta for context recovery.</td><td>What changed in the graph since your last session — structural delta for context recovery.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id</code></td><td><code>baseline; changed_nodes; weight_drift; summary</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_health</code></td><td>Server diagnostics — verify the MCP server is alive and the graph is loaded.</td><td>Server diagnostics — verify the MCP server is alive and the graph is loaded.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id</code></td><td><code>node_count; edge_count; sessions; graph_state</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_seek</code></td><td>Find code by natural language intent — more targeted than <code>activate</code> for specific lookups.</td><td>Use when you know the purpose of code but not its location.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; query</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_scan</code></td><td>Run structural pattern scanners. Use a predefined pattern ID or a custom pattern string.</td><td>Run structural pattern scanners. Use a predefined pattern ID or a custom pattern string.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; pattern</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_timeline</code></td><td>Temporal evolution of a node — change history, co-change partners, velocity, stability.</td><td>Temporal evolution of a node — change history, co-change partners, velocity, stability.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; node</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_diverge</code></td><td>Structural drift analysis — compare graph state against a baseline reference.</td><td>Structural drift analysis — compare graph state against a baseline reference.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; baseline</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_warmup</code></td><td>Prime the graph for an upcoming task — pre-activates seed nodes to improve subsequent query relevance.</td><td>Prime the graph for an upcoming task — pre-activates seed nodes to improve subsequent query relevance.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; task_description</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_federate</code></td><td>Unify multiple repositories into one graph — cross-repo blast radius and dependency analysis.</td><td>Use when you already know the repo list to unify.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id; repos</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+<tr><td><code>m1nd_federate_auto</code></td><td>Discover candidate sibling repositories from explicit external path references, local manifest/workspace hints, import/package-name evidence, shared API-route signals, or basic contract artifacts and optionally execute federation in one step.</td><td>Use when you suspect neighboring repos matter but only have path/import/contract evidence.</td><td>Avoid when you already have the exact file/line or only need raw compiler/runtime truth.</td><td><code>agent_id</code></td><td><code>discovered_repos; suggested_repos; executed; federate_result</code></td><td><code>activate -&gt; impact -&gt; why</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="document-intelligence"><a class="header" href="#document-intelligence">Document Intelligence</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_document_resolve</code></td><td>resolve canonical local artifacts for a universally ingested document</td><td>Use when a doc already exists in the graph and you need the local canonical artifact paths.</td><td>Avoid when you only need a fresh ingest or raw source text.</td><td><code>agent_id</code></td><td><code>canonical_markdown_path; canonical_json_path; claims_path; producer; binding_count; drift_summary</code></td><td><code>document_bindings -&gt; document_drift -&gt; view</code></td></tr>
+<tr><td><code>m1nd_document_provider_health</code></td><td>report optional provider availability, mode, detail, and install hints</td><td>Use before relying on richer HTML/PDF/office extraction or when a provider lane seems to be falling back unexpectedly.</td><td>Avoid when provider setup is irrelevant to the current task.</td><td><code>agent_id</code></td><td><code>python; providers[]</code></td><td><code>ingest -&gt; document_resolve -&gt; auto_ingest_start</code></td></tr>
+<tr><td><code>m1nd_document_bindings</code></td><td>show deterministic document-to-code bindings for a universal document</td><td>Use when the question is “which code implements this doc?” or “what should I inspect first?”</td><td>Avoid when you only need the artifact paths or provider status.</td><td><code>agent_id</code></td><td><code>bindings[]; source_path</code></td><td><code>document_drift -&gt; impact -&gt; surgical_context_v2</code></td></tr>
+<tr><td><code>m1nd_document_drift</code></td><td>detect stale, missing, or ambiguous document/code links</td><td>Use after refactors, repo moves, or suspected stale specs.</td><td>Avoid before the document has been ingested or bound.</td><td><code>agent_id</code></td><td><code>findings[]; summary</code></td><td><code>document_bindings -&gt; impact -&gt; timeline</code></td></tr>
+<tr><td><code>m1nd_auto_ingest_start</code></td><td>start local-first document watchers for supported roots and formats</td><td>Use when a docs/specs/wiki root should stay synchronized with the graph while you work.</td><td>Avoid for one-shot ingest or read-only inspection.</td><td><code>agent_id; roots</code></td><td><code>running; provider_status; bootstrap</code></td><td><code>auto_ingest_status -&gt; auto_ingest_tick -&gt; document_resolve</code></td></tr>
+<tr><td><code>m1nd_auto_ingest_status</code></td><td>inspect the document auto-ingest runtime, semantic counts, provider status, and route/fallback counts</td><td>Use to monitor watcher state, queue depth, or document runtime telemetry.</td><td>Avoid if you only need a direct document refresh or binding result.</td><td><code>agent_id</code></td><td><code>running; queue_depth; semantic_*; provider_*; recent_events</code></td><td><code>auto_ingest_tick -&gt; document_drift -&gt; document_provider_health</code></td></tr>
+<tr><td><code>m1nd_auto_ingest_tick</code></td><td>drain queued document changes immediately and apply them to the graph</td><td>Use when a caller needs deterministic immediate reconciliation instead of waiting for opportunistic ticks.</td><td>Avoid when no watched roots are active.</td><td><code>agent_id</code></td><td><code>ingested_paths; removed_paths; skipped_paths; errored_paths</code></td><td><code>document_resolve -&gt; document_drift -&gt; lock_diff</code></td></tr>
+<tr><td><code>m1nd_auto_ingest_stop</code></td><td>stop document watchers and persist manifest state</td><td>Use when shutting down or changing watched roots.</td><td>Avoid during active watch-driven reconciliation you still need.</td><td><code>agent_id</code></td><td><code>stopped; manifest_entries</code></td><td><code>auto_ingest_start -&gt; auto_ingest_status</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="perspective-navigation"><a class="header" href="#perspective-navigation">Perspective Navigation</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_perspective_start</code></td><td>Open a perspective anchored to a node. Perspectives are stateful navigation sessions.</td><td>Open a perspective anchored to a node. Perspectives are stateful navigation sessions.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; query</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_routes</code></td><td>List available navigation routes from the current focus node.</td><td>List available navigation routes from the current focus node.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_follow</code></td><td>Move the perspective focus to a route target.</td><td>Move the perspective focus to a route target.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_back</code></td><td>Navigate backward to the previous focus node.</td><td>Navigate backward to the previous focus node.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_peek</code></td><td>Read source code at the currently focused node (returns file content at the node’s location).</td><td>Read source code at the currently focused node (returns file content at the node’s location).</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_inspect</code></td><td>Deep metadata + 5-factor score breakdown for a route’s target node.</td><td>Deep metadata + 5-factor score breakdown for a route’s target node.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_suggest</code></td><td>AI navigation recommendation — the graph suggests which route to follow next.</td><td>AI navigation recommendation — the graph suggests which route to follow next.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_affinity</code></td><td>Check route relevance to the current investigation.</td><td>Check route relevance to the current investigation.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_branch</code></td><td>Fork an independent perspective copy for parallel exploration. Two agents can investigate the same starting point independently, then compare findings.</td><td>Fork an independent perspective copy for parallel exploration. Two agents can investigate the same starting point independently, then compare findings.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_compare</code></td><td>Diff two perspectives — shared nodes, unique nodes, divergent findings.</td><td>Diff two perspectives — shared nodes, unique nodes, divergent findings.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id; perspective_id_a; perspective_id_b</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_list</code></td><td>All active perspectives for this agent, with memory usage.</td><td>All active perspectives for this agent, with memory usage.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+<tr><td><code>m1nd_perspective_close</code></td><td>Release perspective state and free memory.</td><td>Release perspective state and free memory.</td><td>Avoid for stateless one-shot lookups; prefer seek/search/view when you do not need navigation state.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>perspective_routes -&gt; perspective_follow -&gt; perspective_inspect</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="lock-system"><a class="header" href="#lock-system">Lock System</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_lock_create</code></td><td>Snapshot a subgraph region.</td><td>Snapshot a subgraph region.</td><td>Avoid for solo read-only work; use only when coordination or baseline diffs matter.</td><td><code>agent_id; scope; root_nodes</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>lock_watch -&gt; lock_diff -&gt; lock_rebase</code></td></tr>
+<tr><td><code>m1nd_lock_watch</code></td><td>Register a change strategy on a lock.</td><td>Register a change strategy on a lock.</td><td>Avoid for solo read-only work; use only when coordination or baseline diffs matter.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>lock_watch -&gt; lock_diff -&gt; lock_rebase</code></td></tr>
+<tr><td><code>m1nd_lock_diff</code></td><td>Compare current graph state against the locked baseline. Returns changes since the lock was created.</td><td>Compare current graph state against the locked baseline. Returns changes since the lock was created.</td><td>Avoid for solo read-only work; use only when coordination or baseline diffs matter.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>lock_watch -&gt; lock_diff -&gt; lock_rebase</code></td></tr>
+<tr><td><code>m1nd_lock_rebase</code></td><td>Advance the lock baseline to the current graph state (after reviewing and accepting changes).</td><td>Advance the lock baseline to the current graph state (after reviewing and accepting changes).</td><td>Avoid for solo read-only work; use only when coordination or baseline diffs matter.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>lock_watch -&gt; lock_diff -&gt; lock_rebase</code></td></tr>
+<tr><td><code>m1nd_lock_release</code></td><td>Free lock state and release memory.</td><td>Free lock state and release memory.</td><td>Avoid for solo read-only work; use only when coordination or baseline diffs matter.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>lock_watch -&gt; lock_diff -&gt; lock_rebase</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="superpowers"><a class="header" href="#superpowers">Superpowers</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_hypothesize</code></td><td>Test a claim against graph structure using Bayesian path scoring. <strong>89% accuracy validated on 10 live claims against a production codebase.</strong></td><td>Test a claim against graph structure using Bayesian path scoring. <strong>89% accuracy validated on 10 live claims against a production codebase.</strong></td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; claim</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_counterfactual</code></td><td>Simulate module removal — compute full cascade of what breaks.</td><td>Simulate module removal — compute full cascade of what breaks.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; node_ids</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_missing</code></td><td>Find structural holes — what <em>should</em> exist in a region of the graph but doesn’t.</td><td>Find structural holes — what <em>should</em> exist in a region of the graph but doesn’t.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; query</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_resonate</code></td><td>Standing wave analysis — find structural hubs where signal reinforces across multiple dimensions simultaneously.</td><td>Standing wave analysis — find structural hubs where signal reinforces across multiple dimensions simultaneously.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_fingerprint</code></td><td>Find structural twins — nodes with identical or near-identical topology.</td><td>Find structural twins — nodes with identical or near-identical topology.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_trace</code></td><td>Map a stacktrace to root cause suspects — ranks files by suspiciousness × centrality.</td><td>Map a stacktrace to root cause suspects — ranks files by suspiciousness × centrality.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; error_text</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_validate_plan</code></td><td>Pre-flight risk assessment for a set of planned changes — blast radius, gap count, risk score.</td><td>Use before editing or merging to pre-flight risk and test impact.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; actions</code></td><td><code>risk_score; gaps; suggested_additions; heuristic_summary</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_predict</code></td><td>Co-change prediction — given a file you just changed, which other files likely need changes too.</td><td>Co-change prediction — given a file you just changed, which other files likely need changes too.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; changed_node</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_trail_save</code></td><td>Persist investigation state — hypotheses, conclusions, open questions, visited nodes, and activation boosts.</td><td>Persist investigation state — hypotheses, conclusions, open questions, visited nodes, and activation boosts.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; label</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_trail_resume</code></td><td>Restore exact investigation context — nodes, weights, hypotheses — from a saved trail.</td><td>Restore exact investigation context — nodes, weights, hypotheses — from a saved trail.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; trail_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_trail_merge</code></td><td>Combine two or more agents’ independent investigations. Auto-detects where they converged and flags conflicts on shared hypotheses.</td><td>Combine two or more agents’ independent investigations. Auto-detects where they converged and flags conflicts on shared hypotheses.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; trail_ids</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_trail_list</code></td><td>Browse all saved investigations with optional filters.</td><td>Browse all saved investigations with optional filters.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+<tr><td><code>m1nd_differential</code></td><td>Focused structural diff between two graph snapshots — surface what changed structurally between two points in time.</td><td>Focused structural diff between two graph snapshots — surface what changed structurally between two points in time.</td><td>Avoid for plain text lookup or trivial file reads; these are structural reasoning tools.</td><td><code>agent_id; snapshot_a; snapshot_b</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>hypothesize -&gt; validate_plan -&gt; trace</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="superpowers-extended"><a class="header" href="#superpowers-extended">Superpowers Extended</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_antibody_scan</code></td><td>Scan the graph against all stored bug antibody patterns (known bug shapes). Returns matches with confidence and bindings.</td><td>Scan the graph against all stored bug antibody patterns (known bug shapes). Returns matches with confidence and bindings.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_antibody_list</code></td><td>List all stored antibodies with match history.</td><td>List all stored antibodies with match history.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_antibody_create</code></td><td>Create, disable, enable, or delete an antibody pattern.</td><td>Create, disable, enable, or delete an antibody pattern.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_flow_simulate</code></td><td>Concurrent execution flow simulation — particles travel the graph in parallel, turbulence points are shared mutable state collisions (race conditions).</td><td>Concurrent execution flow simulation — particles travel the graph in parallel, turbulence points are shared mutable state collisions (race conditions).</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_epidemic</code></td><td>SIR epidemiological bug propagation — given known-buggy modules, predict which neighbors are most likely to harbor undiscovered bugs.</td><td>SIR epidemiological bug propagation — given known-buggy modules, predict which neighbors are most likely to harbor undiscovered bugs.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id; infected_nodes</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_tremor</code></td><td>Change frequency acceleration detection — identifies modules with <em>accelerating</em> change frequency. Acceleration precedes bugs, not just high churn.</td><td>Change frequency acceleration detection — identifies modules with <em>accelerating</em> change frequency. Acceleration precedes bugs, not just high churn.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_trust</code></td><td>Per-module actuarial trust scores from defect history. More confirmed bugs = lower trust = higher risk weighting in activation queries.</td><td>Per-module actuarial trust scores from defect history. More confirmed bugs = lower trust = higher risk weighting in activation queries.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_layers</code></td><td>Auto-detect architectural layers from graph topology. Uses BFS longest-path depth assignment + Tarjan SCC for circular groups. Reports dependency violations.</td><td>Auto-detect architectural layers from graph topology. Uses BFS longest-path depth assignment + Tarjan SCC for circular groups. Reports dependency violations.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+<tr><td><code>m1nd_layer_inspect</code></td><td>Inspect a specific architectural layer: nodes, inter-layer connections, health metrics.</td><td>Inspect a specific architectural layer: nodes, inter-layer connections, health metrics.</td><td>Avoid before you have a scoped suspect area; these are deeper risk/simulation tools.</td><td><code>agent_id; level</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>trust -&gt; tremor -&gt; heuristics_surface</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="retrobuilder"><a class="header" href="#retrobuilder">RETROBUILDER</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_ghost_edges</code></td><td>temporal co-change ghost edges from git history</td><td>temporal co-change ghost edges from git history</td><td>Avoid without git/runtime/security context; use only when that extra plane matters.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>runtime_overlay -&gt; trace -&gt; impact</code></td></tr>
+<tr><td><code>m1nd_taint_trace</code></td><td>taint propagation over graph structure</td><td>taint propagation over graph structure</td><td>Avoid without git/runtime/security context; use only when that extra plane matters.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>runtime_overlay -&gt; trace -&gt; impact</code></td></tr>
+<tr><td><code>m1nd_twins</code></td><td>structural equivalence / near-equivalence discovery</td><td>structural equivalence / near-equivalence discovery</td><td>Avoid without git/runtime/security context; use only when that extra plane matters.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>runtime_overlay -&gt; trace -&gt; impact</code></td></tr>
+<tr><td><code>m1nd_refactor_plan</code></td><td>graph-native refactoring proposals</td><td>graph-native refactoring proposals</td><td>Avoid without git/runtime/security context; use only when that extra plane matters.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>runtime_overlay -&gt; trace -&gt; impact</code></td></tr>
+<tr><td><code>m1nd_runtime_overlay</code></td><td>runtime heat and error overlays from OTel spans</td><td>runtime heat and error overlays from OTel spans</td><td>Avoid without git/runtime/security context; use only when that extra plane matters.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>runtime_overlay -&gt; trace -&gt; impact</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="surgical"><a class="header" href="#surgical">Surgical</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_heuristics_surface</code></td><td>Explain why a node/file ranked as risky or important.</td><td>Explain why a node/file ranked as risky or important.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+<tr><td><code>m1nd_surgical_context</code></td><td>Return complete context for a file in one call: full source, symbol table, callers, callees, and test coverage neighbours. Use before <code>m1nd_apply</code> for single-file edits.</td><td>Use before single-file edits.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id; file_path</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+<tr><td><code>m1nd_apply</code></td><td><code>m1nd_apply</code> now returns <code>proactive_insights</code> when a write lands on a risky or historically unstable surface.</td><td>Use to write one file and keep the graph coherent.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id; file_path; new_content</code></td><td><code>updated_node_ids; proactive_insights; elapsed_ms</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+<tr><td><code>m1nd_view</code></td><td>Fast file reader with line numbers and optional auto-ingest.</td><td>Use when you already know the file and need bounded line-numbered reading.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+<tr><td><code>m1nd_surgical_context_v2</code></td><td>Superset of <code>m1nd_surgical_context</code> — returns the target file’s full contents AND source excerpts of all connected files (callers, callees, tests) in one call. Eliminates the need to read multiple files separately. Use before <code>m1nd_apply_batch</code> when editing a file and its callers/tests together.</td><td>Use before multi-file edits where connected source context matters.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id; file_path</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+<tr><td><code>m1nd_apply_batch</code></td><td><code>m1nd_apply_batch</code> now returns <code>proactive_insights</code>, and the final <code>batch_completed</code> progress event carries the same payload for streaming clients.</td><td>Use to write multiple files atomically and optionally verify.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id; edits</code></td><td><code>results; verification; proactive_insights; progress_events</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+<tr><td><code>m1nd_edit_preview</code></td><td>Preview a write without touching disk.</td><td>Preview a write without touching disk.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+<tr><td><code>m1nd_edit_commit</code></td><td>Commit a previewed edit after confirmation and freshness check.</td><td>Commit a previewed edit after confirmation and freshness check.</td><td>Avoid before locating the target surface; use seek/search/impact first.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>heuristics_surface -&gt; batch_view -&gt; apply_batch</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="search--efficiency"><a class="header" href="#search--efficiency">Search &amp; Efficiency</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_search</code></td><td>Unified literal/regex/semantic search — graph-aware grep replacement. Searches both node labels in the graph and file contents on disk, returning results with line context.</td><td>Use for exact text, regex, or semantic grep across graph + file content.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id; query</code></td><td><code>results; total_matches; proof_state; next_suggested_tool</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_glob</code></td><td>Graph-aware file globbing over indexed files.</td><td>Use when you need files by path pattern, not content.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_help</code></td><td>Self-documenting tool reference with m1nd’s visual identity. Returns a formatted index of all tools or detailed docs for a specific tool — including params, examples, and NEXT suggestions.</td><td>Self-documenting tool reference with m1nd’s visual identity. Returns a formatted index of all tools or detailed docs for a specific tool — including params, examples, and NEXT suggestions.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_panoramic</code></td><td>Full module risk panorama — ranked view of every file-level node by combined risk score. Combines blast radius, centrality, and churn into one sorted list. Critical modules (risk ≥ 0.7) trigger alerts.</td><td>Full module risk panorama — ranked view of every file-level node by combined risk score. Combines blast radius, centrality, and churn into one sorted list. Critical modules (risk ≥ 0.7) trigger alerts.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>modules; critical_alerts; summary</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_savings</code></td><td>Token economy report — session and global tracking of tokens saved by using m1nd instead of grep/glob, with CO2 estimation.</td><td>Token economy report — session and global tracking of tokens saved by using m1nd instead of grep/glob, with CO2 estimation.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_report</code></td><td>Session summary — query log, timing statistics, tokens saved, and graph state for the calling agent. Provides a markdown-formatted report ready for display or logging.</td><td>Session summary — query log, timing statistics, tokens saved, and graph state for the calling agent. Provides a markdown-formatted report ready for display or logging.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>recent_queries; savings; hotspot_summary</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_metrics</code></td><td>Return structural metrics per file/function/module.</td><td>Use when you want ranked structural measures, not semantic retrieval.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>entries; summary</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_type_trace</code></td><td>Trace where a type/struct/enum is used across the graph.</td><td>Use when following a type across files and callsites.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>usages; file_groups</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+<tr><td><code>m1nd_diagram</code></td><td>Generate Mermaid or DOT graph diagrams.</td><td>Use when you need a visual graph slice for humans or downstream agents.</td><td>Avoid for write/plan validation; these help orientation and summary, not mutation safety.</td><td><code>agent_id</code></td><td><code>format; diagram; node_count</code></td><td><code>search/glob -&gt; batch_view -&gt; coverage_session</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="audit--session"><a class="header" href="#audit--session">Audit &amp; Session</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>command</th><th>core_function</th><th>choose_when</th><th>avoid_when</th><th>required</th><th>returns</th><th>next</th></tr>
+</thead>
+<tbody>
+<tr><td><code>m1nd_batch_view</code></td><td>multi-file read surface with stable delimiters and summaries</td><td>multi-file read surface with stable delimiters and summaries</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_scan_all</code></td><td>run all structural patterns in one call</td><td>run all structural patterns in one call</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_cross_verify</code></td><td>graph vs disk verification (<code>existence</code>, <code>loc</code>, <code>hash</code>)</td><td>graph vs disk verification (<code>existence</code>, <code>loc</code>, <code>hash</code>)</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_coverage_session</code></td><td>what this agent has visited so far</td><td>what this agent has visited so far</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_external_references</code></td><td>explicit paths outside ingest roots</td><td>explicit paths outside ingest roots</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_audit</code></td><td>profile-aware one-call audit</td><td>profile-aware one-call audit</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_daemon_start</code></td><td>activate the persisted daemon control plane and set watch roots / poll interval</td><td>activate the persisted daemon control plane and set watch roots / poll interval</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_daemon_stop</code></td><td>stop the daemon control plane without discarding alert history</td><td>stop the daemon control plane without discarding alert history</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>tool-specific JSON payload; inspect API reference / tools/list</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_daemon_status</code></td><td>inspect daemon runtime state, watch roots, and alert counts</td><td>Use to inspect daemon liveness, tracked files, and recent tick metrics.</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>active; tracked_files; tick_count; last_tick_duration_ms; last_tick_changed_files; last_tick_deleted_files; last_tick_alerts_emitted</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_daemon_tick</code></td><td>poll watched roots once, incrementally re-ingest changed files, and emit deletion drift alerts</td><td>Use when you want one explicit delta-processing pass over watched roots.</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>changed_files_detected; deleted_files_detected; files_reingested; alerts_emitted</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_alerts_list</code></td><td>list persisted daemon/proactive alerts</td><td>Use to review durable daemon/proactive alerts.</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>alerts; total; active</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_alerts_ack</code></td><td>acknowledge one or more persisted daemon/proactive alerts</td><td>Use after reviewing alerts so they do not keep resurfacing.</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>acked; requested; acked_at_ms</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_persist</code></td><td>Force graph and sidecar state persistence to disk.</td><td>Use when you want to force-save graph and sidecars now.</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>status; snapshot_path; plasticity_path</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+<tr><td><code>m1nd_boot_memory</code></td><td>Persist small canonical hot-state values next to the graph.</td><td>Use for tiny canonical doctrine/state values that should stay hot.</td><td>Avoid for tiny one-file questions; these are orchestration and session-shaping tools.</td><td><code>agent_id</code></td><td><code>action; key; value; entries</code></td><td><code>audit -&gt; batch_view -&gt; cross_verify</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="documentation-gaps"><a class="header" href="#documentation-gaps">Documentation Gaps</a></h2>
+<ul>
+<li>Live callable surface count: <strong>93 schema names</strong></li>
+<li>Public prose pages previously advertising <code>78</code> / <code>63</code> / <code>89</code> have been updated as part of the docs wave</li>
+<li>Remaining undocumented names after synthesis: <strong>0</strong></li>
+<li>Remaining names: none</li>
+</ul>
+<h2 id="routing-rules"><a class="header" href="#routing-rules">Routing Rules</a></h2>
+<ol>
+<li>Prefer the cheapest tool that preserves structural truth.</li>
+<li>Use <code>search</code> / <code>glob</code> / <code>view</code> for exact known targets; use <code>seek</code> / <code>activate</code> when the question is semantic or subsystem-shaped.</li>
+<li>Use <code>impact</code>, <code>predict</code>, <code>validate_plan</code>, and the surgical tools before risky edits.</li>
+<li>Use <code>audit</code>, <code>cross_verify</code>, <code>coverage_session</code>, <code>batch_view</code>, and daemon tools to manage long-running sessions.</li>
+<li>Use perspective and lock tools only when stateful navigation or multi-agent coordination is worth the overhead.</li>
+</ol>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="faq.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="benchmarks.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="faq.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="benchmarks.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

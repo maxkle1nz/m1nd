@@ -81,11 +81,12 @@ Vor einer Änderung hilft m1nd dem Agenten dabei, Auswirkungsradius, verbundene 
 <a id="what-m1nd-does"></a>
 ## Was m1nd macht
 
-m1nd ist ein lokaler Rust-Workspace mit drei Hauptteilen:
+m1nd ist ein lokaler Rust-Workspace mit drei Kern-Crates plus einer Hilfs-Bridge:
 
 - `m1nd-core`: Graph-Engine, Ranking, Propagation, Heuristiken und Analyseschichten
 - `m1nd-ingest`: Code- und Dokumenten-Ingestion, Extraktoren, Resolver, Merge-Pfade und Graph-Konstruktion
 - `m1nd-mcp`: MCP-Server über stdio, plus eine HTTP/UI-Oberfläche im aktuellen Standard-Build
+- `m1nd-openclaw`: Hilfs-Bridge-Crate für OpenClaw-bezogene Integrationsflächen
 
 Aktuelle Stärken:
 
@@ -103,6 +104,9 @@ Aktueller Umfang:
 - Ingest-Adapter für Code, `memory`, `json` und `light`
 - Cargo-Workspace-Anreicherung für Rust-Repos
 - Heuristikzusammenfassungen auf chirurgischen und Planungs-Pfaden
+- eine universelle Dokumenten-Lane für Markdown, HTML/Wiki-Seiten, Office-Dokumente und PDFs
+- kanonische lokale Artefakte wie `source.<ext>`, `canonical.md`, `canonical.json`, `claims.json` und `metadata.json`
+- dokumentbezogene MCP-Workflows wie `document_resolve`, `document_bindings`, `document_drift`, `document_provider_health` und `auto_ingest_*`
 
 Die Sprachabdeckung ist breit, aber die Tiefe variiert weiterhin je nach Sprache. Python und Rust haben eine stärkere Behandlung als viele tree-sitter-gestützte Sprachen.
 
@@ -339,13 +343,14 @@ Das ist wichtig, weil m1nd nicht nur ein Such-Endpunkt ist. Es ist eine opiniona
 <a id="tool-surface"></a>
 ## Tool-Oberfläche
 
-Die aktuelle Implementierung von `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) stellt **77 MCP-Tools** bereit. Die Zahl kann sich ändern; die Kategorien darunter sind wichtiger.
+Die aktuelle Implementierung von `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) stellt **93 MCP-Tools** bereit. Die Zahl kann sich ändern; die Kategorien darunter sind wichtiger.
 
 Kanonsiche Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `trail_save`, `perspective_start` und `apply_batch`. Manche Clients zeigen Namen mit einem Transportpräfix wie `m1nd.apply_batch` an, aber die Live-Registry-Einträge basieren auf Unterstrichen.
 
 | Kategorie | Highlights |
 |----------|------------|
 | Grundlagen | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
+| Dokumentintelligenz | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
 | Perspektivennavigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graphanalyse | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Erweiterte Analyse | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |

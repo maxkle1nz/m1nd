@@ -1,6 +1,6 @@
 # API Reference Overview
 
-m1nd currently exposes **78 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
+m1nd currently exposes **93 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
 
 Several tools now do more than return raw results. On the main structural flows you should expect some combination of:
 
@@ -79,6 +79,14 @@ That matters for how you integrate m1nd into an agent loop: treat many responses
 | Tool | Description |
 |------|-------------|
 | [`ingest`](lifecycle.md#m1ndingest) | Ingest or re-ingest a codebase, descriptor, or memory corpus |
+| [`document_resolve`](lifecycle.md#m1nddocument_resolve) | Resolve canonical local artifacts for a universal document |
+| [`document_provider_health`](lifecycle.md#m1nddocument_provider_health) | Report optional document provider availability and install hints |
+| [`document_bindings`](lifecycle.md#m1nddocument_bindings) | Show deterministic document-to-code bindings |
+| [`document_drift`](lifecycle.md#m1nddocument_drift) | Detect stale, missing, or ambiguous document/code links |
+| [`auto_ingest_start`](lifecycle.md#m1ndauto_ingest_start) | Start local-first document auto-ingest watchers |
+| [`auto_ingest_status`](lifecycle.md#m1ndauto_ingest_status) | Inspect the document auto-ingest runtime and counters |
+| [`auto_ingest_tick`](lifecycle.md#m1ndauto_ingest_tick) | Drain queued document changes immediately |
+| [`auto_ingest_stop`](lifecycle.md#m1ndauto_ingest_stop) | Stop document watchers and persist manifest state |
 | [`health`](lifecycle.md#m1ndhealth) | Server health and statistics |
 | [`search`](lifecycle.md#m1ndsearch) | Literal, regex, or semantic-graph-aware content search |
 | [`glob`](lifecycle.md#m1ndglob) | Graph-aware file globbing |
@@ -233,4 +241,4 @@ Then list available tools:
 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
 ```
 
-This returns the full schema for all 63 tools with `inputSchema` for each.
+This returns the full schema for all 93 tools with `inputSchema` for each.

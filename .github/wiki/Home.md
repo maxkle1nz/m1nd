@@ -4,7 +4,7 @@
   <strong>The adaptive code graph. It learns.</strong>
 </p>
 
-Neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 78 MCP tools. Built in Rust for AI agents.
+Neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 93 MCP tools. Built in Rust for AI agents.
 
 **39 bugs found in one audit session · 89% hypothesis accuracy · 12/12 verification accuracy · Zero LLM tokens**
 
@@ -27,7 +27,7 @@ It is not a search engine. It is not a RAG pipeline. It is not a static analysis
 
 | Metric | Value |
 |--------|-------|
-| Tools | **78 MCP tools** |
+| Tools | **93 MCP tools** |
 | Languages supported | **27+** (5 built-in + tier1 + tier2 via tree-sitter) |
 | Bugs found in one session | **39** (production Python backend, 52K lines) |
 | Bugs invisible to grep | **8 of 28 (28.5%)** — required structural analysis |
@@ -39,6 +39,19 @@ It is not a search engine. It is not a RAG pipeline. It is not a static analysis
 | `lock.diff` speed | **0.08µs** — essentially free change detection |
 | Binary size | ~8MB |
 | Memory for 10K nodes | ~2MB |
+
+---
+
+## Canonical Docs Surface
+
+The colorful `mdBook` wiki generated from `docs/wiki/src/` is the canonical public documentation surface. This GitHub wiki folder is now a compact mirror that tracks the same runtime, tool count, and document-intelligence lane.
+
+If you want the exhaustive API pages, architecture notes, and examples, prefer:
+
+- `docs/wiki/src/`
+- `wiki-build/`
+- `README.md`
+- `EXAMPLES.md`
 
 ---
 
@@ -97,7 +110,7 @@ Antibody system (bug immune memory), Epidemic engine (SIR propagation prediction
 | [Surgical](API-Reference#surgical-4-tools) | surgical_context, apply, surgical_context_v2, apply_batch | 4 |
 | [v0.4.0 — Search & Efficiency](API-Reference#v040-search--efficiency-5-tools) | search, help, panoramic, savings, report | 5 |
 | [v0.5.0 — Verified Writes & File Tools](API-Reference#v050-verified-writes--file-tools) | apply_batch verify, view, glob | 3 |
-| v0.6.1 — Guided Runtime & Recovery | proof_state, next-step guidance, trail continuity, apply_batch progress, benchmarked recovery, release alignment | 6 |
+| Current runtime waves | audit, batch_view, cross_verify, federate_auto, daemon_*, alerts_*, document_*, auto_ingest_* | 21 |
 
 ---
 
@@ -148,7 +161,7 @@ apply_batch(files=[...], verify=true)             → write multiple files + ver
 ## Quick Links
 
 - [Getting Started](Getting-Started) — installation, first query, Claude Code setup
-- [API Reference](API-Reference) — all 77 tools with schemas, examples, benchmark times
+- [API Reference](API-Reference) — live 93-tool surface, document runtime, schemas, examples
 - [EXAMPLES.md](../EXAMPLES.md) — raw examples from a production codebase
 - [README.md](../README.md) — full project overview
 
@@ -162,22 +175,25 @@ Claude Code · Cursor · Windsurf · GitHub Copilot · Zed · Cline · Roo Code 
 
 ## On crates.io
 
-m1nd v0.6.1 is the current release line. Add it from [crates.io](https://crates.io/crates/m1nd-core) or build the binary from source — both paths are fully supported.
+m1nd v0.8.0 is the current release line. Add it from [crates.io](https://crates.io/crates/m1nd-core) or build the binary from source — both paths are fully supported.
 
 ---
 
-## Architecture — 3 Crates
+## Architecture — Core Crates + Bridge
 
 ```
 m1nd/
   m1nd-core/     Graph engine, plasticity, spreading activation, hypothesis engine
                  antibody, flow, epidemic, tremor, trust, layer detection, domain config
-  m1nd-ingest/   Language extractors (27+ languages), memory adapter, JSON adapter,
-                 git enrichment, cross-file resolver, incremental diff
-  m1nd-mcp/      MCP server, 77 tool handlers, JSON-RPC over stdio
+  m1nd-ingest/   Language extractors, structured adapters, universal documents,
+                 git enrichment, cross-file resolver, canonical artifacts
+  m1nd-mcp/      MCP server, 93 tool handlers, JSON-RPC over stdio
+  m1nd-openclaw/ Auxiliary bridge crate for OpenClaw-facing integration surfaces
 ```
 
-Pure Rust. No runtime dependencies. No LLM calls. No API keys.
+The major new lane is universal document intelligence: canonical local artifacts, provider-aware extraction, document/code bindings, drift detection, and local-first auto-ingest watchers.
+
+Pure Rust. No runtime dependencies on the green path. No mandatory API keys.
 
 ---
 

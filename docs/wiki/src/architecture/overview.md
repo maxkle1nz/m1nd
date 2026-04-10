@@ -9,15 +9,15 @@ m1nd is a local code graph engine for MCP agents. Internally it is still a graph
 - observable multi-file writes through `apply_batch`
 - repair-friendly errors when a tool call goes wrong
 
-The workspace currently exposes 78 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.
+The workspace currently exposes 93 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.
 
-## Three-Crate Workspace
+## Four-Crate Workspace
 
-The system is organized as a Cargo workspace with three crates:
+The system is organized as a Cargo workspace with three core crates plus one auxiliary bridge crate:
 
 ```toml
 [workspace]
-members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp"]
+members = ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -35,6 +35,7 @@ static_assertions = "1"
 | **m1nd-core** | Graph engine, activation, plasticity, XLR, resonance, temporal, semantic | `parking_lot`, `smallvec`, `static_assertions` |
 | **m1nd-ingest** | File walking, language-specific extraction, reference resolution, diff | `rayon`, `walkdir`, `regex` |
 | **m1nd-mcp** | JSON-RPC transport, tool dispatch, session management, persistence | `tokio`, `serde_json` |
+| **m1nd-openclaw** | Auxiliary OpenClaw bridge and transport integration | `m1nd-core`, `m1nd-mcp` |
 
 Dependencies flow strictly downward: `m1nd-mcp` depends on both `m1nd-core` and `m1nd-ingest`; `m1nd-ingest` depends on `m1nd-core`; `m1nd-core` has no internal crate dependencies.
 
@@ -44,7 +45,7 @@ Dependencies flow strictly downward: `m1nd-mcp` depends on both `m1nd-core` and 
 graph TD
     subgraph "m1nd-mcp (Transport)"
         STDIO["JSON-RPC stdio<br/>dual: framed + line"]
-        DISPATCH["Tool Dispatch<br/>63 tools"]
+        DISPATCH["Tool Dispatch<br/>93 tools"]
         SESSION["SessionState<br/>SharedGraph + Engines"]
         PERSIST["Auto-Persist<br/>every 50 queries"]
     end
@@ -55,6 +56,7 @@ graph TD
         RESOLVE["ReferenceResolver<br/>proximity disambiguation"]
         DIFF["GraphDiff<br/>incremental updates"]
         MEMORY["MemoryAdapter<br/>markdown → graph"]
+        UNIVERSAL["Universal + Document Adapters<br/>canonical docs → graph"]
     end
 
     subgraph "m1nd-core (Engine)"
@@ -78,6 +80,7 @@ graph TD
     WALK --> EXTRACT
     EXTRACT --> RESOLVE
     RESOLVE --> GRAPH
+    UNIVERSAL --> GRAPH
     DIFF -->|incremental| GRAPH
 
     SESSION -->|activate| ACT
@@ -122,6 +125,18 @@ A more agent-native flow such as `trace -> view -> surgical_context_v2 -> valida
 2. **Next-step guidance**: tools can return `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`
 
 This is one of the biggest architectural changes in `v0.6.0`: the MCP layer is no longer just a transport for graph answers. It is a transport for graph answers plus workflow guidance.
+
+### Example: code plus document workflow
+
+The current architecture also supports a second operating loop:
+
+1. ingest code
+2. ingest or auto-ingest document roots through the universal lane
+3. resolve canonical document artifacts
+4. bind documents to likely code
+5. inspect document/code drift after implementation moves
+
+This is what turns m1nd from a code-only graph into a local code + knowledge runtime.
 
 ## Key Design Decisions
 

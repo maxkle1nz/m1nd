@@ -108,11 +108,12 @@ m1nd 适用于“导航成本本身就是瓶颈”的场景。
 
 ## m1nd 做什么
 
-m1nd 是一个本地 Rust 工作区，包含三个主要部分：
+m1nd 是一个本地 Rust 工作区，包含三个核心 crate 加一个辅助桥接 crate：
 
 - `m1nd-core`：图引擎、传播、排名、启发式和分析层
 - `m1nd-ingest`：代码和文档摄取、提取器、解析器、合并路径和图构建
 - `m1nd-mcp`：通过 stdio 提供的 MCP 服务器，以及当前默认构建中的 HTTP/UI 界面
+- `m1nd-openclaw`：面向 OpenClaw 集成表面的辅助桥接 crate
 
 当前优势：
 
@@ -130,6 +131,9 @@ m1nd 是一个本地 Rust 工作区，包含三个主要部分：
 - 代码、`memory`、`json` 和 `light` 摄取适配器
 - 面向 Rust 仓库的 Cargo workspace 增强
 - 在 surgical 和 planning 路径上的启发式摘要
+- 通用文档 lane，可处理 markdown、HTML/wiki、office 文档和 PDF
+- 本地规范化产物，如 `source.<ext>`、`canonical.md`、`canonical.json`、`claims.json` 和 `metadata.json`
+- 文档侧 MCP 工作流，如 `document_resolve`、`document_bindings`、`document_drift`、`document_provider_health` 和 `auto_ingest_*`
 
 语言覆盖面很广，但深度仍会因语言而异。与许多基于 tree-sitter 的语言相比，Python 和 Rust 的处理更强。
 
@@ -407,13 +411,14 @@ Prefer plain tools for single-file edits, exact string chores, and runtime/build
 
 ## 工具表面
 
-当前 [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) 中的 `tool_schemas()` 实现暴露了 **77 个 MCP 工具**。
+当前 [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) 中的 `tool_schemas()` 实现暴露了 **93 个 MCP 工具**。
 
 导出的 MCP schema 里，规范工具名使用下划线，例如 `trail_save`、`perspective_start` 和 `apply_batch`。某些客户端可能会显示带 transport 前缀的名字，比如 `m1nd.apply_batch`，但 live registry 里的条目是以下划线为准的。
 
 | Category | Highlights |
 |----------|------------|
 | Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
+| Document Intelligence | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
 | Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |

@@ -1,31 +1,44 @@
 # Architecture
 
-m1nd is a three-crate Rust workspace. Each crate has a strict responsibility boundary — understanding where things live saves you from editing the wrong place.
+m1nd is a Rust workspace with three core crates plus one auxiliary bridge crate. Each surface has a strict responsibility boundary — understanding where things live saves you from editing the wrong place.
 
 ```
 m1nd/
   m1nd-core/     Graph engine, plasticity, spreading activation, hypothesis engine,
                  antibody, flow, epidemic, tremor, trust, layer detection, domain config,
                  graph-diff with pre/post node snapshots
-  m1nd-ingest/   Language extractors (27+ languages), memory adapter, JSON adapter,
-                 git enrichment, cross-file resolver, incremental diff
-  m1nd-mcp/      MCP server, 77 tool handlers, JSON-RPC over stdio
+  m1nd-ingest/   Language extractors, structured adapters, universal documents,
+                 canonical artifacts, git enrichment, cross-file resolver, incremental diff
+  m1nd-mcp/      MCP server, 93 tool handlers, JSON-RPC over stdio
+  m1nd-openclaw/ Auxiliary bridge crate for OpenClaw-facing integration surfaces
 ```
 
 ## Dependency Graph
 
 ```mermaid
 graph TD
-    MCP[m1nd-mcp<br/>MCP server · 77 tools · JSON-RPC stdio]
-    INGEST[m1nd-ingest<br/>File walker · Extractors · Adapters · Diff]
+    MCP[m1nd-mcp<br/>MCP server · 93 tools · JSON-RPC stdio]
+    INGEST[m1nd-ingest<br/>File walker · Extractors · Adapters · Canonical docs]
     CORE[m1nd-core<br/>Graph engine · Plasticity · Activation · GraphDiff]
+    OPENCLAW[m1nd-openclaw<br/>Auxiliary bridge]
 
     MCP --> INGEST
     MCP --> CORE
     INGEST --> CORE
+    OPENCLAW --> MCP
 ```
 
-`m1nd-core` has no dependencies on the other two crates and no filesystem I/O — it is pure computation. `m1nd-ingest` depends on core and handles all I/O. `m1nd-mcp` depends on both, manages server state, and dispatches tool calls.
+`m1nd-core` has no dependencies on the other crates and no filesystem I/O — it is pure computation. `m1nd-ingest` depends on core and handles extraction, routing, canonical artifact production, and incremental ingest. `m1nd-mcp` depends on both, manages server state, and dispatches tool calls. `m1nd-openclaw` is an auxiliary integration bridge rather than a core graph/runtime crate.
+
+## Universal Document Runtime
+
+The biggest architectural change after the original code-only story is the universal document lane:
+
+- `m1nd-ingest` can normalize markdown, HTML/wiki pages, office documents, and PDFs
+- it stores canonical local artifacts such as `source.<ext>`, `canonical.md`, `canonical.json`, `claims.json`, and `metadata.json`
+- `m1nd-mcp` exposes `document_resolve`, `document_bindings`, `document_drift`, `document_provider_health`, and the `auto_ingest_*` runtime around those artifacts
+
+This means the graph is no longer just code plus memory notes. It now supports a practical docs/specs/wiki/paper workflow on the same local substrate.
 
 ---
 
