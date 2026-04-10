@@ -241,7 +241,7 @@ fn finalize_ingest(
     state.record_file_inventory(inventory_entries);
 
     state.rebuild_engines()?;
-    if !state.document_cache.entries.is_empty() {
+    if adapter == "universal" && !state.document_cache.entries.is_empty() {
         universal_docs::refresh_all_document_semantics(state);
     }
 
