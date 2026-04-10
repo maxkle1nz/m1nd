@@ -1,11 +1,12 @@
 # API Reference
 
-All 84 MCP tools, grouped by category. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
+This mirror summarizes the live 93-tool MCP surface. The exhaustive canonical reference lives in `docs/wiki/src/api-reference/` and the generated `wiki-build/` site. Each tool is callable via JSON-RPC stdio as `m1nd_<tool_name>`.
 
 All tools require an `agent_id` string parameter (use any stable identifier — your editor session ID, agent name, etc.).
 
 Jump to:
 - [Foundation](#foundation-13-tools)
+- [Document Intelligence](#document-intelligence-8-tools)
 - [Perspective Navigation](#perspective-navigation-12-tools)
 - [Lock System](#lock-system-5-tools)
 - [Superpowers](#superpowers-13-tools)
@@ -14,6 +15,23 @@ Jump to:
 - [Surgical](#surgical-4-tools)
 - [Search & Efficiency](#v050--search--efficiency-5-tools)
 - [Audit & Session Ergonomics](#audit--session-ergonomics-13-tools)
+
+---
+
+## Document Intelligence (8 tools)
+
+These tools expose the local-first document runtime that now sits on top of universal ingest:
+
+- `m1nd_document_resolve` — resolve canonical local artifacts for a universal document
+- `m1nd_document_provider_health` — inspect optional provider availability, detail, and install hints
+- `m1nd_document_bindings` — show likely deterministic document-to-code bindings
+- `m1nd_document_drift` — detect stale, missing, or ambiguous document/code links
+- `m1nd_auto_ingest_start` — start local-first watchers for docs/specs/wiki roots
+- `m1nd_auto_ingest_status` — inspect watcher state, semantic counts, provider routes, and fallbacks
+- `m1nd_auto_ingest_tick` — drain queued document changes immediately
+- `m1nd_auto_ingest_stop` — stop watchers and persist manifest state
+
+Use these after `m1nd_ingest(adapter="universal")` or when a caller needs document/runtime observability rather than only graph nodes.
 
 ---
 

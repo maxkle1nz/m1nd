@@ -5,26 +5,18 @@ next, and where the project is headed long-term.
 
 ---
 
-## In Flight — Audit Mode & Session Foundations
+## Current Surface — Document Intelligence + Local Runtime
 
-The current audit branch adds a new composed workflow layer on top of the existing graph engine:
+The current public surface has moved beyond the earlier audit-only expansion. The big shipped additions are:
 
-- `scan_all` — grouped structural scans in one call
-- `cross_verify` — graph vs filesystem truth checks
-- `coverage_session` — per-agent visit coverage across files/nodes/tools
-- `external_references` — explicit path references outside current ingest roots
-- `batch_view` — multi-file read surface with delimiters and summaries
-- `audit` — profile-aware one-call audit (`auto`, `quick`, `coordination`, `production`, `security`, `migration`)
+- universal document ingest with canonical local artifacts
+- `document_resolve`, `document_bindings`, `document_drift`, and `document_provider_health`
+- local-first `auto_ingest_start`, `auto_ingest_status`, `auto_ingest_tick`, and `auto_ingest_stop`
+- provider-aware document extraction (`Docling`, `Trafilatura`, `MarkItDown`, `GROBID`) when available
+- `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, and `runtime_overlay` in the public tool surface
+- current docs/tool-matrix alignment in the canonical `mdBook` wiki
 
-This branch also closes surface drift by exposing the already-implemented RETROBUILDER tools:
-
-- `ghost_edges`
-- `taint_trace`
-- `twins`
-- `refactor_plan`
-- `runtime_overlay`
-
-Projected tool count on this branch: **78 MCP tools**.
+Current live count: **93 MCP tools**.
 
 ---
 

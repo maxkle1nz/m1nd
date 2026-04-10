@@ -86,11 +86,12 @@ Isso significa que ele consegue responder às perguntas que realmente importam:
 - onde está o contexto conectado para uma edição?
 - o que devo verificar depois?
 
-Nos bastidores, o workspace tem três partes principais:
+Nos bastidores, o workspace tem três crates core mais um crate ponte auxiliar:
 
 - `m1nd-core`: motor de grafo
 - `m1nd-ingest`: caminhada do repositório, extração, resolução de referências e construção do grafo
 - `m1nd-mcp`: servidor MCP sobre stdio, além de uma superfície HTTP/UI no build padrão atual
+- `m1nd-openclaw`: crate ponte auxiliar para superfícies de integração voltadas ao OpenClaw
 
 O projeto é mais forte em grounding estrutural:
 
@@ -110,6 +111,9 @@ Hoje ele já inclui:
 - enriquecimento de Cargo workspace para repositórios Rust
 - ingestão de documentos para patentes (USPTO/EPO XML), artigos científicos (PubMed/JATS), bibliografias BibTeX, metadados DOI da CrossRef e RFCs da IETF — com detecção automática de formato via `DocumentRouter` e resolução de arestas entre domínios
 - sinais heurísticos inspecionáveis em rotas de recuperação de nível mais alto, para que `seek` e `predict` possam expor mais do que uma nota bruta
+- uma lane documental universal para markdown, HTML/wiki, documentos office e PDFs
+- artefatos canônicos locais como `source.<ext>`, `canonical.md`, `canonical.json`, `claims.json` e `metadata.json`
+- workflows MCP documentais como `document_resolve`, `document_bindings`, `document_drift`, `document_provider_health` e `auto_ingest_*`
 
 A abrangência de linguagens é ampla, mas a profundidade semântica varia por linguagem. Python e Rust atualmente recebem tratamento mais especializado do que muitas das linguagens apoiadas por tree-sitter.
 
@@ -361,11 +365,12 @@ Isso importa porque m1nd não é só um endpoint de busca. Ele é uma camada opi
 
 ## Superfície de Ferramentas
 
-A implementação atual de `tool_schemas()` em [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) expõe **77 ferramentas MCP**. Esse número pode mudar. As categorias abaixo importam mais, mas a contagem atual está ancorada no registro vivo.
+A implementação atual de `tool_schemas()` em [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) expõe **93 ferramentas MCP**. Esse número pode mudar. As categorias abaixo importam mais, mas a contagem atual está ancorada no registro vivo.
 
 | Categoria | Destaques |
 |----------|------------|
 | **Base** | ingest, health, activate, impact, why, learn, drift, seek, scan, warmup, federate |
+| **Inteligência Documental** | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
 | **Navegação por Perspective** | start, follow, peek, routes, branch, compare, inspect, suggest, affinity |
 | **Sistema de Lock** | prende regiões do subgrafo, monitora mudanças, diff do estado travado |
 | **Análise de Grafo** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
@@ -543,14 +548,15 @@ Regras do verdict: qualquer camada BROKEN => overall BROKEN. Qualquer camada RIS
 
 ## Arquitetura
 
-Três crates Rust. Execução local. Nenhuma API key é necessária para o caminho principal do servidor.
+Três crates core em Rust mais um crate ponte auxiliar. Execução local. Nenhuma API key é necessária para o caminho principal do servidor.
 
 ```text
 m1nd-core/     Graph engine, spreading activation, plasticidade hebbiana, hypothesis engine,
                antibody system, flow simulator, epidemic, tremor, trust, layer detection
-m1nd-ingest/   Language extractors, memory adapter, JSON adapter,
-               git enrichment, cross-file resolver, incremental diff
-m1nd-mcp/      Servidor MCP, JSON-RPC sobre stdio, além de suporte HTTP/UI no build padrão atual
+m1nd-ingest/   Language extractors, adapters estruturados e universais,
+               artefatos canônicos locais, git enrichment, cross-file resolver, incremental diff
+m1nd-mcp/      Servidor MCP, JSON-RPC sobre stdio, runtime documental e suporte HTTP/UI
+m1nd-openclaw/ Ponte auxiliar para superfícies de integração voltadas ao OpenClaw
 ```
 
 ```mermaid
@@ -560,6 +566,7 @@ graph LR
         MA[Memory adapter] --> R
         JA[JSON adapter] --> R
         DA[Document adapters<br/>patent, article, BibTeX, CrossRef, RFC] --> DR[DocumentRouter]
+        UA[Universal docs<br/>md, html, office, pdf] --> DR
         DR --> R
         R --> GD[Git enrichment]
         GD --> XD[CrossDomainResolver]
@@ -580,6 +587,9 @@ graph LR
         T --> IO[JSON-RPC stdio]
         T --> HTTP[HTTP API + UI]
     end
+    subgraph Bridge
+        OC[m1nd-openclaw] --> T
+    end
     IO --> C[Claude Code / Cursor / any MCP]
     HTTP --> B[Browser on localhost:1337]
 ```
@@ -588,6 +598,8 @@ graph LR
 Hoje isso significa 5 extractors nativos/manuais (`Python`, `TypeScript/JavaScript`, `Rust`, `Go`, `Java`) mais 22 linguagens baseadas em tree-sitter nas Tier 1 + Tier 2.
 O build padrão já inclui Tier 2, o que inclui ambas as tiers tree-sitter.
 A contagem de linguagens é ampla, mas a profundidade varia por linguagem. [Detalhes das linguagens ->](https://github.com/maxkle1nz/m1nd/wiki/Ingest-Adapters)
+
+Além disso, a lane universal agora fecha o ciclo entre código e documentos com cache canônico local (`source.<ext>`, `canonical.md`, `canonical.json`, `claims.json`, `metadata.json`) e com as superfícies `document_resolve`, `document_bindings`, `document_drift`, `document_provider_health` e `auto_ingest_*`.
 
 O build padrão atual também inclui uma superfície HTTP/UI. Mantenha-a presa a localhost, a menos que você queira acesso remoto de propósito; não há camada de autenticação embutida para exposição pública arbitrária.
 

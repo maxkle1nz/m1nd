@@ -40,6 +40,32 @@ m1nd-core = "0.4"
 
 ---
 
+## First Document Workflow
+
+The code graph is still the main entrypoint, but the current runtime also supports a universal document lane:
+
+```jsonc
+{"method":"tools/call","params":{"name":"m1nd_ingest","arguments":{
+  "agent_id":"dev","path":"/your/docs/specs","adapter":"universal","mode":"merge"
+}}}
+```
+
+After that, resolve the canonical artifacts and bindings:
+
+```jsonc
+{"method":"tools/call","params":{"name":"m1nd_document_resolve","arguments":{
+  "agent_id":"dev","path":"docs/specs/auth-refresh.md"
+}}}
+
+{"method":"tools/call","params":{"name":"m1nd_document_bindings","arguments":{
+  "agent_id":"dev","path":"docs/specs/auth-refresh.md"
+}}}
+```
+
+Use `m1nd_document_drift` after a refactor and `m1nd_auto_ingest_start` when a docs/wiki root should stay synchronized while you work.
+
+---
+
 ## First Query in 3 Steps
 
 m1nd runs as a JSON-RPC stdio server. Any MCP client sends tool calls to it.

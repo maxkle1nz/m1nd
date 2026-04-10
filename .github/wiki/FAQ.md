@@ -170,6 +170,31 @@ you will not notice any CPU impact during normal use.
 
 ---
 
+### Does it work with docs, specs, PDFs, and office files?
+
+Yes. The current runtime is no longer limited to code + memory markdown.
+
+You can ingest:
+
+- markdown notes and project docs
+- L1GHT protocol specs
+- HTML/wiki pages
+- office documents
+- scholarly PDFs
+- structured document feeds such as patent/article/BibTeX/CrossRef/RFC sources
+
+The universal lane normalizes those sources into canonical local artifacts and exposes a second layer of document tools:
+
+- `document_resolve`
+- `document_bindings`
+- `document_drift`
+- `document_provider_health`
+- `auto_ingest_start`, `auto_ingest_status`, `auto_ingest_tick`, `auto_ingest_stop`
+
+So the answer is now “code, docs, specs, and papers on one local graph substrate,” not only “code plus memory adapter.”
+
+---
+
 ### Does it work with my language?
 
 m1nd ships extractors for 27+ languages across four tiers:
