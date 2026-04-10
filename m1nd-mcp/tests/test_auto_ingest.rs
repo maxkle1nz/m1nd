@@ -183,6 +183,54 @@ fn html_doc(title: &str, body: &str) -> String {
     )
 }
 
+fn escape_pdf_text(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
+}
+
+fn simple_pdf_bytes(text: &str) -> Vec<u8> {
+    let content = format!(
+        "BT\n/F1 18 Tf\n72 120 Td\n({}) Tj\nET\n",
+        escape_pdf_text(text)
+    );
+    let objects = [
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n".to_string(),
+        format!(
+            "4 0 obj\n<< /Length {} >>\nstream\n{}endstream\nendobj\n",
+            content.len(),
+            content
+        ),
+        "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n".to_string(),
+    ];
+
+    let mut pdf = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::with_capacity(objects.len());
+    for object in &objects {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(object.as_bytes());
+    }
+
+    let xref_start = pdf.len();
+    pdf.extend_from_slice(
+        format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+    );
+    for offset in offsets {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Root 1 0 R /Size {} >>\nstartxref\n{}\n%%EOF\n",
+            objects.len() + 1,
+            xref_start
+        )
+        .as_bytes(),
+    );
+    pdf
+}
+
 #[test]
 fn auto_ingest_light_file_lifecycle_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
@@ -825,4 +873,73 @@ fn provider_gated_trafilatura_html_flow_skips_without_provider_python() {
     );
     assert_eq!(resolved["producer"].as_str(), Some("universal:trafilatura"));
     assert!(search_count(&mut state, "SemanticBridge") > 0);
+}
+
+#[test]
+fn provider_gated_grobid_pdf_flow_skips_without_provider_env() {
+    let Some(provider_python) = std::env::var_os("M1ND_PROVIDER_PYTHON") else {
+        eprintln!("SKIP: M1ND_PROVIDER_PYTHON not configured");
+        return;
+    };
+    let provider_python = PathBuf::from(provider_python);
+    if !provider_python.exists() {
+        eprintln!("SKIP: configured provider python missing");
+        return;
+    }
+    let Ok(requests_probe) = std::process::Command::new(&provider_python)
+        .arg("-c")
+        .arg("import requests")
+        .output()
+    else {
+        eprintln!("SKIP: failed to spawn configured provider python");
+        return;
+    };
+    if !requests_probe.status.success() {
+        eprintln!("SKIP: requests not available in provider env");
+        return;
+    }
+
+    let Some(grobid_url) = std::env::var_os("M1ND_GROBID_URL") else {
+        eprintln!("SKIP: M1ND_GROBID_URL not configured");
+        return;
+    };
+    let grobid_url = grobid_url.to_string_lossy().to_string();
+    if grobid_url.trim().is_empty() {
+        eprintln!("SKIP: M1ND_GROBID_URL is empty");
+        return;
+    }
+    let Ok(grobid_probe) = std::process::Command::new(&provider_python)
+        .arg("-c")
+        .arg(format!(
+            "import requests, sys; url = {}.rstrip('/') + '/api/isalive'; r = requests.get(url, timeout=10); sys.exit(0 if r.ok else 1)",
+            serde_json::to_string(&grobid_url).unwrap()
+        ))
+        .output()
+    else {
+        eprintln!("SKIP: failed to probe grobid service");
+        return;
+    };
+    if !grobid_probe.status.success() {
+        eprintln!("SKIP: grobid service not reachable");
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let docs_root = temp.path().join("provider-pdf");
+    fs::create_dir_all(&docs_root).unwrap();
+    let pdf = docs_root.join("provider.pdf");
+    fs::write(&pdf, simple_pdf_bytes("GraphBridge GROBID proof document")).unwrap();
+
+    let mut state = build_state(temp.path());
+    call(
+        &mut state,
+        "ingest",
+        json!({"agent_id":"tester","path":pdf.to_string_lossy().to_string(),"adapter":"universal","mode":"merge"}),
+    );
+    let resolved = call(
+        &mut state,
+        "document_resolve",
+        json!({"agent_id":"tester","path":"provider.pdf"}),
+    );
+    assert_eq!(resolved["producer"].as_str(), Some("universal:grobid"));
 }
