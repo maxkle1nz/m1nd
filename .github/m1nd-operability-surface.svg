@@ -1,0 +1,89 @@
+<svg width="1600" height="980" viewBox="0 0 1600 980" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1600" y2="980" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#050510"/>
+      <stop offset="1" stop-color="#07121E"/>
+    </linearGradient>
+    <filter id="glow2" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="22" flood-color="#00f5ff" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="980" fill="url(#bg2)"/>
+
+  <text x="110" y="96" fill="#E2E8F0" font-size="54" font-family="Space Grotesk, Arial, sans-serif" font-weight="700">
+    The m1nd Operability Surface
+  </text>
+  <text x="110" y="136" fill="#94A3B8" font-size="24" font-family="Space Mono, monospace">
+    Code, docs, concepts, and change become one layer an agent can operate on.
+  </text>
+
+  <g font-family="Space Mono, monospace" font-size="23" fill="#E2E8F0">
+    <rect x="118" y="220" width="270" height="96" rx="24" fill="#0F1824" stroke="#00F5FF"/>
+    <text x="198" y="272">code</text>
+    <text x="156" y="304" fill="#94A3B8" font-size="18">files · functions · modules</text>
+
+    <rect x="118" y="356" width="270" height="96" rx="24" fill="#111626" stroke="#7B61FF"/>
+    <text x="196" y="408">docs</text>
+    <text x="141" y="440" fill="#94A3B8" font-size="18">L1GHT · universal · RFCs</text>
+
+    <rect x="118" y="492" width="270" height="96" rx="24" fill="#0F1D1D" stroke="#00FF88"/>
+    <text x="170" y="544">concepts</text>
+    <text x="151" y="576" fill="#94A3B8" font-size="18">specs · knowledge · memory</text>
+
+    <rect x="118" y="628" width="270" height="96" rx="24" fill="#1A140A" stroke="#FFB700"/>
+    <text x="186" y="680">change</text>
+    <text x="152" y="712" fill="#94A3B8" font-size="18">impact · drift · verification</text>
+  </g>
+
+  <g filter="url(#glow2)">
+    <rect x="530" y="220" width="540" height="504" rx="36" fill="rgba(8,16,28,0.9)" stroke="rgba(0,245,255,0.24)" stroke-width="2"/>
+    <text x="706" y="288" fill="#E2E8F0" font-size="46" font-family="Space Grotesk, Arial, sans-serif" font-weight="700">
+      m1nd
+    </text>
+    <text x="652" y="334" fill="#00F5FF" font-size="24" font-family="Space Mono, monospace">
+      software intelligence layer
+    </text>
+
+    <text x="610" y="416" fill="#E2E8F0" font-size="24" font-family="Space Mono, monospace">⍂ structural truth</text>
+    <text x="610" y="466" fill="#E2E8F0" font-size="24" font-family="Space Mono, monospace">⍌ connected retrieval</text>
+    <text x="610" y="516" fill="#E2E8F0" font-size="24" font-family="Space Mono, monospace">𝔻 change intelligence</text>
+    <text x="610" y="566" fill="#E2E8F0" font-size="24" font-family="Space Mono, monospace">⟁ surgical execution</text>
+    <text x="610" y="616" fill="#E2E8F0" font-size="24" font-family="Space Mono, monospace">⍐ continuity + runtime</text>
+  </g>
+
+  <g font-family="Space Mono, monospace" font-size="23" fill="#E2E8F0">
+    <rect x="1210" y="220" width="270" height="96" rx="24" fill="#091521" stroke="#00F5FF"/>
+    <text x="1272" y="272">search</text>
+    <text x="1244" y="304" fill="#94A3B8" font-size="18">seek · activate · search</text>
+
+    <rect x="1210" y="356" width="270" height="96" rx="24" fill="#120E24" stroke="#7B61FF"/>
+    <text x="1286" y="408">review</text>
+    <text x="1238" y="440" fill="#94A3B8" font-size="18">why risky · what changed</text>
+
+    <rect x="1210" y="492" width="270" height="96" rx="24" fill="#0B1E18" stroke="#00FF88"/>
+    <text x="1294" y="544">edit</text>
+    <text x="1236" y="576" fill="#94A3B8" font-size="18">context → apply → verify</text>
+
+    <rect x="1210" y="628" width="270" height="96" rx="24" fill="#1A110D" stroke="#FF00AA"/>
+    <text x="1288" y="680">operate</text>
+    <text x="1243" y="712" fill="#94A3B8" font-size="18">audit · daemon · alerts</text>
+  </g>
+
+  <path d="M388 268H530" stroke="#00F5FF" stroke-width="4"/>
+  <path d="M388 404H530" stroke="#7B61FF" stroke-width="4"/>
+  <path d="M388 540H530" stroke="#00FF88" stroke-width="4"/>
+  <path d="M388 676H530" stroke="#FFB700" stroke-width="4"/>
+
+  <path d="M1070 268H1210" stroke="#00F5FF" stroke-width="4"/>
+  <path d="M1070 404H1210" stroke="#7B61FF" stroke-width="4"/>
+  <path d="M1070 540H1210" stroke="#00FF88" stroke-width="4"/>
+  <path d="M1070 676H1210" stroke="#FF00AA" stroke-width="4"/>
+
+  <text x="604" y="828" fill="#A5F3FC" font-size="26" font-family="Space Grotesk, Arial, sans-serif" font-weight="700">
+    m1nd gives AI agents durable operational context before they act.
+  </text>
+  <text x="604" y="866" fill="#94A3B8" font-size="20" font-family="Space Mono, monospace">
+    code • docs • concepts • change → one operable system
+  </text>
+</svg>
