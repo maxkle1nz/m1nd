@@ -1,17 +1,17 @@
 import { motion } from "framer-motion";
 
 const problems = [
-  "grep loops that read every file to find one function",
-  "blast radius is a guess until something breaks in production",
-  "context window flooded with irrelevant code",
-  "every session starts from scratch — no memory of what was found",
+  "agents rebuild repo structure from raw files every turn",
+  "blast radius is still a guess when code, docs, and tests are disconnected",
+  "context windows fill up before the agent reaches the real decision point",
+  "investigations reset between sessions, so the same orientation tax gets paid again",
 ];
 
 const solutions = [
-  "one graph query — authority found in subseconds, no files opened",
-  "blast radius computed before the first edit is written",
-  "surgical context — only the nodes that matter, nothing else",
-  "investigation trails persist across every session",
+  "one graph query returns structural truth instead of another round of file hunting",
+  "change impact is surfaced before the first edit lands",
+  "surgical context binds code, docs, and connected call paths into one operable slice",
+  "continuity survives across sessions through trails, memory, audit, and runtime state",
 ];
 
 export function ProblemSection() {
@@ -26,22 +26,16 @@ export function ProblemSection() {
             transition={{ duration: 0.6 }}
           >
             <h2 className="text-3xl md:text-5xl font-bold font-sans tracking-tight mb-6">
-              grep was built for humans.
+              Most agent loops still start blind.
               <br />
-              <span className="text-muted-foreground font-normal">your agent is paying the price.</span>
+              <span className="text-muted-foreground font-normal">m1nd exists to stop that.</span>
             </h2>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              30-year-old tools. file-by-file reads.
+              Search, read, search again, guess, edit, discover impact too late.
               <br />
-              tokens burned for no reason.
+              That loop was tolerable for humans.
               <br />
-              <br />
-              tokens = money.
-              <br />
-              waste = exponential.
-              <br />
-              <br />
-              and it starts on day one.
+              It is expensive for agents.
             </p>
           </motion.div>
         </div>
@@ -56,7 +50,7 @@ export function ProblemSection() {
           >
             <div className="absolute inset-0 bg-gradient-to-br from-destructive/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <h3 className="text-lg font-mono font-semibold mb-6 text-destructive/80 tracking-wide uppercase">
-              Terminal-era tools
+              Stateless agent loop
             </h3>
             <ul className="space-y-5 text-muted-foreground">
               {problems.map((p, i) => (
@@ -77,7 +71,7 @@ export function ProblemSection() {
           >
             <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <h3 className="text-lg font-mono font-semibold mb-6 text-primary/80 tracking-wide uppercase">
-              m1nd — agent-native
+              m1nd as first layer
             </h3>
             <ul className="space-y-5 text-muted-foreground">
               {solutions.map((s, i) => (
@@ -97,7 +91,7 @@ export function ProblemSection() {
           viewport={{ once: true }}
           transition={{ duration: 0.8, delay: 0.4 }}
         >
-          // the same information. a completely different substrate.
+          // the same task. a completely different substrate.
         </motion.p>
       </div>
     </section>

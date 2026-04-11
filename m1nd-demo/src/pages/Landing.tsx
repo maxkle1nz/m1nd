@@ -47,8 +47,8 @@ export default function Landing() {
   return (
     <main className="w-full min-h-screen bg-background">
       <SEO
-        title="m1nd — Graph Intelligence for MCP AI Agents"
-        description="m1nd gives AI agents an in-memory knowledge graph of your codebase, research, and memory. Activate 1,000 nodes in 1.36µs. 84% fewer tokens than grep. Built for MCP, runs in Rust."
+        title="m1nd — The Software Intelligence Layer for AI Agents"
+        description="m1nd gives AI agents durable operational context for code, docs, and change before they search, edit, review, or act. Local-first, MCP-native, and built in Rust."
         canonicalPath="/"
       />
       <NavBar />
