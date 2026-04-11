@@ -229,7 +229,7 @@ These are the minimum assets needed for the README to feel complete.
 |---|---|---|---|---|
 | `R01` | Hero | establish category, tone, and product mystery | `16:10` or `3:2` | `.github/m1nd-key-visual-v2.jpeg` |
 | `R02` | Before vs After | show the transition from blind exploration to grounded action | `16:9` | `.github/m1nd-agent-first-map-v2.jpeg` |
-| `R03` | What m1nd Operationalizes | show code + docs + concepts + change becoming one system | `16:9` | `.github/m1nd-operability-surface-v2.png` |
+| `R03` | What m1nd Operationalizes | show code + docs + concepts + change becoming one system | `16:9` | `.github/m1nd-operability-surface-v2.jpeg` |
 | `R04` | Architecture At A Glance | show crate/system relationship clearly | `16:9` | `.github/m1nd-architecture-overview.png` |
 
 ### P1: high-value supporting images
