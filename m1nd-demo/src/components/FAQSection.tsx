@@ -13,7 +13,7 @@ const FAQS: FAQ[] = [
     q: "How is m1nd different from Copilot, Cursor, or semantic search?",
     a: (
       <>
-        Copilot and Cursor are editors that use LLMs to write code. m1nd is infrastructure that gives those LLMs a structured map of your codebase before they write anything. Semantic search returns documents that are <em>textually similar</em> to your query. m1nd returns nodes that are <em>structurally connected</em> — it understands that <code>check_expiry()</code> calls <code>SessionManager</code> which reads <code>settings.py</code>. Text search doesn't know that. The graph does.
+        Copilot and Cursor are agent hosts and editors. m1nd is the software intelligence layer that those agents call before they search, edit, review, or change a system. Semantic search returns documents that are <em>textually similar</em> to a query. m1nd returns context that is <em>structurally connected</em> across code, docs, and change. It is less about "find me similar text" and more about "show me what this touches, what moves with it, and what should be verified next."
       </>
     ),
   },
@@ -50,7 +50,7 @@ const FAQS: FAQ[] = [
   {
     tag: "m1nd vs l1ght",
     q: "What is the difference between m1nd and l1ght?",
-    a: "m1nd indexes code — it builds a knowledge graph of your functions, classes, modules, and their relationships. l1ght indexes everything else — research papers, articles, documentation, memories, conversations, Jupyter notebooks, PDFs. Both use the same graph substrate, so a single query can traverse code written last week, a research paper you read last month, and a Slack thread from last quarter. Both ship today, both are free, both are part of the same MIT-licensed binary.",
+    a: "m1nd is the operating layer. l1ght is the document and knowledge lane inside that operating layer. m1nd gives agents durable operational context across code, docs, and change. l1ght is how specs, notes, papers, RFCs, memory, and other non-code artifacts become first-class graph surfaces inside the same system.",
   },
   {
     tag: "pricing",
@@ -158,10 +158,10 @@ export function FAQSection() {
             common questions
           </div>
           <h2 className="text-3xl md:text-5xl font-bold font-sans tracking-tight mb-3">
-            Before you ship it to your agent
+            Before you make it the first layer
           </h2>
           <p className="text-muted-foreground font-mono text-sm max-w-lg mx-auto">
-            The questions every developer asks before adding a new tool to their stack.
+            The questions teams ask before putting a new system in front of their agents.
           </p>
         </motion.div>
 

@@ -5,10 +5,10 @@ const STEPS = [
     n: "01",
     glyph: "⍂",
     glyphColor: "#00ff88",
-    title: "Index",
-    body: "m1nd parses your codebase using AST-level analysis — not text patterns. Every function, class, import, call, and type becomes a typed node. Every relationship becomes a weighted, directed edge. The entire graph lives in RAM.",
+    title: "Ingest",
+    body: "m1nd ingests code, docs, and related structure into one live graph. The agent stops treating the repo like a pile of files and starts from connected system truth.",
     stat: "14 languages",
-    statSub: "Python · TS · Rust · Go · Java + 9 more",
+    statSub: "plus docs and memory lanes",
     statColor: "#00ff88",
     connector: true,
   },
@@ -16,10 +16,10 @@ const STEPS = [
     n: "02",
     glyph: "⍌",
     glyphColor: "#00f5ff",
-    title: "Query",
-    body: "Your agent calls m1nd.seek(). Embeddings score 9,767 nodes in nanoseconds. The top-k become seeds. Spreading activation fires outward across typed edges — up to 4 hops — then a composite score prunes 116 candidates to 4.",
+    title: "Orient",
+    body: "The agent asks by structure and intent. m1nd returns what is connected, risky, and relevant before the model burns tokens reconstructing context from scratch.",
     stat: "543ns",
-    statSub: "blast radius · depth = 3",
+    statSub: "blast radius at depth = 3",
     statColor: "#00f5ff",
     connector: true,
   },
@@ -27,10 +27,10 @@ const STEPS = [
     n: "03",
     glyph: "⍐",
     glyphColor: "#7b61ff",
-    title: "Return",
-    body: "4 precision nodes come back — already decorated with their caller chains, callees, and linked tests. Not a list of files. A surgical subgraph your agent can act on immediately, with 84% fewer tokens than sending raw files.",
+    title: "Act",
+    body: "The result comes back as operable context: connected nodes, blast radius, likely co-changes, and the exact slice the agent should verify before it edits.",
     stat: "84% fewer tokens",
-    statSub: "vs grep / file read",
+    statSub: "vs grep and file wandering",
     statColor: "#7b61ff",
     connector: false,
   },
@@ -59,10 +59,10 @@ export function HowItWorksSection() {
             how it works
           </p>
           <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-            Three stages. 0.18 seconds. Done.
+            Ingest. Orient. Act.
           </h2>
           <p className="mt-3 text-muted-foreground/60 text-sm max-w-lg mx-auto font-mono">
-            From cold query to surgical subgraph — the full pipeline runs locally, in RAM, faster than a network ACK.
+            The point is not just speed. The point is giving the agent operational context before it changes the system.
           </p>
         </motion.div>
 
@@ -176,7 +176,7 @@ export function HowItWorksSection() {
         >
           <div className="h-px flex-1 bg-border/15 max-w-[80px]" />
           <span className="font-mono text-[10px] text-muted-foreground/25 tracking-widest uppercase">
-            0.18s · end-to-end · local · no network
+            local-first · MCP-native · durable operational context
           </span>
           <div className="h-px flex-1 bg-border/15 max-w-[80px]" />
         </motion.div>

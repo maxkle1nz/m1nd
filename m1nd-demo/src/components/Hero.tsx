@@ -97,29 +97,29 @@ export function Hero() {
             <span className="flex h-2 w-2 flex-shrink-0 rounded-full bg-primary animate-pulse" />
             <span className="whitespace-nowrap">Built for agents first. Humans are welcome.</span>
             <span className="hidden sm:block h-3 w-px flex-shrink-0 bg-primary/30" />
-            <span className="hidden sm:block text-primary/60 whitespace-nowrap">m1nd + l1ght</span>
+            <span className="hidden sm:block text-primary/60 whitespace-nowrap">code + docs + change</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-foreground mb-6 font-sans leading-[1.05]">
-            Before you change code,
+            Before an agent acts,
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-              see what breaks.
+              give it the system.
             </span>
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            Ask the codebase a question. Get the map, not the maze. m1nd gives coding agents structural intelligence before they disappear into grep/read drift.
+            m1nd is the software intelligence layer for AI agents. It makes code, docs, and change operable as one system before the agent disappears into grep loops, blind edits, and context waste.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <a href="https://github.com/maxkle1nz/m1nd" target="_blank" rel="noreferrer" className="w-full sm:w-auto">
               <button className="w-full sm:w-auto px-8 py-4 bg-primary text-primary-foreground font-bold rounded-md hover:bg-primary/90 transition-all shadow-[0_0_20px_rgba(0,245,255,0.3)] hover:shadow-[0_0_30px_rgba(0,245,255,0.5)]">
-                Install m1nd
+                Install the MCP server
               </button>
             </a>
             <Link href="/use-cases" className="w-full sm:w-auto px-8 py-4 border border-primary/30 text-primary hover:bg-primary/10 transition-all rounded-md font-medium">
-              Explore use cases →
+              See where it fits →
             </Link>
           </div>
 
@@ -138,11 +138,11 @@ export function Hero() {
               MIT License
             </span>
             <span style={{ color: "#ffffff18" }}>·</span>
-            <span style={{ color: "#ffffff45" }}>v0.6.1</span>
+            <span style={{ color: "#ffffff45" }}>v0.8.0</span>
             <span style={{ color: "#ffffff18" }}>·</span>
-            <span style={{ color: "#ffffff45" }}>Written in Rust</span>
+            <span style={{ color: "#ffffff45" }}>Local-first</span>
             <span style={{ color: "#ffffff18" }}>·</span>
-            <span style={{ color: "#ffffff45" }}>MCP protocol</span>
+            <span style={{ color: "#ffffff45" }}>MCP-native</span>
             <span style={{ color: "#ffffff18" }}>·</span>
             <a
               href="https://github.com/maxkle1nz/m1nd"
@@ -168,7 +168,7 @@ export function Hero() {
               { val: "1.36µs", label: "activate 1K nodes", color: "#00f5ff" },
               { val: "84%",    label: "token savings",     color: "#00ff88" },
               { val: "543ns",  label: "blast radius query", color: "#00f5ff" },
-              { val: "0",      label: "API calls needed",  color: "#7b61ff" },
+              { val: "93",     label: "MCP tools live",    color: "#7b61ff" },
             ].map(({ val, label, color }) => (
               <div key={label} className="text-center">
                 <div className="text-2xl md:text-3xl font-bold font-mono" style={{ color }}>{val}</div>

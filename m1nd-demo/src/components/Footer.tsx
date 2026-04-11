@@ -15,13 +15,13 @@ export function Footer() {
           <span style={{ color: "#ffb700", opacity: 0.6 }}>𝔻</span>
           <span style={{ color: "#ff00aa", opacity: 0.6 }}>⟁</span>
           <span className="text-primary/30 mx-2">·</span>
-          <span className="text-primary/40">m1nd + l1ght — one graph</span>
+          <span className="text-primary/40">the software intelligence layer for AI agents</span>
         </p>
         <h2 className="text-4xl md:text-6xl font-bold font-sans tracking-tight mb-4">
           Start building with <M1ndInline glow />.
         </h2>
         <p className="text-muted-foreground max-w-md mx-auto mb-10 text-lg">
-          Code, research, and memory — all in one graph. One install. One query.
+          Code, docs, and change in one operable system. Local-first, MCP-native, and ready for agents.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 mb-24">
@@ -66,7 +66,7 @@ export function Footer() {
           <p className="font-mono text-xs" style={{ color: "#ffffff30" }}>
             © {new Date().getFullYear()} m1nd ·{" "}
             <span style={{ color: "#00ff8860" }}>MIT License</span>
-            {" "}· v0.6.1
+            {" "}· v0.8.0
           </p>
           <div className="flex items-center gap-6 text-xs font-mono">
             <a href="https://m1nd.world/wiki/" target="_blank" rel="noreferrer" className="text-primary/40 hover:text-primary/70 transition-colors tracking-widest uppercase">
