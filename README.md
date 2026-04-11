@@ -50,11 +50,11 @@
 </p>
 
 <p align="center">
-  <img src=".github/m1nd-key-visual.png" alt="m1nd — code, docs, and change as one operable system for agents" width="860" />
+  <img src=".github/m1nd-key-visual-v2.jpeg" alt="m1nd — code, docs, and change as one operable system for agents" width="860" />
 </p>
 
 <p align="center">
-  <img src=".github/m1nd-agent-first-map.svg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
+  <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>
 
 ## Why m1nd
@@ -168,6 +168,10 @@ The current live MCP surface exposes **93 tools**, but readers should understand
 
 </details>
 
+<p align="center">
+  <img src=".github/m1nd-operability-surface-v2.png" alt="m1nd understand, predict, and verify surface" width="960" />
+</p>
+
 ## Quick Start
 
 If you want the shortest path to value:
@@ -276,7 +280,7 @@ Current crate versions:
 - `m1nd-mcp` `0.8.0`
 
 <p align="center">
-  <img src=".github/m1nd-operability-surface.svg" alt="m1nd operational intelligence surface" width="960" />
+  <img src=".github/m1nd-architecture-overview-v2.png" alt="m1nd architecture overview" width="960" />
 </p>
 
 ## Learn More
