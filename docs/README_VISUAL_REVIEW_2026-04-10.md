@@ -222,8 +222,8 @@ These are the four final assets now established for the README:
 
 1. `.github/m1nd-agent-first-map-v2.jpeg`
 2. `.github/m1nd-key-visual-v2.jpeg`
-3. `.github/m1nd-architecture-overview-v2.png`
-4. `.github/m1nd-operability-surface-v2.png`
+3. `.github/m1nd-architecture-overview-v2.jpeg`
+4. `.github/m1nd-operability-surface-v2.jpeg`
 
 ### Notes
 
@@ -240,8 +240,8 @@ This is the currently selected README set after review and one extra iteration p
 
 - `.github/m1nd-key-visual-v2.jpeg`
 - `.github/m1nd-agent-first-map-v2.jpeg`
-- `.github/m1nd-operability-surface-v2.png`
-- `.github/m1nd-architecture-overview-v2.png`
+- `.github/m1nd-operability-surface-v2.jpeg`
+- `.github/m1nd-architecture-overview-v2.jpeg`
 
 ### Notes
 
