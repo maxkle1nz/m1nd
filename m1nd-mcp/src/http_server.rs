@@ -23,6 +23,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 use crate::http_types::SubgraphQuery;
+use crate::instance_registry::{list_instances, spawn_heartbeat};
 use crate::server::{dispatch_tool, tool_schemas, McpConfig};
 use crate::session::{ApplyBatchProgressSink, SessionState};
 
@@ -287,6 +288,7 @@ pub struct AppState {
     pub event_tx: broadcast::Sender<SseEvent>,
     /// Optional event log path for cross-process SSE (Option B).
     pub event_log_path: Option<std::path::PathBuf>,
+    pub registry_dir: Option<std::path::PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +317,10 @@ pub fn spawn_background(
 
     // SSE broadcast channel
     let (event_tx, _) = broadcast::channel::<SseEvent>(64);
+    let registry_root = {
+        let guard = session.lock();
+        guard.instance.registry_root()
+    };
 
     // AppState
     let app_state = Arc::new(AppState {
@@ -322,10 +328,21 @@ pub fn spawn_background(
         tool_schemas_cache,
         event_tx,
         event_log_path: None,
+        registry_dir: Some(registry_root),
     });
+    {
+        let session = app_state.session.lock();
+        let _ = session
+            .instance
+            .set_running_endpoint("127.0.0.1".into(), port);
+    }
+    let _heartbeat = {
+        let session = app_state.session.lock();
+        spawn_heartbeat(session.instance.clone())
+    };
 
     // Router (embedded UI, not dev mode)
-    let router = build_router(app_state, false);
+    let router = build_router(app_state.clone(), false);
 
     let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port)
         .parse()
@@ -344,12 +361,17 @@ pub fn spawn_background(
                 });
                 // Serve until process exits (no graceful shutdown needed — stdio owns lifecycle)
                 let _ = axum::serve(listener, router).await;
+                let mut session = app_state.session.lock();
+                let _ = session.persist();
+                let _ = session.instance.release();
             }
             Err(e) => {
                 eprintln!(
                     "[m1nd-mcp] Background HTTP server failed to bind to {}: {} (GUI unavailable)",
                     addr, e
                 );
+                let session = app_state.session.lock();
+                let _ = session.instance.release();
             }
         }
     })
@@ -405,7 +427,16 @@ pub async fn run(
         tool_schemas_cache,
         event_tx: event_tx.clone(),
         event_log_path: event_log_path.clone(),
+        registry_dir: config.registry_dir.clone(),
     });
+    {
+        let session = app_state.session.lock();
+        let _ = session.instance.set_running_endpoint(bind.clone(), port);
+    }
+    let _heartbeat = {
+        let session = app_state.session.lock();
+        spawn_heartbeat(session.instance.clone())
+    };
 
     // 6b. If --watch-events is specified, spawn the event log watcher
     if let Some(ref watch_path) = watch_events {
@@ -553,6 +584,10 @@ pub async fn run(
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) => {
+            {
+                let session = session.lock();
+                let _ = session.instance.release();
+            }
             eprintln!("[m1nd-mcp] Failed to bind to {}: {}", addr, e);
             std::process::exit(1);
         }
@@ -568,6 +603,7 @@ pub async fn run(
             if let Err(e) = s.persist() {
                 eprintln!("[m1nd-mcp] Failed to persist state on shutdown: {}", e);
             }
+            let _ = s.instance.release();
             eprintln!("[m1nd-mcp] State persisted. Goodbye.");
         })
         .await
@@ -644,6 +680,8 @@ fn tool_error_payload(e: &m1nd_core::error::M1ndError) -> serde_json::Value {
 pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
     let api = Router::new()
         .route("/api/health", get(handle_health))
+        .route("/api/instance/self", get(handle_instance_self))
+        .route("/api/instances", get(handle_instances))
         .route("/api/tools", get(handle_list_tools))
         .route("/api/tools/{*tool_name}", post(handle_tool_call))
         .route("/api/graph/stats", get(handle_graph_stats))
@@ -689,6 +727,36 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     })
     .await
     .expect("spawn_blocking panicked");
+
+    (StatusCode::OK, Json(result))
+}
+
+async fn handle_instance_self(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let state = state.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let session = state.session.lock();
+        session.instance_self_summary()
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    (StatusCode::OK, Json(result))
+}
+
+async fn handle_instances(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let state = state.clone();
+    let result =
+        tokio::task::spawn_blocking(
+            move || match list_instances(state.registry_dir.as_deref()) {
+                Ok(instances) => serde_json::json!({ "instances": instances }),
+                Err(error) => serde_json::json!({
+                    "instances": [],
+                    "error": error.to_string(),
+                }),
+            },
+        )
+        .await
+        .expect("spawn_blocking panicked");
 
     (StatusCode::OK, Json(result))
 }

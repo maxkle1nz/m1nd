@@ -1,6 +1,7 @@
 // === crates/m1nd-mcp/src/server.rs ===
 
 use crate::auto_ingest;
+use crate::instance_registry::InstanceHandle;
 use crate::layer_handlers;
 use crate::personality;
 use crate::protocol::layers;
@@ -181,6 +182,8 @@ pub struct McpConfig {
     pub plasticity_state: PathBuf,
     #[serde(default)]
     pub runtime_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub registry_dir: Option<PathBuf>,
     pub auto_persist_interval: u32,
     pub learning_rate: f32,
     pub decay_rate: f32,
@@ -199,6 +202,7 @@ impl Default for McpConfig {
             graph_source: PathBuf::from("./graph_snapshot.json"),
             plasticity_state: PathBuf::from("./plasticity_state.json"),
             runtime_dir: None,
+            registry_dir: None,
             auto_persist_interval: 50,
             learning_rate: 0.08,
             decay_rate: 0.005,
@@ -2762,6 +2766,10 @@ impl McpServer {
         self.state
     }
 
+    pub fn instance_handle(&self) -> InstanceHandle {
+        self.state.instance.clone()
+    }
+
     /// Startup sequence (03-MCP Section 1.2):
     /// 1. Load graph snapshot       (done in new())
     /// 2. Load plasticity state     (done in new())
@@ -2967,6 +2975,7 @@ impl McpServer {
     pub fn shutdown(&mut self) -> M1ndResult<()> {
         eprintln!("[m1nd-mcp] Shutting down...");
         let _ = self.state.persist();
+        let _ = self.state.instance.release();
         eprintln!("[m1nd-mcp] State persisted. Goodbye.");
         Ok(())
     }
