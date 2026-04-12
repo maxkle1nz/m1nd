@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::auto_ingest::AutoIngestState;
+use crate::instance_registry::{InstanceHandle, InstanceRegistryEntry};
 use crate::perspective::state::{
     LockState, PeekSecurityConfig, PerspectiveLimits, PerspectiveState, WatchTrigger, WatcherEvent,
 };
@@ -304,6 +305,8 @@ pub struct SessionState {
     pub workspace_root: Option<String>,
     /// Dedicated runtime root for persisted sidecar state.
     pub runtime_root: PathBuf,
+    /// Registry + lease handle for this process instance.
+    pub instance: InstanceHandle,
     /// Optional live sink for apply_batch progress emission.
     pub apply_batch_progress_sink: Option<ApplyBatchProgressSink>,
 
@@ -377,6 +380,17 @@ impl SessionState {
         })
     }
 
+    pub fn instance_self_summary(&self) -> serde_json::Value {
+        let instance: InstanceRegistryEntry = self.instance.summary();
+        serde_json::json!({
+            "instance": instance,
+            "graph_state": self.graph_runtime_summary(),
+            "active_agent_sessions": self.sessions.len(),
+            "queries_processed": self.queries_processed,
+            "last_persist_secs_ago": self.last_persist_time.map(|ts| ts.elapsed().as_secs_f64()),
+        })
+    }
+
     pub fn empty_graph_diagnostic(
         &self,
         tool: &str,
@@ -438,6 +452,18 @@ impl SessionState {
                 .unwrap_or(std::path::Path::new("."))
                 .to_path_buf()
         });
+        let workspace_root = config
+            .graph_source
+            .parent()
+            .unwrap_or(runtime_root.as_path())
+            .to_path_buf();
+        let instance = InstanceHandle::acquire(
+            &workspace_root,
+            &runtime_root,
+            &config.graph_source,
+            &config.plasticity_state,
+            config.registry_dir.as_deref(),
+        )?;
         let ingest_roots = Self::load_ingest_roots(&config.graph_source);
 
         Ok(Self {
@@ -469,11 +495,9 @@ impl SessionState {
             perspective_limits: PerspectiveLimits::default(),
             peek_security: PeekSecurityConfig::default(),
             ingest_roots,
-            workspace_root: config
-                .graph_source
-                .parent()
-                .map(|p| p.to_string_lossy().to_string()),
+            workspace_root: Some(workspace_root.to_string_lossy().to_string()),
             runtime_root: runtime_root.clone(),
+            instance,
             apply_batch_progress_sink: None,
             // Superpowers: Antibody state
             antibodies: {
@@ -543,6 +567,7 @@ impl SessionState {
     /// If graph save fails, skip plasticity to avoid inconsistent state.
     /// If plasticity save fails after graph succeeds, log warning but don't crash.
     pub fn persist(&mut self) -> M1ndResult<()> {
+        let _ = self.instance.mark_heartbeat();
         self.persist_ingest_roots();
         let graph = self.graph.read();
 
@@ -906,6 +931,7 @@ impl SessionState {
     /// Track an agent session. Creates a new session if first contact,
     /// otherwise updates last_seen and increments query_count.
     pub fn track_agent(&mut self, agent_id: &str) {
+        let _ = self.instance.mark_heartbeat();
         let now = Instant::now();
         let session = self
             .sessions

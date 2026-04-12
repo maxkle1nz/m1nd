@@ -44,6 +44,14 @@ pub struct Cli {
     #[arg(long)]
     pub plasticity: Option<String>,
 
+    /// Runtime directory override for instance sidecar state
+    #[arg(long)]
+    pub runtime_dir: Option<String>,
+
+    /// Global registry directory override
+    #[arg(long)]
+    pub registry_dir: Option<String>,
+
     /// Domain: code, music, memory, generic
     #[arg(long, default_value = "code")]
     pub domain: String,

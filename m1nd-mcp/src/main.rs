@@ -1,8 +1,8 @@
 // === m1nd-mcp binary entry point ===
 //
 // Modes:
-//   m1nd-mcp                     → JSON-RPC stdio + auto-launch GUI on :1337 (default)
-//   m1nd-mcp --no-gui            → JSON-RPC stdio only (CI, headless)
+//   m1nd-mcp                     → JSON-RPC stdio only (default runtime path)
+//   m1nd-mcp --no-gui            → JSON-RPC stdio only (explicit CI/headless intent)
 //   m1nd-mcp --serve             → HTTP server + embedded UI on :1337
 //   m1nd-mcp --serve --stdio     → Both transports simultaneously (SSE cross-process bridge)
 //   m1nd-mcp --serve --dev       → HTTP with frontend served from disk (Vite HMR)
@@ -15,6 +15,7 @@
 
 use clap::Parser;
 use m1nd_mcp::cli::Cli;
+use m1nd_mcp::instance_registry::spawn_heartbeat;
 use m1nd_mcp::server::{McpConfig, McpServer};
 use std::path::PathBuf;
 
@@ -95,6 +96,12 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         .unwrap_or_else(|| PathBuf::from("./plasticity_state.json"));
 
     let runtime_dir = std::env::var("M1ND_RUNTIME_DIR").ok().map(PathBuf::from);
+    let runtime_dir = cli.runtime_dir.as_ref().map(PathBuf::from).or(runtime_dir);
+    let registry_dir = cli
+        .registry_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("M1ND_REGISTRY_DIR").ok().map(PathBuf::from));
 
     let xlr_enabled = std::env::var("M1ND_XLR_ENABLED")
         .map(|v| v != "0" && v != "false")
@@ -109,13 +116,14 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         graph_source,
         plasticity_state,
         runtime_dir,
+        registry_dir,
         xlr_enabled,
         domain,
         ..McpConfig::default()
     }
 }
 
-async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: bool, port: u16) {
+async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: bool, _port: u16) {
     if event_log.is_some() {
         eprintln!(
             "[m1nd-mcp] NOTE: --event-log in stdio-only mode writes events for external consumers."
@@ -127,22 +135,14 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
 
     // Spawn background HTTP GUI server (unless --no-gui or serve feature disabled)
     #[cfg(feature = "serve")]
-    let _gui_handle = if !no_gui {
-        // Create a separate McpServer for the HTTP GUI (same config, independent state)
-        match McpServer::new(config.clone()) {
-            Ok(gui_server) => {
-                let session_state = gui_server.into_session_state();
-                let session = std::sync::Arc::new(parking_lot::Mutex::new(session_state));
-                Some(m1nd_mcp::http_server::spawn_background(session, port))
-            }
-            Err(e) => {
-                eprintln!(
-                    "[m1nd-mcp] GUI server init failed (continuing without GUI): {}",
-                    e
-                );
-                None
-            }
-        }
+    let _gui_handle: Option<tokio::task::JoinHandle<()>> = if !no_gui {
+        eprintln!(
+            "[m1nd-mcp] Auto GUI disabled in stdio mode while multi-instance runtime leases are active."
+        );
+        eprintln!(
+            "[m1nd-mcp] Use `m1nd-mcp --serve --stdio` when you want one shared HTTP + stdio instance."
+        );
+        None
     } else {
         None
     };
@@ -162,6 +162,8 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
         eprintln!("[m1nd-mcp] Failed to start server: {}", e);
         std::process::exit(1);
     }
+
+    let _heartbeat = spawn_heartbeat(server.instance_handle());
 
     // Spawn the serve loop in a blocking task (synchronous stdio I/O)
     let serve_handle = tokio::task::spawn_blocking(move || {
