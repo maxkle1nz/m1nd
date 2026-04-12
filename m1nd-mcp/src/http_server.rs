@@ -20,10 +20,12 @@ use rust_embed::Embed;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::http_types::SubgraphQuery;
-use crate::instance_registry::{list_instances, spawn_heartbeat};
+use crate::instance_registry::{
+    delete_instance_state, list_instances, spawn_heartbeat, InstanceRegistryEntry,
+};
 use crate::server::{dispatch_tool, tool_schemas, McpConfig};
 use crate::session::{ApplyBatchProgressSink, SessionState};
 
@@ -682,6 +684,15 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         .route("/api/health", get(handle_health))
         .route("/api/instance/self", get(handle_instance_self))
         .route("/api/instances", get(handle_instances))
+        .route("/api/instance/save", post(handle_instance_save))
+        .route(
+            "/api/instances/{instance_id}/save",
+            post(handle_instance_save_target),
+        )
+        .route(
+            "/api/instances/{instance_id}/delete-state",
+            post(handle_instance_delete_state),
+        )
         .route("/api/tools", get(handle_list_tools))
         .route("/api/tools/{*tool_name}", post(handle_tool_call))
         .route("/api/graph/stats", get(handle_graph_stats))
@@ -693,11 +704,14 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
 
     if dev_mode {
         let ui_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../m1nd-ui/dist");
+        let cors = CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any);
         api.fallback_service(tower_http::services::ServeDir::new(ui_dir))
-            .layer(CorsLayer::permissive())
+            .layer(cors)
     } else {
         api.fallback(serve_embedded_ui)
-            .layer(CorsLayer::permissive())
     }
 }
 
@@ -759,6 +773,159 @@ async fn handle_instances(State(state): State<Arc<AppState>>) -> impl IntoRespon
         .expect("spawn_blocking panicked");
 
     (StatusCode::OK, Json(result))
+}
+
+async fn handle_instance_save(State(state): State<Arc<AppState>>) -> axum::response::Response {
+    let state = state.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let mut session = state.session.lock();
+        session.persist()?;
+        Ok::<serde_json::Value, m1nd_core::error::M1ndError>(session.instance_self_summary())
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    match result {
+        Ok(output) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "result": output })),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(tool_error_payload(&error)),
+        )
+            .into_response(),
+    }
+}
+
+fn instance_base_url(entry: &InstanceRegistryEntry) -> Option<String> {
+    let port = entry.port?;
+    let bind = entry.bind.as_deref().unwrap_or("127.0.0.1");
+    let host = if bind == "0.0.0.0" { "127.0.0.1" } else { bind };
+    Some(format!("http://{}:{}", host, port))
+}
+
+async fn handle_instance_save_target(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> axum::response::Response {
+    let is_self = {
+        let session = state.session.lock();
+        session.instance.summary().instance_id == instance_id
+    };
+
+    if is_self {
+        return handle_instance_save(State(state)).await;
+    }
+
+    let instances = match list_instances(state.registry_dir.as_deref()) {
+        Ok(instances) => instances,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(tool_error_payload(&error)),
+            )
+                .into_response()
+        }
+    };
+
+    let Some(entry) = instances
+        .into_iter()
+        .find(|entry| entry.instance_id == instance_id)
+    else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "instance_not_found",
+                "detail": format!("no registered instance {}", instance_id),
+            })),
+        )
+            .into_response();
+    };
+
+    let Some(base_url) = instance_base_url(&entry) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "instance_unreachable",
+                "detail": format!("instance {} has no HTTP endpoint", instance_id),
+            })),
+        )
+            .into_response();
+    };
+
+    let upstream = match reqwest::Client::new()
+        .post(format!("{}/api/instance/save", base_url))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "instance_save_forward_failed",
+                    "detail": error.to_string(),
+                })),
+            )
+                .into_response()
+        }
+    };
+
+    let status = upstream.status();
+    let payload = upstream
+        .json::<serde_json::Value>()
+        .await
+        .unwrap_or_else(|error| {
+            serde_json::json!({
+                "error": "instance_save_forward_invalid_response",
+                "detail": error.to_string(),
+            })
+        });
+
+    let returned_instance_id = payload
+        .get("result")
+        .and_then(|value| value.get("instance"))
+        .and_then(|value| value.get("instance_id"))
+        .and_then(|value| value.as_str());
+    if status.is_success() && returned_instance_id != Some(instance_id.as_str()) {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": "instance_save_forward_identity_mismatch",
+                "detail": format!(
+                    "forwarded save for {} reached unexpected instance {:?}",
+                    instance_id, returned_instance_id
+                ),
+            })),
+        )
+            .into_response();
+    }
+
+    (status, Json(payload)).into_response()
+}
+
+async fn handle_instance_delete_state(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> impl IntoResponse {
+    let state = state.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        delete_instance_state(&instance_id, state.registry_dir.as_deref())
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    match result {
+        Ok(entry) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "deleted": entry })),
+        )
+            .into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, Json(tool_error_payload(&error))).into_response(),
+    }
 }
 
 async fn handle_list_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {

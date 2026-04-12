@@ -44,6 +44,48 @@ export interface HealthResponse {
   plasticity_generation: number;
 }
 
+export interface InstanceRegistryEntry {
+  instance_id: string;
+  workspace_root: string;
+  runtime_root: string;
+  graph_source: string;
+  plasticity_state: string;
+  pid: number;
+  bind?: string | null;
+  port?: number | null;
+  started_at_ms: number;
+  last_heartbeat_ms: number;
+  mode: string;
+  status: string;
+  owner_live?: boolean | null;
+  stale: boolean;
+  conflicts: string[];
+}
+
+export interface InstanceSelfResponse {
+  instance: InstanceRegistryEntry;
+  graph_state: {
+    node_count: number;
+    edge_count: number;
+    finalized: boolean;
+    graph_generation: number;
+    plasticity_generation: number;
+    cache_generation: number;
+    ingest_root_count: number;
+    ingest_roots: string[];
+    workspace_root?: string | null;
+    runtime_root: string;
+  };
+  active_agent_sessions: number;
+  queries_processed: number;
+  last_persist_secs_ago?: number | null;
+}
+
+export interface InstanceListResponse {
+  instances: InstanceRegistryEntry[];
+  error?: string;
+}
+
 export interface AgentSession {
   agent_id: string;
   first_seen_secs_ago: number;

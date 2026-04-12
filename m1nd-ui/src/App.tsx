@@ -5,12 +5,22 @@ import DetailPanel from './components/DetailPanel';
 import CommandPalette from './components/CommandPalette';
 import ActivationReplay from './components/ActivationReplay';
 import ToastContainer from './components/ToastContainer';
+import InstancesPanel from './components/InstancesPanel';
 import { useGraphStore } from './stores/graphStore';
 import { useToastStore } from './stores/toastStore';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useSSE } from './hooks/useSSE';
+import { api } from './api/client';
 import { useM1ndApi } from './hooks/useM1ndApi';
-import type { ToolId, NodeAction, SseEvent, SseActivationData, SseIngestData, SseLearnData } from './types';
+import type {
+  InstanceListResponse,
+  NodeAction,
+  SseActivationData,
+  SseEvent,
+  SseIngestData,
+  SseLearnData,
+  ToolId,
+} from './types';
 
 // App-level Error Boundary (FM-FE-056)
 class AppErrorBoundary extends React.Component<
@@ -298,7 +308,9 @@ function IngestModal({ isOpen, onClose, onComplete }: { isOpen: boolean; onClose
 export default function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [ingestOpen, setIngestOpen] = useState(false);
+  const [instancesOpen, setInstancesOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [instanceSummary, setInstanceSummary] = useState<InstanceListResponse>({ instances: [] });
   const { clearGraph, setError, applySSEEvent } = useGraphStore();
   const addToast = useToastStore((s) => s.addToast);
   const { runQuery, fetchHealth } = useM1ndApi();
@@ -349,9 +361,31 @@ export default function App() {
     enabled: status === 'ok' || status === 'degraded',
   });
 
+  useEffect(() => {
+    let mounted = true;
+
+    const refreshInstances = async () => {
+      try {
+        const result = await api.instances();
+        if (!mounted) return;
+        setInstanceSummary(result);
+      } catch {
+        if (!mounted) return;
+        setInstanceSummary({ instances: [] });
+      }
+    };
+
+    refreshInstances();
+    const id = setInterval(refreshInstances, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, []);
+
   useKeyboardShortcuts({
     onCommandPalette: () => setCmdOpen(true),
-    onEscape: () => { setCmdOpen(false); setIngestOpen(false); },
+    onEscape: () => { setCmdOpen(false); setIngestOpen(false); setInstancesOpen(false); },
     onClearGraph: clearGraph,
     onIngest: () => setIngestOpen(true),
   });
@@ -385,7 +419,12 @@ export default function App() {
     <AppErrorBoundary>
       <div className="flex flex-col h-screen w-screen bg-m1nd-base text-slate-200 font-mono overflow-hidden">
         {/* TopBar */}
-        <TopBar onIngestClick={() => setIngestOpen(true)} />
+        <TopBar
+          onIngestClick={() => setIngestOpen(true)}
+          onInstancesClick={() => setInstancesOpen(true)}
+          instanceCount={instanceSummary.instances.length}
+          conflictCount={instanceSummary.instances.filter((entry) => entry.conflicts.length > 0).length}
+        />
 
         {/* Main layout */}
         <div
@@ -425,13 +464,18 @@ export default function App() {
         {/* SSE toast notifications */}
         <ToastContainer />
 
+        <InstancesPanel
+          isOpen={instancesOpen}
+          onClose={() => setInstancesOpen(false)}
+        />
+
         {/* Reconnection overlay — MUST be last (highest z-index) */}
         <ReconnectionOverlay
           status={status}
           retryCount={retryCount}
           onRetry={retry}
         />
-      </div>
+        </div>
     </AppErrorBoundary>
   );
 }
