@@ -4,9 +4,17 @@ import { useGraphStore } from '../stores/graphStore';
 
 interface TopBarProps {
   onIngestClick: () => void;
+  onInstancesClick: () => void;
+  instanceCount?: number;
+  conflictCount?: number;
 }
 
-export default function TopBar({ onIngestClick }: TopBarProps) {
+export default function TopBar({
+  onIngestClick,
+  onInstancesClick,
+  instanceCount = 0,
+  conflictCount = 0,
+}: TopBarProps) {
   const { nodes, edges, isLoading, queryHistory } = useGraphStore();
   const [health, setHealth] = useState<{ status: string; node_count: number; edge_count: number } | null>(null);
   const [liveSync, setLiveSync] = useState(false);
@@ -69,6 +77,22 @@ export default function TopBar({ onIngestClick }: TopBarProps) {
             liveSync ? 'bg-emerald-900/30 border-emerald-600 text-emerald-400' : 'bg-m1nd-elevated border-m1nd-border-medium text-slate-500'}`}
           title="Auto-refresh graph every 3s">
           <span className={liveSync ? 'animate-pulse' : ''}>⟳</span><span>Live Sync</span>
+        </button>
+        <button onClick={onInstancesClick}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-m1nd-elevated border border-m1nd-border-medium text-slate-300 rounded hover:border-m1nd-accent hover:text-m1nd-accent transition-colors"
+          title="Open command center">
+          <span>◫</span>
+          <span>Instances</span>
+          {instanceCount > 0 && (
+            <span className="ml-1 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
+              {instanceCount}
+            </span>
+          )}
+          {conflictCount > 0 && (
+            <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-mono text-amber-300">
+              {conflictCount}
+            </span>
+          )}
         </button>
         <button onClick={onIngestClick}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-m1nd-elevated border border-m1nd-border-medium text-slate-300 rounded hover:border-m1nd-accent hover:text-m1nd-accent transition-colors"

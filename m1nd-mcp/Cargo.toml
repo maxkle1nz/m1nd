@@ -8,7 +8,7 @@ repository = "https://github.com/maxkle1nz/m1nd"
 
 [features]
 default = ["serve"]
-serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures"]
+serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest"]
 
 [dependencies]
 m1nd-core = { path = "../m1nd-core", version = "0.8.0" }
@@ -29,6 +29,7 @@ rust-embed = { version = "8", optional = true }
 mime_guess = { version = "2", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
+reqwest = { version = "0.13", features = ["json"], optional = true }
 
 [[bin]]
 name = "m1nd-mcp"
@@ -36,5 +37,4 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-reqwest = { version = "0.13", features = ["json"] }
 tokio-test = "0.4"

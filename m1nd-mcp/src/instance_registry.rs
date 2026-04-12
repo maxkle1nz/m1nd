@@ -215,6 +215,66 @@ pub fn list_instances(registry_root: Option<&Path>) -> M1ndResult<Vec<InstanceRe
     Ok(entries)
 }
 
+pub fn delete_instance_state(
+    instance_id: &str,
+    registry_root: Option<&Path>,
+) -> M1ndResult<InstanceRegistryEntry> {
+    let registry_root = registry_root
+        .map(canonicalish)
+        .transpose()?
+        .unwrap_or_else(default_registry_root);
+    let entry_path = registry_root
+        .join(INSTANCE_DIR_NAME)
+        .join(format!("{}.json", instance_id));
+    let mut entry: InstanceRegistryEntry = read_json(&entry_path)?;
+    entry.owner_live = Some(is_pid_live(entry.pid));
+    entry.stale = !entry.owner_live.unwrap_or(false) || is_stale(entry.last_heartbeat_ms);
+
+    if entry.owner_live.unwrap_or(false) {
+        return Err(M1ndError::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "cannot delete runtime state for live instance {} (pid {})",
+                entry.instance_id, entry.pid
+            ),
+        )));
+    }
+
+    let runtime_root = PathBuf::from(&entry.runtime_root);
+    let lease_path = registry_root
+        .join(LEASE_DIR_NAME)
+        .join(format!("{}.json", fingerprint_path(&runtime_root)));
+    if runtime_root.exists() {
+        let allowed = [
+            "graph.json",
+            "plasticity.json",
+            "antibodies.json",
+            "tremor_state.json",
+            "trust_state.json",
+            "savings_state.json",
+            "boot_memory_state.json",
+            "daemon_state.json",
+            "daemon_alerts.json",
+            "ingest_roots.json",
+            "auto_ingest_state.json",
+            "document_cache.json",
+            "cache_index.json",
+        ];
+        for name in allowed {
+            let candidate = runtime_root.join(name);
+            if candidate.exists() {
+                let _ = fs::remove_file(candidate);
+            }
+        }
+        if runtime_root.read_dir()?.next().is_none() {
+            let _ = fs::remove_dir(&runtime_root);
+        }
+    }
+    let _ = fs::remove_file(&entry_path);
+    let _ = fs::remove_file(&lease_path);
+    Ok(entry)
+}
+
 pub fn default_registry_root() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         return PathBuf::from(home).join(DEFAULT_REGISTRY_SUBDIR);
@@ -447,5 +507,76 @@ mod tests {
         assert!(instances
             .iter()
             .all(|entry| entry.conflicts.contains(&"duplicate_workspace".to_string())));
+    }
+
+    #[test]
+    fn deletes_stale_instance_runtime_state() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+        fs::write(runtime.join("graph.json"), "{}").unwrap();
+
+        let handle =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let mut stale = handle.summary();
+        stale.pid = u32::MAX - 1;
+        stale.last_heartbeat_ms = 0;
+        let entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", stale.instance_id));
+        save_json_atomic(&entry_path, &stale).unwrap();
+        let lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        save_json_atomic(&lease_path, &stale).unwrap();
+
+        let deleted = delete_instance_state(&stale.instance_id, Some(&registry)).unwrap();
+        assert_eq!(deleted.instance_id, stale.instance_id);
+        assert!(!runtime.exists());
+        assert!(!entry_path.exists());
+        assert!(!lease_path.exists());
+    }
+
+    #[test]
+    fn refuses_to_delete_stale_but_live_instance_runtime_state() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+        fs::write(runtime.join("graph.json"), "{}").unwrap();
+
+        let handle =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let mut stale = handle.summary();
+        stale.last_heartbeat_ms = 0;
+        let entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", stale.instance_id));
+        save_json_atomic(&entry_path, &stale).unwrap();
+        let lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        save_json_atomic(&lease_path, &stale).unwrap();
+
+        let error = delete_instance_state(&stale.instance_id, Some(&registry)).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("cannot delete runtime state for live instance"));
+        assert!(runtime.exists());
+        assert!(entry_path.exists());
+        assert!(lease_path.exists());
     }
 }

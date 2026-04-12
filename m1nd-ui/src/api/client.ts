@@ -1,4 +1,11 @@
-import type { HealthResponse, SubgraphResponse, ToolCallResult, ToolSchema } from './types';
+import type {
+  HealthResponse,
+  InstanceListResponse,
+  InstanceSelfResponse,
+  SubgraphResponse,
+  ToolCallResult,
+  ToolSchema,
+} from './types';
 
 const BASE_URL = import.meta.env.DEV ? 'http://localhost:1337' : '';
 
@@ -26,6 +33,23 @@ export class ApiError extends Error {
 
 export const api = {
   health: () => apiFetch<HealthResponse>('/api/health'),
+  instanceSelf: () => apiFetch<InstanceSelfResponse>('/api/instance/self'),
+  instances: () => apiFetch<InstanceListResponse>('/api/instances'),
+  saveSelfInstanceState: () =>
+    apiFetch<ToolCallResult>('/api/instance/save', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  saveInstanceState: (instanceId: string) =>
+    apiFetch<ToolCallResult>(`/api/instances/${encodeURIComponent(instanceId)}/save`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  deleteInstanceState: (instanceId: string) =>
+    apiFetch<{ deleted: unknown }>(`/api/instances/${encodeURIComponent(instanceId)}/delete-state`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 
   tools: () => apiFetch<{ tools: ToolSchema[] }>('/api/tools'),
 
