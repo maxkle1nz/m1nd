@@ -182,7 +182,7 @@ Pipeline: trail.save (mid-session) → trail.list (next session) → trail.resum
 
 ### 1.5 Architecture Exploration
 
-When onboarding to an unfamiliar codebase or recovering context after compaction:
+When onboarding to an unfamiliar codebase or recovering context after a long session:
 
 ```
 Pipeline: drift → layers → activate(domain) → why(a, b) → counterfactual(modules)

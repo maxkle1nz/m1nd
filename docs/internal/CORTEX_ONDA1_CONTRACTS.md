@@ -11,7 +11,7 @@
 1. **Read all existing surgical contract implementations** (3 separate type sets):
    - `protocol/surgical.rs` — live V1 types (file-oriented: `SurgicalContextInput{file_path}`, `ApplyInput{file_path, new_content}`)
    - `protocol/layers.rs` — TEMPESTA golden-test types (node-oriented: `SurgicalContextInput{node_id}`, `ApplyInput{node_id, line_start, line_end}`)
-   - `docs/SURGICAL_CONTEXT_CONTRACTS.md` — doc-only types with deeper features (antibodies, ghost edges, content hash)
+   - `docs/internal/SURGICAL_CONTEXT_CONTRACTS.md` — doc-only types with deeper features (antibodies, ghost edges, content hash)
 
 2. **Designed V2 contracts** that extend the LIVE V1 types (from `protocol/surgical.rs`), not the doc-only types:
 

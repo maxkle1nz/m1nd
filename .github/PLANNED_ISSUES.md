@@ -99,7 +99,7 @@ GUI/dashboard use cases.
 **Label**: testing
 
 `perspective.suggest` and `perspective.affinity` have minimal test coverage in the current
-test suite. `test_perspective_usecases.py` covers the happy path for `start`/`follow`/`back`
+test suite. `tests/e2e/test_perspective_usecases.py` covers the happy path for `start`/`follow`/`back`
 but misses:
 - `suggest` with no open perspective session (should return graceful error)
 - `affinity` on disconnected graph components

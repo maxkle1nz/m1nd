@@ -1,7 +1,7 @@
-🇬🇧 [English](README.md) | 🇧🇷 [Português](README.pt-br.md) | 🇪🇸 [Español](README.es.md) | 🇮🇹 [Italiano](README.it.md) | 🇫🇷 [Français](README.fr.md) | 🇩🇪 [Deutsch](README.de.md) | 🇨🇳 [中文](README.zh.md)
+🇬🇧 [English](../README.md) | 🇧🇷 [Português](README.pt-BR.md) | 🇪🇸 [Español](README.es.md) | 🇮🇹 [Italiano](README.it.md) | 🇫🇷 [Français](README.fr.md) | 🇩🇪 [Deutsch](README.de.md) | 🇨🇳 [中文](README.zh.md) | 🇯🇵 [日本語](README.ja.md)
 
 <p align="center">
-  <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
+  <img src="../.github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
 <h3 align="center">Costruito prima per gli agenti. Gli umani sono i benvenuti.</h3>
@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
 </p>
 
@@ -35,7 +35,7 @@
   <a href="#contributing">Contribuire</a> &middot;
   <a href="#license">Licenza</a> &middot;
   <a href="#tool-surface">Strumenti</a> &middot;
-  <a href="EXAMPLES.md">Esempi</a>
+  <a href="../EXAMPLES.md">Esempi</a>
 </p>
 
 <h4 align="center">Funziona con qualsiasi client MCP</h4>
@@ -224,7 +224,7 @@ Aggiungi a Claude Code (`~/.claude.json`):
 
 Funziona con qualsiasi client MCP che possa collegarsi a un server MCP: Claude Code, Codex, Cursor, Windsurf, Zed o uno tuo.
 
-Per repository più grandi e un utilizzo persistente, vedi [Deployment & Production Setup](docs/deployment.md).
+Per repository più grandi e un utilizzo persistente, vedi [Deployment & Production Setup](../docs/deployment.md).
 
 ## Graph-First Instead Of Text-First
 
@@ -244,7 +244,7 @@ Questo non sostituisce un LSP, un compilatore o una suite completa di static ana
 
 **Ti è stato utile?** [Metti una stella a questo repository](https://github.com/maxkle1nz/m1nd) -- aiuti altri a trovarlo.
 **Hai trovato un bug o un'idea?** [Apri una issue](https://github.com/maxkle1nz/m1nd/issues).
-**Vuoi andare più a fondo?** Consulta [EXAMPLES.md](EXAMPLES.md) per pipeline reali.
+**Vuoi andare più a fondo?** Consulta [EXAMPLES.md](../EXAMPLES.md) per pipeline reali.
 
 ## When It Is Useful
 
@@ -669,7 +669,7 @@ Il numero di linguaggi è ampio, ma la profondità varia da linguaggio a linguag
 ## Use Cases
 
 **Caccia ai bug:** `hypothesize` -> `missing` -> `flow_simulate` -> `trace`.
-Nel caso di audit documentato, questo ha ridotto l'esplorazione basata su grep e ha fatto emergere problemi che la semplice ricerca testuale non vedeva. [Caso studio ->](EXAMPLES.md)
+Nel caso di audit documentato, questo ha ridotto l'esplorazione basata su grep e ha fatto emergere problemi che la semplice ricerca testuale non vedeva. [Caso studio ->](../EXAMPLES.md)
 
 **Gate pre-deploy:** `antibody_scan` -> `validate_plan` -> `epidemic`.
 Scansiona i bug noti, valuta il blast radius, prevede la diffusione dell'infezione.
@@ -693,10 +693,10 @@ Vedi [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT -- vedi [LICENSE](LICENSE).
+MIT -- vedi [LICENSE](../LICENSE).
 
 ---
 
-**Vuoi workflow concreti?** Leggi [EXAMPLES.md](EXAMPLES.md).
+**Vuoi workflow concreti?** Leggi [EXAMPLES.md](../EXAMPLES.md).
 **Hai trovato un bug o una discrepanza?** [Apri una issue](https://github.com/maxkle1nz/m1nd/issues).
 **Vuoi tutta la superficie API?** Consulta il [wiki](https://github.com/maxkle1nz/m1nd/wiki).

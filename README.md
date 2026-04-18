@@ -1,4 +1,4 @@
-🇬🇧 [English](README.md) | 🇧🇷 [Português](README.pt-br.md) | 🇪🇸 [Español](README.es.md) | 🇮🇹 [Italiano](README.it.md) | 🇫🇷 [Français](README.fr.md) | 🇩🇪 [Deutsch](README.de.md) | 🇨🇳 [中文](README.zh.md)
+🇬🇧 [English](README.md) | 🇧🇷 [Português](i18n/README.pt-BR.md) | 🇪🇸 [Español](i18n/README.es.md) | 🇮🇹 [Italiano](i18n/README.it.md) | 🇫🇷 [Français](i18n/README.fr.md) | 🇩🇪 [Deutsch](i18n/README.de.md) | 🇨🇳 [中文](i18n/README.zh.md) | 🇯🇵 [日本語](i18n/README.ja.md)
 
 <p align="center">
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
@@ -30,10 +30,13 @@
   <a href="#what-m1nd-operationalizes">What It Operationalizes</a> &middot;
   <a href="#what-ships-today">What Ships Today</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#first-audit-in-60-seconds">First Audit</a> &middot;
+  <a href="#why-this-beats-blind-file-hunting">Why This Beats Blind File Hunting</a> &middot;
   <a href="#make-it-the-first-layer">Make It The First Layer</a> &middot;
   <a href="#proof">Proof</a> &middot;
   <a href="https://m1nd.world/wiki/">Wiki</a> &middot;
-  <a href="EXAMPLES.md">Examples</a>
+  <a href="EXAMPLES.md">Examples</a> &middot;
+  <a href="docs/use-cases.md">Use Cases</a>
 </p>
 
 <p align="center">
@@ -204,6 +207,64 @@ If docs/specs matter too:
 }}}
 ```
 
+## First Audit In 60 Seconds
+
+If someone asks "how do I test m1nd fast?", this is the shortest believable demo:
+
+1. start `m1nd-mcp`
+2. ingest a repo
+3. ask the model for a structural audit before any grep, glob, or manual file reads
+
+Use a prompt like this:
+
+```text
+Use m1nd first.
+Do not start with grep, glob, or manual file reads.
+Give me a quick audit of this codebase:
+- main modules
+- important relationships
+- likely blast radius areas
+- likely paths worth inspecting next
+- any obvious change or review risk
+```
+
+What you should get back is not a pile of file contents.
+It should be a structural orientation pass that narrows the search space before the model starts reading files.
+
+That is the point of m1nd:
+
+- less repo archaeology
+- fewer blind file opens
+- fewer wasted tokens rebuilding the same shape
+- faster movement toward the right files when reads are actually needed
+
+## Why This Beats Blind File Hunting
+
+The biggest waste is not output size by itself.
+It is the repeated orientation loop.
+
+Without structural grounding, agents tend to:
+
+- grep for a symbol
+- open a file
+- grep again for related paths
+- open more files
+- slowly rebuild the same system map in context
+
+`m1nd` changes that sequence.
+
+It gives the agent structure up front:
+
+- modules
+- relationships
+- blast radius
+- likely paths to inspect
+
+So the model spends less time rediscovering the repo and more time moving toward the right files, the right checks, and the right edits.
+
+That is why the win is not just fewer tokens.
+It is better orientation, better review paths, and better decisions before the agent starts touching the system.
+
 ## Make It The First Layer
 
 The highest-leverage adoption move is simple:
@@ -290,7 +351,9 @@ Current crate versions:
 - [Tool matrix](https://m1nd.world/wiki/tool-matrix.html)
 - [Architecture overview](https://m1nd.world/wiki/architecture/overview.html)
 - [Examples](EXAMPLES.md)
+- [Use Cases](docs/use-cases.md)
 - [Deployment & Production Setup](docs/deployment.md)
+- [Docs surface guide](docs/README.md)
 - [Release notes](https://github.com/maxkle1nz/m1nd/releases)
 
 ## When Not To Use m1nd

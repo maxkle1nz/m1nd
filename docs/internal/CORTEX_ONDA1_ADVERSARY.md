@@ -19,4 +19,4 @@ Identified 28 failure modes across 10 categories, with 7 blocking-shipment findi
 7. **NODE REMOVAL IS A NO-OP**: diff.rs DiffAction::RemoveNode does nothing (line 191-194). After apply_batch re-ingest, deleted symbols remain as ghost nodes.
 
 ## OUTPUT
-`/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd/docs/SURGICAL_V2_HARDENING.md`
+`docs/internal/SURGICAL_V2_HARDENING.md`

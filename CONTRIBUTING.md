@@ -8,7 +8,7 @@ capture surface for moments where an agent used `m1nd`, did not get the exact
 answer it needed, and had to compensate outside the graph.
 
 For large capability waves, follow
-[docs/M1ND-MAJOR-UPDATE-WORKFLOW.md](docs/M1ND-MAJOR-UPDATE-WORKFLOW.md) so
+[docs/internal/M1ND-MAJOR-UPDATE-WORKFLOW.md](docs/internal/M1ND-MAJOR-UPDATE-WORKFLOW.md) so
 code, docs, built docs, and release surfaces move together.
 
 ## Getting Started
@@ -341,14 +341,14 @@ its JSON-RPC interface:
 
 ```bash
 # Shell-based E2E
-./test_e2e.sh
-./test_mcp.sh
-./test_perspective_e2e.sh
+./tests/e2e/test_e2e.sh
+./tests/e2e/test_mcp.sh
+./tests/e2e/test_perspective_e2e.sh
 
 # Python-based scenarios
-python3 test_layers_e2e.py
-python3 test_advanced_usecases.py
-python3 test_perspective_usecases.py
+python3 tests/e2e/test_layers_e2e.py
+python3 tests/e2e/test_advanced_usecases.py
+python3 tests/e2e/test_perspective_usecases.py
 ```
 
 These scripts start the binary, send JSON-RPC calls over stdin, and assert on stdout.

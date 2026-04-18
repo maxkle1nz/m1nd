@@ -10,7 +10,7 @@ Primary source folder:
 
 Related system document:
 
-- [README_VISUAL_SYSTEM_2026-04-10.md](/Users/cosmophonix/.codex/worktrees/upstream/m1nd-upstream/docs/README_VISUAL_SYSTEM_2026-04-10.md)
+- [README_VISUAL_SYSTEM_2026-04-10.md](README_VISUAL_SYSTEM_2026-04-10.md)
 
 ---
 
