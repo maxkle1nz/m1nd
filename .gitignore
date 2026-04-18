@@ -1,6 +1,13 @@
 target/
+
+# Frontend dependencies/build outputs
+m1nd-demo/node_modules/
+m1nd-viz/node_modules/
+m1nd-demo/dist/
+wiki-build/
 m1nd-ui/node_modules/
-m1nd-ui/dist/
+# m1nd-ui/dist is intentionally tracked because the embedded UI is compiled into m1nd-mcp via rust-embed
+
 *.json
 !package.json
 !tsconfig.json
@@ -13,3 +20,4 @@ trust_state.json
 trails/
 .DS_Store
 *.bak
+*.tsbuildinfo
