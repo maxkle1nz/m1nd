@@ -6,7 +6,7 @@
 
 <p align="center">
   ヘブ可塑性、スプレッディングアクティベーション、<br/>
-  61のMCPツールを備えたニューロシンボリック・コネクトームエンジン。Rustで構築、AIエージェント向け。
+  ライブMCPツール群を備えたニューロシンボリック・コネクトームエンジン。Rustで構築、AIエージェント向け。
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 <p align="center">
   <a href="#30秒で最初のクエリ">クイックスタート</a> &middot;
   <a href="#実証済みの結果">実証済みの結果</a> &middot;
-  <a href="#61のツール">61のツール</a> &middot;
+  <a href="#ツールサーフェス">ツールサーフェス</a> &middot;
   <a href="#m1ndの使用例">ユースケース</a> &middot;
   <a href="#m1ndが存在する理由">なぜm1ndか</a> &middot;
   <a href="#アーキテクチャ">アーキテクチャ</a> &middot;
@@ -95,7 +95,7 @@ Criterionマイクロベンチマーク（実ハードウェア、1Kノードグ
 
 ```bash
 # ソースからビルド
-git clone https://github.com/cosmophonix/m1nd.git
+git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd && cargo build --release
 
 # 実行（JSON-RPC stdioサーバーを起動 — あらゆるMCPクライアントで動作）
@@ -104,17 +104,17 @@ cd m1nd && cargo build --release
 
 ```jsonc
 // 1. コードベースを取り込む（335ファイルで910ms）
-{"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 // → 9,767ノード、26,557エッジ、PageRank計算完了
 
 // 2. 「認証に関連するものは？」と尋ねる
-{"method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"authentication","agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication","agent_id":"dev"}}}
 // → authモジュールが発火 → session、middleware、JWT、userモデルへ伝播
 //   ゴーストエッジが未文書の接続を明らかにする
 //   31msで4次元関連度ランキング
 
 // 3. 役に立った結果をグラフに伝える
-{"method":"tools/call","params":{"name":"m1nd.learn","arguments":{"feedback":"correct","node_ids":["file::auth.py","file::middleware.py"],"agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"learn","arguments":{"feedback":"correct","node_ids":["file::auth.py","file::middleware.py"],"agent_id":"dev"}}}
 // → 740エッジがヘブLTP（長期増強）で強化される。次のクエリはより賢くなる。
 ```
 
@@ -244,7 +244,7 @@ missing("GUI web server")
 - **トラストレジャー** — 欠陥履歴からのモジュールごとのアクチュアリースコア。確認されたバグが多い = 低信頼 = アクティベーションクエリでの高リスク重み付け。
 - **レイヤー検出** — グラフトポロジーからアーキテクチャレイヤーを自動検出し、依存関係違反（上方エッジ、循環依存、レイヤースキップ）を報告します。
 
-## 61のツール
+## ツールサーフェス
 
 ### 基盤（13ツール）
 
@@ -335,7 +335,7 @@ m1nd/
                  抗体、フロー、エピデミック、トレモア、トラスト、レイヤー検出、ドメイン設定
   m1nd-ingest/   言語エクストラクター（28言語）、メモリアダプター、JSONアダプター、
                  git強化、クロスファイルリゾルバー、インクリメンタルdiff
-  m1nd-mcp/      MCPサーバー、61ツールハンドラー、stdioを介したJSON-RPC
+  m1nd-mcp/      MCPサーバー、ライブMCPツールハンドラー、stdioを介したJSON-RPC
 ```
 
 **純粋なRust。** ランタイム依存関係なし。LLM呼び出しなし。APIキー不要。バイナリは約8MBで、Rustがコンパイルできる場所ならどこでも動作します。
@@ -400,7 +400,7 @@ graph LR
     end
 ```
 
-（Mermaidダイアグラムは後方互換性のため「52 Tools」と表示されていますが、実際のツール数は **61ツール** です）
+（Mermaidダイアグラムは後方互換性のため「52 Tools」と表示されていますが、正確なライブ件数は `tools/list` を真実のソースとして確認してください）
 
 ### 言語サポート
 
@@ -424,13 +424,13 @@ cargo build --release --features tier1,tier2
 
 **Code（デフォルト）**
 ```jsonc
-{"name":"m1nd.ingest","arguments":{"path":"/your/project","agent_id":"dev"}}
+{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}
 ```
 ソースファイルを解析し、クロスファイルエッジを解決し、git履歴で強化します。
 
 **Memory / Markdown**
 ```jsonc
-{"name":"m1nd.ingest","arguments":{
+{"name":"ingest","arguments":{
   "path":"/your/notes",
   "adapter":"memory",
   "namespace":"project-memory",
@@ -449,7 +449,7 @@ memory::<namespace>::reference::<referenced-path-slug>
 
 **JSON（ドメイン非依存）**
 ```jsonc
-{"name":"m1nd.ingest","arguments":{
+{"name":"ingest","arguments":{
   "path":"/your/domain.json",
   "adapter":"json",
   "agent_id":"dev"
@@ -526,7 +526,7 @@ JSONノード:
 | バグ伝播モデル | No | No | No | No | **SIRエピデミックエンジン** |
 | 障害前トレモア | No | No | No | No | **変更加速検出** |
 | アーキテクチャレイヤー | No | No | No | No | **自動検出 + 違反レポート** |
-| エージェントインターフェース | API | N/A | CLI | N/A | **61 MCPツール** |
+| エージェントインターフェース | API | N/A | CLI | N/A | **ライブMCPツール群** |
 | クエリあたりコスト | ホスト型SaaS | サブスクリプション | LLMトークン | LLMトークン | **ゼロ** |
 
 ## m1ndを使わないべき場合
@@ -778,7 +778,7 @@ epidemic(infected_nodes=["file::worker_pool.py"], direction="forward", top_k=10)
 
 ```jsonc
 {
-  "name": "m1nd.apply_batch",
+  "name": "apply_batch",
   "arguments": {
     "writes": [
       {"file_path": "src/auth.py", "new_content": "..."},
@@ -835,6 +835,6 @@ MIT — [LICENSE](../LICENSE) を参照。
 ---
 
 <p align="center">
-  Created by <a href="https://github.com/cosmophonix">Max Elias Kleinschmidt</a><br/>
+  Created by <a href="https://github.com/maxkle1nz">Max Elias Kleinschmidt</a><br/>
   <em>The graph must learn.</em>
 </p>

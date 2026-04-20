@@ -1111,7 +1111,7 @@ the most dangerous bugs live.
 
 ## 8. HTTP Server + GUI Mode
 
-Built with `--features serve`. The HTTP server exposes all 61 MCP tools as a REST API and
+Built with `--features serve`. The HTTP server exposes the live MCP tool surface as a REST API and
 serves an embedded React graph visualization UI. The stdio JSON-RPC transport and the HTTP
 transport share the same graph state.
 

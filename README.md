@@ -4,15 +4,15 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Built for agents first. Humans are welcome.</h3>
+<h3 align="center">Local graph runtime for coding agents</h3>
 
 <p align="center">
-  <strong>The software intelligence layer for AI agents.</strong>
+  <strong>Structure, impact, and connected context before the model edits code.</strong>
 </p>
 
 <p align="center">
-  m1nd gives agents a clear view of what changes will touch before they get lost in grep loops and endless file hunting.<br/>
-  It pulls code, docs, and system details into a single layer AI agents can actually work with.<br/>
+  m1nd is a local MCP server that turns code, docs, change history, and graph-native knowledge into a queryable graph.<br/>
+  Agents use it to orient on unfamiliar repos, retrieve code by intent or relationship, predict change impact, prepare connected edits, keep investigation state across sessions, and work across repo boundaries.<br/>
   <em>Local execution. MCP over stdio. Optional HTTP/UI surface in the default build.</em>
 </p>
 
@@ -25,15 +25,13 @@
 </p>
 
 <p align="center">
-  <a href="#why-m1nd">Why m1nd</a> &middot;
-  <a href="#why-first">Why First</a> &middot;
-  <a href="#what-m1nd-operationalizes">What It Operationalizes</a> &middot;
-  <a href="#what-ships-today">What Ships Today</a> &middot;
+  <a href="#what-m1nd-is">What m1nd Is</a> &middot;
+  <a href="#capability-map">Capability Map</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#first-audit-in-60-seconds">First Audit</a> &middot;
-  <a href="#why-this-beats-blind-file-hunting">Why This Beats Blind File Hunting</a> &middot;
-  <a href="#make-it-the-first-layer">Make It The First Layer</a> &middot;
-  <a href="#proof">Proof</a> &middot;
+  <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
+  <a href="#evidence">Evidence</a> &middot;
+  <a href="#limits">Limits</a> &middot;
+  <a href="#architecture-at-a-glance">Architecture</a> &middot;
   <a href="https://m1nd.world/wiki/">Wiki</a> &middot;
   <a href="EXAMPLES.md">Examples</a> &middot;
   <a href="docs/use-cases.md">Use Cases</a>
@@ -53,127 +51,39 @@
 </p>
 
 <p align="center">
-  <img src=".github/m1nd-key-visual-v2.jpeg" alt="m1nd — code, docs, and change as one operable system for agents" width="860" />
-</p>
-
-<p align="center">
   <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>
 
-## Why m1nd
+## What m1nd Is
 
-LLMs are good at local pattern matching and bad at durable operational understanding.
+`m1nd` is the structural layer between a coding agent and a codebase.
 
-Without a structural layer, an agent usually does this:
+It ingests repositories, documentation, and graph-native knowledge into a graph exposed through MCP. That graph lets the agent ask better questions before it starts reading files or editing code.
 
-1. grep for a symbol
-2. open a file
-3. grep again for callers, callees, or related paths
-4. open more files
-5. rediscover the same system shape every turn
+With `m1nd`, an agent can:
 
-That costs:
+- orient on an unfamiliar repo with single-request audits and structural retrieval
+- find code by text, path, intent, neighborhood, relationship, or failure trace
+- predict blast radius, co-change, missing work, and structural risk before edits
+- bind specs and docs back to implementation, including `L1GHT` and universal document lanes
+- keep investigation state across turns with perspectives, trails, locks, and daemon alerts
+- work across repo boundaries and compare graph state against disk, git, and runtime evidence
 
-- too many file reads
-- too many tokens spent rebuilding context
-- too many blind edits
-- too much drift between code and docs
-- too much lost continuity across sessions
+## Capability Map
 
-m1nd exists to compensate for that.
+The live MCP surface evolves with releases. Use `tools/list` for the exact tool count and names in your current build.
 
-It ingests a repository once, turns it into a graph, and gives the agent a durable layer for:
-
-- structural truth
-- connected context
-- change reasoning
-- document grounding
-- operational continuity
-
-> `grep` finds what the agent asked for.
-> `m1nd` helps the agent understand what it is about to touch.
-
-## Why First
-
-`m1nd` should be the first layer an agent reaches for before it acts on a system.
-
-### Before search
-Use `m1nd` to find the structure that matters, not only the text that matches.
-
-### Before edit
-Use `m1nd` to see blast radius, co-change risk, and connected edit context.
-
-### Before review
-Use `m1nd` to understand what is risky, what is missing, and what else moved.
-
-### Before docs work
-Use `m1nd` to bind specs, notes, and concepts back to implementation.
-
-### Before operations
-Use `m1nd` to audit drift, monitor watched roots, and surface durable alerts.
-
-```mermaid
-flowchart LR
-    subgraph Old["Stateless Agent Loop"]
-        A1["grep"] --> A2["open file"]
-        A2 --> A3["grep again"]
-        A3 --> A4["open more files"]
-        A4 --> A5["guess impact"]
-    end
-
-    subgraph New["m1nd-Grounded Agent Loop"]
-        B1["ingest once"] --> B2["understand structure"]
-        B2 --> B3["predict impact"]
-        B3 --> B4["pull connected context"]
-        B4 --> B5["act with proof"]
-    end
-```
-
-## What m1nd Operationalizes
-
-`m1nd` goes beyond just indexing code.
-
-It pulls together all sorts of technical pieces into one layer agents can actually work with:
-
-- code
-- docs
-- specs
-- concepts
-- change
-- runtime state
-- multi-repo edges
-
-That is why it is not merely code search, review, or docs tooling.
-
-It makes those surfaces legible and usable as one.
-
-## What Ships Today
-
-The current live MCP surface exposes **93 tools**, but readers should understand the jobs first:
-
-| Job | What it means | Representative tools |
+| Area | What it enables | Representative tools |
 |---|---|---|
-| Understand the system | turn repos, docs, and concepts into connected structural truth | `ingest`, `activate`, `seek`, `why`, `search`, `document_resolve` |
-| Predict and verify change | see blast radius, drift, and safe mutation context before and after edits | `impact`, `predict`, `validate_plan`, `surgical_context_v2`, `apply_batch(verify=true)` |
-| Keep context alive over time | monitor, audit, persist, and coordinate beyond one turn or one repo | `audit`, `cross_verify`, `daemon_*`, `alerts_*`, `boot_memory`, `federate_auto` |
-
-<details>
-<summary><strong>Expanded layer view</strong></summary>
-
-| Layer | What it enables | Representative tools |
-|---|---|---|
-| Structural truth | turn repos into navigable graph truth | `ingest`, `activate`, `seek`, `why`, `search`, `impact` |
-| Document intelligence | bind docs/specs/concepts to implementation | `L1GHT`, `document_resolve`, `document_bindings`, `document_drift`, `auto_ingest_*` |
-| Change intelligence | reason about what breaks, what moves, and what is missing | `predict`, `validate_plan`, `trace`, `missing`, `hypothesize`, `counterfactual` |
-| Surgical execution | move from reasoning to bounded safe mutation | `surgical_context`, `surgical_context_v2`, `apply`, `apply_batch`, `edit_preview`, `edit_commit` |
-| Operational runtime | keep the system live, watched, and continuity-aware | `audit`, `cross_verify`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`, `boot_memory` |
-| Federation | operate beyond a single repo | `federate`, `federate_auto`, `external_references` |
-
-</details>
-
-<p align="center">
-  <img src=".github/m1nd-operability-surface-v2.jpeg" alt="m1nd understand, predict, and verify surface" width="960" />
-</p>
+| Graph foundation | ingest code, maintain graph state, and reinforce useful paths over time | `ingest`, `health`, `learn`, `warmup`, `resonate` |
+| Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
+| Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
+| Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `lock_*`, `coverage_session`, `boot_memory` |
+| Change planning and proof | reason about impact, co-change, missing steps, failure paths, and structural claims | `impact`, `predict`, `validate_plan`, `missing`, `hypothesize`, `counterfactual`, `differential` |
+| Quality, security, and architecture | detect patterns, taint paths, trust boundaries, duplication, layer violations, type flows, simulations, and refactor targets | `scan`, `scan_all`, `heuristics_surface`, `antibody_*`, `taint_trace`, `type_trace`, `trust`, `layers`, `layer_inspect`, `twins`, `fingerprint`, `flow_simulate`, `epidemic`, `tremor`, `refactor_plan` |
+| Time, runtime, and multi-repo work | inspect git history, drift, hidden co-change edges, runtime overlays, and cross-repo references | `timeline`, `diverge`, `ghost_edges`, `runtime_overlay`, `external_references`, `federate`, `federate_auto` |
+| Operations and monitoring | audit repo state, verify graph-vs-disk truth, run daemon watches, persist state, and surface durable alerts | `audit`, `cross_verify`, `daemon_*`, `alerts_*`, `panoramic`, `metrics`, `report`, `savings`, `persist`, `diagram`, `help` |
+| Surgical edit prep and execution | pull compact connected context, preview writes, and apply graph-aware edits | `surgical_context`, `surgical_context_v2`, `view`, `batch_view`, `edit_preview`, `edit_commit`, `apply`, `apply_batch` |
 
 ## Quick Start
 
@@ -186,148 +96,84 @@ cargo build --release
 ./target/release/m1nd-mcp
 ```
 
+Then connect it to your client using the [integration matrix](docs/IDE-INTEGRATIONS.md).
+
+The canonical live tool names are the bare names returned by `tools/list`, such as `ingest`, `activate`, and `audit`.
+
 Then do three things:
 
 ```jsonc
 // 1. Build graph truth
-{"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 
-// 2. Ask a structural question
-{"method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
+// 2. Get a single-request structural orientation pass
+{"method":"tools/call","params":{"name":"audit","arguments":{"agent_id":"dev","path":"/your/project","profile":"auto"}}}
 
-// 3. Reinforce what was useful
-{"method":"tools/call","params":{"name":"m1nd.learn","arguments":{"query":"authentication flow","feedback":"correct","node_ids":["file::auth.py"],"agent_id":"dev"}}}
+// 3. Ask a structural question
+{"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
-If docs/specs matter too:
+Before risky edits, move to `impact`, `predict`, and `validate_plan`, then use `surgical_context_v2` for connected edit prep.
+
+If docs or specs matter too:
 
 ```jsonc
-{"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{
+{"method":"tools/call","params":{"name":"ingest","arguments":{
   "path":"/your/docs","adapter":"universal","mode":"merge","agent_id":"dev"
 }}}
 ```
 
-## First Audit In 60 Seconds
+For graph-native semantic docs, use `adapter: "light"` instead.
 
-If someone asks "how do I test m1nd fast?", this is the shortest believable demo:
+## Default Agent Workflow
 
-1. start `m1nd-mcp`
-2. ingest a repo
-3. ask the model for a structural audit before any grep, glob, or manual file reads
-
-Use a prompt like this:
+Make `m1nd` the default investigative layer before `rg`, filesystem globbing, or manual file reads when the task depends on structure, docs, impact, or change.
 
 ```text
-Use m1nd first.
-Do not start with grep, glob, or manual file reads.
-Give me a quick audit of this codebase:
-- main modules
-- important relationships
-- likely blast radius areas
-- likely paths worth inspecting next
-- any obvious change or review risk
+exact text                -> `search`
+path pattern              -> `glob`
+purpose or subsystem      -> `seek` or `activate`
+unfamiliar repo           -> `audit`
+runtime error or trace    -> `trace`
+risky change              -> `impact`, `predict`, `validate_plan`, then usually `surgical_context_v2`
+docs or specs             -> `ingest` with `universal` or `light`, then `document_*`
+long-lived investigation  -> `perspective_*`, `trail_*`, `lock_*`, `daemon_*`, `alerts_*`
+unsure what to call       -> `help`
 ```
 
-What you should get back is not a pile of file contents.
-It should be a structural orientation pass that narrows the search space before the model starts reading files.
+Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world/wiki/), the local [integration matrix](docs/IDE-INTEGRATIONS.md), and deeper examples in [EXAMPLES.md](EXAMPLES.md).
 
-That is the point of m1nd:
-
-- less repo archaeology
-- fewer blind file opens
-- fewer wasted tokens rebuilding the same shape
-- faster movement toward the right files when reads are actually needed
-
-## Why This Beats Blind File Hunting
-
-The biggest waste is not output size by itself.
-It is the repeated orientation loop.
-
-Without structural grounding, agents tend to:
-
-- grep for a symbol
-- open a file
-- grep again for related paths
-- open more files
-- slowly rebuild the same system map in context
-
-`m1nd` changes that sequence.
-
-It gives the agent structure up front:
-
-- modules
-- relationships
-- blast radius
-- likely paths to inspect
-
-So the model spends less time rediscovering the repo and more time moving toward the right files, the right checks, and the right edits.
-
-That is why the win is not just fewer tokens.
-It is better orientation, better review paths, and better decisions before the agent starts touching the system.
-
-## Make It The First Layer
-
-The highest-leverage adoption move is simple:
-
-> **make m1nd mandatory before search, edit, review, or change.**
-
-### Minimum rule
-
-```text
-You have m1nd available via MCP.
-Use m1nd before grep, glob, or manual file reads when the task depends on structure, impact, docs, or change.
-
-- use m1nd.search for exact text
-- use m1nd.activate / m1nd.seek for connected structure
-- use m1nd.impact before edits
-- use m1nd.validate_plan before risky changes
-- use m1nd.surgical_context_v2 before multi-file edits
-- use m1nd.document_* when specs/docs matter
-- use m1nd.audit / daemon_* / alerts_* for ongoing repo operations
-- use m1nd.help when unsure
-```
-
-Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world/wiki/) and deeper examples live in [EXAMPLES.md](EXAMPLES.md).
-
-## Proof
-
-These are grounded in current code, tests, and docs. They are receipts, not slogans.
+## Evidence
 
 | Metric | Observed result |
 |---|---|
-| Public MCP surface | **93 tools** ([tool matrix](https://m1nd.world/wiki/tool-matrix.html)) |
+| Live runtime check | Verified locally with `ingest`, `audit(path=...)`, `activate`, and `help` |
+| Public MCP surface | Use `tools/list` for the exact live count; the verified runtime behind this README returned bare names such as `ingest`, `activate`, `audit`, and `diagram` |
 | `activate` on 1K nodes | **1.36 µs** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | `impact` depth=3 | **543 ns** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | Post-write validation sample | **12/12** classified correctly |
 
-The important product claim is not “fast graph queries” by itself.
+## Limits
 
-It is this:
-
-> Fast graph queries are not the real point.
-> `m1nd` cuts context waste and blind changes by giving the agent operational understanding before it acts.
-
-## Where It Fits
-
-`m1nd` is not trying to replace:
+`m1nd` complements rather than replaces:
 
 - your LSP
 - your compiler
 - your test runner
-- your static security suite
+- your security scanners
 - your observability stack
 
-It sits in the gap they do not solve well for agents:
+It is most useful before search, review, or change, and whenever docs, impact, or continuity matter.
 
-- before the agent acts
-- while the agent is orienting
-- when code and docs need to be bound
-- when change needs prediction
-- when continuity matters across sessions
+It is less useful when:
+
+- exact text search already answers the question
+- compiler or runtime truth is the only thing you need
+- the task is a trivial local file action with no structural uncertainty
 
 ## Architecture At A Glance
 
-The workspace has three core crates plus one auxiliary bridge crate:
+The workspace is split into three core crates plus one auxiliary bridge crate:
 
 - `m1nd-core` — graph engine and reasoning primitives
 - `m1nd-ingest` — extraction, routing, and graph construction
@@ -355,13 +201,6 @@ Current crate versions:
 - [Deployment & Production Setup](docs/deployment.md)
 - [Docs surface guide](docs/README.md)
 - [Release notes](https://github.com/maxkle1nz/m1nd/releases)
-
-## When Not To Use m1nd
-
-- when exact text search is already enough
-- when you need compiler-grade value-flow guarantees
-- when you only need runtime logs and traces, not structural understanding
-- when the repo is so large that in-memory graph cost dominates the gain
 
 ## Contributing
 

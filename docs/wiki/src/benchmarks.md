@@ -146,7 +146,7 @@ JSON serialization scales linearly with state size. A 10K-node graph persists in
 To reproduce these benchmarks:
 
 ```bash
-git clone https://github.com/cosmophonix/m1nd.git
+git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build --release
 

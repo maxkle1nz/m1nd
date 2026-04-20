@@ -1,6 +1,6 @@
 # MCP Server (m1nd-mcp)
 
-m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 93 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, observable batch execution, and a local-first document runtime.
+m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest through the live MCP tool surface over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, observable batch execution, and a local-first document runtime. Use `tools/list` for the exact count in your current build.
 
 Source: `m1nd-mcp/src/`
 

@@ -4,7 +4,7 @@
 
 ### What is m1nd?
 
-m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and currently exposes 93 MCP tools for structure, impact, connected context, continuity, audit, document intelligence, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
+m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and exposes a live MCP tool surface for structure, impact, connected context, continuity, audit, document intelligence, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
 
 The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as `proof_state`, `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`, plus observable progress for long-running writes like `apply_batch`.
 
@@ -50,7 +50,7 @@ Language breadth is broad, but semantic depth still varies by language. Python a
 
 ### Is m1nd open source?
 
-Yes. MIT license. Source at [github.com/cosmophonix/m1nd](https://github.com/cosmophonix/m1nd).
+Yes. MIT license. Source at [github.com/maxkle1nz/m1nd](https://github.com/maxkle1nz/m1nd).
 
 ---
 
@@ -327,7 +327,7 @@ m1nd can be used *alongside* Copilot -- through MCP, Copilot can call m1nd tools
 
 ### How do I contribute?
 
-See [CONTRIBUTING.md](https://github.com/cosmophonix/m1nd/blob/main/CONTRIBUTING.md). Fork the repo, create a branch, make your changes with tests, and open a PR.
+See [CONTRIBUTING.md](https://github.com/maxkle1nz/m1nd/blob/main/CONTRIBUTING.md). Fork the repo, create a branch, make your changes with tests, and open a PR.
 
 ### What is the test suite?
 
@@ -353,4 +353,4 @@ Tests cover the core graph engine, plasticity, spreading activation, hypothesis 
 
 ### Where do I report bugs?
 
-GitHub Issues at [github.com/cosmophonix/m1nd/issues](https://github.com/cosmophonix/m1nd/issues). Use the `bug` label.
+GitHub Issues at [github.com/maxkle1nz/m1nd/issues](https://github.com/maxkle1nz/m1nd/issues). Use the `bug` label.

@@ -582,7 +582,7 @@ MIT -- siehe [LICENSE](../LICENSE).
 ---
 
 <p align="center">
-  Erstellt von <a href="https://github.com/cosmophonix">Max Elias Kleinschmidt</a><br/>
+  Erstellt von <a href="https://github.com/maxkle1nz">Max Elias Kleinschmidt</a><br/>
   <em>KI sollte verstärken, niemals ersetzen. Mensch und Maschine in Symbiose.</em><br/>
   <em>Wenn du es träumen kannst, kannst du es bauen. m1nd verkürzt den Abstand.</em>
 </p>

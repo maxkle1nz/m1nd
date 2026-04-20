@@ -80,6 +80,30 @@ The exact file path depends on how you run Claude Code, but the current repo REA
 }
 ```
 
+### Codex
+
+Codex reads MCP servers from `~/.codex/config.toml`.
+
+Use:
+
+```toml
+[mcp_servers.m1nd]
+command = "/path/to/m1nd-mcp"
+args = ["--stdio", "--no-gui"]
+
+[mcp_servers.m1nd.env]
+M1ND_GRAPH_SOURCE = "/tmp/m1nd-graph.json"
+M1ND_PLASTICITY_STATE = "/tmp/m1nd-plasticity.json"
+```
+
+Verify with:
+
+```bash
+codex mcp list
+```
+
+If the entry is enabled, restart Codex if needed and make the first call through the MCP tool surface.
+
 ### Cursor
 
 In MCP Servers, use the same binary + env setup:
@@ -224,7 +248,32 @@ Current response shape in the repo:
 }
 ```
 
-### Step 3: ingest a document root with the universal lane
+### Step 3: run a first structural audit
+
+`audit` is the fastest one-call orientation pass, and it requires the repo root path:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "audit",
+    "arguments": {
+      "agent_id": "dev",
+      "path": "/path/to/your/project",
+      "profile": "auto"
+    }
+  }
+}
+```
+
+Use it when you want:
+
+- top-level module shape
+- likely risk seams
+- git/filesystem verification
+- a first recommendation for where to inspect next
+
+### Step 4: ingest a document root with the universal lane
 
 If your investigation spans specs, notes, wiki pages, or office/PDF artifacts, ingest them into the same graph instead of keeping them outside the runtime:
 
@@ -262,7 +311,7 @@ This is the shortest path from “there is a doc” to “the agent can reason o
 
 If you see `node_count: 0`, your ingest path was wrong or the ingest did not run.
 
-### Step 4: ask the graph something real
+### Step 5: ask the graph something real
 
 ```jsonc
 {

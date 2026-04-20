@@ -13,6 +13,7 @@ The high-level rule is simple:
 | Client | Integration surface | Config location / entrypoint | What to point at |
 |---|---|---|---|
 | Claude Code | MCP config file | `.claude/mcp.json` or `claude_mcp.json` | `m1nd-mcp` |
+| Codex | MCP config in TOML | `~/.codex/config.toml` | `m1nd-mcp` |
 | Cursor | MCP config file | `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` | `m1nd-mcp` or a thin native proxy |
 | Windsurf | MCP config file | Windsurf MCP settings / config JSON | `m1nd-mcp` or a thin native proxy |
 | GitHub Copilot coding agent | Repository MCP config UI | repository settings UI for MCP servers | `m1nd-mcp` or an editor-facing native proxy command |
@@ -37,6 +38,18 @@ Most hosts are perfectly fine with:
     }
   }
 }
+```
+
+Codex uses the same idea, but in TOML:
+
+```toml
+[mcp_servers.m1nd]
+command = "/path/to/m1nd-mcp"
+args = ["--stdio", "--no-gui"]
+
+[mcp_servers.m1nd.env]
+M1ND_GRAPH_SOURCE = "/tmp/m1nd-graph.json"
+M1ND_PLASTICITY_STATE = "/tmp/m1nd-plasticity.json"
 ```
 
 But some editor hosts still pay too much overhead if they cold-start a stdio MCP
@@ -105,5 +118,5 @@ Examples:
 
 - Antigravity integration is grounded from the local product schema that recognizes
   `mcp_config.json`.
-- Cursor, Windsurf, Claude Code, GitHub Copilot coding agent, Zed, and Continue
+- Codex, Cursor, Windsurf, Claude Code, GitHub Copilot coding agent, Zed, and Continue
   all fit the same conceptual model: host config chooses the command, env, and working directory.

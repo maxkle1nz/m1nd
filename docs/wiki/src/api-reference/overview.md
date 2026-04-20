@@ -1,6 +1,6 @@
 # API Reference Overview
 
-m1nd currently exposes **93 MCP tools** over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`.
+m1nd exposes the live MCP tool surface over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`. Use `tools/list` for the exact count in your current build.
 
 Several tools now do more than return raw results. On the main structural flows you should expect some combination of:
 
@@ -241,4 +241,4 @@ Then list available tools:
 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
 ```
 
-This returns the full schema for all 93 tools with `inputSchema` for each.
+This returns the full schema for the live tool surface with `inputSchema` for each entry. Treat `tools/list` as the source of truth for the exact count in your current build.

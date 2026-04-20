@@ -159,16 +159,16 @@ cargo build --release
 
 ```jsonc
 // 1. Ingira sua codebase (910ms para 335 arquivos)
-{"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 // -> 9,767 nós, 26,557 arestas, PageRank calculado
 
 // 2. Pergunte: "O que está relacionado à autenticação?"
-{"method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"authentication","agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication","agent_id":"dev"}}}
 // -> auth dispara -> se propaga para session, middleware, JWT, model de usuário
 //    ghost edges revelam conexões não documentadas
 
 // 3. Diga ao grafo o que foi útil
-{"method":"tools/call","params":{"name":"m1nd.learn","arguments":{"feedback":"correct","node_ids":["file::auth.py","file::middleware.py"],"agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"learn","arguments":{"feedback":"correct","node_ids":["file::auth.py","file::middleware.py"],"agent_id":"dev"}}}
 // -> 740 arestas fortalecidas via Hebbian LTP. A próxima consulta fica mais inteligente.
 ```
 
@@ -226,16 +226,16 @@ m1nd é mais útil quando o agente para de tratar o repositório como uma pilha 
 
 ```text
 REGRA CRÍTICA: você tem m1nd disponível via MCP. Você DEVE usar m1nd ANTES de recorrer a ferramentas tradicionais como grep, glob ou leitura de arquivos.
-- m1nd.search(mode="literal") substitui grep — encontra strings exatas com contexto do grafo
+- search(mode="literal") substitui grep — encontra strings exatas com contexto do grafo
   Use `auto_ingest=true` quando `scope` apontar para um caminho real fora das ingest roots atuais. A autoingestão só acontece quando o scope resolve para exatamente um caminho.
-- m1nd.activate substitui glob — encontra código relacionado por significado, não por nome de arquivo
-- m1nd.heuristics_surface explica por que um nó ou arquivo ficou ranqueado como arriscado ou importante
-- m1nd.validate_plan anexa `heuristics_surface_ref` a hotspots e lacunas para que o agente pule direto para a explicação
-- m1nd.surgical_context_v2 substitui Read — retorna source + todos os arquivos conectados em uma chamada, com `heuristic_summary` no arquivo principal e em cada arquivo conectado para trust/tremor/antibody/blast-radius risk
-- m1nd.impact substitui a verificação manual de dependências — mostra o blast radius antes das edições
-- m1nd.apply substitui Edit — escreve código e atualiza o grafo automaticamente
-- m1nd.apply_batch(verify=true) — grava múltiplos arquivos + verificação pós-escrita em 5 camadas
-- m1nd.help() — chame quando não tiver certeza de qual ferramenta usar
+- activate substitui glob — encontra código relacionado por significado, não por nome de arquivo
+- heuristics_surface explica por que um nó ou arquivo ficou ranqueado como arriscado ou importante
+- validate_plan anexa `heuristics_surface_ref` a hotspots e lacunas para que o agente pule direto para a explicação
+- surgical_context_v2 substitui Read — retorna source + todos os arquivos conectados em uma chamada, com `heuristic_summary` no arquivo principal e em cada arquivo conectado para trust/tremor/antibody/blast-radius risk
+- impact substitui a verificação manual de dependências — mostra o blast radius antes das edições
+- apply substitui Edit — escreve código e atualiza o grafo automaticamente
+- apply_batch(verify=true) — grava múltiplos arquivos + verificação pós-escrita em 5 camadas
+- help() — chame quando não tiver certeza de qual ferramenta usar
 ```
 
 ### Claude Code (`CLAUDE.md`)
@@ -259,9 +259,9 @@ Copie e cole isto no `.cursorrules`:
 
 ```text
 Ao explorar código, use ferramentas MCP do m1nd em vez de grep:
-- m1nd.search para encontrar código
-- m1nd.activate para entender relações
-- m1nd.impact antes de fazer mudanças
+- search para encontrar código
+- activate para entender relações
+- impact antes de fazer mudanças
 ```
 
 ### Por Que Isso Importa
@@ -334,9 +334,9 @@ The [⍂ entity: TokenValidator] runs HMAC-SHA256 checks.
 
 ```python
 # Ingest code + specs into a unified graph
-m1nd.ingest({"path": "./src", "adapter": "code", "mode": "replace"})
-m1nd.ingest({"path": "./docs/specs", "adapter": "light", "mode": "merge"})
-m1nd.activate({"query": "auth token refresh"})  # dispara nos dois domínios
+ingest({"path": "./src", "adapter": "code", "mode": "replace"})
+ingest({"path": "./docs/specs", "adapter": "light", "mode": "merge"})
+activate({"query": "auth token refresh"})  # dispara nos dois domínios
 ```
 
 **Ele expõe mais do que travessia básica.**
@@ -505,7 +505,7 @@ Na amostra de validação documentada, 12/12 cenários foram classificados corre
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.apply_batch",
+    "name": "apply_batch",
     "arguments": {
       "agent_id": "my-agent",
       "verify": true,
@@ -643,7 +643,7 @@ MIT -- veja [LICENSE](../LICENSE).
 ---
 
 <p align="center">
-  Criado por <a href="https://github.com/cosmophonix">Max Elias Kleinschmidt</a><br/>
+  Criado por <a href="https://github.com/maxkle1nz">Max Elias Kleinschmidt</a><br/>
   <em>A IA deve amplificar, nunca substituir. Humano e máquina em simbiose.</em><br/>
   <em>Se você pode imaginar, você pode construir. m1nd encurta a distância.</em>
 </p>
