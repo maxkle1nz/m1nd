@@ -1,5 +1,7 @@
 # Roadmap
 
+> Status: planning/supporting document. Use this page for direction and backlog context, not as the source of truth for current setup or API behavior.
+
 m1nd is early-stage and moving fast. This page documents what exists today, what's being built
 next, and where the project is headed long-term.
 

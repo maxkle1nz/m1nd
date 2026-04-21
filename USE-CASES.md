@@ -1,5 +1,7 @@
 # m1nd Use Cases — Comprehensive Guide by Audience
 
+> Status: supporting public reference. For the canonical product/onboarding path, start with `README.md`, the wiki, and `EXAMPLES.md`.
+
 > "grep finds what you asked for. m1nd finds what's missing."
 
 This document is grounded in a live audit session on 2026-03-14 against a Python/FastAPI codebase:
