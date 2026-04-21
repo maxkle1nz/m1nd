@@ -411,14 +411,14 @@ Prefer plain tools for single-file edits, exact string chores, and runtime/build
 
 ## 工具表面
 
-当前 [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) 中的 `tool_schemas()` 实现暴露了 **93 个 MCP 工具**。
+请用 `tools/list` 获取你当前构建中的精确 live 数量。下面的类别比写死的数字更重要。
 
-导出的 MCP schema 里，规范工具名使用下划线，例如 `trail_save`、`perspective_start` 和 `apply_batch`。某些客户端可能会显示带 transport 前缀的名字，比如 `m1nd.apply_batch`，但 live registry 里的条目是以下划线为准的。
+导出的 MCP schema 里，规范工具名使用下划线，例如 `trail_save`、`perspective_start` 和 `apply_batch`。某些客户端可能会显示带 transport 前缀的名字，比如 `m1nd.apply_batch`，但 live registry 和 `tools/list` 返回的是不带前缀的名称。
 
 | Category | Highlights |
 |----------|------------|
 | Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
-| Document Intelligence | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
+| Document Intelligence | document_resolve, document_bindings, document_drift, document_provider_health, auto_ingest_start/status/tick/stop |
 | Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
@@ -576,7 +576,7 @@ m1nd 对代理的推荐节奏很明确：
 - 会话开始：`health -> drift -> ingest`
 - 研究：`ingest -> activate -> why -> missing -> learn`
 - 改代码：`impact -> predict -> counterfactual -> warmup -> surgical/apply`
-- 有状态导航：`perspective.*` 和 `trail.*`
+- 有状态导航：`perspective_*` 和 `trail_*`
 - 规范热状态：`boot_memory`
 
 这也是为什么 m1nd 不是只做搜索端点，而是一个有意见的图操作层。

@@ -335,7 +335,7 @@ m1nd macht einen bevorzugten Bewegungsablauf für Agenten sichtbar. Der im Serve
 - **Sitzungsstart**: `health -> drift -> ingest`
 - **Recherche**: `ingest -> activate -> why -> missing -> learn`
 - **Codeänderung**: `impact -> predict -> counterfactual -> warmup -> surgical/apply`
-- **Zustandsorientierte Navigation**: `perspective.*` und `trail.*`
+- **Zustandsorientierte Navigation**: `perspective_*` und `trail_*`
 - **Kanonischer Hot State**: `boot_memory`
 
 Das ist wichtig, weil m1nd nicht nur ein Such-Endpunkt ist. Es ist eine opinionated Graph-Operationsschicht für Agenten, und sie funktioniert am besten, wenn der Graph Teil des Workflows wird statt nur die letzte Rettung zu sein.
@@ -343,14 +343,14 @@ Das ist wichtig, weil m1nd nicht nur ein Such-Endpunkt ist. Es ist eine opiniona
 <a id="tool-surface"></a>
 ## Tool-Oberfläche
 
-Die aktuelle Implementierung von `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) stellt **93 MCP-Tools** bereit. Die Zahl kann sich ändern; die Kategorien darunter sind wichtiger.
+Verwende `tools/list` für die exakte Live-Anzahl in deinem aktuellen Build. Die Kategorien darunter sind wichtiger als eine fest codierte Zahl.
 
-Kanonsiche Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `trail_save`, `perspective_start` und `apply_batch`. Manche Clients zeigen Namen mit einem Transportpräfix wie `m1nd.apply_batch` an, aber die Live-Registry-Einträge basieren auf Unterstrichen.
+Kanonische Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `trail_save`, `perspective_start` und `apply_batch`. Manche Clients zeigen Namen mit einem Transportpräfix wie `m1nd.apply_batch` an, aber Live-Registry und `tools/list` verwenden die nackten Namen.
 
 | Kategorie | Highlights |
 |----------|------------|
 | Grundlagen | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
-| Dokumentintelligenz | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
+| Dokumentintelligenz | document_resolve, document_bindings, document_drift, document_provider_health, auto_ingest_start/status/tick/stop |
 | Perspektivennavigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graphanalyse | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Erweiterte Analyse | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
@@ -558,7 +558,7 @@ Scannt nach bekannten Bug-Mustern, bewertet den Auswirkungsradius und sagt die A
 **Architektur-Audit:** `layers` -> `layer_inspect` -> `counterfactual`.
 Erkennt Layer automatisch, findet Verstöße und simuliert, was beim Entfernen eines Moduls bricht.
 
-**Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
+**Onboarding:** `activate` -> `layers` -> `perspective_start` -> `perspective_follow`.
 Neue Teammitglieder fragen: „Wie funktioniert Auth?“ und der Graph beleuchtet den Pfad.
 
 **Cross-Domain-Suche:** `ingest(adapter="memory", mode="merge")` -> `activate`.

@@ -347,7 +347,7 @@ activate({"query": "auth token refresh"})  # dispara en ambos dominios
 
 **Verifica writes en lugar de esperar que hayan funcionado.** `apply_batch(verify=true)` ejecuta múltiples comprobaciones post-write y devuelve un verdict estilo SAFE / RISKY / BROKEN. Mira [Post-Write Verification](#verificación-post-write).
 
-**Puede persistir investigaciones en lugar de descartarlas entre sesiones.** `trail.save`, `trail.resume` y `trail.merge` permiten que los agentes mantengan y combinen el estado de investigación anclado en el grafo.
+**Puede persistir investigaciones en lugar de descartarlas entre sesiones.** `trail_save`, `trail_resume` y `trail_merge` permiten que los agentes mantengan y combinen el estado de investigación anclado en el grafo.
 
 **Tiene una capa canónica de hot state.** `boot_memory` almacena doctrina/estado pequeño y durable junto al grafo sin ensuciar trails o transcripts.
 
@@ -358,22 +358,24 @@ m1nd es opinativo sobre cómo deben moverse los agentes por un repositorio. El b
 - **Inicio de sesión**: `health -> drift -> ingest`
 - **Investigación**: `ingest -> activate -> why -> missing -> learn`
 - **Cambio de código**: `impact -> predict -> counterfactual -> warmup -> ruta surgical/apply`
-- **Navegación con estado**: `perspective.*` y `trail.*`
+- **Navegación con estado**: `perspective_*` y `trail_*`
 - **Hot state canónico**: `boot_memory`
 
 Esto importa porque m1nd no es solo un endpoint de búsqueda. Es una capa opinativa de operación en grafo para agentes, y funciona mejor cuando el grafo forma parte del workflow en lugar de ser un recurso de último caso.
 
 ## Superficie de Herramientas
 
-La implementación actual de `tool_schemas()` en [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) expone **93 herramientas MCP**. Ese número puede cambiar. Las categorías de abajo importan más, pero el conteo actual está anclado en el registro vivo.
+Usa `tools/list` para obtener el conteo live exacto en tu build actual. Las categorías de abajo importan más que un número hardcodeado.
+
+Los nombres canónicos en el esquema MCP exportado usan guiones bajos, como `trail_save`, `perspective_start` y `apply_batch`. Algunos clientes pueden mostrar nombres con un prefijo de transporte como `m1nd.apply_batch`, pero el live registry y `tools/list` usan los nombres sin prefijo.
 
 | Categoría | Destacados |
 |----------|------------|
 | **Base** | ingest, health, activate, impact, why, learn, drift, seek, scan, warmup, federate |
-| **Inteligencia Documental** | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
-| **Navegación por Perspective** | start, follow, peek, routes, branch, compare, inspect, suggest, affinity |
+| **Inteligencia Documental** | document_resolve, document_bindings, document_drift, document_provider_health, auto_ingest_start/status/tick/stop |
+| **Navegación por Perspective** | perspective_* |
 | **Sistema de Lock** | fija regiones del subgrafo, monitorea cambios, diff del estado bloqueado |
-| **Análisis de Grafo** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trails |
+| **Análisis de Grafo** | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, trail_* |
 | **Análisis Extendido** | antibody, flow_simulate, epidemic, tremor, trust, layers, heuristics_surface, validate_plan |
 | **Reportes y Estado** | report, panoramic, savings, persist, boot_memory |
 | **Quirúrgico** | surgical_context, surgical_context_v2, view, symbol_splice, apply, edit_preview, edit_commit, apply_batch (+ verify=true) |
@@ -401,18 +403,18 @@ La implementación actual de `tool_schemas()` en [server.rs](https://github.com/
 
 | Herramienta | Qué hace |
 |------|---------|
-| `perspective.start` | Abre una perspective anclada en un nodo |
-| `perspective.routes` | Lista rutas disponibles desde el foco actual |
-| `perspective.follow` | Mueve el foco a un objetivo de ruta |
-| `perspective.back` | Navega hacia atrás |
-| `perspective.peek` | Lee el código fuente en el nodo enfocado |
-| `perspective.inspect` | Metadatos profundos + desglose de score en 5 factores |
-| `perspective.suggest` | Recomendación de navegación |
-| `perspective.affinity` | Comprueba la relevancia de la ruta para la investigación actual |
-| `perspective.branch` | Crea un fork de una copia independiente de la perspective |
-| `perspective.compare` | Diff entre dos perspectives (nodos compartidos/únicos) |
-| `perspective.list` | Todas las perspectives activas + uso de memoria |
-| `perspective.close` | Libera el estado de la perspective |
+| `perspective_start` | Abre una perspective anclada en un nodo |
+| `perspective_routes` | Lista rutas disponibles desde el foco actual |
+| `perspective_follow` | Mueve el foco a un objetivo de ruta |
+| `perspective_back` | Navega hacia atrás |
+| `perspective_peek` | Lee el código fuente en el nodo enfocado |
+| `perspective_inspect` | Metadatos profundos + desglose de score en 5 factores |
+| `perspective_suggest` | Recomendación de navegación |
+| `perspective_affinity` | Comprueba la relevancia de la ruta para la investigación actual |
+| `perspective_branch` | Crea un fork de una copia independiente de la perspective |
+| `perspective_compare` | Diff entre dos perspectives (nodos compartidos/únicos) |
+| `perspective_list` | Todas las perspectives activas + uso de memoria |
+| `perspective_close` | Libera el estado de la perspective |
 </details>
 
 <details>
@@ -420,11 +422,11 @@ La implementación actual de `tool_schemas()` en [server.rs](https://github.com/
 
 | Herramienta | Qué hace | Velocidad |
 |------|---------|-------|
-| `lock.create` | Snapshot de una región del subgrafo | 24ms |
-| `lock.watch` | Registra estrategia de cambios | ~0ms |
-| `lock.diff` | Compara actual vs baseline | 0.08&micro;s |
-| `lock.rebase` | Avanza la baseline al estado actual | 22ms |
-| `lock.release` | Libera el estado del lock | ~0ms |
+| `lock_create` | Snapshot de una región del subgrafo | 24ms |
+| `lock_watch` | Registra estrategia de cambios | ~0ms |
+| `lock_diff` | Compara actual vs baseline | 0.08&micro;s |
+| `lock_rebase` | Avanza la baseline al estado actual | 22ms |
+| `lock_release` | Libera el estado del lock | ~0ms |
 </details>
 
 <details>
@@ -440,10 +442,10 @@ La implementación actual de `tool_schemas()` en [server.rs](https://github.com/
 | `trace` | Mapea stacktraces a causas raíz | 3.5-5.8ms |
 | `validate_plan` | Risk assessment previo al cambio con señales heurísticas de memoria y referencias directas `heuristics_surface_ref` | 0.5-10ms |
 | `predict` | Predicción de co-change con referencias `heuristics_surface_ref` para justificar el ranking | <1ms |
-| `trail.save` | Persiste el estado de la investigación | ~0ms |
-| `trail.resume` | Restaura el contexto exacto de la investigación | 0.2ms |
-| `trail.merge` | Combina investigaciones multiagente | 1.2ms |
-| `trail.list` | Navega por investigaciones guardadas | ~0ms |
+| `trail_save` | Persiste el estado de la investigación | ~0ms |
+| `trail_resume` | Restaura el contexto exacto de la investigación | 0.2ms |
+| `trail_merge` | Combina investigaciones multiagente | 1.2ms |
+| `trail_list` | Navega por investigaciones guardadas | ~0ms |
 | `differential` | Diff estructural entre snapshots del grafo | ~ms |
 | `boot_memory` | Hot state canónico para doctrina/config/estado corto y durable | ~0ms |
 </details>
@@ -622,7 +624,7 @@ Busca formas de bug conocidas, mide blast radius y predice propagación de la in
 **Auditoría de arquitectura:** `layers` -> `layer_inspect` -> `counterfactual`.
 Detecta capas, encuentra violaciones y simula qué se rompe si eliminas un módulo.
 
-**Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
+**Onboarding:** `activate` -> `layers` -> `perspective_start` -> `perspective_follow`.
 El nuevo dev pregunta "cómo funciona auth?" y el grafo ilumina el camino.
 
 **Búsqueda cross-domain:** `ingest(adapter="memory", mode="merge")` -> `activate`.

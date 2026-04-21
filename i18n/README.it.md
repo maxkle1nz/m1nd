@@ -464,14 +464,14 @@ Non sostituisce un LSP, un compilatore o l'osservabilità di runtime. Fornisce a
 
 ## Tool Surface
 
-L'attuale implementazione di `tool_schemas()` in [server.rs](https://github.com/maxkle1nz/m1nd/blob/main/m1nd-mcp/src/server.rs) espone **93 strumenti MCP**.
+Usa `tools/list` per ottenere il conteggio live esatto nella build che stai usando. Le categorie sotto contano più di un numero hardcoded.
 
-I nomi canonici degli strumenti nello schema MCP esportato usano underscore, come `trail_save`, `perspective_start` e `apply_batch`. Alcuni client possono mostrare i nomi con un prefisso di trasporto come `m1nd.apply_batch`, ma le voci del registry live sono basate su underscore.
+I nomi canonici degli strumenti nello schema MCP esportato usano underscore, come `trail_save`, `perspective_start` e `apply_batch`. Alcuni client possono mostrare i nomi con un prefisso di trasporto come `m1nd.apply_batch`, ma il registry live e `tools/list` usano i nomi senza prefisso.
 
 | Category | Highlights |
 |----------|------------|
 | Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
-| Document Intelligence | document.resolve, document.bindings, document.drift, document.provider_health, auto_ingest.start/status/tick/stop |
+| Document Intelligence | document_resolve, document_bindings, document_drift, document_provider_health, auto_ingest_start/status/tick/stop |
 | Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
 | Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
 | Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
@@ -677,7 +677,7 @@ Scansiona i bug noti, valuta il blast radius, prevede la diffusione dell'infezio
 **Audit architetturale:** `layers` -> `layer_inspect` -> `counterfactual`.
 Rileva automaticamente i layer, trova le violazioni, simula cosa si rompe se rimuovi un modulo.
 
-**Onboarding:** `activate` -> `layers` -> `perspective.start` -> `perspective.follow`.
+**Onboarding:** `activate` -> `layers` -> `perspective_start` -> `perspective_follow`.
 Un nuovo developer chiede "come funziona auth?" e il grafo illumina il percorso.
 
 **Ricerca cross-domain:** `ingest(adapter="memory", mode="merge")` -> `activate`.

@@ -188,9 +188,9 @@ AIエージェントは優れた推論器ですが、ナビゲーションは苦
 調査の中間状態――仮説、グラフの重み、未解決の疑問――を保存します。セッションを終了します。数日後に全く同じ認知的位置から再開します。同じバグを調査している2つのエージェント？トレイルをマージする――システムが独立した調査がどこで収束したかを自動的に検出し、競合をフラグします。
 
 ```
-trail.save   → 調査状態を永続化          ~0ms
-trail.resume → 正確なコンテキストを復元   0.2ms
-trail.merge  → マルチエージェントの発見を結合   1.2ms
+trail_save   → 調査状態を永続化          ~0ms
+trail_resume → 正確なコンテキストを復元   0.2ms
+trail_merge  → マルチエージェントの発見を結合   1.2ms
                （共有ノードの競合検出付き）
 ```
 
@@ -270,30 +270,30 @@ missing("GUI web server")
 
 | ツール | 目的 |
 |------|---------|
-| `perspective.start` | ノードにアンカーされたパースペクティブを開く |
-| `perspective.routes` | 現在のフォーカスから利用可能なルートを一覧表示 |
-| `perspective.follow` | フォーカスをルートターゲットに移動 |
-| `perspective.back` | 後方にナビゲート |
-| `perspective.peek` | フォーカスされたノードのソースコードを読む |
-| `perspective.inspect` | 詳細なメタデータ + 5因子スコアの内訳 |
-| `perspective.suggest` | AIナビゲーション推奨 |
-| `perspective.affinity` | 現在の調査に対するルートの関連度を確認 |
-| `perspective.branch` | 独立したパースペクティブのコピーをフォーク |
-| `perspective.compare` | 2つのパースペクティブをdiff（共有/固有ノード） |
-| `perspective.list` | すべてのアクティブなパースペクティブ + メモリ使用量 |
-| `perspective.close` | パースペクティブの状態を解放 |
+| `perspective_start` | ノードにアンカーされたパースペクティブを開く |
+| `perspective_routes` | 現在のフォーカスから利用可能なルートを一覧表示 |
+| `perspective_follow` | フォーカスをルートターゲットに移動 |
+| `perspective_back` | 後方にナビゲート |
+| `perspective_peek` | フォーカスされたノードのソースコードを読む |
+| `perspective_inspect` | 詳細なメタデータ + 5因子スコアの内訳 |
+| `perspective_suggest` | AIナビゲーション推奨 |
+| `perspective_affinity` | 現在の調査に対するルートの関連度を確認 |
+| `perspective_branch` | 独立したパースペクティブのコピーをフォーク |
+| `perspective_compare` | 2つのパースペクティブをdiff（共有/固有ノード） |
+| `perspective_list` | すべてのアクティブなパースペクティブ + メモリ使用量 |
+| `perspective_close` | パースペクティブの状態を解放 |
 
 ### ロックシステム（5ツール）
 
-サブグラフ領域をピン留めして変更を監視します。`lock.diff` は **0.00008ms** で動作します――事実上コストなしの変更検出。
+サブグラフ領域をピン留めして変更を監視します。`lock_diff` は **0.00008ms** で動作します――事実上コストなしの変更検出。
 
 | ツール | 目的 | 速度 |
 |------|---------|-------|
-| `lock.create` | サブグラフ領域のスナップショット | 24ms |
-| `lock.watch` | 変更戦略を登録 | ~0ms |
-| `lock.diff` | 現在とベースラインを比較 | 0.08μs |
-| `lock.rebase` | ベースラインを現在に進める | 22ms |
-| `lock.release` | ロック状態を解放 | ~0ms |
+| `lock_create` | サブグラフ領域のスナップショット | 24ms |
+| `lock_watch` | 変更戦略を登録 | ~0ms |
+| `lock_diff` | 現在とベースラインを比較 | 0.08μs |
+| `lock_rebase` | ベースラインを現在に進める | 22ms |
+| `lock_release` | ロック状態を解放 | ~0ms |
 
 ### スーパーパワー（13ツール）
 
@@ -307,10 +307,10 @@ missing("GUI web server")
 | `trace` | スタックトレースを根本原因にマッピング | 3.5-5.8ms |
 | `validate_plan` | 変更の事前リスク評価 | 0.5-10ms |
 | `predict` | 共変更予測 | <1ms |
-| `trail.save` | 調査状態を永続化 | ~0ms |
-| `trail.resume` | 正確な調査コンテキストを復元 | 0.2ms |
-| `trail.merge` | マルチエージェントの調査を結合 | 1.2ms |
-| `trail.list` | 保存済み調査を参照 | ~0ms |
+| `trail_save` | 調査状態を永続化 | ~0ms |
+| `trail_resume` | 正確な調査コンテキストを復元 | 0.2ms |
+| `trail_merge` | マルチエージェントの調査を結合 | 1.2ms |
+| `trail_list` | 保存済み調査を参照 | ~0ms |
 | `differential` | XLRノイズキャンセリングアクティベーション | ~ms |
 
 ### スーパーパワー拡張（9ツール）
@@ -569,7 +569,7 @@ m1ndは開発者が常に尋ねる質問に答えます：
 | 「バグはどこにあるか？」 | `trace` + `activate` | 疑わしさ × 中心性でランク付けされた容疑者 |
 | 「デプロイして安全か？」 | `epidemic` + `tremor` + `trust` | 3つの障害モードのリスクヒートマップ |
 | 「これはどう動くのか？」 | `layers` + `perspective` | 自動検出されたアーキテクチャ + ガイド付きナビゲーション |
-| 「何が変わったか？」 | `drift` + `lock.diff` + `timeline` | 前回セッション以降の構造的デルタ |
+| 「何が変わったか？」 | `drift` + `lock_diff` + `timeline` | 前回セッション以降の構造的デルタ |
 | 「誰がこれに依存しているか？」 | `impact` + `why` | ブラスト半径 + 依存パス |
 
 ### CI/CDパイプライン
@@ -609,16 +609,16 @@ hypothesize("forge identity bypass")  → 99%信頼度、20の証拠パス
 
 ```
 # 並行作業 — 競合を防ぐためにリージョンをロック
-lock.create(anchor="file::payment.py", depth=3)
-lock.diff()         → 0.08μs 構造変更検出
+lock_create(anchor="file::payment.py", depth=3)
+lock_diff()         → 0.08μs 構造変更検出
 
 # エンジニア間の知識移転
-trail.save(label="payment-refactor-v2", hypotheses=[...])
-trail.resume()      → 正確な調査コンテキスト、重み保持
+trail_save(label="payment-refactor-v2", hypotheses=[...])
+trail_resume()      → 正確な調査コンテキスト、重み保持
 
 # エージェント間のペアデバッグ
-perspective.branch()    → 独立した探索コピー
-perspective.compare()   → diff: 共有ノード vs 発散した発見
+perspective_branch()    → 独立した探索コピー
+perspective_compare()   → diff: 共有ノード vs 発散した発見
 ```
 
 ## 人々が構築しているもの
@@ -632,7 +632,7 @@ grepゼロ。グラフがバグへのナビゲートを担当します。
 **アーキテクチャ監査：** `layers` → `layer_inspect` → `counterfactual`
 レイヤーを自動検出し、違反を見つけ、モジュールを削除したときに何が壊れるかをシミュレートします。
 
-**オンボーディング：** `activate` → `layers` → `perspective.start` → `perspective.follow`
+**オンボーディング：** `activate` → `layers` → `perspective_start` → `perspective_follow`
 新しい開発者が「認証はどう動くか？」と尋ねる――グラフがパスを照らします。
 
 **クロスドメイン検索：** `ingest(adapter="memory", mode="merge")` → `activate`
@@ -677,15 +677,15 @@ grepゼロ。グラフがバグへのナビゲートを担当します。
   activate("memory leak in worker pool") → 15のランク付けされた容疑者
 
 調査:
-  perspective.start(anchor="file::worker_pool.py")
-  perspective.follow → perspective.peek → ソースを読む
+  perspective_start(anchor="file::worker_pool.py")
+  perspective_follow → perspective_peek → ソースを読む
   hypothesize("worker pool leaks when tasks cancel")
 
 進捗を保存:
-  trail.save(label="worker-pool-leak", hypotheses=[...])
+  trail_save(label="worker-pool-leak", hypotheses=[...])
 
 翌日:
-  trail.resume → 正確なコンテキストが復元、すべての重みが保持
+  trail_resume → 正確なコンテキストが復元、すべての重みが保持
 ```
 
 ### マルチリポ解析
