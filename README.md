@@ -4,15 +4,15 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Local graph runtime for coding agents</h3>
+<h3 align="center">Operational intelligence for coding agents</h3>
 
 <p align="center">
-  <strong>Structure, impact, and connected context before the model edits code.</strong>
+  <strong>A local intelligence layer that turns code, docs, and change into an operable system for agents.</strong>
 </p>
 
 <p align="center">
-  m1nd is a local MCP server that turns code, docs, change history, and graph-native knowledge into a queryable graph.<br/>
-  Agents use it to orient on unfamiliar repos, retrieve code by intent or relationship, predict change impact, prepare connected edits, keep investigation state across sessions, and work across repo boundaries.<br/>
+  It turns code, docs, history, runtime signals, and graph-native knowledge into a system an agent can reason over before, during, and after change.<br/>
+  m1nd is a local MCP server that gives agents structural retrieval, change reasoning, document grounding, operational continuity, and cross-repo context through a graph exposed over MCP.<br/>
   <em>Local execution. MCP over stdio. Optional HTTP/UI surface in the default build.</em>
 </p>
 
@@ -26,6 +26,8 @@
 
 <p align="center">
   <a href="#what-m1nd-is">What m1nd Is</a> &middot;
+  <a href="#what-that-intelligence-covers">What That Intelligence Covers</a> &middot;
+  <a href="#what-m1nd-is-not">What m1nd Is Not</a> &middot;
   <a href="#capability-map">Capability Map</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
@@ -56,18 +58,45 @@
 
 ## What m1nd Is
 
-`m1nd` is the structural layer between a coding agent and a codebase.
+`m1nd` is a local intelligence layer for coding agents.
 
-It ingests repositories, documentation, and graph-native knowledge into a graph exposed through MCP. That graph lets the agent ask better questions before it starts reading files or editing code.
+It ingests repositories, documentation, history, runtime-adjacent signals, and graph-native knowledge into a graph exposed through MCP. That graph gives the agent a durable operational model of the system before, during, and after change.
+
+It is not only a query surface. It is an agent-operational runtime: graph answers can carry proof state, next-step guidance, repair-oriented recovery hints, observable batch execution, stateful navigation, and persisted continuity across sessions.
 
 With `m1nd`, an agent can:
 
-- orient on an unfamiliar repo with single-request audits and structural retrieval
-- find code by text, path, intent, neighborhood, relationship, or failure trace
-- predict blast radius, co-change, missing work, and structural risk before edits
-- bind specs and docs back to implementation, including `L1GHT` and universal document lanes
-- keep investigation state across turns with perspectives, trails, locks, and daemon alerts
-- work across repo boundaries and compare graph state against disk, git, and runtime evidence
+- build a durable operational model of a codebase from code, docs, history, runtime signals, and graph-native knowledge
+- retrieve and navigate the right context by text, path, intent, neighborhood, relationship, route, or failure trace
+- reason about change before, during, and after it happens, including blast radius, co-change, missing work, structural claims, plan validity, drift, and counterfactuals
+- analyze architecture, quality, security, duplication, type flow, trust boundaries, hidden dependencies, volatility, and refactor opportunities across the graph
+- bind specs and docs back to implementation, including universal documents, graph-native `L1GHT`, provider health, automatic document ingest, and drift detection
+- maintain continuity across turns, sessions, baselines, branches, and repo boundaries with perspectives, trails, session coverage, federation, persisted memory, and persisted state
+- coordinate many agents against one shared runtime while preserving per-agent navigation state, perspective isolation, and resumable handoff context
+- monitor and verify the system over time with audits, graph-vs-disk checks, daemon watches, alerts, metrics, diagrams, panoramic scans, reports, runtime overlays, and persisted state
+- prepare, preview, and apply connected edits with graph-aware context instead of isolated file reads
+- learn from feedback and reinforce useful paths over repeated investigations through automatic plasticity and explicit feedback
+- measure savings, inspect the live runtime surface, and route itself with built-in reporting and `help`
+
+## What That Intelligence Covers
+
+- Structure: repo shape, dependencies, neighborhoods, hidden relationships, graph-aware retrieval, type flows, architectural layers, and guided routes beyond raw text matches.
+- Change: blast radius, co-change prediction, missing work, structural claims, counterfactuals, drift, simulations, proof states, next-step hints, and edit preparation or execution.
+- Docs: universal document ingestion, graph-native `L1GHT`, provider health, automatic ingest, bindings between specs and implementation, local-first document runtime behavior, and document drift detection.
+- Operations: audits, graph-vs-disk verification, daemon monitoring, alerts, metrics, diagrams, runtime overlays, panoramas, savings, reporting, built-in help, and recovery-oriented workflow routing.
+- Continuity: perspectives, trails, session coverage, boot memory, persisted state, feedback-driven reinforcement, multi-agent isolation, and cross-repo or cross-session investigative state.
+
+## What m1nd Is Not
+
+`m1nd` is not just:
+
+- a code search tool with a larger index
+- a repo RAG layer that only retrieves files or chunks
+- a graph database that leaves workflow decisions to the client
+- a static analysis replacement for the compiler, tests, or security tooling
+- an MCP bundle of unrelated utilities
+
+It is the layer that turns those surfaces into an operational system an agent can reason over and act through.
 
 ## Capability Map
 
@@ -78,7 +107,7 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 | Graph foundation | ingest code, maintain graph state, and reinforce useful paths over time | `ingest`, `health`, `learn`, `warmup`, `resonate` |
 | Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
 | Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
-| Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `lock_*`, `coverage_session`, `boot_memory` |
+| Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
 | Change planning and proof | reason about impact, co-change, missing steps, failure paths, and structural claims | `impact`, `predict`, `validate_plan`, `missing`, `hypothesize`, `counterfactual`, `differential` |
 | Quality, security, and architecture | detect patterns, taint paths, trust boundaries, duplication, layer violations, type flows, simulations, and refactor targets | `scan`, `scan_all`, `heuristics_surface`, `antibody_*`, `taint_trace`, `type_trace`, `trust`, `layers`, `layer_inspect`, `twins`, `fingerprint`, `flow_simulate`, `epidemic`, `tremor`, `refactor_plan` |
 | Time, runtime, and multi-repo work | inspect git history, drift, hidden co-change edges, runtime overlays, and cross-repo references | `timeline`, `diverge`, `ghost_edges`, `runtime_overlay`, `external_references`, `federate`, `federate_auto` |
@@ -137,7 +166,7 @@ unfamiliar repo           -> `audit`
 runtime error or trace    -> `trace`
 risky change              -> `impact`, `predict`, `validate_plan`, then usually `surgical_context_v2`
 docs or specs             -> `ingest` with `universal` or `light`, then `document_*`
-long-lived investigation  -> `perspective_*`, `trail_*`, `lock_*`, `daemon_*`, `alerts_*`
+long-lived investigation  -> `perspective_*`, `trail_*`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`
 unsure what to call       -> `help`
 ```
 
