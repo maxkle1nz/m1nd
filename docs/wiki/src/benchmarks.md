@@ -2,9 +2,9 @@
 
 For the raw research artifacts and patch backlog that produced the current public numbers, see:
 
-- `docs/BENCHMARK_RESEARCH_2026-03-24.md`
-- `docs/BENCHMARK_PATCH_PLAN_2026-03-24.md`
-- `docs/BENCHMARK_HARNESS_SPEC_2026-03-24.md`
+- `docs/benchmarks/BENCHMARK_RESEARCH_2026-03-24.md`
+- `docs/benchmarks/BENCHMARK_PATCH_PLAN_2026-03-24.md`
+- `docs/benchmarks/BENCHMARK_HARNESS_SPEC_2026-03-24.md`
 
 This page is the short product-truth layer for the current benchmark corpus.
 
@@ -146,7 +146,7 @@ JSON serialization scales linearly with state size. A 10K-node graph persists in
 To reproduce these benchmarks:
 
 ```bash
-git clone https://github.com/cosmophonix/m1nd.git
+git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build --release
 

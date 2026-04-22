@@ -6,7 +6,7 @@
 
 <p align="center">
   ヘブ可塑性、スプレッディングアクティベーション、<br/>
-  61のMCPツールを備えたニューロシンボリック・コネクトームエンジン。Rustで構築、AIエージェント向け。
+  ライブMCPツール群を備えたニューロシンボリック・コネクトームエンジン。Rustで構築、AIエージェント向け。
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 <p align="center">
   <a href="#30秒で最初のクエリ">クイックスタート</a> &middot;
   <a href="#実証済みの結果">実証済みの結果</a> &middot;
-  <a href="#61のツール">61のツール</a> &middot;
+  <a href="#ツールサーフェス">ツールサーフェス</a> &middot;
   <a href="#m1ndの使用例">ユースケース</a> &middot;
   <a href="#m1ndが存在する理由">なぜm1ndか</a> &middot;
   <a href="#アーキテクチャ">アーキテクチャ</a> &middot;
@@ -95,7 +95,7 @@ Criterionマイクロベンチマーク（実ハードウェア、1Kノードグ
 
 ```bash
 # ソースからビルド
-git clone https://github.com/cosmophonix/m1nd.git
+git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd && cargo build --release
 
 # 実行（JSON-RPC stdioサーバーを起動 — あらゆるMCPクライアントで動作）
@@ -104,17 +104,17 @@ cd m1nd && cargo build --release
 
 ```jsonc
 // 1. コードベースを取り込む（335ファイルで910ms）
-{"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 // → 9,767ノード、26,557エッジ、PageRank計算完了
 
 // 2. 「認証に関連するものは？」と尋ねる
-{"method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"authentication","agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication","agent_id":"dev"}}}
 // → authモジュールが発火 → session、middleware、JWT、userモデルへ伝播
 //   ゴーストエッジが未文書の接続を明らかにする
 //   31msで4次元関連度ランキング
 
 // 3. 役に立った結果をグラフに伝える
-{"method":"tools/call","params":{"name":"m1nd.learn","arguments":{"feedback":"correct","node_ids":["file::auth.py","file::middleware.py"],"agent_id":"dev"}}}
+{"method":"tools/call","params":{"name":"learn","arguments":{"feedback":"correct","node_ids":["file::auth.py","file::middleware.py"],"agent_id":"dev"}}}
 // → 740エッジがヘブLTP（長期増強）で強化される。次のクエリはより賢くなる。
 ```
 
@@ -188,9 +188,9 @@ AIエージェントは優れた推論器ですが、ナビゲーションは苦
 調査の中間状態――仮説、グラフの重み、未解決の疑問――を保存します。セッションを終了します。数日後に全く同じ認知的位置から再開します。同じバグを調査している2つのエージェント？トレイルをマージする――システムが独立した調査がどこで収束したかを自動的に検出し、競合をフラグします。
 
 ```
-trail.save   → 調査状態を永続化          ~0ms
-trail.resume → 正確なコンテキストを復元   0.2ms
-trail.merge  → マルチエージェントの発見を結合   1.2ms
+trail_save   → 調査状態を永続化          ~0ms
+trail_resume → 正確なコンテキストを復元   0.2ms
+trail_merge  → マルチエージェントの発見を結合   1.2ms
                （共有ノードの競合検出付き）
 ```
 
@@ -244,7 +244,7 @@ missing("GUI web server")
 - **トラストレジャー** — 欠陥履歴からのモジュールごとのアクチュアリースコア。確認されたバグが多い = 低信頼 = アクティベーションクエリでの高リスク重み付け。
 - **レイヤー検出** — グラフトポロジーからアーキテクチャレイヤーを自動検出し、依存関係違反（上方エッジ、循環依存、レイヤースキップ）を報告します。
 
-## 61のツール
+## ツールサーフェス
 
 ### 基盤（13ツール）
 
@@ -270,30 +270,30 @@ missing("GUI web server")
 
 | ツール | 目的 |
 |------|---------|
-| `perspective.start` | ノードにアンカーされたパースペクティブを開く |
-| `perspective.routes` | 現在のフォーカスから利用可能なルートを一覧表示 |
-| `perspective.follow` | フォーカスをルートターゲットに移動 |
-| `perspective.back` | 後方にナビゲート |
-| `perspective.peek` | フォーカスされたノードのソースコードを読む |
-| `perspective.inspect` | 詳細なメタデータ + 5因子スコアの内訳 |
-| `perspective.suggest` | AIナビゲーション推奨 |
-| `perspective.affinity` | 現在の調査に対するルートの関連度を確認 |
-| `perspective.branch` | 独立したパースペクティブのコピーをフォーク |
-| `perspective.compare` | 2つのパースペクティブをdiff（共有/固有ノード） |
-| `perspective.list` | すべてのアクティブなパースペクティブ + メモリ使用量 |
-| `perspective.close` | パースペクティブの状態を解放 |
+| `perspective_start` | ノードにアンカーされたパースペクティブを開く |
+| `perspective_routes` | 現在のフォーカスから利用可能なルートを一覧表示 |
+| `perspective_follow` | フォーカスをルートターゲットに移動 |
+| `perspective_back` | 後方にナビゲート |
+| `perspective_peek` | フォーカスされたノードのソースコードを読む |
+| `perspective_inspect` | 詳細なメタデータ + 5因子スコアの内訳 |
+| `perspective_suggest` | AIナビゲーション推奨 |
+| `perspective_affinity` | 現在の調査に対するルートの関連度を確認 |
+| `perspective_branch` | 独立したパースペクティブのコピーをフォーク |
+| `perspective_compare` | 2つのパースペクティブをdiff（共有/固有ノード） |
+| `perspective_list` | すべてのアクティブなパースペクティブ + メモリ使用量 |
+| `perspective_close` | パースペクティブの状態を解放 |
 
 ### ロックシステム（5ツール）
 
-サブグラフ領域をピン留めして変更を監視します。`lock.diff` は **0.00008ms** で動作します――事実上コストなしの変更検出。
+サブグラフ領域をピン留めして変更を監視します。`lock_diff` は **0.00008ms** で動作します――事実上コストなしの変更検出。
 
 | ツール | 目的 | 速度 |
 |------|---------|-------|
-| `lock.create` | サブグラフ領域のスナップショット | 24ms |
-| `lock.watch` | 変更戦略を登録 | ~0ms |
-| `lock.diff` | 現在とベースラインを比較 | 0.08μs |
-| `lock.rebase` | ベースラインを現在に進める | 22ms |
-| `lock.release` | ロック状態を解放 | ~0ms |
+| `lock_create` | サブグラフ領域のスナップショット | 24ms |
+| `lock_watch` | 変更戦略を登録 | ~0ms |
+| `lock_diff` | 現在とベースラインを比較 | 0.08μs |
+| `lock_rebase` | ベースラインを現在に進める | 22ms |
+| `lock_release` | ロック状態を解放 | ~0ms |
 
 ### スーパーパワー（13ツール）
 
@@ -307,10 +307,10 @@ missing("GUI web server")
 | `trace` | スタックトレースを根本原因にマッピング | 3.5-5.8ms |
 | `validate_plan` | 変更の事前リスク評価 | 0.5-10ms |
 | `predict` | 共変更予測 | <1ms |
-| `trail.save` | 調査状態を永続化 | ~0ms |
-| `trail.resume` | 正確な調査コンテキストを復元 | 0.2ms |
-| `trail.merge` | マルチエージェントの調査を結合 | 1.2ms |
-| `trail.list` | 保存済み調査を参照 | ~0ms |
+| `trail_save` | 調査状態を永続化 | ~0ms |
+| `trail_resume` | 正確な調査コンテキストを復元 | 0.2ms |
+| `trail_merge` | マルチエージェントの調査を結合 | 1.2ms |
+| `trail_list` | 保存済み調査を参照 | ~0ms |
 | `differential` | XLRノイズキャンセリングアクティベーション | ~ms |
 
 ### スーパーパワー拡張（9ツール）
@@ -335,7 +335,7 @@ m1nd/
                  抗体、フロー、エピデミック、トレモア、トラスト、レイヤー検出、ドメイン設定
   m1nd-ingest/   言語エクストラクター（28言語）、メモリアダプター、JSONアダプター、
                  git強化、クロスファイルリゾルバー、インクリメンタルdiff
-  m1nd-mcp/      MCPサーバー、61ツールハンドラー、stdioを介したJSON-RPC
+  m1nd-mcp/      MCPサーバー、ライブMCPツールハンドラー、stdioを介したJSON-RPC
 ```
 
 **純粋なRust。** ランタイム依存関係なし。LLM呼び出しなし。APIキー不要。バイナリは約8MBで、Rustがコンパイルできる場所ならどこでも動作します。
@@ -400,7 +400,7 @@ graph LR
     end
 ```
 
-（Mermaidダイアグラムは後方互換性のため「52 Tools」と表示されていますが、実際のツール数は **61ツール** です）
+（Mermaidダイアグラムは後方互換性のため「52 Tools」と表示されていますが、正確なライブ件数は `tools/list` を真実のソースとして確認してください）
 
 ### 言語サポート
 
@@ -424,13 +424,13 @@ cargo build --release --features tier1,tier2
 
 **Code（デフォルト）**
 ```jsonc
-{"name":"m1nd.ingest","arguments":{"path":"/your/project","agent_id":"dev"}}
+{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}
 ```
 ソースファイルを解析し、クロスファイルエッジを解決し、git履歴で強化します。
 
 **Memory / Markdown**
 ```jsonc
-{"name":"m1nd.ingest","arguments":{
+{"name":"ingest","arguments":{
   "path":"/your/notes",
   "adapter":"memory",
   "namespace":"project-memory",
@@ -449,7 +449,7 @@ memory::<namespace>::reference::<referenced-path-slug>
 
 **JSON（ドメイン非依存）**
 ```jsonc
-{"name":"m1nd.ingest","arguments":{
+{"name":"ingest","arguments":{
   "path":"/your/domain.json",
   "adapter":"json",
   "agent_id":"dev"
@@ -526,7 +526,7 @@ JSONノード:
 | バグ伝播モデル | No | No | No | No | **SIRエピデミックエンジン** |
 | 障害前トレモア | No | No | No | No | **変更加速検出** |
 | アーキテクチャレイヤー | No | No | No | No | **自動検出 + 違反レポート** |
-| エージェントインターフェース | API | N/A | CLI | N/A | **61 MCPツール** |
+| エージェントインターフェース | API | N/A | CLI | N/A | **ライブMCPツール群** |
 | クエリあたりコスト | ホスト型SaaS | サブスクリプション | LLMトークン | LLMトークン | **ゼロ** |
 
 ## m1ndを使わないべき場合
@@ -569,7 +569,7 @@ m1ndは開発者が常に尋ねる質問に答えます：
 | 「バグはどこにあるか？」 | `trace` + `activate` | 疑わしさ × 中心性でランク付けされた容疑者 |
 | 「デプロイして安全か？」 | `epidemic` + `tremor` + `trust` | 3つの障害モードのリスクヒートマップ |
 | 「これはどう動くのか？」 | `layers` + `perspective` | 自動検出されたアーキテクチャ + ガイド付きナビゲーション |
-| 「何が変わったか？」 | `drift` + `lock.diff` + `timeline` | 前回セッション以降の構造的デルタ |
+| 「何が変わったか？」 | `drift` + `lock_diff` + `timeline` | 前回セッション以降の構造的デルタ |
 | 「誰がこれに依存しているか？」 | `impact` + `why` | ブラスト半径 + 依存パス |
 
 ### CI/CDパイプライン
@@ -609,16 +609,16 @@ hypothesize("forge identity bypass")  → 99%信頼度、20の証拠パス
 
 ```
 # 並行作業 — 競合を防ぐためにリージョンをロック
-lock.create(anchor="file::payment.py", depth=3)
-lock.diff()         → 0.08μs 構造変更検出
+lock_create(anchor="file::payment.py", depth=3)
+lock_diff()         → 0.08μs 構造変更検出
 
 # エンジニア間の知識移転
-trail.save(label="payment-refactor-v2", hypotheses=[...])
-trail.resume()      → 正確な調査コンテキスト、重み保持
+trail_save(label="payment-refactor-v2", hypotheses=[...])
+trail_resume()      → 正確な調査コンテキスト、重み保持
 
 # エージェント間のペアデバッグ
-perspective.branch()    → 独立した探索コピー
-perspective.compare()   → diff: 共有ノード vs 発散した発見
+perspective_branch()    → 独立した探索コピー
+perspective_compare()   → diff: 共有ノード vs 発散した発見
 ```
 
 ## 人々が構築しているもの
@@ -632,7 +632,7 @@ grepゼロ。グラフがバグへのナビゲートを担当します。
 **アーキテクチャ監査：** `layers` → `layer_inspect` → `counterfactual`
 レイヤーを自動検出し、違反を見つけ、モジュールを削除したときに何が壊れるかをシミュレートします。
 
-**オンボーディング：** `activate` → `layers` → `perspective.start` → `perspective.follow`
+**オンボーディング：** `activate` → `layers` → `perspective_start` → `perspective_follow`
 新しい開発者が「認証はどう動くか？」と尋ねる――グラフがパスを照らします。
 
 **クロスドメイン検索：** `ingest(adapter="memory", mode="merge")` → `activate`
@@ -677,15 +677,15 @@ grepゼロ。グラフがバグへのナビゲートを担当します。
   activate("memory leak in worker pool") → 15のランク付けされた容疑者
 
 調査:
-  perspective.start(anchor="file::worker_pool.py")
-  perspective.follow → perspective.peek → ソースを読む
+  perspective_start(anchor="file::worker_pool.py")
+  perspective_follow → perspective_peek → ソースを読む
   hypothesize("worker pool leaks when tasks cancel")
 
 進捗を保存:
-  trail.save(label="worker-pool-leak", hypotheses=[...])
+  trail_save(label="worker-pool-leak", hypotheses=[...])
 
 翌日:
-  trail.resume → 正確なコンテキストが復元、すべての重みが保持
+  trail_resume → 正確なコンテキストが復元、すべての重みが保持
 ```
 
 ### マルチリポ解析
@@ -778,7 +778,7 @@ epidemic(infected_nodes=["file::worker_pool.py"], direction="forward", top_k=10)
 
 ```jsonc
 {
-  "name": "m1nd.apply_batch",
+  "name": "apply_batch",
   "arguments": {
     "writes": [
       {"file_path": "src/auth.py", "new_content": "..."},
@@ -835,6 +835,6 @@ MIT — [LICENSE](../LICENSE) を参照。
 ---
 
 <p align="center">
-  Created by <a href="https://github.com/cosmophonix">Max Elias Kleinschmidt</a><br/>
+  Created by <a href="https://github.com/maxkle1nz">Max Elias Kleinschmidt</a><br/>
   <em>The graph must learn.</em>
 </p>

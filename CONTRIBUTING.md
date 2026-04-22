@@ -8,13 +8,13 @@ capture surface for moments where an agent used `m1nd`, did not get the exact
 answer it needed, and had to compensate outside the graph.
 
 For large capability waves, follow
-[docs/M1ND-MAJOR-UPDATE-WORKFLOW.md](docs/M1ND-MAJOR-UPDATE-WORKFLOW.md) so
+[docs/internal/M1ND-MAJOR-UPDATE-WORKFLOW.md](docs/internal/M1ND-MAJOR-UPDATE-WORKFLOW.md) so
 code, docs, built docs, and release surfaces move together.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/cosmophonix/m1nd.git
+git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build
 cargo test --all
@@ -25,7 +25,7 @@ cargo test --all
 ```
 m1nd-core/     Graph engine, plasticity, spreading activation, hypothesis engine
 m1nd-ingest/   Language extractors (28 languages), memory adapter, JSON adapter
-m1nd-mcp/      MCP server, 77 tool handlers, JSON-RPC over stdio
+m1nd-mcp/      MCP server, live MCP tool surface, JSON-RPC over stdio
 ```
 
 ---
@@ -123,7 +123,7 @@ In `m1nd-mcp/src/server.rs`, find `tool_schemas()`. Add a new entry:
 
 ```rust
 ToolSchema {
-    name: "m1nd.your_tool".to_string(),
+    name: "your_tool".to_string(),
     description: "One sentence. What it does and when to use it.".to_string(),
     input_schema: json!({
         "type": "object",
@@ -272,11 +272,11 @@ memory::<namespace>::reference::<path-slug>
 
 ### Using the adapter via MCP
 
-Pass `adapter: "memory"` to `m1nd.ingest`:
+Pass `adapter: "memory"` to `ingest`:
 
 ```json
 {
-  "name": "m1nd.ingest",
+  "name": "ingest",
   "arguments": {
     "path": "/path/to/notes/",
     "adapter": "memory",
@@ -341,14 +341,14 @@ its JSON-RPC interface:
 
 ```bash
 # Shell-based E2E
-./test_e2e.sh
-./test_mcp.sh
-./test_perspective_e2e.sh
+./tests/e2e/test_e2e.sh
+./tests/e2e/test_mcp.sh
+./tests/e2e/test_perspective_e2e.sh
 
 # Python-based scenarios
-python3 test_layers_e2e.py
-python3 test_advanced_usecases.py
-python3 test_perspective_usecases.py
+python3 tests/e2e/test_layers_e2e.py
+python3 tests/e2e/test_advanced_usecases.py
+python3 tests/e2e/test_perspective_usecases.py
 ```
 
 These scripts start the binary, send JSON-RPC calls over stdin, and assert on stdout.
@@ -364,7 +364,7 @@ They are the ground truth for behavioral correctness.
 
 ### Testing `apply` and `apply_batch` with `verify=true`
 
-`m1nd.apply` and `m1nd.apply_batch` both accept an optional `verify` flag (v0.5.0+).
+`apply` and `apply_batch` both accept an optional `verify` flag (v0.5.0+).
 When `verify=true`, the server performs a post-write graph consistency check: it re-reads
 the written file, confirms the content round-trips through ingest cleanly, and returns
 a `verify` block in the response with `passed`, `node_delta`, and `edge_delta`.
@@ -374,14 +374,14 @@ sets `verify=true` and asserts on the `verify.passed` field:
 
 ```bash
 # E2E: apply with verify
-echo '{"method":"tools/call","params":{"name":"m1nd.apply","arguments":{
+echo '{"method":"tools/call","params":{"name":"apply","arguments":{
   "agent_id":"test","file_path":"/tmp/test_apply.py",
   "new_content":"def hello(): pass\n","verify":true
 }}}' | ./m1nd-mcp | jq '.result.verify'
 # Expected: {"passed": true, "node_delta": 1, "edge_delta": 0}
 
 # E2E: apply_batch with verify
-echo '{"method":"tools/call","params":{"name":"m1nd.apply_batch","arguments":{
+echo '{"method":"tools/call","params":{"name":"apply_batch","arguments":{
   "agent_id":"test",
   "edits":[
     {"file_path":"/tmp/a.py","new_content":"x = 1\n"},

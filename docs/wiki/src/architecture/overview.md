@@ -9,7 +9,7 @@ m1nd is a local code graph engine for MCP agents. Internally it is still a graph
 - observable multi-file writes through `apply_batch`
 - repair-friendly errors when a tool call goes wrong
 
-The workspace currently exposes 93 MCP tools over JSON-RPC stdio, with an HTTP/UI surface in the default build.
+The workspace exposes the live MCP tool surface over JSON-RPC stdio, with an HTTP/UI surface in the default build. Use `tools/list` for the exact count in your current build.
 
 ## Four-Crate Workspace
 
@@ -45,7 +45,7 @@ Dependencies flow strictly downward: `m1nd-mcp` depends on both `m1nd-core` and 
 graph TD
     subgraph "m1nd-mcp (Transport)"
         STDIO["JSON-RPC stdio<br/>dual: framed + line"]
-        DISPATCH["Tool Dispatch<br/>93 tools"]
+        DISPATCH["Tool Dispatch<br/>live tool surface"]
         SESSION["SessionState<br/>SharedGraph + Engines"]
         PERSIST["Auto-Persist<br/>every 50 queries"]
     end

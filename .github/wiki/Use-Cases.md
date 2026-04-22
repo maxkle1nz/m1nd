@@ -210,7 +210,7 @@ Pipeline: trail_save → trail_list → trail_resume → trail_merge (multi-agen
 
 ### 1.5 Architecture Exploration and Context Recovery
 
-When onboarding to an unfamiliar codebase or recovering context after session compaction:
+When onboarding to an unfamiliar codebase or recovering context after a long session:
 
 ```
 Pipeline: drift → activate(domain) → why(a, b) → counterfactual(modules)

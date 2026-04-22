@@ -34,6 +34,17 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install mdBook toolchain
+        run: |
+          cargo install --locked mdbook
+          cargo install --locked mdbook-mermaid
+
       - name: Install landing dependencies
         working-directory: ./m1nd-demo
         run: npm ci
@@ -46,6 +57,9 @@ jobs:
       - name: Build landing
         working-directory: ./m1nd-demo
         run: npm run build
+
+      - name: Build wiki
+        run: mdbook build docs/wiki
 
       - name: Compose Pages artifact
         run: |

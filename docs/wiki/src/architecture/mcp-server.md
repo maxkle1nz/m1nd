@@ -1,6 +1,6 @@
 # MCP Server (m1nd-mcp)
 
-m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest as 93 MCP tools over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, observable batch execution, and a local-first document runtime.
+m1nd-mcp is the transport and session layer. It exposes m1nd-core and m1nd-ingest through the live MCP tool surface over JSON-RPC stdio, manages the shared graph lifecycle, handles multi-agent sessions, and turns graph results into a more agent-operational runtime with proof-state, next-step guidance, recovery-oriented errors, observable batch execution, and a local-first document runtime. Use `tools/list` for the exact count in your current build.
 
 Source: `m1nd-mcp/src/`
 
@@ -29,12 +29,12 @@ m1nd-mcp accepts two JSON-RPC transport formats on stdin, auto-detected per mess
 ```
 Content-Length: 142\r\n
 \r\n
-{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
 ```
 
 **Line mode** (raw JSON):
 ```
-{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
 ```
 
 Detection is based on the first non-whitespace byte: if it is `{` or `[`, the message is treated as line-mode JSON. Otherwise, it is parsed as framed with `Content-Length` headers. Responses are written in the same mode as the incoming request.
@@ -65,7 +65,7 @@ Requests follow the JSON-RPC 2.0 specification with MCP conventions:
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-        "name": "m1nd.activate",
+        "name": "activate",
         "arguments": {
             "query": "chat handler",
             "agent_id": "jimi",
@@ -93,7 +93,7 @@ Responses:
 }
 ```
 
-The `tools/list` method returns all 93 tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client.
+The `tools/list` method returns the live tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client. Use it as the source of truth for exact names and count in your current build.
 
 ## Server Lifecycle
 
@@ -164,11 +164,13 @@ The atomic write pattern (temp file + rename) ensures that even if shutdown is i
 
 ### Schema Registry
 
-`tool_schemas()` returns a JSON array of all 93 tool definitions with full `inputSchema` objects. Each tool specifies:
+`tool_schemas()` returns a JSON array of the live tool definitions with full `inputSchema` objects. Each tool specifies:
 
-- `name`: Dot-namespaced (e.g., `m1nd.activate`)
+- `name`: Canonical live registry name (e.g., `activate`)
 - `description`: Human-readable purpose
 - `inputSchema`: JSON Schema with `properties`, `required`, `type`, defaults
+
+Some clients may display compatibility aliases with a transport prefix such as `m1nd.activate`, but the live registry returned by `tools/list` uses the bare tool names.
 
 The current surface now includes a document runtime in addition to the code graph runtime:
 
@@ -185,7 +187,7 @@ Example schema entry:
 
 ```json
 {
-    "name": "m1nd.activate",
+    "name": "activate",
     "description": "Spreading activation query across the graph",
     "inputSchema": {
         "type": "object",
@@ -207,79 +209,79 @@ Example schema entry:
 
 ### Tool Categories
 
-The 43 tools are organized into functional groups:
+The live tool surface is organized into functional groups. Use `tools/list` for the exhaustive registry in your current build.
 
-**Core Query Tools** (13):
+**Core Query Tools**:
 
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|
-| `m1nd.activate` | Spreading activation query | `query`, `top_k`, `dimensions`, `xlr` |
-| `m1nd.impact` | Blast radius analysis | `node_id`, `direction` (forward/reverse/both) |
-| `m1nd.missing` | Structural hole detection | `query`, `min_sibling_activation` |
-| `m1nd.why` | Path explanation between nodes | `source`, `target`, `max_hops` |
-| `m1nd.warmup` | Task-based priming | `task_description`, `boost_strength` |
-| `m1nd.counterfactual` | Node removal simulation | `node_ids`, `include_cascade` |
-| `m1nd.predict` | Co-change prediction | `changed_node`, `top_k`, `include_velocity` |
-| `m1nd.fingerprint` | Equivalence detection | `target_node` |
-| `m1nd.drift` | Weight changes since baseline | `since` |
-| `m1nd.learn` | Hebbian feedback | `feedback` (correct/wrong) |
-| `m1nd.resonate` | Standing wave analysis | `query`, `frequencies`, `num_harmonics` |
-| `m1nd.seek` | Seed-level node lookup | `query` |
-| `m1nd.scan` | Full graph summary | (none) |
+| `activate` | Spreading activation query | `query`, `top_k`, `dimensions`, `xlr` |
+| `impact` | Blast radius analysis | `node_id`, `direction` (forward/reverse/both) |
+| `missing` | Structural hole detection | `query`, `min_sibling_activation` |
+| `why` | Path explanation between nodes | `source`, `target`, `max_hops` |
+| `warmup` | Task-based priming | `task_description`, `boost_strength` |
+| `counterfactual` | Node removal simulation | `node_ids`, `include_cascade` |
+| `predict` | Co-change prediction | `changed_node`, `top_k`, `include_velocity` |
+| `fingerprint` | Equivalence detection | `target_node` |
+| `drift` | Weight changes since baseline | `since` |
+| `learn` | Hebbian feedback | `feedback` (correct/wrong) |
+| `resonate` | Standing wave analysis | `query`, `frequencies`, `num_harmonics` |
+| `seek` | Seed-level node lookup | `query` |
+| `scan` | Full graph summary | (none) |
 
 **Graph Mutation Tools**:
 
 | Tool | Purpose |
 |------|---------|
-| `m1nd.ingest` | Ingest codebase into graph |
-| `m1nd.health` | Server diagnostics |
-| `m1nd.timeline` | Temporal event timeline |
+| `ingest` | Ingest codebase into graph |
+| `health` | Server diagnostics |
+| `timeline` | Temporal event timeline |
 
-**Perspective Tools** (12):
-
-| Tool | Purpose |
-|------|---------|
-| `m1nd.perspective_start` | Open a named perspective branch |
-| `m1nd.perspective_close` | Close a perspective |
-| `m1nd.perspective_list` | List open perspectives for an agent |
-| `m1nd.perspective_inspect` | View perspective state and cached results |
-| `m1nd.perspective_compare` | Diff two perspectives |
-| `m1nd.perspective_branch` | Fork a perspective |
-| `m1nd.perspective_suggest` | Generate suggestions from perspective context |
-| `m1nd.perspective_back` | Undo last perspective operation |
-| `m1nd.perspective_peek` | Read source file content from within perspective |
-| `m1nd.perspective_follow` | Follow links from perspective results |
-| `m1nd.perspective_routes` | View cached activation routes |
-| `m1nd.perspective_affinity` | Cross-perspective affinity analysis |
-
-**Lock Tools** (5):
+**Perspective Tools**:
 
 | Tool | Purpose |
 |------|---------|
-| `m1nd.lock_create` | Create a baseline snapshot for change tracking |
-| `m1nd.lock_diff` | Diff current state against lock baseline |
-| `m1nd.lock_rebase` | Update lock baseline to current state |
-| `m1nd.lock_release` | Release a lock |
-| `m1nd.lock_watch` | Watch for changes against lock baseline |
+| `perspective_start` | Open a named perspective branch |
+| `perspective_close` | Close a perspective |
+| `perspective_list` | List open perspectives for an agent |
+| `perspective_inspect` | View perspective state and cached results |
+| `perspective_compare` | Diff two perspectives |
+| `perspective_branch` | Fork a perspective |
+| `perspective_suggest` | Generate suggestions from perspective context |
+| `perspective_back` | Undo last perspective operation |
+| `perspective_peek` | Read source file content from within perspective |
+| `perspective_follow` | Follow links from perspective results |
+| `perspective_routes` | View cached activation routes |
+| `perspective_affinity` | Cross-perspective affinity analysis |
 
-**Trail Tools** (4):
+**Lock Tools**:
 
 | Tool | Purpose |
 |------|---------|
-| `m1nd.trail_save` | Save current exploration trail |
-| `m1nd.trail_list` | List saved trails |
-| `m1nd.trail_resume` | Resume a saved trail |
-| `m1nd.trail_merge` | Merge trails |
+| `lock_create` | Create a baseline snapshot for change tracking |
+| `lock_diff` | Diff current state against lock baseline |
+| `lock_rebase` | Update lock baseline to current state |
+| `lock_release` | Release a lock |
+| `lock_watch` | Watch for changes against lock baseline |
+
+**Trail Tools**:
+
+| Tool | Purpose |
+|------|---------|
+| `trail_save` | Save current exploration trail |
+| `trail_list` | List saved trails |
+| `trail_resume` | Resume a saved trail |
+| `trail_merge` | Merge trails |
 
 **Topology Tools**:
 
 | Tool | Purpose |
 |------|---------|
-| `m1nd.federate` | Cross-graph federation |
-| `m1nd.diverge` | Divergence analysis between graph regions |
-| `m1nd.differential` | Differential activation (compare two queries) |
-| `m1nd.hypothesize` | Generate hypotheses from graph structure |
-| `m1nd.validate_plan` | Validate an implementation plan against graph |
+| `federate` | Cross-graph federation |
+| `diverge` | Divergence analysis between graph regions |
+| `differential` | Differential activation (compare two queries) |
+| `hypothesize` | Generate hypotheses from graph structure |
+| `validate_plan` | Validate an implementation plan against graph |
 
 ### Dispatch
 
