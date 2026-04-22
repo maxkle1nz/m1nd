@@ -62,7 +62,7 @@
 
 It ingests repositories, documentation, history, runtime-adjacent signals, and graph-native knowledge into a graph exposed through MCP. That graph gives the agent a durable operational model of the system before, during, and after change.
 
-It is not only a query surface. It is an agent-operational runtime: graph answers can carry proof state, next-step guidance, repair-oriented recovery hints, observable batch execution, stateful navigation, and persisted continuity across sessions.
+It is not only a query surface. It is an agent-operational runtime: graph answers and edit surfaces can carry proof state, next-step guidance, repair-oriented recovery hints, observable batch execution, verified writes, stateful navigation, and persisted continuity across sessions.
 
 With `m1nd`, an agent can:
 
@@ -74,14 +74,14 @@ With `m1nd`, an agent can:
 - maintain continuity across turns, sessions, baselines, branches, and repo boundaries with perspectives, trails, session coverage, federation, persisted memory, and persisted state
 - coordinate many agents against one shared runtime while preserving per-agent navigation state, perspective isolation, and resumable handoff context
 - monitor and verify the system over time with audits, graph-vs-disk checks, daemon watches, alerts, metrics, diagrams, panoramic scans, reports, runtime overlays, and persisted state
-- prepare, preview, and apply connected edits with graph-aware context instead of isolated file reads
+- prepare, preview, and apply connected edits with graph-aware context, including atomic multi-file writes and post-write verification through `apply_batch`
 - learn from feedback and reinforce useful paths over repeated investigations through automatic plasticity and explicit feedback
 - measure savings, inspect the live runtime surface, and route itself with built-in reporting and `help`
 
 ## What That Intelligence Covers
 
 - Structure: repo shape, dependencies, neighborhoods, hidden relationships, graph-aware retrieval, type flows, architectural layers, and guided routes beyond raw text matches.
-- Change: blast radius, co-change prediction, missing work, structural claims, counterfactuals, drift, simulations, proof states, next-step hints, and edit preparation or execution.
+- Change: blast radius, co-change prediction, missing work, structural claims, counterfactuals, drift, simulations, proof states, next-step hints, and graph-aware edit preparation, atomic multi-file execution, or post-write verification.
 - Docs: universal document ingestion, graph-native `L1GHT`, provider health, automatic ingest, bindings between specs and implementation, local-first document runtime behavior, and document drift detection.
 - Operations: audits, graph-vs-disk verification, daemon monitoring, alerts, metrics, diagrams, runtime overlays, panoramas, savings, reporting, built-in help, and recovery-oriented workflow routing.
 - Continuity: perspectives, trails, session coverage, boot memory, persisted state, feedback-driven reinforcement, multi-agent isolation, and cross-repo or cross-session investigative state.
