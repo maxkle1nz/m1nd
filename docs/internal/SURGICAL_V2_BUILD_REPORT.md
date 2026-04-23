@@ -10,7 +10,7 @@
 
 ### 1. `handle_surgical_context_v2()` -- surgical_handlers.rs
 
-Full implementation of `m1nd.surgical_context_v2`. Returns V1 context for the primary file PLUS source code of connected files (callers, callees, tests).
+Full implementation of `surgical_context_v2`. Returns V1 context for the primary file PLUS source code of connected files (callers, callees, tests).
 
 **Implementation details:**
 - Delegates to V1 `handle_surgical_context()` for the primary file
@@ -33,7 +33,7 @@ elapsed_ms: 1.3ms
 
 ### 2. `handle_apply_batch()` -- surgical_handlers.rs
 
-Full implementation of `m1nd.apply_batch`. Writes multiple files atomically with a single bulk re-ingest.
+Full implementation of `apply_batch`. Writes multiple files atomically with a single bulk re-ingest.
 
 **Implementation details:**
 - Empty edits = immediate no-op (all_succeeded=true, files_written=0)
@@ -57,8 +57,8 @@ elapsed_ms: 165.6ms
 
 ### 3. Server dispatch -- server.rs
 
-- Added `"m1nd.surgical.context.v2"` match arm in `dispatch_core_tool()`
-- Added `"m1nd.apply.batch"` match arm in `dispatch_core_tool()`
+- Added `"surgical_context_v2"` match arm in `dispatch_core_tool()`
+- Added `"apply_batch"` match arm in `dispatch_core_tool()`
 - Added JSON schemas for both tools in `tool_schemas()` array
 
 ---
@@ -83,7 +83,7 @@ elapsed_ms: 165.6ms
 
 **File**: `m1nd-mcp/src/surgical_handlers.rs` (validate_path_safety)
 **Was**: `if ingest_roots.is_empty() { return Ok(canonical); }` -- any path was allowed when no ingest had been done.
-**Fix**: Now returns error "no ingest roots configured (run m1nd.ingest first)" when ingest_roots is empty. Writes are only allowed within ingested workspace roots.
+**Fix**: Now returns error "no ingest roots configured (run ingest first)" when ingest_roots is empty. Writes are only allowed within ingested workspace roots.
 
 ### BUG 4 (E3): m1nd state file deny-list -- ADDED
 
@@ -140,8 +140,8 @@ TOTAL: 399 passed, 0 failed
 1. Built release binary
 2. Started m1nd-mcp on port 1337
 3. Ingested backend codebase (10773 nodes, 28546 edges)
-4. `m1nd.surgical_context_v2`: returned 5 connected files with source excerpts, 158 total lines, 1.3ms
-5. `m1nd.apply_batch`: wrote 2 files atomically, reingested, 165.6ms
+4. `surgical_context_v2`: returned 5 connected files with source excerpts, 158 total lines, 1.3ms
+5. `apply_batch`: wrote 2 files atomically, reingested, 165.6ms
 6. Empty batch: no-op, all_succeeded=true, 0 files written
 7. Path traversal: blocked (outside workspace roots)
 8. Deny-list: blocked write to graph_snapshot.json

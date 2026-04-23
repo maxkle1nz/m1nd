@@ -89,6 +89,7 @@ fn build_help_output_known(tool: &str) -> HelpOutput {
         confidence: Some(0.71),
         why_this_next_step: Some("The help page already encodes the downstream workflow.".into()),
         what_is_missing: Some("The downstream tool still needs to run.".into()),
+        guidance: None,
     }
 }
 
@@ -457,6 +458,7 @@ fn test_help_unknown_tool() {
             "The requested tool name did not resolve to a canonical tool.".into(),
         ),
         what_is_missing: Some("A valid canonical tool name is still missing.".into()),
+        guidance: None,
     };
 
     assert!(!out.found, "unknown tool must return found=false");
@@ -499,6 +501,7 @@ fn test_help_no_arg() {
         confidence: Some(0.42),
         why_this_next_step: Some("The help index is acting as a workflow router.".into()),
         what_is_missing: Some("A concrete workflow choice is still missing.".into()),
+        guidance: None,
     };
 
     assert!(out.found, "index response must have found=true");
@@ -520,7 +523,7 @@ fn test_help_contains_next_suggestions() {
     // This prevents the "what to do after this?" UX confusion.
 
     let out = HelpOutput {
-        formatted: "╔═════════════════════╗\n║  m1nd.activate      ║\n╠═════════════════════╣\n║  PARAMS             ║\n║  RETURNS            ║\n║  NEXT → impact(...)  ║\n╚═════════════════════╝".into(),
+        formatted: "╔═════════════════════╗\n║  activate           ║\n╠═════════════════════╣\n║  PARAMS             ║\n║  RETURNS            ║\n║  NEXT → impact(...) ║\n╚═════════════════════╝".into(),
         tool: Some("activate".into()),
         found: true,
         suggestions: vec![],
@@ -531,6 +534,7 @@ fn test_help_contains_next_suggestions() {
         confidence: Some(0.68),
         why_this_next_step: Some("The help page already points toward the downstream workflow.".into()),
         what_is_missing: Some("The downstream tool chain has not executed yet.".into()),
+        guidance: None,
     };
 
     assert!(

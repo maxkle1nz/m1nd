@@ -19,7 +19,7 @@ use std::process::Command;
 use std::time::Instant;
 
 // =========================================================================
-// L2: Semantic Search — m1nd.seek + m1nd.scan
+// L2: Semantic Search — seek + scan
 // =========================================================================
 
 fn l2_dampened_trust_factor(raw_factor: f32) -> f32 {
@@ -58,7 +58,7 @@ fn l2_seek_heuristic_reason(
     }
 }
 
-/// Handle m1nd.seek -- intent-aware semantic code search.
+/// Handle seek -- intent-aware semantic code search.
 /// Finds code by PURPOSE, not text pattern. Combines keyword matching,
 /// graph activation (PageRank), and trigram similarity for ranking.
 ///
@@ -2875,7 +2875,7 @@ pub fn handle_trail_list(
         filtered.retain(|t| input.filter_tags.iter().any(|tag| t.tags.contains(tag)));
     }
 
-    filtered.sort_by(|a, b| b.last_modified_ms.cmp(&a.last_modified_ms));
+    filtered.sort_by_key(|entry| std::cmp::Reverse(entry.last_modified_ms));
 
     let total_count = filtered.len();
     let trails: Vec<layers::TrailSummaryOutput> =
@@ -8525,7 +8525,7 @@ pub fn handle_metrics(
         }
         _ => {
             // loc_desc
-            entries.sort_by(|a, b| b.loc.cmp(&a.loc));
+            entries.sort_by_key(|entry| std::cmp::Reverse(entry.loc));
         }
     }
 
@@ -8806,7 +8806,7 @@ pub fn handle_type_trace(
                 usages: group_usages,
             });
         }
-        file_groups.sort_by(|a, b| b.usage_count.cmp(&a.usage_count));
+        file_groups.sort_by_key(|entry| std::cmp::Reverse(entry.usage_count));
     }
 
     let total_files = file_groups.len();

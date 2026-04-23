@@ -16,7 +16,7 @@
     "payload_chars": 220
   },
   {
-    "tool_name": "m1nd.search",
+    "tool_name": "search",
     "query": "ambiguous_auto_ingest_scope_hint",
     "elapsed_ms": 1.0,
     "payload_chars": 500,

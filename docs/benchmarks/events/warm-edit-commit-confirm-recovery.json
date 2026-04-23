@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.edit_commit",
+    "tool_name": "edit_commit",
     "query": "commit preview with confirm=false",
     "elapsed_ms": 0.8,
     "payload_chars": 220,
@@ -17,7 +17,7 @@
     "notes": "confirm gate blocks accidental writes without invalidating the preview."
   },
   {
-    "tool_name": "m1nd.edit_commit",
+    "tool_name": "edit_commit",
     "query": "retry commit with confirm=true on same preview_id",
     "elapsed_ms": 1.1,
     "payload_chars": 300,

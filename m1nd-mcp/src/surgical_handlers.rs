@@ -613,7 +613,7 @@ fn validate_path_safety(resolved: &Path, ingest_roots: &[String]) -> M1ndResult<
                 "path {} cannot be written: no ingest roots configured",
                 resolved.display()
             ),
-            "Run m1nd.ingest on the workspace first, then retry apply/apply_batch inside that ingested root.",
+            "Run ingest on the workspace first, then retry apply/apply_batch inside that ingested root.",
         ));
     }
 
@@ -2065,10 +2065,10 @@ pub fn handle_edit_commit(
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.apply
+// apply
 // ---------------------------------------------------------------------------
 
-/// Handle m1nd.apply.
+/// Handle apply.
 ///
 /// Writes LLM-edited code back to `file_path` and triggers an incremental
 /// re-ingest so the graph reflects the new source.
@@ -2605,10 +2605,10 @@ fn surgical_v2_file_kind_rank(path: &str) -> u8 {
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.apply_batch
+// apply_batch
 // ---------------------------------------------------------------------------
 
-/// Handle m1nd.apply_batch.
+/// Handle apply_batch.
 ///
 /// Writes multiple files atomically and triggers a single bulk re-ingest.
 ///
@@ -3909,10 +3909,10 @@ fn summarize_file_excerpt(file_path: &str, total_lines: usize, lines_returned: u
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.view — lightweight file reader
+// view — lightweight file reader
 // ---------------------------------------------------------------------------
 
-/// Handle m1nd.view: fast file reading with line numbers.
+/// Handle view: fast file reading with line numbers.
 /// No graph traversal — just read, format, return.
 /// Auto-ingests the file if not in the graph.
 pub fn handle_view(
@@ -4469,7 +4469,7 @@ mod tests {
         let msg = format!("{}", err);
         assert!(msg.contains("no ingest roots configured"));
         assert!(msg.contains("Hint:"));
-        assert!(msg.contains("m1nd.ingest"));
+        assert!(msg.contains("ingest"));
     }
 
     #[test]

@@ -678,7 +678,7 @@ Show that docs/specs/concepts are first-class.
 
 ### Message
 
-`L1GHT` is not an appendix. It is part of the operable system.
+`L1GHT` is not an appendix. It is part of the operating intelligence.
 
 ### Composition
 
@@ -750,7 +750,7 @@ This is the share card for links.
 ### Required content
 
 - `m1nd`
-- `The software intelligence layer for AI agents`
+- `Operational intelligence for coding agents`
 - one compact visual cue for `code + docs + change`
 
 Keep it cleaner than the README images.

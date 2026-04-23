@@ -116,10 +116,8 @@ fn parse_bibtex(content: &str) -> Vec<BibRecord> {
                     "author" => rec.authors = parse_authors(val),
                     "year" => rec.year = val.trim().to_string(),
                     "journal" | "journaltitle" => rec.journal = clean_bibtex_value(val),
-                    "booktitle" => {
-                        if rec.journal.is_empty() {
-                            rec.journal = clean_bibtex_value(val);
-                        }
+                    "booktitle" if rec.journal.is_empty() => {
+                        rec.journal = clean_bibtex_value(val);
                     }
                     "doi" => rec.doi = val.trim().to_string(),
                     "abstract" => rec.abstract_text = clean_bibtex_value(val),

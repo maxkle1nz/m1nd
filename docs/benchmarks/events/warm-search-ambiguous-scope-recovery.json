@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.search",
+    "tool_name": "search",
     "query": "ambiguous_auto_ingest_scope_hint",
     "elapsed_ms": 0.9,
     "payload_chars": 250,
@@ -14,7 +14,7 @@
     "notes": "Ambiguous auto_ingest no longer forces file guessing; it teaches the explicit retry path."
   },
   {
-    "tool_name": "m1nd.search",
+    "tool_name": "search",
     "query": "ambiguous_auto_ingest_scope_hint",
     "elapsed_ms": 0.9,
     "payload_chars": 490,
@@ -31,7 +31,7 @@
     "next_tool_used": "view"
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/src/search_handlers.rs",
     "elapsed_ms": 0.6,
     "payload_chars": 530,

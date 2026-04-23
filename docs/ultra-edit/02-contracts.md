@@ -84,9 +84,9 @@ Possible target modes:
 
 Ultra Edit must complement, not break:
 
-[⟁ depends_on: m1nd.apply]
-[⟁ depends_on: m1nd.apply_batch]
-[⟁ depends_on: m1nd.surgical_context_v2]
+[⟁ depends_on: apply]
+[⟁ depends_on: apply_batch]
+[⟁ depends_on: surgical_context_v2]
 [⟁ binds_to: VerifyPipeline]
 
 [AMBER warning: legacy apply remains necessary for full-file replacement workflows]

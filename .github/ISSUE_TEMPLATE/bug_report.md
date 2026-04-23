@@ -11,8 +11,8 @@ A clear and concise description of what the bug is.
 **To Reproduce**
 
 Steps to reproduce the behavior:
-1. Run `m1nd.ingest path=...`
-2. Call `m1nd.activate query=...`
+1. Run `ingest path=...`
+2. Call `activate query=...`
 3. Observe error
 
 **Expected behavior**

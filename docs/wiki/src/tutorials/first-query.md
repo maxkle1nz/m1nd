@@ -14,7 +14,7 @@ If you have not already ingested, do it now:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.ingest",
+    "name": "ingest",
     "arguments": {
       "path": "/your/project",
       "agent_id": "dev"
@@ -45,7 +45,7 @@ Ask the graph about session pool management:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+    "name": "activate",
     "arguments": {
       "query": "session pool management",
       "agent_id": "dev",
@@ -101,7 +101,7 @@ The top two results (`session_pool.py` and the `SessionPool` class) were exactly
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.learn",
+    "name": "learn",
     "arguments": {
       "query": "session pool management",
       "agent_id": "dev",
@@ -135,7 +135,7 @@ Now suppose `worker_pool.py` (score 0.61) was not actually relevant. Mark it wro
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.learn",
+    "name": "learn",
     "arguments": {
       "query": "session pool management",
       "agent_id": "dev",
@@ -168,7 +168,7 @@ Run the exact same query:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+    "name": "activate",
     "arguments": {
       "query": "session pool management",
       "agent_id": "dev",
@@ -213,7 +213,7 @@ Ask the graph what is *missing* around a topic:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.missing",
+    "name": "missing",
     "arguments": {
       "query": "database connection pooling",
       "agent_id": "dev"
@@ -259,7 +259,7 @@ Before deleting or rewriting a module, simulate the consequences:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.counterfactual",
+    "name": "counterfactual",
     "arguments": {
       "node_ids": ["file::spawner.py"],
       "agent_id": "dev"
@@ -297,7 +297,7 @@ Compare this with removing `config.py`:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.counterfactual",
+    "name": "counterfactual",
     "arguments": {
       "node_ids": ["file::config.py"],
       "agent_id": "dev"
@@ -331,7 +331,7 @@ Test a structural claim against the graph:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.hypothesize",
+    "name": "hypothesize",
     "arguments": {
       "claim": "worker_pool depends on whatsapp_manager at runtime",
       "agent_id": "dev"

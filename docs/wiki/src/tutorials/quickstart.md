@@ -171,7 +171,7 @@ The live MCP registry exposes bare tool names like:
 - `search`
 - `impact`
 
-Some clients or docs may show `m1nd.ingest`-style names. Treat that as presentation sugar. The canonical live registry names are the bare tool names shown by `tools/list`.
+Some clients or docs may show transport-prefixed aliases. Treat that as presentation sugar. The canonical live registry names are the bare tool names shown by `tools/list`.
 
 ## First run
 

@@ -20,7 +20,7 @@ const STEP_CONFIG = `{
 
 const STEP_INGEST = `// first session — ingest your codebase
 {
-  "tool": "m1nd.ingest",
+  "tool": "ingest",
   "arguments": {
     "agent_id": "your-agent",
     "path": "./src",
@@ -34,25 +34,25 @@ const STEP_INGEST = `// first session — ingest your codebase
 const PLAYBOOK = [
   {
     rule: "Always activate before searching",
-    tool: "m1nd.activate",
+    tool: "activate",
     detail: "Spreading activation finds structurally relevant nodes in µs — before any grep or file read.",
     color: "#00f5ff",
   },
   {
     rule: "Measure blast radius before every edit",
-    tool: "m1nd.impact",
+    tool: "impact",
     detail: "Returns direct and indirect callers sorted by coupling risk. Use it before touching any file.",
     color: "#ff6b00",
   },
   {
     rule: "Load context in one call, not many",
-    tool: "m1nd.surgical_context_v2",
+    tool: "surgical_context_v2",
     detail: "Pulls the target file plus its connected callers and callees in a single graph query.",
     color: "#00ff88",
   },
   {
     rule: "Ask by intent, not by filename",
-    tool: "m1nd.seek",
+    tool: "seek",
     detail: "Finds code by structural meaning. 'Where is shutdown guarded against cancel?' — no filenames needed.",
     color: "#ffb700",
   },

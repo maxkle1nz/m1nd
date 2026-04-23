@@ -230,11 +230,9 @@ fn parse_rfc_xml(xml: &str) -> Vec<RfcRecord> {
                 }
                 path.pop();
             }
-            Ok(Event::Text(e)) => {
-                if in_title || in_abstract || in_keyword || in_ref_title {
-                    if let Ok(t) = e.unescape() {
-                        text_buf.push_str(&t);
-                    }
+            Ok(Event::Text(e)) if in_title || in_abstract || in_keyword || in_ref_title => {
+                if let Ok(t) = e.unescape() {
+                    text_buf.push_str(&t);
                 }
             }
             Ok(Event::Empty(e)) => {

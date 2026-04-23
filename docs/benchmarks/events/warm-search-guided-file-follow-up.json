@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.search",
+    "tool_name": "search",
     "query": "next_suggested_tool",
     "elapsed_ms": 1.1,
     "payload_chars": 390,
@@ -15,7 +15,7 @@
     "next_tool_used": "view"
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/src/search_handlers.rs",
     "elapsed_ms": 0.6,
     "payload_chars": 520,

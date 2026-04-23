@@ -4,13 +4,13 @@
 
 ## General
 
-### When should I use `m1nd.search` instead of grep?
+### When should I use `search` instead of grep?
 
-`m1nd.search` is a graph-aware grep replacement. Use it when you need exact text search (literal or regex) but want graph context alongside the results — node IDs, line provenance, and graph-linked metadata.
+`search` is a graph-aware grep replacement. Use it when you need exact text search (literal or regex) but want graph context alongside the results — node IDs, line provenance, and graph-linked metadata.
 
 The key differences:
 
-| | grep | m1nd.search |
+| | grep | search |
 |---|---|---|
 | Searches file contents | Yes | Yes (literal + regex modes) |
 | Searches graph node labels | No | Yes |
@@ -25,13 +25,13 @@ The key differences:
 - You know what it DOES but not what it's called → `seek` or `search(mode="semantic")`
 - You're exploring relationships, finding missing structure → `activate` or `missing`
 
-`m1nd.search` does NOT replace `activate`. `activate` uses spreading activation with 4D scoring — it surfaces what MATTERS, not what MATCHES. For open-ended exploration, `activate` is still superior.
+`search` does NOT replace `activate`. `activate` uses spreading activation with 4D scoring — it surfaces what MATTERS, not what MATCHES. For open-ended exploration, `activate` is still superior.
 
 ---
 
 ### How does the savings and CO2 tracking work?
 
-m1nd tracks token savings cumulatively across sessions via two tools: `m1nd.savings` and `m1nd.report`.
+m1nd tracks token savings cumulatively across sessions via two tools: `savings` and `report`.
 
 **Estimation model:**
 - Every m1nd query (activate, impact, hypothesize, etc.) replaces a grep/glob + LLM re-reading loop
@@ -68,7 +68,7 @@ m1nd has a visual identity expressed through five Unicode glyphs and an ANSI col
 - Red `#FF4757` — critical alerts, panoramic warnings
 - Blue `#4169E1` — Lock system, Report
 
-Run `m1nd.help(tool_name="about")` to see the full visual identity banner in your terminal.
+Run `help(tool_name="about")` to see the full visual identity banner in your terminal.
 
 ---
 

@@ -37,7 +37,7 @@ pub struct JsonRpcError {
 // MCP tool input types (03-MCP Section 2 tool schemas)
 // ---------------------------------------------------------------------------
 
-/// Input for m1nd.activate (03-MCP Section 2.1).
+/// Input for activate (03-MCP Section 2.1).
 #[derive(Clone, Debug, Deserialize)]
 pub struct ActivateInput {
     pub query: String,
@@ -54,7 +54,7 @@ pub struct ActivateInput {
     pub include_structural_holes: bool,
 }
 
-/// Input for m1nd.impact (03-MCP Section 2.2).
+/// Input for impact (03-MCP Section 2.2).
 #[derive(Clone, Debug, Deserialize)]
 pub struct ImpactInput {
     pub node_id: String,
@@ -241,7 +241,7 @@ fn default_params() -> serde_json::Value {
 // All output types are Serialize for JSON-RPC response.
 // ---------------------------------------------------------------------------
 
-/// Output for m1nd.activate.
+/// Output for activate.
 #[derive(Clone, Debug, Serialize)]
 pub struct ActivateOutput {
     pub query: String,
@@ -335,7 +335,7 @@ pub struct PlasticityOutput {
     pub priming_nodes: u32,
 }
 
-/// Output for m1nd.impact.
+/// Output for impact.
 #[derive(Clone, Debug, Serialize)]
 pub struct ImpactOutput {
     pub source: String,

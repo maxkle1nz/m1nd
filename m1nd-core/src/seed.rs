@@ -380,7 +380,7 @@ impl SeedFinder {
             .map(|(_, (i, r, _))| (NodeId::new(*i as u32), FiniteF32::new(*r)))
             .collect();
 
-        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         results.truncate(cap);
         Ok(results)
     }
@@ -411,7 +411,7 @@ impl SeedFinder {
             *score = FiniteF32::new(blended);
         }
 
-        seeds.sort_by(|a, b| b.1.cmp(&a.1));
+        seeds.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         seeds.truncate(max_seeds.min(MAX_SEEDS));
         Ok(seeds)
     }

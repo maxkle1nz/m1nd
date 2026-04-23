@@ -4,8 +4,9 @@ Seven tools for impact analysis, prediction, counterfactual simulation, fingerpr
 
 ---
 
-## `m1nd.impact`
+<a id="m1ndimpact"></a>
 
+## `impact`
 Impact radius / blast analysis for a node. Propagates signal outward from a source node to determine which other nodes would be affected by a change. Supports forward (downstream), reverse (upstream), and bidirectional analysis.
 
 ### Parameters
@@ -25,7 +26,7 @@ Impact radius / blast analysis for a node. Propagates signal outward from a sour
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.impact",
+    "name": "impact",
     "arguments": {
       "agent_id": "jimi",
       "node_id": "file::chat_handler.py",
@@ -69,14 +70,15 @@ Impact radius / blast analysis for a node. Propagates signal outward from a sour
 
 ### Related Tools
 
-- [`m1nd.predict`](#m1ndpredict) -- predicts which files will co-change (more actionable than blast radius)
-- [`m1nd.counterfactual`](#m1ndcounterfactual) -- simulates deletion rather than change
-- [`m1nd.validate_plan`](lifecycle.md#m1ndvalidate_plan) -- validates an entire modification plan
+- [`predict`](#m1ndpredict) -- predicts which files will co-change (more actionable than blast radius)
+- [`counterfactual`](#m1ndcounterfactual) -- simulates deletion rather than change
+- [`validate_plan`](lifecycle.md#m1ndvalidate_plan) -- validates an entire modification plan
 
 ---
 
-## `m1nd.predict`
+<a id="m1ndpredict"></a>
 
+## `predict`
 Co-change prediction for a modified node. Given a node that was just changed, predicts which other nodes are most likely to need changes too, ranked by confidence. Uses historical co-change patterns, structural proximity, and velocity scoring.
 
 ### Parameters
@@ -96,7 +98,7 @@ Co-change prediction for a modified node. Given a node that was just changed, pr
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.predict",
+    "name": "predict",
     "arguments": {
       "agent_id": "jimi",
       "changed_node": "file::session_pool.py",
@@ -130,14 +132,15 @@ Co-change prediction for a modified node. Given a node that was just changed, pr
 
 ### Related Tools
 
-- [`m1nd.impact`](#m1ndimpact) -- blast radius (broader, less actionable)
-- [`m1nd.timeline`](exploration.md#m1ndtimeline) -- detailed co-change history
-- [`m1nd.validate_plan`](lifecycle.md#m1ndvalidate_plan) -- validates an entire plan against co-change predictions
+- [`impact`](#m1ndimpact) -- blast radius (broader, less actionable)
+- [`timeline`](exploration.md#m1ndtimeline) -- detailed co-change history
+- [`validate_plan`](lifecycle.md#m1ndvalidate_plan) -- validates an entire plan against co-change predictions
 
 ---
 
-## `m1nd.counterfactual`
+<a id="m1ndcounterfactual"></a>
 
+## `counterfactual`
 What-if node removal simulation. Simulates removing one or more nodes from the graph and reports the cascade: orphaned nodes, lost activation energy, and the resulting blast radius. Non-destructive -- the graph is not modified.
 
 ### Parameters
@@ -156,7 +159,7 @@ What-if node removal simulation. Simulates removing one or more nodes from the g
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.counterfactual",
+    "name": "counterfactual",
     "arguments": {
       "agent_id": "jimi",
       "node_ids": ["file::spawner.py"],
@@ -191,13 +194,14 @@ What-if node removal simulation. Simulates removing one or more nodes from the g
 
 ### Related Tools
 
-- [`m1nd.impact`](#m1ndimpact) -- change impact (less extreme than removal)
-- [`m1nd.hypothesize`](#m1ndhypothesize) -- test a structural claim about dependencies
+- [`impact`](#m1ndimpact) -- change impact (less extreme than removal)
+- [`hypothesize`](#m1ndhypothesize) -- test a structural claim about dependencies
 
 ---
 
-## `m1nd.fingerprint`
+<a id="m1ndfingerprint"></a>
 
+## `fingerprint`
 Activation fingerprint and equivalence detection. Computes a structural fingerprint for a target node (or the entire graph) and finds functionally equivalent or duplicate nodes. Uses probe queries to generate activation patterns and compares them via cosine similarity.
 
 ### Parameters
@@ -217,7 +221,7 @@ Activation fingerprint and equivalence detection. Computes a structural fingerpr
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.fingerprint",
+    "name": "fingerprint",
     "arguments": {
       "agent_id": "jimi",
       "target_node": "file::session_pool.py",
@@ -249,13 +253,14 @@ Activation fingerprint and equivalence detection. Computes a structural fingerpr
 
 ### Related Tools
 
-- [`m1nd.resonate`](activation.md#m1ndresonate) -- finds harmonically coupled nodes (complementary, not duplicate)
-- [`m1nd.activate`](activation.md#m1ndactivate) -- simpler search without equivalence scoring
+- [`resonate`](activation.md#m1ndresonate) -- finds harmonically coupled nodes (complementary, not duplicate)
+- [`activate`](activation.md#m1ndactivate) -- simpler search without equivalence scoring
 
 ---
 
-## `m1nd.hypothesize`
+<a id="m1ndhypothesize"></a>
 
+## `hypothesize`
 Graph-based hypothesis testing. Takes a natural language claim about the codebase, parses it into a structural query pattern, and returns evidence for and against the claim with a Bayesian confidence score.
 
 Supported claim patterns (auto-detected from natural language): `NEVER_CALLS`, `ALWAYS_BEFORE`, `DEPENDS_ON`, `NO_DEPENDENCY`, `COUPLING`, `ISOLATED`, `GATEWAY`, `CIRCULAR`.
@@ -279,7 +284,7 @@ Supported claim patterns (auto-detected from natural language): `NEVER_CALLS`, `
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.hypothesize",
+    "name": "hypothesize",
     "arguments": {
       "agent_id": "jimi",
       "claim": "worker_pool depends on whatsapp_manager at runtime"
@@ -331,14 +336,15 @@ Supported claim patterns (auto-detected from natural language): `NEVER_CALLS`, `
 
 ### Related Tools
 
-- [`m1nd.why`](memory.md#m1ndwhy) -- finds the path between two specific nodes
-- [`m1nd.impact`](#m1ndimpact) -- measures downstream impact rather than testing a claim
-- [`m1nd.scan`](exploration.md#m1ndscan) -- structural analysis with predefined patterns
+- [`why`](memory.md#m1ndwhy) -- finds the path between two specific nodes
+- [`impact`](#m1ndimpact) -- measures downstream impact rather than testing a claim
+- [`scan`](exploration.md#m1ndscan) -- structural analysis with predefined patterns
 
 ---
 
-## `m1nd.differential`
+<a id="m1nddifferential"></a>
 
+## `differential`
 Focused structural diff between two graph snapshots. Compares edges, weights, nodes, and coupling between snapshot A and snapshot B, optionally narrowed by a focus question.
 
 ### Parameters
@@ -359,7 +365,7 @@ Focused structural diff between two graph snapshots. Compares edges, weights, no
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.differential",
+    "name": "differential",
     "arguments": {
       "agent_id": "jimi",
       "snapshot_a": "/path/to/before.json",
@@ -401,13 +407,14 @@ Focused structural diff between two graph snapshots. Compares edges, weights, no
 
 ### Related Tools
 
-- [`m1nd.diverge`](#m1nddiverge) -- higher-level drift analysis with anomaly detection
-- [`m1nd.lock.diff`](lifecycle.md#m1ndlockdiff) -- diff within a locked region (no snapshot file needed)
+- [`diverge`](#m1nddiverge) -- higher-level drift analysis with anomaly detection
+- [`lock_diff`](lifecycle.md#m1ndlockdiff) -- diff within a locked region (no snapshot file needed)
 
 ---
 
-## `m1nd.diverge`
+<a id="m1nddiverge"></a>
 
+## `diverge`
 Structural drift detection between a baseline and the current graph state. Higher-level than `differential` -- includes anomaly detection (test deficits, velocity spikes, new coupling), coupling matrix changes, and a Jaccard-based structural drift score.
 
 ### Parameters
@@ -428,7 +435,7 @@ Structural drift detection between a baseline and the current graph state. Highe
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.diverge",
+    "name": "diverge",
     "arguments": {
       "agent_id": "jimi",
       "baseline": "2026-03-01",
@@ -474,20 +481,21 @@ Structural drift detection between a baseline and the current graph state. Highe
 
 ### When to Use
 
-- **Session start** -- `m1nd.drift` shows weight-level changes; `m1nd.diverge` shows structural-level changes
+- **Session start** -- `drift` shows weight-level changes; `diverge` shows structural-level changes
 - **Sprint retrospective** -- how much did the architecture change this sprint?
 - **Quality gate** -- flag files with test deficits before merging
 
 ### Related Tools
 
-- [`m1nd.drift`](memory.md#m1nddrift) -- weight-level drift (lighter, faster)
-- [`m1nd.differential`](#m1nddifferential) -- lower-level snapshot diff
-- [`m1nd.timeline`](exploration.md#m1ndtimeline) -- single-node temporal history
+- [`drift`](memory.md#m1nddrift) -- weight-level drift (lighter, faster)
+- [`differential`](#m1nddifferential) -- lower-level snapshot diff
+- [`timeline`](exploration.md#m1ndtimeline) -- single-node temporal history
 
 ---
 
-## `m1nd.ghost_edges`
+<a id="m1ndghost_edges"></a>
 
+## `ghost_edges`
 Parse git history and surface temporal co-change ghost edges: files that move together without an explicit static dependency.
 
 ### Parameters
@@ -506,13 +514,14 @@ Parse git history and surface temporal co-change ghost edges: files that move to
 
 ### Related Tools
 
-- [`m1nd.timeline`](../api-reference/exploration.md#m1ndtimeline)
-- [`m1nd.predict`](#m1ndpredict)
+- [`timeline`](../api-reference/exploration.md#m1ndtimeline)
+- [`predict`](#m1ndpredict)
 
 ---
 
-## `m1nd.taint_trace`
+<a id="m1ndtaint_trace"></a>
 
+## `taint_trace`
 Inject taint at entry points and trace propagation through the graph to expose missed validation, auth, or sanitization boundaries.
 
 ### Parameters
@@ -531,13 +540,14 @@ Inject taint at entry points and trace propagation through the graph to expose m
 
 ### Related Tools
 
-- [`m1nd.scan`](../api-reference/exploration.md#m1ndscan)
-- [`m1nd.trace`](../api-reference/exploration.md#m1ndtrace)
+- [`scan`](../api-reference/exploration.md#m1ndscan)
+- [`trace`](../api-reference/exploration.md#m1ndtrace)
 
 ---
 
-## `m1nd.twins`
+<a id="m1ndtwins"></a>
 
+## `twins`
 Find structurally similar or identical nodes by topology signature.
 
 ### Parameters
@@ -556,13 +566,14 @@ Find structurally similar or identical nodes by topology signature.
 
 ### Related Tools
 
-- [`m1nd.fingerprint`](#m1ndfingerprint)
-- [`m1nd.refactor_plan`](#m1ndrefactor_plan)
+- [`fingerprint`](#m1ndfingerprint)
+- [`refactor_plan`](#m1ndrefactor_plan)
 
 ---
 
-## `m1nd.refactor_plan`
+<a id="m1ndrefactor_plan"></a>
 
+## `refactor_plan`
 Graph-native refactoring proposals: community detection and extraction candidates for a scoped region.
 
 ### Parameters
@@ -581,13 +592,14 @@ Graph-native refactoring proposals: community detection and extraction candidate
 
 ### Related Tools
 
-- [`m1nd.twins`](#m1ndtwins)
-- [`m1nd.impact`](#m1ndimpact)
+- [`twins`](#m1ndtwins)
+- [`impact`](#m1ndimpact)
 
 ---
 
-## `m1nd.runtime_overlay`
+<a id="m1ndruntime_overlay"></a>
 
+## `runtime_overlay`
 Overlay OpenTelemetry span activity onto the graph to paint runtime heat, latency, and error signals onto nodes.
 
 ### Parameters
@@ -606,14 +618,15 @@ Overlay OpenTelemetry span activity onto the graph to paint runtime heat, latenc
 
 ### Related Tools
 
-- [`m1nd.trace`](../api-reference/exploration.md#m1ndtrace)
-- [`m1nd.impact`](#m1ndimpact)
-- [`m1nd.daemon_tick`](../api-reference/lifecycle.md#m1nddaemon_tick)
+- [`trace`](../api-reference/exploration.md#m1ndtrace)
+- [`impact`](#m1ndimpact)
+- [`daemon_tick`](../api-reference/lifecycle.md#m1nddaemon_tick)
 
 ---
 
-## `m1nd.metrics`
+<a id="m1ndmetrics"></a>
 
+## `metrics`
 Return structural metrics per file, function, class, struct, or module.
 
 ### Parameters
@@ -632,13 +645,14 @@ Return structural metrics per file, function, class, struct, or module.
 
 ### Related Tools
 
-- [`m1nd.panoramic`](../api-reference/lifecycle.md#m1ndpanoramic)
-- [`m1nd.diagram`](#m1nddiagram)
+- [`panoramic`](../api-reference/lifecycle.md#m1ndpanoramic)
+- [`diagram`](#m1nddiagram)
 
 ---
 
-## `m1nd.type_trace`
+<a id="m1ndtype_trace"></a>
 
+## `type_trace`
 Trace where a type, struct, or enum is used across the graph.
 
 ### Parameters
@@ -657,13 +671,14 @@ Trace where a type, struct, or enum is used across the graph.
 
 ### Related Tools
 
-- [`m1nd.search`](../api-reference/lifecycle.md#m1ndsearch)
-- [`m1nd.impact`](#m1ndimpact)
+- [`search`](../api-reference/lifecycle.md#m1ndsearch)
+- [`impact`](#m1ndimpact)
 
 ---
 
-## `m1nd.diagram`
+<a id="m1nddiagram"></a>
 
+## `diagram`
 Generate Mermaid or DOT graph diagrams from a query or node-centered slice.
 
 ### Parameters
@@ -683,6 +698,5 @@ Generate Mermaid or DOT graph diagrams from a query or node-centered slice.
 
 ### Related Tools
 
-- [`m1nd.metrics`](#m1ndmetrics)
-- [`m1nd.perspective_inspect`](../api-reference/perspectives.md#m1ndperspectiveinspect)
-
+- [`metrics`](#m1ndmetrics)
+- [`perspective_inspect`](../api-reference/perspectives.md#m1ndperspectiveinspect)

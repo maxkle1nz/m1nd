@@ -7,12 +7,7 @@
 <h3 align="center">Operational intelligence for coding agents</h3>
 
 <p align="center">
-  <strong>A local intelligence layer that turns code, docs, and change into an operable system for agents.</strong>
-</p>
-
-<p align="center">
-  It turns code, docs, history, runtime signals, and graph-native knowledge into a system an agent can reason over before, during, and after change.<br/>
-  m1nd is a local MCP server that gives agents structural retrieval, change reasoning, document grounding, operational continuity, and cross-repo context through a graph exposed over MCP.<br/>
+  <strong>A local intelligence layer for coding agents.</strong><br/>
   <em>Local execution. MCP over stdio. Optional HTTP/UI surface in the default build.</em>
 </p>
 
@@ -58,11 +53,11 @@
 
 ## What m1nd Is
 
-`m1nd` is a local intelligence layer for coding agents.
+`m1nd` is a local MCP runtime that gives coding agents structural retrieval, change reasoning, document grounding, operations, and continuity through a graph they can reason over before, during, and after change.
 
-It ingests repositories, documentation, history, runtime-adjacent signals, and graph-native knowledge into a graph exposed through MCP. That graph gives the agent a durable operational model of the system before, during, and after change.
+It ingests repositories, documentation, history, runtime-adjacent signals, and graph-native knowledge into a local graph. That graph is the operational model the agent works against instead of rebuilding context from scratch on every step.
 
-It is not only a query surface. It is an agent-operational runtime: graph answers and edit surfaces can carry proof state, next-step guidance, repair-oriented recovery hints, observable batch execution, verified writes, stateful navigation, and persisted continuity across sessions.
+It is not only a query surface. It is an operational layer: answers and edit surfaces can carry proof state, next-step guidance, recovery hints, observable execution, verified writes, stateful navigation, and persisted continuity across sessions.
 
 With `m1nd`, an agent can:
 
@@ -167,7 +162,7 @@ runtime error or trace    -> `trace`
 risky change              -> `impact`, `predict`, `validate_plan`, then usually `surgical_context_v2`
 docs or specs             -> `ingest` with `universal` or `light`, then `document_*`
 long-lived investigation  -> `perspective_*`, `trail_*`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`
-unsure what to call       -> `help`
+unsure what to call       -> `help(stage=..., intent=...)` or `help(error_text="...")`
 ```
 
 Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world/wiki/), the local [integration matrix](docs/IDE-INTEGRATIONS.md), and deeper examples in [EXAMPLES.md](EXAMPLES.md).

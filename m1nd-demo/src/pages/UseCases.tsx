@@ -639,7 +639,7 @@ export default function UseCases() {
     <main className="w-full min-h-screen bg-background">
       <SEO
         title="Use Cases — m1nd Graph Intelligence"
-        description="13 real scenarios where m1nd gives AI agents surgical precision: impact analysis, race conditions, antibody immunity, hypothesis testing, epidemic modeling, predictive breakage, and more. All in under 0.30s."
+        description="13 real scenarios where m1nd gives coding agents surgical precision: impact analysis, race conditions, antibody immunity, hypothesis testing, epidemic modeling, predictive breakage, and more. All in under 0.30s."
         canonicalPath="/use-cases"
       />
       <NavBar />

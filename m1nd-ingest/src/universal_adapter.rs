@@ -152,33 +152,33 @@ impl UniversalIngestAdapter {
                     )
                 }
             }
-            SourceKind::Pdf | SourceKind::Docx | SourceKind::Pptx | SourceKind::Xlsx => {
-                if availability.docling || availability.markitdown {
-                    let extracted = if matches!(source_kind, SourceKind::Pdf) && availability.grobid
-                    {
-                        grobid_extract(path)
-                    } else if availability.docling {
-                        docling_extract(path)
-                    } else if availability.markitdown {
-                        markitdown_extract(path)
-                    } else {
-                        None
-                    };
-                    canonicalize_binary_placeholder(
-                        &rel_path,
-                        source_kind.clone(),
-                        if matches!(source_kind, SourceKind::Pdf) && availability.grobid {
-                            "universal:grobid"
-                        } else if availability.docling {
-                            "universal:docling"
-                        } else {
-                            "universal:markitdown"
-                        },
-                        extracted.as_deref().unwrap_or(&source_text),
-                    )
+            SourceKind::Pdf | SourceKind::Docx | SourceKind::Pptx | SourceKind::Xlsx
+                if availability.docling || availability.markitdown =>
+            {
+                let extracted = if matches!(source_kind, SourceKind::Pdf) && availability.grobid {
+                    grobid_extract(path)
+                } else if availability.docling {
+                    docling_extract(path)
+                } else if availability.markitdown {
+                    markitdown_extract(path)
                 } else {
-                    return Ok(None);
-                }
+                    None
+                };
+                canonicalize_binary_placeholder(
+                    &rel_path,
+                    source_kind.clone(),
+                    if matches!(source_kind, SourceKind::Pdf) && availability.grobid {
+                        "universal:grobid"
+                    } else if availability.docling {
+                        "universal:docling"
+                    } else {
+                        "universal:markitdown"
+                    },
+                    extracted.as_deref().unwrap_or(&source_text),
+                )
+            }
+            SourceKind::Pdf | SourceKind::Docx | SourceKind::Pptx | SourceKind::Xlsx => {
+                return Ok(None);
             }
             SourceKind::Unknown => {
                 if let Some(native) =

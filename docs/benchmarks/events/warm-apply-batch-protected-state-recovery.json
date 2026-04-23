@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.apply_batch",
+    "tool_name": "apply_batch",
     "query": "apply_batch targeting protected runtime state graph.json",
     "target": ".m1nd-runtime/graph.json",
     "elapsed_ms": 1.0,
@@ -14,7 +14,7 @@
     "notes": "Protected runtime files now bounce the agent back into real source code instead of letting it damage m1nd state."
   },
   {
-    "tool_name": "m1nd.apply_batch",
+    "tool_name": "apply_batch",
     "query": "retry apply_batch against a source file instead of graph state",
     "target": "m1nd-mcp/src/surgical_handlers.rs",
     "elapsed_ms": 149.0,
@@ -101,7 +101,7 @@
     "notes": "The guard rail protects runtime state, keeps the agent inside apply_batch, and still hands off to the next proof surface."
   },
   {
-    "tool_name": "m1nd.heuristics_surface",
+    "tool_name": "heuristics_surface",
     "target": "m1nd-mcp/src/surgical_handlers.rs",
     "elapsed_ms": 0.8,
     "payload_chars": 500,

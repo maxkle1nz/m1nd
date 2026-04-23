@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.trail_resume",
+    "tool_name": "trail_resume",
     "query": "resume boot memory investigation",
     "elapsed_ms": 2.4,
     "payload_chars": 340,
@@ -22,7 +22,7 @@
     "notes": "Updated continuity flow follows the compact trail_resume guidance instead of rediscovering the seam with search."
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/src/session.rs",
     "elapsed_ms": 1.3,
     "payload_chars": 250,

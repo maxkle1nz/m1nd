@@ -331,7 +331,7 @@ impl BridgeDetector {
             }
         }
 
-        bridges.sort_by(|a, b| b.importance.cmp(&a.importance));
+        bridges.sort_by_key(|entry| std::cmp::Reverse(entry.importance));
         Ok(bridges)
     }
 
@@ -740,7 +740,7 @@ impl ActivationFingerprinter {
             }
         }
 
-        pairs.sort_by(|a, b| b.cosine_similarity.cmp(&a.cosine_similarity));
+        pairs.sort_by_key(|entry| std::cmp::Reverse(entry.cosine_similarity));
         Ok(pairs)
     }
 
@@ -778,7 +778,7 @@ impl ActivationFingerprinter {
             }
         }
 
-        pairs.sort_by(|a, b| b.cosine_similarity.cmp(&a.cosine_similarity));
+        pairs.sort_by_key(|entry| std::cmp::Reverse(entry.cosine_similarity));
         Ok(pairs)
     }
 

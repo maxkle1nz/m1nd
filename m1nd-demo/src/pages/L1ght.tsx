@@ -338,7 +338,7 @@ const L1GHT_FAQ = [
     a: "They run on the same graph substrate. When both are active, a single query can traverse code nodes and document nodes in one hop — e.g. \"which papers informed the design of this function?\" or \"which RFC section does this implementation reference?\" No extra configuration needed.",
   },
   {
-    q: "Which AI agents and clients work with l1ght?",
+    q: "Which coding agents and clients work with l1ght?",
     a: "Any MCP-compatible client — Claude Code, Claude Desktop, Cursor, Windsurf, VS Code with MCP, ChatGPT, Cline, Continue, Zed. l1ght exposes the same MCP tool surface as m1nd, so if your agent speaks MCP, it speaks l1ght.",
   },
   {

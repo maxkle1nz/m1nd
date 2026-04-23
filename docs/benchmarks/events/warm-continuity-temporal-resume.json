@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.trail_resume",
+    "tool_name": "trail_resume",
     "query": "resume prior timeline-related investigation and continue from the next temporal question",
     "elapsed_ms": 2.3,
     "payload_chars": 360,
@@ -22,7 +22,7 @@
     "notes": "Resume returns a temporal seam and points directly at timeline."
   },
   {
-    "tool_name": "m1nd.timeline",
+    "tool_name": "timeline",
     "target": "file::m1nd-mcp/src/layer_handlers.rs",
     "elapsed_ms": 2.8,
     "payload_chars": 340,

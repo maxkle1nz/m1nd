@@ -93,7 +93,7 @@ Response (910ms for 335 files):
 **Step 2 — Ask "what's related to authentication?"**
 
 ```jsonc
-{"method":"tools/call","params":{"name":"m1nd.activate","arguments":{
+{"method":"tools/call","params":{"name":"activate","arguments":{
   "query":"authentication",
   "agent_id":"dev"
 }}}
@@ -317,7 +317,7 @@ Use `"merge"` when combining code + docs, or when doing incremental re-ingestion
 **Example — write two files and verify both landed:**
 
 ```jsonc
-{"method":"tools/call","params":{"name":"m1nd.apply_batch","arguments":{
+{"method":"tools/call","params":{"name":"apply_batch","arguments":{
   "agent_id": "dev",
   "files": [
     {
@@ -392,19 +392,19 @@ JSON nodes:
 
 ## Configure Your Agent
 
-m1nd is designed to replace grep, glob, and blind file reads for AI agents. Add these instructions to your agent's system prompt so it uses m1nd as its primary code navigation tool.
+m1nd is designed to replace grep, glob, and blind file reads for coding agents. Add these instructions to your agent's system prompt so it uses m1nd as its primary code navigation tool.
 
 ### System prompt snippet (copy-paste ready)
 
 ```
 You have m1nd available via MCP. Use it BEFORE grep, glob, or file reads:
-- m1nd.search(mode="literal") replaces grep — finds exact strings with graph context
-- m1nd.activate replaces glob — finds related code by meaning, not filename
-- m1nd.surgical_context_v2 replaces Read — returns source + all connected files in one call
-- m1nd.impact replaces manual dependency checking — shows blast radius before edits
-- m1nd.apply replaces Edit — writes code and auto-updates the graph
-- m1nd.apply_batch with verify=true — write multiple files and verify each one landed
-- m1nd.help() — call when unsure which tool to use
+- search(mode="literal") replaces grep — finds exact strings with graph context
+- activate replaces glob — finds related code by meaning, not filename
+- surgical_context_v2 replaces Read — returns source + all connected files in one call
+- impact replaces manual dependency checking — shows blast radius before edits
+- apply replaces Edit — writes code and auto-updates the graph
+- apply_batch with verify=true — write multiple files and verify each one landed
+- help() — call when unsure which tool to use
 ```
 
 ### For Claude Code users
@@ -424,10 +424,10 @@ Add to your `.cursorrules`:
 
 ```
 When exploring code, use m1nd MCP tools instead of grep:
-- m1nd.search for finding code
-- m1nd.activate for understanding relationships
-- m1nd.impact before making changes
-- m1nd.apply_batch with verify=true for multi-file writes
+- search for finding code
+- activate for understanding relationships
+- impact before making changes
+- apply_batch with verify=true for multi-file writes
 ```
 
 ### For any MCP client
@@ -436,31 +436,31 @@ Any MCP-compatible tool (Windsurf, Zed, Cline, Roo Code, Continue, OpenCode, Ama
 
 ### Why this matters
 
-AI agents waste 80% of their context window navigating code with grep and file reads. m1nd answers the same questions in microseconds at zero token cost. In our testing, switching from grep to m1nd reduced token usage by 80% and found 8 bugs that grep could never find — because they existed in the *absence* of code, not in its presence.
+Coding agents waste 80% of their context window navigating code with grep and file reads. m1nd answers the same questions in microseconds at zero token cost. In our testing, switching from grep to m1nd reduced token usage by 80% and found 8 bugs that grep could never find — because they existed in the *absence* of code, not in its presence.
 
 ### Recommended agent workflow
 
 ```
 1. Session start:
-   m1nd.health          → verify server alive
-   m1nd.ingest           → load codebase into graph
-   m1nd.drift            → check what changed since last session
+   health          → verify server alive
+   ingest          → load codebase into graph
+   drift           → check what changed since last session
 
 2. Before any code exploration:
-   m1nd.search / m1nd.activate  → find relevant code (replaces grep/glob)
-   m1nd.surgical_context_v2     → get full context (replaces Read)
+   search / activate       → find relevant code (replaces grep/glob)
+   surgical_context_v2     → get full context (replaces Read)
 
 3. Before any edit:
-   m1nd.impact           → check blast radius
-   m1nd.validate_plan    → assess risk
+   impact                 → check blast radius
+   validate_plan          → assess risk
 
 4. After edits:
-   m1nd.apply / m1nd.apply_batch(verify=true)  → write + re-ingest + verify
-   m1nd.predict           → check co-change predictions
-   m1nd.learn             → feed back what was correct/wrong
+   apply / apply_batch(verify=true)  → write + re-ingest + verify
+   predict                → check co-change predictions
+   learn                  → feed back what was correct/wrong
 
 5. Session end:
-   m1nd.trail.save        → persist investigation state
+   trail_save             → persist investigation state
 ```
 
 ---

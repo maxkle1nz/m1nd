@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.perspective_start",
+    "tool_name": "perspective_start",
     "query": "session management",
     "elapsed_ms": 1.7,
     "payload_chars": 310,
@@ -14,7 +14,7 @@
     "next_tool_used": "perspective_inspect"
   },
   {
-    "tool_name": "m1nd.perspective_inspect",
+    "tool_name": "perspective_inspect",
     "query": "inspect the top route from perspective start",
     "elapsed_ms": 1.4,
     "payload_chars": 430,
@@ -28,7 +28,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.perspective_peek",
+    "tool_name": "perspective_peek",
     "query": "peek the strongest route before following",
     "elapsed_ms": 1.2,
     "payload_chars": 360,

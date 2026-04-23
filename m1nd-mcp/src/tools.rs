@@ -1,5 +1,7 @@
 // === crates/m1nd-mcp/src/tools.rs ===
 
+use crate::help_guidance;
+use crate::protocol::layers::{HelpInput, HelpMode, HelpRender};
 use crate::protocol::*;
 use crate::result_shaping::dedupe_ranked;
 use crate::session::SessionState;
@@ -298,7 +300,7 @@ fn finalize_ingest(
     }))
 }
 
-/// Handle m1nd.activate (03-MCP Section 2.1).
+/// Handle activate (03-MCP Section 2.1).
 /// Replaces: ConnectomeEngine.query() + AdaptiveXLREngine.query() + PlasticityEngine.query()
 pub fn handle_activate(
     state: &mut SessionState,
@@ -520,6 +522,38 @@ pub fn handle_activate(
     drop(graph);
     state.note_coverage(&input.agent_id, "activate", visited_files, visited_nodes);
 
+    let activate_help_input = HelpInput {
+        agent_id: input.agent_id.clone(),
+        tool_name: Some("activate".into()),
+        mode: None,
+        intent: Some(input.query.clone()),
+        stage: None,
+        path: activated
+            .first()
+            .and_then(|entry| entry.provenance.as_ref())
+            .and_then(|provenance| provenance.source_path.clone()),
+        error_text: None,
+        recent_tools: vec![],
+        max_suggestions: None,
+        render: Some(HelpRender::None),
+    };
+    let activate_projection =
+        help_guidance::runtime_projection_for_tool("activate", &activate_help_input, "triaging");
+    let next_suggested_target = activated
+        .first()
+        .and_then(|entry| {
+            entry
+                .provenance
+                .as_ref()
+                .and_then(|provenance| provenance.source_path.clone())
+                .or_else(|| Some(entry.node_id.clone()))
+        })
+        .or_else(|| {
+            activate_projection
+                .as_ref()
+                .and_then(|projection| projection.next_suggested_target.clone())
+        });
+
     Ok(ActivateOutput {
         query: input.query,
         seeds,
@@ -528,25 +562,68 @@ pub fn handle_activate(
         structural_holes,
         plasticity,
         elapsed_ms,
-        proof_state: "triaging".into(),
-        next_suggested_tool: None,
-        next_suggested_target: None,
-        next_step_hint: None,
-        confidence: None,
-        why_this_next_step: None,
-        what_is_missing: None,
+        proof_state: activate_projection
+            .as_ref()
+            .map(|projection| projection.proof_state.clone())
+            .unwrap_or_else(|| "triaging".into()),
+        next_suggested_tool: activate_projection
+            .as_ref()
+            .and_then(|projection| projection.next_suggested_tool.clone()),
+        next_suggested_target,
+        next_step_hint: activate_projection
+            .as_ref()
+            .and_then(|projection| projection.next_step_hint.clone()),
+        confidence: activate_projection
+            .as_ref()
+            .and_then(|projection| projection.confidence),
+        why_this_next_step: activate_projection
+            .as_ref()
+            .and_then(|projection| projection.why_this_next_step.clone()),
+        what_is_missing: activate_projection
+            .as_ref()
+            .and_then(|projection| projection.what_is_missing.clone()),
     })
 }
 
-/// Handle m1nd.impact (03-MCP Section 2.2).
+/// Handle impact (03-MCP Section 2.2).
 /// Replaces: ImpactRadiusCalculator.compute() + CausalChainDetector.detect()
 pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult<ImpactOutput> {
     let graph = state.graph.read();
+
+    let impact_help_input = HelpInput {
+        agent_id: input.agent_id.clone(),
+        tool_name: Some("impact".into()),
+        mode: None,
+        intent: Some(format!("impact for {}", input.node_id)),
+        stage: None,
+        path: Some(input.node_id.clone()),
+        error_text: None,
+        recent_tools: vec![],
+        max_suggestions: None,
+        render: Some(HelpRender::None),
+    };
+    let impact_projection =
+        help_guidance::runtime_projection_for_tool("impact", &impact_help_input, "triaging");
 
     let node_id = graph.resolve_id(&input.node_id);
     let node = match node_id {
         Some(n) => n,
         None => {
+            let recovery_input = HelpInput {
+                agent_id: input.agent_id.clone(),
+                tool_name: Some("impact".into()),
+                mode: Some(HelpMode::Recovery),
+                intent: None,
+                stage: None,
+                path: Some(input.node_id.clone()),
+                error_text: Some(format!("Node not found: {}", input.node_id)),
+                recent_tools: vec![],
+                max_suggestions: Some(3),
+                render: Some(HelpRender::None),
+            };
+            let recovery = help_guidance::build_recovery_resolution(&recovery_input);
+            let projection =
+                help_guidance::runtime_projection_from_resolution(&recovery, "blocked");
             return Ok(ImpactOutput {
                 source: input.node_id.clone(),
                 source_label: input.node_id,
@@ -555,10 +632,10 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 total_energy: 0.0,
                 max_hops_reached: 0,
                 causal_chains: vec![],
-                proof_state: "triaging".into(),
-                next_suggested_tool: None,
-                next_suggested_target: None,
-                next_step_hint: None,
+                proof_state: projection.proof_state,
+                next_suggested_tool: projection.next_suggested_tool,
+                next_suggested_target: projection.next_suggested_target,
+                next_step_hint: projection.next_step_hint,
             });
         }
     };
@@ -649,10 +726,32 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         total_energy: impact.total_energy.get(),
         max_hops_reached: impact.max_hops_reached,
         causal_chains,
-        proof_state: "triaging".into(),
-        next_suggested_tool: None,
-        next_suggested_target: None,
-        next_step_hint: None,
+        proof_state: impact_projection
+            .as_ref()
+            .map(|projection| projection.proof_state.clone())
+            .unwrap_or_else(|| "triaging".into()),
+        next_suggested_tool: impact_projection
+            .as_ref()
+            .and_then(|projection| projection.next_suggested_tool.clone()),
+        next_suggested_target: impact
+            .blast_radius
+            .first()
+            .map(|entry| {
+                let idx = entry.node.as_usize();
+                if idx < graph.num_nodes() as usize {
+                    graph.strings.resolve(graph.nodes.label[idx]).to_string()
+                } else {
+                    format!("node_{}", idx)
+                }
+            })
+            .or_else(|| {
+                impact_projection
+                    .as_ref()
+                    .and_then(|projection| projection.next_suggested_target.clone())
+            }),
+        next_step_hint: impact_projection
+            .as_ref()
+            .and_then(|projection| projection.next_step_hint.clone()),
     })
 }
 
@@ -1093,7 +1192,7 @@ pub fn handle_predict(
         }
 
         // Sort structural by weight descending
-        structural_predictions.sort_by(|a, b| b.strength.cmp(&a.strength));
+        structural_predictions.sort_by_key(|entry| std::cmp::Reverse(entry.strength));
     }
 
     let structural_fallback_count = structural_predictions.len();

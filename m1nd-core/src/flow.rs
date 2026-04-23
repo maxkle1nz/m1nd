@@ -1178,10 +1178,10 @@ mod tests {
     fn turbulence_detected_on_convergent_graph() {
         let g = convergent_graph();
         let engine = FlowEngine::new();
-        let mut config = FlowConfig::default();
-        config.turbulence_threshold = 0.0; // capture everything
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let config = FlowConfig {
+            turbulence_threshold: 0.0, // capture everything
+            ..FlowConfig::default()
+        };
 
         let entry_nodes = vec![NodeId::new(0), NodeId::new(1)];
         let result = engine.simulate(&g, &entry_nodes, 1, &config).unwrap();
@@ -1225,10 +1225,8 @@ mod tests {
         g.finalize().unwrap();
 
         let engine = FlowEngine::new();
-        let mut config = FlowConfig::default();
         // mutex is in the heuristic keyword list, so no need to add explicit patterns
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let config = FlowConfig::default();
 
         let result = engine.simulate(&g, &[NodeId::new(0)], 1, &config).unwrap();
         // mutex_guard heuristic should register a valve
@@ -1269,10 +1267,10 @@ mod tests {
         g.finalize().unwrap();
 
         let engine = FlowEngine::new();
-        let mut config = FlowConfig::default();
-        config.max_depth = 2; // only 2 hops from entry
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let config = FlowConfig {
+            max_depth: 2, // only 2 hops from entry
+            ..FlowConfig::default()
+        };
 
         let result = engine.simulate(&g, &[NodeId::new(0)], 1, &config).unwrap();
         // nodes 0, 1, 2 visited (depth 0, 1, 2); nodes 3, 4 NOT visited
@@ -1317,10 +1315,10 @@ mod tests {
         g.finalize().unwrap();
 
         let engine = FlowEngine::new();
-        let mut config = FlowConfig::default();
-        config.max_total_steps = 5; // tiny budget
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let config = FlowConfig {
+            max_total_steps: 5, // tiny budget
+            ..FlowConfig::default()
+        };
 
         // Should complete without panic or hang
         let result = engine.simulate(&g, &[NodeId::new(0)], 1, &config);
@@ -1364,10 +1362,10 @@ mod tests {
         g.finalize().unwrap();
 
         let engine = FlowEngine::new();
-        let mut config = FlowConfig::default();
-        config.scope_filter = Some("alpha".to_string()); // only alpha_fn passes
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let config = FlowConfig {
+            scope_filter: Some("alpha".to_string()), // only alpha_fn passes
+            ..FlowConfig::default()
+        };
 
         let result = engine.simulate(&g, &[NodeId::new(0)], 1, &config).unwrap();
         // entry always visited (scope filter only restricts propagation targets),
@@ -1413,8 +1411,10 @@ mod tests {
         g.finalize().unwrap();
 
         let engine = FlowEngine::new();
-        let mut config = FlowConfig::with_defaults();
-        config.turbulence_threshold = 0.0;
+        let config = FlowConfig {
+            turbulence_threshold: 0.0,
+            ..FlowConfig::with_defaults()
+        };
 
         let result = engine
             .simulate(&g, &[NodeId::new(0), NodeId::new(1)], 1, &config)
@@ -1483,10 +1483,10 @@ mod tests {
         let engine = FlowEngine::new();
 
         // First: run WITHOUT advisory lock — should produce turbulence
-        let mut config_no_lock = FlowConfig::default();
-        config_no_lock.turbulence_threshold = 0.0;
-        config_no_lock.lock_patterns = Vec::new();
-        config_no_lock.read_only_patterns = Vec::new();
+        let config_no_lock = FlowConfig {
+            turbulence_threshold: 0.0,
+            ..FlowConfig::default()
+        };
 
         let entry_nodes = vec![NodeId::new(0), NodeId::new(1)];
         let result_no_lock = engine
@@ -1500,10 +1500,10 @@ mod tests {
         assert_eq!(result_no_lock.summary.advisory_lock_protected_count, 0);
 
         // Now: run WITH advisory lock protecting shared_state
-        let mut config_locked = FlowConfig::default();
-        config_locked.turbulence_threshold = 0.0;
-        config_locked.lock_patterns = Vec::new();
-        config_locked.read_only_patterns = Vec::new();
+        let mut config_locked = FlowConfig {
+            turbulence_threshold: 0.0,
+            ..FlowConfig::default()
+        };
         config_locked.advisory_lock_protected_nodes.insert(
             "shared_state".to_string(),
             vec!["lock_jimi_001".to_string()],
@@ -1558,10 +1558,10 @@ mod tests {
         let engine = FlowEngine::new();
 
         // Use a threshold that the protected score falls below
-        let mut config = FlowConfig::default();
-        config.turbulence_threshold = 0.3;
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let mut config = FlowConfig {
+            turbulence_threshold: 0.3,
+            ..FlowConfig::default()
+        };
         config.advisory_lock_protected_nodes.insert(
             "shared_state".to_string(),
             vec!["lock_test_001".to_string()],
@@ -1603,10 +1603,10 @@ mod tests {
         let engine = FlowEngine::new();
 
         // Protect a node that is NOT in the convergence path
-        let mut config = FlowConfig::default();
-        config.turbulence_threshold = 0.0;
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let mut config = FlowConfig {
+            turbulence_threshold: 0.0,
+            ..FlowConfig::default()
+        };
         config.advisory_lock_protected_nodes.insert(
             "unrelated_node".to_string(),
             vec!["lock_other_001".to_string()],
@@ -1635,10 +1635,10 @@ mod tests {
         let g = convergent_graph();
         let engine = FlowEngine::new();
 
-        let mut config = FlowConfig::default();
-        config.turbulence_threshold = 0.0;
-        config.lock_patterns = Vec::new();
-        config.read_only_patterns = Vec::new();
+        let mut config = FlowConfig {
+            turbulence_threshold: 0.0,
+            ..FlowConfig::default()
+        };
         config.advisory_lock_protected_nodes.insert(
             "shared_state".to_string(),
             vec!["lock_a_001".to_string(), "lock_b_002".to_string()],
@@ -1700,10 +1700,10 @@ mod tests {
         let entries: Vec<NodeId> = (0..4).map(NodeId::new).collect();
 
         // Without lock: should be Critical
-        let mut config_no_lock = FlowConfig::default();
-        config_no_lock.turbulence_threshold = 0.0;
-        config_no_lock.lock_patterns = Vec::new();
-        config_no_lock.read_only_patterns = Vec::new();
+        let config_no_lock = FlowConfig {
+            turbulence_threshold: 0.0,
+            ..FlowConfig::default()
+        };
 
         let result_no = engine.simulate(&g, &entries, 1, &config_no_lock).unwrap();
         let tp_no = result_no
@@ -1713,10 +1713,10 @@ mod tests {
         assert!(tp_no.is_some(), "should find turbulence without lock");
 
         // With lock: severity should NOT be Critical
-        let mut config_locked = FlowConfig::default();
-        config_locked.turbulence_threshold = 0.0;
-        config_locked.lock_patterns = Vec::new();
-        config_locked.read_only_patterns = Vec::new();
+        let mut config_locked = FlowConfig {
+            turbulence_threshold: 0.0,
+            ..FlowConfig::default()
+        };
         config_locked.advisory_lock_protected_nodes.insert(
             "shared_critical".to_string(),
             vec!["lock_crit_001".to_string()],

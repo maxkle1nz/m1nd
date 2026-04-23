@@ -684,7 +684,7 @@ mod tests {
             },
         );
         assert!(
-            score >= 0.0 && score <= 1.0,
+            (0.0..=1.0).contains(&score),
             "Risk score out of range: {score}"
         );
         assert!(

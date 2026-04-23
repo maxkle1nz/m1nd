@@ -18,7 +18,7 @@ All contracts follow existing conventions from `protocol/core.rs`, `protocol/sur
 
 ---
 
-## 1. m1nd.search
+## 1. search
 
 Full-text + graph-aware code search. Unlike `seek` (intent-based semantic search), `search` is a
 lower-level tool that supports literal, regex, and semantic search modes with context lines around
@@ -32,7 +32,7 @@ matches -- closer to grep but enriched with graph node references.
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
-// m1nd.search
+// search
 // ---------------------------------------------------------------------------
 
 /// Search mode: how the query string is interpreted.
@@ -54,7 +54,7 @@ impl Default for SearchMode {
     }
 }
 
-/// Input for m1nd.search.
+/// Input for search.
 ///
 /// Low-level search across ingested codebase. Returns file-level matches
 /// with optional context lines and graph node cross-references.
@@ -104,7 +104,7 @@ pub struct SearchMatch {
     pub match_score: f64,
 }
 
-/// Output for m1nd.search.
+/// Output for search.
 #[derive(Clone, Debug, Serialize)]
 pub struct SearchOutput {
     /// Original query echoed back.
@@ -126,7 +126,7 @@ pub struct SearchOutput {
 
 ```json
 {
-    "name": "m1nd.search",
+    "name": "search",
     "description": "Low-level code search: literal, regex, or semantic. Returns file matches with context lines and graph node cross-references.",
     "inputSchema": {
         "type": "object",
@@ -152,7 +152,7 @@ pub struct SearchOutput {
 ### Dispatch Match Arm
 
 ```rust
-"m1nd.search" => {
+"search" => {
     let input: v04::SearchInput = serde_json::from_value(params.clone())
         .map_err(M1ndError::Serde)?;
     let output = layer_handlers::handle_search(state, input)?;
@@ -169,7 +169,7 @@ No new error variants needed. Uses existing:
 
 ---
 
-## 2. m1nd.help
+## 2. help
 
 Returns a formatted help string. No JSON struct output -- just a String.
 
@@ -177,10 +177,10 @@ Returns a formatted help string. No JSON struct output -- just a String.
 
 ```rust
 // ---------------------------------------------------------------------------
-// m1nd.help
+// help
 // ---------------------------------------------------------------------------
 
-/// Input for m1nd.help.
+/// Input for help.
 ///
 /// Returns formatted help text for m1nd tools. When `tool` is specified,
 /// returns detailed help for that tool. Otherwise returns overview.
@@ -207,7 +207,7 @@ The handler builds a formatted string from the tool registry.
 
 ```json
 {
-    "name": "m1nd.help",
+    "name": "help",
     "description": "Get help text for m1nd tools. Returns overview or detailed help for a specific tool.",
     "inputSchema": {
         "type": "object",
@@ -229,7 +229,7 @@ The handler builds a formatted string from the tool registry.
 ### Dispatch Match Arm
 
 ```rust
-"m1nd.help" => {
+"help" => {
     let input: v04::HelpInput = serde_json::from_value(params.clone())
         .map_err(M1ndError::Serde)?;
     let text = layer_handlers::handle_help(state, input)?;
@@ -703,10 +703,10 @@ impl SavingsTracker {
     pub fn record(&mut self, tool: &str, result_nodes: usize) {
         *self.queries_by_tool.entry(tool.to_string()).or_insert(0) += 1;
         let (tokens, files, lines) = match tool {
-            "m1nd.activate" => (2000, 5, 500),
-            "m1nd.impact" | "m1nd.predict" | "m1nd.counterfactual" => (3000, 8, 800),
-            "m1nd.surgical.context" | "m1nd.surgical.context.v2" => (1500, 3, 300),
-            "m1nd.seek" | "m1nd.scan" | "m1nd.search" => (1000, 4, 400),
+            "activate" => (2000, 5, 500),
+            "impact" | "predict" | "counterfactual" => (3000, 8, 800),
+            "surgical_context" | "surgical_context_v2" => (1500, 3, 300),
+            "seek" | "scan" | "search" => (1000, 4, 400),
             _ => (500, 2, 200),
         };
         self.tokens_saved += tokens;
@@ -836,13 +836,13 @@ pub use self::core::*;
 Add to `dispatch_core_tool()` match:
 
 ```rust
-"m1nd.search" => {
+"search" => {
     let input: v04::SearchInput = serde_json::from_value(params.clone())
         .map_err(M1ndError::Serde)?;
     let output = layer_handlers::handle_search(state, input)?;
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
-"m1nd.help" => {
+"help" => {
     let input: v04::HelpInput = serde_json::from_value(params.clone())
         .map_err(M1ndError::Serde)?;
     let text = layer_handlers::handle_help(state, input)?;

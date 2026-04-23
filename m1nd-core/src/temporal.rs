@@ -117,7 +117,7 @@ impl CoChangeMatrix {
                 }
             }
 
-            entries.sort_by(|a, b| b.strength.cmp(&a.strength));
+            entries.sort_by_key(|entry| std::cmp::Reverse(entry.strength));
             entries.truncate(CO_CHANGE_MAX_ROW);
             total_entries += entries.len() as u64;
             rows[start] = entries;
@@ -194,7 +194,7 @@ impl CoChangeMatrix {
             return Vec::new();
         }
         let mut entries = self.rows[idx].clone();
-        entries.sort_by(|a, b| b.strength.cmp(&a.strength));
+        entries.sort_by_key(|entry| std::cmp::Reverse(entry.strength));
         entries.truncate(top_k);
         entries
     }
@@ -381,7 +381,7 @@ impl CausalChainDetector {
             }
         }
 
-        chains.sort_by(|a, b| b.cumulative_strength.cmp(&a.cumulative_strength));
+        chains.sort_by_key(|entry| std::cmp::Reverse(entry.cumulative_strength));
         Ok(chains)
     }
 }
@@ -858,7 +858,7 @@ impl ImpactRadiusCalculator {
             })
             .collect();
 
-        blast_radius.sort_by(|a, b| b.signal_strength.cmp(&a.signal_strength));
+        blast_radius.sort_by_key(|entry| std::cmp::Reverse(entry.signal_strength));
         let total_energy: f32 = blast_radius.iter().map(|e| e.signal_strength.get()).sum();
 
         Ok(ImpactResult {

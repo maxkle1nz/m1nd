@@ -367,7 +367,7 @@ Isso importa porque m1nd não é só um endpoint de busca. Ele é uma camada opi
 
 Use `tools/list` para obter a contagem live exata no build que você estiver usando. As categorias abaixo importam mais do que um número hardcoded.
 
-Os nomes canônicos no schema MCP exportado usam underscore, como `trail_save`, `perspective_start` e `apply_batch`. Alguns clientes podem mostrar nomes com prefixo de transporte, como `m1nd.apply_batch`, mas o live registry e `tools/list` usam os nomes sem prefixo.
+Os nomes canônicos no schema MCP exportado usam underscore, como `trail_save`, `perspective_start` e `apply_batch`. Alguns clientes podem mostrar aliases com prefixo de transporte, mas o live registry e `tools/list` usam os nomes sem prefixo.
 
 | Categoria | Destaques |
 |----------|------------|

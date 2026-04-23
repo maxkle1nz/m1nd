@@ -284,8 +284,8 @@ fn collect_dois(graph: &m1nd_core::graph::Graph) -> HashSet<String> {
         let idx = nid.0 as usize;
         if idx < graph.nodes.label.len() {
             let label = graph.strings.resolve(graph.nodes.label[idx]);
-            if label.starts_with("DOI: ") {
-                dois.insert(label[5..].to_lowercase());
+            if let Some(doi) = label.strip_prefix("DOI: ") {
+                dois.insert(doi.to_lowercase());
             }
         }
 

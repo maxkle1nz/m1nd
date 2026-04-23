@@ -68,7 +68,7 @@ Writes LLM-edited code back and keeps the graph coherent:
 - Uses existing `SessionState` fields: `graph`, `ingest_roots`, `track_agent`
 - Uses existing `crate::tools::handle_ingest` for re-ingest (no duplication)
 - Protocol types from `crate::protocol::surgical` (scaffold already existed)
-- Server dispatch in `server.rs` already wired for `m1nd.surgical.context` and `m1nd.apply`
+- Server dispatch in `server.rs` already wired for `surgical_context` and `apply`
 
 ## Files modified
 - `/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd/m1nd-mcp/src/surgical_handlers.rs` (full rewrite)

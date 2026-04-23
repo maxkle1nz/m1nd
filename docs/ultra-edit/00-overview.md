@@ -20,7 +20,9 @@ Next:
 
 # Ultra Edit
 
-Ultra Edit is m1nd's future transactional editing system for AI agents.
+Ultra Edit is m1nd's future transactional editing system for coding agents.
+
+Today, `apply` and `apply_batch` cover direct file mutation and batch execution. Ultra Edit is the planned preview-first layer that would stage, validate, and commit candidate changes before disk writes.
 
 ## Core Purpose
 
@@ -37,8 +39,8 @@ The system must allow an LLM to modify code in memory first, validate the result
 [⟁ depends_on: SurgicalContextV2]
 [⟁ depends_on: ApplyBatch]
 [⟁ depends_on: VerifyPipeline]
-[⟁ binds_to: m1nd.apply]
-[⟁ binds_to: m1nd.apply_batch]
+[⟁ binds_to: apply]
+[⟁ binds_to: apply_batch]
 
 ## Non-Negotiable Principles
 
@@ -64,7 +66,7 @@ Ultra Edit aims to become the bridge between graph intelligence and trustworthy 
 
 ## Desired Outcome
 
-A future where an AI can:
+A future where an agent can:
 
 1. Understand the exact target.
 2. Build a candidate state in memory.

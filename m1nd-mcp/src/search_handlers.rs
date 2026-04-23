@@ -1,15 +1,16 @@
 // === m1nd-mcp/src/search_handlers.rs ===
 //
-// v0.5.0: Handlers for m1nd.search, m1nd.glob, and m1nd.help.
+// v0.5.0: Handlers for search, glob, and help.
 // Search: literal/regex/semantic modes with graph context.
 //   - v0.5.0: regex mode gets Phase 2 disk search (fixes CRITICAL gap)
 //   - v0.5.0: multiline, invert, count_only, filename_pattern support
 // Glob: graph-aware file pattern matching (replaces find/glob).
 // Help: self-documenting tool reference with visual identity.
 
+use crate::help_guidance;
 use crate::personality;
 use crate::protocol::layers::{
-    GlobFileEntry, GlobInput, GlobOutput, HelpInput, HelpOutput, SearchInput, SearchMode,
+    GlobFileEntry, GlobInput, GlobOutput, HelpInput, HelpMode, HelpOutput, SearchInput, SearchMode,
     SearchOutput, SearchResultEntry,
 };
 use crate::scope::normalize_scope_path;
@@ -120,8 +121,8 @@ fn truncate_search_results(
 
 /// Normalize a tool name for help lookup.
 ///
-/// Accepts raw names (`activate`) plus common aliases (`m1nd_activate`,
-/// `m1nd.activate`) and returns the canonical tool name used by `tool_docs()`.
+/// Accepts raw names plus common transport aliases and returns the canonical
+/// tool name used by `tool_docs()`.
 pub(crate) fn normalize_help_tool_name(tool_name: &str) -> String {
     let trimmed = tool_name.trim();
     trimmed
@@ -226,15 +227,15 @@ fn search_query_empty_hint(scope: Option<&str>, filename_pattern: Option<&str>) 
         "add exact text/regex to search content".to_string(),
     ];
     if scope.is_some() || filename_pattern.is_some() {
-        hints.push("for file/path discovery use m1nd.glob instead".to_string());
+        hints.push("for file/path discovery use glob instead".to_string());
     }
-    hints.push("for natural-language intent use m1nd.seek".to_string());
+    hints.push("for natural-language intent use seek".to_string());
     hints.join("; ")
 }
 
 fn invalid_filename_pattern_hint(pat: &str, err: &glob::PatternError) -> String {
     format!(
-        "invalid filename pattern '{}': {}; use shell-style globs like '*.rs' or '**/*.py'; for exact path text use query+scope, and for file discovery use m1nd.glob",
+        "invalid filename pattern '{}': {}; use shell-style globs like '*.rs' or '**/*.py'; for exact path text use query+scope, and for file discovery use glob",
         pat, err
     )
 }
@@ -265,7 +266,7 @@ fn ambiguous_auto_ingest_scope_hint(
 
 fn invalid_glob_pattern_hint(pattern: &str, err: &glob::PatternError) -> String {
     format!(
-        "invalid glob pattern '{}': {}; use shell-style globs like 'src/**/*.rs' or '*.md'; for content search use m1nd.search instead",
+        "invalid glob pattern '{}': {}; use shell-style globs like 'src/**/*.rs' or '*.md'; for content search use search instead",
         pattern, err
     )
 }
@@ -278,7 +279,7 @@ enum SearchRankingMode {
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.search
+// search
 // ---------------------------------------------------------------------------
 
 pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult<SearchOutput> {
@@ -1425,7 +1426,7 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         return Err(M1ndError::InvalidParams {
             tool: "m1nd_glob".into(),
             detail:
-                "pattern cannot be empty; use shell-style globs like 'src/**/*.rs'; for content search use m1nd.search"
+                "pattern cannot be empty; use shell-style globs like 'src/**/*.rs'; for content search use search"
                     .into(),
         });
     }
@@ -1509,7 +1510,7 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
         }
         crate::protocol::layers::GlobSort::Activation => {
             // Sort by connection count descending as a proxy for activation
-            files.sort_by(|a, b| b.has_connections.cmp(&a.has_connections));
+            files.sort_by_key(|entry| std::cmp::Reverse(entry.has_connections));
         }
     }
 
@@ -1532,136 +1533,106 @@ pub fn handle_glob(state: &mut SessionState, input: GlobInput) -> M1ndResult<Glo
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.help
+// help
 // ---------------------------------------------------------------------------
 
 pub fn handle_help(_state: &mut SessionState, input: HelpInput) -> M1ndResult<HelpOutput> {
-    let tool_name = input.tool_name.as_deref();
-
-    match tool_name {
-        None => {
-            // Check if TEMPONIZER is enabled via .m1nd/boot/temponizer.json
-            // Search: ingest roots → workspace_root → runtime_root ancestors → exe ancestors → CWD
-            let show_temponizer = {
-                let mut candidates: Vec<std::path::PathBuf> = Vec::new();
-                for root in &_state.ingest_roots {
-                    candidates.push(std::path::PathBuf::from(root));
-                }
-                if let Some(ref ws) = _state.workspace_root {
-                    candidates.push(std::path::PathBuf::from(ws));
-                }
-                // Walk up from runtime_root
-                let mut dir = _state.runtime_root.clone();
-                for _ in 0..5 {
-                    candidates.push(dir.clone());
-                    if let Some(parent) = dir.parent() {
-                        dir = parent.to_path_buf();
-                    } else {
-                        break;
-                    }
-                }
-                // Walk up from the executable itself (target/release/m1nd-mcp → project root)
-                if let Ok(exe) = std::env::current_exe() {
-                    let mut dir = exe;
-                    for _ in 0..6 {
-                        if let Some(parent) = dir.parent() {
-                            candidates.push(parent.to_path_buf());
-                            dir = parent.to_path_buf();
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                if let Ok(cwd) = std::env::current_dir() {
-                    candidates.push(cwd);
-                }
-                candidates.iter().any(|root| {
-                    let path = root.join(".m1nd/boot/temponizer.json");
-                    std::fs::read_to_string(&path)
-                        .map(|c| c.contains("\"enabled\": true") || c.contains("\"enabled\":true"))
-                        .unwrap_or(false)
-                })
-            };
-            let formatted = personality::format_help_index(show_temponizer);
-            Ok(HelpOutput {
-                formatted,
-                tool: None,
-                found: true,
-                suggestions: vec![],
-                proof_state: "triaging".into(),
-                next_suggested_tool: None,
-                next_suggested_target: None,
-                next_step_hint: None,
-                confidence: None,
-                why_this_next_step: None,
-                what_is_missing: None,
-            })
+    let show_temponizer = {
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        for root in &_state.ingest_roots {
+            candidates.push(std::path::PathBuf::from(root));
         }
-        Some("about") => {
-            let formatted = personality::format_about();
-            Ok(HelpOutput {
-                formatted,
-                tool: Some("about".into()),
-                found: true,
-                suggestions: vec![],
-                proof_state: "triaging".into(),
-                next_suggested_tool: None,
-                next_suggested_target: None,
-                next_step_hint: None,
-                confidence: None,
-                why_this_next_step: None,
-                what_is_missing: None,
-            })
+        if let Some(ref ws) = _state.workspace_root {
+            candidates.push(std::path::PathBuf::from(ws));
         }
-        Some(name) => {
-            // Normalize aliases like `m1nd_activate` and `m1nd.activate`
-            // to the canonical raw tool name used in `tool_docs()`.
-            let normalized = normalize_help_tool_name(name);
-
-            let docs = personality::tool_docs();
-            if let Some(doc) = docs.iter().find(|d| d.name == normalized) {
-                let formatted = personality::format_tool_help(doc);
-                Ok(HelpOutput {
-                    formatted,
-                    tool: Some(normalized.clone()),
-                    found: true,
-                    suggestions: vec![],
-                    proof_state: "triaging".into(),
-                    next_suggested_tool: None,
-                    next_suggested_target: None,
-                    next_step_hint: None,
-                    confidence: None,
-                    why_this_next_step: None,
-                    what_is_missing: None,
-                })
+        let mut dir = _state.runtime_root.clone();
+        for _ in 0..5 {
+            candidates.push(dir.clone());
+            if let Some(parent) = dir.parent() {
+                dir = parent.to_path_buf();
             } else {
-                // Unknown tool -- find similar (ADVERSARY H2)
-                let suggestions = personality::find_similar_tools(name);
-                let formatted = format!(
-                    "{}tool '{}' not found.{}\n{}did you mean: {}?{}\n",
-                    personality::ANSI_RED,
-                    name,
-                    personality::ANSI_RESET,
-                    personality::ANSI_DIM,
-                    suggestions.join(", "),
-                    personality::ANSI_RESET,
-                );
-                Ok(HelpOutput {
-                    formatted,
-                    tool: Some(name.to_string()),
-                    found: false,
-                    suggestions: suggestions.clone(),
-                    proof_state: "triaging".into(),
-                    next_suggested_tool: None,
-                    next_suggested_target: None,
-                    next_step_hint: None,
-                    confidence: None,
-                    why_this_next_step: None,
-                    what_is_missing: None,
-                })
+                break;
             }
         }
-    }
+        if let Ok(exe) = std::env::current_exe() {
+            let mut dir = exe;
+            for _ in 0..6 {
+                if let Some(parent) = dir.parent() {
+                    candidates.push(parent.to_path_buf());
+                    dir = parent.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd);
+        }
+        candidates.iter().any(|root| {
+            let path = root.join(".m1nd/boot/temponizer.json");
+            std::fs::read_to_string(&path)
+                .map(|c| c.contains("\"enabled\": true") || c.contains("\"enabled\":true"))
+                .unwrap_or(false)
+        })
+    };
+
+    let resolution = if let Some(name) = input.tool_name.as_deref() {
+        let normalized = normalize_help_tool_name(name);
+        if normalized == "about" {
+            help_guidance::HelpResolution {
+                formatted: personality::format_about(),
+                guidance: None,
+                found: true,
+                suggestions: vec![],
+                tool: Some("about".into()),
+                proof_state: "triaging".into(),
+            }
+        } else if let Some(entry) = help_guidance::catalog_entry(&normalized) {
+            let mut normalized_input = input.clone();
+            normalized_input.tool_name = Some(normalized);
+            help_guidance::build_tool_resolution(&entry, &normalized_input)
+        } else {
+            help_guidance::build_unknown_tool_resolution(
+                name,
+                input.max_suggestions.unwrap_or(3) as usize,
+            )
+        }
+    } else {
+        let mode = input.mode.unwrap_or_else(|| {
+            if input.error_text.is_some() {
+                HelpMode::Recovery
+            } else if input.stage.is_some() || input.intent.is_some() {
+                HelpMode::Route
+            } else {
+                HelpMode::Overview
+            }
+        });
+
+        match mode {
+            HelpMode::Overview => help_guidance::build_overview_resolution(&input, show_temponizer),
+            HelpMode::Tool => help_guidance::build_overview_resolution(&input, show_temponizer),
+            HelpMode::Route => help_guidance::build_route_resolution(&input),
+            HelpMode::Recovery => help_guidance::build_recovery_resolution(&input),
+            HelpMode::Workflow => help_guidance::build_workflow_resolution(&input),
+        }
+    };
+
+    let projection = help_guidance::runtime_projection_from_resolution(&resolution, "triaging");
+
+    Ok(HelpOutput {
+        formatted: resolution.formatted,
+        tool: resolution.tool,
+        found: resolution.found,
+        suggestions: resolution.suggestions,
+        proof_state: projection.proof_state,
+        next_suggested_tool: projection.next_suggested_tool,
+        next_suggested_target: projection.next_suggested_target,
+        next_step_hint: projection.next_step_hint,
+        confidence: projection.confidence,
+        why_this_next_step: projection.why_this_next_step,
+        what_is_missing: projection.what_is_missing,
+        guidance: resolution.guidance,
+    })
 }
 
 #[cfg(test)]
@@ -1712,6 +1683,21 @@ mod tests {
                 0.0,
             )
             .expect("add file node");
+    }
+
+    fn help_input(tool_name: Option<&str>) -> crate::protocol::layers::HelpInput {
+        crate::protocol::layers::HelpInput {
+            agent_id: "jimi-codex".into(),
+            tool_name: tool_name.map(str::to_string),
+            mode: None,
+            intent: None,
+            stage: None,
+            path: None,
+            error_text: None,
+            recent_tools: vec![],
+            max_suggestions: None,
+            render: None,
+        }
     }
 
     fn assert_search_equivalence(state: &mut SessionState, scopes: &[String], expected_path: &str) {
@@ -2006,8 +1992,8 @@ mod tests {
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();
         assert!(err.contains("query cannot be empty"));
-        assert!(err.contains("m1nd.glob"));
-        assert!(err.contains("m1nd.seek"));
+        assert!(err.contains("glob"));
+        assert!(err.contains("seek"));
     }
 
     #[test]
@@ -2036,7 +2022,7 @@ mod tests {
         let err = handle_search(&mut state, input).unwrap_err().to_string();
         assert!(err.contains("invalid filename pattern"));
         assert!(err.contains("*.rs"));
-        assert!(err.contains("m1nd.glob"));
+        assert!(err.contains("glob"));
     }
 
     #[test]
@@ -2086,7 +2072,7 @@ mod tests {
         let err = handle_glob(&mut state, input).unwrap_err().to_string();
         assert!(err.contains("pattern cannot be empty"));
         assert!(err.contains("src/**/*.rs"));
-        assert!(err.contains("m1nd.search"));
+        assert!(err.contains("search"));
     }
 
     #[test]
@@ -2107,15 +2093,20 @@ mod tests {
         let err = handle_glob(&mut state, input).unwrap_err().to_string();
         assert!(err.contains("invalid glob pattern"));
         assert!(err.contains("src/**/*.rs"));
-        assert!(err.contains("m1nd.search"));
+        assert!(err.contains("search"));
     }
 
     #[test]
     fn help_tool_name_normalization_accepts_common_aliases() {
+        let underscored_alias = ["m1nd", "activate"].join("_");
+        let dotted_alias = ["m1nd", "activate"].join(".");
         assert_eq!(normalize_help_tool_name("activate"), "activate");
-        assert_eq!(normalize_help_tool_name("m1nd_activate"), "activate");
-        assert_eq!(normalize_help_tool_name("m1nd.activate"), "activate");
-        assert_eq!(normalize_help_tool_name("  m1nd.activate  "), "activate");
+        assert_eq!(normalize_help_tool_name(&underscored_alias), "activate");
+        assert_eq!(normalize_help_tool_name(&dotted_alias), "activate");
+        assert_eq!(
+            normalize_help_tool_name(&format!("  {dotted_alias}  ")),
+            "activate"
+        );
     }
 
     #[test]
@@ -2137,15 +2128,20 @@ mod tests {
         let root = temp.path();
         let mut state = build_state(root);
 
-        let input = crate::protocol::layers::HelpInput {
-            agent_id: "jimi-codex".into(),
-            tool_name: Some("m1nd.activate".into()),
-        };
+        let dotted_alias = ["m1nd", "activate"].join(".");
+        let input = help_input(Some(&dotted_alias));
 
         let output = handle_help(&mut state, input).expect("help output");
         assert!(output.found);
         assert_eq!(output.tool.as_deref(), Some("activate"));
-        assert!(output.formatted.contains("PARAMS"));
+        assert!(output.formatted.contains("USE THIS NOW"));
+        assert!(
+            output
+                .guidance
+                .as_ref()
+                .and_then(|guidance| guidance.canonical_name.as_deref())
+                == Some("activate")
+        );
     }
 
     #[test]
@@ -2154,21 +2150,17 @@ mod tests {
         let root = temp.path();
         let mut state = build_state(root);
 
-        let input = crate::protocol::layers::HelpInput {
-            agent_id: "jimi-codex".into(),
-            tool_name: Some("surgical_context_v2".into()),
-        };
+        let input = help_input(Some("surgical_context_v2"));
 
         let output = handle_help(&mut state, input).expect("help output");
         assert!(output.found);
-        assert!(output.formatted.contains("WHEN TO USE"));
-        assert!(output.formatted.contains("AVOID WHEN"));
-        assert!(output.formatted.contains("AGENT NOTES"));
-        assert!(output.formatted.contains("ERROR RECOVERY"));
-        assert!(output.formatted.contains("BENCHMARK TRUTH"));
-        assert!(output.formatted.contains("WORKFLOWS"));
-        assert!(output.formatted.contains("STATE HANDOFF"));
-        assert!(output.formatted.contains("proof_focused=true"));
+        assert!(output.formatted.contains("USE THIS NOW"));
+        assert!(output.formatted.contains("REQUIRED INPUT"));
+        assert!(output.formatted.contains("MINIMAL CALL"));
+        assert!(output.formatted.contains("DO NOT USE IF"));
+        assert!(output.formatted.contains("IF THIS FAILS"));
+        assert!(output.formatted.contains("NEXT"));
+        assert!(output.formatted.contains("surgical_context_v2"));
     }
 
     #[test]
@@ -2177,31 +2169,24 @@ mod tests {
         let root = temp.path();
         let mut state = build_state(root);
 
-        let impact = handle_help(
-            &mut state,
-            crate::protocol::layers::HelpInput {
-                agent_id: "jimi-codex".into(),
-                tool_name: Some("impact".into()),
-            },
-        )
-        .expect("impact help");
+        let impact = handle_help(&mut state, help_input(Some("impact"))).expect("impact help");
         assert!(impact.found);
-        assert!(impact.formatted.contains("proof_state"));
-        assert!(impact.formatted.contains("strongest downstream seam"));
-        assert!(impact.formatted.contains("STATE HANDOFF"));
+        assert!(impact.formatted.contains("USE THIS NOW"));
+        assert!(impact.formatted.contains("IF THIS FAILS"));
+        assert_eq!(
+            impact.next_suggested_tool.as_deref(),
+            impact
+                .guidance
+                .as_ref()
+                .and_then(|guidance| guidance.recommended_sequence.first())
+                .map(|step| step.tool.as_str())
+        );
 
-        let trace = handle_help(
-            &mut state,
-            crate::protocol::layers::HelpInput {
-                agent_id: "jimi-codex".into(),
-                tool_name: Some("trace".into()),
-            },
-        )
-        .expect("trace help");
+        let trace = handle_help(&mut state, help_input(Some("trace"))).expect("trace help");
         assert!(trace.found);
-        assert!(trace.formatted.contains("proof_state"));
+        assert!(trace.formatted.contains("trace"));
         assert!(trace.formatted.contains("Failure triage"));
-        assert!(trace.formatted.contains("view"));
+        assert!(trace.formatted.contains("IF THIS FAILS"));
     }
 
     #[test]
@@ -2210,19 +2195,14 @@ mod tests {
         let root = temp.path();
         let mut state = build_state(root);
 
-        let input = crate::protocol::layers::HelpInput {
-            agent_id: "jimi-codex".into(),
-            tool_name: None,
-        };
+        let input = help_input(None);
 
         let output = handle_help(&mut state, input).expect("help output");
         assert!(output.found);
-        assert!(output.formatted.contains("decision guide"));
-        assert!(output
-            .formatted
-            .contains("common errors should be treated as reroute hints"));
-        assert!(output.formatted.contains("search=text"));
-        assert!(output.formatted.contains("seek=intent"));
+        assert!(output.formatted.contains("30-SECOND MAP"));
+        assert!(output.formatted.contains("HOW TO ASK"));
+        assert!(output.formatted.contains("stage, intent, or failure"));
+        assert!(output.formatted.contains("structure · change · docs"));
     }
 
     #[test]

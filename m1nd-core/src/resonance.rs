@@ -275,7 +275,7 @@ impl StandingWavePropagator {
             .map(|(i, acc)| (NodeId::new(i as u32), acc.amplitude()))
             .filter(|(_, a)| a.get() > self.min_amplitude.get())
             .collect();
-        antinodes.sort_by(|a, b| b.1.cmp(&a.1));
+        antinodes.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
         let wave_nodes: Vec<NodeId> = accumulators
             .iter()
@@ -459,7 +459,7 @@ impl ResonantFrequencyDetector {
             }
         }
 
-        peaks.sort_by(|a, b| b.total_energy.cmp(&a.total_energy));
+        peaks.sort_by_key(|entry| std::cmp::Reverse(entry.total_energy));
         Ok(peaks)
     }
 }

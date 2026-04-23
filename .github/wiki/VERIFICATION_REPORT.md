@@ -57,7 +57,7 @@ m1nd_help, m1nd_report, m1nd_panoramic, m1nd_savings
 ```
 **Total: 61** — matches the wiki header.
 
-**Dispatch note:** `server.rs` normalizes underscores to dots before dispatch (`tool_name.replace('_', '.')`), so `m1nd_activate` and `m1nd.activate` both work. Underscore form is canonical throughout this wiki.
+**Dispatch note:** canonical names are bare names from `tools/list`. Legacy transport aliases still normalize correctly when routed through the server.
 
 ### New Tools Since Initial Audit (52 → 61)
 

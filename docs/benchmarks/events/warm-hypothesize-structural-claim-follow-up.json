@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.hypothesize",
+    "tool_name": "hypothesize",
     "query": "why is this missing validation guard?",
     "elapsed_ms": 1.486,
     "payload_chars": 460,
@@ -14,7 +14,7 @@
     "next_tool_used": "view"
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/src/server.rs",
     "elapsed_ms": 0.522,
     "payload_chars": 780,

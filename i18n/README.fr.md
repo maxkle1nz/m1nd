@@ -373,7 +373,7 @@ Micro-benchmarks Criterion enregistrés dans les docs actuelles :
 
 Ces chiffres comptent surtout lorsqu’ils sont associés au bénéfice de workflow : moins d’allers-retours dans des boucles grep/read et moins de chargement de contexte dans le modèle.
 
-Dans le corpus warm-graph agrégé documenté aujourd’hui, `m1nd_warm` descend de `10518` à `5182` tokens proxy (`50.73%` d’économie), réduit les `false_starts` de `14` à `0`, enregistre `31` guided follow-throughs et `12` recovery loops suivis avec succès.
+Dans le corpus warm-graph agrégé documenté aujourd’hui, `warm` descend de `10518` à `5182` tokens proxy (`50.73%` d’économie), réduit les `false_starts` de `14` à `0`, enregistre `31` guided follow-throughs et `12` recovery loops suivis avec succès.
 
 ## Configurer votre agent
 
@@ -469,7 +469,7 @@ Ce n’est pas un remplaçant d’un LSP, d’un compilateur ou de l’observabi
 
 Utilisez `tools/list` pour obtenir le compte live exact dans votre build actuel. Les catégories ci-dessous comptent plus qu’un nombre figé.
 
-Les noms canoniques des outils dans le schéma MCP exporté utilisent des underscores, comme `trail_save`, `perspective_start`, et `apply_batch`. Certains clients peuvent afficher des noms avec un préfixe de transport comme `m1nd.apply_batch`, mais le registre live et `tools/list` utilisent les noms sans préfixe.
+Les noms canoniques des outils dans le schéma MCP exporté utilisent des underscores, comme `trail_save`, `perspective_start`, et `apply_batch`. Certains clients peuvent afficher des alias avec préfixe de transport, mais le registre live et `tools/list` utilisent les noms sans préfixe.
 
 | Category | Highlights |
 |----------|------------|

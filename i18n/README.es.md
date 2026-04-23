@@ -367,7 +367,7 @@ Esto importa porque m1nd no es solo un endpoint de búsqueda. Es una capa opinat
 
 Usa `tools/list` para obtener el conteo live exacto en tu build actual. Las categorías de abajo importan más que un número hardcodeado.
 
-Los nombres canónicos en el esquema MCP exportado usan guiones bajos, como `trail_save`, `perspective_start` y `apply_batch`. Algunos clientes pueden mostrar nombres con un prefijo de transporte como `m1nd.apply_batch`, pero el live registry y `tools/list` usan los nombres sin prefijo.
+Los nombres canónicos en el esquema MCP exportado usan guiones bajos, como `trail_save`, `perspective_start` y `apply_batch`. Algunos clientes pueden mostrar aliases con prefijo de transporte, pero el live registry y `tools/list` usan los nombres sin prefijo.
 
 | Categoría | Destacados |
 |----------|------------|

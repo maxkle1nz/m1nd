@@ -6,7 +6,7 @@
     "payload_chars": 260
   },
   {
-    "tool_name": "m1nd.perspective_routes",
+    "tool_name": "perspective_routes",
     "query": "list current routes for perspective after stale follow failure",
     "elapsed_ms": 2.0,
     "payload_chars": 420,
@@ -15,7 +15,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.perspective_follow",
+    "tool_name": "perspective_follow",
     "query": "retry follow with fresh route_set_version and current route_id",
     "elapsed_ms": 1.7,
     "payload_chars": 380,

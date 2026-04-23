@@ -420,7 +420,7 @@ impl TrustLedger {
                 });
             }
             TrustSortBy::DefectsDesc => {
-                outputs.sort_by(|a, b| b.defect_count.cmp(&a.defect_count));
+                outputs.sort_by_key(|entry| std::cmp::Reverse(entry.defect_count));
             }
             TrustSortBy::Recency => {
                 outputs.sort_by(|a, b| {
@@ -539,6 +539,9 @@ pub fn save_trust_state(ledger: &TrustLedger, path: &Path) -> M1ndResult<()> {
     let json = serde_json::to_string_pretty(&format).map_err(crate::error::M1ndError::Serde)?;
 
     // Atomic write: temp file + rename
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let temp_path = path.with_extension("tmp");
     {
         use std::io::Write;
@@ -550,6 +553,42 @@ pub fn save_trust_state(ledger: &TrustLedger, path: &Path) -> M1ndResult<()> {
     std::fs::rename(&temp_path, path)?;
 
     Ok(())
+}
+
+/// Load a `TrustLedger` from disk, returning an empty ledger if the file does not exist.
+///
+/// Corrupt entries (non-finite timestamps) are silently dropped with a diagnostic to stderr.
+///
+/// # Parameters
+/// - `path`: source file path (JSON produced by `save_trust_state`).
+///
+/// # Errors
+/// Returns `M1ndError::Io` on read failures or `M1ndError::Serde` if the JSON is malformed.
+pub fn load_trust_state(path: &Path) -> M1ndResult<TrustLedger> {
+    if !path.exists() {
+        return Ok(TrustLedger::new());
+    }
+
+    let data = std::fs::read_to_string(path)?;
+    let format: TrustPersistenceFormat =
+        serde_json::from_str(&data).map_err(crate::error::M1ndError::Serde)?;
+
+    // Validate entries: reject corrupt (NaN/Inf) entries
+    let mut valid_entries = HashMap::new();
+    for (key, entry) in format.entries {
+        if !entry.last_defect_timestamp.is_finite() || !entry.first_defect_timestamp.is_finite() {
+            eprintln!(
+                "m1nd trust: rejecting corrupt entry for {}: non-finite timestamps",
+                key
+            );
+            continue;
+        }
+        valid_entries.insert(key, entry);
+    }
+
+    Ok(TrustLedger {
+        entries: valid_entries,
+    })
 }
 
 #[cfg(test)]
@@ -753,6 +792,23 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    #[test]
+    fn save_load_round_trip_creates_parent_directories() {
+        let mut ledger = make_ledger();
+        ledger.record_defect("file::persist.py", NOW);
+
+        let dir = std::env::temp_dir().join(format!("trust_nested_{}", std::process::id()));
+        let path: PathBuf = dir.join("deep").join("trust_state.json");
+
+        save_trust_state(&ledger, &path).expect("save failed");
+        let loaded = load_trust_state(&path).expect("load failed");
+
+        assert!(loaded.entries.contains_key("file::persist.py"));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // Extra: cold start returns Unknown tier and 0.5 score
     #[test]
     fn cold_start_returns_unknown_tier() {
@@ -762,40 +818,4 @@ mod tests {
         assert_eq!(score.tier, TrustTier::Unknown);
         assert_eq!(score.risk_multiplier, 1.0);
     }
-}
-
-/// Load a `TrustLedger` from disk, returning an empty ledger if the file does not exist.
-///
-/// Corrupt entries (non-finite timestamps) are silently dropped with a diagnostic to stderr.
-///
-/// # Parameters
-/// - `path`: source file path (JSON produced by `save_trust_state`).
-///
-/// # Errors
-/// Returns `M1ndError::Io` on read failures or `M1ndError::Serde` if the JSON is malformed.
-pub fn load_trust_state(path: &Path) -> M1ndResult<TrustLedger> {
-    if !path.exists() {
-        return Ok(TrustLedger::new());
-    }
-
-    let data = std::fs::read_to_string(path)?;
-    let format: TrustPersistenceFormat =
-        serde_json::from_str(&data).map_err(crate::error::M1ndError::Serde)?;
-
-    // Validate entries: reject corrupt (NaN/Inf) entries
-    let mut valid_entries = HashMap::new();
-    for (key, entry) in format.entries {
-        if !entry.last_defect_timestamp.is_finite() || !entry.first_defect_timestamp.is_finite() {
-            eprintln!(
-                "m1nd trust: rejecting corrupt entry for {}: non-finite timestamps",
-                key
-            );
-            continue;
-        }
-        valid_entries.insert(key, entry);
-    }
-
-    Ok(TrustLedger {
-        entries: valid_entries,
-    })
 }

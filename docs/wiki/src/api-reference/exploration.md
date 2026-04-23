@@ -4,8 +4,9 @@ Six tools for intent-aware search, pattern-based scanning, structural hole detec
 
 ---
 
-## `m1nd.seek`
+<a id="m1ndseek"></a>
 
+## `seek`
 Intent-aware semantic code search. Finds code by **purpose**, not text pattern. Combines keyword matching, graph activation (PageRank), and trigram similarity for ranking.
 
 Unlike `activate` (which propagates signal through edges), `seek` scores every node independently against the query, making it better for finding specific code when you know what it *does* but not where it *lives*.
@@ -38,7 +39,7 @@ V2 upgrade path will replace keyword matching with real embeddings (fastembed-rs
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.seek",
+    "name": "seek",
     "arguments": {
       "agent_id": "jimi",
       "query": "code that validates user credentials",
@@ -88,13 +89,14 @@ V2 upgrade path will replace keyword matching with real embeddings (fastembed-rs
 
 ### Related Tools
 
-- [`m1nd.activate`](activation.md#m1ndactivate) -- graph-propagation search (better for exploring neighborhoods)
-- [`m1nd.scan`](#m1ndscan) -- pattern-based structural analysis (finds anti-patterns, not features)
+- [`activate`](activation.md#m1ndactivate) -- graph-propagation search (better for exploring neighborhoods)
+- [`scan`](#m1ndscan) -- pattern-based structural analysis (finds anti-patterns, not features)
 
 ---
 
-## `m1nd.scan`
+<a id="m1ndscan"></a>
 
+## `scan`
 Pattern-aware structural code analysis with graph-validated findings. Detects structural issues using predefined patterns, then validates each finding against the graph to filter false positives. Works across file boundaries.
 
 ### Parameters
@@ -116,7 +118,7 @@ Pattern-aware structural code analysis with graph-validated findings. Detects st
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.scan",
+    "name": "scan",
     "arguments": {
       "agent_id": "jimi",
       "pattern": "error_handling",
@@ -171,13 +173,14 @@ Pattern-aware structural code analysis with graph-validated findings. Detects st
 
 ### Related Tools
 
-- [`m1nd.hypothesize`](analysis.md#m1ndhypothesize) -- test a specific structural claim
-- [`m1nd.trace`](#m1ndtrace) -- analyze a specific error (not patterns)
+- [`hypothesize`](analysis.md#m1ndhypothesize) -- test a specific structural claim
+- [`trace`](#m1ndtrace) -- analyze a specific error (not patterns)
 
 ---
 
-## `m1nd.missing`
+<a id="m1ndmissing"></a>
 
+## `missing`
 Detect structural holes and missing connections. Given a topic query, finds areas where the graph suggests something *should* exist but does not. Identifies absent abstractions, missing connections, and incomplete patterns.
 
 ### Parameters
@@ -196,7 +199,7 @@ Detect structural holes and missing connections. Given a topic query, finds area
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.missing",
+    "name": "missing",
     "arguments": {
       "agent_id": "jimi",
       "query": "database connection pooling",
@@ -239,13 +242,14 @@ Detect structural holes and missing connections. Given a topic query, finds area
 
 ### Related Tools
 
-- [`m1nd.activate`](activation.md#m1ndactivate) -- activate with `include_structural_holes: true` for inline hole detection
-- [`m1nd.hypothesize`](analysis.md#m1ndhypothesize) -- test a specific claim about missing structure
+- [`activate`](activation.md#m1ndactivate) -- activate with `include_structural_holes: true` for inline hole detection
+- [`hypothesize`](analysis.md#m1ndhypothesize) -- test a specific claim about missing structure
 
 ---
 
-## `m1nd.trace`
+<a id="m1ndtrace"></a>
 
+## `trace`
 Map runtime errors to structural root causes via stacktrace analysis. Parses the stacktrace, maps frames to graph nodes, and scores each node's suspiciousness using trace depth, modification recency, and centrality. Also finds co-change suspects (files modified around the same time as the top suspect).
 
 ### Parameters
@@ -266,7 +270,7 @@ Map runtime errors to structural root causes via stacktrace analysis. Parses the
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trace",
+    "name": "trace",
     "arguments": {
       "agent_id": "jimi",
       "error_text": "Traceback (most recent call last):\n  File \"backend/chat_handler.py\", line 234, in handle_message\n  File \"backend/session_pool.py\", line 89, in acquire\n  File \"backend/worker_pool.py\", line 156, in submit\nTimeoutError: pool exhausted",
@@ -340,14 +344,15 @@ Map runtime errors to structural root causes via stacktrace analysis. Parses the
 
 ### Related Tools
 
-- [`m1nd.hypothesize`](analysis.md#m1ndhypothesize) -- test a hypothesis about the root cause
-- [`m1nd.impact`](analysis.md#m1ndimpact) -- assess the blast radius of a fix
-- [`m1nd.validate_plan`](lifecycle.md#m1ndvalidate_plan) -- validate your fix plan before implementing
+- [`hypothesize`](analysis.md#m1ndhypothesize) -- test a hypothesis about the root cause
+- [`impact`](analysis.md#m1ndimpact) -- assess the blast radius of a fix
+- [`validate_plan`](lifecycle.md#m1ndvalidate_plan) -- validate your fix plan before implementing
 
 ---
 
-## `m1nd.timeline`
+<a id="m1ndtimeline"></a>
 
+## `timeline`
 Git-based temporal history for a node. Returns the change history, co-change partners, velocity, stability score, and churn data for a specific file or module.
 
 ### Parameters
@@ -369,7 +374,7 @@ Git-based temporal history for a node. Returns the change history, co-change par
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.timeline",
+    "name": "timeline",
     "arguments": {
       "agent_id": "jimi",
       "node": "file::backend/chat_handler.py",
@@ -442,13 +447,14 @@ Git-based temporal history for a node. Returns the change history, co-change par
 
 ### Related Tools
 
-- [`m1nd.diverge`](analysis.md#m1nddiverge) -- structural drift across the whole codebase
-- [`m1nd.predict`](analysis.md#m1ndpredict) -- predict co-changes for a given modification
+- [`diverge`](analysis.md#m1nddiverge) -- structural drift across the whole codebase
+- [`predict`](analysis.md#m1ndpredict) -- predict co-changes for a given modification
 
 ---
 
-## `m1nd.federate`
+<a id="m1ndfederate"></a>
 
+## `federate`
 Ingest multiple repositories into a unified federated graph with automatic cross-repo edge detection. After federation, all existing query tools (`activate`, `impact`, `why`, etc.) traverse cross-repo edges automatically.
 
 Node IDs in the federated graph use `{repo_name}::file::path` format.
@@ -481,7 +487,7 @@ Node IDs in the federated graph use `{repo_name}::file::path` format.
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.federate",
+    "name": "federate",
     "arguments": {
       "agent_id": "jimi",
       "repos": [
@@ -544,12 +550,13 @@ Node IDs in the federated graph use `{repo_name}::file::path` format.
 
 ### Related Tools
 
-- [`m1nd.ingest`](lifecycle.md#m1ndingest) -- single-repo ingestion
-- [`m1nd.impact`](analysis.md#m1ndimpact) -- blast radius analysis (works across federated repos)
-- [`m1nd.why`](memory.md#m1ndwhy) -- path explanation (traverses cross-repo edges)
+- [`ingest`](lifecycle.md#m1ndingest) -- single-repo ingestion
+- [`impact`](analysis.md#m1ndimpact) -- blast radius analysis (works across federated repos)
+- [`why`](memory.md#m1ndwhy) -- path explanation (traverses cross-repo edges)
 
-## `m1nd.federate_auto`
+<a id="m1ndfederate_auto"></a>
 
+## `federate_auto`
 Turn explicit external path evidence, local manifest/workspace hints, import/package-name evidence, shared API-route signals, or contract artifacts such as `.proto`, MCP tools, and OpenAPI into repo candidates, namespace suggestions, and an optional one-shot `federate` call.
 
 ### Parameters
@@ -561,7 +568,7 @@ Turn explicit external path evidence, local manifest/workspace hints, import/pac
 | `current_repo_name` | `string` | No | auto | Optional namespace override for the current workspace. |
 | `max_repos` | `integer` | No | `8` | Maximum discovered external repos to include. |
 | `detect_cross_repo_edges` | `boolean` | No | `true` | Whether `execute=true` should auto-detect cross-repo edges. |
-| `execute` | `boolean` | No | `false` | If true, immediately run `m1nd.federate` with the current repo plus discovered candidates. |
+| `execute` | `boolean` | No | `false` | If true, immediately run `federate` with the current repo plus discovered candidates. |
 
 ### Example Request
 
@@ -571,7 +578,7 @@ Turn explicit external path evidence, local manifest/workspace hints, import/pac
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.federate_auto",
+    "name": "federate_auto",
     "arguments": {
       "agent_id": "jimi",
       "scope": "docs",
@@ -622,14 +629,15 @@ Turn explicit external path evidence, local manifest/workspace hints, import/pac
 
 ### Related Tools
 
-- [`m1nd.external_references`](overview.md) -- raw external path evidence
-- [`m1nd.federate`](#m1ndfederate) -- explicit multi-repo federation
-- [`m1nd.audit`](overview.md) -- broader audit that can surface the evidence before auto-federation
+- [`external_references`](overview.md) -- raw external path evidence
+- [`federate`](#m1ndfederate) -- explicit multi-repo federation
+- [`audit`](overview.md) -- broader audit that can surface the evidence before auto-federation
 
 ---
 
-## `m1nd.batch_view`
+<a id="m1ndbatch_view"></a>
 
+## `batch_view`
 Read multiple files or glob-resolved files in one call with stable delimiters, optional summaries, and optional auto-ingest.
 
 ### Parameters
@@ -649,14 +657,15 @@ Read multiple files or glob-resolved files in one call with stable delimiters, o
 
 ### Related Tools
 
-- [`m1nd.glob`](#m1ndglob)
-- [`m1nd.coverage_session`](#m1ndcoverage_session)
-- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
+- [`glob`](#m1ndglob)
+- [`coverage_session`](#m1ndcoverage_session)
+- [`audit`](../api-reference/lifecycle.md#m1ndaudit)
 
 ---
 
-## `m1nd.scan_all`
+<a id="m1ndscan_all"></a>
 
+## `scan_all`
 Run all structural scan patterns in one call and return grouped findings by pattern.
 
 ### Parameters
@@ -675,14 +684,15 @@ Run all structural scan patterns in one call and return grouped findings by patt
 
 ### Related Tools
 
-- [`m1nd.scan`](#m1ndscan)
-- [`m1nd.batch_view`](#m1ndbatch_view)
-- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
+- [`scan`](#m1ndscan)
+- [`batch_view`](#m1ndbatch_view)
+- [`audit`](../api-reference/lifecycle.md#m1ndaudit)
 
 ---
 
-## `m1nd.cross_verify`
+<a id="m1ndcross_verify"></a>
 
+## `cross_verify`
 Compare graph state against filesystem truth: existence, LOC drift, and optional hash mismatches.
 
 ### Parameters
@@ -702,13 +712,14 @@ Compare graph state against filesystem truth: existence, LOC drift, and optional
 
 ### Related Tools
 
-- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
-- [`m1nd.external_references`](#m1ndexternal_references)
+- [`audit`](../api-reference/lifecycle.md#m1ndaudit)
+- [`external_references`](#m1ndexternal_references)
 
 ---
 
-## `m1nd.coverage_session`
+<a id="m1ndcoverage_session"></a>
 
+## `coverage_session`
 Report what the current agent session has already read or touched.
 
 ### Parameters
@@ -724,13 +735,14 @@ Report what the current agent session has already read or touched.
 
 ### Related Tools
 
-- [`m1nd.batch_view`](#m1ndbatch_view)
-- [`m1nd.search`](../api-reference/lifecycle.md#m1ndsearch)
+- [`batch_view`](#m1ndbatch_view)
+- [`search`](../api-reference/lifecycle.md#m1ndsearch)
 
 ---
 
-## `m1nd.external_references`
+<a id="m1ndexternal_references"></a>
 
+## `external_references`
 Find explicit path references that point outside current ingest roots.
 
 ### Parameters
@@ -747,13 +759,14 @@ Find explicit path references that point outside current ingest roots.
 
 ### Related Tools
 
-- [`m1nd.federate_auto`](#m1ndfederate_auto)
-- [`m1nd.audit`](../api-reference/lifecycle.md#m1ndaudit)
+- [`federate_auto`](#m1ndfederate_auto)
+- [`audit`](../api-reference/lifecycle.md#m1ndaudit)
 
 ---
 
-## `m1nd.glob`
+<a id="m1ndglob"></a>
 
+## `glob`
 Graph-aware file globbing over already indexed files.
 
 ### Parameters
@@ -772,13 +785,14 @@ Graph-aware file globbing over already indexed files.
 
 ### Related Tools
 
-- [`m1nd.search`](../api-reference/lifecycle.md#m1ndsearch)
-- [`m1nd.batch_view`](#m1ndbatch_view)
+- [`search`](../api-reference/lifecycle.md#m1ndsearch)
+- [`batch_view`](#m1ndbatch_view)
 
 ---
 
-## `m1nd.view`
+<a id="m1ndview"></a>
 
+## `view`
 Fast line-numbered file inspection with optional auto-ingest if the file is not yet in the graph.
 
 ### Parameters
@@ -798,6 +812,5 @@ Fast line-numbered file inspection with optional auto-ingest if the file is not 
 
 ### Related Tools
 
-- [`m1nd.batch_view`](#m1ndbatch_view)
-- [`m1nd.surgical_context`](../api-reference/lifecycle.md#m1ndsurgical_context)
-
+- [`batch_view`](#m1ndbatch_view)
+- [`surgical_context`](../api-reference/lifecycle.md#m1ndsurgical_context)

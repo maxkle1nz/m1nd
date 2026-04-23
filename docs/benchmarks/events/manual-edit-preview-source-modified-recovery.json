@@ -15,7 +15,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.edit_preview",
+    "tool_name": "edit_preview",
     "query": "recreate preview manually after confirming source drift",
     "elapsed_ms": 2.0,
     "payload_chars": 360,

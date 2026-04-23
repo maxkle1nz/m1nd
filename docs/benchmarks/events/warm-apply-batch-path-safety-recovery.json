@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.apply_batch",
+    "tool_name": "apply_batch",
     "query": "apply_batch targeting /tmp/unsafe-batch.rs outside workspace root",
     "target": "/tmp/unsafe-batch.rs",
     "elapsed_ms": 1.2,
@@ -14,7 +14,7 @@
     "notes": "Path-safety rejection now teaches the exact safe retry instead of forcing the agent into ad hoc filesystem debugging."
   },
   {
-    "tool_name": "m1nd.apply_batch",
+    "tool_name": "apply_batch",
     "query": "retry apply_batch inside workspace root",
     "target": "m1nd-mcp/tests/test_surgical_v2.rs",
     "elapsed_ms": 148.0,
@@ -101,7 +101,7 @@
     "notes": "The repair loop stays inside apply_batch, preserves progress visibility, and ends with a concrete next step."
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/tests/test_surgical_v2.rs",
     "elapsed_ms": 0.7,
     "payload_chars": 520,

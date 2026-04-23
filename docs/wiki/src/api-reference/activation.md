@@ -257,6 +257,6 @@ Read-only. No plasticity side effects.
 
 ### Related Tools
 
-- [`m1nd.activate`](#m1ndactivate) -- simpler spreading activation without harmonic analysis
-- [`m1nd.fingerprint`](analysis.md#m1ndfingerprint) -- finds structurally equivalent nodes
-- [`m1nd.missing`](exploration.md#m1ndmissing) -- finds gaps in the resonance structure
+- [`activate`](#m1ndactivate) -- simpler spreading activation without harmonic analysis
+- [`fingerprint`](analysis.md#m1ndfingerprint) -- finds structurally equivalent nodes
+- [`missing`](exploration.md#m1ndmissing) -- finds gaps in the resonance structure

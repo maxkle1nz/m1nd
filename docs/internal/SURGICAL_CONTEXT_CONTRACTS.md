@@ -23,16 +23,16 @@
 ```rust
 // === m1nd-mcp/src/protocol/surgical.rs ===
 //
-// Input/Output types for m1nd.surgical.context and m1nd.surgical.apply.
+// Input/Output types for surgical_context and surgical_apply.
 // Conventions match protocol/core.rs, protocol/layers.rs.
 
 use serde::{Deserialize, Serialize};
 
 // =========================================================================
-// m1nd.surgical.context
+// surgical_context
 // =========================================================================
 
-/// Input for m1nd.surgical.context.
+/// Input for surgical_context.
 /// Gathers everything an agent needs to surgically modify a single node:
 /// source code, callers, callees, tests, antibodies, trust, blast radius.
 #[derive(Clone, Debug, Deserialize)]
@@ -64,7 +64,7 @@ pub struct SurgicalContextInput {
     pub max_connections: usize,
 }
 
-/// Output for m1nd.surgical.context.
+/// Output for surgical_context.
 #[derive(Clone, Debug, Serialize)]
 pub struct SurgicalContextOutput {
     /// The resolved node metadata.
@@ -163,10 +163,10 @@ pub struct SurgicalStructuralHole {
 }
 
 // =========================================================================
-// m1nd.surgical.apply
+// apply
 // =========================================================================
 
-/// Input for m1nd.surgical.apply.
+/// Input for apply.
 /// Writes new content to a node's source file, replacing the exact line range.
 /// Optionally re-ingests the file to update the graph.
 #[derive(Clone, Debug, Deserialize)]
@@ -194,7 +194,7 @@ pub struct SurgicalApplyInput {
     pub expected_content_hash: Option<String>,
 }
 
-/// Output for m1nd.surgical.apply.
+/// Output for apply.
 #[derive(Clone, Debug, Serialize)]
 pub struct SurgicalApplyOutput {
     /// Whether the write succeeded.
@@ -279,7 +279,7 @@ fn default_max_peek_lines() -> usize { 200 }
 
 ```json
 {
-    "name": "m1nd.surgical.context",
+    "name": "surgical_context",
     "description": "Get complete surgical context for a node: source code, callers, callees, tests, antibodies, trust score, ghost edges, structural holes, and blast radius. Everything an agent needs to safely modify a single code element.",
     "inputSchema": {
         "type": "object",
@@ -298,7 +298,7 @@ fn default_max_peek_lines() -> usize { 200 }
     }
 },
 {
-    "name": "m1nd.surgical.apply",
+    "name": "apply",
     "description": "Apply a surgical modification to a node's source file. Replaces the exact line range from surgical.context, validates content hash, optionally verifies syntax, generates diff, re-ingests the file, and predicts co-change candidates.",
     "inputSchema": {
         "type": "object",
@@ -371,19 +371,19 @@ fn dispatch_surgical_tool(
     use crate::surgical_handlers;
 
     match tool_name {
-        "m1nd.surgical.context" => {
+        "surgical_context" => {
             let input: SurgicalContextInput = serde_json::from_value(params.clone())
                 .map_err(|e| M1ndError::InvalidParams {
-                    tool: "m1nd.surgical.context".into(),
+                    tool: "surgical_context".into(),
                     detail: e.to_string(),
                 })?;
             let output = surgical_handlers::handle_surgical_context(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
-        "m1nd.surgical.apply" => {
+        "apply" => {
             let input: SurgicalApplyInput = serde_json::from_value(params.clone())
                 .map_err(|e| M1ndError::InvalidParams {
-                    tool: "m1nd.surgical.apply".into(),
+                    tool: "apply".into(),
                     detail: e.to_string(),
                 })?;
             let output = surgical_handlers::handle_surgical_apply(state, input)?;
@@ -411,7 +411,7 @@ pub mod surgical;
 ```rust
 // === m1nd-mcp/src/surgical_handlers.rs ===
 //
-// Handlers for m1nd.surgical.context and m1nd.surgical.apply.
+// Handlers for surgical_context and surgical_apply.
 // Split from server.rs dispatch (same pattern as perspective_handlers.rs).
 
 use m1nd_core::error::{M1ndError, M1ndResult};
@@ -420,7 +420,7 @@ use crate::protocol::surgical::*;
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
-// m1nd.surgical.context handler
+// surgical_context handler
 // ---------------------------------------------------------------------------
 
 /// Gather complete surgical context for a single graph node.
@@ -517,7 +517,7 @@ pub fn handle_surgical_context(
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.surgical.apply handler
+// apply handler
 // ---------------------------------------------------------------------------
 
 /// Apply a surgical modification to a node's source file.

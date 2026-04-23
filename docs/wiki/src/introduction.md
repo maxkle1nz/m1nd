@@ -1,6 +1,6 @@
 # Introduction
 
-m1nd is a local code graph engine for MCP agents. It ingests a repository once, turns it into a queryable graph, and helps agents ask for structure, impact, connected context, continuity, and likely risk instead of reconstructing the repo from raw files every time.
+m1nd is a local MCP runtime for coding agents. It ingests a repository into a graph-backed operational model so an agent can ask for structure, impact, connected context, continuity, and likely risk instead of reconstructing the repo from raw files every time.
 
 The current public shape of the product is not just “graph search.” It is a guided runtime with:
 

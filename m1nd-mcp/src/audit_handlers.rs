@@ -3065,7 +3065,7 @@ mod tests {
         std::fs::write(root.join("docs/runbook.md"), "# runbook\n").expect("runbook");
         std::fs::write(root.join("notes.md"), "# notes\n").expect("notes");
 
-        let mut state = build_empty_state(&root);
+        let mut state = build_empty_state(root);
         let output = handle_audit(
             &mut state,
             layers::AuditInput {

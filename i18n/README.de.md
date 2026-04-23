@@ -234,7 +234,7 @@ Mikro-Benchmarks nach Kriterium, die in den aktuellen Dokus erfasst wurden:
 
 Diese Zahlen sind vor allem dann wichtig, wenn sie mit dem Workflow-Nutzen zusammengedacht werden: weniger Hin-und-her zwischen grep/read-Loops und weniger Kontext, der in das Modell geladen werden muss.
 
-Im heute dokumentierten aggregierten Warm-Graph-Korpus sinkt `m1nd_warm` von `10518` auf `5182` Proxy-Tokens (`50.73%` Ersparnis), reduziert `false_starts` von `14` auf `0`, verzeichnet `31` guided follow-throughs und `12` erfolgreich befolgte recovery loops.
+Im heute dokumentierten aggregierten Warm-Graph-Korpus sinkt `warm` von `10518` auf `5182` Proxy-Tokens (`50.73%` Ersparnis), reduziert `false_starts` von `14` auf `0`, verzeichnet `31` guided follow-throughs und `12` erfolgreich befolgte recovery loops.
 
 <a id="configure-your-agent"></a>
 ## Den Agenten konfigurieren
@@ -345,7 +345,7 @@ Das ist wichtig, weil m1nd nicht nur ein Such-Endpunkt ist. Es ist eine opiniona
 
 Verwende `tools/list` für die exakte Live-Anzahl in deinem aktuellen Build. Die Kategorien darunter sind wichtiger als eine fest codierte Zahl.
 
-Kanonische Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `trail_save`, `perspective_start` und `apply_batch`. Manche Clients zeigen Namen mit einem Transportpräfix wie `m1nd.apply_batch` an, aber Live-Registry und `tools/list` verwenden die nackten Namen.
+Kanonische Tool-Namen im exportierten MCP-Schema verwenden Unterstriche, etwa `trail_save`, `perspective_start` und `apply_batch`. Manche Clients zeigen Aliasnamen mit Transportpräfix an, aber Live-Registry und `tools/list` verwenden die nackten Namen.
 
 | Kategorie | Highlights |
 |----------|------------|

@@ -13,7 +13,7 @@ const FAQS: FAQ[] = [
     q: "How is m1nd different from Copilot, Cursor, or semantic search?",
     a: (
       <>
-        Copilot and Cursor are agent hosts and editors. m1nd is the software intelligence layer that those agents call before they search, edit, review, or change a system. Semantic search returns documents that are <em>textually similar</em> to a query. m1nd returns context that is <em>structurally connected</em> across code, docs, and change. It is less about "find me similar text" and more about "show me what this touches, what moves with it, and what should be verified next."
+        Copilot and Cursor are agent hosts and editors. m1nd is the operational intelligence layer those agents call before they search, edit, review, or change a system. Semantic search returns documents that are <em>textually similar</em> to a query. m1nd returns context that is <em>structurally connected</em> across code, docs, and change. It is less about "find me similar text" and more about "show me what this touches, what moves with it, and what should be verified next."
       </>
     ),
   },
@@ -38,7 +38,7 @@ const FAQS: FAQ[] = [
         <br /><br />
         <strong style={{ color: "rgba(226,232,240,0.8)" }}>Clients:</strong> Claude Code · Claude Desktop · Cursor · Windsurf · VS Code · ChatGPT desktop · Cline · Continue · Zed · and any custom agent that speaks MCP.
         <br /><br />
-        You configure m1nd once in your MCP client settings. No per-model setup. No API key. The tool calls are identical regardless of which model is driving the agent — GPT-5.4 calls <code>m1nd.seek()</code> the same way Claude Opus 4.6 does.
+        You configure m1nd once in your MCP client settings. No per-model setup. No API key. The tool calls are identical regardless of which model is driving the agent — GPT-5.4 calls <code>seek()</code> the same way Claude Opus 4.6 does.
       </>
     ),
   },

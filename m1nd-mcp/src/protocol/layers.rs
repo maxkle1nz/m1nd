@@ -43,14 +43,14 @@ pub enum CrossFileEdgeType {
 }
 
 // =========================================================================
-// L2: Semantic Search — m1nd.seek + m1nd.scan
+// L2: Semantic Search — seek + scan
 // =========================================================================
 
 // ---------------------------------------------------------------------------
-// m1nd.seek (L2-SEMANTIC-SEARCH §6.1)
+// seek (L2-SEMANTIC-SEARCH §6.1)
 // ---------------------------------------------------------------------------
 
-/// Input for m1nd.seek — intent-aware code search.
+/// Input for seek — intent-aware code search.
 /// Finds code by PURPOSE, not text pattern.
 /// Example: seek("code that validates user credentials") returns auth modules.
 #[derive(Clone, Debug, Deserialize)]
@@ -75,7 +75,7 @@ pub struct SeekInput {
     pub graph_rerank: bool,
 }
 
-/// Output for m1nd.seek.
+/// Output for seek.
 #[derive(Clone, Debug, Serialize)]
 pub struct SeekOutput {
     pub query: String,
@@ -1606,12 +1606,12 @@ pub struct LayerInspectInput {
 }
 
 // =========================================================================
-// TEMPESTA — m1nd.surgical_context + m1nd.apply
+// TEMPESTA — surgical_context + apply
 // (ORACLE-TESTS golden test contracts — Step 7 of Grounded One-Shot Build)
 // =========================================================================
 
 // ---------------------------------------------------------------------------
-// m1nd.surgical_context
+// surgical_context
 //
 // Returns a rich, surgery-ready view of a single graph node:
 //   - source code peek (file content window around the node)
@@ -1623,7 +1623,7 @@ pub struct LayerInspectInput {
 // targeted edit without having to call ingest + impact + peek separately.
 // ---------------------------------------------------------------------------
 
-/// Input for m1nd.surgical_context.
+/// Input for surgical_context.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SurgicalContextInput {
     /// External node ID or label to inspect.
@@ -1657,7 +1657,7 @@ fn default_surgical_max_deps() -> usize {
     20
 }
 
-/// Output for m1nd.surgical_context.
+/// Output for surgical_context.
 #[derive(Clone, Debug, Serialize)]
 pub struct SurgicalContextOutput {
     /// The resolved external node ID.
@@ -1715,7 +1715,7 @@ pub struct SurgicalDep {
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.apply
+// apply
 //
 // Surgically write a line-range replacement into a source file and
 // immediately re-ingest the file into the graph.
@@ -1726,11 +1726,11 @@ pub struct SurgicalDep {
 //   3. If the file has been modified since last ingest, return ApplyStaleError.
 //   4. Write `new_content` to the file at [line_start, line_end].
 //   5. Re-ingest the file (incremental merge).
-//   6. Run m1nd.predict on the modified node.
+//   6. Run predict on the modified node.
 //   7. Return the unified diff + predict results.
 // ---------------------------------------------------------------------------
 
-/// Input for m1nd.apply.
+/// Input for apply.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ApplyInput {
     /// External node ID identifying the target file/function.
@@ -1748,7 +1748,7 @@ pub struct ApplyInput {
     /// If true, abort if the file was modified since last ingest. Default: true.
     #[serde(default = "default_true")]
     pub fail_on_stale: bool,
-    /// If true, run m1nd.predict after write and include results. Default: true.
+    /// If true, run predict after write and include results. Default: true.
     #[serde(default = "default_true")]
     pub include_predictions: bool,
     /// Top-K co-change predictions to include. Default: 5.
@@ -1760,7 +1760,7 @@ fn default_apply_predict_k() -> usize {
     5
 }
 
-/// Output for m1nd.apply.
+/// Output for apply.
 #[derive(Clone, Debug, Serialize)]
 pub struct ApplyOutput {
     pub node_id: String,
@@ -1788,10 +1788,10 @@ pub struct ApplyPrediction {
 }
 
 // =========================================================================
-// v0.4.0: m1nd.search — Literal/Regex Search
+// v0.4.0: search — Literal/Regex Search
 // =========================================================================
 
-/// Search mode for m1nd.search.
+/// Search mode for search.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
@@ -1804,7 +1804,7 @@ pub enum SearchMode {
     Semantic,
 }
 
-/// Input for m1nd.search — unified literal/regex/semantic search.
+/// Input for search — unified literal/regex/semantic search.
 /// v0.5.0: adds invert, count_only, multiline, auto_ingest, filename_pattern.
 #[derive(Clone, Debug, Deserialize)]
 pub struct SearchInput {
@@ -1866,7 +1866,7 @@ fn default_context_lines() -> u32 {
     2
 }
 
-/// Output for m1nd.search.
+/// Output for search.
 /// v0.5.0: adds auto_ingested, match_count, auto_ingested_paths.
 #[derive(Clone, Debug, Serialize)]
 pub struct SearchOutput {
@@ -1929,24 +1929,125 @@ pub struct SearchResultEntry {
 }
 
 // =========================================================================
-// v0.4.0: m1nd.help — Self-Documenting Tool Help
+// v0.4.0: help — Self-Documenting Tool Help
 // =========================================================================
 
-/// Input for m1nd.help — runtime-discoverable documentation.
+/// Input for help — runtime-discoverable documentation.
 #[derive(Clone, Debug, Deserialize)]
 pub struct HelpInput {
     pub agent_id: String,
-    /// Tool name to look up (e.g. "activate", "m1nd.activate").
+    /// Tool name to look up (e.g. "activate").
     /// When None, returns a compact index of all tools.
     #[serde(default)]
     pub tool_name: Option<String>,
+    /// Help mode: overview, tool, route, recovery, or workflow.
+    #[serde(default)]
+    pub mode: Option<HelpMode>,
+    /// Short statement of what the agent is trying to do.
+    #[serde(default)]
+    pub intent: Option<String>,
+    /// Current working stage for the agent.
+    #[serde(default)]
+    pub stage: Option<HelpStage>,
+    /// Current path or target in focus when known.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Observed error text, stacktrace, or failure summary.
+    #[serde(default)]
+    pub error_text: Option<String>,
+    /// Tools already used in this flow, ordered oldest -> newest.
+    #[serde(default)]
+    pub recent_tools: Vec<String>,
+    /// Limit for ranked suggestions in route/recovery mode.
+    #[serde(default)]
+    pub max_suggestions: Option<u32>,
+    /// Render mode for the formatted help text.
+    #[serde(default)]
+    pub render: Option<HelpRender>,
 }
 
-/// Output for m1nd.help.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HelpMode {
+    Overview,
+    Tool,
+    Route,
+    Recovery,
+    Workflow,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HelpStage {
+    Orient,
+    Find,
+    Ground,
+    Diagnose,
+    Plan,
+    Edit,
+    Review,
+    Operate,
+    Handoff,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum HelpRender {
+    Full,
+    Compact,
+    None,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HelpMinimalCall {
+    pub tool: String,
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HelpSequenceStep {
+    pub tool: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HelpRejectedAlternative {
+    pub tool: String,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct HelpGuidance {
+    pub decision_type: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recommended_tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recommended_sequence: Vec<HelpSequenceStep>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_inputs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_context: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub minimal_calls: Vec<HelpMinimalCall>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejected_alternatives: Vec<HelpRejectedAlternative>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recovery_steps: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step: Option<String>,
+    pub why: String,
+    pub confidence: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canonical_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+}
+
+/// Output for help.
 #[derive(Clone, Debug, Serialize)]
 pub struct HelpOutput {
     /// Formatted string for terminal/chat display.
-    /// Contains ANSI box-drawing, params, examples, and NEXT suggestions.
+    /// Derived from the structured guidance object below.
     pub formatted: String,
     /// Tool name that was looked up (None = full index).
     pub tool: Option<String>,
@@ -1968,6 +2069,8 @@ pub struct HelpOutput {
     pub why_this_next_step: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub what_is_missing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guidance: Option<HelpGuidance>,
 }
 
 // =========================================================================

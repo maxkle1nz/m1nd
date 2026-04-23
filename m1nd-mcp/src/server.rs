@@ -1,6 +1,7 @@
 // === crates/m1nd-mcp/src/server.rs ===
 
 use crate::auto_ingest;
+use crate::help_guidance;
 use crate::instance_registry::InstanceHandle;
 use crate::layer_handlers;
 use crate::personality;
@@ -1248,7 +1249,7 @@ pub fn tool_schemas() -> serde_json::Value {
             },
             {
                 "name": "surgical_context",
-                "description": "Return full context for surgical LLM editing: file contents, symbols, and graph neighbourhood (callers, callees, tests). Use before m1nd.apply.",
+                "description": "Return full context for surgical LLM editing: file contents, symbols, and graph neighbourhood (callers, callees, tests). Use before apply.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1263,7 +1264,7 @@ pub fn tool_schemas() -> serde_json::Value {
             },
             {
                 "name": "apply",
-                "description": "Write LLM-edited code back to a file and trigger incremental re-ingest so the graph stays coherent. Always call m1nd.surgical_context first.",
+                "description": "Write LLM-edited code back to a file and trigger incremental re-ingest so the graph stays coherent. Always call surgical_context first.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1316,7 +1317,7 @@ pub fn tool_schemas() -> serde_json::Value {
             // =================================================================
             {
                 "name": "surgical_context_v2",
-                "description": "Get full surgical context for a file PLUS source code of connected files (callers, callees, tests). Returns a complete workspace snapshot in one call. Superset of m1nd.surgical_context.",
+                "description": "Get full surgical context for a file PLUS source code of connected files (callers, callees, tests). Returns a complete workspace snapshot in one call. Superset of surgical_context.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1333,7 +1334,7 @@ pub fn tool_schemas() -> serde_json::Value {
             },
             {
                 "name": "apply_batch",
-                "description": "Atomically write multiple files and trigger a single bulk re-ingest. Use after m1nd.surgical_context_v2 when editing a file and its callers/tests together. All-or-nothing by default.",
+                "description": "Atomically write multiple files and trigger a single bulk re-ingest. Use after surgical_context_v2 when editing a file and its callers/tests together. All-or-nothing by default.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1352,7 +1353,8 @@ pub fn tool_schemas() -> serde_json::Value {
                             "description": "List of file edits to apply"
                         },
                         "atomic": { "type": "boolean", "default": true, "description": "All-or-nothing: if any file fails, none are written" },
-                        "reingest": { "type": "boolean", "default": true, "description": "Re-ingest all modified files after writing" }
+                        "reingest": { "type": "boolean", "default": true, "description": "Re-ingest all modified files after writing" },
+                        "verify": { "type": "boolean", "default": false, "description": "Run post-write verification after the batch finishes" }
                     },
                     "required": ["agent_id", "edits"]
                 }
@@ -1508,12 +1510,37 @@ pub fn tool_schemas() -> serde_json::Value {
             },
             {
                 "name": "help",
-                "description": "Get help text for m1nd tools. Returns overview or detailed help for a specific tool with visual identity.",
+                "description": "Context-aware help for m1nd tools. Returns tool doctrine, route guidance, workflow sequences, or recovery guidance for agents.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "tool_name": { "type": "string", "description": "Specific tool name for detailed help (omit for overview)" }
+                        "tool_name": { "type": "string", "description": "Specific tool name for detailed help (omit for overview routing)" },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["overview", "tool", "route", "recovery", "workflow"],
+                            "description": "Help mode: overview, tool, route, recovery, or workflow"
+                        },
+                        "intent": { "type": "string", "description": "Short statement of what the agent is trying to do" },
+                        "stage": {
+                            "type": "string",
+                            "enum": ["orient", "find", "ground", "diagnose", "plan", "edit", "review", "operate", "handoff"],
+                            "description": "Current working stage for the agent"
+                        },
+                        "path": { "type": "string", "description": "Current path or target in focus when known" },
+                        "error_text": { "type": "string", "description": "Observed error text, stacktrace, or failure summary" },
+                        "recent_tools": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Tools already used in the current flow"
+                        },
+                        "max_suggestions": { "type": "integer", "default": 3, "description": "Maximum ranked suggestions to return in route or recovery mode" },
+                        "render": {
+                            "type": "string",
+                            "enum": ["full", "compact", "none"],
+                            "default": "full",
+                            "description": "Render mode for formatted help text"
+                        }
                     },
                     "required": ["agent_id"]
                 }
@@ -1775,7 +1802,25 @@ pub fn dispatch_tool(
         name if name.starts_with("perspective_") => dispatch_perspective_tool(state, name, params),
         name if name.starts_with("lock_") => dispatch_lock_tool(state, name, params),
         _ => dispatch_core_tool(state, &normalized, params),
-    };
+    }
+    .map_err(|error| match error {
+        M1ndError::Serde(detail) => M1ndError::InvalidParams {
+            tool: normalized.clone(),
+            detail: help_guidance::runtime_error_guidance_hint(&normalized, &detail.to_string()),
+        },
+        M1ndError::InvalidParams { tool, detail } => {
+            let normalized_tool = tool
+                .strip_prefix("m1nd.")
+                .or_else(|| tool.strip_prefix("m1nd_"))
+                .unwrap_or(&tool)
+                .to_string();
+            M1ndError::InvalidParams {
+                tool: tool.clone(),
+                detail: help_guidance::runtime_error_guidance_hint(&normalized_tool, &detail),
+            }
+        }
+        other => other,
+    });
 
     // Post-dispatch: track savings + log query + add _m1nd metadata
     if let Ok(ref value) = result {

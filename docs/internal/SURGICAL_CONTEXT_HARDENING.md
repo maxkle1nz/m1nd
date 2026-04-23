@@ -8,7 +8,7 @@
 
 ## STEP 1: VISION — What These Tools Do
 
-### m1nd.surgical_context(node_id)
+### surgical_context(node_id)
 
 **Purpose**: Single-call omniscient context retrieval for a graph node. Returns everything an agent needs to understand and modify a code entity without multiple round-trips.
 
@@ -26,7 +26,7 @@
 
 **Flow**: `resolve node_id` -> parallel sub-queries -> assemble composite JSON -> return.
 
-### m1nd.apply(node_id, new_content)
+### apply(node_id, new_content)
 
 **Purpose**: Write code to the file at a node's provenance location, re-ingest the modified file, and predict downstream impact.
 
@@ -66,7 +66,7 @@
 **Trigger**: Typo in node_id, or node was from a previous ingest that got replaced.
 **Current behavior** (handle_impact pattern): Returns empty/error JSON. No crash.
 **Risk**: LOW but misleading — agents may think the node has zero impact when it simply doesn't exist.
-**Mitigation**: Return explicit `"error": "node_not_found"` with `"node_id": <input>` and `"suggestion": "run m1nd.seek to find the correct node_id"`. Do NOT return a partial result with empty arrays — that looks like success.
+**Mitigation**: Return explicit `"error": "node_not_found"` with `"node_id": <input>` and `"suggestion": "run seek to find the correct node_id"`. Do NOT return a partial result with empty arrays — that looks like success.
 
 #### A2: Ambiguous node_id (multiple matches)
 **Trigger**: `resolve_id` uses exact string match on interned IDs. If the user passes "lib.rs" instead of "file::src/lib.rs", no match. But if they pass a label that happens to match a different node type...
@@ -257,7 +257,7 @@
 **Risk**: MEDIUM. There's no built-in undo.
 **Mitigation**:
   1. `apply` response MUST include `"original_content": "..."` (the content that was replaced). This enables agent-side undo by calling `apply` again with the original content.
-  2. Consider an `m1nd.apply.undo(apply_id)` tool, but this adds complexity. The original_content approach is simpler and more reliable.
+  2. Consider an `apply_undo(apply_id)` tool, but this adds complexity. The original_content approach is simpler and more reliable.
   3. Alternatively, integrate with git: `apply` could create a git stash or commit before writing.
 
 ### CATEGORY J: Edge Cases in Line-Level Editing

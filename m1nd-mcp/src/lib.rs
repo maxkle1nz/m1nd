@@ -5,6 +5,7 @@ pub mod audit_handlers;
 pub mod auto_ingest;
 pub mod cli;
 pub mod daemon_handlers;
+pub mod help_guidance;
 pub mod protocol;
 pub mod server;
 pub mod session;

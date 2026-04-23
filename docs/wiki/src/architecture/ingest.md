@@ -439,7 +439,7 @@ let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20
 | Extension `.json` | CrossRef | Checks for `DOI` + `publisher` + `type` keys |
 | Fallback | Code | Default pipeline |
 
-Used via MCP: `m1nd.ingest(adapter="auto")`, `adapter="document"`, or `adapter="universal"` when you want best-effort document normalization directly.
+Used via MCP: `ingest(adapter="auto")`, `adapter="document"`, or `adapter="universal"` when you want best-effort document normalization directly.
 
 For directory detection, the router samples up to 20 files and returns the dominant format.
 

@@ -4,7 +4,7 @@
 
 ---
 
-## 1. m1nd.search — Literal + Regex Search on the Graph
+## 1. search — Literal + Regex Search on the Graph
 
 ### Current Design Assessment
 
@@ -32,7 +32,7 @@ m1nd already scans every node at seek time (O(n) over all nodes). Adding literal
 
 ### Novel Idea: Hybrid Seek
 
-Instead of a new `m1nd.search` tool, EXTEND `seek` with optional `mode` parameter:
+Instead of a new `search` tool, EXTEND `seek` with optional `mode` parameter:
 
 ```
 seek(query="cancel", mode="literal")  // exact substring on labels
@@ -44,7 +44,7 @@ This avoids tool proliferation (MCP best practice: fewer high-level tools > many
 
 ### Recommendation: MODIFY
 
-Do NOT create a separate `m1nd.search` tool. Instead, add `mode` parameter to `seek`:
+Do NOT create a separate `search` tool. Instead, add `mode` parameter to `seek`:
 - `"semantic"` (default, current behavior)
 - `"literal"` (exact substring match on labels + paths)
 - `"regex"` (regex match on labels + paths, use `regex` crate)
@@ -55,7 +55,7 @@ If file-content search is needed, add a `content: bool` flag that shells out to 
 
 ---
 
-## 2. m1nd.help — Self-Documenting Tool
+## 2. help — Self-Documenting Tool
 
 ### Current Design Assessment
 
@@ -174,7 +174,7 @@ Combine 7 signals (activate, impact, missing, scan, fingerprint, layers, trust) 
 
 **Alert Fatigue**: "Being overwhelmed with 3,000 issues doesn't help anyone." CodeScene addresses this by prioritizing based on how the team WORKS with the code, not just how it looks. ([Source](https://codescene.com/blog/measure-code-health-of-your-codebase))
 
-**AI-Friendliness Research (2026)**: Recent paper from arXiv: "Code for Machines, Not Just Humans: Quantifying AI-Friendliness with Code Health Metrics" — proposes metrics specifically for how well AI agents can understand and modify code. ([Source](https://arxiv.org/html/2601.02200v1))
+**Machine-Oriented Code Health Research (2026)**: Recent arXiv work proposes metrics for how well code supports machine understanding and modification. ([Source](https://arxiv.org/html/2601.02200v1))
 
 ### The Real Question
 
@@ -317,8 +317,8 @@ m1nd should have a VOICE, not a personality:
 
 | Tool | Current Design | Verdict | Action |
 |------|---------------|---------|--------|
-| m1nd.search | New literal+regex tool | MODIFY | Merge into `seek` as `mode` parameter |
-| m1nd.help | Self-documenting static | MODIFY | Dynamic: stats + suggestions + workflow patterns. JSON output. |
+| search | New literal+regex tool | MODIFY | Merge into `seek` as `mode` parameter |
+| help | Self-documenting static | MODIFY | Dynamic: stats + suggestions + workflow patterns. JSON output. |
 | m1nd.report | Session auto-report | REDESIGN | Merge into `trail.save(auto_summarize=true)` + new `session_summary` |
 | m1nd.panoramic | Combined 7-signal raio-X | KEEP | Add adaptive weights, severity filter, novelty filter, triage array |
 | m1nd.savings | Economy counter | MODIFY | Rename to `efficiency`, shadow counterfactual, honest methodology |
@@ -346,5 +346,5 @@ Sources:
 - [AI-Friendliness Code Metrics (arXiv 2026)](https://arxiv.org/html/2601.02200v1)
 - [AI Code Review Tools 2026 - Qodo](https://www.qodo.ai/blog/best-ai-code-review-tools-2026/)
 - [AI Token Spend Dynamics - Deloitte](https://www.deloitte.com/us/en/insights/topics/emerging-technologies/ai-tokens-how-to-navigate-spend-dynamics.html)
-- [AI Agents ROI - VentureBeat](https://venturebeat.com/orchestration/ai-agents-are-delivering-real-roi-heres-what-1-100-developers-and-ctos)
+- [Agent ROI - VentureBeat](https://venturebeat.com/orchestration/ai-agents-are-delivering-real-roi-heres-what-1-100-developers-and-ctos)
 - [Regular Expression Matching with Trigram Index - Russ Cox](https://swtch.com/~rsc/regexp/regexp4.html)

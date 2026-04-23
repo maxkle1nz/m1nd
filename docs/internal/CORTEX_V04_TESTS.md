@@ -16,8 +16,8 @@
 
 | Type | Tool | Purpose |
 |------|------|---------|
-| `SearchInput`, `SearchOutput`, `SearchResultEntry`, `SearchMode` | `m1nd.search` | Literal/regex/semantic search |
-| `HelpInput`, `HelpOutput` | `m1nd.help` | Self-documenting tool help |
+| `SearchInput`, `SearchOutput`, `SearchResultEntry`, `SearchMode` | `search` | Literal/regex/semantic search |
+| `HelpInput`, `HelpOutput` | `help` | Self-documenting tool help |
 | `ReportInput`, `ReportOutput`, `ReportQueryEntry` | `m1nd.report` | Session usage + savings report |
 | `PanoramicInput`, `PanoramicOutput`, `PanoramicModule`, `PanoramicAlert` | `m1nd.panoramic` | Module risk overview |
 | `SavingsInput`, `SavingsOutput`, `SavingsSessionRecord` | `m1nd.savings` | Token economy stats |
@@ -26,7 +26,7 @@
 
 ## Test Coverage (26 tests)
 
-### m1nd.search (8 tests)
+### search (8 tests)
 1. `test_search_literal_exact_match` — finds exact string, result shape valid
 2. `test_search_literal_no_match` — returns empty, total_matches=0
 3. `test_search_regex_pattern` — regex mode accepted, output shape valid
@@ -36,7 +36,7 @@
 7. `test_search_context_lines` — context_before/after <= context_lines
 8. `test_search_returns_node_id` — graph_linked=true requires non-empty node_id
 
-### m1nd.help (4 tests)
+### help (4 tests)
 9. `test_help_known_tool` — found=true, formatted non-empty, no suggestions
 10. `test_help_unknown_tool` — found=false, suggestions non-empty
 11. `test_help_no_arg` — tool_name=None returns full index, found=true
@@ -68,13 +68,13 @@
 
 ## Key Contracts Established
 
-**m1nd.search:**
+**search:**
 - `SearchMode` enum: `Literal` | `Regex` | `Semantic` (default: Literal)
 - Invalid regex → `M1ndError::InvalidParams` not panic
 - `graph_linked=true` requires non-empty `node_id`
 - `context_before/after` capped at `context_lines`
 
-**m1nd.help:**
+**help:**
 - `tool_name=None` → full index, `found=true`, `tool=None`
 - Unknown tool → `found=false`, `suggestions` non-empty
 - All known tools → `formatted` contains NEXT section

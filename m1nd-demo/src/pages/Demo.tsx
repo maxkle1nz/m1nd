@@ -124,7 +124,7 @@ const LEFT_SCRIPT: ScriptLine[] = [
 
 const RIGHT_SCRIPT: ScriptLine[] = [
   { startAt: 0,    text: "# Task: where is session timeout set? what breaks if I change it?", type: "dim" },
-  { startAt: 250,  text: "> m1nd.seek(\"session timeout configuration\")", type: "prompt" },
+  { startAt: 250,  text: "> seek(\"session timeout configuration\")", type: "prompt" },
   { startAt: 600,  text: "⠋ activating graph — 9,767 nodes in memory", type: "dim" },
   { startAt: 900,  text: "✓ 0.18s — 4 nodes located", type: "success" },
   { startAt: 1050, text: "  config/settings.py     SESSION_TIMEOUT=1800", type: "output" },
@@ -132,13 +132,13 @@ const RIGHT_SCRIPT: ScriptLine[] = [
   { startAt: 1270, text: "  middleware/auth.py      verify_session()", type: "output" },
   { startAt: 1380, text: "  tests/test_session.py  timeout assertions", type: "output" },
   { startAt: 1500, text: "", type: "separator" },
-  { startAt: 1560, text: "> m1nd.impact(\"file::config/settings.py\")", type: "prompt" },
+  { startAt: 1560, text: "> impact(\"file::config/settings.py\")", type: "prompt" },
   { startAt: 1820, text: "✓ 0.001s — blast radius computed", type: "success" },
   { startAt: 1950, text: "  direct:    3 callers", type: "output" },
   { startAt: 2060, text: "  indirect:  7 downstream files", type: "output" },
   { startAt: 2200, text: "  ⚠ HIGH RISK: session invalidation cascade", type: "warning" },
   { startAt: 2320, text: "", type: "separator" },
-  { startAt: 2380, text: "> m1nd.surgical_context_v2(\"config/settings.py\", radius=2)", type: "prompt" },
+  { startAt: 2380, text: "> surgical_context_v2(\"config/settings.py\", radius=2)", type: "prompt" },
   { startAt: 2640, text: "✓ 0.12s — surgical context assembled", type: "success" },
   { startAt: 2780, text: "  3 files loaded  ·  callers, callees, tests attached", type: "output" },
   { startAt: 2900, text: "", type: "separator" },
@@ -431,7 +431,7 @@ function QueryCenterLabel() {
         whiteSpace: "nowrap",
         pointerEvents: "none",
       }}>
-        m1nd.seek("session timeout")
+        seek("session timeout")
       </div>
     </Html>
   );
@@ -884,7 +884,7 @@ const DC_LEFT: DL[] = [
 
 const DC_RIGHT: DL[] = [
   { at: 0,    type: "dim",     text: "# Task: where is session timeout set? what breaks if I change it?" },
-  { at: 250,  type: "prompt",  text: '> m1nd.seek("session timeout configuration")' },
+  { at: 250,  type: "prompt",  text: '> seek("session timeout configuration")' },
   { at: 600,  type: "dim",     text: "⠋ activating graph — 9,767 nodes in memory" },
   { at: 900,  type: "success", text: "✓ 0.18s — 4 nodes located" },
   { at: 1050, type: "output",  text: "  config/settings.py     SESSION_TIMEOUT=1800" },
@@ -892,13 +892,13 @@ const DC_RIGHT: DL[] = [
   { at: 1270, type: "output",  text: "  middleware/auth.py      verify_session()" },
   { at: 1380, type: "output",  text: "  tests/test_session.py  timeout assertions" },
   { at: 1500, type: "blank",   text: "" },
-  { at: 1560, type: "prompt",  text: '> m1nd.impact("file::config/settings.py")' },
+  { at: 1560, type: "prompt",  text: '> impact("file::config/settings.py")' },
   { at: 1820, type: "success", text: "✓ 0.001s — blast radius computed" },
   { at: 1950, type: "output",  text: "  direct:    3 callers" },
   { at: 2060, type: "output",  text: "  indirect:  7 downstream files" },
   { at: 2200, type: "warning", text: "  △ HIGH RISK: session invalidation cascade" },
   { at: 2320, type: "blank",   text: "" },
-  { at: 2380, type: "prompt",  text: '> m1nd.surgical_context_v2("config/settings.py", radius=2)' },
+  { at: 2380, type: "prompt",  text: '> surgical_context_v2("config/settings.py", radius=2)' },
   { at: 2640, type: "success", text: "✓ 0.12s — surgical context assembled" },
   { at: 2780, type: "output",  text: "  3 files loaded  ·  callers, callees, tests attached" },
   { at: 2900, type: "blank",   text: "" },

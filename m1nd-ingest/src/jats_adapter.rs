@@ -199,14 +199,12 @@ impl JatsArticleAdapter {
                             current = Some(rec);
                         }
                         // ── JATS format ──
-                        "article" => {
-                            if current.is_none() {
-                                let rec = ArticleRecord {
-                                    format: ArticleFormat::Jats,
-                                    ..ArticleRecord::default()
-                                };
-                                current = Some(rec);
-                            }
+                        "article" if current.is_none() => {
+                            let rec = ArticleRecord {
+                                format: ArticleFormat::Jats,
+                                ..ArticleRecord::default()
+                            };
+                            current = Some(rec);
                         }
                         // ── Title ──
                         "ArticleTitle" | "article-title" => in_title = true,
@@ -241,21 +239,19 @@ impl JatsArticleAdapter {
                             in_ref = true;
                             current_citation = Some(CitationRef::default());
                         }
-                        "ArticleId" | "pub-id" => {
-                            if in_ref {
-                                // Read id-type attribute
-                                let id_type: String = e
-                                    .attributes()
-                                    .filter_map(|a| a.ok())
-                                    .find(|a| {
-                                        let key = String::from_utf8_lossy(a.key.as_ref());
-                                        key == "IdType" || key == "pub-id-type"
-                                    })
-                                    .map(|a| String::from_utf8_lossy(&a.value).to_string())
-                                    .unwrap_or_default();
-                                // Store type in text_buf prefix so we know on End
-                                text_buf = format!("__idtype__{}__", id_type);
-                            }
+                        "ArticleId" | "pub-id" if in_ref => {
+                            // Read id-type attribute
+                            let id_type: String = e
+                                .attributes()
+                                .filter_map(|a| a.ok())
+                                .find(|a| {
+                                    let key = String::from_utf8_lossy(a.key.as_ref());
+                                    key == "IdType" || key == "pub-id-type"
+                                })
+                                .map(|a| String::from_utf8_lossy(&a.value).to_string())
+                                .unwrap_or_default();
+                            // Store type in text_buf prefix so we know on End
+                            text_buf = format!("__idtype__{}__", id_type);
                         }
                         _ => {}
                     }
@@ -404,15 +400,11 @@ impl JatsArticleAdapter {
                                     let parts: Vec<&str> = combined.splitn(2, "__").collect();
                                     if parts.len() == 2 {
                                         match parts[0] {
-                                            "doi" => {
-                                                if rec.doi.is_empty() {
-                                                    rec.doi = parts[1].trim().to_string();
-                                                }
+                                            "doi" if rec.doi.is_empty() => {
+                                                rec.doi = parts[1].trim().to_string();
                                             }
-                                            "pmc" | "pmc-id" => {
-                                                if rec.pmc_id.is_empty() {
-                                                    rec.pmc_id = parts[1].trim().to_string();
-                                                }
+                                            "pmc" | "pmc-id" if rec.pmc_id.is_empty() => {
+                                                rec.pmc_id = parts[1].trim().to_string();
                                             }
                                             _ => {}
                                         }

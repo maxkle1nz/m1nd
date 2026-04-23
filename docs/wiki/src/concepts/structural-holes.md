@@ -12,7 +12,7 @@ These gaps are invisible to text search. You cannot grep for something that is a
 
 ## How m1nd detects structural holes
 
-m1nd detects structural holes through a combination of activation context and neighborhood analysis. The detection is embedded in the query pipeline and can also be invoked directly via the `m1nd.missing` tool.
+m1nd detects structural holes through a combination of activation context and neighborhood analysis. The detection is embedded in the query pipeline and can also be invoked directly via the `missing` tool.
 
 ### The algorithm
 
@@ -61,9 +61,9 @@ Consider a query about "authentication." The activation pattern covers `auth.py`
 
 In the more subtle case, `auth_test.py` exists but lacks tests for the password reset flow. The test file node exists and is activated, but `password_reset_handler.py` is activated while `auth_test.py`'s test coverage edges do not include it. The neighborhood analysis detects this: `password_reset_handler.py`'s siblings all have test edges, but this one does not.
 
-## The m1nd.missing tool
+## The `missing` tool
 
-The `m1nd.missing` tool wraps structural hole detection in a purpose-built interface. Instead of requiring the caller to run an activation query first, `m1nd.missing` accepts a natural-language query, runs internal activation, and returns only the holes.
+The `missing` tool wraps structural hole detection in a purpose-built interface. Instead of requiring the caller to run an activation query first, `missing` accepts a natural-language query, runs internal activation, and returns only the holes.
 
 The tool exposes the detection through the MCP protocol. Behind the scenes, it:
 

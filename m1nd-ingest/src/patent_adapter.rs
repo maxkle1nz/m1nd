@@ -224,20 +224,14 @@ impl PatentIngestAdapter {
                                     let key = String::from_utf8_lossy(attr.key.as_ref());
                                     let val = String::from_utf8_lossy(&attr.value);
                                     match key.as_ref() {
-                                        "country" => {
-                                            if record.country.is_empty() {
-                                                record.country = val.to_string();
-                                            }
+                                        "country" if record.country.is_empty() => {
+                                            record.country = val.to_string();
                                         }
-                                        "doc-number" => {
-                                            if record.doc_number.is_empty() {
-                                                record.doc_number = val.to_string();
-                                            }
+                                        "doc-number" if record.doc_number.is_empty() => {
+                                            record.doc_number = val.to_string();
                                         }
-                                        "kind" => {
-                                            if record.kind.is_empty() {
-                                                record.kind = val.to_string();
-                                            }
+                                        "kind" if record.kind.is_empty() => {
+                                            record.kind = val.to_string();
                                         }
                                         _ => {}
                                     }
@@ -257,13 +251,12 @@ impl PatentIngestAdapter {
                         "classification-ipcr" | "classification-cpc-text" => {
                             in_classification = true;
                         }
-                        "given-name" | "family-name" | "last-name" | "first-name" => {
-                            if path
-                                .iter()
-                                .any(|p| p == "inventors" || p == "inventor" || p == "applicants")
-                            {
-                                in_inventor_name = true;
-                            }
+                        "given-name" | "family-name" | "last-name" | "first-name"
+                            if path.iter().any(|p| {
+                                p == "inventors" || p == "inventor" || p == "applicants"
+                            }) =>
+                        {
+                            in_inventor_name = true;
                         }
                         // EPO B-series SDOBI tags
                         "B541" => in_b541 = true,
@@ -273,10 +266,8 @@ impl PatentIngestAdapter {
                         "pdat" => in_pdat = true,
                         "snm" => in_snm = true,
                         "fnm" => in_fnm = true,
-                        "pcit" => {
-                            if in_b561 {
-                                in_citation = true;
-                            }
+                        "pcit" if in_b561 => {
+                            in_citation = true;
                         }
                         _ => {}
                     }
@@ -317,11 +308,9 @@ impl PatentIngestAdapter {
                             }
                             in_inventor_name = false;
                         }
-                        "inventor" => {
-                            if !inventor_parts.is_empty() {
-                                record.inventors.push(inventor_parts.join(" "));
-                                inventor_parts.clear();
-                            }
+                        "inventor" if !inventor_parts.is_empty() => {
+                            record.inventors.push(inventor_parts.join(" "));
+                            inventor_parts.clear();
                         }
                         // EPO B-series end tags
                         "B541" => {
@@ -368,14 +357,12 @@ impl PatentIngestAdapter {
                             }
                             in_fnm = false;
                         }
-                        "pcit" => {
-                            if in_citation {
-                                if !current_citation_doc.is_empty() {
-                                    record.citations.push(current_citation_doc.clone());
-                                    current_citation_doc.clear();
-                                }
-                                in_citation = false;
+                        "pcit" if in_citation => {
+                            if !current_citation_doc.is_empty() {
+                                record.citations.push(current_citation_doc.clone());
+                                current_citation_doc.clear();
                             }
+                            in_citation = false;
                         }
                         "patcit" | "us-citation" => {
                             in_citation = false;
@@ -391,56 +378,48 @@ impl PatentIngestAdapter {
                                 text_buf.clear();
                             }
                         }
-                        "country" => {
-                            if !text_buf.is_empty() {
-                                // Country in publication-reference context
-                                if path
-                                    .iter()
-                                    .any(|p| p == "publication-reference" || p == "document-id")
-                                {
-                                    if record.country.is_empty() {
-                                        record.country = text_buf.trim().to_string();
-                                    }
-                                    if in_citation {
-                                        current_citation_doc.push_str(text_buf.trim());
-                                    }
+                        "country" if !text_buf.is_empty() => {
+                            // Country in publication-reference context
+                            if path
+                                .iter()
+                                .any(|p| p == "publication-reference" || p == "document-id")
+                            {
+                                if record.country.is_empty() {
+                                    record.country = text_buf.trim().to_string();
                                 }
-                                text_buf.clear();
-                            }
-                        }
-                        "doc-number" => {
-                            if !text_buf.is_empty() {
                                 if in_citation {
                                     current_citation_doc.push_str(text_buf.trim());
-                                } else if record.doc_number.is_empty() {
-                                    record.doc_number = text_buf.trim().to_string();
                                 }
-                                text_buf.clear();
                             }
+                            text_buf.clear();
                         }
-                        "kind" => {
-                            if !text_buf.is_empty() {
-                                if in_citation {
-                                    current_citation_doc.push_str(text_buf.trim());
-                                } else if record.kind.is_empty() {
-                                    record.kind = text_buf.trim().to_string();
-                                }
-                                text_buf.clear();
+                        "doc-number" if !text_buf.is_empty() => {
+                            if in_citation {
+                                current_citation_doc.push_str(text_buf.trim());
+                            } else if record.doc_number.is_empty() {
+                                record.doc_number = text_buf.trim().to_string();
                             }
+                            text_buf.clear();
                         }
-                        "date" => {
-                            if !text_buf.is_empty() {
-                                if path.iter().any(|p| p == "publication-reference")
-                                    && record.pub_date.is_empty()
-                                {
-                                    record.pub_date = text_buf.trim().to_string();
-                                } else if path.iter().any(|p| p == "application-reference")
-                                    && record.app_date.is_empty()
-                                {
-                                    record.app_date = text_buf.trim().to_string();
-                                }
-                                text_buf.clear();
+                        "kind" if !text_buf.is_empty() => {
+                            if in_citation {
+                                current_citation_doc.push_str(text_buf.trim());
+                            } else if record.kind.is_empty() {
+                                record.kind = text_buf.trim().to_string();
                             }
+                            text_buf.clear();
+                        }
+                        "date" if !text_buf.is_empty() => {
+                            if path.iter().any(|p| p == "publication-reference")
+                                && record.pub_date.is_empty()
+                            {
+                                record.pub_date = text_buf.trim().to_string();
+                            } else if path.iter().any(|p| p == "application-reference")
+                                && record.app_date.is_empty()
+                            {
+                                record.app_date = text_buf.trim().to_string();
+                            }
+                            text_buf.clear();
                         }
                         _ => {}
                     }

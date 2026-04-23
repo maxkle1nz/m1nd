@@ -338,7 +338,7 @@ pub fn activate_readonly(
         })
         .collect();
 
-    activated.sort_by(|a, b| b.activation.cmp(&a.activation));
+    activated.sort_by_key(|entry| std::cmp::Reverse(entry.activation));
     activated.truncate(top_k);
 
     let activation = ActivationResult {

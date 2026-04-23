@@ -44,7 +44,7 @@ When Agent A calls `learn` with feedback, the edge weight changes are visible to
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.learn",
+    "name": "learn",
     "arguments": {
       "query": "authentication flow",
       "agent_id": "agent-a",
@@ -61,7 +61,7 @@ When Agent A calls `learn` with feedback, the edge weight changes are visible to
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.activate",
+    "name": "activate",
     "arguments": {
       "query": "session management",
       "agent_id": "agent-b",
@@ -196,7 +196,7 @@ When multiple agents might modify the same region of the codebase simultaneously
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.create",
+    "name": "lock_create",
     "arguments": {
       "agent_id": "agent-a",
       "scope": "subgraph",
@@ -225,7 +225,7 @@ Response:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.watch",
+    "name": "lock_watch",
     "arguments": {
       "agent_id": "agent-a",
       "lock_id": "lock-xyz789",
@@ -245,7 +245,7 @@ After Agent B modifies some code and re-ingests:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.diff",
+    "name": "lock_diff",
     "arguments": {
       "agent_id": "agent-a",
       "lock_id": "lock-xyz789"
@@ -271,12 +271,12 @@ Agent A now knows exactly what changed in its locked region, without scanning th
 
 ```jsonc
 // Accept changes and update baseline
-{"method":"tools/call","params":{"name":"m1nd.lock.rebase","arguments":{
+{"method":"tools/call","params":{"name":"lock_rebase","arguments":{
   "agent_id":"agent-a","lock_id":"lock-xyz789"
 }}}
 
 // Or release when done
-{"method":"tools/call","params":{"name":"m1nd.lock.release","arguments":{
+{"method":"tools/call","params":{"name":"lock_release","arguments":{
   "agent_id":"agent-a","lock_id":"lock-xyz789"
 }}}
 ```
@@ -334,7 +334,7 @@ Response:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.resume",
+    "name": "trail_resume",
     "arguments": {
       "agent_id": "agent-b",
       "trail_id": "trail-abc123"
@@ -365,7 +365,7 @@ When two agents investigate independently and you want to combine findings:
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.merge",
+    "name": "trail_merge",
     "arguments": {
       "agent_id": "orchestrator",
       "trail_ids": ["trail-abc123", "trail-def456"],
@@ -401,7 +401,7 @@ The merge automatically detects where independent investigations converged (12 s
 {
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.list",
+    "name": "trail_list",
     "arguments": {
       "agent_id": "orchestrator",
       "filter_tags": ["security"]
@@ -435,13 +435,13 @@ When JIMI (the orchestrator) starts a session:
 
 ```jsonc
 // Step 1: Check m1nd health
-{"method":"tools/call","params":{"name":"m1nd.health","arguments":{"agent_id":"jimi"}}}
+{"method":"tools/call","params":{"name":"health","arguments":{"agent_id":"jimi"}}}
 
 // Step 2: Check what changed since last session
-{"method":"tools/call","params":{"name":"m1nd.drift","arguments":{"agent_id":"jimi","since":"last_session"}}}
+{"method":"tools/call","params":{"name":"drift","arguments":{"agent_id":"jimi","since":"last_session"}}}
 
 // Step 3: Re-ingest if the graph is stale
-{"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{
+{"method":"tools/call","params":{"name":"ingest","arguments":{
   "path":"/project/backend","agent_id":"jimi","incremental":true
 }}}
 ```
@@ -452,17 +452,17 @@ When JIMI delegates a security hardening task:
 
 ```jsonc
 // Before spawning the security agent, get blast radius context
-{"method":"tools/call","params":{"name":"m1nd.impact","arguments":{
+{"method":"tools/call","params":{"name":"impact","arguments":{
   "node_id":"file::auth.py","agent_id":"jimi"
 }}}
 
 // Warm up the graph for the security task
-{"method":"tools/call","params":{"name":"m1nd.warmup","arguments":{
+{"method":"tools/call","params":{"name":"warmup","arguments":{
   "task_description":"harden authentication token validation","agent_id":"jimi"
 }}}
 
 // The security agent then uses the primed graph
-{"method":"tools/call","params":{"name":"m1nd.activate","arguments":{
+{"method":"tools/call","params":{"name":"activate","arguments":{
   "query":"token validation vulnerabilities","agent_id":"hacker-auth"
 }}}
 ```
@@ -473,7 +473,7 @@ After each agent completes its task, it provides feedback:
 
 ```jsonc
 // Security agent found useful results
-{"method":"tools/call","params":{"name":"m1nd.learn","arguments":{
+{"method":"tools/call","params":{"name":"learn","arguments":{
   "query":"token validation vulnerabilities",
   "agent_id":"hacker-auth",
   "feedback":"correct",
@@ -481,7 +481,7 @@ After each agent completes its task, it provides feedback:
 }}}
 
 // Performance agent found different useful results
-{"method":"tools/call","params":{"name":"m1nd.learn","arguments":{
+{"method":"tools/call","params":{"name":"learn","arguments":{
   "query":"connection pool bottleneck",
   "agent_id":"analyst-perf",
   "feedback":"correct",
@@ -504,7 +504,7 @@ When Agent A finds something that Agent B needs to investigate:
 }}}
 
 // Orchestrator merges with Agent B's independent findings
-{"method":"tools/call","params":{"name":"m1nd.trail.merge","arguments":{
+{"method":"tools/call","params":{"name":"trail_merge","arguments":{
   "agent_id":"jimi",
   "trail_ids":["trail-hacker-001","trail-analyst-002"]
 }}}

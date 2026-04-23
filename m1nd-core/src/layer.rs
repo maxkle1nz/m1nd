@@ -1307,7 +1307,7 @@ mod tests {
         let result = detector.detect(&graph, None, &[], false, "auto").unwrap();
         assert!(!result.has_cycles, "DAG should have no cycles");
         // A→B→C should produce at least 2 layers (depth 0 and 1 or 2)
-        assert!(result.layers.len() >= 1);
+        assert!(!result.layers.is_empty());
         assert!(result.total_nodes_classified >= 1);
     }
 

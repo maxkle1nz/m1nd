@@ -17,7 +17,7 @@
     "notes": "The operator rebuilds the recovery plan by hand instead of following tool-emitted guidance."
   },
   {
-    "tool_name": "m1nd.perspective_back",
+    "tool_name": "perspective_back",
     "query": "manually restore previous focus after exhausted branch",
     "elapsed_ms": 1.7,
     "payload_chars": 340,

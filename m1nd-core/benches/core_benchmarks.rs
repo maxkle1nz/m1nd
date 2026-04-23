@@ -6,7 +6,7 @@
 //
 // Run: cargo bench -p m1nd-core
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 
 use m1nd_core::activation::{ActivationEngine, WavefrontEngine};
 use m1nd_core::antibody::{
@@ -21,6 +21,7 @@ use m1nd_core::resonance::{HarmonicAnalyzer, StandingWavePropagator};
 use m1nd_core::tremor::{TremorRegistry, TremorWindow};
 use m1nd_core::trust::{TrustLedger, TrustSortBy};
 use m1nd_core::types::*;
+use std::hint::black_box;
 
 // ── Test graph builder ──────────────────────────────────────────────────
 

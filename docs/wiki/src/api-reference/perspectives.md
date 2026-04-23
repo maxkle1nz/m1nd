@@ -96,14 +96,15 @@ Enter a perspective: creates a navigable route surface from a query. Returns the
 
 ### Related Tools
 
-- [`m1nd.activate`](activation.md#m1ndactivate) -- one-shot query without navigation state
-- [`m1nd.perspective.routes`](#m1ndperspectiveroutes) -- paginate through routes
-- [`m1nd.perspective.follow`](#m1ndperspectivefollow) -- follow a route to navigate
+- [`activate`](activation.md#m1ndactivate) -- one-shot query without navigation state
+- [`perspective_routes`](#m1ndperspectiveroutes) -- paginate through routes
+- [`perspective_follow`](#m1ndperspectivefollow) -- follow a route to navigate
 
 ---
 
-## `m1nd.perspective.routes`
+<a id="m1ndperspectiveroutes"></a>
 
+## `perspective_routes`
 Browse the current route set with pagination.
 
 ### Parameters
@@ -124,7 +125,7 @@ Browse the current route set with pagination.
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.routes",
+    "name": "perspective_routes",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001",
@@ -175,8 +176,8 @@ Browse the current route set with pagination.
 
 ### Related Tools
 
-- [`m1nd.perspective.inspect`](#m1ndperspectiveinspect) -- expand a specific route for detail
-- [`m1nd.perspective.follow`](#m1ndperspectivefollow) -- follow a route to navigate
+- [`perspective_inspect`](#m1ndperspectiveinspect) -- expand a specific route for detail
+- [`perspective_follow`](#m1ndperspectivefollow) -- follow a route to navigate
 
 ---
 
@@ -322,13 +323,14 @@ Extract a small relevant code or documentation slice from a route's target node.
 
 ### Related Tools
 
-- [`m1nd.perspective.inspect`](#m1ndperspectiveinspect) -- structural information about the route (no code content)
-- [`m1nd.perspective.follow`](#m1ndperspectivefollow) -- navigate to the route target
+- [`perspective_inspect`](#m1ndperspectiveinspect) -- structural information about the route (no code content)
+- [`perspective_follow`](#m1ndperspectivefollow) -- navigate to the route target
 
 ---
 
-## `m1nd.perspective.follow`
+<a id="m1ndperspectivefollow"></a>
 
+## `perspective_follow`
 Follow a route: move focus to the target node and synthesize new routes from the new position. This is the primary navigation action in a perspective. Updates the navigation history for `back`.
 
 ### Parameters
@@ -349,7 +351,7 @@ Follow a route: move focus to the target node and synthesize new routes from the
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.follow",
+    "name": "perspective_follow",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001",
@@ -408,13 +410,14 @@ Follow a route: move focus to the target node and synthesize new routes from the
 
 ### Related Tools
 
-- [`m1nd.perspective.back`](#m1ndperspectiveback) -- undo a follow
-- [`m1nd.perspective.branch`](#m1ndperspectivebranch) -- fork before following to explore alternatives
+- [`perspective_back`](#m1ndperspectiveback) -- undo a follow
+- [`perspective_branch`](#m1ndperspectivebranch) -- fork before following to explore alternatives
 
 ---
 
-## `m1nd.perspective.suggest`
+<a id="m1ndperspectivesuggest"></a>
 
+## `perspective_suggest`
 Get the next best move suggestion based on navigation history. Analyzes the routes, the current focus, and the history of followed routes to recommend what to do next.
 
 ### Parameters
@@ -433,7 +436,7 @@ Get the next best move suggestion based on navigation history. Analyzes the rout
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.suggest",
+    "name": "perspective_suggest",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001",
@@ -465,13 +468,14 @@ Get the next best move suggestion based on navigation history. Analyzes the rout
 
 ### Related Tools
 
-- [`m1nd.perspective.follow`](#m1ndperspectivefollow) -- follow the suggested route
-- [`m1nd.perspective.inspect`](#m1ndperspectiveinspect) -- inspect the suggested route first
+- [`perspective_follow`](#m1ndperspectivefollow) -- follow the suggested route
+- [`perspective_inspect`](#m1ndperspectiveinspect) -- inspect the suggested route first
 
 ---
 
-## `m1nd.perspective.affinity`
+<a id="m1ndperspectiveaffinity"></a>
 
+## `perspective_affinity`
 Discover probable connections a route target might have. Returns affinity candidates -- nodes that are not directly connected to the target but show structural affinity (similar neighborhoods, shared patterns).
 
 Epistemic notice: these are **probable** connections, not verified graph edges.
@@ -494,7 +498,7 @@ Epistemic notice: these are **probable** connections, not verified graph edges.
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.affinity",
+    "name": "perspective_affinity",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001",
@@ -527,13 +531,14 @@ Epistemic notice: these are **probable** connections, not verified graph edges.
 
 ### Related Tools
 
-- [`m1nd.missing`](exploration.md#m1ndmissing) -- finds structural holes (broader scope)
-- [`m1nd.perspective.inspect`](#m1ndperspectiveinspect) -- affinity candidates are also included in inspect output
+- [`missing`](exploration.md#m1ndmissing) -- finds structural holes (broader scope)
+- [`perspective_inspect`](#m1ndperspectiveinspect) -- affinity candidates are also included in inspect output
 
 ---
 
-## `m1nd.perspective.branch`
+<a id="m1ndperspectivebranch"></a>
 
+## `perspective_branch`
 Fork the current navigation state into a new perspective branch. The branch starts at the same focus with the same route set, but future navigation in the branch is independent. Useful for exploring alternatives without losing your place.
 
 ### Parameters
@@ -552,7 +557,7 @@ Fork the current navigation state into a new perspective branch. The branch star
   "id": 8,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.branch",
+    "name": "perspective_branch",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001",
@@ -581,13 +586,14 @@ Fork the current navigation state into a new perspective branch. The branch star
 
 ### Related Tools
 
-- [`m1nd.perspective.compare`](#m1ndperspectivecompare) -- compare the branch with the original
-- [`m1nd.perspective.follow`](#m1ndperspectivefollow) -- navigate within the branch
+- [`perspective_compare`](#m1ndperspectivecompare) -- compare the branch with the original
+- [`perspective_follow`](#m1ndperspectivefollow) -- navigate within the branch
 
 ---
 
-## `m1nd.perspective.back`
+<a id="m1ndperspectiveback"></a>
 
+## `perspective_back`
 Navigate back to the previous focus, restoring the checkpoint state. Like browser back navigation. Pops the latest navigation event from the history stack.
 
 ### Parameters
@@ -605,7 +611,7 @@ Navigate back to the previous focus, restoring the checkpoint state. Like browse
   "id": 9,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.back",
+    "name": "perspective_back",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_001"
@@ -648,13 +654,14 @@ Navigate back to the previous focus, restoring the checkpoint state. Like browse
 
 ### Related Tools
 
-- [`m1nd.perspective.follow`](#m1ndperspectivefollow) -- the forward navigation that `back` undoes
-- [`m1nd.perspective.branch`](#m1ndperspectivebranch) -- alternative: branch instead of back+follow
+- [`perspective_follow`](#m1ndperspectivefollow) -- the forward navigation that `back` undoes
+- [`perspective_branch`](#m1ndperspectivebranch) -- alternative: branch instead of back+follow
 
 ---
 
-## `m1nd.perspective.compare`
+<a id="m1ndperspectivecompare"></a>
 
+## `perspective_compare`
 Compare two perspectives on shared/unique nodes and dimension deltas. Both perspectives must belong to the same agent (V1 restriction).
 
 ### Parameters
@@ -674,7 +681,7 @@ Compare two perspectives on shared/unique nodes and dimension deltas. Both persp
   "id": 10,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.compare",
+    "name": "perspective_compare",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id_a": "persp_jimi_001",
@@ -710,13 +717,14 @@ Compare two perspectives on shared/unique nodes and dimension deltas. Both persp
 
 ### Related Tools
 
-- [`m1nd.perspective.branch`](#m1ndperspectivebranch) -- create branches to compare
-- [`m1nd.trail.merge`](memory.md#m1ndtrailmerge) -- merge investigation trails (deeper than compare)
+- [`perspective_branch`](#m1ndperspectivebranch) -- create branches to compare
+- [`trail_merge`](memory.md#m1ndtrailmerge) -- merge investigation trails (deeper than compare)
 
 ---
 
-## `m1nd.perspective.list`
+<a id="m1ndperspectivelist"></a>
 
+## `perspective_list`
 List all perspectives for an agent. Returns compact summaries with status, focus, route count, and memory usage.
 
 ### Parameters
@@ -733,7 +741,7 @@ List all perspectives for an agent. Returns compact summaries with status, focus
   "id": 11,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.list",
+    "name": "perspective_list",
     "arguments": {
       "agent_id": "jimi"
     }
@@ -780,12 +788,13 @@ List all perspectives for an agent. Returns compact summaries with status, focus
 
 ### Related Tools
 
-- [`m1nd.perspective.close`](#m1ndperspectiveclose) -- close perspectives you no longer need
+- [`perspective_close`](#m1ndperspectiveclose) -- close perspectives you no longer need
 
 ---
 
-## `m1nd.perspective.close`
+<a id="m1ndperspectiveclose"></a>
 
+## `perspective_close`
 Close a perspective and release associated locks. Frees memory and stops route caching for this perspective. Cascade-releases any locks that were associated with this perspective.
 
 ### Parameters
@@ -803,7 +812,7 @@ Close a perspective and release associated locks. Frees memory and stops route c
   "id": 12,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.perspective.close",
+    "name": "perspective_close",
     "arguments": {
       "agent_id": "jimi",
       "perspective_id": "persp_jimi_002"
@@ -830,7 +839,7 @@ Close a perspective and release associated locks. Frees memory and stops route c
 
 ### Related Tools
 
-- [`m1nd.perspective.list`](#m1ndperspectivelist) -- find perspectives to close
+- [`perspective_list`](#m1ndperspectivelist) -- find perspectives to close
 
 ---
 
@@ -847,19 +856,19 @@ A complete perspective exploration session, from start to close:
    Routes: R01 auth_discovery.py, R02 middleware.py, R03 principal_registry.py, ...
 
 3. INSPECT a high-scoring route before following
-   m1nd.perspective.inspect(route_id="R01", route_set_version=100)
+   perspective_inspect(route_id="R01", route_set_version=100)
    -> score_breakdown, provenance, affinity_candidates
 
 4. FOLLOW the route to navigate
-   m1nd.perspective.follow(route_id="R01", route_set_version=100)
+   perspective_follow(route_id="R01", route_set_version=100)
    -> new focus: auth_discovery.py, 8 new routes, version=101
 
 5. ASK for a suggestion on what to do next
-   m1nd.perspective.suggest(route_set_version=101)
+   perspective_suggest(route_set_version=101)
    -> "follow R_x: principal_registry.py, high causal relevance"
 
 6. BRANCH before exploring a risky path
-   m1nd.perspective.branch(branch_name="session-path")
+   perspective_branch(branch_name="session-path")
    -> new persp_jimi_002, same focus
 
 7. FOLLOW different routes in each branch
@@ -867,16 +876,16 @@ A complete perspective exploration session, from start to close:
    Branch 2: follow toward session_pool.py
 
 8. COMPARE the two branches
-   m1nd.perspective.compare(perspective_id_a="persp_jimi_001", perspective_id_b="persp_jimi_002")
+   perspective_compare(perspective_id_a="persp_jimi_001", perspective_id_b="persp_jimi_002")
    -> shared: [auth_discovery.py], unique_to_a: [principal_registry.py], unique_to_b: [session_pool.py]
 
 9. BACK to undo the last follow in branch 1
-   m1nd.perspective.back()
+   perspective_back()
    -> restored focus: auth_discovery.py
 
 10. CLOSE both perspectives when done
-    m1nd.perspective.close(perspective_id="persp_jimi_001")
-    m1nd.perspective.close(perspective_id="persp_jimi_002")
+    perspective_close(perspective_id="persp_jimi_001")
+    perspective_close(perspective_id="persp_jimi_002")
 ```
 
 This workflow demonstrates the full exploration cycle: start with a query, navigate through the graph by following routes, branch to explore alternatives, compare branches, and close when done.

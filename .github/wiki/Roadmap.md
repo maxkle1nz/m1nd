@@ -16,7 +16,7 @@ The current public surface has moved beyond the earlier audit-only expansion. Th
 - `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, and `runtime_overlay` in the public tool surface
 - current docs/tool-matrix alignment in the canonical `mdBook` wiki
 
-Current live count: **93 MCP tools**.
+Current live count: use **`tools/list`** for the exact live surface in your build.
 
 ---
 
@@ -103,7 +103,7 @@ The 5-layer verification pipeline runs automatically on every `apply` call:
 - `apply_batch` **5-layer post-write verification** (`verify=true`) — trivial-return detection, compilation check, structural diff, semantic coherence, and regression guard
 - `m1nd.view` — lightweight file reader with auto-ingest. Zero-token alternative to Read for graph-tracked files
 - `m1nd.glob` — file pattern matching with auto-ingest. Graph-aware alternative to Glob
-- `m1nd.search` **enhanced** — invert matching, count mode, multiline, auto-ingest on miss, glob filtering
+- `search` **enhanced** — invert matching, count mode, multiline, auto-ingest on miss, glob filtering
 
 **Total in v0.5: 63 MCP tools**
 
@@ -112,10 +112,10 @@ The 5-layer verification pipeline runs automatically on every `apply` call:
 ## Shipped — v0.4.0
 
 **Added in v0.4 — Search, efficiency, and panoramic analysis (DONE):**
-- `m1nd.search` — unified literal/regex/semantic search across graph nodes and file contents. Graph-aware grep replacement with context lines and scope filtering.
-- `m1nd.help` — runtime-discoverable tool documentation with m1nd's visual identity (⍌⍐⍂𝔻⟁ glyphs + ANSI color palette). Returns full index or per-tool docs with NEXT suggestions.
-- `m1nd.panoramic` — full module risk panorama ranked by combined risk score (blast radius + centrality + churn). Critical alerts for modules with risk ≥ 0.7.
-- `m1nd.savings` — session + global token economy report with CO2 estimation. Every m1nd query that replaces grep saves ~500 tokens; tracked cumulatively.
+- `search` — unified literal/regex/semantic search across graph nodes and file contents. Graph-aware grep replacement with context lines and scope filtering.
+- `help` — runtime-discoverable tool documentation with m1nd's visual identity (⍌⍐⍂𝔻⟁ glyphs + ANSI color palette). Returns full index or per-tool docs with NEXT suggestions.
+- `panoramic` — full module risk panorama ranked by combined risk score (blast radius + centrality + churn). Critical alerts for modules with risk ≥ 0.7.
+- `savings` — session + global token economy report with CO2 estimation. Every m1nd query that replaces grep saves ~500 tokens; tracked cumulatively.
 - `m1nd.report` — session summary: query log (last 10), timing statistics, tokens saved, graph state. Markdown output ready for display or logging.
 
 **Total in v0.4: 61 MCP tools** across 11 categories:
@@ -252,12 +252,12 @@ calls. A running application's live behavior as a graph. Connect what the code s
 
 Together, the three layers form a complete perception stack: static structure + data topology +
 runtime behavior. OVERVISION is the long-term architecture goal. Each layer is independently
-useful; together they make AI agents able to answer questions about complex systems that no
+useful; together they make coding agents able to answer questions about complex systems that no
 single layer can answer alone.
 
-### "The bottleneck for AI agents is never THINKING. It's PERCEIVING."
+### "The bottleneck for coding agents is never THINKING. It's PERCEIVING."
 
-This is the core insight that drives m1nd's long-term direction. AI agents are powerful reasoners.
+This is the core insight that drives m1nd's long-term direction. Coding agents are powerful reasoners.
 They can analyze any code you show them. The problem is FINDING what matters in a codebase of
 10,000 files.
 
@@ -278,7 +278,7 @@ dimension makes those views visible to each other — one agent can see where an
 investigation is focused without needing to communicate explicitly.
 
 Together, these extensions move m1nd from a structural analysis tool to a full perception layer
-for AI agents operating on code.
+for coding agents operating on code.
 
 ### AR/VR Graph Exploration
 

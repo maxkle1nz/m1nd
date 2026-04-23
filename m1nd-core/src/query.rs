@@ -20,7 +20,7 @@ use crate::xlr::*;
 // Replaces: engine_v2.py ConnectomeEngine.query() parameters
 // ---------------------------------------------------------------------------
 
-/// Per-query configuration (maps to m1nd.activate input schema).
+/// Per-query configuration (maps to the `activate` input schema).
 #[derive(Clone, Debug)]
 pub struct QueryConfig {
     pub query: String,
@@ -224,7 +224,7 @@ impl QueryOrchestrator {
         // Re-sort after PageRank boost
         activation
             .activated
-            .sort_by(|a, b| b.activation.cmp(&a.activation));
+            .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
 
         // Step 6: Ghost edges
         let ghost_edges = if config.include_ghost_edges {
@@ -319,7 +319,7 @@ impl QueryOrchestrator {
             }
         }
 
-        ghosts.sort_by(|a, b| b.strength.cmp(&a.strength));
+        ghosts.sort_by_key(|entry| std::cmp::Reverse(entry.strength));
         ghosts.truncate(10);
         Ok(ghosts)
     }
@@ -380,7 +380,7 @@ impl QueryOrchestrator {
             }
         }
 
-        holes.sort_by(|a, b| b.sibling_avg_activation.cmp(&a.sibling_avg_activation));
+        holes.sort_by_key(|entry| std::cmp::Reverse(entry.sibling_avg_activation));
         holes.truncate(10);
         Ok(holes)
     }

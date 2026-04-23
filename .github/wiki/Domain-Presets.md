@@ -117,7 +117,7 @@ pub fn memory() -> Self {
 }}
 
 // Query: what's most relevant to authentication right now?
-{"name": "m1nd.activate", "arguments": {
+{"name": "activate", "arguments": {
   "query": "authentication session state", "agent_id": "jimi"
 }}
 // → Returns both code nodes (if code was also ingested) and memory nodes
@@ -185,7 +185,7 @@ pub fn music() -> Self {
 }}
 
 // Activate: what's related to the reverb send?
-{"name": "m1nd.activate", "arguments": {"query": "reverb", "agent_id": "mixer"}}
+{"name": "activate", "arguments": {"query": "reverb", "agent_id": "mixer"}}
 ```
 
 ---

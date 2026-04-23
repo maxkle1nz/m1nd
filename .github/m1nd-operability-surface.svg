@@ -41,8 +41,8 @@
     <text x="706" y="288" fill="#E2E8F0" font-size="46" font-family="Space Grotesk, Arial, sans-serif" font-weight="700">
       m1nd
     </text>
-    <text x="652" y="334" fill="#00F5FF" font-size="24" font-family="Space Mono, monospace">
-      software intelligence layer
+    <text x="628" y="334" fill="#00F5FF" font-size="24" font-family="Space Mono, monospace">
+      operational intelligence
     </text>
 
     <text x="610" y="416" fill="#E2E8F0" font-size="24" font-family="Space Mono, monospace">⍂ structural truth</text>
@@ -81,9 +81,9 @@
   <path d="M1070 676H1210" stroke="#FF00AA" stroke-width="4"/>
 
   <text x="604" y="828" fill="#A5F3FC" font-size="26" font-family="Space Grotesk, Arial, sans-serif" font-weight="700">
-    m1nd gives AI agents durable operational context before they act.
+    m1nd gives coding agents durable operational context before they act.
   </text>
   <text x="604" y="866" fill="#94A3B8" font-size="20" font-family="Space Mono, monospace">
-    code • docs • concepts • change → one operable system
+    structure • docs • change • continuity → one local runtime
   </text>
 </svg>

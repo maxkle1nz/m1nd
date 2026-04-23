@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.trail_resume",
+    "tool_name": "trail_resume",
     "query": "resume stale trail without force",
     "elapsed_ms": 1.0,
     "payload_chars": 220,
@@ -13,7 +13,7 @@
     "notes": "The stale gate now teaches when to accept degraded continuity instead of restarting the investigation from zero."
   },
   {
-    "tool_name": "m1nd.trail_resume",
+    "tool_name": "trail_resume",
     "query": "retry trail_resume with force=true",
     "elapsed_ms": 1.4,
     "payload_chars": 360,
@@ -24,7 +24,7 @@
     "notes": "Forced resume restores partial continuity with explicit next-step guidance."
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/src/layer_handlers.rs",
     "elapsed_ms": 0.7,
     "payload_chars": 520,

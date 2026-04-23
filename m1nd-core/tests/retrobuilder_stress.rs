@@ -4,12 +4,10 @@
 //
 // Tests: adversarial inputs, scale limits, edge cases, performance.
 
-use m1nd_core::git_history::{inject_git_history, parse_git_history, GitDepth};
 use m1nd_core::graph::Graph;
 use m1nd_core::refactor::{plan_refactoring, RefactorConfig};
 use m1nd_core::runtime_overlay::{OtelBatch, OtelSpan, RuntimeOverlay};
 use m1nd_core::taint::{TaintConfig, TaintEngine, TaintType};
-use m1nd_core::temporal::CoChangeMatrix;
 use m1nd_core::twins::{find_twins, TwinConfig};
 use m1nd_core::types::{EdgeDirection, FiniteF32, NodeId, NodeType};
 use m1nd_ingest::{IngestConfig, Ingestor};
@@ -30,7 +28,7 @@ fn ingest_m1nd() -> Graph {
         root,
         ..Default::default()
     };
-    let (graph, stats) = Ingestor::new(config).ingest().unwrap();
+    let (graph, _stats) = Ingestor::new(config).ingest().unwrap();
     eprintln!(
         "[STRESS] Ingested: {} nodes, {} edges",
         graph.num_nodes(),
@@ -303,7 +301,7 @@ fn stress_twins_large_chain() {
         elapsed.as_secs_f64() * 1000.0
     );
     assert!(
-        result.pairs.len() > 0,
+        !result.pairs.is_empty(),
         "Interior chain nodes should be twins"
     );
     assert!(elapsed.as_secs() < 10);
@@ -451,8 +449,6 @@ fn stress_refactor_real_aggressive() {
 #[test]
 fn stress_otel_1000_spans() {
     let graph = ingest_m1nd();
-    let n = graph.num_nodes() as usize;
-
     // 1000 spans — first 500 matching real labels, last 500 garbage
     let mut spans = Vec::new();
     let n = graph.num_nodes() as usize;
@@ -603,7 +599,7 @@ fn stress_otel_all_errors() {
         result.hot_nodes.len()
     );
 
-    assert!(error_nodes.len() > 0, "Error tracking should work");
+    assert!(!error_nodes.is_empty(), "Error tracking should work");
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

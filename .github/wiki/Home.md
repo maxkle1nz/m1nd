@@ -4,7 +4,7 @@
   <strong>The adaptive code graph. It learns.</strong>
 </p>
 
-Neuro-symbolic connectome engine with Hebbian plasticity, spreading activation, and 93 MCP tools. Built in Rust for AI agents.
+Operational intelligence for coding agents. Local-first MCP runtime with graph-grounded retrieval, change reasoning, document grounding, and continuity.
 
 **39 bugs found in one audit session · 89% hypothesis accuracy · 12/12 verification accuracy · Zero LLM tokens**
 
@@ -27,7 +27,7 @@ It is not a search engine. It is not a RAG pipeline. It is not a static analysis
 
 | Metric | Value |
 |--------|-------|
-| Tools | **93 MCP tools** |
+| Tools | **Use `tools/list`** for the exact live count |
 | Languages supported | **27+** (5 built-in + tier1 + tier2 via tree-sitter) |
 | Bugs found in one session | **39** (production Python backend, 52K lines) |
 | Bugs invisible to grep | **8 of 28 (28.5%)** — required structural analysis |
@@ -57,7 +57,7 @@ If you want the exhaustive API pages, architecture notes, and examples, prefer:
 
 ## Why It Exists
 
-AI agents are powerful reasoners but terrible navigators. They can analyze what you show them, but they can't *find* what matters in a codebase of 10,000 files.
+Coding agents are powerful reasoners but terrible navigators. They can analyze what you show them, but they can't *find* what matters in a codebase of 10,000 files.
 
 | Approach | Why It Fails |
 |----------|-------------|

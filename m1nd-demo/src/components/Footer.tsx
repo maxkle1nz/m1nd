@@ -15,13 +15,13 @@ export function Footer() {
           <span style={{ color: "#ffb700", opacity: 0.6 }}>𝔻</span>
           <span style={{ color: "#ff00aa", opacity: 0.6 }}>⟁</span>
           <span className="text-primary/30 mx-2">·</span>
-          <span className="text-primary/40">the software intelligence layer for AI agents</span>
+          <span className="text-primary/40">operational intelligence for coding agents</span>
         </p>
         <h2 className="text-4xl md:text-6xl font-bold font-sans tracking-tight mb-4">
           Start building with <M1ndInline glow />.
         </h2>
         <p className="text-muted-foreground max-w-md mx-auto mb-10 text-lg">
-          Code, docs, and change in one operable system. Local-first, MCP-native, and ready for agents.
+          Structure, change, docs, operations, and continuity in one local MCP runtime.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 mb-24">

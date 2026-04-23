@@ -8,7 +8,7 @@
 
 ## WHAT WAS BUILT
 
-### 1. m1nd.search (literal + regex + semantic)
+### 1. search (literal + regex + semantic)
 - **File**: `m1nd-mcp/src/search_handlers.rs`
 - 3 modes: literal (substring on node labels), regex (Rust `regex` crate, linear-time safe), semantic (delegates to existing seek)
 - ADVERSARY S1 (ReDoS): uses `regex` crate only, never `fancy-regex` -- inherently safe
@@ -20,7 +20,7 @@
 - Context lines (before/after match) from filesystem when file exists
 - Graph node cross-references (node_id, graph_linked)
 
-### 2. m1nd.help (self-documenting with visual identity)
+### 2. help (self-documenting with visual identity)
 - **File**: `m1nd-mcp/src/personality.rs` (700+ lines)
 - Full index of all 55+ tools grouped by category
 - Detailed per-tool help with params, returns, examples, NEXT suggestions
@@ -113,12 +113,12 @@ test result: ok. 26 passed; 0 failed; 0 ignored
 All 26 golden tests from CORTEX_V04_TESTS.md pass.
 
 ### Real-world Testing (on live 10773-node graph)
-- `m1nd.search` literal: found 50+ matches for "chat_handler" in 2.4ms
-- `m1nd.search` regex: found matches for `chat_handler.*py` in 1.0ms
-- `m1nd.help` overview: full tool index with ANSI formatting, all categories
-- `m1nd.help("activate")`: detailed help with params, examples, NEXT
-- `m1nd.help("about")`: Max's name, 4D philosophy, visual identity
-- `m1nd.help("activ8")`: found=false, suggestions=["m1nd.activate"]
+- `search` literal: found 50+ matches for "chat_handler" in 2.4ms
+- `search` regex: found matches for `chat_handler.*py` in 1.0ms
+- `help` overview: full tool index with ANSI formatting, all categories
+- `help("activate")`: detailed help with params, examples, NEXT
+- `help("about")`: Max's name, 4D philosophy, visual identity
+- `help("activ8")`: found=false, suggestions=["activate"]
 - `m1nd.panoramic`: 5 modules scanned, chat_handler.py top risk (blast 639), 2.5ms
 - `m1nd.savings`: session 2000 tokens, global tracking, CO2 counter
 - `m1nd.report`: markdown summary with query log, savings, graph stats

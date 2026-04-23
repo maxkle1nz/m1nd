@@ -18,9 +18,9 @@ In the current local setup, the graph engine is fast, but the transport stack ad
 Measured locally on this machine:
 
 - `m1nd_cli.py health`: ~148 ms average
-- `mcporter -> m1nd.health`: ~522 ms average
+- `mcporter -> health`: ~522 ms average
 - `m1nd_cli.py search(literal)`: ~777 ms average
-- `mcporter -> m1nd.search(literal)`: ~994 ms average
+- `mcporter -> search(literal)`: ~994 ms average
 
 That means the bridge layer is currently adding roughly 200-400 ms of avoidable latency per call.
 

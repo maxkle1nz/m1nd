@@ -170,7 +170,7 @@ The atomic write pattern (temp file + rename) ensures that even if shutdown is i
 - `description`: Human-readable purpose
 - `inputSchema`: JSON Schema with `properties`, `required`, `type`, defaults
 
-Some clients may display compatibility aliases with a transport prefix such as `m1nd.activate`, but the live registry returned by `tools/list` uses the bare tool names.
+Some clients may display transport-prefixed compatibility aliases, but the live registry returned by `tools/list` uses the bare tool names.
 
 The current surface now includes a document runtime in addition to the code graph runtime:
 

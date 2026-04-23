@@ -1,6 +1,6 @@
 # System Architecture Overview
 
-m1nd is a local code graph engine for MCP agents. Internally it is still a graph-and-analysis system, but the current public runtime is organized around a more agent-operational contract:
+m1nd is a local MCP runtime for coding agents. Internally it is still built on a graph-and-analysis system, but the public runtime is organized around an operational contract:
 
 - graph-grounded retrieval and ranking
 - proof-aware structural flows

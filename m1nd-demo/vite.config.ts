@@ -17,7 +17,27 @@ export default defineConfig({
   },
   build: {
     outDir: path.resolve(import.meta.dirname, "dist"),
-    emptyOutDir: true
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            return;
+          }
+          if (id.includes("three") || id.includes("@react-three")) {
+            return "three-vendor";
+          }
+          if (id.includes("@radix-ui")) {
+            return "radix-vendor";
+          }
+          if (id.includes("framer-motion")) {
+            return "motion-vendor";
+          }
+          return "vendor";
+        }
+      }
+    }
   },
   server: {
     port,

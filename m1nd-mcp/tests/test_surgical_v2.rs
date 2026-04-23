@@ -1,4 +1,4 @@
-// === Golden Tests — m1nd.surgical_context_v2 + m1nd.apply_batch (ONDA 1) ===
+// === Golden Tests — surgical_context_v2 + apply_batch (ONDA 1) ===
 // TEMPESTA Deliverable: ORACLE-TESTS-V2
 //
 // Contract: these tests define WHAT must happen.
@@ -487,7 +487,7 @@ fn test_v2_total_lines_accurate() {
 }
 
 // ===========================================================================
-// m1nd.apply_batch — 6 golden tests
+// apply_batch — 6 golden tests
 // ===========================================================================
 
 // ---------------------------------------------------------------------------

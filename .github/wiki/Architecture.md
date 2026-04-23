@@ -9,7 +9,7 @@ m1nd/
                  graph-diff with pre/post node snapshots
   m1nd-ingest/   Language extractors, structured adapters, universal documents,
                  canonical artifacts, git enrichment, cross-file resolver, incremental diff
-  m1nd-mcp/      MCP server, 93 tool handlers, JSON-RPC over stdio
+  m1nd-mcp/      MCP server, live tool surface, JSON-RPC over stdio
   m1nd-openclaw/ Auxiliary bridge crate for OpenClaw-facing integration surfaces
 ```
 
@@ -17,7 +17,7 @@ m1nd/
 
 ```mermaid
 graph TD
-    MCP[m1nd-mcp<br/>MCP server · 93 tools · JSON-RPC stdio]
+    MCP[m1nd-mcp<br/>MCP server · live tool surface · JSON-RPC stdio]
     INGEST[m1nd-ingest<br/>File walker · Extractors · Adapters · Canonical docs]
     CORE[m1nd-core<br/>Graph engine · Plasticity · Activation · GraphDiff]
     OPENCLAW[m1nd-openclaw<br/>Auxiliary bridge]
@@ -337,7 +337,7 @@ Tool dispatch, session state, protocol types.
 
 ### Tool Dispatch
 
-Tool names are normalized before matching: dots are replaced with underscores and a leading `m1nd_` prefix is stripped. So `m1nd.activate` → `activate`, `m1nd.trail.save` → `trail_save`.
+Canonical tool names are bare names from `tools/list`, such as `activate` and `trail_save`. Legacy dotted aliases are still normalized when needed.
 
 ```rust
 // In server.rs dispatch match:

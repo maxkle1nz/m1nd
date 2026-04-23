@@ -441,6 +441,9 @@ pub fn save_tremor_state(registry: &TremorRegistry, path: &Path) -> M1ndResult<(
     let json = serde_json::to_string_pretty(&format).map_err(crate::error::M1ndError::Serde)?;
 
     // Atomic write: temp file + rename
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let temp_path = path.with_extension("tmp");
     {
         use std::io::Write;
@@ -489,6 +492,33 @@ pub fn load_tremor_state(path: &Path) -> M1ndResult<TremorRegistry> {
     }
 
     Ok(registry)
+}
+
+/// Linear regression slope for (x, y) data.
+/// Returns the slope of the best-fit line y = mx + b.
+fn linear_regression_slope(x: &[f64], y: &[f32]) -> f32 {
+    let n = x.len();
+    if n < 2 {
+        return 0.0;
+    }
+
+    let n_f = n as f64;
+    let sum_x: f64 = x.iter().sum();
+    let sum_y: f64 = y.iter().map(|v| *v as f64).sum();
+    let sum_xy: f64 = x
+        .iter()
+        .zip(y.iter())
+        .map(|(xi, yi)| *xi * (*yi as f64))
+        .sum();
+    let sum_x2: f64 = x.iter().map(|xi| xi * xi).sum();
+
+    let denom = n_f * sum_x2 - sum_x * sum_x;
+    if denom.abs() < 1e-12 {
+        return 0.0;
+    }
+
+    let slope = (n_f * sum_xy - sum_x * sum_y) / denom;
+    slope as f32
 }
 
 #[cfg(test)]
@@ -632,6 +662,31 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    #[test]
+    fn save_load_round_trip_creates_parent_directories() {
+        let mut reg = make_registry();
+        push_obs(
+            &mut reg,
+            "node::persist",
+            &[1.0, 2.0, 3.0, 4.0, 5.0],
+            1000.0,
+        );
+
+        let dir = std::env::temp_dir().join(format!("tremor_nested_{}", std::process::id()));
+        let path: PathBuf = dir.join("deep").join("tremor_state.json");
+
+        save_tremor_state(&reg, &path).expect("save failed");
+        let loaded = load_tremor_state(&path).expect("load failed");
+
+        assert_eq!(
+            loaded.observation_count("node::persist"),
+            reg.observation_count("node::persist")
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // Extra: window filter — observations outside window are excluded
     #[test]
     fn window_filter_excludes_old_observations() {
@@ -651,31 +706,4 @@ mod tests {
             "Old observations should be excluded by 30d window"
         );
     }
-}
-
-/// Linear regression slope for (x, y) data.
-/// Returns the slope of the best-fit line y = mx + b.
-fn linear_regression_slope(x: &[f64], y: &[f32]) -> f32 {
-    let n = x.len();
-    if n < 2 {
-        return 0.0;
-    }
-
-    let n_f = n as f64;
-    let sum_x: f64 = x.iter().sum();
-    let sum_y: f64 = y.iter().map(|v| *v as f64).sum();
-    let sum_xy: f64 = x
-        .iter()
-        .zip(y.iter())
-        .map(|(xi, yi)| *xi * (*yi as f64))
-        .sum();
-    let sum_x2: f64 = x.iter().map(|xi| xi * xi).sum();
-
-    let denom = n_f * sum_x2 - sum_x * sum_x;
-    if denom.abs() < 1e-12 {
-        return 0.0;
-    }
-
-    let slope = (n_f * sum_xy - sum_x * sum_y) / denom;
-    slope as f32
 }

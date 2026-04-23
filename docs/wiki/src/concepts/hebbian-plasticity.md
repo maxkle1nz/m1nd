@@ -102,13 +102,13 @@ The query, its seeds, and its activated nodes are recorded in a bounded ring buf
 
 1. **Priming signal**: future queries that share seeds with past queries get a boost from nodes that frequently appeared in those past results. This implements a form of associative memory -- "things I looked at near authentication tend to be relevant when I look at authentication again."
 
-2. **Seed bigrams**: pairs of seeds that co-occur across multiple queries are tracked. This supports the `m1nd.warmup` tool, which uses query memory to pre-activate frequently queried paths.
+2. **Seed bigrams**: pairs of seeds that co-occur across multiple queries are tracked. This supports the `warmup` tool, which uses query memory to pre-activate frequently queried paths.
 
-## How m1nd.learn works
+## How learn works
 
-The automatic plasticity cycle runs on every `m1nd.activate` call. But agents can also provide explicit feedback via `m1nd.learn`:
+The automatic plasticity cycle runs on every `activate` call. But agents can also provide explicit feedback via `learn`:
 
-### Positive feedback: `m1nd.learn(feedback="correct", node_ids=[...])`
+### Positive feedback: `learn(feedback="correct", node_ids=[...])`
 
 When an agent confirms that specific nodes were useful:
 
@@ -116,7 +116,7 @@ When an agent confirms that specific nodes were useful:
 2. The strengthen counters increment, moving edges closer to the LTP threshold.
 3. Query memory records the confirmed nodes with high weight, boosting them in future priming signals.
 
-### Negative feedback: `m1nd.learn(feedback="wrong", node_ids=[...])`
+### Negative feedback: `learn(feedback="wrong", node_ids=[...])`
 
 When an agent marks results as irrelevant:
 
@@ -162,9 +162,9 @@ The graph auto-persists every 50 queries and on server shutdown. This is a balan
 
 ## The drift tool
 
-After persistence, the natural question is: *how much has the graph changed?* The `m1nd.drift` tool answers this.
+After persistence, the natural question is: *how much has the graph changed?* The `drift` tool answers this.
 
-`m1nd.drift` compares the current edge weights against their original (ingest-time) baselines and reports:
+`drift` compares the current edge weights against their original (ingest-time) baselines and reports:
 
 - **Total edges changed**: how many edges have weights different from their original values.
 - **Average weight change**: the mean absolute delta across all modified edges.
@@ -172,7 +172,7 @@ After persistence, the natural question is: *how much has the graph changed?* Th
 - **Top weakened edges**: the edges that have decayed the most.
 - **LTP/LTD counts**: how many edges have crossed the long-term potentiation or depression thresholds.
 
-This is designed for session recovery. When an agent starts a new session, `m1nd.drift` tells it what has changed since the graph was last loaded. The agent can see that "paths around the payment module strengthened significantly since yesterday" and adjust its investigation accordingly.
+This is designed for session recovery. When an agent starts a new session, `drift` tells it what has changed since the graph was last loaded. The agent can see that "paths around the payment module strengthened significantly since yesterday" and adjust its investigation accordingly.
 
 ```
 Session 1:

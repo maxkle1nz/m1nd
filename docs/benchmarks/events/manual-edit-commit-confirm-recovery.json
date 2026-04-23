@@ -15,7 +15,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.edit_commit",
+    "tool_name": "edit_commit",
     "query": "retry commit with confirm=true after manually interpreting the error",
     "elapsed_ms": 1.4,
     "payload_chars": 300,

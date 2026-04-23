@@ -17,20 +17,20 @@ This replaces grep, glob, and blind file reads with graph-aware queries that cos
 
 ```
 You have m1nd available via MCP. Use it BEFORE grep, glob, or file reads:
-- m1nd.search(mode="literal") replaces grep — finds exact strings with graph context
-- m1nd.activate replaces glob — finds related code by meaning, not filename
-- m1nd.surgical_context_v2 replaces Read — returns source + all connected files in one call
-- m1nd.impact replaces manual dependency checking — shows blast radius before edits
-- m1nd.apply replaces Edit — writes code and auto-updates the graph
-- m1nd.help() — call when unsure which tool to use
+- search(mode="literal") replaces grep — finds exact strings with graph context
+- activate replaces glob — finds related code by meaning, not filename
+- surgical_context_v2 replaces Read — returns source + all connected files in one call
+- impact replaces manual dependency checking — shows blast radius before edits
+- apply replaces Edit — writes code and auto-updates the graph
+- help() — call when unsure which tool to use
 ```
 
 **First session workflow:**
 
 ```
-m1nd.ingest(path="/your/project")   → build the graph (910ms for 335 files)
-m1nd.activate(query="your topic")   → find what's relevant
-m1nd.learn(feedback="correct")      → train the graph on useful results
+ingest(path="/your/project")   → build the graph (910ms for 335 files)
+activate(query="your topic")   → find what's relevant
+learn(feedback="correct")      → train the graph on useful results
 ```
 
 After this, the graph knows your codebase. Every subsequent query is faster and more relevant.
@@ -41,7 +41,7 @@ For detailed configuration (Claude Code, Cursor, Windsurf, etc.), see the [Getti
 
 ## Table of Contents
 
-1. [For AI Agents](#1-for-ai-agents)
+1. [For Coding Agents](#1-for-coding-agents)
 2. [For Human Developers](#2-for-human-developers)
 3. [For CI/CD Pipelines](#3-for-cicd-pipelines)
 4. [For Security Audits](#4-for-security-audits)
@@ -53,9 +53,9 @@ For detailed configuration (Claude Code, Cursor, Windsurf, etc.), see the [Getti
 
 ---
 
-## 1. For AI Agents
+## 1. For Coding Agents
 
-AI agents are m1nd's primary audience. The tools are designed for machine speed, machine precision,
+Coding agents are m1nd's primary audience. The tools are designed for machine speed, machine precision,
 and machine-native interfaces (MCP, JSON, graph topology). No GUIs. No guessing.
 
 ### 1.1 System-Wide Bug Hunt

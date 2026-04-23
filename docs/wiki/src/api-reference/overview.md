@@ -2,6 +2,8 @@
 
 m1nd exposes the live MCP tool surface over JSON-RPC 2.0 via stdio. Every tool requires `agent_id` as a parameter. The exported MCP schema uses underscore-based canonical names such as `trail_resume`, `perspective_start`, and `apply_batch`. Use `tools/list` for the exact count in your current build.
 
+The grouped pages below still keep historical prefixed anchors for stable links, but executable `tools/call` examples use the canonical bare names returned by `tools/list`.
+
 Several tools now do more than return raw results. On the main structural flows you should expect some combination of:
 
 - `proof_state`
@@ -205,11 +207,10 @@ The server auto-detects which mode each incoming message uses and responds in th
 
 ## Tool Name Normalization
 
-The exported MCP schema uses underscore-based canonical names, but the server still accepts legacy dotted and underscored aliases when possible:
+The exported MCP schema uses underscore-based canonical names, but the server still accepts legacy transport aliases when possible:
 
 - `activate` is canonical
-- `m1nd.activate` is accepted as a compatibility alias
-- `m1nd_activate` is also accepted where normalization applies
+- transport-prefixed aliases are accepted where normalization applies
 
 If you are generating tool calls from an MCP client, prefer the canonical schema names returned by `tools/list`.
 
@@ -229,7 +230,7 @@ Response:
   "id": 0,
   "result": {
     "protocolVersion": "2024-11-05",
-    "serverInfo": { "name": "m1nd-mcp", "version": "0.6.1" },
+    "serverInfo": { "name": "m1nd-mcp", "version": "0.8.0" },
     "capabilities": { "tools": {} }
   }
 }

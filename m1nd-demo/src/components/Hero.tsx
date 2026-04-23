@@ -109,7 +109,7 @@ export function Hero() {
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            m1nd is the software intelligence layer for AI agents. It makes code, docs, and change operable as one system before the agent disappears into grep loops, blind edits, and context waste.
+            m1nd is operational intelligence for coding agents. It gives an agent a local system for structure, docs, change, and continuity before it disappears into grep loops, blind edits, and context waste.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">

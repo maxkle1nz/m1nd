@@ -325,7 +325,7 @@ fn propagate_with_mask(
         .filter(|(i, &v)| v > 0.0 && !mask.is_node_removed(NodeId::new(*i as u32)))
         .map(|(i, &v)| (NodeId::new(i as u32), FiniteF32::new(v)))
         .collect();
-    scores.sort_by(|a, b| b.1.cmp(&a.1));
+    scores.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
     Ok(scores)
 }
@@ -605,7 +605,7 @@ impl CounterfactualEngine {
                 (i, range.end - range.start)
             })
             .collect();
-        candidates.sort_by(|a, b| b.1.cmp(&a.1));
+        candidates.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         candidates.truncate(self.keystone_top_n * 2);
 
         for (node_idx, _) in &candidates {

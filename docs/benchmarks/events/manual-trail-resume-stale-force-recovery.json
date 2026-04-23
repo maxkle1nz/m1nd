@@ -15,7 +15,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.trail_resume",
+    "tool_name": "trail_resume",
     "query": "retry trail_resume with force=true after manual stale-trail check",
     "elapsed_ms": 1.6,
     "payload_chars": 340,

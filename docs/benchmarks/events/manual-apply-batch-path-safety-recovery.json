@@ -15,7 +15,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.apply_batch",
+    "tool_name": "apply_batch",
     "query": "retry apply_batch inside workspace root",
     "target": "m1nd-mcp/tests/test_surgical_v2.rs",
     "elapsed_ms": 150.0,

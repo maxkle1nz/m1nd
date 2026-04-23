@@ -617,9 +617,9 @@ export default makeScene2D(function* (view) {
   yield* waitFor(0.15);
   yield* cursor2().opacity(1, 0.02, linear);
 
-  // --- Frame 255-285 (8.5-9.5s): Type m1nd.activate ---
+  // --- Frame 255-285 (8.5-9.5s): Type activate ---
   prompt2().opacity(1);
-  const m1ndCmd = 'm1nd.activate("authentication")';
+  const m1ndCmd = 'activate("authentication")';
 
   // Type with two styles: "m1nd" in bold signal, rest normal
   // We use a single Txt and style via the whole string — the signal green is already set

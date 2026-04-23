@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.perspective_follow",
+    "tool_name": "perspective_follow",
     "query": "follow a perspective route into a leaf with no downstream routes",
     "elapsed_ms": 1.4,
     "payload_chars": 260,
@@ -15,7 +15,7 @@
     "notes": "The dead-end diagnostic preserves investigation state and teaches the next recovery surface instead of forcing a fresh `perspective_start`."
   },
   {
-    "tool_name": "m1nd.perspective_suggest",
+    "tool_name": "perspective_suggest",
     "query": "recover after perspective dead_end",
     "elapsed_ms": 1.1,
     "payload_chars": 240,
@@ -27,7 +27,7 @@
     "notes": "Suggest collapses the recovery choice into one explicit action instead of leaving the agent to infer whether to back out or restart."
   },
   {
-    "tool_name": "m1nd.perspective_back",
+    "tool_name": "perspective_back",
     "query": "restore previous focus after dead-end",
     "elapsed_ms": 1.3,
     "payload_chars": 320,

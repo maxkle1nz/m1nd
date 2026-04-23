@@ -180,7 +180,7 @@ impl QueryMemory {
             .filter(|(_, s)| s.get() > 0.01)
             .collect();
 
-        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         results.truncate(50); // Cap priming signals
         results
     }

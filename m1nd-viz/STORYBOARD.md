@@ -168,7 +168,7 @@ Each line is `#64748B`, 16px `Inter`. The `--` comments after each are `#EF4444`
 
 **Frame 255-285 (8.5-9.5s)**: Characters type out:
 ```
-$ m1nd.activate("authentication")
+$ activate("authentication")
 ```
 
 Typing speed: same 40ms per character. But this time, the command text is `#00E5A0` (Signal green) instead of terminal green. It's subtly different -- warmer, more alive. The `m1nd` portion is `#00E5A0` at `fontWeight: 700`. The rest is 400.
@@ -781,7 +781,7 @@ declare function sceneTheCost(ctx: SceneContext): Generator;
 
 declare function sceneTheCommand(ctx: SceneContext): Generator;
 //  - Duration: 2.0s
-//  - Creates: cursor, m1nd.activate command
+//  - Creates: cursor, activate command
 //  - Leaves on screen: fading command (transitions into Scene 4)
 
 declare function sceneTheBrainWakes(ctx: SceneContext): Generator;
@@ -877,7 +877,7 @@ declare function generateGraph(
        grep output, token/cost counters, "what did it miss?"
 
 0:08 ━━━ THE COMMAND ━━━━━━━━━━━━ 0:10
-       m1nd.activate typed
+       activate typed
 
 0:10 ━━━ THE BRAIN WAKES ━━━━━━━━ 0:15
        graph materializes, 4D activation, ghost edges, 31ms badge

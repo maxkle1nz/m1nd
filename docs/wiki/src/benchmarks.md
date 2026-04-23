@@ -25,7 +25,7 @@ That matters because some of m1nd’s strongest wins are continuity, repair, and
 
 The current recorded aggregate warm-graph corpus shows:
 
-| Metric | Manual | `m1nd_warm` | Result |
+| Metric | Manual | `warm` | Result |
 |--------|--------|-------------|--------|
 | Aggregate token proxy | `10518` | `5182` | `50.73%` reduction |
 | False starts | `14` | `0` | m1nd eliminates the recorded false starts |

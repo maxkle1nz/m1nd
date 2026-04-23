@@ -15,7 +15,7 @@
 ### D1: Tool count strategy
 ORACLE-VISION says "don't add tools, extend existing ones."
 ADVERSARY says "deprecate seek in favor of search."
-**DECISION:** Create `m1nd.search` with 3 modes (literal/regex/semantic). Keep `seek` as alias that calls `search(mode="semantic")`. Net new tools: search, help, panoramic, efficiency = 4 new. Fix perspective = 0 new. Total: 56 → 60.
+**DECISION:** Create `search` with 3 modes (literal/regex/semantic). Keep `seek` as alias that calls `search(mode="semantic")`. Net new tools: search, help, panoramic, efficiency = 4 new. Fix perspective = 0 new. Total: 56 → 60.
 
 ### D2: Personality in responses
 Max said: "o m1nd tem que ter personalidade, identidade visual, calor nas respostas."
@@ -196,7 +196,7 @@ Each glyph IS a core concept of m1nd. Use these in:
 
 Example help header:
 ```
-⍌ SIGNAL  |  m1nd.activate
+⍌ SIGNAL  |  activate
 spreading activation query — fire signal into the graph
 ```
 
@@ -270,7 +270,7 @@ Style: `font-family: monospace; color: #00E5A0; text-transform: uppercase; lette
 ```
 
 ### BUILD MUST USE these colors/icons in:
-1. `m1nd.help` output — category icons, dimension colors, ANSI formatting
+1. `help` output — category icons, dimension colors, ANSI formatting
 2. `_m1nd.personality` — tone matches the landing page voice (direct, warm, technical)
 3. `m1nd.report` — numbered sections like the 12 disciplines (monospace, green, uppercase headers)
 4. `m1nd.panoramic` — risk levels use red/yellow/green from the palette

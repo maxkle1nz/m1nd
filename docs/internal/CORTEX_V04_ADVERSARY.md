@@ -10,10 +10,10 @@ Identified **42 failure modes** across 6 tools, with **11 must-fix-before-shippi
 
 ---
 
-## TOOL 1: m1nd.search (literal + regex + semantic)
+## TOOL 1: search (literal + regex + semantic)
 
 ### Context
-Existing `m1nd.seek` already does fuzzy tokenized search on node labels/ids. `m1nd.search` adds literal substring, regex, and semantic modes. The question: does it overlap `seek` enough to confuse agents? And what breaks?
+Existing `seek` already does fuzzy tokenized search on node labels/ids. `search` adds literal substring, regex, and semantic modes. The question: does it overlap `seek` enough to confuse agents? And what breaks?
 
 ### Failure Modes
 
@@ -35,7 +35,7 @@ S1 and S2 are must-fix. S3 should be resolved at design level (deprecate seek or
 
 ---
 
-## TOOL 2: m1nd.help (self-documenting)
+## TOOL 2: help (self-documenting)
 
 ### Context
 Returns tool documentation. Currently, tool schemas are in `fn tool_schemas()` in server.rs (line ~790+). Help must read from the same source or risk drift.

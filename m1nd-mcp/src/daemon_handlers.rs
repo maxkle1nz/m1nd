@@ -591,7 +591,7 @@ pub fn handle_daemon_tick(
         }
     }
 
-    changed_entries.sort_by(|a, b| b.last_modified_ms.cmp(&a.last_modified_ms));
+    changed_entries.sort_by_key(|entry| std::cmp::Reverse(entry.last_modified_ms));
     changed_entries.truncate(input.max_files);
 
     let mut ingested_files = Vec::new();
@@ -1468,7 +1468,7 @@ mod tests {
         assert_eq!(state.daemon_state.watch_backend, "git_native_fs");
         assert_eq!(ticked["status"], "deferred");
         assert_eq!(ticked["files_reingested"], 0);
-        assert_eq!(state.daemon_state.git_operation_in_progress, true);
+        assert!(state.daemon_state.git_operation_in_progress);
         assert_eq!(
             state.daemon_state.git_operation_kind.as_deref(),
             Some("merge")

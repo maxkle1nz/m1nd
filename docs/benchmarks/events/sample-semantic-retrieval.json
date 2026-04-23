@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.seek",
+    "tool_name": "seek",
     "query": "Where do we normalize alias tool names into the canonical dispatch status name?",
     "elapsed_ms": 0.742,
     "payload_chars": 480,
@@ -9,7 +9,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/src/server.rs",
     "elapsed_ms": 0.411,
     "payload_chars": 920,

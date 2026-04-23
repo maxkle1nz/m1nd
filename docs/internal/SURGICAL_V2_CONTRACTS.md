@@ -43,7 +43,7 @@ updates the graph once instead of N times.
 | **Relevance scoring** | Edge weight × recency × co-change frequency | Combines structural + temporal + statistical signals |
 | **Batch atomicity** | `atomic: bool` default true, write-to-tmp-then-rename all | Crash-safe: either all files are updated or none |
 | **Batch re-ingest** | Single bulk re-ingest after all writes | Avoids N separate finalize passes |
-| **V2 dispatch routing** | Same `dispatch_core_tool` match, new names `m1nd.surgical.context.v2` and `m1nd.apply.batch` | Follows existing convention, no new prefix router needed |
+| **V2 dispatch routing** | Same `dispatch_core_tool` match, new names `surgical_context_v2` and `apply_batch` | Follows existing convention, no new prefix router needed |
 
 ---
 
@@ -51,10 +51,10 @@ updates the graph once instead of N times.
 
 ```rust
 // =========================================================================
-// m1nd.surgical.context.v2 — connected-source expansion
+// surgical_context_v2 — connected-source expansion
 // =========================================================================
 
-/// Input for m1nd.surgical.context.v2.
+/// Input for surgical_context_v2.
 ///
 /// Extends V1 surgical_context with multi-file source fetching.
 /// Returns the target file's full context (V1 output) PLUS source code
@@ -95,7 +95,7 @@ pub struct SurgicalContextV2Input {
 fn default_max_connected_files() -> usize { 10 }
 fn default_max_lines_per_file() -> u32 { 500 }
 
-/// Output for m1nd.surgical.context.v2.
+/// Output for surgical_context_v2.
 ///
 /// Strict superset of V1: `primary` is the exact `SurgicalContextOutput`
 /// from V1. `connected_files` adds source code for the neighbourhood.
@@ -137,10 +137,10 @@ pub struct ConnectedFileContext {
 }
 
 // =========================================================================
-// m1nd.apply.batch — atomic multi-file apply
+// apply_batch — atomic multi-file apply
 // =========================================================================
 
-/// Input for m1nd.apply.batch.
+/// Input for apply_batch.
 ///
 /// Writes multiple files atomically and triggers a single bulk re-ingest.
 /// If `atomic` is true (default), all files must be writable or none are written.
@@ -175,7 +175,7 @@ pub struct SingleEdit {
     pub label: Option<String>,
 }
 
-/// Output for m1nd.apply.batch.
+/// Output for apply_batch.
 #[derive(Clone, Debug, Serialize)]
 pub struct ApplyBatchOutput {
     /// Per-file results, in the same order as input `edits`.
@@ -299,7 +299,7 @@ pub struct SingleEditResult {
 
 ```json
 {
-    "name": "m1nd.apply_batch",
+    "name": "apply_batch",
     "description": "Atomically write multiple files and trigger a single bulk re-ingest. Use after m1nd.surgical_context_v2 when editing a file and its callers/tests together. All-or-nothing by default.",
     "inputSchema": {
         "type": "object",
@@ -358,12 +358,12 @@ pub struct SingleEditResult {
 
 ```rust
 // Add to dispatch_core_tool(), in the match block, AFTER the existing
-// "m1nd.surgical.context" and "m1nd.apply" arms:
+// "surgical_context" and "apply" arms:
 
         // -----------------------------------------------------------------
         // Surgical V2: context_v2 + apply_batch
         // -----------------------------------------------------------------
-        "m1nd.surgical.context.v2" => {
+        "surgical_context_v2" => {
             let input: crate::protocol::surgical::SurgicalContextV2Input =
                 serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
                     tool: "m1nd.surgical_context_v2".into(),
@@ -372,10 +372,10 @@ pub struct SingleEditResult {
             let output = surgical_handlers::handle_surgical_context_v2(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
-        "m1nd.apply.batch" => {
+        "apply_batch" => {
             let input: crate::protocol::surgical::ApplyBatchInput =
                 serde_json::from_value(params.clone()).map_err(|e| M1ndError::InvalidParams {
-                    tool: "m1nd.apply_batch".into(),
+                    tool: "apply_batch".into(),
                     detail: e.to_string(),
                 })?;
             let output = surgical_handlers::handle_apply_batch(state, input)?;
@@ -386,7 +386,7 @@ pub struct SingleEditResult {
 ### 2. Tool schema registration
 
 Add the two JSON schema objects above to the `tool_schemas()` array in `server.rs`,
-after the existing `m1nd.apply` schema entry.
+after the existing `apply` schema entry.
 
 ---
 
@@ -558,10 +558,10 @@ pub fn handle_surgical_context_v2(
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.apply_batch handler
+// apply_batch handler
 // ---------------------------------------------------------------------------
 
-/// Handle m1nd.apply_batch.
+/// Handle apply_batch.
 ///
 /// Writes multiple files atomically and triggers a single bulk re-ingest.
 ///
@@ -793,8 +793,8 @@ No new Cargo.toml dependencies required for V2. The V2 handlers reuse existing:
 - [ ] Add error variants to `m1nd-core/src/error.rs` (ApplyBatchAtomicFailure, ApplyBatchEmptyEdits, ConnectedFileReadFailed)
 - [ ] Add `handle_surgical_context_v2()` to `m1nd-mcp/src/surgical_handlers.rs`
 - [ ] Add `handle_apply_batch()` to `m1nd-mcp/src/surgical_handlers.rs`
-- [ ] Add `"m1nd.surgical.context.v2"` match arm to `dispatch_core_tool()` in `server.rs`
-- [ ] Add `"m1nd.apply.batch"` match arm to `dispatch_core_tool()` in `server.rs`
+- [ ] Add `"surgical_context_v2"` match arm to `dispatch_core_tool()` in `server.rs`
+- [ ] Add `"apply_batch"` match arm to `dispatch_core_tool()` in `server.rs`
 - [ ] Add JSON schemas to `tool_schemas()` array in `server.rs`
 - [ ] Tests: V2 context returns connected sources with correct relation labels
 - [ ] Tests: V2 context respects max_connected_files cap

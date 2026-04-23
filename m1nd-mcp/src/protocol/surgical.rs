@@ -1,6 +1,6 @@
 // === m1nd-mcp/src/protocol/surgical.rs ===
 //
-// Input/Output types for m1nd.surgical_context and m1nd.apply.
+// Input/Output types for surgical_context and apply.
 //
 // Conventions (matching core.rs / layers.rs / perspective.rs):
 //   - Input:  #[derive(Clone, Debug, Deserialize)]
@@ -164,10 +164,10 @@ pub struct SurgicalNeighbour {
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.apply
+// apply
 // ---------------------------------------------------------------------------
 
-/// Input for m1nd.apply.
+/// Input for apply.
 ///
 /// Writes new file contents to disk and triggers an incremental re-ingest
 /// so the graph stays coherent with the updated source.
@@ -187,7 +187,7 @@ pub struct ApplyInput {
     pub reingest: bool,
 }
 
-/// Output for m1nd.apply.
+/// Output for apply.
 #[derive(Clone, Debug, Serialize)]
 pub struct ApplyOutput {
     /// Absolute path that was written.
@@ -386,7 +386,7 @@ pub struct SurgicalContextV2Output {
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.apply_batch
+// apply_batch
 // ---------------------------------------------------------------------------
 
 /// A single file edit within an apply_batch request.
@@ -419,7 +419,7 @@ pub struct BatchEditResult {
     pub error: Option<String>,
 }
 
-/// Input for m1nd.apply_batch.
+/// Input for apply_batch.
 ///
 /// Writes multiple files atomically: either ALL succeed or NONE are written
 /// (rollback on partial failure when atomic=true).
@@ -442,7 +442,7 @@ pub struct ApplyBatchInput {
     pub verify: bool,
 }
 
-/// Output for m1nd.apply_batch.
+/// Output for apply_batch.
 #[derive(Clone, Debug, Serialize)]
 pub struct ApplyBatchOutput {
     /// Stable identifier for correlating final output with live progress events.
@@ -625,10 +625,10 @@ pub struct BlastRadiusEntry {
 }
 
 // ---------------------------------------------------------------------------
-// m1nd.view — lightweight file reader
+// view — lightweight file reader
 // ---------------------------------------------------------------------------
 
-/// Input for m1nd.view.
+/// Input for view.
 ///
 /// Simple, fast file reading — replaces View/cat/head/tail.
 /// No graph traversal, just reads the file and returns content with line numbers.
@@ -653,7 +653,7 @@ pub struct ViewInput {
     pub max_output_chars: Option<usize>,
 }
 
-/// Output for m1nd.view.
+/// Output for view.
 #[derive(Clone, Debug, Serialize)]
 pub struct ViewOutput {
     /// Absolute path of the file (resolved).

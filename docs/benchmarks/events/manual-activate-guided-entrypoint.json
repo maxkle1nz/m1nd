@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.activate",
+    "tool_name": "activate",
     "query": "guided runtime contract",
     "elapsed_ms": 2.1,
     "payload_chars": 420,
@@ -11,7 +11,7 @@
     "notes": "Manual flow still needs an extra file-selection step after activation."
   },
   {
-    "tool_name": "m1nd.search",
+    "tool_name": "search",
     "query": "proof_state next_suggested_tool next_step_hint",
     "elapsed_ms": 2.0,
     "payload_chars": 440,
@@ -23,7 +23,7 @@
     ]
   },
   {
-    "tool_name": "m1nd.view",
+    "tool_name": "view",
     "target": "m1nd-mcp/src/search_handlers.rs",
     "elapsed_ms": 1.0,
     "payload_chars": 500,

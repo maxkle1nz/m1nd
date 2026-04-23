@@ -346,7 +346,7 @@ pub struct ToolDoc {
     pub next: &'static [&'static str],
 }
 
-fn when_to_use(tool_name: &str) -> &'static [&'static str] {
+pub(crate) fn when_to_use(tool_name: &str) -> &'static [&'static str] {
     match tool_name {
         "search" => &[
             "Use when you already know the text, regex, or exact identifier you want.",
@@ -437,7 +437,7 @@ fn when_to_use(tool_name: &str) -> &'static [&'static str] {
     }
 }
 
-fn avoid_when(tool_name: &str) -> &'static [&'static str] {
+pub(crate) fn avoid_when(tool_name: &str) -> &'static [&'static str] {
     match tool_name {
         "search" => &[
             "Avoid when the problem is structural and you do not know the right text yet.",
@@ -577,7 +577,7 @@ fn agent_notes(tool_name: &str) -> &'static [&'static str] {
     }
 }
 
-fn error_recovery_notes(tool_name: &str) -> &'static [&'static str] {
+pub(crate) fn error_recovery_notes(tool_name: &str) -> &'static [&'static str] {
     match tool_name {
         "search" => &[
             "If search says scope/path is wrong, retry with a graph-relative scope or let auto-ingest resolve the path first.",
@@ -2163,7 +2163,7 @@ pub fn format_help_index(show_temponizer: bool) -> String {
         "{}common errors should be treated as reroute hints: read the hint, example, and next-step guidance before retrying.{}\n",
         ANSI_DIM, ANSI_RESET
     ));
-    out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — m1nd.help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("{}tip: if you're unsure which tool to use, describe what you need — help can suggest the right one.{}\n", ANSI_DIM, ANSI_RESET));
     if show_temponizer {
         out.push('\n');
         out.push_str(&format!(
@@ -2321,69 +2321,70 @@ pub fn format_tool_help(doc: &ToolDoc) -> String {
 
 /// Format the "about" help -- m1nd's philosophy and identity.
 pub fn format_about() -> String {
-    let width = 60;
+    let width = 72;
     let mut out = String::new();
 
     out.push_str(&gradient_top_border(width));
     out.push('\n');
     out.push_str(&format!("{}{}  m1nd{}\n", ANSI_BOLD, ANSI_CYAN, ANSI_RESET));
     out.push_str(&format!(
-        "{}  neuro-symbolic code graph engine{}\n\n",
+        "{}  operational intelligence for coding agents{}\n\n",
         ANSI_DIM, ANSI_RESET
     ));
 
     out.push_str(&format!(
-        "{}  created by Max Kleinschmidt{}\n",
-        ANSI_GREEN, ANSI_RESET
+        "{}  A local intelligence layer for coding agents.{}\n",
+        ANSI_DIM, ANSI_RESET
     ));
     out.push_str(&format!(
-        "{}  cosmophonix / ROOMANIZER OS{}\n\n",
+        "{}  It turns code, docs, history, runtime signals, and graph-native knowledge{}\n",
+        ANSI_DIM, ANSI_RESET
+    ));
+    out.push_str(&format!(
+        "{}  into a local system an agent can reason over before, during, and after change.{}\n\n",
         ANSI_DIM, ANSI_RESET
     ));
 
     out.push_str(&format!(
-        "{}  4 letters = 4 dimensions:{}\n",
+        "{}  WHAT THAT INTELLIGENCE COVERS{}\n",
         ANSI_BOLD, ANSI_RESET
     ));
     out.push_str(&format!(
-        "  {}M{} = {}STRUCTURAL{} (who calls who)\n",
-        ANSI_BLUE, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}1{} = {}TEMPORAL{} (what changed together)\n",
-        ANSI_GOLD, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}N{} = {}CAUSAL{} (what broke when this changed)\n",
-        ANSI_MAGENTA, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
-    out.push_str(&format!(
-        "  {}D{} = {}SEMANTIC{} (naming patterns)\n\n",
-        ANSI_BLUE, ANSI_RESET, ANSI_DIM, ANSI_RESET
-    ));
-
-    out.push_str(&format!(
-        "{}  12 disciplines from neuroscience to epidemiology.{}\n",
+        "  {}- structure:{} retrieval, neighborhoods, routes, type flow, layers\n",
         ANSI_DIM, ANSI_RESET
     ));
     out.push_str(&format!(
-        "{}  zero tokens burned. zero API cost. all local Rust.{}\n",
+        "  {}- change:{} blast radius, co-change, validation, edit prep, execution\n",
         ANSI_DIM, ANSI_RESET
     ));
     out.push_str(&format!(
-        "{}  every query makes the graph smarter.{}\n\n",
+        "  {}- docs:{} universal ingest, L1GHT, bindings, drift, provider health\n",
+        ANSI_DIM, ANSI_RESET
+    ));
+    out.push_str(&format!(
+        "  {}- operations:{} audits, verification, daemons, alerts, overlays, reports\n",
+        ANSI_DIM, ANSI_RESET
+    ));
+    out.push_str(&format!(
+        "  {}- continuity:{} perspectives, trails, coverage, boot memory, handoffs\n\n",
         ANSI_DIM, ANSI_RESET
     ));
 
+    out.push_str(&format!("{}  RUNTIME{}\n", ANSI_BOLD, ANSI_RESET));
+    out.push_str(&format!("  {}- local execution{}\n", ANSI_DIM, ANSI_RESET));
+    out.push_str(&format!("  {}- MCP over stdio{}\n", ANSI_DIM, ANSI_RESET));
     out.push_str(&format!(
-        "{}  {} SIGNAL  {} PATH  {} STRUCTURE  {} DIMENSION  {} CONNECTION{}\n",
-        ANSI_DIM,
-        GLYPH_SIGNAL,
-        GLYPH_PATH,
-        GLYPH_STRUCTURE,
-        GLYPH_DIMENSION,
-        GLYPH_CONNECTION,
-        ANSI_RESET
+        "  {}- optional HTTP/UI surface in the default build{}\n\n",
+        ANSI_DIM, ANSI_RESET
+    ));
+
+    out.push_str(&format!(
+        "{}  call help(tool_name=\"activate\") for exact tool doctrine{}\n",
+        ANSI_DIM, ANSI_RESET
+    ));
+    out.push_str(&format!(
+        "{}  call help(stage=\"plan\", intent=\"validate a risky change\") for routing{}\n",
+        ANSI_DIM, ANSI_RESET
     ));
 
     out.push_str(&gradient_bottom_border(width));

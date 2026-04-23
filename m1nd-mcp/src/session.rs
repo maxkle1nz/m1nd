@@ -452,6 +452,7 @@ impl SessionState {
                 .unwrap_or(std::path::Path::new("."))
                 .to_path_buf()
         });
+        std::fs::create_dir_all(&runtime_root)?;
         let workspace_root = config
             .graph_source
             .parent()

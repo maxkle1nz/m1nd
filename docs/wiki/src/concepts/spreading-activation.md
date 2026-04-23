@@ -218,6 +218,6 @@ The result tells the agent: start with `auth.py`, then examine `session.py` and 
 
 ## What this means in practice
 
-An agent calling `m1nd.activate("authentication")` gets back a ranked list of the 20 most relevant nodes in 31ms. It does not need to know file names, directory structure, or grep patterns. The activation pattern encodes structural proximity, naming affinity, temporal relevance, and causal relationships -- fused into a single score.
+An agent calling `activate("authentication")` gets back a ranked list of the 20 most relevant nodes in 31ms. It does not need to know file names, directory structure, or grep patterns. The activation pattern encodes structural proximity, naming affinity, temporal relevance, and causal relationships -- fused into a single score.
 
-Over time, as the agent provides feedback via `m1nd.learn`, the edge weights shift through Hebbian plasticity (see [Hebbian Plasticity](hebbian-plasticity.md)). The paths that led to useful results strengthen. The paths that led to noise weaken. The same query tomorrow will produce better results.
+Over time, as the agent provides feedback via `learn`, the edge weights shift through Hebbian plasticity (see [Hebbian Plasticity](hebbian-plasticity.md)). The paths that led to useful results strengthen. The paths that led to noise weaken. The same query tomorrow will produce better results.

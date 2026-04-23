@@ -254,7 +254,7 @@ impl ActivationEngine for WavefrontEngine {
             .filter(|(_, &v)| v > 0.0)
             .map(|(i, &v)| (NodeId::new(i as u32), FiniteF32::new(v)))
             .collect();
-        scores.sort_by(|a, b| b.1.cmp(&a.1));
+        scores.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
         Ok(DimensionResult {
             scores,
@@ -403,7 +403,7 @@ impl ActivationEngine for HeapEngine {
             .filter(|(_, &v)| v > 0.0)
             .map(|(i, &v)| (NodeId::new(i as u32), FiniteF32::new(v)))
             .collect();
-        scores.sort_by(|a, b| b.1.cmp(&a.1));
+        scores.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
         Ok(DimensionResult {
             scores,
@@ -523,7 +523,7 @@ pub fn activate_temporal(
             scores.push((node, FiniteF32::new(combined)));
         }
     }
-    scores.sort_by(|a, b| b.1.cmp(&a.1));
+    scores.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
     Ok(DimensionResult {
         scores,
@@ -657,7 +657,7 @@ pub fn activate_causal(
         .filter(|(_, &v)| v > 0.0)
         .map(|(i, &v)| (NodeId::new(i as u32), FiniteF32::new(v)))
         .collect();
-    scores.sort_by(|a, b| b.1.cmp(&a.1));
+    scores.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 
     Ok(DimensionResult {
         scores,
@@ -752,7 +752,7 @@ pub fn merge_dimensions(
         .collect();
 
     // Sort descending, truncate to top_k
-    activated.sort_by(|a, b| b.activation.cmp(&a.activation));
+    activated.sort_by_key(|entry| std::cmp::Reverse(entry.activation));
     activated.truncate(top_k);
 
     Ok(ActivationResult {

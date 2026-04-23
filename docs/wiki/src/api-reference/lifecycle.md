@@ -4,8 +4,9 @@ This page covers graph ingestion, document runtime operations, health monitoring
 
 ---
 
-## `m1nd.ingest`
+<a id="m1ndingest"></a>
 
+## `ingest`
 Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the graph. This is the primary way to load data into m1nd. It now supports code-first, structured-document, and universal document adapters.
 
 ### Parameters
@@ -27,7 +28,7 @@ Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the g
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.ingest",
+    "name": "ingest",
     "arguments": {
       "agent_id": "jimi",
       "path": "/Users/cosmophonix/clawd/roomanizer-os/backend",
@@ -75,7 +76,7 @@ Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the g
 - **Session start** -- ingest the codebase if the graph is empty or stale
 - **After code changes** -- re-ingest incrementally to update the graph
 - **Multi-source** -- merge a memory corpus into a code graph for cross-domain queries
-- **Federation preparation** -- use `m1nd.federate` instead for multi-repo ingestion
+- **Federation preparation** -- use `federate` instead for multi-repo ingestion
 
 ### Side Effects
 
@@ -84,16 +85,17 @@ Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the g
 
 ### Related Tools
 
-- [`m1nd.health`](#m1ndhealth) -- check graph status before deciding to ingest
-- [`m1nd.drift`](memory.md#m1nddrift) -- see what changed since last session
-- [`m1nd.federate`](exploration.md#m1ndfederate) -- multi-repo ingestion
-- [`m1nd.document_resolve`](#m1nddocument_resolve) -- resolve canonical artifacts for a universal document
-- [`m1nd.auto_ingest_start`](#m1ndauto_ingest_start) -- keep document roots synchronized after ingest
+- [`health`](#m1ndhealth) -- check graph status before deciding to ingest
+- [`drift`](memory.md#m1nddrift) -- see what changed since last session
+- [`federate`](exploration.md#m1ndfederate) -- multi-repo ingestion
+- [`document_resolve`](#m1nddocument_resolve) -- resolve canonical artifacts for a universal document
+- [`auto_ingest_start`](#m1ndauto_ingest_start) -- keep document roots synchronized after ingest
 
 ---
 
-## `m1nd.document_resolve`
+<a id="m1nddocument_resolve"></a>
 
+## `document_resolve`
 Resolve the canonical local artifact set for a universally ingested document by source path or universal node id.
 
 ### Parameters
@@ -112,7 +114,7 @@ Resolve the canonical local artifact set for a universally ingested document by 
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.document_resolve",
+    "name": "document_resolve",
     "arguments": {
       "agent_id": "jimi",
       "path": "docs/specs/auth.md"
@@ -144,13 +146,14 @@ Resolve the canonical local artifact set for a universally ingested document by 
 
 ### Related Tools
 
-- [`m1nd.document_bindings`](#m1nddocument_bindings)
-- [`m1nd.document_drift`](#m1nddocument_drift)
+- [`document_bindings`](#m1nddocument_bindings)
+- [`document_drift`](#m1nddocument_drift)
 
 ---
 
-## `m1nd.document_provider_health`
+<a id="m1nddocument_provider_health"></a>
 
+## `document_provider_health`
 Report availability, mode, detail, and install hints for optional universal-document providers.
 
 ### Parameters
@@ -179,13 +182,14 @@ Report availability, mode, detail, and install hints for optional universal-docu
 
 ### Related Tools
 
-- [`m1nd.ingest`](#m1ndingest)
-- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+- [`ingest`](#m1ndingest)
+- [`auto_ingest_status`](#m1ndauto_ingest_status)
 
 ---
 
-## `m1nd.document_bindings`
+<a id="m1nddocument_bindings"></a>
 
+## `document_bindings`
 Resolve deterministic document-to-code bindings for a universal document.
 
 ### Parameters
@@ -223,13 +227,14 @@ Resolve deterministic document-to-code bindings for a universal document.
 
 ### Related Tools
 
-- [`m1nd.document_resolve`](#m1nddocument_resolve)
-- [`m1nd.document_drift`](#m1nddocument_drift)
+- [`document_resolve`](#m1nddocument_resolve)
+- [`document_drift`](#m1nddocument_drift)
 
 ---
 
-## `m1nd.document_drift`
+<a id="m1nddocument_drift"></a>
 
+## `document_drift`
 Analyze stale, missing, or ambiguous document/code bindings for a universal document.
 
 ### Example Response
@@ -256,13 +261,14 @@ Analyze stale, missing, or ambiguous document/code bindings for a universal docu
 
 ### Related Tools
 
-- [`m1nd.document_bindings`](#m1nddocument_bindings)
-- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
+- [`document_bindings`](#m1nddocument_bindings)
+- [`auto_ingest_status`](#m1ndauto_ingest_status)
 
 ---
 
-## `m1nd.auto_ingest_start`
+<a id="m1ndauto_ingest_start"></a>
 
+## `auto_ingest_start`
 Start local-first document watchers for one or more roots and supported document families.
 
 ### Parameters
@@ -283,7 +289,7 @@ Start local-first document watchers for one or more roots and supported document
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.auto_ingest_start",
+    "name": "auto_ingest_start",
     "arguments": {
       "agent_id": "jimi",
       "roots": ["/project/docs", "/project/wiki"],
@@ -294,8 +300,9 @@ Start local-first document watchers for one or more roots and supported document
 }
 ```
 
-## `m1nd.auto_ingest_status`
+<a id="m1ndauto_ingest_status"></a>
 
+## `auto_ingest_status`
 Inspect the current auto-ingest runtime, queue depth, semantic counts, provider status, and provider route/fallback counts.
 
 ### Example Response
@@ -311,8 +318,9 @@ Inspect the current auto-ingest runtime, queue depth, semantic counts, provider 
 }
 ```
 
-## `m1nd.auto_ingest_tick`
+<a id="m1ndauto_ingest_tick"></a>
 
+## `auto_ingest_tick`
 Drain queued document changes immediately and apply them to the active graph.
 
 ### Example Response
@@ -326,20 +334,22 @@ Drain queued document changes immediately and apply them to the active graph.
 }
 ```
 
-## `m1nd.auto_ingest_stop`
+<a id="m1ndauto_ingest_stop"></a>
 
+## `auto_ingest_stop`
 Stop active document watchers and persist the manifest state.
 
 ### Related Tools
 
-- [`m1nd.auto_ingest_start`](#m1ndauto_ingest_start)
-- [`m1nd.auto_ingest_status`](#m1ndauto_ingest_status)
-- [`m1nd.document_resolve`](#m1nddocument_resolve)
+- [`auto_ingest_start`](#m1ndauto_ingest_start)
+- [`auto_ingest_status`](#m1ndauto_ingest_status)
+- [`document_resolve`](#m1nddocument_resolve)
 
 ---
 
-## `m1nd.health`
+<a id="m1ndhealth"></a>
 
+## `health`
 Server health and statistics. Returns node/edge counts, query count, uptime, memory usage, plasticity state, and active sessions.
 
 ### Parameters
@@ -356,7 +366,7 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.health",
+    "name": "health",
     "arguments": {
       "agent_id": "jimi"
     }
@@ -390,13 +400,14 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 
 ### Related Tools
 
-- [`m1nd.ingest`](#m1ndingest) -- load data if the graph is empty
-- [`m1nd.drift`](memory.md#m1nddrift) -- check what changed since last session
+- [`ingest`](#m1ndingest) -- load data if the graph is empty
+- [`drift`](memory.md#m1nddrift) -- check what changed since last session
 
 ---
 
-## `m1nd.validate_plan`
+<a id="m1ndvalidate_plan"></a>
 
+## `validate_plan`
 Validate a proposed modification plan against the code graph. Detects gaps (affected files missing from the plan), risk level, test coverage, and suggested additions. Designed to be called before implementing a plan.
 
 ### Parameters
@@ -416,7 +427,7 @@ Validate a proposed modification plan against the code graph. Detects gaps (affe
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.validate_plan",
+    "name": "validate_plan",
     "arguments": {
       "agent_id": "jimi",
       "actions": [
@@ -487,14 +498,15 @@ Validate a proposed modification plan against the code graph. Detects gaps (affe
 
 ### Related Tools
 
-- [`m1nd.impact`](analysis.md#m1ndimpact) -- blast radius for a single node
-- [`m1nd.predict`](analysis.md#m1ndpredict) -- co-change prediction for a single node
-- [`m1nd.trace`](exploration.md#m1ndtrace) -- validate a fix plan for a specific error
+- [`impact`](analysis.md#m1ndimpact) -- blast radius for a single node
+- [`predict`](analysis.md#m1ndpredict) -- co-change prediction for a single node
+- [`trace`](exploration.md#m1ndtrace) -- validate a fix plan for a specific error
 
 ---
 
-## `m1nd.lock.create`
+<a id="m1ndlockcreate"></a>
 
+## `lock_create`
 Pin a subgraph region and capture a baseline snapshot for change monitoring. Locks are used to track what changes in a region of the graph while you work. The baseline is compared against the current state when you call `lock.diff`.
 
 ### Parameters
@@ -525,7 +537,7 @@ Pin a subgraph region and capture a baseline snapshot for change monitoring. Loc
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.create",
+    "name": "lock_create",
     "arguments": {
       "agent_id": "jimi",
       "scope": "subgraph",
@@ -564,14 +576,15 @@ Pin a subgraph region and capture a baseline snapshot for change monitoring. Loc
 
 ### Related Tools
 
-- [`m1nd.lock.watch`](#m1ndlockwatch) -- set automatic change detection
-- [`m1nd.lock.diff`](#m1ndlockdiff) -- compute what changed since baseline
-- [`m1nd.lock.release`](#m1ndlockrelease) -- release the lock when done
+- [`lock_watch`](#m1ndlockwatch) -- set automatic change detection
+- [`lock_diff`](#m1ndlockdiff) -- compute what changed since baseline
+- [`lock_release`](#m1ndlockrelease) -- release the lock when done
 
 ---
 
-## `m1nd.lock.watch`
+<a id="m1ndlockwatch"></a>
 
+## `lock_watch`
 Set a watcher strategy on a lock. Watchers determine when the lock automatically detects changes. Without a watcher, you must manually call `lock.diff`.
 
 ### Parameters
@@ -590,7 +603,7 @@ Set a watcher strategy on a lock. Watchers determine when the lock automatically
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.watch",
+    "name": "lock_watch",
     "arguments": {
       "agent_id": "jimi",
       "lock_id": "lock_jimi_001",
@@ -618,13 +631,14 @@ Set a watcher strategy on a lock. Watchers determine when the lock automatically
 
 ### Related Tools
 
-- [`m1nd.lock.diff`](#m1ndlockdiff) -- manually trigger a diff (always available regardless of strategy)
-- [`m1nd.lock.create`](#m1ndlockcreate) -- create the lock first
+- [`lock_diff`](#m1ndlockdiff) -- manually trigger a diff (always available regardless of strategy)
+- [`lock_create`](#m1ndlockcreate) -- create the lock first
 
 ---
 
-## `m1nd.lock.diff`
+<a id="m1ndlockdiff"></a>
 
+## `lock_diff`
 Compute what changed in a locked region since the baseline was captured. Returns new/removed nodes, new/removed edges, weight changes, and watcher event counts. Fast-path: if the graph generation has not changed, returns immediately with `no_changes: true`.
 
 ### Parameters
@@ -642,7 +656,7 @@ Compute what changed in a locked region since the baseline was captured. Returns
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.diff",
+    "name": "lock_diff",
     "arguments": {
       "agent_id": "jimi",
       "lock_id": "lock_jimi_001"
@@ -706,13 +720,14 @@ Compute what changed in a locked region since the baseline was captured. Returns
 
 ### Related Tools
 
-- [`m1nd.lock.rebase`](#m1ndlockrebase) -- re-capture baseline after acknowledging changes
-- [`m1nd.lock.watch`](#m1ndlockwatch) -- set automatic change detection
+- [`lock_rebase`](#m1ndlockrebase) -- re-capture baseline after acknowledging changes
+- [`lock_watch`](#m1ndlockwatch) -- set automatic change detection
 
 ---
 
-## `m1nd.lock.rebase`
+<a id="m1ndlockrebase"></a>
 
+## `lock_rebase`
 Re-capture the lock baseline from the current graph without releasing the lock. Use this after calling `lock.diff` and acknowledging the changes -- the new baseline becomes the reference for future diffs.
 
 ### Parameters
@@ -730,7 +745,7 @@ Re-capture the lock baseline from the current graph without releasing the lock. 
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.rebase",
+    "name": "lock_rebase",
     "arguments": {
       "agent_id": "jimi",
       "lock_id": "lock_jimi_001"
@@ -760,13 +775,14 @@ Re-capture the lock baseline from the current graph without releasing the lock. 
 
 ### Related Tools
 
-- [`m1nd.lock.diff`](#m1ndlockdiff) -- the diff that triggers a rebase
-- [`m1nd.lock.create`](#m1ndlockcreate) -- creating a new lock is an alternative to rebasing
+- [`lock_diff`](#m1ndlockdiff) -- the diff that triggers a rebase
+- [`lock_create`](#m1ndlockcreate) -- creating a new lock is an alternative to rebasing
 
 ---
 
-## `m1nd.lock.release`
+<a id="m1ndlockrelease"></a>
 
+## `lock_release`
 Release a lock and free its resources. Removes the lock state, cleans up pending watcher events, and frees memory. Irreversible.
 
 ### Parameters
@@ -784,7 +800,7 @@ Release a lock and free its resources. Removes the lock state, cleans up pending
   "id": 8,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.lock.release",
+    "name": "lock_release",
     "arguments": {
       "agent_id": "jimi",
       "lock_id": "lock_jimi_001"
@@ -811,13 +827,14 @@ Release a lock and free its resources. Removes the lock state, cleans up pending
 
 ### Related Tools
 
-- [`m1nd.lock.create`](#m1ndlockcreate) -- create a new lock
-- [`m1nd.perspective.close`](perspectives.md#m1ndperspectiveclose) -- cascade-releases associated locks
+- [`lock_create`](#m1ndlockcreate) -- create a new lock
+- [`perspective_close`](perspectives.md#m1ndperspectiveclose) -- cascade-releases associated locks
 
 ---
 
-## `m1nd.daemon_start`
+<a id="m1nddaemon_start"></a>
 
+## `daemon_start`
 Start the persisted daemon control plane. Stores watched roots, initializes daemon counters, and begins the long-lived structural monitoring lane.
 
 ### Parameters
@@ -836,14 +853,15 @@ Start the persisted daemon control plane. Stores watched roots, initializes daem
 
 ### Related Tools
 
-- [`m1nd.daemon_status`](#m1nddaemon_status)
-- [`m1nd.daemon_tick`](#m1nddaemon_tick)
-- [`m1nd.alerts_list`](#m1ndalerts_list)
+- [`daemon_status`](#m1nddaemon_status)
+- [`daemon_tick`](#m1nddaemon_tick)
+- [`alerts_list`](#m1ndalerts_list)
 
 ---
 
-## `m1nd.daemon_stop`
+<a id="m1nddaemon_stop"></a>
 
+## `daemon_stop`
 Stop the daemon control plane without deleting persisted alert history.
 
 ### Parameters
@@ -859,13 +877,14 @@ Stop the daemon control plane without deleting persisted alert history.
 
 ### Related Tools
 
-- [`m1nd.daemon_start`](#m1nddaemon_start)
-- [`m1nd.daemon_status`](#m1nddaemon_status)
+- [`daemon_start`](#m1nddaemon_start)
+- [`daemon_status`](#m1nddaemon_status)
 
 ---
 
-## `m1nd.daemon_status`
+<a id="m1nddaemon_status"></a>
 
+## `daemon_status`
 Inspect daemon liveness and runtime counters. Returns watched roots, tracked files, recent tick metrics, and alert counts.
 
 ### Parameters
@@ -895,14 +914,15 @@ Inspect daemon liveness and runtime counters. Returns watched roots, tracked fil
 
 ### Related Tools
 
-- [`m1nd.daemon_start`](#m1nddaemon_start)
-- [`m1nd.daemon_tick`](#m1nddaemon_tick)
-- [`m1nd.alerts_list`](#m1ndalerts_list)
+- [`daemon_start`](#m1nddaemon_start)
+- [`daemon_tick`](#m1nddaemon_tick)
+- [`alerts_list`](#m1ndalerts_list)
 
 ---
 
-## `m1nd.daemon_tick`
+<a id="m1nddaemon_tick"></a>
 
+## `daemon_tick`
 Run one explicit daemon reconciliation pass. Polls watched roots, re-ingests changed files, detects deletions, and emits drift alerts.
 
 ### Parameters
@@ -930,14 +950,15 @@ Run one explicit daemon reconciliation pass. Polls watched roots, re-ingests cha
 
 ### Related Tools
 
-- [`m1nd.daemon_status`](#m1nddaemon_status)
-- [`m1nd.alerts_list`](#m1ndalerts_list)
-- [`m1nd.cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
+- [`daemon_status`](#m1nddaemon_status)
+- [`alerts_list`](#m1ndalerts_list)
+- [`cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
 
 ---
 
-## `m1nd.alerts_list`
+<a id="m1ndalerts_list"></a>
 
+## `alerts_list`
 List persisted daemon and proactive alerts.
 
 ### Parameters
@@ -955,13 +976,14 @@ List persisted daemon and proactive alerts.
 
 ### Related Tools
 
-- [`m1nd.alerts_ack`](#m1ndalerts_ack)
-- [`m1nd.daemon_status`](#m1nddaemon_status)
+- [`alerts_ack`](#m1ndalerts_ack)
+- [`daemon_status`](#m1nddaemon_status)
 
 ---
 
-## `m1nd.alerts_ack`
+<a id="m1ndalerts_ack"></a>
 
+## `alerts_ack`
 Acknowledge one or more persisted daemon/proactive alerts so they stop resurfacing in the unread queue.
 
 ### Parameters
@@ -978,12 +1000,13 @@ Acknowledge one or more persisted daemon/proactive alerts so they stop resurfaci
 
 ### Related Tools
 
-- [`m1nd.alerts_list`](#m1ndalerts_list)
+- [`alerts_list`](#m1ndalerts_list)
 
 ---
 
-## `m1nd.edit_preview`
+<a id="m1ndedit_preview"></a>
 
+## `edit_preview`
 Preview a full-file write without touching disk. Returns a diff, freshness snapshot, and validation report so the caller can inspect before committing.
 
 ### Parameters
@@ -1003,13 +1026,14 @@ Preview a full-file write without touching disk. Returns a diff, freshness snaps
 
 ### Related Tools
 
-- [`m1nd.edit_commit`](#m1ndedit_commit)
-- [`m1nd.apply`](../api-reference/lifecycle.md)
+- [`edit_commit`](#m1ndedit_commit)
+- [`apply`](../api-reference/lifecycle.md)
 
 ---
 
-## `m1nd.edit_commit`
+<a id="m1ndedit_commit"></a>
 
+## `edit_commit`
 Commit a previously previewed edit after freshness re-check and explicit confirmation.
 
 ### Parameters
@@ -1028,13 +1052,14 @@ Commit a previously previewed edit after freshness re-check and explicit confirm
 
 ### Related Tools
 
-- [`m1nd.edit_preview`](#m1ndedit_preview)
-- [`m1nd.apply`](../api-reference/lifecycle.md)
+- [`edit_preview`](#m1ndedit_preview)
+- [`apply`](../api-reference/lifecycle.md)
 
 ---
 
-## `m1nd.persist`
+<a id="m1ndpersist"></a>
 
+## `persist`
 Force graph and sidecar persistence immediately.
 
 ### Parameters
@@ -1052,13 +1077,14 @@ Force graph and sidecar persistence immediately.
 
 ### Related Tools
 
-- [`m1nd.health`](#m1ndhealth)
-- [`m1nd.boot_memory`](#m1ndboot_memory)
+- [`health`](#m1ndhealth)
+- [`boot_memory`](#m1ndboot_memory)
 
 ---
 
-## `m1nd.boot_memory`
+<a id="m1ndboot_memory"></a>
 
+## `boot_memory`
 Persist small canonical hot-state values next to the graph without polluting larger investigation trails.
 
 ### Parameters
@@ -1077,13 +1103,14 @@ Persist small canonical hot-state values next to the graph without polluting lar
 
 ### Related Tools
 
-- [`m1nd.persist`](#m1ndpersist)
-- [`m1nd.trail_save`](memory.md#m1ndtrailsave)
+- [`persist`](#m1ndpersist)
+- [`trail_save`](memory.md#m1ndtrailsave)
 
 ---
 
-## `m1nd.heuristics_surface`
+<a id="m1ndheuristics_surface"></a>
 
+## `heuristics_surface`
 Explain why a node or file is currently ranked as risky or important. Surfaces trust/tremor/antibody/blast-style heuristic factors in one payload.
 
 ### Parameters
@@ -1101,14 +1128,15 @@ Explain why a node or file is currently ranked as risky or important. Surfaces t
 
 ### Related Tools
 
-- [`m1nd.validate_plan`](#m1ndvalidate_plan)
-- [`m1nd.apply_batch`](../api-reference/lifecycle.md)
-- [`m1nd.daemon_tick`](#m1nddaemon_tick)
+- [`validate_plan`](#m1ndvalidate_plan)
+- [`apply_batch`](../api-reference/lifecycle.md)
+- [`daemon_tick`](#m1nddaemon_tick)
 
 ---
 
-## `m1nd.audit`
+<a id="m1ndaudit"></a>
 
+## `audit`
 Profile-aware one-call audit over topology, scans, verification, filesystem truth, and git state.
 
 ### Parameters
@@ -1130,6 +1158,6 @@ Profile-aware one-call audit over topology, scans, verification, filesystem trut
 
 ### Related Tools
 
-- [`m1nd.batch_view`](../api-reference/exploration.md#m1ndbatch_view)
-- [`m1nd.cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
-- [`m1nd.coverage_session`](../api-reference/exploration.md#m1ndcoverage_session)
+- [`batch_view`](../api-reference/exploration.md#m1ndbatch_view)
+- [`cross_verify`](../api-reference/exploration.md#m1ndcross_verify)
+- [`coverage_session`](../api-reference/exploration.md#m1ndcoverage_session)

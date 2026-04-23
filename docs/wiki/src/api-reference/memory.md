@@ -4,8 +4,9 @@ Seven tools for feedback-based learning, drift analysis, path explanation, and i
 
 ---
 
-## `m1nd.learn`
+<a id="m1ndlearn"></a>
 
+## `learn`
 Explicit feedback-based edge adjustment. After using `activate` or other query tools, call `learn` to tell m1nd whether the results were correct, wrong, or partial. This applies Hebbian learning to strengthen or weaken edges between the query seeds and the reported nodes.
 
 ### Parameters
@@ -26,7 +27,7 @@ Explicit feedback-based edge adjustment. After using `activate` or other query t
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.learn",
+    "name": "learn",
     "arguments": {
       "agent_id": "jimi",
       "query": "session pool management",
@@ -63,13 +64,14 @@ Modifies edge weights in the graph. Changes are persisted on the next auto-persi
 
 ### Related Tools
 
-- [`m1nd.activate`](activation.md#m1ndactivate) -- the query tool whose results you are providing feedback on
-- [`m1nd.drift`](#m1nddrift) -- see cumulative weight changes from learning
+- [`activate`](activation.md#m1ndactivate) -- the query tool whose results you are providing feedback on
+- [`drift`](#m1nddrift) -- see cumulative weight changes from learning
 
 ---
 
-## `m1nd.drift`
+<a id="m1nddrift"></a>
 
+## `drift`
 Weight and structural drift analysis. Compares the current graph state against a baseline (typically `"last_session"`) to show what changed -- new edges, removed edges, and weight drift. Useful for context recovery at session start.
 
 ### Parameters
@@ -88,7 +90,7 @@ Weight and structural drift analysis. Compares the current graph state against a
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.drift",
+    "name": "drift",
     "arguments": {
       "agent_id": "jimi",
       "since": "last_session",
@@ -117,19 +119,20 @@ Weight and structural drift analysis. Compares the current graph state against a
 
 ### When to Use
 
-- **Session start** -- first tool to call after `m1nd.health` to recover context
+- **Session start** -- first tool to call after `health` to recover context
 - **After ingest** -- see what the new ingest changed
 - **After extended learning** -- track cumulative drift from feedback
 
 ### Related Tools
 
-- [`m1nd.diverge`](analysis.md#m1nddiverge) -- higher-level structural drift with anomaly detection
-- [`m1nd.health`](lifecycle.md#m1ndhealth) -- basic server health (call before drift)
+- [`diverge`](analysis.md#m1nddiverge) -- higher-level structural drift with anomaly detection
+- [`health`](lifecycle.md#m1ndhealth) -- basic server health (call before drift)
 
 ---
 
-## `m1nd.why`
+<a id="m1ndwhy"></a>
 
+## `why`
 Path explanation between two nodes. Finds and explains the relationship paths connecting a source node to a target node. Returns all paths up to `max_hops`, ranked by cumulative edge strength.
 
 ### Parameters
@@ -149,7 +152,7 @@ Path explanation between two nodes. Finds and explains the relationship paths co
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.why",
+    "name": "why",
     "arguments": {
       "agent_id": "jimi",
       "source": "file::worker_pool.py",
@@ -193,8 +196,8 @@ Path explanation between two nodes. Finds and explains the relationship paths co
 
 ### Related Tools
 
-- [`m1nd.hypothesize`](analysis.md#m1ndhypothesize) -- tests a claim about the relationship (more powerful)
-- [`m1nd.impact`](analysis.md#m1ndimpact) -- finds all affected nodes (broader scope)
+- [`hypothesize`](analysis.md#m1ndhypothesize) -- tests a claim about the relationship (more powerful)
+- [`impact`](analysis.md#m1ndimpact) -- finds all affected nodes (broader scope)
 
 ---
 
@@ -419,8 +422,9 @@ List saved investigation trails with optional filters. Returns compact summaries
 
 ---
 
-## `m1nd.trail.merge`
+<a id="m1ndtrailmerge"></a>
 
+## `trail_merge`
 Combine two or more investigation trails. Merges visited nodes, hypotheses, and conclusions. Uses confidence+recency scoring for conflict resolution. Discovers cross-connections between independently explored areas.
 
 ### Parameters
@@ -439,7 +443,7 @@ Combine two or more investigation trails. Merges visited nodes, hypotheses, and 
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "m1nd.trail.merge",
+    "name": "trail_merge",
     "arguments": {
       "agent_id": "jimi",
       "trail_ids": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
@@ -496,4 +500,4 @@ When merging hypotheses that contradict each other:
 ### Related Tools
 
 - [`trail_save`](#m1ndtrailsave) -- save individual trails
-- [`m1nd.trail.list`](#m1ndtraillist) -- find trails to merge
+- [`trail_list`](#m1ndtraillist) -- find trails to merge

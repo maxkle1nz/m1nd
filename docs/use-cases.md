@@ -11,7 +11,7 @@ Every pipeline, metric, and example below is from real execution. Not a demo. No
 
 ## Table of Contents
 
-1. [For AI Agents](#1-for-ai-agents)
+1. [For Coding Agents](#1-for-coding-agents)
 2. [For Human Developers](#2-for-human-developers)
 3. [For CI/CD Pipelines](#3-for-cicd-pipelines)
 4. [For Security Audits](#4-for-security-audits)
@@ -22,9 +22,9 @@ Every pipeline, metric, and example below is from real execution. Not a demo. No
 
 ---
 
-## 1. For AI Agents
+## 1. For Coding Agents
 
-AI agents are m1nd's primary audience. The tools are built for machine speed, machine precision, and
+Coding agents are m1nd's primary audience. The tools are built for machine speed, machine precision, and
 machine-native interfaces (MCP, JSON, graph topology). No GUIs. No vibes.
 
 ### 1.1 System-Wide Bug Hunt
@@ -1162,9 +1162,9 @@ watches progress via SSE in the browser.
 # SSE stream (browser or curl):
 curl -N http://localhost:1337/api/events
 # → event: tool_result
-# → data: {"tool":"m1nd.ingest","agent_id":"forge-chat-core","success":true,"elapsed_ms":138}
+# → data: {"tool":"ingest","agent_id":"forge-chat-core","success":true,"elapsed_ms":138}
 # → event: tool_result
-# → data: {"tool":"m1nd.predict","agent_id":"forge-identity-split","success":true}
+# → data: {"tool":"predict","agent_id":"forge-identity-split","success":true}
 ```
 
 ### Use Case: CI Sidecar
@@ -1192,11 +1192,11 @@ services:
 ```bash
 # In CI job:
 # Re-index after checkout
-curl -s -X POST http://$M1ND_URL/api/tools/m1nd.ingest \
+curl -s -X POST http://$M1ND_URL/api/tools/ingest \
   -d '{"agent_id":"ci","path":"/workspace","incremental":true}'
 
 # Check for known bug patterns
-curl -s -X POST http://$M1ND_URL/api/tools/m1nd.antibody_scan \
+curl -s -X POST http://$M1ND_URL/api/tools/antibody_scan \
   -d '{"agent_id":"ci","scope":"changed_files","min_severity":"high"}'
 
 # Block merge if antibody matches > 0
@@ -1217,7 +1217,7 @@ For local development: default `127.0.0.1:1337` is safe.
 
 ## 9. Verified Writes — apply and apply_batch with verify=true (v0.5.0)
 
-`m1nd.apply` and `m1nd.apply_batch` gained a `verify` flag in v0.5.0. When set, the
+`apply` and `apply_batch` gained a `verify` flag in v0.5.0. When set, the
 server performs a post-write ingest round-trip to confirm the graph stays coherent after
 the edit. This is the recommended mode for CI pipelines and multi-agent swarms.
 
@@ -1231,7 +1231,7 @@ With `verify=true`, the error surfaces immediately at write time:
 
 ```bash
 # Agent calls apply_batch with verify=true
-curl -s -X POST http://localhost:1337/api/tools/m1nd.apply_batch \
+curl -s -X POST http://localhost:1337/api/tools/apply_batch \
   -d '{
     "agent_id": "forge-chat-ws",
     "verify": true,
@@ -1253,7 +1253,7 @@ Add m1nd as a CI gate that verifies every file touched by a PR stays ingest-clea
 ```bash
 # For each changed file in the PR:
 for f in $(git diff --name-only origin/main); do
-  RESULT=$(curl -s -X POST http://localhost:1337/api/tools/m1nd.apply \
+  RESULT=$(curl -s -X POST http://localhost:1337/api/tools/apply \
     -d "{\"agent_id\":\"ci\",\"file_path\":\"$(pwd)/$f\",\"new_content\":\"$(cat $f | jq -Rs .)\",\"verify\":true}")
   PASSED=$(echo "$RESULT" | jq -r '.result.verify.passed')
   if [ "$PASSED" != "true" ]; then

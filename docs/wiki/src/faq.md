@@ -4,7 +4,7 @@
 
 ### What is m1nd?
 
-m1nd is a local code graph engine for MCP agents. It turns a repo into a queryable graph and exposes a live MCP tool surface for structure, impact, connected context, continuity, audit, document intelligence, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
+m1nd is a local MCP runtime for coding agents. It turns repos, docs, history, and runtime-adjacent signals into a graph-backed operational model and exposes that model through MCP for structure, impact, connected context, continuity, audit, document grounding, and edit preparation. Built in Rust, it runs locally and works with any MCP-compatible client.
 
 The current differentiator is not just that the graph learns. The runtime also exposes guidance surfaces such as `proof_state`, `next_suggested_tool`, `next_suggested_target`, and `next_step_hint`, plus observable progress for long-running writes like `apply_batch`.
 
@@ -111,7 +111,7 @@ Yes. If you already know the repo list, use `federate`. If the current workspace
 Direct federation:
 
 ```jsonc
-{"method":"tools/call","params":{"name":"m1nd.federate","arguments":{
+{"method":"tools/call","params":{"name":"federate","arguments":{
   "agent_id":"dev",
   "repos":[
     {"name":"backend","path":"/project/backend"},
@@ -123,7 +123,7 @@ Direct federation:
 Auto-discovery first:
 
 ```jsonc
-{"method":"tools/call","params":{"name":"m1nd.federate_auto","arguments":{
+{"method":"tools/call","params":{"name":"federate_auto","arguments":{
   "agent_id":"dev",
   "scope":"docs",
   "execute":false

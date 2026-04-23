@@ -48,7 +48,7 @@ dist/src/project-0MrZjnJz.js  202.88 kB │ gzip: 62.39 kB
 |-------|------|-------------|
 | 1 | 0:00–0:03 | Cold open — terminal cursor, `grep` command typed |
 | 2 | 0:03–0:08 | The Cost — token/clock/cost counters, grep output, 4 sins |
-| 3 | 0:08–0:10 | The Command — `m1nd.activate("authentication")` typed |
+| 3 | 0:08–0:10 | The Command — `activate("authentication")` typed |
 | 4 | 0:10–0:15 | The Brain Wakes — BFS activation waves, ghost edges, result badge |
 | 5 | 0:15–0:18 | XLR Cancellation — noise injection, particle annihilation, signal survives |
 

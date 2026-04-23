@@ -1,6 +1,6 @@
 [
   {
-    "tool_name": "m1nd.perspective_start",
+    "tool_name": "perspective_start",
     "query": "session management",
     "elapsed_ms": 3.2,
     "payload_chars": 420,
@@ -10,7 +10,7 @@
     "notes": "The manual flow starts a perspective and then asks for routes explicitly before deciding what to inspect."
   },
   {
-    "tool_name": "m1nd.perspective_routes",
+    "tool_name": "perspective_routes",
     "query": "list routes for the current perspective",
     "elapsed_ms": 2.9,
     "payload_chars": 470,
@@ -20,7 +20,7 @@
     "notes": "Routes are reviewed manually to choose a candidate."
   },
   {
-    "tool_name": "m1nd.perspective_inspect",
+    "tool_name": "perspective_inspect",
     "query": "inspect the strongest route from the current page",
     "elapsed_ms": 2.4,
     "payload_chars": 540,
