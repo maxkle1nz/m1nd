@@ -378,16 +378,48 @@ if text:
 
 fn collect_candidate_files(root: &Path) -> Vec<PathBuf> {
     if root.is_file() {
-        return vec![root.to_path_buf()];
+        return (!is_universal_noise_path(root))
+            .then(|| root.to_path_buf())
+            .into_iter()
+            .collect();
     }
 
     WalkDir::new(root)
         .follow_links(true)
         .into_iter()
+        .filter_entry(|entry| !is_universal_noise_path(entry.path()))
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
         .map(|entry| entry.into_path())
         .collect()
+}
+
+fn is_universal_noise_path(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    name == "node_modules"
+        || name == "target"
+        || name == "dist"
+        || name == "build"
+        || name == ".next"
+        || name == ".turbo"
+        || name.starts_with(".m1nd-runtime")
+        || matches!(
+            name,
+            "plasticity_state.json"
+                | "graph_snapshot.json"
+                | "ingest_roots.json"
+                | "auto_ingest_state.json"
+                | "auto_ingest_events.jsonl"
+                | "daemon_state.json"
+                | "daemon_alerts.json"
+                | "boot_memory_state.json"
+                | "document_cache_index.json"
+                | "tremor_state.json"
+                | "trust_state.json"
+        )
 }
 
 fn slugify(raw: &str) -> String {
@@ -1414,6 +1446,16 @@ mod tests {
         let graph = graphify_documents(&[doc], "universal").unwrap();
         assert!(graph.num_nodes() >= 6);
         assert!(graph.num_edges() >= 5);
+    }
+
+    #[test]
+    fn universal_candidate_filter_skips_runtime_state_artifacts() {
+        assert!(is_universal_noise_path(Path::new("/tmp/node_modules")));
+        assert!(is_universal_noise_path(Path::new("/tmp/.m1nd-runtime-ila")));
+        assert!(is_universal_noise_path(Path::new(
+            "/tmp/plasticity_state.json"
+        )));
+        assert!(!is_universal_noise_path(Path::new("/tmp/docs/notes.md")));
     }
 
     #[test]

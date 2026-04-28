@@ -20,6 +20,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+const DEFAULT_MAX_SEARCH_FILE_BYTES: u64 = 2_000_000;
+
 type GuidedRuntimeTuple = (
     String,
     Option<String>,
@@ -970,6 +972,9 @@ fn collect_graph_files(
         let ext_id = graph.strings.resolve(*interned);
         if ext_id.starts_with("file::") {
             let path = ext_id.strip_prefix("file::").unwrap_or(ext_id);
+            if should_skip_disk_file(Path::new(path)) {
+                continue;
+            }
             // Only take file-level nodes (no ::fn:: or ::class:: sub-nodes)
             if !path.contains("::") && seen_set.insert(path.to_string()) {
                 // Apply scope filter
@@ -1136,6 +1141,10 @@ fn build_disk_fallback_candidate(
         }
     }
 
+    if should_skip_disk_file(full_path) || is_oversized_search_file(full_path) {
+        return None;
+    }
+
     Some(SearchFileCandidate {
         rel_path,
         full_path: full_path.to_path_buf(),
@@ -1183,9 +1192,45 @@ fn should_skip_disk_dir(path: &Path) -> bool {
             | Some("target")
             | Some("dist")
             | Some("build")
+            | Some(".next")
+            | Some(".turbo")
+            | Some(".m1nd-runtime")
+            | Some(".m1nd-runtime-ila")
+            | Some(".m1nd-runtimes")
             | Some(".vault")
             | Some(".roomanizer")
     )
+}
+
+fn should_skip_disk_file(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("plasticity_state.json")
+            | Some("graph_snapshot.json")
+            | Some("ingest_roots.json")
+            | Some("auto_ingest_state.json")
+            | Some("auto_ingest_events.jsonl")
+            | Some("daemon_state.json")
+            | Some("daemon_alerts.json")
+            | Some("boot_memory_state.json")
+            | Some("document_cache_index.json")
+            | Some("tremor_state.json")
+            | Some("trust_state.json")
+    )
+}
+
+fn max_search_file_bytes() -> u64 {
+    std::env::var("M1ND_SEARCH_MAX_FILE_BYTES")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_MAX_SEARCH_FILE_BYTES)
+        .max(64 * 1024)
+}
+
+fn is_oversized_search_file(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len() > max_search_file_bytes())
+        .unwrap_or(false)
 }
 
 fn rank_search_results(query: &str, mode: SearchRankingMode, results: &mut Vec<SearchResultEntry>) {

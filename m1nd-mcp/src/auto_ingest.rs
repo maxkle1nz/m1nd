@@ -279,6 +279,27 @@ impl AutoIngestState {
             || name.ends_with(".swp")
             || name.ends_with(".tmp")
             || name == ".DS_Store"
+            || name == "node_modules"
+            || name == "target"
+            || name == "dist"
+            || name == "build"
+            || name == ".next"
+            || name == ".turbo"
+            || name.starts_with(".m1nd-runtime")
+            || matches!(
+                name,
+                "plasticity_state.json"
+                    | "graph_snapshot.json"
+                    | "ingest_roots.json"
+                    | "auto_ingest_state.json"
+                    | "auto_ingest_events.jsonl"
+                    | "daemon_state.json"
+                    | "daemon_alerts.json"
+                    | "boot_memory_state.json"
+                    | "document_cache_index.json"
+                    | "tremor_state.json"
+                    | "trust_state.json"
+            )
             || name.starts_with(".#")
             || name.starts_with("4913")
     }
@@ -980,6 +1001,15 @@ mod tests {
             "/tmp/file.md.swp"
         )));
         assert!(AutoIngestState::is_noise_path(Path::new("/tmp/.DS_Store")));
+        assert!(AutoIngestState::is_noise_path(Path::new(
+            "/tmp/node_modules"
+        )));
+        assert!(AutoIngestState::is_noise_path(Path::new(
+            "/tmp/.m1nd-runtime-ila"
+        )));
+        assert!(AutoIngestState::is_noise_path(Path::new(
+            "/tmp/plasticity_state.json"
+        )));
         assert!(!AutoIngestState::is_noise_path(Path::new("/tmp/notes.md")));
     }
 
