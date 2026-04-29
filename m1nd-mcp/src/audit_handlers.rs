@@ -2910,6 +2910,25 @@ pub fn handle_audit(
         return Ok(report);
     }
 
+    let report_summary = json!({
+        "identity": report.get("identity").cloned().unwrap_or(json!({})),
+        "inventory": {
+            "file_count": inventory.len(),
+            "kind_breakdown": inventory_breakdown(&inventory_entries),
+        },
+        "topology": {
+            "nodes": health.node_count,
+            "edges": health.edge_count,
+            "critical_alert_count": report
+                .pointer("/topology/critical_alerts")
+                .and_then(|value| value.as_array())
+                .map_or(0, |value| value.len()),
+        },
+        "health_grades": health_grades,
+        "recommendations": recommendations,
+        "elapsed_ms": report.get("elapsed_ms").cloned().unwrap_or(json!(0.0)),
+    });
+
     let markdown = format!(
         "# m1nd Audit\n\n- Profile: `{}`\n- Nodes: `{}`\n- Edges: `{}`\n- Critical modules: `{}`\n- Orphan nodes: `{}`\n- Scan findings: `{}`\n- Stale confidence: `{:.2}`\n",
         effective_profile,
@@ -2931,7 +2950,7 @@ pub fn handle_audit(
         "report_markdown": report_markdown,
         "truncated": truncated,
         "inline_summary": inline_summary,
-        "report": report,
+        "report_summary": report_summary,
     }))
 }
 
@@ -3086,6 +3105,39 @@ mod tests {
 
         assert_eq!(output["identity"]["profile"], "coordination");
         assert!(output["inventory"]["files"].as_array().is_some());
+    }
+
+    #[test]
+    fn audit_markdown_returns_summary_without_full_json_report() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src")).expect("src dir");
+        std::fs::write(root.join("src/lib.rs"), "pub fn hello() {}\n").expect("source");
+        std::fs::write(root.join("README.md"), "# demo\n").expect("readme");
+
+        let mut state = build_empty_state(root);
+        let output = handle_audit(
+            &mut state,
+            layers::AuditInput {
+                agent_id: "test".into(),
+                path: root.to_string_lossy().to_string(),
+                profile: "production".into(),
+                depth: "quick".into(),
+                cross_verify: true,
+                include_git: false,
+                include_config: false,
+                scan_patterns: "default".into(),
+                external_refs: false,
+                report_format: "markdown".into(),
+                max_output_chars: Some(20_000),
+            },
+        )
+        .expect("audit");
+
+        assert_eq!(output["report_format"], "markdown");
+        assert!(output.get("report").is_none());
+        assert!(output["report_summary"]["inventory"]["file_count"].is_u64());
+        assert!(output["report_summary"]["identity"].is_object());
     }
 
     #[test]

@@ -95,6 +95,112 @@ enum TransportMode {
     Line,
 }
 
+const DEFAULT_RESPONSE_LIMIT_CHARS: usize = 96_000;
+const DEFAULT_RESPONSE_HARD_LIMIT_CHARS: usize = 256_000;
+
+fn env_usize(name: &str) -> Option<usize> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+}
+
+fn response_limit_chars() -> usize {
+    let hard = env_usize("M1ND_MCP_RESPONSE_HARD_LIMIT_CHARS")
+        .unwrap_or(DEFAULT_RESPONSE_HARD_LIMIT_CHARS)
+        .max(4_096);
+    env_usize("M1ND_MCP_RESPONSE_LIMIT_CHARS")
+        .unwrap_or(DEFAULT_RESPONSE_LIMIT_CHARS)
+        .clamp(4_096, hard)
+}
+
+fn safe_prefix(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
+}
+
+fn compact_tool_text_payload(text: &str, limit: usize, original_response_bytes: usize) -> String {
+    let original_chars = text.chars().count();
+    let preview_chars = (limit / 4).clamp(512, 16_384);
+    let preview = safe_prefix(text, preview_chars);
+    serde_json::to_string_pretty(&serde_json::json!({
+        "m1nd_output_truncated": true,
+        "original_chars": original_chars,
+        "original_response_bytes": original_response_bytes,
+        "returned_preview_chars": preview.chars().count(),
+        "hint": "The MCP response exceeded the local transport safety cap. Narrow scope/top_k or set max_output_chars for a smaller structured result.",
+        "preview": preview,
+    }))
+    .unwrap_or_else(|_| "{\"m1nd_output_truncated\":true}".to_string())
+}
+
+fn compact_tool_response(
+    response: &JsonRpcResponse,
+    limit: usize,
+    original_response_bytes: usize,
+) -> Option<JsonRpcResponse> {
+    let mut shaped = response.clone();
+    let result = shaped.result.as_mut()?.as_object_mut()?;
+    let content = result.get_mut("content")?.as_array_mut()?;
+
+    for item in content.iter_mut() {
+        let Some(item_obj) = item.as_object_mut() else {
+            continue;
+        };
+        let Some(text_value) = item_obj.get_mut("text") else {
+            continue;
+        };
+        let Some(text) = text_value.as_str() else {
+            continue;
+        };
+        *text_value = serde_json::Value::String(compact_tool_text_payload(
+            text,
+            limit,
+            original_response_bytes,
+        ));
+        return Some(shaped);
+    }
+
+    None
+}
+
+fn fallback_compacted_response(
+    response: &JsonRpcResponse,
+    original_response_bytes: usize,
+) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: response.jsonrpc.clone(),
+        id: response.id.clone(),
+        result: Some(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(&serde_json::json!({
+                    "m1nd_output_truncated": true,
+                    "original_response_bytes": original_response_bytes,
+                    "hint": "The MCP response exceeded the local transport safety cap and had no compactable text payload."
+                })).unwrap_or_else(|_| "{\"m1nd_output_truncated\":true}".to_string())
+            }]
+        })),
+        error: None,
+    }
+}
+
+fn serialize_response_safely(response: &JsonRpcResponse) -> String {
+    let json = serde_json::to_string(response).unwrap_or_default();
+    let limit = response_limit_chars();
+    if json.len() <= limit {
+        return json;
+    }
+
+    let shaped = compact_tool_response(response, limit, json.len())
+        .unwrap_or_else(|| fallback_compacted_response(response, json.len()));
+    let shaped_json = serde_json::to_string(&shaped).unwrap_or_default();
+    if shaped_json.len() <= limit {
+        shaped_json
+    } else {
+        let fallback = fallback_compacted_response(response, json.len());
+        serde_json::to_string(&fallback).unwrap_or_default()
+    }
+}
+
 fn read_request_payload<R: BufRead>(
     reader: &mut R,
 ) -> std::io::Result<Option<(String, TransportMode)>> {
@@ -159,7 +265,7 @@ fn write_response<W: Write>(
     response: &JsonRpcResponse,
     mode: TransportMode,
 ) -> std::io::Result<()> {
-    let json = serde_json::to_string(response).unwrap_or_default();
+    let json = serialize_response_safely(response);
     match mode {
         TransportMode::Framed => {
             write!(writer, "Content-Length: {}\r\n\r\n{}", json.len(), json)?;
@@ -3150,9 +3256,10 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::{
-        background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick, should_autotick_daemon,
-        tool_schemas, DaemonRuntimeControl, McpServer,
+        background_tick_if_due, compact_tool_response, daemon_wait_duration_ms, run_daemon_tick,
+        should_autotick_daemon, tool_schemas, DaemonRuntimeControl, McpServer,
     };
+    use crate::protocol::JsonRpcResponse;
     use crate::server::McpConfig;
     use crate::session::SessionState;
     use m1nd_core::domain::DomainConfig;
@@ -3224,6 +3331,30 @@ mod tests {
                 "tool_schemas should expose {expected}"
             );
         }
+    }
+
+    #[test]
+    fn oversized_tool_response_is_compacted_before_transport() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: serde_json::json!(42),
+            result: Some(serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": "x".repeat(50_000),
+                }]
+            })),
+            error: None,
+        };
+
+        let original = serde_json::to_string(&response).expect("response json");
+        let compacted =
+            compact_tool_response(&response, 12_000, original.len()).expect("compacted response");
+        let encoded = serde_json::to_string(&compacted).expect("compacted json");
+        assert!(encoded.len() < 12_000);
+        assert!(encoded.contains("m1nd_output_truncated"));
+        assert!(encoded.contains("original_response_bytes"));
+        assert!(encoded.contains("returned_preview_chars"));
     }
 
     #[test]

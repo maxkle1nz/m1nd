@@ -52,6 +52,21 @@ M1ND_GRAPH_SOURCE = "/tmp/m1nd-graph.json"
 M1ND_PLASTICITY_STATE = "/tmp/m1nd-plasticity.json"
 ```
 
+If an editor may open several stdio sessions for the same workspace, use the
+session wrapper so each client process gets its own runtime directory instead
+of competing for one persisted graph lock:
+
+```toml
+[mcp_servers.m1nd]
+command = "/path/to/m1nd/scripts/macos/m1nd-stdio-session.sh"
+
+[mcp_servers.m1nd.env]
+M1ND_MCP_BINARY = "/path/to/m1nd-mcp"
+M1ND_WORKSPACE = "/path/to/project"
+M1ND_RUNTIME_BASE = "/Users/you/.m1nd/runtimes"
+M1ND_RUNTIME_RETENTION_DAYS = "1"
+```
+
 But some editor hosts still pay too much overhead if they cold-start a stdio MCP
 server for every interaction.
 

@@ -120,6 +120,10 @@ impl Default for IngestConfig {
                 "dist".into(),
                 "build".into(),
                 ".next".into(),
+                ".turbo".into(),
+                ".m1nd-runtime".into(),
+                ".m1nd-runtime-ila".into(),
+                ".m1nd-runtimes".into(),
                 "vendor".into(),
             ],
             skip_files: vec![
@@ -127,6 +131,17 @@ impl Default for IngestConfig {
                 "yarn.lock".into(),
                 "Cargo.lock".into(),
                 "poetry.lock".into(),
+                "plasticity_state.json".into(),
+                "graph_snapshot.json".into(),
+                "ingest_roots.json".into(),
+                "auto_ingest_state.json".into(),
+                "auto_ingest_events.jsonl".into(),
+                "daemon_state.json".into(),
+                "daemon_alerts.json".into(),
+                "boot_memory_state.json".into(),
+                "document_cache_index.json".into(),
+                "tremor_state.json".into(),
+                "trust_state.json".into(),
             ],
             parallelism: std::thread::available_parallelism()
                 .map(|p| p.get().min(16))
@@ -429,6 +444,35 @@ mod tests {
         assert!(!is_valid_external_id("file::   "));
         assert!(is_valid_external_id("cargo::workspace::Cargo.toml"));
         assert!(is_valid_external_id("file::src/main.rs"));
+    }
+
+    #[test]
+    fn default_ingest_config_skips_runtime_state_artifacts() {
+        let config = IngestConfig::default();
+
+        for skipped_dir in [
+            ".m1nd-runtime",
+            ".m1nd-runtime-ila",
+            ".m1nd-runtimes",
+            ".turbo",
+        ] {
+            assert!(
+                config.skip_dirs.iter().any(|entry| entry == skipped_dir),
+                "default skip dirs should include {skipped_dir}"
+            );
+        }
+
+        for skipped_file in [
+            "plasticity_state.json",
+            "graph_snapshot.json",
+            "auto_ingest_state.json",
+            "daemon_state.json",
+        ] {
+            assert!(
+                config.skip_files.iter().any(|entry| entry == skipped_file),
+                "default skip files should include {skipped_file}"
+            );
+        }
     }
 
     #[test]
