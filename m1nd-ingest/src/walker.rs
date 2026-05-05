@@ -59,6 +59,7 @@ impl DirectoryWalker {
         path.strip_prefix(root)
             .unwrap_or(path)
             .to_string_lossy()
+            .replace('\\', "/")
             .trim_start_matches("./")
             .trim_matches('/')
             .to_string()
