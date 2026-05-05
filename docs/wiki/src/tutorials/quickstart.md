@@ -296,6 +296,15 @@ When `ingest` is unavailable in the current host surface, use m1nd as
 orientation only and cross-check final answers against local files until the
 MCP binding is refreshed.
 
+For local repo validation, the smoke harness now has a cheap handshake mode:
+
+```bash
+python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
+```
+
+That mode runs only `initialize`, `tools/list`, and `health` by default. Add
+`--handshake-probe` only when the task depends on retrieval trust.
+
 ### Step 3: run a first structural audit
 
 `audit` is the fastest one-call orientation pass, and it requires the repo root path:

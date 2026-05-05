@@ -30,8 +30,10 @@ from typing import Any
 
 
 SCHEMA = "m1nd-mcp-agent-smoke-v0"
+HANDSHAKE_SCHEMA = "m1nd-session-handshake-v0"
 DEFAULT_QUERY = "where MCP tool schemas and runtime tool registry are declared"
 REQUIRED_TOOLS = ("ingest", "seek", "help", "doctor")
+HANDSHAKE_REQUIRED_TOOLS = ("health", "doctor", "ingest", "seek", "help")
 
 
 class SmokeFailure(RuntimeError):
@@ -332,17 +334,21 @@ def summarize_seek(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_tool_surface_report(tool_names: list[str], min_tool_count: int) -> dict[str, Any]:
+def build_tool_surface_report(
+    tool_names: list[str],
+    min_tool_count: int,
+    required_tools: tuple[str, ...] = REQUIRED_TOOLS,
+) -> dict[str, Any]:
     available = sorted({name for name in tool_names if isinstance(name, str) and name})
-    missing_required = [name for name in REQUIRED_TOOLS if name not in available]
+    missing_required = [name for name in required_tools if name not in available]
     below_minimum = len(available) < min_tool_count
     status = "degraded_host_tool_surface" if missing_required or below_minimum else "ok"
     report: dict[str, Any] = {
         "status": status,
         "tool_count": len(available),
         "min_tool_count": min_tool_count,
-        "required_tools": list(REQUIRED_TOOLS),
-        "required_tools_present": {name: name in available for name in REQUIRED_TOOLS},
+        "required_tools": list(required_tools),
+        "required_tools_present": {name: name in available for name in required_tools},
         "missing_required_tools": missing_required,
         "available_tools_sample": available[:24],
         "degraded_host_tool_surface": status != "ok",
@@ -363,9 +369,132 @@ def build_tool_surface_report(tool_names: list[str], min_tool_count: int) -> dic
     return report
 
 
+def summarize_health(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    return {
+        "status": payload.get("status"),
+        "node_count": payload.get("node_count"),
+        "edge_count": payload.get("edge_count"),
+        "queries_processed": payload.get("queries_processed"),
+        "active_session_count": len(payload.get("active_sessions") or []),
+    }
+
+
+def build_doctor_args_from_surface(agent_id: str, tool_surface: dict[str, Any]) -> dict[str, Any]:
+    recovery = tool_surface.get("recovery") or {}
+    arguments = dict(recovery.get("arguments") or {})
+    arguments["agent_id"] = agent_id
+    return arguments
+
+
+def run_session_handshake_from_observed(
+    client: Any,
+    args: argparse.Namespace,
+    initialize: dict[str, Any],
+    tools: list[dict[str, Any]],
+    *,
+    run_probe: bool,
+) -> dict[str, Any]:
+    tool_names = [tool.get("name") for tool in tools]
+    available_tool_names = [name for name in tool_names if isinstance(name, str)]
+    tool_surface = build_tool_surface_report(
+        available_tool_names,
+        args.min_tool_count,
+        HANDSHAKE_REQUIRED_TOOLS,
+    )
+    can_ingest = "ingest" in available_tool_names
+    can_retrieve = "seek" in available_tool_names
+    can_recover = "doctor" in available_tool_names
+    health_payload = None
+    doctor_payload = None
+    probe_payload = None
+    trust_mode = "full_trust"
+    next_action = "continue with m1nd-first retrieval; use compiler/tests for runtime truth"
+
+    if tool_surface["degraded_host_tool_surface"]:
+        trust_mode = "degraded_host_tool_surface"
+        next_action = (
+            "treat m1nd as orientation only, refresh the MCP binding, "
+            "and verify final truth with local files"
+        )
+        if can_recover:
+            doctor_payload = client.call_tool(
+                "doctor",
+                build_doctor_args_from_surface(args.agent_id, tool_surface),
+            )
+    elif "health" in available_tool_names:
+        health_payload = client.call_tool("health", {"agent_id": args.agent_id})
+        node_count = int(health_payload.get("node_count") or 0)
+        edge_count = int(health_payload.get("edge_count") or 0)
+        if node_count <= 0 or edge_count <= 0:
+            trust_mode = "needs_ingest" if can_ingest else "orientation_only"
+            next_action = "run ingest for the intended repo before trusting graph retrieval"
+            if can_recover:
+                doctor_payload = client.call_tool(
+                    "doctor",
+                    {
+                        "agent_id": args.agent_id,
+                        "observed_tool": "health",
+                        "observed_proof_state": "blocked",
+                        "observed_candidates": 0,
+                    },
+                )
+        elif run_probe and can_retrieve:
+            probe_payload = client.call_tool(
+                "seek",
+                {
+                    "agent_id": args.agent_id,
+                    "query": args.query,
+                    "top_k": min(args.top_k, 3),
+                    "graph_rerank": True,
+                },
+            )
+            candidates = int(probe_payload.get("total_candidates_scanned") or 0)
+            results = probe_payload.get("results") or []
+            proof_state = probe_payload.get("proof_state")
+            if proof_state == "blocked" or candidates <= 0 or not results:
+                trust_mode = "stale_binding_suspected"
+                next_action = "call doctor with the probe recovery payload, then verify with repo-local smokes"
+                recovery = probe_payload.get("recovery") or {}
+                doctor_args = dict(recovery.get("arguments") or {})
+                if not doctor_args:
+                    doctor_args = {
+                        "agent_id": args.agent_id,
+                        "observed_tool": "seek",
+                        "observed_proof_state": proof_state,
+                        "observed_candidates": candidates,
+                    }
+                doctor_args["agent_id"] = args.agent_id
+                if can_recover:
+                    doctor_payload = client.call_tool("doctor", doctor_args)
+
+    return {
+        "schema": HANDSHAKE_SCHEMA,
+        "trust_mode": trust_mode,
+        "can_ingest": can_ingest,
+        "can_retrieve": can_retrieve,
+        "can_recover": can_recover,
+        "next_action": next_action,
+        "initialize": initialize,
+        "tool_surface": tool_surface,
+        "health": summarize_health(health_payload),
+        "doctor": doctor_payload,
+        "probe": summarize_seek(probe_payload) if probe_payload else None,
+        "used_probe": bool(probe_payload),
+    }
+
+
 def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     initialize = client.initialize()
     tools = client.list_tools()
+    session_handshake = run_session_handshake_from_observed(
+        client,
+        args,
+        initialize,
+        tools,
+        run_probe=False,
+    )
     tool_names = [tool.get("name") for tool in tools]
     tool_surface = build_tool_surface_report(
         [name for name in tool_names if isinstance(name, str)],
@@ -380,7 +509,8 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
         details = {
             "surface_status": "degraded_host_tool_surface",
             "tool_surface": tool_surface,
-            "doctor": doctor,
+            "session_handshake": session_handshake,
+            "doctor": session_handshake.get("doctor") or doctor,
         }
         missing = tool_surface["missing_required_tools"]
         raise SmokeFailure(
@@ -476,6 +606,7 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     return {
         "initialize": initialize,
         "tool_count": len(tools),
+        "session_handshake": session_handshake,
         "tool_surface": tool_surface,
         "required_tools_present": {name: name in tool_names for name in REQUIRED_TOOLS},
         "ingest": summarize_ingest(ingest),
@@ -512,6 +643,18 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     }
 
 
+def run_session_handshake(client: Any, args: argparse.Namespace) -> dict[str, Any]:
+    initialize = client.initialize()
+    tools = client.list_tools()
+    return run_session_handshake_from_observed(
+        client,
+        args,
+        initialize,
+        tools,
+        run_probe=args.handshake_probe,
+    )
+
+
 def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
     repo = Path(args.repo).expanduser().resolve()
     binary = Path(args.binary).expanduser().resolve() if args.binary else default_binary(repo)
@@ -532,7 +675,7 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
     try:
         if args.transport == "stdio":
             with McpStdioClient(binary=binary, runtime_dir=runtime_dir, timeout=args.timeout, cwd=repo) as client:
-                result = run_agent_loop(client, args, repo)
+                result = run_session_handshake(client, args) if args.handshake_only else run_agent_loop(client, args, repo)
         elif args.transport == "http":
             port = args.port or find_free_port()
             with McpHttpClient(
@@ -542,7 +685,7 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
                 cwd=repo,
                 port=port,
             ) as client:
-                result = run_agent_loop(client, args, repo)
+                result = run_session_handshake(client, args) if args.handshake_only else run_agent_loop(client, args, repo)
                 result["port"] = port
                 result["base_url"] = client.base_url
         else:
@@ -552,7 +695,7 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
             shutil.rmtree(runtime_dir, ignore_errors=True)
 
     return {
-        "schema": SCHEMA,
+        "schema": HANDSHAKE_SCHEMA if args.handshake_only else SCHEMA,
         "ok": True,
         "transport": args.transport,
         "binary": str(binary),
@@ -578,6 +721,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-dotfiles", action="store_true", help="Include allowed dotfiles during ingest.")
     parser.add_argument("--min-tool-count", type=int, default=1, help="Minimum expected tools/list count.")
     parser.add_argument("--timeout", type=float, default=20.0, help="Per-response timeout in seconds.")
+    parser.add_argument("--handshake-only", action="store_true", help="Run only the lightweight session trust handshake.")
+    parser.add_argument("--handshake-probe", action="store_true", help="Add one tiny seek probe to the session handshake.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser
 
@@ -589,7 +734,7 @@ def main() -> int:
         result = run_smoke(args)
     except SmokeFailure as exc:
         failure = {
-            "schema": SCHEMA,
+            "schema": HANDSHAKE_SCHEMA if args.handshake_only else SCHEMA,
             "ok": False,
             "transport": args.transport,
             "error": str(exc),
@@ -601,14 +746,23 @@ def main() -> int:
     if args.json:
         print(json.dumps(result, indent=2))
     else:
-        print(f"m1nd MCP {args.transport} smoke passed")
-        print(f"- tools: {result['tool_count']}")
-        print(f"- graph nodes: {result['ingest']['node_count']}")
-        print(f"- graph edges: {result['ingest']['edge_count']}")
-        print(f"- seek candidates: {result['seek']['total_candidates_scanned']}")
-        print(f"- seek results: {result['seek']['results_count']}")
-        print(f"- doctor: {result['doctor']['status']}")
-        print(f"- negative recovery: {result['negative_recovery']['next_suggested_tool']}")
+        if args.handshake_only:
+            print(f"m1nd MCP {result['transport']} session handshake passed")
+            print(f"- trust mode: {result['trust_mode']}")
+            print(f"- can ingest: {result['can_ingest']}")
+            print(f"- can retrieve: {result['can_retrieve']}")
+            print(f"- can recover: {result['can_recover']}")
+            print(f"- next action: {result['next_action']}")
+        else:
+            print(f"m1nd MCP {result['transport']} smoke passed")
+            print(f"- tools: {result['tool_count']}")
+            print(f"- trust mode: {result['session_handshake']['trust_mode']}")
+            print(f"- graph nodes: {result['ingest']['node_count']}")
+            print(f"- graph edges: {result['ingest']['edge_count']}")
+            print(f"- seek candidates: {result['seek']['total_candidates_scanned']}")
+            print(f"- seek results: {result['seek']['results_count']}")
+            print(f"- doctor: {result['doctor']['status']}")
+            print(f"- negative recovery: {result['negative_recovery']['next_suggested_tool']}")
     return 0
 
 

@@ -55,6 +55,18 @@ python3 scripts/mcp_agent_smoke.py --repo . --json
 python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
+For cheap session startup, use the handshake mode before a full smoke:
+
+```bash
+python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
+python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --handshake-probe --json
+```
+
+The default handshake only runs `initialize`, `tools/list`, and `health`; it
+calls `doctor` only when the tool surface is degraded or the graph appears
+empty. `--handshake-probe` adds one tiny `seek` probe when the task depends on
+retrieval trust.
+
 This proves the minimum agent trust loop over real stdio framing and the HTTP
 tool API:
 

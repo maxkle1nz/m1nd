@@ -68,6 +68,7 @@ With `m1nd`, an agent can:
 - retrieve and navigate the right context by text, path, intent, neighborhood, relationship, route, or failure trace
 - explain blocked retrieval with compact graph state and a ready diagnostic payload, so agents know whether to re-ingest, adjust scope, or inspect the active runtime
 - detect degraded host MCP surfaces, including sessions where m1nd is visible but recovery tools such as `ingest` are not exposed
+- run a cheap session handshake that reports whether the current agent should fully trust, re-ingest, recover, or treat m1nd as orientation-only
 - reason about change before, during, and after it happens, including blast radius, co-change, missing work, structural claims, plan validity, drift, and counterfactuals
 - analyze architecture, quality, security, duplication, type flow, trust boundaries, hidden dependencies, volatility, and refactor opportunities across the graph
 - bind specs and docs back to implementation, including universal documents, graph-native `L1GHT`, provider health, automatic document ingest, and drift detection

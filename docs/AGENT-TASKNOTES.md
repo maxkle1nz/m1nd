@@ -33,6 +33,16 @@ The rule:
 
 ## Resolved Notes
 
+### 2026-05-05 — session startup needs a cheap trust handshake
+
+- Context: after adding `doctor` and degraded-surface diagnostics, the remaining
+  risk was making every agent run a heavy smoke or repeated retrieval probes at
+  the start of a session.
+- Resolution: `scripts/mcp_agent_smoke.py` now has `--handshake-only`, returning
+  `m1nd-session-handshake-v0` with `trust_mode`, `can_ingest`, `can_retrieve`,
+  `can_recover`, tool-surface status, health summary, and next action. It calls
+  `doctor` only under suspicion, and `--handshake-probe` is opt-in.
+
 ### 2026-05-05 — host MCP surfaces can hide required recovery tools
 
 - Context: another agent saw m1nd through a host-provided surface where `audit`
