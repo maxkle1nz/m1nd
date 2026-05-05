@@ -23,8 +23,10 @@ It is an internal operating note, not public product copy.
   - local `ingest -> seek` scanned the populated graph and returned results
 - First repo-local smoke harness:
   - `python3 scripts/mcp_agent_smoke.py --repo . --json`
+  - `python3 scripts/mcp_agent_smoke.py --repo . --transport http --json`
   - proves `initialize -> tools/list -> ingest -> seek -> help`
-  - uses isolated runtime state and real Content-Length framed stdio
+  - uses isolated runtime state, real Content-Length framed stdio, and the HTTP
+    tool API
 
 ## First Real Friction
 
@@ -59,7 +61,7 @@ Captured in:
 | Priority | Lane | Why It Matters | First Bounded Move |
 |---|---|---|---|
 | P0 | Transport/session continuity diagnostics | If `ingest -> seek` can silently lose graph state in a host binding, agents lose trust immediately. | Add a diagnostic/smoke path that distinguishes empty graph, wrong session, stale snapshot, restricted host surface, and query failure. |
-| P0 | Agent-first smoke harness | The product must be validated like an agent uses it, not only through unit tests. | Stdio harness added; extend to HTTP next and document host-binding gaps. |
+| P0 | Agent-first smoke harness | The product must be validated like an agent uses it, not only through unit tests. | Stdio and HTTP harness paths added; document host-binding gaps next. |
 | P1 | Tasknotes to issue-grade backlog | The repo already has a strong friction-capture protocol, but open notes need prioritization and conversion into shippable slices. | Turn `docs/AGENT-TASKNOTES.md` open notes into a ranked implementation matrix. |
 | P1 | Public story parity | README is strong, but localized READMEs/wiki/demo should not drift from the new positioning. | Check current public surfaces for stale tool counts, old positioning, or weaker value framing. |
 | P1 | `m1nd doctor` / health surface | Agents need fast answers to "is my graph active, stale, empty, or bound to another session?" | Add or strengthen a health-style call with graph counts, active roots, transport, runtime dir, and recovery hints. |

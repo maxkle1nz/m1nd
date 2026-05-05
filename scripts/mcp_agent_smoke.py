@@ -17,10 +17,13 @@ import json
 import os
 import select
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +35,12 @@ REQUIRED_TOOLS = ("ingest", "seek", "help")
 
 class SmokeFailure(RuntimeError):
     pass
+
+
+def find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 class McpStdioClient:
@@ -89,6 +98,21 @@ class McpStdioClient:
         if response.get("error"):
             raise SmokeFailure(f"{method} returned JSON-RPC error: {response['error']}")
         return response
+
+    def initialize(self) -> dict[str, Any]:
+        response = self.call_rpc(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "m1nd-agent-smoke", "version": "0"},
+            },
+        )
+        return (response.get("result") or {}).get("serverInfo") or {}
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        response = self.call_rpc("tools/list")
+        return (response.get("result") or {}).get("tools") or []
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         response = self.call_rpc("tools/call", {"name": name, "arguments": arguments})
@@ -168,6 +192,113 @@ class McpStdioClient:
         return body.decode("utf-8")
 
 
+class McpHttpClient:
+    def __init__(self, binary: Path, runtime_dir: Path, timeout: float, cwd: Path, port: int) -> None:
+        self.binary = binary
+        self.runtime_dir = runtime_dir
+        self.timeout = timeout
+        self.cwd = cwd
+        self.port = port
+        self.base_url = f"http://127.0.0.1:{port}"
+        self.proc: subprocess.Popen[bytes] | None = None
+
+    def __enter__(self) -> "McpHttpClient":
+        self.proc = subprocess.Popen(
+            [
+                str(self.binary),
+                "--serve",
+                "--bind",
+                "127.0.0.1",
+                "--port",
+                str(self.port),
+                "--runtime-dir",
+                str(self.runtime_dir),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+            cwd=str(self.cwd),
+        )
+        self._wait_ready()
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        if not self.proc:
+            return
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        try:
+            if self.proc.stderr:
+                self.proc.stderr.read()
+        except OSError:
+            pass
+
+    def _wait_ready(self) -> None:
+        deadline = time.monotonic() + self.timeout
+        last_error = ""
+        while time.monotonic() < deadline:
+            if self.proc and self.proc.poll() is not None:
+                raise SmokeFailure(f"HTTP MCP process exited early with code {self.proc.returncode}")
+            try:
+                self.list_tools()
+                return
+            except SmokeFailure as exc:
+                last_error = str(exc)
+                time.sleep(0.1)
+        raise SmokeFailure(f"HTTP MCP server did not become ready after {self.timeout}s: {last_error}")
+
+    def initialize(self) -> dict[str, Any]:
+        health = self._request("GET", "/api/health")
+        return {
+            "name": "m1nd-mcp",
+            "status": health.get("status"),
+            "domain": health.get("domain"),
+            "node_count_before_ingest": health.get("node_count"),
+            "edge_count_before_ingest": health.get("edge_count"),
+        }
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        payload = self._request("GET", "/api/tools")
+        return payload.get("tools") or []
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        payload = self._request("POST", f"/api/tools/{name}", arguments)
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise SmokeFailure(f"{name} returned no JSON object result over HTTP: {payload}")
+        return result
+
+    def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        body = None
+        headers = {"Accept": "application/json"}
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(
+            self.base_url + path,
+            data=body,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise SmokeFailure(f"HTTP {method} {path} failed: {exc.code} {detail}") from exc
+        except OSError as exc:
+            raise SmokeFailure(f"HTTP {method} {path} failed: {exc}") from exc
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise SmokeFailure(f"HTTP {method} {path} returned non-JSON: {raw[:200]}") from exc
+
+
 def default_binary(repo: Path) -> Path:
     return repo / "target" / "debug" / "m1nd-mcp"
 
@@ -198,101 +329,63 @@ def summarize_seek(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
-    repo = Path(args.repo).expanduser().resolve()
-    binary = Path(args.binary).expanduser().resolve() if args.binary else default_binary(repo)
-    if not repo.exists():
-        raise SmokeFailure(f"repo path does not exist: {repo}")
-    if not binary.exists():
+def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[str, Any]:
+    initialize = client.initialize()
+    tools = client.list_tools()
+    tool_names = [tool.get("name") for tool in tools]
+    missing_tools = [name for name in REQUIRED_TOOLS if name not in tool_names]
+    if len(tools) < args.min_tool_count:
+        raise SmokeFailure(f"expected at least {args.min_tool_count} tools, got {len(tools)}")
+    if missing_tools:
+        raise SmokeFailure(f"missing required tools: {', '.join(missing_tools)}")
+
+    ingest = client.call_tool(
+        "ingest",
+        {
+            "agent_id": args.agent_id,
+            "path": str(repo),
+            "adapter": args.adapter,
+            "mode": "replace",
+            "include_dotfiles": args.include_dotfiles,
+        },
+    )
+    node_count = int(ingest.get("node_count") or 0)
+    edge_count = int(ingest.get("edge_count") or 0)
+    if node_count <= 0 or edge_count <= 0:
+        raise SmokeFailure(f"ingest produced an empty graph: nodes={node_count}, edges={edge_count}")
+
+    seek = client.call_tool(
+        "seek",
+        {
+            "agent_id": args.agent_id,
+            "query": args.query,
+            "top_k": args.top_k,
+            "graph_rerank": True,
+        },
+    )
+    candidates = int(seek.get("total_candidates_scanned") or 0)
+    results = seek.get("results") or []
+    proof_state = seek.get("proof_state")
+    if proof_state == "blocked" or candidates <= 0 or not results:
         raise SmokeFailure(
-            f"m1nd-mcp binary does not exist: {binary}. Build it first with `cargo build -p m1nd-mcp`."
+            "seek did not see the ingested graph: "
+            f"proof_state={proof_state}, candidates={candidates}, results={len(results)}"
         )
 
-    runtime_dir = Path(args.runtime_dir).expanduser().resolve() if args.runtime_dir else Path(
-        tempfile.mkdtemp(prefix="m1nd-agent-smoke-")
+    help_payload = client.call_tool(
+        "help",
+        {
+            "agent_id": args.agent_id,
+            "tool_name": "seek",
+            "mode": "tool",
+            "render": "compact",
+        },
     )
-    runtime_created = not bool(args.runtime_dir)
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-
-    started = time.monotonic()
-    try:
-        with McpStdioClient(binary=binary, runtime_dir=runtime_dir, timeout=args.timeout, cwd=repo) as client:
-            initialize = client.call_rpc(
-                "initialize",
-                {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "m1nd-agent-smoke", "version": "0"},
-                },
-            )
-            tools_response = client.call_rpc("tools/list")
-            tools = (tools_response.get("result") or {}).get("tools") or []
-            tool_names = [tool.get("name") for tool in tools]
-            missing_tools = [name for name in REQUIRED_TOOLS if name not in tool_names]
-            if len(tools) < args.min_tool_count:
-                raise SmokeFailure(f"expected at least {args.min_tool_count} tools, got {len(tools)}")
-            if missing_tools:
-                raise SmokeFailure(f"missing required tools: {', '.join(missing_tools)}")
-
-            ingest = client.call_tool(
-                "ingest",
-                {
-                    "agent_id": args.agent_id,
-                    "path": str(repo),
-                    "adapter": args.adapter,
-                    "mode": "replace",
-                    "include_dotfiles": args.include_dotfiles,
-                },
-            )
-            node_count = int(ingest.get("node_count") or 0)
-            edge_count = int(ingest.get("edge_count") or 0)
-            if node_count <= 0 or edge_count <= 0:
-                raise SmokeFailure(f"ingest produced an empty graph: nodes={node_count}, edges={edge_count}")
-
-            seek = client.call_tool(
-                "seek",
-                {
-                    "agent_id": args.agent_id,
-                    "query": args.query,
-                    "top_k": args.top_k,
-                    "graph_rerank": True,
-                },
-            )
-            candidates = int(seek.get("total_candidates_scanned") or 0)
-            results = seek.get("results") or []
-            proof_state = seek.get("proof_state")
-            if proof_state == "blocked" or candidates <= 0 or not results:
-                raise SmokeFailure(
-                    "seek did not see the ingested graph: "
-                    f"proof_state={proof_state}, candidates={candidates}, results={len(results)}"
-                )
-
-            help_payload = client.call_tool(
-                "help",
-                {
-                    "agent_id": args.agent_id,
-                    "tool_name": "seek",
-                    "mode": "tool",
-                    "render": "compact",
-                },
-            )
-            if not help_payload.get("found") or not (
-                help_payload.get("guidance") or help_payload.get("formatted")
-            ):
-                raise SmokeFailure("help did not return usable guidance for seek")
-    finally:
-        if runtime_created and not args.keep_runtime_dir:
-            shutil.rmtree(runtime_dir, ignore_errors=True)
+    if not help_payload.get("found") or not (help_payload.get("guidance") or help_payload.get("formatted")):
+        raise SmokeFailure("help did not return usable guidance for seek")
 
     return {
-        "schema": SCHEMA,
-        "ok": True,
-        "transport": "stdio",
-        "binary": str(binary),
-        "repo": str(repo),
-        "runtime_dir": str(runtime_dir) if args.keep_runtime_dir or args.runtime_dir else None,
-        "duration_ms": round((time.monotonic() - started) * 1000, 3),
-        "initialize": (initialize.get("result") or {}).get("serverInfo"),
+        "initialize": initialize,
         "tool_count": len(tools),
         "required_tools_present": {name: name in tool_names for name in REQUIRED_TOOLS},
         "ingest": summarize_ingest(ingest),
@@ -313,10 +406,63 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
+    repo = Path(args.repo).expanduser().resolve()
+    binary = Path(args.binary).expanduser().resolve() if args.binary else default_binary(repo)
+    if not repo.exists():
+        raise SmokeFailure(f"repo path does not exist: {repo}")
+    if not binary.exists():
+        raise SmokeFailure(
+            f"m1nd-mcp binary does not exist: {binary}. Build it first with `cargo build -p m1nd-mcp`."
+        )
+
+    runtime_dir = Path(args.runtime_dir).expanduser().resolve() if args.runtime_dir else Path(
+        tempfile.mkdtemp(prefix="m1nd-agent-smoke-")
+    )
+    runtime_created = not bool(args.runtime_dir)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    started = time.monotonic()
+    try:
+        if args.transport == "stdio":
+            with McpStdioClient(binary=binary, runtime_dir=runtime_dir, timeout=args.timeout, cwd=repo) as client:
+                result = run_agent_loop(client, args, repo)
+        elif args.transport == "http":
+            port = args.port or find_free_port()
+            with McpHttpClient(
+                binary=binary,
+                runtime_dir=runtime_dir,
+                timeout=args.timeout,
+                cwd=repo,
+                port=port,
+            ) as client:
+                result = run_agent_loop(client, args, repo)
+                result["port"] = port
+                result["base_url"] = client.base_url
+        else:
+            raise SmokeFailure(f"unsupported transport: {args.transport}")
+    finally:
+        if runtime_created and not args.keep_runtime_dir:
+            shutil.rmtree(runtime_dir, ignore_errors=True)
+
+    return {
+        "schema": SCHEMA,
+        "ok": True,
+        "transport": args.transport,
+        "binary": str(binary),
+        "repo": str(repo),
+        "runtime_dir": str(runtime_dir) if args.keep_runtime_dir or args.runtime_dir else None,
+        "duration_ms": round((time.monotonic() - started) * 1000, 3),
+        **result,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run an agent-first smoke test against m1nd MCP stdio.")
+    parser = argparse.ArgumentParser(description="Run an agent-first smoke test against m1nd MCP transports.")
     parser.add_argument("--repo", default=os.getcwd(), help="Repository path to ingest. Defaults to cwd.")
     parser.add_argument("--binary", help="Path to m1nd-mcp binary. Defaults to <repo>/target/debug/m1nd-mcp.")
+    parser.add_argument("--transport", choices=("stdio", "http"), default="stdio", help="Transport to smoke.")
+    parser.add_argument("--port", type=int, help="HTTP port to use when --transport=http. Defaults to a free port.")
     parser.add_argument("--runtime-dir", help="Runtime directory for isolated sidecar state.")
     parser.add_argument("--keep-runtime-dir", action="store_true", help="Keep the temporary runtime dir for debugging.")
     parser.add_argument("--agent-id", default="m1nd-agent-smoke", help="Agent id used for tool calls.")
@@ -339,7 +485,7 @@ def main() -> int:
         failure = {
             "schema": SCHEMA,
             "ok": False,
-            "transport": "stdio",
+            "transport": args.transport,
             "error": str(exc),
         }
         print(json.dumps(failure, indent=2), file=sys.stderr if not args.json else sys.stdout)
@@ -348,7 +494,7 @@ def main() -> int:
     if args.json:
         print(json.dumps(result, indent=2))
     else:
-        print("m1nd MCP stdio smoke passed")
+        print(f"m1nd MCP {args.transport} smoke passed")
         print(f"- tools: {result['tool_count']}")
         print(f"- graph nodes: {result['ingest']['node_count']}")
         print(f"- graph edges: {result['ingest']['edge_count']}")

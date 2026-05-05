@@ -52,16 +52,18 @@ Use the repo-local agent smoke harness as the default first pass:
 
 ```bash
 python3 scripts/mcp_agent_smoke.py --repo . --json
+python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
-This proves the minimum agent trust loop over real MCP stdio framing:
+This proves the minimum agent trust loop over real stdio framing and the HTTP
+tool API:
 
 ```text
 initialize -> tools/list -> ingest -> seek -> help
 ```
 
-If this passes locally but a host-provided MCP binding fails the same flow, treat
-the problem as transport/session continuity until proven otherwise.
+If these pass locally but a host-provided MCP binding fails the same flow, treat
+the problem as host-binding/session continuity until proven otherwise.
 
 ## Phase 3 — Surface parity
 
