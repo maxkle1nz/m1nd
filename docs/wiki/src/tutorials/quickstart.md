@@ -248,6 +248,27 @@ Current response shape in the repo:
 }
 ```
 
+If a later retrieval call looks stale, call `doctor` before falling back to
+manual file search:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "dev",
+      "observed_tool": "seek",
+      "observed_proof_state": "blocked",
+      "observed_candidates": 0
+    }
+  }
+}
+```
+
+It reports whether the active graph is empty, populated but filtered, or likely
+split across host bindings/transports.
+
 ### Step 3: run a first structural audit
 
 `audit` is the fastest one-call orientation pass, and it requires the repo root path:

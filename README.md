@@ -102,7 +102,7 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 
 | Area | What it enables | Representative tools |
 |---|---|---|
-| Graph foundation | ingest code, maintain graph state, and reinforce useful paths over time | `ingest`, `health`, `learn`, `warmup`, `resonate` |
+| Graph foundation | ingest code, maintain graph state, diagnose session continuity, and reinforce useful paths over time | `ingest`, `health`, `doctor`, `learn`, `warmup`, `resonate` |
 | Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
 | Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
 | Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |

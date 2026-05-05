@@ -59,11 +59,14 @@ This proves the minimum agent trust loop over real stdio framing and the HTTP
 tool API:
 
 ```text
-initialize -> tools/list -> ingest -> seek -> help
+initialize -> tools/list -> ingest -> seek -> help -> doctor
 ```
 
 If these pass locally but a host-provided MCP binding fails the same flow, treat
-the problem as host-binding/session continuity until proven otherwise.
+the problem as host-binding/session continuity until proven otherwise. When a
+live tool surface is available, call `doctor` with the suspicious tool output
+before falling back to shell; it reports the active graph, runtime root,
+workspace root, ingest roots, agent session, and stale-binding clues.
 
 ## Phase 3 — Surface parity
 

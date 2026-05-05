@@ -17,6 +17,19 @@ The rule:
 
 ## Open Notes
 
+### 2026-05-05 — retrieval responses still need inline active-graph breadcrumbs
+
+- Context: the new `doctor` tool can now diagnose active graph/runtime/session
+  state after a stale-looking retrieval, but the retrieval response itself still
+  does not include enough continuity breadcrumbs for instant self-recovery.
+- Desired behavior:
+  - retrieval outputs include compact active graph/session identifiers when
+    `proof_state=blocked` or candidate count is zero
+  - scope/path normalization failures point at `doctor` with prefilled observed
+    fields
+
+## Resolved Notes
+
 ### 2026-05-05 — injected MCP surface can lose graph state across ingest and seek
 
 - Context: real agent smoke from a host-provided `m1nd` MCP surface after
@@ -26,16 +39,12 @@ The rule:
   agent back to shell search for repo orientation.
 - Cross-check: the local stdio binary on the same checkout exposed the full
   tool surface and `ingest -> seek` scanned the expected graph candidates.
-- Desired behavior:
-  - a diagnostic that distinguishes empty graph, wrong session, stale snapshot,
-    restricted injected surface, and query failure
-  - `seek`/retrieval responses that include enough active-graph/session state
-    to make the recovery path obvious
-  - a smoke test that proves `ingest -> seek` continuity through each supported
-    transport or host binding
-- First bounded guard: `scripts/mcp_agent_smoke.py` now proves the stdio and
-  HTTP paths with `initialize/tools -> ingest -> seek -> help`; host-binding
-  parity still needs follow-through.
+- Resolution: `doctor` now distinguishes empty graph, populated graph with
+  blocked/zero-candidate retrieval, missing ingest roots, unknown workspace
+  root, session gaps, and host-binding split-brain clues. The repo-local smoke
+  harness now proves `initialize/tools -> ingest -> seek -> help -> doctor`
+  over stdio and HTTP. HTTP tool dispatch also tracks `agent_id` before calling
+  the shared dispatcher, matching stdio session semantics more closely.
 
 ### 2026-04-05 — proactive write insights still lack runtime-backed mismatch signals
 

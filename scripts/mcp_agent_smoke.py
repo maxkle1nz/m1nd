@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Agent-first smoke test for the m1nd MCP stdio surface.
+"""Agent-first smoke test for the m1nd MCP stdio and HTTP surfaces.
 
 The smoke proves the minimum trust loop an agent needs:
 
-initialize -> tools/list -> ingest -> seek -> help
+initialize -> tools/list -> ingest -> seek -> help -> doctor
 
 It intentionally talks JSON-RPC over Content-Length framed stdio instead of
 calling Rust internals, so it catches transport/session issues that unit tests
@@ -30,7 +30,7 @@ from typing import Any
 
 SCHEMA = "m1nd-mcp-agent-smoke-v0"
 DEFAULT_QUERY = "where MCP tool schemas and runtime tool registry are declared"
-REQUIRED_TOOLS = ("ingest", "seek", "help")
+REQUIRED_TOOLS = ("ingest", "seek", "help", "doctor")
 
 
 class SmokeFailure(RuntimeError):
@@ -384,6 +384,21 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     if not help_payload.get("found") or not (help_payload.get("guidance") or help_payload.get("formatted")):
         raise SmokeFailure("help did not return usable guidance for seek")
 
+    doctor = client.call_tool(
+        "doctor",
+        {
+            "agent_id": args.agent_id,
+            "observed_tool": "seek",
+            "observed_proof_state": proof_state,
+            "observed_candidates": candidates,
+        },
+    )
+    if doctor.get("schema") != "m1nd-doctor-v0":
+        raise SmokeFailure(f"doctor returned unexpected schema: {doctor.get('schema')}")
+    diagnostics = doctor.get("diagnostics") or {}
+    if not diagnostics.get("graph_has_nodes"):
+        raise SmokeFailure(f"doctor does not see the ingested graph: {diagnostics}")
+
     return {
         "initialize": initialize,
         "tool_count": len(tools),
@@ -397,11 +412,19 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             "next_suggested_tool": help_payload.get("next_suggested_tool"),
             "has_guidance": bool(help_payload.get("guidance") or help_payload.get("formatted")),
         },
+        "doctor": {
+            "schema": doctor.get("schema"),
+            "status": doctor.get("status"),
+            "graph_has_nodes": diagnostics.get("graph_has_nodes"),
+            "stale_binding_suspected": diagnostics.get("stale_binding_suspected"),
+            "warnings": doctor.get("warnings") or [],
+        },
         "checks": {
             "tools_list_ok": True,
             "ingest_populated_graph": True,
             "seek_scanned_ingested_graph": True,
             "help_returned_guidance": True,
+            "doctor_confirmed_graph": True,
         },
     }
 
@@ -500,6 +523,7 @@ def main() -> int:
         print(f"- graph edges: {result['ingest']['edge_count']}")
         print(f"- seek candidates: {result['seek']['total_candidates_scanned']}")
         print(f"- seek results: {result['seek']['results_count']}")
+        print(f"- doctor: {result['doctor']['status']}")
     return 0
 
 

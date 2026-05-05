@@ -86,6 +86,7 @@ Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the g
 ### Related Tools
 
 - [`health`](#m1ndhealth) -- check graph status before deciding to ingest
+- [`doctor`](#m1nddoctor) -- diagnose graph/session continuity when retrieval looks stale
 - [`drift`](memory.md#m1nddrift) -- see what changed since last session
 - [`federate`](exploration.md#m1ndfederate) -- multi-repo ingestion
 - [`document_resolve`](#m1nddocument_resolve) -- resolve canonical artifacts for a universal document
@@ -401,7 +402,79 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 ### Related Tools
 
 - [`ingest`](#m1ndingest) -- load data if the graph is empty
+- [`doctor`](#m1nddoctor) -- explain empty graphs, blocked retrieval, and binding/session continuity
 - [`drift`](memory.md#m1nddrift) -- check what changed since last session
+
+---
+
+<a id="m1nddoctor"></a>
+
+## `doctor`
+Diagnoses active graph, runtime, session, and stale-binding symptoms. Use it
+when an agent just ingested a repo but retrieval returns `blocked`, zero
+candidates, or a graph that feels empty.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `observed_tool` | `string` | No | -- | Tool that returned a suspicious result. |
+| `observed_proof_state` | `string` | No | -- | Observed proof state, such as `blocked`. |
+| `observed_candidates` | `integer` | No | -- | Candidate count from the suspicious retrieval. |
+| `scope` | `string` | No | -- | Scope/path used by the suspicious call. |
+| `error_text` | `string` | No | -- | Error text or host message. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "jimi",
+      "observed_tool": "seek",
+      "observed_proof_state": "blocked",
+      "observed_candidates": 0
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-doctor-v0",
+  "status": "warn",
+  "diagnostics": {
+    "graph_has_nodes": true,
+    "agent_session_known": true,
+    "stale_binding_suspected": true
+  },
+  "warnings": [
+    "seek reported blocked/zero-candidate retrieval while the active graph is populated"
+  ],
+  "next_actions": [
+    "verify the same binding with stdio and HTTP smokes before declaring the graph stale"
+  ]
+}
+```
+
+### When to Use
+
+- **After suspicious retrieval** -- distinguish empty graph from stale binding
+- **After transport changes** -- confirm HTTP and stdio see the same session
+- **Before shell fallback** -- give the agent a precise recovery path
+
+### Related Tools
+
+- [`health`](#m1ndhealth) -- basic server health and graph counts
+- [`ingest`](#m1ndingest) -- refresh graph state
+- [`help`](exploration.md#m1ndhelp) -- tool guidance and examples
 
 ---
 

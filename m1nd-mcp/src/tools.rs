@@ -2165,3 +2165,188 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
         git: crate::audit_handlers::collect_git_state(state, 20),
     })
 }
+
+/// Handle m1nd.doctor.
+///
+/// Doctor is intentionally diagnostic only: it reports the active graph,
+/// runtime, session, and likely recovery path without mutating the graph.
+pub fn handle_doctor(
+    state: &mut SessionState,
+    input: DoctorInput,
+) -> M1ndResult<serde_json::Value> {
+    let graph = state.graph.read();
+    let node_count = graph.num_nodes();
+    let edge_count = graph.num_edges() as u64;
+    let graph_finalized = graph.finalized;
+    drop(graph);
+
+    let observed_tool = input
+        .observed_tool
+        .clone()
+        .unwrap_or_else(|| "unknown".into());
+    let observed_proof_state = input.observed_proof_state.clone();
+    let observed_candidates = input.observed_candidates;
+    let observed_blocked = observed_proof_state.as_deref() == Some("blocked");
+    let observed_zero_candidates = observed_candidates == Some(0);
+    let graph_has_nodes = node_count > 0;
+    let has_ingest_roots = !state.ingest_roots.is_empty();
+    let workspace_root_known = state.workspace_root.is_some();
+    let agent_session = state.sessions.get(&input.agent_id);
+
+    let mut warnings = Vec::new();
+    let mut next_actions = Vec::new();
+    let mut probable_causes = Vec::new();
+
+    if !graph_has_nodes {
+        warnings.push("active graph has zero nodes".to_string());
+        probable_causes.push("ingest did not populate this active MCP session".to_string());
+        probable_causes
+            .push("the agent is attached to a different m1nd instance than expected".to_string());
+        next_actions.push(
+            "run ingest against the intended repository on this same tool binding".to_string(),
+        );
+        next_actions
+            .push("call doctor again and confirm node_count is greater than zero".to_string());
+    }
+
+    if graph_has_nodes && (observed_blocked || observed_zero_candidates) {
+        warnings.push(format!(
+            "{} reported blocked/zero-candidate retrieval while the active graph is populated",
+            observed_tool
+        ));
+        probable_causes.push(
+            "host MCP binding, transport, or agent session is pointed at stale state".to_string(),
+        );
+        probable_causes
+            .push("scope/path normalization filtered out the intended graph region".to_string());
+        next_actions.push(
+            "verify the same binding with stdio and HTTP smokes before declaring the graph stale"
+                .to_string(),
+        );
+        next_actions.push(
+            "retry retrieval without scope, then with both absolute and repo-relative scope"
+                .to_string(),
+        );
+    }
+
+    if graph_has_nodes && !has_ingest_roots {
+        warnings.push("graph is populated but ingest_roots are empty".to_string());
+        probable_causes.push(
+            "the graph was loaded from an older snapshot without ingest root sidecar state"
+                .to_string(),
+        );
+        next_actions.push(
+            "rerun ingest in replace or merge mode so workspace_root and ingest_roots are refreshed"
+                .to_string(),
+        );
+    }
+
+    if !workspace_root_known {
+        warnings.push("workspace_root is unknown".to_string());
+        next_actions.push(
+            "ingest a repository path rather than only a standalone graph snapshot".to_string(),
+        );
+    }
+
+    if agent_session.is_none() {
+        warnings.push(format!(
+            "agent session '{}' is not yet present in this runtime state",
+            input.agent_id
+        ));
+        probable_causes.push(
+            "this transport may not be tracking agent sessions before dispatch, or the agent_id changed"
+                .to_string(),
+        );
+        next_actions.push("keep agent_id stable across the investigation".to_string());
+    }
+
+    if next_actions.is_empty() {
+        next_actions.push(
+            "continue with m1nd-first retrieval; use compiler/tests for runtime truth".to_string(),
+        );
+    }
+
+    warnings.sort();
+    warnings.dedup();
+    probable_causes.sort();
+    probable_causes.dedup();
+    next_actions.sort();
+    next_actions.dedup();
+
+    let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
+    let status = if !graph_has_nodes {
+        "blocked"
+    } else if !warnings.is_empty() {
+        "warn"
+    } else {
+        "ok"
+    };
+
+    let recent_agent_queries: Vec<_> = state
+        .query_log
+        .iter()
+        .rev()
+        .filter(|entry| entry.agent_id == input.agent_id)
+        .take(5)
+        .cloned()
+        .collect();
+
+    let last_persist_secs_ago = state
+        .last_persist_time
+        .map(|last| last.elapsed().as_secs_f64());
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-doctor-v0",
+        "status": status,
+        "agent_id": input.agent_id,
+        "diagnostics": {
+            "graph_has_nodes": graph_has_nodes,
+            "graph_finalized": graph_finalized,
+            "has_ingest_roots": has_ingest_roots,
+            "workspace_root_known": workspace_root_known,
+            "agent_session_known": agent_session.is_some(),
+            "stale_binding_suspected": stale_binding_suspected,
+        },
+        "observed": {
+            "tool": observed_tool,
+            "proof_state": observed_proof_state,
+            "candidates": observed_candidates,
+            "scope": input.scope,
+            "error_text": input.error_text,
+        },
+        "graph_state": state.graph_runtime_summary(),
+        "runtime_state": {
+            "runtime_root": state.runtime_root.to_string_lossy(),
+            "graph_path": state.graph_path.to_string_lossy(),
+            "graph_path_exists": state.graph_path.exists(),
+            "plasticity_path": state.plasticity_path.to_string_lossy(),
+            "plasticity_path_exists": state.plasticity_path.exists(),
+            "workspace_root": state.workspace_root,
+            "ingest_roots": state.ingest_roots,
+            "last_persist_secs_ago": last_persist_secs_ago,
+            "instance": state.instance.summary(),
+        },
+        "session_state": {
+            "active_agent_sessions": state.sessions.len(),
+            "agent_session": agent_session.map(|session| serde_json::json!({
+                "agent_id": session.agent_id,
+                "first_seen_secs_ago": session.first_seen.elapsed().as_secs_f64(),
+                "last_seen_secs_ago": session.last_seen.elapsed().as_secs_f64(),
+                "query_count": session.query_count,
+            })),
+            "queries_processed": state.queries_processed,
+            "recent_agent_queries": recent_agent_queries,
+        },
+        "transport_clues": {
+            "doctor_is_transport_neutral": true,
+            "split_brain_rule": "if repo-local stdio/http smokes pass but host MCP retrieval is blocked, suspect host binding or session split-brain before blaming the graph",
+            "repo_local_smokes": [
+                "python3 scripts/mcp_agent_smoke.py --repo . --json",
+                "python3 scripts/mcp_agent_smoke.py --repo . --transport http --json"
+            ],
+        },
+        "warnings": warnings,
+        "probable_causes": probable_causes,
+        "next_actions": next_actions,
+    }))
+}

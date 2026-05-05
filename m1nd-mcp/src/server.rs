@@ -36,8 +36,9 @@ stateful perspective navigation. All tool calls require an `agent_id` parameter.
 
 ## WORKFLOWS
 
-**Session Start**: `health` → `drift` (recover what changed since last session) → \
-`ingest` (if graph is empty or stale). This gives you codebase-aware context.
+**Session Start**: `health` → `doctor` (confirm graph/runtime/session continuity) → \
+`drift` (recover what changed since last session) → `ingest` (if graph is empty or stale). \
+This gives you codebase-aware context.
 
 **Research**: `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → \
 `learn(feedback)`. Use `seek` for keyword search, `scan` for broad discovery, \
@@ -583,6 +584,22 @@ pub fn tool_schemas() -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "doctor",
+                "description": "Diagnose active graph, runtime, session, and stale binding symptoms",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "observed_tool": { "type": "string", "description": "Optional tool that produced a suspicious result" },
+                        "observed_proof_state": { "type": "string", "description": "Optional proof_state from the suspicious result" },
+                        "observed_candidates": { "type": "integer", "description": "Optional candidate count from retrieval" },
+                        "scope": { "type": "string", "description": "Optional scope/path used by the suspicious call" },
+                        "error_text": { "type": "string", "description": "Optional error text or host message" }
                     },
                     "required": ["agent_id"]
                 }
@@ -1833,7 +1850,7 @@ pub fn dispatch_tool(
         // Track savings (skip meta tools)
         if !matches!(
             normalized.as_str(),
-            "health" | "help" | "savings" | "report"
+            "health" | "doctor" | "help" | "savings" | "report"
         ) {
             state.savings_tracker.record(&normalized, result_count);
             state.global_savings.total_queries += 1;
@@ -1966,6 +1983,11 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = tools::handle_health(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "doctor" => {
+            let input: DoctorInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            tools::handle_doctor(state, input)
         }
         // L2-L7: Superpowers layer tools
         "seek" => {
@@ -3212,6 +3234,7 @@ mod tests {
             "external_references",
             "federate_auto",
             "audit",
+            "doctor",
             "daemon_start",
             "daemon_stop",
             "daemon_status",
@@ -3243,6 +3266,89 @@ mod tests {
         }
         assert!(should_autotick_daemon("search"));
         assert!(should_autotick_daemon("apply"));
+    }
+
+    #[test]
+    fn doctor_blocks_empty_graph_with_recovery_guidance() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "doctor",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "seek",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0
+            }),
+        )
+        .expect("doctor output");
+
+        assert_eq!(output["schema"], "m1nd-doctor-v0");
+        assert_eq!(output["status"], "blocked");
+        assert_eq!(output["diagnostics"]["graph_has_nodes"], false);
+        assert_eq!(output["diagnostics"]["stale_binding_suspected"], false);
+        assert!(
+            output["next_actions"]
+                .as_array()
+                .expect("next actions")
+                .iter()
+                .any(|action| action.as_str().unwrap_or_default().contains("ingest")),
+            "doctor should tell the agent how to recover an empty graph"
+        );
+    }
+
+    #[test]
+    fn doctor_flags_stale_binding_when_retrieval_blocks_on_populated_graph() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(
+            repo.join("src/core.py"),
+            "def schema_registry():\n    return 'm1nd doctor'\n",
+        )
+        .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+        state.track_agent("jimi");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "doctor",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "seek",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0
+            }),
+        )
+        .expect("doctor output");
+
+        assert_eq!(output["schema"], "m1nd-doctor-v0");
+        assert_eq!(output["status"], "warn");
+        assert_eq!(output["diagnostics"]["graph_has_nodes"], true);
+        assert_eq!(output["diagnostics"]["stale_binding_suspected"], true);
+        assert_eq!(output["diagnostics"]["agent_session_known"], true);
+        assert!(
+            output["transport_clues"]["split_brain_rule"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("host binding"),
+            "doctor should name the host binding split-brain risk"
+        );
     }
 
     #[test]

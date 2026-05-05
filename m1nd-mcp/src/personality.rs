@@ -1042,7 +1042,22 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[("agent_id", "Calling agent identifier", true)],
             returns: "Status, node/edge counts, uptime, active sessions",
             example: r#"{"agent_id": "jimi"}"#,
-            next: &["ingest", "drift"],
+            next: &["doctor", "ingest", "drift"],
+        },
+        ToolDoc {
+            name: "doctor",
+            category: "Foundation",
+            glyph: GLYPH_DIMENSION,
+            one_liner: "Runtime doctor -- diagnose graph/session/binding continuity",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("observed_tool", "Tool that returned a suspicious result", false),
+                ("observed_proof_state", "Observed proof_state, such as blocked", false),
+                ("observed_candidates", "Observed retrieval candidate count", false),
+            ],
+            returns: "Graph/runtime/session state, warnings, probable causes, next actions",
+            example: r#"{"agent_id": "jimi", "observed_tool": "seek", "observed_proof_state": "blocked", "observed_candidates": 0}"#,
+            next: &["ingest", "seek", "help"],
         },
         // --- Superpowers ---
         ToolDoc {

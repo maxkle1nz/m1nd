@@ -499,6 +499,11 @@ pub async fn run(
                                         .to_string(),
                                 ));
                             }
+                            if let Some(agent_id) =
+                                arguments.get("agent_id").and_then(|v| v.as_str())
+                            {
+                                s.track_agent(agent_id);
+                            }
                             let result = dispatch_tool(&mut s, tool_name, &arguments);
                             s.apply_batch_progress_sink = None;
                             result
@@ -966,6 +971,9 @@ async fn handle_tool_call(
                     "http".to_string(),
                     progress_agent_id.clone(),
                 ));
+            }
+            if let Some(agent_id) = body.get("agent_id").and_then(|v| v.as_str()) {
+                session.track_agent(agent_id);
             }
             let result = dispatch_tool(&mut session, &tool, &body);
             session.apply_batch_progress_sink = None;

@@ -184,6 +184,22 @@ pub struct HealthInput {
     pub agent_id: String,
 }
 
+/// Input for m1nd.doctor.
+#[derive(Clone, Debug, Deserialize)]
+pub struct DoctorInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub observed_tool: Option<String>,
+    #[serde(default)]
+    pub observed_proof_state: Option<String>,
+    #[serde(default)]
+    pub observed_candidates: Option<u64>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub error_text: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Default value helpers
 // ---------------------------------------------------------------------------
