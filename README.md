@@ -25,6 +25,7 @@
   <a href="#what-m1nd-is-not">What m1nd Is Not</a> &middot;
   <a href="#capability-map">Capability Map</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#agent-pack-install">Agent Pack</a> &middot;
   <a href="#try-the-agent-demo">Agent Demo</a> &middot;
   <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
   <a href="#evidence">Evidence</a> &middot;
@@ -123,6 +124,20 @@ If you want the shortest path to value:
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
+npm install -g .
+m1nd doctor
+```
+
+Then install the agent doctrine for your host:
+
+```bash
+m1nd install-skills codex
+m1nd install-skills generic --project /your/project
+```
+
+For the native MCP runtime from the same checkout:
+
+```bash
 cargo build --release
 ./target/release/m1nd-mcp
 ```
@@ -167,6 +182,34 @@ If docs or specs matter too:
 ```
 
 For graph-native semantic docs, use `adapter: "light"` instead.
+
+## Agent Pack Install
+
+`m1nd` includes a universal agent pack so the same operating model can be used
+from Codex, Claude, Gemini, Antigravity, Cursor, Cline, Roo, Continue, OpenCode,
+and other MCP-capable hosts.
+
+From a source checkout:
+
+```bash
+npm install -g .
+m1nd install-skills codex
+m1nd install-skills claude --project /your/project
+m1nd install-skills gemini --project /your/project
+m1nd install-skills antigravity --project /your/project
+```
+
+The npm installer currently installs the doctrine, portable host files, config
+snippets, and diagnostics. The native runtime is still `m1nd-mcp`; build it
+from source or point your host at an installed binary.
+
+```bash
+m1nd mcp-config codex
+m1nd mcp-config generic
+m1nd pack-check
+```
+
+See [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) for the full install map.
 
 ## Try The Agent Demo
 

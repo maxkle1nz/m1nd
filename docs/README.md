@@ -5,6 +5,7 @@ This repo keeps the public docs surface intentionally small.
 ## Start here
 - `../README.md` — primary project overview and quick start
 - `AGENT-FIRST-DEMO.md` — shortest real agent-first demo transcript path
+- `AGENT-PACKS.md` — installable m1nd-first skills and portable agent packs
 - `MCP-HOST-REFRESH.md` — diagnose stale or partial MCP host tool surfaces
 - `deployment.md` — persistent runtime and production setup
 - `IDE-INTEGRATIONS.md` — client and integration notes

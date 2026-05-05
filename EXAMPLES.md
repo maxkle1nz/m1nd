@@ -6,6 +6,14 @@ All payloads below use the canonical MCP tool names from the live registry, with
 
 ## 0. One-minute agent demo
 
+Install the agent pack first when you are setting up a new host:
+
+```bash
+npm install -g .
+m1nd install-skills codex
+m1nd doctor
+```
+
 Run the real agent trust path before reading examples by hand:
 
 ```bash

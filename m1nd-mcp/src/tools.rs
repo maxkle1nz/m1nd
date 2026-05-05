@@ -2534,17 +2534,16 @@ pub fn handle_trust_selftest(
         None
     };
 
+    let default_next_action = if ok {
+        "proceed_with_m1nd_first"
+    } else {
+        "inspect_trust_selftest_verdict"
+    };
     let next_action = recovery_playbook
         .as_ref()
         .and_then(|playbook| playbook.get("next_action"))
         .and_then(|value| value.as_str())
-        .unwrap_or_else(|| {
-            if ok {
-                "proceed_with_m1nd_first"
-            } else {
-                "inspect_trust_selftest_verdict"
-            }
-        });
+        .unwrap_or(default_next_action);
 
     Ok(serde_json::json!({
         "schema": "m1nd-trust-selftest-v0",
@@ -2979,9 +2978,7 @@ pub fn handle_doctor(
     let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
     let status = if !graph_has_nodes {
         "blocked"
-    } else if degraded_host_tool_surface {
-        "warn"
-    } else if !warnings.is_empty() {
+    } else if degraded_host_tool_surface || !warnings.is_empty() {
         "warn"
     } else {
         "ok"

@@ -1,0 +1,45 @@
+{
+  "name": "@m1nd/m1nd",
+  "version": "0.8.0",
+  "description": "Universal installer and agent pack for the m1nd MCP runtime.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maxkle1nz/m1nd.git"
+  },
+  "homepage": "https://github.com/maxkle1nz/m1nd#readme",
+  "bugs": {
+    "url": "https://github.com/maxkle1nz/m1nd/issues"
+  },
+  "type": "commonjs",
+  "bin": {
+    "m1nd": "npm/bin/m1nd.js"
+  },
+  "files": [
+    "npm/",
+    "skills/README.md",
+    "skills/m1nd-universal-agent-pack.md",
+    "skills/m1nd-first/SKILL.md",
+    "skills/m1nd-operator/SKILL.md",
+    "skills/m1nd-operator/references/*.md",
+    "skills/m1nd-operator/scripts/probe_m1nd.py",
+    "docs/AGENT-PACKS.md",
+    "docs/AGENT-FIRST-DEMO.md",
+    "docs/MCP-HOST-REFRESH.md",
+    "docs/IDE-INTEGRATIONS.md",
+    "README.md",
+    "EXAMPLES.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "m1nd:doctor": "node npm/bin/m1nd.js doctor",
+    "m1nd:pack-check": "node npm/bin/m1nd.js pack-check",
+    "m1nd:install-generic": "node npm/bin/m1nd.js install-skills generic --project ."
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
