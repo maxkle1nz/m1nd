@@ -402,10 +402,92 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 ### Related Tools
 
 - [`ingest`](#m1ndingest) -- load data if the graph is empty
+- [`trust_selftest`](#m1ndtrust_selftest) -- one-call startup verdict for agents
 - [`session_handshake`](#m1ndsession_handshake) -- classify whether this binding is trustworthy
 - [`recovery_playbook`](#m1ndrecovery_playbook) -- return ordered recovery steps
 - [`doctor`](#m1nddoctor) -- explain empty graphs, blocked retrieval, and binding/session continuity
 - [`drift`](memory.md#m1nddrift) -- check what changed since last session
+
+---
+
+<a id="m1ndtrust_selftest"></a>
+
+## `trust_selftest`
+Returns a one-call startup verdict for agents. It composes the current binding
+fingerprint, graph state, host-visible tool evidence, `session_handshake`, and
+an optional `recovery_playbook`.
+
+The tool is diagnostic-only: it does not ingest, repair, run shell commands,
+mutate files, refresh host bindings, or probe retrieval automatically.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+| `observed_tool` | `string` | No | -- | Tool that produced a suspicious result. |
+| `observed_proof_state` | `string` | No | -- | Observed proof state, such as `blocked`. |
+| `observed_candidates` | `integer` | No | -- | Candidate count from suspicious retrieval. |
+| `scope` | `string` | No | -- | Repo or scope path associated with the incident. |
+| `error_text` | `string` | No | -- | Error text or host message. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "trust_selftest",
+    "arguments": {
+      "agent_id": "jimi"
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-trust-selftest-v0",
+  "ok": true,
+  "status": "ok",
+  "verdict": "full_trust",
+  "next_action": "proceed_with_m1nd_first",
+  "binding_fingerprint": {
+    "schema": "m1nd-binding-fingerprint-v0",
+    "process_id": 12345,
+    "node_count": 9767
+  },
+  "checks": {
+    "graph_populated": true,
+    "host_surface_complete": true,
+    "stale_binding_suspected": false,
+    "recovery_playbook_attached": false
+  },
+  "recovery_playbook": null
+}
+```
+
+### Verdicts
+
+- `full_trust` -- graph has content and the required recovery surface is present.
+- `needs_ingest` -- graph is empty but `ingest` is available.
+- `orientation_only` -- graph is empty and the current host surface cannot ingest.
+- `degraded_host_tool_surface` -- the host is hiding required recovery tools.
+- `stale_binding_suspected` -- populated graph plus blocked/zero-candidate evidence suggests host/session split-brain.
+
+### Related Tools
+
+- [`session_handshake`](#m1ndsession_handshake) -- cheaper sub-check used by the selftest
+- [`recovery_playbook`](#m1ndrecovery_playbook) -- attached when the verdict needs action
+- [`doctor`](#m1nddoctor) -- deeper runtime diagnosis when recovery asks for it
+- [`ingest`](#m1ndingest) -- run only after `needs_ingest`
 
 ---
 
@@ -481,6 +563,7 @@ as `ingest`.
 
 ### Related Tools
 
+- [`trust_selftest`](#m1ndtrust_selftest) -- preferred one-call startup verdict
 - [`recovery_playbook`](#m1ndrecovery_playbook) -- what to do when trust mode is not full
 - [`ingest`](#m1ndingest) -- load data after `needs_ingest`
 - [`doctor`](#m1nddoctor) -- inspect the recovery payload under suspicion

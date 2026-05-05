@@ -90,6 +90,9 @@ That matters for how you integrate m1nd into an agent loop: treat many responses
 | [`auto_ingest_tick`](lifecycle.md#m1ndauto_ingest_tick) | Drain queued document changes immediately |
 | [`auto_ingest_stop`](lifecycle.md#m1ndauto_ingest_stop) | Stop document watchers and persist manifest state |
 | [`health`](lifecycle.md#m1ndhealth) | Server health and statistics |
+| [`trust_selftest`](lifecycle.md#m1ndtrust_selftest) | One-call startup verdict for agent trust and recovery readiness |
+| [`session_handshake`](lifecycle.md#m1ndsession_handshake) | Cheap host-surface and graph trust classification |
+| [`recovery_playbook`](lifecycle.md#m1ndrecovery_playbook) | Ordered recovery steps for degraded or stale-looking sessions |
 | [`search`](lifecycle.md#m1ndsearch) | Literal, regex, or semantic-graph-aware content search |
 | [`glob`](lifecycle.md#m1ndglob) | Graph-aware file globbing |
 | [`view`](lifecycle.md#m1ndview) | Fast line-numbered file inspection |

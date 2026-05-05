@@ -213,13 +213,13 @@ What happened:
 - references were resolved
 - the graph was finalized for querying
 
-### Step 2: run the cheap session handshake
+### Step 2: run the agent trust selftest
 
 ```jsonc
 {
   "method": "tools/call",
   "params": {
-    "name": "session_handshake",
+    "name": "trust_selftest",
     "arguments": {
       "agent_id": "dev"
     }
@@ -227,14 +227,15 @@ What happened:
 }
 ```
 
-The response classifies the current binding as `full_trust`, `needs_ingest`,
-`orientation_only`, or `degraded_host_tool_surface`. It also includes a binding
-fingerprint with runtime root, graph paths, generation counters, ingest roots,
-and process identity. It does not ingest, repair, or run retrieval probes by
-default.
+The response returns a single `verdict`: `full_trust`, `needs_ingest`,
+`orientation_only`, `degraded_host_tool_surface`, or
+`stale_binding_suspected`. It also includes a binding fingerprint, graph state,
+an embedded `session_handshake`, and an optional recovery playbook. It does not
+ingest, repair, refresh host bindings, mutate files, or run retrieval probes.
 
-If the trust mode is not `full_trust`, ask m1nd for the deterministic recovery
-path:
+If the live surface does not expose `trust_selftest`, use `session_handshake`
+as the cheaper sub-check. If the verdict or trust mode is not `full_trust`, ask
+m1nd for the deterministic recovery path:
 
 ```jsonc
 {
@@ -333,15 +334,15 @@ When `ingest` is unavailable in the current host surface, use m1nd as
 orientation only and cross-check final answers against local files until the
 MCP binding is refreshed.
 
-For local repo validation, the smoke harness now has a cheap handshake mode:
+For local repo validation, the smoke harness now has a cheap diagnostic mode:
 
 ```bash
 python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
 ```
 
-That mode calls `session_handshake` when the binary exposes it, and falls back
-to the local harness implementation for older builds. Add `--handshake-probe`
-only when the task depends on retrieval trust.
+That mode calls `trust_selftest` and `session_handshake` when the binary exposes
+them, and falls back to the local harness implementation for older builds. Add
+`--handshake-probe` only when the task depends on retrieval trust.
 
 ### Step 4: run a first structural audit
 

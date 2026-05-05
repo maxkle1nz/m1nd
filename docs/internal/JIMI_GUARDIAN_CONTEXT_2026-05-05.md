@@ -24,7 +24,7 @@ It is an internal operating note, not public product copy.
 - First repo-local smoke harness:
   - `python3 scripts/mcp_agent_smoke.py --repo . --json`
   - `python3 scripts/mcp_agent_smoke.py --repo . --transport http --json`
-  - proves `initialize -> tools/list -> ingest -> seek -> help`
+  - current continuation expands this to `initialize -> tools/list -> trust_selftest -> session_handshake -> recovery_playbook when needed -> ingest -> seek -> help -> doctor`
   - uses isolated runtime state, real Content-Length framed stdio, and the HTTP
     tool API
 

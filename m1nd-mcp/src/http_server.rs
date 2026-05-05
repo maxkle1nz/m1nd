@@ -758,9 +758,9 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             "host_binding_alignment": {
                 "schema": "m1nd-host-binding-alignment-v0",
                 "status": "needs_client_surface_comparison",
-                "rule": "Compare the host-visible m1nd tool names and count against tool_surface_contract. If session_handshake or recovery_playbook is missing, treat this host binding as degraded_host_tool_surface even when health responds.",
+                "rule": "Compare the host-visible m1nd tool names and count against tool_surface_contract. If trust_selftest, session_handshake, or recovery_playbook is missing, treat this host binding as degraded_host_tool_surface even when health responds.",
                 "current_runtime_has_graph": node_count > 0 && edge_count > 0,
-                "next_action": "Call session_handshake with observed_tool_count and available_tools when visible; otherwise use local repo smoke or refresh the MCP host binding.",
+                "next_action": "Call trust_selftest with observed_tool_count and available_tools when visible; otherwise use session_handshake, local repo smoke, or refresh the MCP host binding.",
                 "non_claims": [
                     "health cannot see which subset of tools the client host injected",
                     "health does not rebind the host or refresh tool schemas automatically"

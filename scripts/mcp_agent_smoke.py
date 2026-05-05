@@ -3,7 +3,7 @@
 
 The smoke proves the minimum trust loop an agent needs:
 
-initialize -> tools/list -> session_handshake -> recovery_playbook when needed -> ingest -> seek -> help -> doctor
+initialize -> tools/list -> trust_selftest -> session_handshake -> recovery_playbook when needed -> ingest -> seek -> help -> doctor
 
 It intentionally talks JSON-RPC over Content-Length framed stdio instead of
 calling Rust internals, so it catches transport/session issues that unit tests
@@ -33,10 +33,19 @@ from typing import Any
 
 SCHEMA = "m1nd-mcp-agent-smoke-v0"
 HANDSHAKE_SCHEMA = "m1nd-session-handshake-v0"
+TRUST_SELFTEST_SCHEMA = "m1nd-trust-selftest-v0"
 RECOVERY_PLAYBOOK_SCHEMA = "m1nd-recovery-playbook-v0"
 DEFAULT_QUERY = "where MCP tool schemas and runtime tool registry are declared"
-REQUIRED_TOOLS = ("ingest", "seek", "help", "recovery_playbook", "doctor")
-HANDSHAKE_REQUIRED_TOOLS = ("health", "recovery_playbook", "doctor", "ingest", "seek", "help")
+REQUIRED_TOOLS = ("trust_selftest", "ingest", "seek", "help", "recovery_playbook", "doctor")
+HANDSHAKE_REQUIRED_TOOLS = (
+    "health",
+    "trust_selftest",
+    "recovery_playbook",
+    "doctor",
+    "ingest",
+    "seek",
+    "help",
+)
 
 
 class SmokeFailure(RuntimeError):
@@ -395,7 +404,7 @@ def validate_health_surface_contract(payload: dict[str, Any]) -> None:
     if contract.get("schema") != "m1nd-tool-surface-contract-v0":
         raise SmokeFailure(f"health did not expose tool surface contract: {payload}")
     required_host_tools = set(contract.get("required_host_visible_tools") or [])
-    if not {"health", "session_handshake", "recovery_playbook"}.issubset(required_host_tools):
+    if not {"health", "trust_selftest", "session_handshake", "recovery_playbook"}.issubset(required_host_tools):
         raise SmokeFailure(f"health contract does not name required host binding tools: {contract}")
     alignment = payload.get("host_binding_alignment") or {}
     if alignment.get("schema") != "m1nd-host-binding-alignment-v0":
@@ -421,6 +430,22 @@ def call_recovery_playbook(client: Any, agent_id: str, arguments: dict[str, Any]
     if not playbook.get("binding_fingerprint"):
         raise SmokeFailure(f"recovery_playbook returned no binding_fingerprint: {playbook}")
     return playbook
+
+
+def call_trust_selftest(client: Any, agent_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    selftest_args = dict(arguments)
+    selftest_args["agent_id"] = agent_id
+    selftest = client.call_tool("trust_selftest", selftest_args)
+    if selftest.get("schema") != TRUST_SELFTEST_SCHEMA:
+        raise SmokeFailure(f"trust_selftest returned unexpected schema: {selftest.get('schema')}")
+    if not selftest.get("binding_fingerprint"):
+        raise SmokeFailure(f"trust_selftest omitted binding_fingerprint: {selftest}")
+    checks = selftest.get("checks") or {}
+    if not isinstance(checks, dict) or checks.get("binding_fingerprint_present") is not True:
+        raise SmokeFailure(f"trust_selftest returned unusable checks: {selftest}")
+    if not selftest.get("session_handshake"):
+        raise SmokeFailure(f"trust_selftest omitted session_handshake: {selftest}")
+    return selftest
 
 
 def run_session_handshake_from_observed(
@@ -595,6 +620,12 @@ def attach_handshake_probe(
                 args.agent_id,
                 doctor_args,
             )
+        if "trust_selftest" in available_tool_names:
+            handshake["trust_selftest"] = call_trust_selftest(
+                client,
+                args.agent_id,
+                doctor_args,
+            )
         if "doctor" in available_tool_names:
             handshake["doctor"] = client.call_tool("doctor", doctor_args)
 
@@ -622,6 +653,15 @@ def run_session_handshake_from_live_surface(
         )
         handshake["initialize"] = initialize
         handshake["tool_count"] = len(available_tool_names)
+        if "trust_selftest" in available_tool_names:
+            handshake["trust_selftest"] = call_trust_selftest(
+                client,
+                args.agent_id,
+                {
+                    "observed_tool_count": len(available_tool_names),
+                    "available_tools": available_tool_names,
+                },
+            )
         if not run_probe:
             return handshake
         return attach_handshake_probe(client, args, handshake, available_tool_names)
@@ -646,8 +686,9 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
         run_probe=False,
     )
     tool_names = [tool.get("name") for tool in tools]
+    available_tool_names = [name for name in tool_names if isinstance(name, str)]
     tool_surface = build_tool_surface_report(
-        [name for name in tool_names if isinstance(name, str)],
+        available_tool_names,
         args.min_tool_count,
     )
     if tool_surface["degraded_host_tool_surface"]:
@@ -660,7 +701,7 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
                 args.agent_id,
                 dict(tool_surface["recovery"]["arguments"]),
             )
-        if "doctor" in [name for name in tool_names if isinstance(name, str)]:
+        if "doctor" in available_tool_names:
             doctor_args = dict(tool_surface["recovery"]["arguments"])
             doctor = client.call_tool("doctor", doctor_args)
         details = {
@@ -698,6 +739,17 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     edge_count = int(ingest.get("edge_count") or 0)
     if node_count <= 0 or edge_count <= 0:
         raise SmokeFailure(f"ingest produced an empty graph: nodes={node_count}, edges={edge_count}")
+
+    trust_selftest = call_trust_selftest(
+        client,
+        args.agent_id,
+        {
+            "observed_tool_count": len(available_tool_names),
+            "available_tools": available_tool_names,
+        },
+    )
+    if trust_selftest.get("verdict") != "full_trust":
+        raise SmokeFailure(f"trust_selftest did not reach full_trust after ingest: {trust_selftest}")
 
     seek = client.call_tool(
         "seek",
@@ -768,8 +820,15 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
         args.agent_id,
         dict(recovery.get("arguments") or {}),
     )
+    negative_selftest = call_trust_selftest(
+        client,
+        args.agent_id,
+        dict(recovery.get("arguments") or {}),
+    )
     if recovery_playbook.get("trust_mode") != "stale_binding_suspected":
         raise SmokeFailure(f"negative recovery_playbook did not flag stale binding: {recovery_playbook}")
+    if negative_selftest.get("verdict") != "stale_binding_suspected":
+        raise SmokeFailure(f"negative trust_selftest did not flag stale binding: {negative_selftest}")
     if not recovery_playbook.get("binding_fingerprint"):
         raise SmokeFailure(f"negative recovery_playbook omitted binding_fingerprint: {recovery_playbook}")
 
@@ -780,6 +839,12 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
         "tool_surface": tool_surface,
         "health_contract": summarize_health(health_contract),
         "required_tools_present": {name: name in tool_names for name in REQUIRED_TOOLS},
+        "trust_selftest": {
+            "schema": trust_selftest.get("schema"),
+            "status": trust_selftest.get("status"),
+            "verdict": trust_selftest.get("verdict"),
+            "next_action": trust_selftest.get("next_action"),
+        },
         "ingest": summarize_ingest(ingest),
         "seek": summarize_seek(seek),
         "help": {
@@ -804,6 +869,8 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             "playbook_trust_mode": recovery_playbook.get("trust_mode"),
             "playbook_next_action": recovery_playbook.get("next_action"),
             "playbook_step_count": len(recovery_playbook.get("steps") or []),
+            "selftest_schema": negative_selftest.get("schema"),
+            "selftest_verdict": negative_selftest.get("verdict"),
             "graph_node_count": graph_state.get("node_count"),
             "observed_tool": ((recovery.get("arguments") or {}).get("observed_tool")),
         },
@@ -814,8 +881,10 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             "help_returned_guidance": True,
             "doctor_confirmed_graph": True,
             "health_surface_contract_exposed": True,
+            "trust_selftest_full_trust": True,
             "negative_retrieval_suggested_recovery_playbook": True,
             "negative_recovery_playbook_validated": True,
+            "negative_trust_selftest_validated": True,
         },
     }
 

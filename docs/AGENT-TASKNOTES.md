@@ -33,6 +33,22 @@ The rule:
 
 ## Resolved Notes
 
+### 2026-05-06 — agents need one startup verdict, not stitched diagnostics
+
+- Context: `health`, `session_handshake`, and `recovery_playbook` exposed the
+  right primitives, but every agent still had to remember how to compose them
+  when a host binding was partial or retrieval looked stale.
+- Resolution: `trust_selftest` now returns `m1nd-trust-selftest-v0` with a
+  single verdict (`full_trust`, `needs_ingest`, `orientation_only`,
+  `degraded_host_tool_surface`, or `stale_binding_suspected`), the binding
+  fingerprint, graph state, embedded session handshake, and an optional
+  recovery playbook. It is diagnostic-only: no ingest, repair, probe, or
+  mutation happens automatically.
+- Follow-up: agents should call `trust_selftest` first when the live MCP
+  surface exposes it, fall back to `session_handshake` when it does not, and use
+  `recovery_playbook` only when the verdict is not `full_trust` or retrieval
+  evidence is suspicious.
+
 ### 2026-05-05 — session startup needs a cheap trust handshake
 
 - Context: after adding `doctor` and degraded-surface diagnostics, the remaining

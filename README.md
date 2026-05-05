@@ -68,7 +68,7 @@ With `m1nd`, an agent can:
 - retrieve and navigate the right context by text, path, intent, neighborhood, relationship, route, or failure trace
 - explain blocked retrieval with compact graph state and a ready diagnostic payload, so agents know whether to re-ingest, adjust scope, or inspect the active runtime
 - detect degraded host MCP surfaces, including sessions where m1nd is visible but recovery tools such as `ingest` are not exposed
-- run a cheap session handshake that reports whether the current agent should fully trust, re-ingest, recover, or treat m1nd as orientation-only
+- run a one-call trust selftest that reports whether the current agent should fully trust, re-ingest, recover, or treat m1nd as orientation-only
 - reason about change before, during, and after it happens, including blast radius, co-change, missing work, structural claims, plan validity, drift, and counterfactuals
 - analyze architecture, quality, security, duplication, type flow, trust boundaries, hidden dependencies, volatility, and refactor opportunities across the graph
 - bind specs and docs back to implementation, including universal documents, graph-native `L1GHT`, provider health, automatic document ingest, and drift detection
@@ -105,7 +105,7 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 
 | Area | What it enables | Representative tools |
 |---|---|---|
-| Graph foundation | ingest code, maintain graph state, diagnose session continuity, and reinforce useful paths over time | `session_handshake`, `recovery_playbook`, `ingest`, `health`, `doctor`, `learn`, `warmup`, `resonate` |
+| Graph foundation | ingest code, maintain graph state, diagnose session continuity, and reinforce useful paths over time | `trust_selftest`, `session_handshake`, `recovery_playbook`, `ingest`, `health`, `doctor`, `learn`, `warmup`, `resonate` |
 | Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
 | Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
 | Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
@@ -133,13 +133,16 @@ The canonical live tool names are the bare names returned by `tools/list`, such 
 Then start with this trust loop:
 
 ```jsonc
-// 0. Trust the binding
+// 0. Trust the binding in one call
+{"method":"tools/call","params":{"name":"trust_selftest","arguments":{"agent_id":"dev"}}}
+
+// 0b. If you need the cheaper sub-check only
 {"method":"tools/call","params":{"name":"session_handshake","arguments":{"agent_id":"dev"}}}
 
 // If your host only exposes health, read its tool_surface_contract first
 {"method":"tools/call","params":{"name":"health","arguments":{"agent_id":"dev"}}}
 
-// 1. If the handshake is not full_trust, ask for the recovery path
+// 1. If the selftest is not full_trust, ask for the recovery path
 {"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
 
 // 2. Build graph truth

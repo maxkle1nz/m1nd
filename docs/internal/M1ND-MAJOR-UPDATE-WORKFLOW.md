@@ -55,27 +55,33 @@ python3 scripts/mcp_agent_smoke.py --repo . --json
 python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
-For cheap session startup, use the official `session_handshake` tool when the
-live surface exposes it. If the trust mode is not `full_trust`, call
-`recovery_playbook` with the handshake or suspicious retrieval evidence before
-guessing the next action. The repo-local harness calls `session_handshake`
-automatically and falls back to its local implementation for older binaries:
+For cheap session startup, use the official `trust_selftest` tool when the live
+surface exposes it. It composes host-surface evidence, graph state,
+`session_handshake`, and `recovery_playbook` into one verdict without ingesting,
+repairing, mutating, or probing retrieval. If the selftest verdict is not
+`full_trust`, follow its `recovery_playbook` or call `recovery_playbook` with
+the same evidence before guessing the next action.
+
+Use `session_handshake` as the cheaper sub-check or fallback when a host has not
+refreshed to expose `trust_selftest`. The repo-local harness calls
+`trust_selftest` when available, calls `session_handshake`, and falls back to
+its local implementation for older binaries:
 
 ```bash
 python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
 python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --handshake-probe --json
 ```
 
-The default handshake is diagnostic-only: it inspects the host tool surface and
-active graph state without ingesting, repairing, or probing retrieval.
-`--handshake-probe` adds one tiny `seek` probe when the task depends on
-retrieval trust.
+The default selftest/handshake path is diagnostic-only: it inspects the host
+tool surface and active graph state without ingesting, repairing, or probing
+retrieval. `--handshake-probe` adds one tiny `seek` probe when the task depends
+on retrieval trust.
 
 `recovery_playbook` is also diagnostic-only. It returns ordered steps and a
 binding fingerprint so agents can compare host, stdio, HTTP, runtime root,
 graph path, generation counters, and ingest roots before blaming the graph.
 
-If the host exposes `health` but not `session_handshake` or
+If the host exposes `health` but not `trust_selftest`, `session_handshake`, or
 `recovery_playbook`, inspect `health.tool_surface_contract` and
 `health.host_binding_alignment`. That is the fallback proof that the host is
 showing a partial tool surface rather than the full m1nd runtime contract.
@@ -84,7 +90,7 @@ This proves the minimum agent trust loop over real stdio framing and the HTTP
 tool API:
 
 ```text
-initialize -> tools/list -> session_handshake -> recovery_playbook when needed -> ingest -> seek -> help -> doctor
+initialize -> tools/list -> trust_selftest -> session_handshake -> recovery_playbook when needed -> ingest -> seek -> help -> doctor
 ```
 
 If these pass locally but a host-provided MCP binding fails the same flow, treat

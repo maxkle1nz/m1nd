@@ -20,8 +20,9 @@ use std::time::Instant;
 // All handlers take &mut SessionState for graph + engine access.
 // ---------------------------------------------------------------------------
 
-pub const AGENT_TRUST_REQUIRED_TOOLS: [&str; 6] = [
+pub const AGENT_TRUST_REQUIRED_TOOLS: [&str; 7] = [
     "health",
+    "trust_selftest",
     "recovery_playbook",
     "doctor",
     "ingest",
@@ -29,8 +30,9 @@ pub const AGENT_TRUST_REQUIRED_TOOLS: [&str; 6] = [
     "help",
 ];
 
-pub const HOST_BINDING_REQUIRED_TOOLS: [&str; 7] = [
+pub const HOST_BINDING_REQUIRED_TOOLS: [&str; 8] = [
     "health",
+    "trust_selftest",
     "session_handshake",
     "recovery_playbook",
     "doctor",
@@ -2293,9 +2295,9 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
         host_binding_alignment: serde_json::json!({
             "schema": "m1nd-host-binding-alignment-v0",
             "status": "needs_client_surface_comparison",
-            "rule": "Compare the host-visible m1nd tool names and count against tool_surface_contract. If session_handshake or recovery_playbook is missing, treat this host binding as degraded_host_tool_surface even when health responds.",
+            "rule": "Compare the host-visible m1nd tool names and count against tool_surface_contract. If trust_selftest, session_handshake, or recovery_playbook is missing, treat this host binding as degraded_host_tool_surface even when health responds.",
             "current_runtime_has_graph": node_count > 0 && edge_count > 0,
-            "next_action": "Call session_handshake with observed_tool_count and available_tools when visible; otherwise use local repo smoke or refresh the MCP host binding.",
+            "next_action": "Call trust_selftest with observed_tool_count and available_tools when visible; otherwise use session_handshake, local repo smoke, or refresh the MCP host binding.",
             "smoke_commands": [
                 "python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json",
                 "python3 scripts/mcp_agent_smoke.py --repo . --transport http --handshake-only --json"
@@ -2421,6 +2423,7 @@ pub fn handle_session_handshake(
             "required_tools": AGENT_TRUST_REQUIRED_TOOLS,
             "required_tools_present": {
                 "health": available_tool_set.contains("health"),
+                "trust_selftest": available_tool_set.contains("trust_selftest"),
                 "recovery_playbook": can_recover,
                 "doctor": can_diagnose,
                 "ingest": can_ingest,
@@ -2443,6 +2446,131 @@ pub fn handle_session_handshake(
         "doctor_recovery": doctor_recovery,
         "used_probe": false,
         "probe": serde_json::Value::Null,
+    }))
+}
+
+/// Handle m1nd.trust_selftest.
+///
+/// The selftest is a one-call diagnostic verdict for agents. It composes the
+/// current binding fingerprint, host-visible tool evidence, graph state,
+/// session handshake, and recovery playbook when needed. It does not ingest,
+/// mutate, repair, or probe retrieval on its own.
+pub fn handle_trust_selftest(
+    state: &mut SessionState,
+    input: TrustSelftestInput,
+) -> M1ndResult<serde_json::Value> {
+    let agent_id = input.agent_id.clone();
+    let observed_blocked = input.observed_proof_state.as_deref() == Some("blocked");
+    let observed_zero_candidates = input.observed_candidates == Some(0);
+    let suspicious_retrieval = observed_blocked || observed_zero_candidates;
+
+    let handshake = handle_session_handshake(
+        state,
+        SessionHandshakeInput {
+            agent_id: agent_id.clone(),
+            observed_tool_count: input.observed_tool_count,
+            available_tools: input.available_tools.clone(),
+            missing_tools: input.missing_tools.clone(),
+        },
+    )?;
+
+    let handshake_trust_mode = handshake
+        .get("trust_mode")
+        .and_then(|value| value.as_str())
+        .unwrap_or("orientation_only");
+    let graph_state = state.graph_runtime_summary();
+    let graph_has_nodes = graph_state
+        .get("node_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0)
+        > 0
+        && graph_state
+            .get("edge_count")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0)
+            > 0;
+
+    let verdict = match handshake_trust_mode {
+        "degraded_host_tool_surface" => "degraded_host_tool_surface",
+        "needs_ingest" => "needs_ingest",
+        "orientation_only" => "orientation_only",
+        "full_trust" if graph_has_nodes && suspicious_retrieval => "stale_binding_suspected",
+        "full_trust" => "full_trust",
+        other if graph_has_nodes && suspicious_retrieval => {
+            if other == "full_trust" {
+                "stale_binding_suspected"
+            } else {
+                other
+            }
+        }
+        other => other,
+    }
+    .to_string();
+
+    let status = match verdict.as_str() {
+        "full_trust" => "ok",
+        "needs_ingest" => "blocked",
+        _ => "warn",
+    };
+    let ok = verdict == "full_trust";
+
+    let recovery_playbook = if !ok || suspicious_retrieval {
+        Some(handle_recovery_playbook(
+            state,
+            RecoveryPlaybookInput {
+                agent_id: agent_id.clone(),
+                trust_mode: Some(verdict.clone()),
+                observed_tool: input.observed_tool.clone(),
+                observed_proof_state: input.observed_proof_state.clone(),
+                observed_candidates: input.observed_candidates,
+                observed_tool_count: input.observed_tool_count,
+                available_tools: input.available_tools.clone(),
+                missing_tools: input.missing_tools.clone(),
+                scope: input.scope.clone(),
+                error_text: input.error_text.clone(),
+            },
+        )?)
+    } else {
+        None
+    };
+
+    let next_action = recovery_playbook
+        .as_ref()
+        .and_then(|playbook| playbook.get("next_action"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_else(|| {
+            if ok {
+                "proceed_with_m1nd_first"
+            } else {
+                "inspect_trust_selftest_verdict"
+            }
+        });
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-trust-selftest-v0",
+        "ok": ok,
+        "status": status,
+        "verdict": verdict,
+        "next_action": next_action,
+        "binding_fingerprint": state.binding_fingerprint(),
+        "graph_state": graph_state,
+        "session_handshake": handshake,
+        "recovery_playbook": recovery_playbook.unwrap_or(serde_json::Value::Null),
+        "checks": {
+            "binding_fingerprint_present": true,
+            "graph_populated": graph_has_nodes,
+            "host_surface_complete": verdict != "degraded_host_tool_surface",
+            "needs_ingest": verdict == "needs_ingest",
+            "stale_binding_suspected": verdict == "stale_binding_suspected",
+            "suspicious_retrieval_evidence": suspicious_retrieval,
+            "recovery_playbook_attached": !ok || suspicious_retrieval,
+        },
+        "non_claims": [
+            "trust_selftest does not ingest or mutate the graph.",
+            "trust_selftest does not refresh the host MCP binding.",
+            "trust_selftest does not run a retrieval probe automatically.",
+            "trust_selftest does not replace compiler, tests, or local file truth."
+        ],
     }))
 }
 
