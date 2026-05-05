@@ -497,6 +497,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 graph_rerank: true,
             };
             let seek_result = crate::layer_handlers::handle_seek(state, seek_input)?;
+            let seek_candidates = seek_result.total_candidates_scanned;
 
             // Convert seek results to search format
             total_matches = seek_result.results.len();
@@ -542,6 +543,29 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                     .map(|entry| entry.node_id.clone())
                     .collect::<Vec<_>>(),
             );
+            let proof_state: String = if total_matches == 0 {
+                "blocked".into()
+            } else {
+                "triaging".into()
+            };
+            let failed_retrieval = proof_state == "blocked" || total_matches == 0;
+            let (graph_state, recovery) = state.retrieval_failure_context(
+                &input.agent_id,
+                "search",
+                &proof_state,
+                Some(seek_candidates as u64),
+                input.scope.as_deref(),
+                None,
+            );
+            let (next_suggested_tool, next_suggested_target, next_step_hint) = if failed_retrieval {
+                (
+                        Some("doctor".into()),
+                        None,
+                        Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into()),
+                    )
+            } else {
+                (None, None, None)
+            };
             return Ok(SearchOutput {
                 query: input.query,
                 mode: "semantic".into(),
@@ -554,13 +578,15 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
                 truncated,
                 inline_summary,
-                proof_state: "triaging".into(),
-                next_suggested_tool: None,
-                next_suggested_target: None,
-                next_step_hint: None,
+                proof_state,
+                next_suggested_tool,
+                next_suggested_target,
+                next_step_hint,
                 confidence: None,
                 why_this_next_step: None,
                 what_is_missing: None,
+                graph_state,
+                recovery,
             });
         }
     }
@@ -600,6 +626,41 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             .map(|entry| entry.node_id.clone())
             .collect::<Vec<_>>(),
     );
+    let (
+        mut proof_state,
+        mut next_suggested_tool,
+        mut next_suggested_target,
+        mut next_step_hint,
+        confidence,
+        why_this_next_step,
+        what_is_missing,
+    ) = search_contract(&final_results);
+    if total_matches > 0 && final_results.is_empty() {
+        proof_state = "triaging".into();
+        next_suggested_tool = None;
+        next_suggested_target = None;
+        next_step_hint = Some(
+            "Search found matches but did not return result rows, likely because count_only or output limits were requested."
+                .into(),
+        );
+    }
+    let failed_retrieval = proof_state == "blocked" || total_matches == 0;
+    let (graph_state, recovery) = state.retrieval_failure_context(
+        &input.agent_id,
+        "search",
+        &proof_state,
+        Some(total_matches as u64),
+        input.scope.as_deref(),
+        None,
+    );
+    if failed_retrieval {
+        next_suggested_tool = Some("doctor".into());
+        next_suggested_target = None;
+        next_step_hint = Some(
+            "Call doctor with the provided recovery.arguments payload before falling back to shell search."
+                .into(),
+        );
+    }
     Ok(SearchOutput {
         query: input.query,
         mode: format!("{:?}", input.mode).to_lowercase(),
@@ -612,13 +673,15 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
         truncated,
         inline_summary,
-        proof_state: "triaging".into(),
-        next_suggested_tool: None,
-        next_suggested_target: None,
-        next_step_hint: None,
-        confidence: None,
-        why_this_next_step: None,
-        what_is_missing: None,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        confidence,
+        why_this_next_step,
+        what_is_missing,
+        graph_state,
+        recovery,
     })
 }
 
@@ -1824,6 +1887,52 @@ mod tests {
         );
         assert_eq!(output.results[0].file_path, file_path.to_string_lossy());
         assert!(!output.results[0].graph_linked);
+    }
+
+    #[test]
+    fn search_blocked_response_points_to_doctor_with_graph_state() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(root);
+        add_file_node(&mut state, "src/example.rs");
+
+        let output = handle_search(
+            &mut state,
+            SearchInput {
+                agent_id: "jimi-codex".into(),
+                query: "qzxqzxqzxqzx_jjvjjvjjvjjv".into(),
+                mode: SearchMode::Literal,
+                scope: None,
+                top_k: 10,
+                case_sensitive: false,
+                context_lines: 0,
+                invert: false,
+                count_only: false,
+                multiline: false,
+                auto_ingest: false,
+                filename_pattern: None,
+                max_output_chars: None,
+            },
+        )
+        .expect("search output");
+
+        assert_eq!(output.proof_state, "blocked");
+        assert_eq!(output.next_suggested_tool.as_deref(), Some("doctor"));
+        assert_eq!(
+            output
+                .graph_state
+                .as_ref()
+                .and_then(|state| state["node_count"].as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery.pointer("/arguments/observed_tool"))
+                .and_then(|value| value.as_str()),
+            Some("search")
+        );
     }
 
     #[test]

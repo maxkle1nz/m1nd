@@ -3352,6 +3352,49 @@ mod tests {
     }
 
     #[test]
+    fn activate_blocked_response_points_to_doctor_with_graph_state() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(repo.join("src/core.py"), "def core():\n    return 1\n")
+            .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "activate",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "query": "   ",
+                "top_k": 5
+            }),
+        )
+        .expect("activate output");
+
+        assert_eq!(output["proof_state"], "blocked");
+        assert_eq!(output["next_suggested_tool"], "doctor");
+        assert_eq!(output["graph_state"]["node_count"].as_u64().is_some(), true);
+        assert_eq!(
+            output["recovery"]["arguments"]["observed_tool"].as_str(),
+            Some("activate")
+        );
+    }
+
+    #[test]
     fn background_tick_runs_when_daemon_is_due() {
         let (temp, mut state) = build_state();
         let repo = temp.path().join("repo");

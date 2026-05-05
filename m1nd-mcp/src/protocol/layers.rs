@@ -93,6 +93,10 @@ pub struct SeekOutput {
     pub next_suggested_target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_step_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_state: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<serde_json::Value>,
 }
 
 /// Shared heuristic metadata exposed by tools that apply trust/tremor priors.
@@ -1903,6 +1907,10 @@ pub struct SearchOutput {
     pub why_this_next_step: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub what_is_missing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_state: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<serde_json::Value>,
 }
 
 /// A single search result entry.

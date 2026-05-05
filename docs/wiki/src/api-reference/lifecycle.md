@@ -414,6 +414,10 @@ Diagnoses active graph, runtime, session, and stale-binding symptoms. Use it
 when an agent just ingested a repo but retrieval returns `blocked`, zero
 candidates, or a graph that feels empty.
 
+`seek`, `search`, and `activate` include a ready `recovery` payload when they
+return `blocked` or zero actionable candidates. An agent can pass
+`recovery.arguments` directly to `doctor`.
+
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |

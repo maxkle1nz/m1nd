@@ -17,18 +17,31 @@ The rule:
 
 ## Open Notes
 
-### 2026-05-05 — retrieval responses still need inline active-graph breadcrumbs
+### 2026-05-05 — scope normalization failures should prefill doctor recovery too
 
-- Context: the new `doctor` tool can now diagnose active graph/runtime/session
-  state after a stale-looking retrieval, but the retrieval response itself still
-  does not include enough continuity breadcrumbs for instant self-recovery.
+- Context: `seek`, `search`, and `activate` now attach `graph_state` and a
+  ready `doctor` recovery payload when retrieval returns `blocked` or zero
+  actionable candidates.
+- Remaining friction: hard parameter errors, such as ambiguous auto-ingest
+  scopes, still return normal invalid-param recovery text rather than a
+  structured `doctor` payload.
 - Desired behavior:
-  - retrieval outputs include compact active graph/session identifiers when
-    `proof_state=blocked` or candidate count is zero
+  - invalid-param retrieval errors include compact graph/session breadcrumbs
+    when the active graph state is relevant
   - scope/path normalization failures point at `doctor` with prefilled observed
     fields
 
 ## Resolved Notes
+
+### 2026-05-05 — retrieval responses need inline active-graph breadcrumbs
+
+- Context: the new `doctor` tool could diagnose active graph/runtime/session
+  state after a stale-looking retrieval, but the retrieval response itself did
+  not include enough continuity breadcrumbs for instant self-recovery.
+- Resolution: `seek`, `search`, and `activate` now include a compact
+  `graph_state` plus a ready `recovery.suggested_tool=doctor` payload when they
+  return `blocked` or zero actionable candidates. The smoke harness also runs a
+  negative seek after populated ingest to prove the recovery payload exists.
 
 ### 2026-05-05 — injected MCP surface can lose graph state across ingest and seek
 

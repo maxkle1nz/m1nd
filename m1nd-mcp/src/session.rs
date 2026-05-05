@@ -380,6 +380,77 @@ impl SessionState {
         })
     }
 
+    pub fn mini_graph_state(&self) -> serde_json::Value {
+        let graph = self.graph.read();
+        serde_json::json!({
+            "node_count": graph.num_nodes(),
+            "edge_count": graph.num_edges(),
+            "finalized": graph.finalized,
+            "graph_generation": self.graph_generation,
+            "ingest_root_count": self.ingest_roots.len(),
+            "workspace_root_known": self.workspace_root.is_some(),
+            "runtime_root": self.runtime_root.to_string_lossy(),
+        })
+    }
+
+    pub fn doctor_recovery_payload(
+        &self,
+        agent_id: &str,
+        observed_tool: &str,
+        observed_proof_state: &str,
+        observed_candidates: Option<u64>,
+        scope: Option<&str>,
+        error_text: Option<&str>,
+    ) -> serde_json::Value {
+        let mut arguments = serde_json::json!({
+            "agent_id": agent_id,
+            "observed_tool": observed_tool,
+            "observed_proof_state": observed_proof_state,
+        });
+        if let Some(candidates) = observed_candidates {
+            arguments["observed_candidates"] = serde_json::json!(candidates);
+        }
+        if let Some(scope) = scope.filter(|value| !value.trim().is_empty()) {
+            arguments["scope"] = serde_json::json!(scope);
+        }
+        if let Some(error_text) = error_text.filter(|value| !value.trim().is_empty()) {
+            arguments["error_text"] = serde_json::json!(error_text);
+        }
+
+        serde_json::json!({
+            "suggested_tool": "doctor",
+            "reason": "retrieval returned blocked or zero actionable candidates; doctor can distinguish empty graph, stale binding, scope filtering, and session drift",
+            "arguments": arguments,
+        })
+    }
+
+    pub fn retrieval_failure_context(
+        &self,
+        agent_id: &str,
+        observed_tool: &str,
+        observed_proof_state: &str,
+        observed_candidates: Option<u64>,
+        scope: Option<&str>,
+        error_text: Option<&str>,
+    ) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
+        let needs_recovery = observed_proof_state == "blocked" || observed_candidates == Some(0);
+        if !needs_recovery {
+            return (None, None);
+        }
+
+        (
+            Some(self.mini_graph_state()),
+            Some(self.doctor_recovery_payload(
+                agent_id,
+                observed_tool,
+                observed_proof_state,
+                observed_candidates,
+                scope,
+                error_text,
+            )),
+        )
+    }
+
     pub fn instance_self_summary(&self) -> serde_json::Value {
         let instance: InstanceRegistryEntry = self.instance.summary();
         serde_json::json!({

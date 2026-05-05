@@ -69,6 +69,8 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
             "The top file-level match already contains the strongest textual evidence.".into(),
         ),
         what_is_missing: Some("Open the file to confirm implementation details.".into()),
+        graph_state: None,
+        recovery: None,
     }
 }
 

@@ -399,6 +399,26 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     if not diagnostics.get("graph_has_nodes"):
         raise SmokeFailure(f"doctor does not see the ingested graph: {diagnostics}")
 
+    negative_seek = client.call_tool(
+        "seek",
+        {
+            "agent_id": args.agent_id,
+            "query": "qzxqzxqzxqzx_jjvjjvjjvjjv",
+            "top_k": args.top_k,
+            "graph_rerank": True,
+        },
+    )
+    recovery = negative_seek.get("recovery") or {}
+    graph_state = negative_seek.get("graph_state") or {}
+    if negative_seek.get("proof_state") != "blocked":
+        raise SmokeFailure(f"negative seek should be blocked, got {negative_seek.get('proof_state')}")
+    if negative_seek.get("next_suggested_tool") != "doctor":
+        raise SmokeFailure(f"negative seek did not suggest doctor: {negative_seek}")
+    if recovery.get("suggested_tool") != "doctor":
+        raise SmokeFailure(f"negative seek did not include doctor recovery payload: {negative_seek}")
+    if int(graph_state.get("node_count") or 0) <= 0:
+        raise SmokeFailure(f"negative seek did not include populated graph_state: {negative_seek}")
+
     return {
         "initialize": initialize,
         "tool_count": len(tools),
@@ -419,12 +439,20 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             "stale_binding_suspected": diagnostics.get("stale_binding_suspected"),
             "warnings": doctor.get("warnings") or [],
         },
+        "negative_recovery": {
+            "proof_state": negative_seek.get("proof_state"),
+            "next_suggested_tool": negative_seek.get("next_suggested_tool"),
+            "recovery_tool": recovery.get("suggested_tool"),
+            "graph_node_count": graph_state.get("node_count"),
+            "observed_tool": ((recovery.get("arguments") or {}).get("observed_tool")),
+        },
         "checks": {
             "tools_list_ok": True,
             "ingest_populated_graph": True,
             "seek_scanned_ingested_graph": True,
             "help_returned_guidance": True,
             "doctor_confirmed_graph": True,
+            "negative_retrieval_suggested_doctor": True,
         },
     }
 
@@ -524,6 +552,7 @@ def main() -> int:
         print(f"- seek candidates: {result['seek']['total_candidates_scanned']}")
         print(f"- seek results: {result['seek']['results_count']}")
         print(f"- doctor: {result['doctor']['status']}")
+        print(f"- negative recovery: {result['negative_recovery']['next_suggested_tool']}")
     return 0
 
 

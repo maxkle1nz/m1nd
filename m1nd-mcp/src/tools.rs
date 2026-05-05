@@ -308,6 +308,40 @@ pub fn handle_activate(
 ) -> M1ndResult<ActivateOutput> {
     let start = Instant::now();
 
+    if input.query.trim().is_empty() {
+        let (graph_state, recovery) = state.retrieval_failure_context(
+            &input.agent_id,
+            "activate",
+            "blocked",
+            Some(0),
+            None,
+            Some("activate query is empty"),
+        );
+        return Ok(ActivateOutput {
+            query: input.query,
+            seeds: vec![],
+            activated: vec![],
+            ghost_edges: vec![],
+            structural_holes: vec![],
+            plasticity: PlasticityOutput {
+                edges_strengthened: 0,
+                edges_decayed: 0,
+                ltp_events: 0,
+                priming_nodes: 0,
+            },
+            elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            proof_state: "blocked".into(),
+            next_suggested_tool: Some("doctor".into()),
+            next_suggested_target: None,
+            next_step_hint: Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into()),
+            confidence: Some(0.0),
+            why_this_next_step: Some("Activate needs at least one query seed before graph propagation can produce evidence.".into()),
+            what_is_missing: Some("A non-empty activation query is still missing.".into()),
+            graph_state,
+            recovery,
+        });
+    }
+
     let dimensions: Vec<Dimension> = input
         .dimensions
         .iter()
@@ -537,8 +571,17 @@ pub fn handle_activate(
         max_suggestions: None,
         render: Some(HelpRender::None),
     };
-    let activate_projection =
-        help_guidance::runtime_projection_for_tool("activate", &activate_help_input, "triaging");
+    let activated_count = activated.len();
+    let default_activate_proof_state = if activated_count == 0 {
+        "blocked"
+    } else {
+        "triaging"
+    };
+    let activate_projection = help_guidance::runtime_projection_for_tool(
+        "activate",
+        &activate_help_input,
+        default_activate_proof_state,
+    );
     let next_suggested_target = activated
         .first()
         .and_then(|entry| {
@@ -553,6 +596,38 @@ pub fn handle_activate(
                 .as_ref()
                 .and_then(|projection| projection.next_suggested_target.clone())
         });
+    let proof_state = activate_projection
+        .as_ref()
+        .map(|projection| projection.proof_state.clone())
+        .unwrap_or_else(|| default_activate_proof_state.into());
+    let failed_retrieval = proof_state == "blocked" || activated_count == 0;
+    let (graph_state, recovery) = state.retrieval_failure_context(
+        &input.agent_id,
+        "activate",
+        &proof_state,
+        Some(activated_count as u64),
+        None,
+        None,
+    );
+    let next_suggested_tool = if failed_retrieval {
+        Some("doctor".into())
+    } else {
+        activate_projection
+            .as_ref()
+            .and_then(|projection| projection.next_suggested_tool.clone())
+    };
+    let next_suggested_target = if failed_retrieval {
+        None
+    } else {
+        next_suggested_target
+    };
+    let next_step_hint = if failed_retrieval {
+        Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into())
+    } else {
+        activate_projection
+            .as_ref()
+            .and_then(|projection| projection.next_step_hint.clone())
+    };
 
     Ok(ActivateOutput {
         query: input.query,
@@ -562,17 +637,10 @@ pub fn handle_activate(
         structural_holes,
         plasticity,
         elapsed_ms,
-        proof_state: activate_projection
-            .as_ref()
-            .map(|projection| projection.proof_state.clone())
-            .unwrap_or_else(|| "triaging".into()),
-        next_suggested_tool: activate_projection
-            .as_ref()
-            .and_then(|projection| projection.next_suggested_tool.clone()),
+        proof_state,
+        next_suggested_tool,
         next_suggested_target,
-        next_step_hint: activate_projection
-            .as_ref()
-            .and_then(|projection| projection.next_step_hint.clone()),
+        next_step_hint,
         confidence: activate_projection
             .as_ref()
             .and_then(|projection| projection.confidence),
@@ -582,6 +650,8 @@ pub fn handle_activate(
         what_is_missing: activate_projection
             .as_ref()
             .and_then(|projection| projection.what_is_missing.clone()),
+        graph_state,
+        recovery,
     })
 }
 

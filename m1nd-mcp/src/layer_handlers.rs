@@ -90,6 +90,20 @@ pub fn handle_seek(
     let n = graph.num_nodes() as usize;
 
     if n == 0 || all_tokens.is_empty() {
+        let error_text = if all_tokens.is_empty() {
+            Some("seek query produced no searchable tokens")
+        } else {
+            None
+        };
+        drop(graph);
+        let (graph_state, recovery) = state.retrieval_failure_context(
+            &input.agent_id,
+            "seek",
+            "blocked",
+            Some(0),
+            input.scope.as_deref(),
+            error_text,
+        );
         return Ok(layers::SeekOutput {
             query: input.query,
             results: vec![],
@@ -97,9 +111,11 @@ pub fn handle_seek(
             embeddings_used: false,
             proof_state: "blocked".into(),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
-            next_suggested_tool: None,
+            next_suggested_tool: Some("doctor".into()),
             next_suggested_target: None,
-            next_step_hint: None,
+            next_step_hint: Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into()),
+            graph_state,
+            recovery,
         });
     }
 
@@ -441,6 +457,27 @@ pub fn handle_seek(
 
     let (next_suggested_tool, next_suggested_target, next_step_hint) = l2_seek_next_step(&results);
     let proof_state = l2_seek_proof_state(&results);
+    let failed_retrieval = proof_state == "blocked" || candidates_scanned == 0;
+    let (graph_state, recovery) = state.retrieval_failure_context(
+        &input.agent_id,
+        "seek",
+        &proof_state,
+        Some(candidates_scanned as u64),
+        input.scope.as_deref(),
+        None,
+    );
+    let (next_suggested_tool, next_suggested_target, next_step_hint) = if failed_retrieval {
+        (
+            Some("doctor".into()),
+            None,
+            Some(
+                "Call doctor with the provided recovery.arguments payload before falling back to shell search."
+                    .into(),
+            ),
+        )
+    } else {
+        (next_suggested_tool, next_suggested_target, next_step_hint)
+    };
     state.note_coverage(
         &input.agent_id,
         "seek",
@@ -464,6 +501,8 @@ pub fn handle_seek(
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
+        graph_state,
+        recovery,
     })
 }
 
@@ -9980,6 +10019,52 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         );
         assert_eq!(file_scope.results[0].score, absolute_scope.results[0].score);
         assert_eq!(file_scope.results[0].score, relative_scope.results[0].score);
+    }
+
+    #[test]
+    fn seek_blocked_response_points_to_doctor_with_graph_state() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let output = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "qzxqzxqzxqzx_jjvjjvjjvjjv".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+            },
+        )
+        .expect("seek should return a structured blocked response");
+
+        assert_eq!(output.proof_state, "blocked");
+        assert_eq!(output.next_suggested_tool.as_deref(), Some("doctor"));
+        assert_eq!(
+            output
+                .graph_state
+                .as_ref()
+                .and_then(|state| state["node_count"].as_u64()),
+            Some(2)
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery["suggested_tool"].as_str()),
+            Some("doctor")
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery.pointer("/arguments/observed_tool"))
+                .and_then(|value| value.as_str()),
+            Some("seek")
+        );
     }
 
     #[test]

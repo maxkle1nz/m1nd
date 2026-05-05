@@ -68,6 +68,15 @@ live tool surface is available, call `doctor` with the suspicious tool output
 before falling back to shell; it reports the active graph, runtime root,
 workspace root, ingest roots, agent session, and stale-binding clues.
 
+Retrieval tools should make that recovery path explicit. When `seek`, `search`,
+or `activate` returns `proof_state=blocked` or zero actionable candidates, the
+response should include:
+
+- compact `graph_state`;
+- `next_suggested_tool=doctor`;
+- `recovery.suggested_tool=doctor`;
+- `recovery.arguments` copied directly into the `doctor` call.
+
 ## Phase 3 — Surface parity
 
 Before release, make sure the public story matches the real registry.

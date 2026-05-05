@@ -249,7 +249,9 @@ Current response shape in the repo:
 ```
 
 If a later retrieval call looks stale, call `doctor` before falling back to
-manual file search:
+manual file search. `seek`, `search`, and `activate` now include a ready
+`recovery.arguments` payload when they return `blocked` or zero actionable
+candidates; use that payload directly when present.
 
 ```jsonc
 {
