@@ -56,8 +56,10 @@ python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
 For cheap session startup, use the official `session_handshake` tool when the
-live surface exposes it. The repo-local harness calls that tool automatically
-and falls back to its local implementation for older binaries:
+live surface exposes it. If the trust mode is not `full_trust`, call
+`recovery_playbook` with the handshake or suspicious retrieval evidence before
+guessing the next action. The repo-local harness calls `session_handshake`
+automatically and falls back to its local implementation for older binaries:
 
 ```bash
 python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
@@ -69,11 +71,15 @@ active graph state without ingesting, repairing, or probing retrieval.
 `--handshake-probe` adds one tiny `seek` probe when the task depends on
 retrieval trust.
 
+`recovery_playbook` is also diagnostic-only. It returns ordered steps and a
+binding fingerprint so agents can compare host, stdio, HTTP, runtime root,
+graph path, generation counters, and ingest roots before blaming the graph.
+
 This proves the minimum agent trust loop over real stdio framing and the HTTP
 tool API:
 
 ```text
-initialize -> tools/list -> session_handshake -> ingest -> seek -> help -> doctor
+initialize -> tools/list -> session_handshake -> recovery_playbook when needed -> ingest -> seek -> help -> doctor
 ```
 
 If these pass locally but a host-provided MCP binding fails the same flow, treat

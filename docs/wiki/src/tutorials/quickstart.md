@@ -228,8 +228,27 @@ What happened:
 ```
 
 The response classifies the current binding as `full_trust`, `needs_ingest`,
-`orientation_only`, or `degraded_host_tool_surface`. It does not ingest, repair,
-or run retrieval probes by default.
+`orientation_only`, or `degraded_host_tool_surface`. It also includes a binding
+fingerprint with runtime root, graph paths, generation counters, ingest roots,
+and process identity. It does not ingest, repair, or run retrieval probes by
+default.
+
+If the trust mode is not `full_trust`, ask m1nd for the deterministic recovery
+path:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "recovery_playbook",
+    "arguments": {
+      "agent_id": "dev"
+    }
+  }
+}
+```
+
+That response returns ordered steps without performing the repair for you.
 
 ### Step 3: check server health
 

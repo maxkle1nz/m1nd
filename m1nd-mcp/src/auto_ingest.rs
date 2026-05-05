@@ -954,6 +954,7 @@ pub fn maybe_tick_auto_ingest(state: &mut SessionState, tool_name: &str) -> M1nd
             | "auto_ingest_status"
             | "auto_ingest_tick"
             | "session_handshake"
+            | "recovery_playbook"
     ) {
         return Ok(());
     }

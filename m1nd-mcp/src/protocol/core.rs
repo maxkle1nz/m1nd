@@ -218,6 +218,30 @@ pub struct DoctorInput {
     pub error_text: Option<String>,
 }
 
+/// Input for m1nd.recovery_playbook.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RecoveryPlaybookInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub trust_mode: Option<String>,
+    #[serde(default)]
+    pub observed_tool: Option<String>,
+    #[serde(default)]
+    pub observed_proof_state: Option<String>,
+    #[serde(default)]
+    pub observed_candidates: Option<u64>,
+    #[serde(default)]
+    pub observed_tool_count: Option<u64>,
+    #[serde(default)]
+    pub available_tools: Vec<String>,
+    #[serde(default)]
+    pub missing_tools: Vec<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub error_text: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Default value helpers
 // ---------------------------------------------------------------------------

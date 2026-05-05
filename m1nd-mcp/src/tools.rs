@@ -28,6 +28,26 @@ fn normalized_ingest_mode(mode: &str) -> &str {
     }
 }
 
+fn playbook_step(
+    id: &str,
+    action: &str,
+    reason: &str,
+    tool: Option<&str>,
+    arguments: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut step = serde_json::Map::new();
+    step.insert("id".into(), serde_json::json!(id));
+    step.insert("action".into(), serde_json::json!(action));
+    step.insert("reason".into(), serde_json::json!(reason));
+    if let Some(tool) = tool.filter(|value| !value.is_empty()) {
+        step.insert("tool".into(), serde_json::json!(tool));
+    }
+    if let Some(arguments) = arguments {
+        step.insert("arguments".into(), arguments);
+    }
+    serde_json::Value::Object(step)
+}
+
 fn note_learn_node_effect(
     weight_deltas: &mut HashMap<NodeId, f32>,
     edge_events: &mut HashMap<NodeId, u16>,
@@ -2338,6 +2358,7 @@ pub fn handle_session_handshake(
     Ok(serde_json::json!({
         "schema": "m1nd-session-handshake-v0",
         "trust_mode": trust_mode,
+        "binding_fingerprint": state.binding_fingerprint(),
         "can_ingest": can_ingest,
         "can_retrieve": can_retrieve,
         "can_recover": can_recover,
@@ -2369,6 +2390,258 @@ pub fn handle_session_handshake(
         "doctor_recovery": doctor_recovery,
         "used_probe": false,
         "probe": serde_json::Value::Null,
+    }))
+}
+
+/// Handle m1nd.recovery_playbook.
+///
+/// The recovery playbook is diagnostic-only. It inspects current runtime state
+/// plus caller-provided host evidence, then returns a deterministic sequence of
+/// next actions without mutating the graph or probing the filesystem.
+pub fn handle_recovery_playbook(
+    state: &mut SessionState,
+    input: RecoveryPlaybookInput,
+) -> M1ndResult<serde_json::Value> {
+    let agent_id = input.agent_id.clone();
+    let input_trust_mode = input.trust_mode.clone();
+    let handshake = handle_session_handshake(
+        state,
+        SessionHandshakeInput {
+            agent_id: agent_id.clone(),
+            observed_tool_count: input.observed_tool_count,
+            available_tools: input.available_tools.clone(),
+            missing_tools: input.missing_tools.clone(),
+        },
+    )?;
+
+    let graph = state.graph.read();
+    let graph_has_nodes = graph.num_nodes() > 0;
+    drop(graph);
+
+    let observed_blocked = input.observed_proof_state.as_deref() == Some("blocked");
+    let observed_zero_candidates = input.observed_candidates == Some(0);
+    let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
+
+    let handshake_trust_mode = handshake
+        .get("trust_mode")
+        .and_then(|value| value.as_str())
+        .unwrap_or("orientation_only");
+    let trust_mode = match handshake_trust_mode {
+        "degraded_host_tool_surface" => "degraded_host_tool_surface",
+        "needs_ingest" => "needs_ingest",
+        "orientation_only" => "orientation_only",
+        "full_trust" if stale_binding_suspected => "stale_binding_suspected",
+        "full_trust" => "full_trust",
+        _ if stale_binding_suspected => "stale_binding_suspected",
+        _ => handshake_trust_mode,
+    };
+
+    let can_recover = handshake
+        .get("can_recover")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let handshake_doctor_arguments = handshake
+        .get("doctor_recovery")
+        .and_then(|value| value.get("arguments"))
+        .cloned();
+    let observed_tool = input
+        .observed_tool
+        .clone()
+        .unwrap_or_else(|| "seek".to_string());
+    let observed_proof_state = input
+        .observed_proof_state
+        .clone()
+        .unwrap_or_else(|| "blocked".to_string());
+    let stale_doctor_arguments = state
+        .doctor_recovery_payload(
+            &agent_id,
+            &observed_tool,
+            &observed_proof_state,
+            input.observed_candidates,
+            input.scope.as_deref(),
+            input.error_text.as_deref(),
+        )
+        .get("arguments")
+        .cloned();
+    let ingest_path = input
+        .scope
+        .clone()
+        .or_else(|| state.workspace_root.clone())
+        .unwrap_or_else(|| "<intended-repo-path>".to_string());
+
+    let (status, recovery_goal, next_action, steps) = match trust_mode {
+        "degraded_host_tool_surface" => {
+            let mut steps = vec![
+                playbook_step(
+                    "refresh_host_binding",
+                    "Refresh or rebind the MCP host surface so the full m1nd recovery namespace is exposed.",
+                    "The current host surface is missing required tools, so this binding cannot complete its own recovery loop.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "rerun_tools_list",
+                    "Rerun tools/list and capture available_tools plus missing_tools from the host surface.",
+                    "A raw tool count is not enough to prove which recovery capabilities are actually available.",
+                    None,
+                    None,
+                ),
+            ];
+            if can_recover {
+                steps.push(playbook_step(
+                    "call_doctor",
+                    "Call doctor with the degraded host evidence.",
+                    "Doctor will confirm whether the missing surface is host-only or reflects a wider runtime mismatch.",
+                    Some("doctor"),
+                    handshake_doctor_arguments.clone(),
+                ));
+            }
+            steps.push(playbook_step(
+                "rerun_session_handshake",
+                "Call session_handshake again after the host surface is rebound.",
+                "The handshake should move from degraded_host_tool_surface to either needs_ingest or full_trust before m1nd retrieval is trusted again.",
+                Some("session_handshake"),
+                Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+            ));
+            steps.push(playbook_step(
+                "use_local_file_truth",
+                "Use local file reads, compiler output, and tests for final truth until the host surface is repaired.",
+                "This playbook does not auto-repair, auto-ingest, or mutate the filesystem.",
+                None,
+                None,
+            ));
+            (
+                "warn",
+                "Restore a complete host-bound m1nd tool surface before trusting graph recovery.",
+                "refresh_host_binding",
+                steps,
+            )
+        }
+        "needs_ingest" => (
+            "blocked",
+            "Populate this binding's active graph for the intended repository.",
+            "call_ingest",
+            vec![
+                playbook_step(
+                    "call_ingest",
+                    "Call ingest for the intended repository on this same binding.",
+                    "The active graph is empty or incomplete, so retrieval cannot yet be trusted.",
+                    Some("ingest"),
+                    Some(serde_json::json!({
+                        "agent_id": agent_id.clone(),
+                        "path": ingest_path,
+                    })),
+                ),
+                playbook_step(
+                    "rerun_session_handshake",
+                    "Call session_handshake again after ingest completes.",
+                    "The handshake should confirm node and edge counts before the next retrieval step.",
+                    Some("session_handshake"),
+                    Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+                ),
+            ],
+        ),
+        "orientation_only" => (
+            "warn",
+            "Recover an ingest-capable binding or fall back to local file truth.",
+            "refresh_binding_for_ingest",
+            vec![
+                playbook_step(
+                    "refresh_binding_for_ingest",
+                    "Refresh or rebind the host surface until ingest is available on this session.",
+                    "The current binding can orient but cannot populate or refresh the graph state.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "use_local_file_truth",
+                    "Use local file reads and runtime truth while the host surface remains orientation-only.",
+                    "Without ingest on this binding, m1nd cannot repair the trust gap from inside the current host session.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "rerun_session_handshake",
+                    "Call session_handshake after the binding exposes ingest.",
+                    "The handshake will tell you whether the recovered binding still needs ingest or is ready for full trust.",
+                    Some("session_handshake"),
+                    Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+                ),
+            ],
+        ),
+        "stale_binding_suspected" => (
+            "warn",
+            "Prove whether host, binary, runtime, or graph identity drift is causing split-brain retrieval.",
+            "call_doctor",
+            vec![
+                playbook_step(
+                    "call_doctor",
+                    "Call doctor with the blocked or zero-candidate observation.",
+                    "Doctor will correlate the suspicious retrieval result with graph state, session continuity, and transport clues.",
+                    Some("doctor"),
+                    stale_doctor_arguments,
+                ),
+                playbook_step(
+                    "compare_binding_fingerprint",
+                    "Compare this binding_fingerprint with the host, repo-local stdio, and repo-local HTTP handshake outputs.",
+                    "Matching process_id, current_exe, runtime_root, graph_path, and generation counters is the fastest way to prove or disprove split-brain binding drift.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "run_stdio_smoke",
+                    "Run `python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json` and compare its trust_mode plus binding_fingerprint.",
+                    "A repo-local stdio smoke checks the binary directly without the host MCP surface in the middle.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "run_http_smoke",
+                    "Run `python3 scripts/mcp_agent_smoke.py --repo . --transport http --handshake-only --json` and compare the same fingerprint fields.",
+                    "A repo-local HTTP smoke helps separate transport-specific host issues from shared runtime identity.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "fallback_local_file_truth",
+                    "Use direct repo files and focused tests while the binding mismatch remains unresolved.",
+                    "This playbook never performs an automatic repair, ingest, or retrieval probe on your behalf.",
+                    None,
+                    None,
+                ),
+            ],
+        ),
+        _ => (
+            "ok",
+            "Continue with m1nd-first retrieval on the current binding.",
+            "proceed_with_m1nd_first",
+            vec![playbook_step(
+                "proceed_with_m1nd_first",
+                "Proceed with m1nd-first retrieval such as seek, activate, or search on this binding.",
+                "The current graph state and host surface do not show a recovery blocker.",
+                None,
+                None,
+            )],
+        ),
+    };
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-recovery-playbook-v0",
+        "status": status,
+        "trust_mode": trust_mode,
+        "input_trust_mode": input_trust_mode,
+        "binding_fingerprint": handshake.get("binding_fingerprint").cloned().unwrap_or_else(|| state.binding_fingerprint()),
+        "graph_state": state.graph_runtime_summary(),
+        "tool_surface": handshake.get("tool_surface").cloned().unwrap_or_else(|| serde_json::json!({})),
+        "recovery_goal": recovery_goal,
+        "steps": steps,
+        "next_action": next_action,
+        "non_claims": [
+            "No automatic repair was performed.",
+            "No ingest or graph mutation was performed.",
+            "No retrieval probe or filesystem mutation was performed.",
+            "This playbook is derived only from current session state and caller-supplied host evidence."
+        ],
     }))
 }
 

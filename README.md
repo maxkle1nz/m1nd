@@ -105,7 +105,7 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 
 | Area | What it enables | Representative tools |
 |---|---|---|
-| Graph foundation | ingest code, maintain graph state, diagnose session continuity, and reinforce useful paths over time | `session_handshake`, `ingest`, `health`, `doctor`, `learn`, `warmup`, `resonate` |
+| Graph foundation | ingest code, maintain graph state, diagnose session continuity, and reinforce useful paths over time | `session_handshake`, `recovery_playbook`, `ingest`, `health`, `doctor`, `learn`, `warmup`, `resonate` |
 | Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
 | Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
 | Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
@@ -136,13 +136,16 @@ Then start with this trust loop:
 // 0. Trust the binding
 {"method":"tools/call","params":{"name":"session_handshake","arguments":{"agent_id":"dev"}}}
 
-// 1. Build graph truth
+// 1. If the handshake is not full_trust, ask for the recovery path
+{"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
+
+// 2. Build graph truth
 {"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 
-// 2. Get a single-request structural orientation pass
+// 3. Get a single-request structural orientation pass
 {"method":"tools/call","params":{"name":"audit","arguments":{"agent_id":"dev","path":"/your/project","profile":"auto"}}}
 
-// 3. Ask a structural question
+// 4. Ask a structural question
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 

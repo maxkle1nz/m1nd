@@ -364,6 +364,26 @@ pub struct SessionState {
 }
 
 impl SessionState {
+    pub fn binding_fingerprint(&self) -> serde_json::Value {
+        let graph = self.graph.read();
+        serde_json::json!({
+            "schema": "m1nd-binding-fingerprint-v0",
+            "process_id": std::process::id(),
+            "current_exe": std::env::current_exe().ok().map(|path| path.to_string_lossy().to_string()),
+            "runtime_root": self.runtime_root.to_string_lossy(),
+            "graph_path": self.graph_path.to_string_lossy(),
+            "plasticity_path": self.plasticity_path.to_string_lossy(),
+            "workspace_root": self.workspace_root,
+            "ingest_roots": self.ingest_roots,
+            "graph_generation": self.graph_generation,
+            "plasticity_generation": self.plasticity_generation,
+            "cache_generation": self.cache_generation,
+            "node_count": graph.num_nodes() as u64,
+            "edge_count": graph.num_edges() as u64,
+            "graph_finalized": graph.finalized,
+        })
+    }
+
     pub fn graph_runtime_summary(&self) -> serde_json::Value {
         let graph = self.graph.read();
         serde_json::json!({

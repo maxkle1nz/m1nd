@@ -47,6 +47,16 @@ The rule:
   surface supports it, and falls back to its local implementation for older
   binaries.
 
+### 2026-05-05 — recovery should be in-band, not chat memory
+
+- Context: `session_handshake` could classify a session as trusted, needing
+  ingest, orientation-only, or degraded, but agents still needed remembered
+  operator doctrine to decide the next safe action.
+- Resolution: `recovery_playbook` now returns `m1nd-recovery-playbook-v0` with
+  ordered recovery steps plus `m1nd-binding-fingerprint-v0`. The playbook is
+  diagnostic-only: no ingest, repair, probe, or filesystem mutation happens
+  automatically.
+
 ### 2026-05-05 — host MCP surfaces can hide required recovery tools
 
 - Context: another agent saw m1nd through a host-provided surface where `audit`

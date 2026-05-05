@@ -403,6 +403,7 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 
 - [`ingest`](#m1ndingest) -- load data if the graph is empty
 - [`session_handshake`](#m1ndsession_handshake) -- classify whether this binding is trustworthy
+- [`recovery_playbook`](#m1ndrecovery_playbook) -- return ordered recovery steps
 - [`doctor`](#m1nddoctor) -- explain empty graphs, blocked retrieval, and binding/session continuity
 - [`drift`](memory.md#m1nddrift) -- check what changed since last session
 
@@ -454,6 +455,14 @@ as `ingest`.
   "can_retrieve": true,
   "can_recover": true,
   "next_action": "continue with m1nd-first retrieval; use compiler/tests for runtime truth",
+  "binding_fingerprint": {
+    "schema": "m1nd-binding-fingerprint-v0",
+    "process_id": 12345,
+    "runtime_root": "/tmp/m1nd-runtime",
+    "graph_path": "/tmp/m1nd-runtime/graph.json",
+    "graph_generation": 1,
+    "node_count": 9767
+  },
   "tool_surface": {
     "status": "ok",
     "degraded_host_tool_surface": false
@@ -472,9 +481,91 @@ as `ingest`.
 
 ### Related Tools
 
+- [`recovery_playbook`](#m1ndrecovery_playbook) -- what to do when trust mode is not full
 - [`ingest`](#m1ndingest) -- load data after `needs_ingest`
 - [`doctor`](#m1nddoctor) -- inspect the recovery payload under suspicion
 - [`seek`](exploration.md#m1ndseek) -- first retrieval pass after `full_trust`
+
+---
+
+<a id="m1ndrecovery_playbook"></a>
+
+## `recovery_playbook`
+Returns deterministic next steps for a degraded host surface, empty graph,
+orientation-only binding, or stale-looking retrieval. The tool is
+diagnostic-only: it does not ingest, repair, run shell commands, mutate files,
+or probe retrieval.
+
+Use it after `session_handshake` reports anything other than `full_trust`, or
+after a retrieval response reports `blocked` or zero candidates when the graph
+should be populated.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `trust_mode` | `string` | No | -- | Prior handshake trust mode to preserve in the diagnostic trail. |
+| `observed_tool` | `string` | No | -- | Tool that produced a suspicious result. |
+| `observed_proof_state` | `string` | No | -- | Observed proof state, such as `blocked`. |
+| `observed_candidates` | `integer` | No | -- | Candidate count from the suspicious retrieval. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+| `scope` | `string` | No | -- | Repo or scope path associated with the incident. |
+| `error_text` | `string` | No | -- | Error text or host message. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "recovery_playbook",
+    "arguments": {
+      "agent_id": "jimi",
+      "observed_tool": "seek",
+      "observed_proof_state": "blocked",
+      "observed_candidates": 0
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-recovery-playbook-v0",
+  "status": "warn",
+  "trust_mode": "stale_binding_suspected",
+  "recovery_goal": "Prove whether host, binary, runtime, or graph identity drift is causing split-brain retrieval.",
+  "next_action": "call_doctor",
+  "steps": [
+    {
+      "id": "call_doctor",
+      "tool": "doctor",
+      "action": "Call doctor with the blocked or zero-candidate observation."
+    },
+    {
+      "id": "compare_binding_fingerprint",
+      "action": "Compare this binding_fingerprint with the host, repo-local stdio, and repo-local HTTP handshake outputs."
+    }
+  ],
+  "non_claims": [
+    "No automatic repair was performed.",
+    "No ingest or graph mutation was performed."
+  ]
+}
+```
+
+### Related Tools
+
+- [`session_handshake`](#m1ndsession_handshake) -- classify the binding first
+- [`doctor`](#m1nddoctor) -- inspect active graph/session/runtime clues
+- [`ingest`](#m1ndingest) -- run only when the playbook says the graph needs it
 
 ---
 
