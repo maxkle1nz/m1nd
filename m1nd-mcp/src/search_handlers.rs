@@ -559,9 +559,9 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             );
             let (next_suggested_tool, next_suggested_target, next_step_hint) = if failed_retrieval {
                 (
-                        Some("doctor".into()),
+                        Some("recovery_playbook".into()),
                         None,
-                        Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into()),
+                        Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into()),
                     )
             } else {
                 (None, None, None)
@@ -654,10 +654,10 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         None,
     );
     if failed_retrieval {
-        next_suggested_tool = Some("doctor".into());
+        next_suggested_tool = Some("recovery_playbook".into());
         next_suggested_target = None;
         next_step_hint = Some(
-            "Call doctor with the provided recovery.arguments payload before falling back to shell search."
+            "Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search."
                 .into(),
         );
     }
@@ -1890,7 +1890,7 @@ mod tests {
     }
 
     #[test]
-    fn search_blocked_response_points_to_doctor_with_graph_state() {
+    fn search_blocked_response_points_to_recovery_playbook_with_graph_state() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();
         let mut state = build_state(root);
@@ -1917,7 +1917,10 @@ mod tests {
         .expect("search output");
 
         assert_eq!(output.proof_state, "blocked");
-        assert_eq!(output.next_suggested_tool.as_deref(), Some("doctor"));
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("recovery_playbook")
+        );
         assert_eq!(
             output
                 .graph_state
@@ -1932,6 +1935,13 @@ mod tests {
                 .and_then(|recovery| recovery.pointer("/arguments/observed_tool"))
                 .and_then(|value| value.as_str()),
             Some("search")
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery["suggested_tool"].as_str()),
+            Some("recovery_playbook")
         );
     }
 

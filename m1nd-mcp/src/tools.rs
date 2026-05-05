@@ -351,9 +351,9 @@ pub fn handle_activate(
             },
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
             proof_state: "blocked".into(),
-            next_suggested_tool: Some("doctor".into()),
+            next_suggested_tool: Some("recovery_playbook".into()),
             next_suggested_target: None,
-            next_step_hint: Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into()),
+            next_step_hint: Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into()),
             confidence: Some(0.0),
             why_this_next_step: Some("Activate needs at least one query seed before graph propagation can produce evidence.".into()),
             what_is_missing: Some("A non-empty activation query is still missing.".into()),
@@ -630,7 +630,7 @@ pub fn handle_activate(
         None,
     );
     let next_suggested_tool = if failed_retrieval {
-        Some("doctor".into())
+        Some("recovery_playbook".into())
     } else {
         activate_projection
             .as_ref()
@@ -642,7 +642,7 @@ pub fn handle_activate(
         next_suggested_target
     };
     let next_step_hint = if failed_retrieval {
-        Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into())
+        Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into())
     } else {
         activate_projection
             .as_ref()
@@ -2265,7 +2265,14 @@ pub fn handle_session_handshake(
     state: &mut SessionState,
     input: SessionHandshakeInput,
 ) -> M1ndResult<serde_json::Value> {
-    const REQUIRED_TOOLS: [&str; 5] = ["health", "doctor", "ingest", "seek", "help"];
+    const REQUIRED_TOOLS: [&str; 6] = [
+        "health",
+        "recovery_playbook",
+        "doctor",
+        "ingest",
+        "seek",
+        "help",
+    ];
 
     let mut available_tools = input.available_tools.clone();
     available_tools.sort();
@@ -2279,6 +2286,7 @@ pub fn handle_session_handshake(
             .map(|tool| (*tool).to_string())
             .collect();
         available_tools.push("session_handshake".into());
+        available_tools.push("recovery_playbook".into());
         available_tools.sort();
         available_tools.dedup();
     }
@@ -2296,7 +2304,8 @@ pub fn handle_session_handshake(
     let degraded_host_tool_surface = !missing_tools.is_empty();
     let can_ingest = available_tool_set.contains("ingest");
     let can_retrieve = available_tool_set.contains("seek");
-    let can_recover = available_tool_set.contains("doctor");
+    let can_recover = available_tool_set.contains("recovery_playbook");
+    let can_diagnose = available_tool_set.contains("doctor");
 
     let graph = state.graph.read();
     let node_count = graph.num_nodes();
@@ -2330,7 +2339,7 @@ pub fn handle_session_handshake(
 
     let doctor_recovery = if degraded_host_tool_surface {
         Some(serde_json::json!({
-            "suggested_tool": if can_recover { "doctor" } else { "" },
+            "suggested_tool": if can_recover { "recovery_playbook" } else if can_diagnose { "doctor" } else { "" },
             "arguments": {
                 "agent_id": input.agent_id,
                 "observed_tool": "tools/list",
@@ -2343,7 +2352,7 @@ pub fn handle_session_handshake(
         }))
     } else if node_count == 0 || edge_count == 0 {
         Some(serde_json::json!({
-            "suggested_tool": if can_recover { "doctor" } else { "" },
+            "suggested_tool": if can_recover { "recovery_playbook" } else if can_diagnose { "doctor" } else { "" },
             "arguments": {
                 "agent_id": input.agent_id,
                 "observed_tool": "health",
@@ -2369,7 +2378,8 @@ pub fn handle_session_handshake(
             "required_tools": REQUIRED_TOOLS,
             "required_tools_present": {
                 "health": available_tool_set.contains("health"),
-                "doctor": can_recover,
+                "recovery_playbook": can_recover,
+                "doctor": can_diagnose,
                 "ingest": can_ingest,
                 "seek": can_retrieve,
                 "help": available_tool_set.contains("help"),
@@ -2436,8 +2446,8 @@ pub fn handle_recovery_playbook(
         _ => handshake_trust_mode,
     };
 
-    let can_recover = handshake
-        .get("can_recover")
+    let can_diagnose = handshake
+        .pointer("/tool_surface/required_tools_present/doctor")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
     let handshake_doctor_arguments = handshake
@@ -2487,7 +2497,7 @@ pub fn handle_recovery_playbook(
                     None,
                 ),
             ];
-            if can_recover {
+            if can_diagnose {
                 steps.push(playbook_step(
                     "call_doctor",
                     "Call doctor with the degraded host evidence.",

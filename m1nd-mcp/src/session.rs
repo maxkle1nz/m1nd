@@ -444,6 +444,38 @@ impl SessionState {
         })
     }
 
+    pub fn recovery_playbook_payload(
+        &self,
+        agent_id: &str,
+        observed_tool: &str,
+        observed_proof_state: &str,
+        observed_candidates: Option<u64>,
+        scope: Option<&str>,
+        error_text: Option<&str>,
+    ) -> serde_json::Value {
+        let mut arguments = serde_json::json!({
+            "agent_id": agent_id,
+            "observed_tool": observed_tool,
+            "observed_proof_state": observed_proof_state,
+        });
+        if let Some(candidates) = observed_candidates {
+            arguments["observed_candidates"] = serde_json::json!(candidates);
+        }
+        if let Some(scope) = scope.filter(|value| !value.trim().is_empty()) {
+            arguments["scope"] = serde_json::json!(scope);
+        }
+        if let Some(error_text) = error_text.filter(|value| !value.trim().is_empty()) {
+            arguments["error_text"] = serde_json::json!(error_text);
+        }
+
+        serde_json::json!({
+            "suggested_tool": "recovery_playbook",
+            "reason": "retrieval returned blocked or zero actionable candidates; recovery_playbook returns the ordered agent recovery path before deeper diagnosis",
+            "arguments": arguments,
+            "fallback_tool": "doctor",
+        })
+    }
+
     pub fn retrieval_failure_context(
         &self,
         agent_id: &str,
@@ -460,7 +492,7 @@ impl SessionState {
 
         (
             Some(self.mini_graph_state()),
-            Some(self.doctor_recovery_payload(
+            Some(self.recovery_playbook_payload(
                 agent_id,
                 observed_tool,
                 observed_proof_state,

@@ -3,7 +3,7 @@
 
 The smoke proves the minimum trust loop an agent needs:
 
-initialize -> tools/list -> session_handshake -> ingest -> seek -> help -> doctor
+initialize -> tools/list -> session_handshake -> recovery_playbook when needed -> ingest -> seek -> help -> doctor
 
 It intentionally talks JSON-RPC over Content-Length framed stdio instead of
 calling Rust internals, so it catches transport/session issues that unit tests
@@ -33,9 +33,10 @@ from typing import Any
 
 SCHEMA = "m1nd-mcp-agent-smoke-v0"
 HANDSHAKE_SCHEMA = "m1nd-session-handshake-v0"
+RECOVERY_PLAYBOOK_SCHEMA = "m1nd-recovery-playbook-v0"
 DEFAULT_QUERY = "where MCP tool schemas and runtime tool registry are declared"
-REQUIRED_TOOLS = ("ingest", "seek", "help", "doctor")
-HANDSHAKE_REQUIRED_TOOLS = ("health", "doctor", "ingest", "seek", "help")
+REQUIRED_TOOLS = ("ingest", "seek", "help", "recovery_playbook", "doctor")
+HANDSHAKE_REQUIRED_TOOLS = ("health", "recovery_playbook", "doctor", "ingest", "seek", "help")
 
 
 class SmokeFailure(RuntimeError):
@@ -357,7 +358,7 @@ def build_tool_surface_report(
     }
     if report["degraded_host_tool_surface"]:
         report["recovery"] = {
-            "suggested_tool": "doctor" if "doctor" in available else None,
+            "suggested_tool": "recovery_playbook" if "recovery_playbook" in available else ("doctor" if "doctor" in available else None),
             "arguments": {
                 "agent_id": "m1nd-agent-smoke",
                 "observed_tool": "tools/list",
@@ -390,6 +391,20 @@ def build_doctor_args_from_surface(agent_id: str, tool_surface: dict[str, Any]) 
     return arguments
 
 
+def call_recovery_playbook(client: Any, agent_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    playbook_args = dict(arguments)
+    playbook_args["agent_id"] = agent_id
+    playbook = client.call_tool("recovery_playbook", playbook_args)
+    if playbook.get("schema") != RECOVERY_PLAYBOOK_SCHEMA:
+        raise SmokeFailure(f"recovery_playbook returned unexpected schema: {playbook.get('schema')}")
+    steps = playbook.get("steps") or []
+    if not isinstance(steps, list) or not steps:
+        raise SmokeFailure(f"recovery_playbook returned no ordered steps: {playbook}")
+    if not playbook.get("binding_fingerprint"):
+        raise SmokeFailure(f"recovery_playbook returned no binding_fingerprint: {playbook}")
+    return playbook
+
+
 def run_session_handshake_from_observed(
     client: Any,
     args: argparse.Namespace,
@@ -407,9 +422,11 @@ def run_session_handshake_from_observed(
     )
     can_ingest = "ingest" in available_tool_names
     can_retrieve = "seek" in available_tool_names
-    can_recover = "doctor" in available_tool_names
+    can_recover = "recovery_playbook" in available_tool_names
+    can_diagnose = "doctor" in available_tool_names
     health_payload = None
     doctor_payload = None
+    recovery_playbook_payload = None
     probe_payload = None
     trust_mode = "full_trust"
     next_action = "continue with m1nd-first retrieval; use compiler/tests for runtime truth"
@@ -421,6 +438,12 @@ def run_session_handshake_from_observed(
             "and verify final truth with local files"
         )
         if can_recover:
+            recovery_playbook_payload = call_recovery_playbook(
+                client,
+                args.agent_id,
+                build_doctor_args_from_surface(args.agent_id, tool_surface),
+            )
+        if can_diagnose:
             doctor_payload = client.call_tool(
                 "doctor",
                 build_doctor_args_from_surface(args.agent_id, tool_surface),
@@ -433,6 +456,16 @@ def run_session_handshake_from_observed(
             trust_mode = "needs_ingest" if can_ingest else "orientation_only"
             next_action = "run ingest for the intended repo before trusting graph retrieval"
             if can_recover:
+                recovery_playbook_payload = call_recovery_playbook(
+                    client,
+                    args.agent_id,
+                    {
+                        "observed_tool": "health",
+                        "observed_proof_state": "blocked",
+                        "observed_candidates": 0,
+                    },
+                )
+            if can_diagnose:
                 doctor_payload = client.call_tool(
                     "doctor",
                     {
@@ -457,7 +490,7 @@ def run_session_handshake_from_observed(
             proof_state = probe_payload.get("proof_state")
             if proof_state == "blocked" or candidates <= 0 or not results:
                 trust_mode = "stale_binding_suspected"
-                next_action = "call doctor with the probe recovery payload, then verify with repo-local smokes"
+                next_action = "call recovery_playbook with the probe payload, then follow its ordered steps"
                 recovery = probe_payload.get("recovery") or {}
                 doctor_args = dict(recovery.get("arguments") or {})
                 if not doctor_args:
@@ -469,6 +502,12 @@ def run_session_handshake_from_observed(
                     }
                 doctor_args["agent_id"] = args.agent_id
                 if can_recover:
+                    recovery_playbook_payload = call_recovery_playbook(
+                        client,
+                        args.agent_id,
+                        doctor_args,
+                    )
+                if can_diagnose:
                     doctor_payload = client.call_tool("doctor", doctor_args)
 
     return {
@@ -482,6 +521,7 @@ def run_session_handshake_from_observed(
         "tool_surface": tool_surface,
         "health": summarize_health(health_payload),
         "doctor": doctor_payload,
+        "recovery_playbook": recovery_playbook_payload,
         "probe": summarize_seek(probe_payload) if probe_payload else None,
         "used_probe": bool(probe_payload),
     }
@@ -515,7 +555,7 @@ def attach_handshake_probe(
     proof_state = probe_payload.get("proof_state")
     if proof_state == "blocked" or candidates <= 0 or not results:
         handshake["trust_mode"] = "stale_binding_suspected"
-        handshake["next_action"] = "call doctor with the probe recovery payload, then verify with repo-local smokes"
+        handshake["next_action"] = "call recovery_playbook with the probe payload, then follow its ordered steps"
         recovery = probe_payload.get("recovery") or {}
         doctor_args = dict(recovery.get("arguments") or {})
         if not doctor_args:
@@ -527,9 +567,15 @@ def attach_handshake_probe(
             }
         doctor_args["agent_id"] = args.agent_id
         handshake["doctor_recovery"] = {
-            "suggested_tool": "doctor" if "doctor" in available_tool_names else None,
+            "suggested_tool": "recovery_playbook" if "recovery_playbook" in available_tool_names else ("doctor" if "doctor" in available_tool_names else None),
             "arguments": doctor_args,
         }
+        if "recovery_playbook" in available_tool_names:
+            handshake["recovery_playbook"] = call_recovery_playbook(
+                client,
+                args.agent_id,
+                doctor_args,
+            )
         if "doctor" in available_tool_names:
             handshake["doctor"] = client.call_tool("doctor", doctor_args)
 
@@ -587,14 +633,22 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     )
     if tool_surface["degraded_host_tool_surface"]:
         doctor = None
+        recovery_playbook = None
         tool_surface["recovery"]["arguments"]["agent_id"] = args.agent_id
-        if tool_surface["recovery"]["suggested_tool"] == "doctor":
+        if tool_surface["recovery"]["suggested_tool"] == "recovery_playbook":
+            recovery_playbook = call_recovery_playbook(
+                client,
+                args.agent_id,
+                dict(tool_surface["recovery"]["arguments"]),
+            )
+        if "doctor" in [name for name in tool_names if isinstance(name, str)]:
             doctor_args = dict(tool_surface["recovery"]["arguments"])
             doctor = client.call_tool("doctor", doctor_args)
         details = {
             "surface_status": "degraded_host_tool_surface",
             "tool_surface": tool_surface,
             "session_handshake": session_handshake,
+            "recovery_playbook": session_handshake.get("recovery_playbook") or recovery_playbook,
             "doctor": session_handshake.get("doctor") or doctor,
         }
         missing = tool_surface["missing_required_tools"]
@@ -681,12 +735,21 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     graph_state = negative_seek.get("graph_state") or {}
     if negative_seek.get("proof_state") != "blocked":
         raise SmokeFailure(f"negative seek should be blocked, got {negative_seek.get('proof_state')}")
-    if negative_seek.get("next_suggested_tool") != "doctor":
-        raise SmokeFailure(f"negative seek did not suggest doctor: {negative_seek}")
-    if recovery.get("suggested_tool") != "doctor":
-        raise SmokeFailure(f"negative seek did not include doctor recovery payload: {negative_seek}")
+    if negative_seek.get("next_suggested_tool") != "recovery_playbook":
+        raise SmokeFailure(f"negative seek did not suggest recovery_playbook: {negative_seek}")
+    if recovery.get("suggested_tool") != "recovery_playbook":
+        raise SmokeFailure(f"negative seek did not include recovery_playbook payload: {negative_seek}")
     if int(graph_state.get("node_count") or 0) <= 0:
         raise SmokeFailure(f"negative seek did not include populated graph_state: {negative_seek}")
+    recovery_playbook = call_recovery_playbook(
+        client,
+        args.agent_id,
+        dict(recovery.get("arguments") or {}),
+    )
+    if recovery_playbook.get("trust_mode") != "stale_binding_suspected":
+        raise SmokeFailure(f"negative recovery_playbook did not flag stale binding: {recovery_playbook}")
+    if not recovery_playbook.get("binding_fingerprint"):
+        raise SmokeFailure(f"negative recovery_playbook omitted binding_fingerprint: {recovery_playbook}")
 
     return {
         "initialize": initialize,
@@ -714,6 +777,10 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             "proof_state": negative_seek.get("proof_state"),
             "next_suggested_tool": negative_seek.get("next_suggested_tool"),
             "recovery_tool": recovery.get("suggested_tool"),
+            "playbook_schema": recovery_playbook.get("schema"),
+            "playbook_trust_mode": recovery_playbook.get("trust_mode"),
+            "playbook_next_action": recovery_playbook.get("next_action"),
+            "playbook_step_count": len(recovery_playbook.get("steps") or []),
             "graph_node_count": graph_state.get("node_count"),
             "observed_tool": ((recovery.get("arguments") or {}).get("observed_tool")),
         },
@@ -723,7 +790,8 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             "seek_scanned_ingested_graph": True,
             "help_returned_guidance": True,
             "doctor_confirmed_graph": True,
-            "negative_retrieval_suggested_doctor": True,
+            "negative_retrieval_suggested_recovery_playbook": True,
+            "negative_recovery_playbook_validated": True,
         },
     }
 
@@ -847,7 +915,11 @@ def main() -> int:
             print(f"- seek candidates: {result['seek']['total_candidates_scanned']}")
             print(f"- seek results: {result['seek']['results_count']}")
             print(f"- doctor: {result['doctor']['status']}")
-            print(f"- negative recovery: {result['negative_recovery']['next_suggested_tool']}")
+            print(
+                "- negative recovery: "
+                f"{result['negative_recovery']['next_suggested_tool']} "
+                f"({result['negative_recovery']['playbook_trust_mode']})"
+            )
     return 0
 
 

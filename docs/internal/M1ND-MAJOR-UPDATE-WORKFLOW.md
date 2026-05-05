@@ -112,9 +112,9 @@ or `activate` returns `proof_state=blocked` or zero actionable candidates, the
 response should include:
 
 - compact `graph_state`;
-- `next_suggested_tool=doctor`;
-- `recovery.suggested_tool=doctor`;
-- `recovery.arguments` copied directly into the `doctor` call.
+- `next_suggested_tool=recovery_playbook`;
+- `recovery.suggested_tool=recovery_playbook`;
+- `recovery.arguments` copied directly into the `recovery_playbook` call.
 
 ## Phase 3 — Surface parity
 

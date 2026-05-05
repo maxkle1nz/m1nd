@@ -36,9 +36,10 @@ stateful perspective navigation. All tool calls require an `agent_id` parameter.
 
 ## WORKFLOWS
 
-**Session Start**: `session_handshake` → `ingest` if needed → `seek`/`audit`. \
-Use `doctor` when the handshake or a retrieval response reports a degraded host \
-surface, empty graph, or stale-looking binding. This gives you codebase-aware context.
+**Session Start**: `session_handshake` → `recovery_playbook` if trust is not full \
+or retrieval looks blocked → `ingest` if needed → `seek`/`audit`. Use `doctor` \
+when the playbook asks for deeper diagnosis of a degraded host surface, empty \
+graph, or stale-looking binding. This gives you codebase-aware context.
 
 **Research**: `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → \
 `learn(feedback)`. Use `seek` for keyword search, `scan` for broad discovery, \
@@ -3350,7 +3351,10 @@ mod tests {
         assert_eq!(output["trust_mode"], "needs_ingest");
         assert_eq!(output["can_ingest"], true);
         assert_eq!(output["tool_surface"]["degraded_host_tool_surface"], false);
-        assert_eq!(output["doctor_recovery"]["suggested_tool"], "doctor");
+        assert_eq!(
+            output["doctor_recovery"]["suggested_tool"],
+            "recovery_playbook"
+        );
     }
 
     #[test]
@@ -3401,7 +3405,7 @@ mod tests {
         assert_eq!(output["schema"], "m1nd-session-handshake-v0");
         assert_eq!(output["trust_mode"], "degraded_host_tool_surface");
         assert_eq!(output["can_ingest"], false);
-        assert_eq!(output["can_recover"], true);
+        assert_eq!(output["can_recover"], false);
         assert!(
             output["tool_surface"]["missing_required_tools"]
                 .as_array()
@@ -3474,7 +3478,7 @@ mod tests {
             "session_handshake",
             &serde_json::json!({
                 "agent_id": "jimi",
-                "available_tools": ["health", "doctor", "ingest", "seek", "help", "session_handshake"]
+                "available_tools": ["health", "recovery_playbook", "doctor", "ingest", "seek", "help", "session_handshake"]
             }),
         )
         .expect("session handshake output");
@@ -3788,7 +3792,7 @@ mod tests {
     }
 
     #[test]
-    fn activate_blocked_response_points_to_doctor_with_graph_state() {
+    fn activate_blocked_response_points_to_recovery_playbook_with_graph_state() {
         let (temp, mut state) = build_state();
         let repo = temp.path().join("repo");
         std::fs::create_dir_all(repo.join("src")).expect("repo src");
@@ -3822,8 +3826,12 @@ mod tests {
         .expect("activate output");
 
         assert_eq!(output["proof_state"], "blocked");
-        assert_eq!(output["next_suggested_tool"], "doctor");
+        assert_eq!(output["next_suggested_tool"], "recovery_playbook");
         assert_eq!(output["graph_state"]["node_count"].as_u64().is_some(), true);
+        assert_eq!(
+            output["recovery"]["suggested_tool"].as_str(),
+            Some("recovery_playbook")
+        );
         assert_eq!(
             output["recovery"]["arguments"]["observed_tool"].as_str(),
             Some("activate")

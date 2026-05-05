@@ -111,9 +111,9 @@ pub fn handle_seek(
             embeddings_used: false,
             proof_state: "blocked".into(),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
-            next_suggested_tool: Some("doctor".into()),
+            next_suggested_tool: Some("recovery_playbook".into()),
             next_suggested_target: None,
-            next_step_hint: Some("Call doctor with the provided recovery.arguments payload before falling back to shell search.".into()),
+            next_step_hint: Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into()),
             graph_state,
             recovery,
         });
@@ -468,10 +468,10 @@ pub fn handle_seek(
     );
     let (next_suggested_tool, next_suggested_target, next_step_hint) = if failed_retrieval {
         (
-            Some("doctor".into()),
+            Some("recovery_playbook".into()),
             None,
             Some(
-                "Call doctor with the provided recovery.arguments payload before falling back to shell search."
+                "Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search."
                     .into(),
             ),
         )
@@ -10022,7 +10022,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
     }
 
     #[test]
-    fn seek_blocked_response_points_to_doctor_with_graph_state() {
+    fn seek_blocked_response_points_to_recovery_playbook_with_graph_state() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
         let mut state = build_layer_state(root);
@@ -10042,7 +10042,10 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         .expect("seek should return a structured blocked response");
 
         assert_eq!(output.proof_state, "blocked");
-        assert_eq!(output.next_suggested_tool.as_deref(), Some("doctor"));
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("recovery_playbook")
+        );
         assert_eq!(
             output
                 .graph_state
@@ -10055,7 +10058,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .recovery
                 .as_ref()
                 .and_then(|recovery| recovery["suggested_tool"].as_str()),
-            Some("doctor")
+            Some("recovery_playbook")
         );
         assert_eq!(
             output

@@ -76,9 +76,10 @@ The rule:
   state after a stale-looking retrieval, but the retrieval response itself did
   not include enough continuity breadcrumbs for instant self-recovery.
 - Resolution: `seek`, `search`, and `activate` now include a compact
-  `graph_state` plus a ready `recovery.suggested_tool=doctor` payload when they
-  return `blocked` or zero actionable candidates. The smoke harness also runs a
-  negative seek after populated ingest to prove the recovery payload exists.
+  `graph_state` plus a ready `recovery.suggested_tool=recovery_playbook`
+  payload when they return `blocked` or zero actionable candidates. The smoke
+  harness also runs a negative seek after populated ingest to prove the
+  recovery payload and playbook exist.
 
 ### 2026-05-05 — injected MCP surface can lose graph state across ingest and seek
 
