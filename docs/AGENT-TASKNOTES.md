@@ -69,6 +69,10 @@ The rule:
   orientation-only until the MCP binding is refreshed. The smoke harness also
   emits structured `degraded_host_tool_surface` details instead of a bare
   missing-tool string.
+- Follow-up: `health` now exposes `m1nd-tool-surface-contract-v0` and
+  `m1nd-host-binding-alignment-v0`, so even a partial host that only exposes
+  `health` can tell agents which tools should be visible and when the host is
+  showing a degraded binding.
 
 ### 2026-05-05 — retrieval responses need inline active-graph breadcrumbs
 

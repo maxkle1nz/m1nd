@@ -375,13 +375,31 @@ def build_tool_surface_report(
 def summarize_health(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     if payload is None:
         return None
+    contract = payload.get("tool_surface_contract") or {}
+    alignment = payload.get("host_binding_alignment") or {}
     return {
         "status": payload.get("status"),
         "node_count": payload.get("node_count"),
         "edge_count": payload.get("edge_count"),
         "queries_processed": payload.get("queries_processed"),
         "active_session_count": len(payload.get("active_sessions") or []),
+        "binding_fingerprint_schema": (payload.get("binding_fingerprint") or {}).get("schema"),
+        "tool_surface_contract_schema": contract.get("schema"),
+        "registry_tool_count": contract.get("registry_tool_count"),
+        "host_binding_alignment_status": alignment.get("status"),
     }
+
+
+def validate_health_surface_contract(payload: dict[str, Any]) -> None:
+    contract = payload.get("tool_surface_contract") or {}
+    if contract.get("schema") != "m1nd-tool-surface-contract-v0":
+        raise SmokeFailure(f"health did not expose tool surface contract: {payload}")
+    required_host_tools = set(contract.get("required_host_visible_tools") or [])
+    if not {"health", "session_handshake", "recovery_playbook"}.issubset(required_host_tools):
+        raise SmokeFailure(f"health contract does not name required host binding tools: {contract}")
+    alignment = payload.get("host_binding_alignment") or {}
+    if alignment.get("schema") != "m1nd-host-binding-alignment-v0":
+        raise SmokeFailure(f"health did not expose host binding alignment guidance: {payload}")
 
 
 def build_doctor_args_from_surface(agent_id: str, tool_surface: dict[str, Any]) -> dict[str, Any]:
@@ -475,7 +493,8 @@ def run_session_handshake_from_observed(
                         "observed_candidates": 0,
                     },
                 )
-        elif run_probe and can_retrieve:
+        validate_health_surface_contract(health_payload)
+        if run_probe and can_retrieve:
             probe_payload = client.call_tool(
                 "seek",
                 {
@@ -662,6 +681,9 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             details,
         )
 
+    health_contract = client.call_tool("health", {"agent_id": args.agent_id})
+    validate_health_surface_contract(health_contract)
+
     ingest = client.call_tool(
         "ingest",
         {
@@ -756,6 +778,7 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
         "tool_count": len(tools),
         "session_handshake": session_handshake,
         "tool_surface": tool_surface,
+        "health_contract": summarize_health(health_contract),
         "required_tools_present": {name: name in tool_names for name in REQUIRED_TOOLS},
         "ingest": summarize_ingest(ingest),
         "seek": summarize_seek(seek),
@@ -790,6 +813,7 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
             "seek_scanned_ingested_graph": True,
             "help_returned_guidance": True,
             "doctor_confirmed_graph": True,
+            "health_surface_contract_exposed": True,
             "negative_retrieval_suggested_recovery_playbook": True,
             "negative_recovery_playbook_validated": True,
         },

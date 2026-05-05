@@ -3335,6 +3335,41 @@ mod tests {
     }
 
     #[test]
+    fn health_exposes_host_binding_contract() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({
+                "agent_id": "jimi"
+            }),
+        )
+        .expect("health output");
+
+        assert_eq!(
+            output["tool_surface_contract"]["schema"],
+            "m1nd-tool-surface-contract-v0"
+        );
+        assert!(
+            output["tool_surface_contract"]["required_host_visible_tools"]
+                .as_array()
+                .expect("required tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("recovery_playbook")),
+            "health should tell partial hosts that recovery_playbook is required"
+        );
+        assert_eq!(
+            output["host_binding_alignment"]["schema"],
+            "m1nd-host-binding-alignment-v0"
+        );
+        assert_eq!(
+            output["binding_fingerprint"]["schema"],
+            "m1nd-binding-fingerprint-v0"
+        );
+    }
+
+    #[test]
     fn session_handshake_marks_empty_graph_as_needing_ingest() {
         let (_temp, mut state) = build_state();
 

@@ -75,6 +75,11 @@ retrieval trust.
 binding fingerprint so agents can compare host, stdio, HTTP, runtime root,
 graph path, generation counters, and ingest roots before blaming the graph.
 
+If the host exposes `health` but not `session_handshake` or
+`recovery_playbook`, inspect `health.tool_surface_contract` and
+`health.host_binding_alignment`. That is the fallback proof that the host is
+showing a partial tool surface rather than the full m1nd runtime contract.
+
 This proves the minimum agent trust loop over real stdio framing and the HTTP
 tool API:
 

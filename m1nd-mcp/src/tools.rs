@@ -20,6 +20,25 @@ use std::time::Instant;
 // All handlers take &mut SessionState for graph + engine access.
 // ---------------------------------------------------------------------------
 
+pub const AGENT_TRUST_REQUIRED_TOOLS: [&str; 6] = [
+    "health",
+    "recovery_playbook",
+    "doctor",
+    "ingest",
+    "seek",
+    "help",
+];
+
+pub const HOST_BINDING_REQUIRED_TOOLS: [&str; 7] = [
+    "health",
+    "session_handshake",
+    "recovery_playbook",
+    "doctor",
+    "ingest",
+    "seek",
+    "help",
+];
+
 fn normalized_ingest_mode(mode: &str) -> &str {
     if mode.eq_ignore_ascii_case("merge") {
         "merge"
@@ -2234,25 +2253,58 @@ pub fn handle_resonate(
 /// Handle m1nd.health (03-MCP Section 2.12).
 pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResult<HealthOutput> {
     let graph = state.graph.read();
+    let node_count = graph.num_nodes();
+    let edge_count = graph.num_edges() as u64;
+    let plasticity_edge_count = graph.edge_plasticity.original_weight.len();
+    drop(graph);
 
     let last_persist = state
         .last_persist_time
         .map(|t| format!("{:.0}s ago", t.elapsed().as_secs_f64()));
+    let tool_schema = crate::server::tool_schemas();
+    let registry_tool_count = tool_schema
+        .get("tools")
+        .and_then(|tools| tools.as_array())
+        .map(|tools| tools.len() as u64)
+        .unwrap_or(0);
 
     Ok(HealthOutput {
         status: "ok".into(),
-        node_count: graph.num_nodes(),
-        edge_count: graph.num_edges() as u64,
+        node_count,
+        edge_count,
         queries_processed: state.queries_processed,
         uptime_seconds: state.uptime_seconds(),
         memory_usage_bytes: 0, // simplified -- would need jemalloc stats
-        plasticity_state: format!(
-            "{} edges tracked",
-            graph.edge_plasticity.original_weight.len()
-        ),
+        plasticity_state: format!("{} edges tracked", plasticity_edge_count),
         last_persist_time: last_persist,
         active_sessions: state.session_summary(),
         git: crate::audit_handlers::collect_git_state(state, 20),
+        binding_fingerprint: state.binding_fingerprint(),
+        tool_surface_contract: serde_json::json!({
+            "schema": "m1nd-tool-surface-contract-v0",
+            "registry_tool_count": registry_tool_count,
+            "required_agent_trust_tools": AGENT_TRUST_REQUIRED_TOOLS,
+            "required_host_visible_tools": HOST_BINDING_REQUIRED_TOOLS,
+            "minimum_safe_tool_count": registry_tool_count,
+            "degraded_if_missing_any": HOST_BINDING_REQUIRED_TOOLS,
+            "recovery_tool": "recovery_playbook",
+            "diagnostic_tool": "doctor",
+        }),
+        host_binding_alignment: serde_json::json!({
+            "schema": "m1nd-host-binding-alignment-v0",
+            "status": "needs_client_surface_comparison",
+            "rule": "Compare the host-visible m1nd tool names and count against tool_surface_contract. If session_handshake or recovery_playbook is missing, treat this host binding as degraded_host_tool_surface even when health responds.",
+            "current_runtime_has_graph": node_count > 0 && edge_count > 0,
+            "next_action": "Call session_handshake with observed_tool_count and available_tools when visible; otherwise use local repo smoke or refresh the MCP host binding.",
+            "smoke_commands": [
+                "python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json",
+                "python3 scripts/mcp_agent_smoke.py --repo . --transport http --handshake-only --json"
+            ],
+            "non_claims": [
+                "health cannot see which subset of tools the client host injected",
+                "health does not rebind the host or refresh tool schemas automatically"
+            ],
+        }),
     })
 }
 
@@ -2265,15 +2317,6 @@ pub fn handle_session_handshake(
     state: &mut SessionState,
     input: SessionHandshakeInput,
 ) -> M1ndResult<serde_json::Value> {
-    const REQUIRED_TOOLS: [&str; 6] = [
-        "health",
-        "recovery_playbook",
-        "doctor",
-        "ingest",
-        "seek",
-        "help",
-    ];
-
     let mut available_tools = input.available_tools.clone();
     available_tools.sort();
     available_tools.dedup();
@@ -2281,7 +2324,7 @@ pub fn handle_session_handshake(
         !available_tools.is_empty() || !input.missing_tools.is_empty();
 
     if !host_surface_names_observed {
-        available_tools = REQUIRED_TOOLS
+        available_tools = AGENT_TRUST_REQUIRED_TOOLS
             .iter()
             .map(|tool| (*tool).to_string())
             .collect();
@@ -2293,7 +2336,7 @@ pub fn handle_session_handshake(
 
     let available_tool_set: HashSet<_> = available_tools.iter().cloned().collect();
     let mut missing_tools = input.missing_tools.clone();
-    for tool in REQUIRED_TOOLS {
+    for tool in AGENT_TRUST_REQUIRED_TOOLS {
         if !available_tool_set.contains(tool) {
             missing_tools.push(tool.to_string());
         }
@@ -2375,7 +2418,7 @@ pub fn handle_session_handshake(
         "tool_surface": {
             "status": if degraded_host_tool_surface { "degraded_host_tool_surface" } else { "ok" },
             "tool_count": input.observed_tool_count.unwrap_or(available_tools.len() as u64),
-            "required_tools": REQUIRED_TOOLS,
+            "required_tools": AGENT_TRUST_REQUIRED_TOOLS,
             "required_tools_present": {
                 "health": available_tool_set.contains("health"),
                 "recovery_playbook": can_recover,

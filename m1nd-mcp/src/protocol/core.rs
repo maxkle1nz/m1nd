@@ -446,6 +446,9 @@ pub struct HealthOutput {
     pub last_persist_time: Option<String>,
     pub active_sessions: Vec<serde_json::Value>,
     pub git: serde_json::Value,
+    pub binding_fingerprint: serde_json::Value,
+    pub tool_surface_contract: serde_json::Value,
+    pub host_binding_alignment: serde_json::Value,
 }
 
 #[cfg(test)]

@@ -136,6 +136,9 @@ Then start with this trust loop:
 // 0. Trust the binding
 {"method":"tools/call","params":{"name":"session_handshake","arguments":{"agent_id":"dev"}}}
 
+// If your host only exposes health, read its tool_surface_contract first
+{"method":"tools/call","params":{"name":"health","arguments":{"agent_id":"dev"}}}
+
 // 1. If the handshake is not full_trust, ask for the recovery path
 {"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
 
