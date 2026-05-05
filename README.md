@@ -25,6 +25,7 @@
   <a href="#what-m1nd-is-not">What m1nd Is Not</a> &middot;
   <a href="#capability-map">Capability Map</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#try-the-agent-demo">Agent Demo</a> &middot;
   <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
   <a href="#evidence">Evidence</a> &middot;
   <a href="#agent-testimonials">Agent Testimonials</a> &middot;
@@ -166,6 +167,26 @@ If docs or specs matter too:
 ```
 
 For graph-native semantic docs, use `adapter: "light"` instead.
+
+## Try The Agent Demo
+
+The fastest way to see the agent-first loop is to run the local demo transcript:
+
+```bash
+cargo build -p m1nd-mcp
+python3 scripts/m1nd_agent_demo.py --repo . --transport stdio
+```
+
+It starts the MCP server, checks `trust_selftest`, ingests the repo, runs
+retrieval, asks for help, calls `doctor`, and verifies that an empty retrieval
+returns a recovery path. The JSON mode is useful for CI or client onboarding:
+
+```bash
+python3 scripts/m1nd_agent_demo.py --repo . --transport stdio --json
+```
+
+See [docs/AGENT-FIRST-DEMO.md](docs/AGENT-FIRST-DEMO.md) for the transcript
+shape and how to read it.
 
 ## Default Agent Workflow
 

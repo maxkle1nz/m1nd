@@ -4,6 +4,7 @@ This repo keeps the public docs surface intentionally small.
 
 ## Start here
 - `../README.md` — primary project overview and quick start
+- `AGENT-FIRST-DEMO.md` — shortest real agent-first demo transcript path
 - `deployment.md` — persistent runtime and production setup
 - `IDE-INTEGRATIONS.md` — client and integration notes
 - `use-cases.md` — audience-oriented product workflows
