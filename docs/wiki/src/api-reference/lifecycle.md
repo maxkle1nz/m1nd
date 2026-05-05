@@ -418,6 +418,12 @@ candidates, or a graph that feels empty.
 return `blocked` or zero actionable candidates. An agent can pass
 `recovery.arguments` directly to `doctor`.
 
+Use the same tool for degraded host surfaces. If `tools/list` is missing
+required recovery tools such as `ingest`, pass the observed count, available
+tool names, and missing tool names to `doctor`. It will flag
+`diagnostics.degraded_host_tool_surface` and explain whether the current host
+binding should be treated as orientation-only.
+
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -426,6 +432,9 @@ return `blocked` or zero actionable candidates. An agent can pass
 | `observed_tool` | `string` | No | -- | Tool that returned a suspicious result. |
 | `observed_proof_state` | `string` | No | -- | Observed proof state, such as `blocked`. |
 | `observed_candidates` | `integer` | No | -- | Candidate count from the suspicious retrieval. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
 | `scope` | `string` | No | -- | Scope/path used by the suspicious call. |
 | `error_text` | `string` | No | -- | Error text or host message. |
 
@@ -443,6 +452,27 @@ return `blocked` or zero actionable candidates. An agent can pass
       "observed_tool": "seek",
       "observed_proof_state": "blocked",
       "observed_candidates": 0
+    }
+  }
+}
+```
+
+### Degraded Tool Surface Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "jimi",
+      "observed_tool": "tools/list",
+      "observed_proof_state": "blocked",
+      "observed_tool_count": 3,
+      "available_tools": ["seek", "audit", "doctor"],
+      "missing_tools": ["ingest"]
     }
   }
 }
@@ -471,6 +501,7 @@ return `blocked` or zero actionable candidates. An agent can pass
 ### When to Use
 
 - **After suspicious retrieval** -- distinguish empty graph from stale binding
+- **After incomplete `tools/list`** -- identify a degraded host tool surface
 - **After transport changes** -- confirm HTTP and stdio see the same session
 - **Before shell fallback** -- give the agent a precise recovery path
 

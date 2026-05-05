@@ -195,6 +195,12 @@ pub struct DoctorInput {
     #[serde(default)]
     pub observed_candidates: Option<u64>,
     #[serde(default)]
+    pub observed_tool_count: Option<u64>,
+    #[serde(default)]
+    pub available_tools: Vec<String>,
+    #[serde(default)]
+    pub missing_tools: Vec<String>,
+    #[serde(default)]
     pub scope: Option<String>,
     #[serde(default)]
     pub error_text: Option<String>,

@@ -7,7 +7,8 @@ initialize -> tools/list -> ingest -> seek -> help -> doctor
 
 It intentionally talks JSON-RPC over Content-Length framed stdio instead of
 calling Rust internals, so it catches transport/session issues that unit tests
-can miss.
+can miss. If the host surface is missing a required recovery tool, the failure
+is structured as degraded_host_tool_surface with a ready doctor payload.
 """
 
 from __future__ import annotations
@@ -34,7 +35,9 @@ REQUIRED_TOOLS = ("ingest", "seek", "help", "doctor")
 
 
 class SmokeFailure(RuntimeError):
-    pass
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.details = details or {}
 
 
 def find_free_port() -> int:
@@ -329,15 +332,66 @@ def summarize_seek(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_tool_surface_report(tool_names: list[str], min_tool_count: int) -> dict[str, Any]:
+    available = sorted({name for name in tool_names if isinstance(name, str) and name})
+    missing_required = [name for name in REQUIRED_TOOLS if name not in available]
+    below_minimum = len(available) < min_tool_count
+    status = "degraded_host_tool_surface" if missing_required or below_minimum else "ok"
+    report: dict[str, Any] = {
+        "status": status,
+        "tool_count": len(available),
+        "min_tool_count": min_tool_count,
+        "required_tools": list(REQUIRED_TOOLS),
+        "required_tools_present": {name: name in available for name in REQUIRED_TOOLS},
+        "missing_required_tools": missing_required,
+        "available_tools_sample": available[:24],
+        "degraded_host_tool_surface": status != "ok",
+    }
+    if report["degraded_host_tool_surface"]:
+        report["recovery"] = {
+            "suggested_tool": "doctor" if "doctor" in available else None,
+            "arguments": {
+                "agent_id": "m1nd-agent-smoke",
+                "observed_tool": "tools/list",
+                "observed_proof_state": "blocked",
+                "observed_tool_count": len(available),
+                "available_tools": available,
+                "missing_tools": missing_required,
+            },
+            "fallback": "if doctor is unavailable, restart or rebind the MCP host surface and use direct repo reads for final truth",
+        }
+    return report
+
+
 def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     initialize = client.initialize()
     tools = client.list_tools()
     tool_names = [tool.get("name") for tool in tools]
-    missing_tools = [name for name in REQUIRED_TOOLS if name not in tool_names]
-    if len(tools) < args.min_tool_count:
-        raise SmokeFailure(f"expected at least {args.min_tool_count} tools, got {len(tools)}")
-    if missing_tools:
-        raise SmokeFailure(f"missing required tools: {', '.join(missing_tools)}")
+    tool_surface = build_tool_surface_report(
+        [name for name in tool_names if isinstance(name, str)],
+        args.min_tool_count,
+    )
+    if tool_surface["degraded_host_tool_surface"]:
+        doctor = None
+        tool_surface["recovery"]["arguments"]["agent_id"] = args.agent_id
+        if tool_surface["recovery"]["suggested_tool"] == "doctor":
+            doctor_args = dict(tool_surface["recovery"]["arguments"])
+            doctor = client.call_tool("doctor", doctor_args)
+        details = {
+            "surface_status": "degraded_host_tool_surface",
+            "tool_surface": tool_surface,
+            "doctor": doctor,
+        }
+        missing = tool_surface["missing_required_tools"]
+        raise SmokeFailure(
+            "degraded_host_tool_surface: "
+            + (
+                f"missing required tools: {', '.join(missing)}"
+                if missing
+                else f"expected at least {args.min_tool_count} tools, got {len(tools)}"
+            ),
+            details,
+        )
 
     ingest = client.call_tool(
         "ingest",
@@ -422,6 +476,7 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
     return {
         "initialize": initialize,
         "tool_count": len(tools),
+        "tool_surface": tool_surface,
         "required_tools_present": {name: name in tool_names for name in REQUIRED_TOOLS},
         "ingest": summarize_ingest(ingest),
         "seek": summarize_seek(seek),
@@ -539,6 +594,7 @@ def main() -> int:
             "transport": args.transport,
             "error": str(exc),
         }
+        failure.update(exc.details)
         print(json.dumps(failure, indent=2), file=sys.stderr if not args.json else sys.stdout)
         return 1
 

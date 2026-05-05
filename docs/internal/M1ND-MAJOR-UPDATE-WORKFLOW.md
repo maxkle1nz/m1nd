@@ -68,6 +68,25 @@ live tool surface is available, call `doctor` with the suspicious tool output
 before falling back to shell; it reports the active graph, runtime root,
 workspace root, ingest roots, agent session, and stale-binding clues.
 
+If `tools/list` itself is incomplete, treat it as a degraded host tool surface.
+The critical recovery set is `ingest`, `seek`, `help`, and `doctor`. If any of
+those are missing, call `doctor` when available with:
+
+```json
+{
+  "agent_id": "codex-m1nd",
+  "observed_tool": "tools/list",
+  "observed_proof_state": "blocked",
+  "observed_tool_count": 3,
+  "available_tools": ["seek", "audit", "doctor"],
+  "missing_tools": ["ingest"]
+}
+```
+
+Without `ingest`, the agent cannot refresh or repair the active graph inside
+that host session. Use m1nd as orientation only, cross-check with local files,
+then restart or rebind the MCP surface.
+
 Retrieval tools should make that recovery path explicit. When `seek`, `search`,
 or `activate` returns `proof_state=blocked` or zero actionable candidates, the
 response should include:

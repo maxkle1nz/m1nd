@@ -2256,6 +2256,24 @@ pub fn handle_doctor(
         .unwrap_or_else(|| "unknown".into());
     let observed_proof_state = input.observed_proof_state.clone();
     let observed_candidates = input.observed_candidates;
+    let observed_tool_count = input.observed_tool_count;
+    let mut available_tools = input.available_tools.clone();
+    available_tools.sort();
+    available_tools.dedup();
+    let available_tool_set: std::collections::HashSet<_> =
+        available_tools.iter().cloned().collect();
+    let required_recovery_tools = ["ingest", "seek", "help", "doctor"];
+    let mut missing_tools = input.missing_tools.clone();
+    if !available_tools.is_empty() {
+        for tool in required_recovery_tools {
+            if !available_tool_set.contains(tool) {
+                missing_tools.push(tool.to_string());
+            }
+        }
+    }
+    missing_tools.sort();
+    missing_tools.dedup();
+    let degraded_host_tool_surface = !missing_tools.is_empty();
     let observed_blocked = observed_proof_state.as_deref() == Some("blocked");
     let observed_zero_candidates = observed_candidates == Some(0);
     let graph_has_nodes = node_count > 0;
@@ -2295,6 +2313,31 @@ pub fn handle_doctor(
         );
         next_actions.push(
             "retry retrieval without scope, then with both absolute and repo-relative scope"
+                .to_string(),
+        );
+    }
+
+    if degraded_host_tool_surface {
+        warnings.push(format!(
+            "host tool surface is missing required m1nd tools: {}",
+            missing_tools.join(", ")
+        ));
+        probable_causes
+            .push("the MCP client injected a partial tool namespace or stale binding".to_string());
+        probable_causes.push(
+            "this agent may be seeing a different public tool surface than the local m1nd runtime"
+                .to_string(),
+        );
+        next_actions.push(
+            "treat m1nd as an orientation signal only until the tool surface is rebound"
+                .to_string(),
+        );
+        next_actions.push(
+            "use direct repo reads for final truth when ingest is unavailable on this host surface"
+                .to_string(),
+        );
+        next_actions.push(
+            "restart or refresh the MCP binding, then rerun tools/list and the repo-local smoke harness"
                 .to_string(),
         );
     }
@@ -2346,6 +2389,8 @@ pub fn handle_doctor(
     let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
     let status = if !graph_has_nodes {
         "blocked"
+    } else if degraded_host_tool_surface {
+        "warn"
     } else if !warnings.is_empty() {
         "warn"
     } else {
@@ -2376,13 +2421,23 @@ pub fn handle_doctor(
             "workspace_root_known": workspace_root_known,
             "agent_session_known": agent_session.is_some(),
             "stale_binding_suspected": stale_binding_suspected,
+            "degraded_host_tool_surface": degraded_host_tool_surface,
         },
         "observed": {
             "tool": observed_tool,
             "proof_state": observed_proof_state,
             "candidates": observed_candidates,
+            "tool_count": observed_tool_count,
             "scope": input.scope,
             "error_text": input.error_text,
+        },
+        "tool_surface": {
+            "observed_tool_count": observed_tool_count,
+            "available_tools_sample": available_tools.iter().take(24).cloned().collect::<Vec<_>>(),
+            "missing_tools": missing_tools,
+            "required_recovery_tools": ["ingest", "seek", "help", "doctor"],
+            "degraded_host_tool_surface": degraded_host_tool_surface,
+            "operator_rule": "if ingest is unavailable, m1nd cannot repair or refresh the active graph from inside this host session",
         },
         "graph_state": state.graph_runtime_summary(),
         "runtime_state": {

@@ -271,6 +271,31 @@ candidates; use that payload directly when present.
 It reports whether the active graph is empty, populated but filtered, or likely
 split across host bindings/transports.
 
+Also check `tools/list` early. If the host client exposes m1nd but hides
+recovery tools such as `ingest`, call `doctor` with the observed surface before
+trusting retrieval:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "dev",
+      "observed_tool": "tools/list",
+      "observed_proof_state": "blocked",
+      "observed_tool_count": 3,
+      "available_tools": ["seek", "audit", "doctor"],
+      "missing_tools": ["ingest"]
+    }
+  }
+}
+```
+
+When `ingest` is unavailable in the current host surface, use m1nd as
+orientation only and cross-check final answers against local files until the
+MCP binding is refreshed.
+
 ### Step 3: run a first structural audit
 
 `audit` is the fastest one-call orientation pass, and it requires the repo root path:

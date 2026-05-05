@@ -88,6 +88,10 @@ blast-radius analysis; activate gives associative exploration.
 for explicit exploration checkpoints.
 8. **Use `boot_memory` for small canonical doctrine/state** that should persist quickly \
 and stay hot in runtime memory without polluting trails or transcripts.
+9. **If `tools/list` is missing recovery tools such as `ingest`, call `doctor` with \
+`observed_tool=\"tools/list\"`, `observed_tool_count`, `available_tools`, and \
+`missing_tools`. Treat the host surface as degraded until it is rebound; use direct \
+repo reads for final truth when m1nd cannot re-ingest from the current session.**
 ";
 
 #[derive(Clone, Copy, Debug)]
@@ -598,6 +602,9 @@ pub fn tool_schemas() -> serde_json::Value {
                         "observed_tool": { "type": "string", "description": "Optional tool that produced a suspicious result" },
                         "observed_proof_state": { "type": "string", "description": "Optional proof_state from the suspicious result" },
                         "observed_candidates": { "type": "integer", "description": "Optional candidate count from retrieval" },
+                        "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
+                        "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
+                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" },
                         "scope": { "type": "string", "description": "Optional scope/path used by the suspicious call" },
                         "error_text": { "type": "string", "description": "Optional error text or host message" }
                     },
@@ -3348,6 +3355,48 @@ mod tests {
                 .unwrap_or_default()
                 .contains("host binding"),
             "doctor should name the host binding split-brain risk"
+        );
+    }
+
+    #[test]
+    fn doctor_flags_degraded_host_tool_surface_when_required_tools_are_missing() {
+        let (_temp, mut state) = build_state();
+        state.track_agent("jimi");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "doctor",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "tools/list",
+                "observed_proof_state": "blocked",
+                "observed_tool_count": 3,
+                "available_tools": ["seek", "audit", "doctor"],
+                "missing_tools": ["ingest"]
+            }),
+        )
+        .expect("doctor output");
+
+        assert_eq!(output["schema"], "m1nd-doctor-v0");
+        assert_eq!(output["diagnostics"]["degraded_host_tool_surface"], true);
+        assert!(
+            output["tool_surface"]["missing_tools"]
+                .as_array()
+                .expect("missing tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("ingest")),
+            "doctor should name ingest as a missing recovery tool"
+        );
+        assert!(
+            output["next_actions"]
+                .as_array()
+                .expect("next actions")
+                .iter()
+                .any(|action| action
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("direct repo reads")),
+            "doctor should tell the agent to fall back to file truth when ingest is unavailable"
         );
     }
 

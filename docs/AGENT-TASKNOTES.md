@@ -33,6 +33,19 @@ The rule:
 
 ## Resolved Notes
 
+### 2026-05-05 — host MCP surfaces can hide required recovery tools
+
+- Context: another agent saw m1nd through a host-provided surface where `audit`
+  was available but `ingest` was not exposed.
+- Friction: without `ingest`, an agent cannot repair, refresh, or prove the
+  active graph from inside that host session, even if other m1nd tools respond.
+- Resolution: `doctor` now accepts `observed_tool_count`, `available_tools`, and
+  `missing_tools` from `tools/list`, flags
+  `diagnostics.degraded_host_tool_surface`, and tells the agent to treat m1nd as
+  orientation-only until the MCP binding is refreshed. The smoke harness also
+  emits structured `degraded_host_tool_surface` details instead of a bare
+  missing-tool string.
+
 ### 2026-05-05 — retrieval responses need inline active-graph breadcrumbs
 
 - Context: the new `doctor` tool could diagnose active graph/runtime/session
