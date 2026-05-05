@@ -48,6 +48,21 @@ cargo build -p m1nd-mcp
 If the agent still needs shell fallback for something the product should answer,
 add a tasknote before moving on.
 
+Use the repo-local agent smoke harness as the default first pass:
+
+```bash
+python3 scripts/mcp_agent_smoke.py --repo . --json
+```
+
+This proves the minimum agent trust loop over real MCP stdio framing:
+
+```text
+initialize -> tools/list -> ingest -> seek -> help
+```
+
+If this passes locally but a host-provided MCP binding fails the same flow, treat
+the problem as transport/session continuity until proven otherwise.
+
 ## Phase 3 — Surface parity
 
 Before release, make sure the public story matches the real registry.

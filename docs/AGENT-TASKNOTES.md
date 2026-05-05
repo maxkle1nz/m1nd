@@ -33,6 +33,9 @@ The rule:
     to make the recovery path obvious
   - a smoke test that proves `ingest -> seek` continuity through each supported
     transport or host binding
+- First bounded guard: `scripts/mcp_agent_smoke.py` now proves the stdio path
+  with `initialize -> tools/list -> ingest -> seek -> help`; HTTP and
+  host-binding parity still need follow-through.
 
 ### 2026-04-05 — proactive write insights still lack runtime-backed mismatch signals
 
