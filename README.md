@@ -188,6 +188,10 @@ python3 scripts/m1nd_agent_demo.py --repo . --transport stdio --json
 See [docs/AGENT-FIRST-DEMO.md](docs/AGENT-FIRST-DEMO.md) for the transcript
 shape and how to read it.
 
+If your local demo sees `trust_selftest` but your editor or agent host does not,
+use the [MCP host refresh guide](docs/MCP-HOST-REFRESH.md) to compare the host
+tool surface against the local runtime.
+
 ## Default Agent Workflow
 
 Make `m1nd` the default investigative layer before `rg`, filesystem globbing, or manual file reads when the task depends on structure, docs, impact, or change.
