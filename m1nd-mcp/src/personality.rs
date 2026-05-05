@@ -1042,7 +1042,22 @@ pub fn tool_docs() -> Vec<ToolDoc> {
             params: &[("agent_id", "Calling agent identifier", true)],
             returns: "Status, node/edge counts, uptime, active sessions",
             example: r#"{"agent_id": "jimi"}"#,
-            next: &["doctor", "ingest", "drift"],
+            next: &["session_handshake", "doctor", "ingest"],
+        },
+        ToolDoc {
+            name: "session_handshake",
+            category: "Foundation",
+            glyph: GLYPH_DIMENSION,
+            one_liner: "Session handshake -- classify whether this m1nd binding is trustworthy",
+            params: &[
+                ("agent_id", "Calling agent identifier", true),
+                ("observed_tool_count", "Optional host tools/list count", false),
+                ("available_tools", "Optional host-exposed tool names", false),
+                ("missing_tools", "Optional missing recovery tool names", false),
+            ],
+            returns: "Trust mode, capability flags, graph state, tool-surface status, and doctor recovery payload",
+            example: r#"{"agent_id": "jimi"}"#,
+            next: &["ingest", "seek", "doctor"],
         },
         ToolDoc {
             name: "doctor",

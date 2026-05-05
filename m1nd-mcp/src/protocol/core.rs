@@ -184,6 +184,18 @@ pub struct HealthInput {
     pub agent_id: String,
 }
 
+/// Input for m1nd.session_handshake.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SessionHandshakeInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub observed_tool_count: Option<u64>,
+    #[serde(default)]
+    pub available_tools: Vec<String>,
+    #[serde(default)]
+    pub missing_tools: Vec<String>,
+}
+
 /// Input for m1nd.doctor.
 #[derive(Clone, Debug, Deserialize)]
 pub struct DoctorInput {

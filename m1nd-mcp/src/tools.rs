@@ -2236,6 +2236,142 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
     })
 }
 
+/// Handle m1nd.session_handshake.
+///
+/// The handshake is intentionally cheap: it inspects the host tool surface and
+/// active graph state, then returns an operational trust verdict. It does not
+/// ingest, mutate the graph, or run retrieval probes.
+pub fn handle_session_handshake(
+    state: &mut SessionState,
+    input: SessionHandshakeInput,
+) -> M1ndResult<serde_json::Value> {
+    const REQUIRED_TOOLS: [&str; 5] = ["health", "doctor", "ingest", "seek", "help"];
+
+    let mut available_tools = input.available_tools.clone();
+    available_tools.sort();
+    available_tools.dedup();
+    let host_surface_names_observed =
+        !available_tools.is_empty() || !input.missing_tools.is_empty();
+
+    if !host_surface_names_observed {
+        available_tools = REQUIRED_TOOLS
+            .iter()
+            .map(|tool| (*tool).to_string())
+            .collect();
+        available_tools.push("session_handshake".into());
+        available_tools.sort();
+        available_tools.dedup();
+    }
+
+    let available_tool_set: HashSet<_> = available_tools.iter().cloned().collect();
+    let mut missing_tools = input.missing_tools.clone();
+    for tool in REQUIRED_TOOLS {
+        if !available_tool_set.contains(tool) {
+            missing_tools.push(tool.to_string());
+        }
+    }
+    missing_tools.sort();
+    missing_tools.dedup();
+
+    let degraded_host_tool_surface = !missing_tools.is_empty();
+    let can_ingest = available_tool_set.contains("ingest");
+    let can_retrieve = available_tool_set.contains("seek");
+    let can_recover = available_tool_set.contains("doctor");
+
+    let graph = state.graph.read();
+    let node_count = graph.num_nodes();
+    let edge_count = graph.num_edges() as u64;
+    let graph_finalized = graph.finalized;
+    drop(graph);
+
+    let (trust_mode, next_action) = if degraded_host_tool_surface {
+        (
+            "degraded_host_tool_surface",
+            "treat m1nd as orientation only, refresh the MCP binding, and verify final truth with local files",
+        )
+    } else if node_count == 0 || edge_count == 0 {
+        if can_ingest {
+            (
+                "needs_ingest",
+                "run ingest for the intended repo before trusting graph retrieval",
+            )
+        } else {
+            (
+                "orientation_only",
+                "use m1nd only as orientation and verify final truth with local files until ingest is available",
+            )
+        }
+    } else {
+        (
+            "full_trust",
+            "continue with m1nd-first retrieval; use compiler/tests for runtime truth",
+        )
+    };
+
+    let doctor_recovery = if degraded_host_tool_surface {
+        Some(serde_json::json!({
+            "suggested_tool": if can_recover { "doctor" } else { "" },
+            "arguments": {
+                "agent_id": input.agent_id,
+                "observed_tool": "tools/list",
+                "observed_proof_state": "blocked",
+                "observed_tool_count": input.observed_tool_count.unwrap_or(available_tools.len() as u64),
+                "available_tools": available_tools.clone(),
+                "missing_tools": missing_tools.clone(),
+            },
+            "fallback": "if doctor is unavailable, restart or rebind the MCP host surface and use direct repo reads for final truth",
+        }))
+    } else if node_count == 0 || edge_count == 0 {
+        Some(serde_json::json!({
+            "suggested_tool": if can_recover { "doctor" } else { "" },
+            "arguments": {
+                "agent_id": input.agent_id,
+                "observed_tool": "health",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0,
+            },
+        }))
+    } else {
+        None
+    };
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-session-handshake-v0",
+        "trust_mode": trust_mode,
+        "can_ingest": can_ingest,
+        "can_retrieve": can_retrieve,
+        "can_recover": can_recover,
+        "next_action": next_action,
+        "tool_surface": {
+            "status": if degraded_host_tool_surface { "degraded_host_tool_surface" } else { "ok" },
+            "tool_count": input.observed_tool_count.unwrap_or(available_tools.len() as u64),
+            "required_tools": REQUIRED_TOOLS,
+            "required_tools_present": {
+                "health": available_tool_set.contains("health"),
+                "doctor": can_recover,
+                "ingest": can_ingest,
+                "seek": can_retrieve,
+                "help": available_tool_set.contains("help"),
+            },
+            "missing_required_tools": missing_tools,
+            "available_tools_sample": available_tools.iter().take(24).cloned().collect::<Vec<_>>(),
+            "degraded_host_tool_surface": degraded_host_tool_surface,
+        },
+        "health": {
+            "status": "ok",
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "queries_processed": state.queries_processed,
+            "active_session_count": state.sessions.len(),
+            "graph_finalized": graph_finalized,
+        },
+        "graph_state": state.mini_graph_state(),
+        "doctor_recovery": doctor_recovery,
+        "used_probe": false,
+        "probe": serde_json::Value::Null,
+    }))
+}
+
 /// Handle m1nd.doctor.
 ///
 /// Doctor is intentionally diagnostic only: it reports the active graph,

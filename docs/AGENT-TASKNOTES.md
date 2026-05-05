@@ -42,6 +42,10 @@ The rule:
   `m1nd-session-handshake-v0` with `trust_mode`, `can_ingest`, `can_retrieve`,
   `can_recover`, tool-surface status, health summary, and next action. It calls
   `doctor` only under suspicion, and `--handshake-probe` is opt-in.
+- Follow-up: the same contract is now exposed as the official MCP
+  `session_handshake` tool. The smoke harness calls the tool when the live
+  surface supports it, and falls back to its local implementation for older
+  binaries.
 
 ### 2026-05-05 — host MCP surfaces can hide required recovery tools
 

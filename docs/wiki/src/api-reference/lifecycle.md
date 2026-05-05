@@ -402,8 +402,79 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 ### Related Tools
 
 - [`ingest`](#m1ndingest) -- load data if the graph is empty
+- [`session_handshake`](#m1ndsession_handshake) -- classify whether this binding is trustworthy
 - [`doctor`](#m1nddoctor) -- explain empty graphs, blocked retrieval, and binding/session continuity
 - [`drift`](memory.md#m1nddrift) -- check what changed since last session
+
+---
+
+<a id="m1ndsession_handshake"></a>
+
+## `session_handshake`
+Classifies whether the current MCP binding is trustworthy before an agent leans
+on retrieval. The tool is diagnostic-only: it does not ingest, repair, run shell
+commands, or execute a retrieval probe.
+
+Pass the host's `tools/list` evidence when available. That lets m1nd distinguish
+a genuinely empty graph from a host surface that is hiding recovery tools such
+as `ingest`.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "session_handshake",
+    "arguments": {
+      "agent_id": "jimi"
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-session-handshake-v0",
+  "trust_mode": "full_trust",
+  "can_ingest": true,
+  "can_retrieve": true,
+  "can_recover": true,
+  "next_action": "continue with m1nd-first retrieval; use compiler/tests for runtime truth",
+  "tool_surface": {
+    "status": "ok",
+    "degraded_host_tool_surface": false
+  },
+  "used_probe": false,
+  "probe": null
+}
+```
+
+### Trust Modes
+
+- `full_trust` -- graph has content and the required recovery surface is present.
+- `needs_ingest` -- graph is empty but `ingest` is available.
+- `orientation_only` -- graph is empty and the current host surface cannot ingest.
+- `degraded_host_tool_surface` -- the host is hiding required recovery tools.
+
+### Related Tools
+
+- [`ingest`](#m1ndingest) -- load data after `needs_ingest`
+- [`doctor`](#m1nddoctor) -- inspect the recovery payload under suspicion
+- [`seek`](exploration.md#m1ndseek) -- first retrieval pass after `full_trust`
 
 ---
 

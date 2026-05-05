@@ -213,7 +213,25 @@ What happened:
 - references were resolved
 - the graph was finalized for querying
 
-### Step 2: check server health
+### Step 2: run the cheap session handshake
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "session_handshake",
+    "arguments": {
+      "agent_id": "dev"
+    }
+  }
+}
+```
+
+The response classifies the current binding as `full_trust`, `needs_ingest`,
+`orientation_only`, or `degraded_host_tool_surface`. It does not ingest, repair,
+or run retrieval probes by default.
+
+### Step 3: check server health
 
 ```jsonc
 {
@@ -302,10 +320,11 @@ For local repo validation, the smoke harness now has a cheap handshake mode:
 python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
 ```
 
-That mode runs only `initialize`, `tools/list`, and `health` by default. Add
-`--handshake-probe` only when the task depends on retrieval trust.
+That mode calls `session_handshake` when the binary exposes it, and falls back
+to the local harness implementation for older builds. Add `--handshake-probe`
+only when the task depends on retrieval trust.
 
-### Step 3: run a first structural audit
+### Step 4: run a first structural audit
 
 `audit` is the fastest one-call orientation pass, and it requires the repo root path:
 
@@ -330,7 +349,7 @@ Use it when you want:
 - git/filesystem verification
 - a first recommendation for where to inspect next
 
-### Step 4: ingest a document root with the universal lane
+### Step 5: ingest a document root with the universal lane
 
 If your investigation spans specs, notes, wiki pages, or office/PDF artifacts, ingest them into the same graph instead of keeping them outside the runtime:
 
@@ -368,7 +387,7 @@ This is the shortest path from “there is a doc” to “the agent can reason o
 
 If you see `node_count: 0`, your ingest path was wrong or the ingest did not run.
 
-### Step 5: ask the graph something real
+### Step 6: ask the graph something real
 
 ```jsonc
 {

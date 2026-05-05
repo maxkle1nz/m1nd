@@ -949,7 +949,11 @@ pub fn handle_auto_ingest_tick(
 pub fn maybe_tick_auto_ingest(state: &mut SessionState, tool_name: &str) -> M1ndResult<()> {
     if matches!(
         tool_name,
-        "auto_ingest_start" | "auto_ingest_stop" | "auto_ingest_status" | "auto_ingest_tick"
+        "auto_ingest_start"
+            | "auto_ingest_stop"
+            | "auto_ingest_status"
+            | "auto_ingest_tick"
+            | "session_handshake"
     ) {
         return Ok(());
     }

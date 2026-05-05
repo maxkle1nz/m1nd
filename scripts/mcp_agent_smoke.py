@@ -3,12 +3,14 @@
 
 The smoke proves the minimum trust loop an agent needs:
 
-initialize -> tools/list -> ingest -> seek -> help -> doctor
+initialize -> tools/list -> session_handshake -> ingest -> seek -> help -> doctor
 
 It intentionally talks JSON-RPC over Content-Length framed stdio instead of
 calling Rust internals, so it catches transport/session issues that unit tests
 can miss. If the host surface is missing a required recovery tool, the failure
-is structured as degraded_host_tool_surface with a ready doctor payload.
+is structured as degraded_host_tool_surface with a ready doctor payload. New
+binaries expose the handshake as an MCP tool; older binaries use the local
+harness fallback.
 """
 
 from __future__ import annotations
@@ -485,10 +487,93 @@ def run_session_handshake_from_observed(
     }
 
 
+def attach_handshake_probe(
+    client: Any,
+    args: argparse.Namespace,
+    handshake: dict[str, Any],
+    available_tool_names: list[str],
+) -> dict[str, Any]:
+    if not args.handshake_probe or not handshake.get("can_retrieve"):
+        return handshake
+    if handshake.get("trust_mode") != "full_trust":
+        return handshake
+
+    probe_payload = client.call_tool(
+        "seek",
+        {
+            "agent_id": args.agent_id,
+            "query": args.query,
+            "top_k": min(args.top_k, 3),
+            "graph_rerank": True,
+        },
+    )
+    handshake["probe"] = summarize_seek(probe_payload)
+    handshake["used_probe"] = True
+
+    candidates = int(probe_payload.get("total_candidates_scanned") or 0)
+    results = probe_payload.get("results") or []
+    proof_state = probe_payload.get("proof_state")
+    if proof_state == "blocked" or candidates <= 0 or not results:
+        handshake["trust_mode"] = "stale_binding_suspected"
+        handshake["next_action"] = "call doctor with the probe recovery payload, then verify with repo-local smokes"
+        recovery = probe_payload.get("recovery") or {}
+        doctor_args = dict(recovery.get("arguments") or {})
+        if not doctor_args:
+            doctor_args = {
+                "agent_id": args.agent_id,
+                "observed_tool": "seek",
+                "observed_proof_state": proof_state,
+                "observed_candidates": candidates,
+            }
+        doctor_args["agent_id"] = args.agent_id
+        handshake["doctor_recovery"] = {
+            "suggested_tool": "doctor" if "doctor" in available_tool_names else None,
+            "arguments": doctor_args,
+        }
+        if "doctor" in available_tool_names:
+            handshake["doctor"] = client.call_tool("doctor", doctor_args)
+
+    return handshake
+
+
+def run_session_handshake_from_live_surface(
+    client: Any,
+    args: argparse.Namespace,
+    initialize: dict[str, Any],
+    tools: list[dict[str, Any]],
+    *,
+    run_probe: bool,
+) -> dict[str, Any]:
+    tool_names = [tool.get("name") for tool in tools]
+    available_tool_names = [name for name in tool_names if isinstance(name, str)]
+    if "session_handshake" in available_tool_names:
+        handshake = client.call_tool(
+            "session_handshake",
+            {
+                "agent_id": args.agent_id,
+                "observed_tool_count": len(available_tool_names),
+                "available_tools": available_tool_names,
+            },
+        )
+        handshake["initialize"] = initialize
+        handshake["tool_count"] = len(available_tool_names)
+        if not run_probe:
+            return handshake
+        return attach_handshake_probe(client, args, handshake, available_tool_names)
+
+    return run_session_handshake_from_observed(
+        client,
+        args,
+        initialize,
+        tools,
+        run_probe=run_probe,
+    )
+
+
 def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[str, Any]:
     initialize = client.initialize()
     tools = client.list_tools()
-    session_handshake = run_session_handshake_from_observed(
+    session_handshake = run_session_handshake_from_live_surface(
         client,
         args,
         initialize,
@@ -646,7 +731,7 @@ def run_agent_loop(client: Any, args: argparse.Namespace, repo: Path) -> dict[st
 def run_session_handshake(client: Any, args: argparse.Namespace) -> dict[str, Any]:
     initialize = client.initialize()
     tools = client.list_tools()
-    return run_session_handshake_from_observed(
+    return run_session_handshake_from_live_surface(
         client,
         args,
         initialize,

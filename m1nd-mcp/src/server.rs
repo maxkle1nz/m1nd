@@ -36,9 +36,9 @@ stateful perspective navigation. All tool calls require an `agent_id` parameter.
 
 ## WORKFLOWS
 
-**Session Start**: `health` → `doctor` (confirm graph/runtime/session continuity) → \
-`drift` (recover what changed since last session) → `ingest` (if graph is empty or stale). \
-This gives you codebase-aware context.
+**Session Start**: `session_handshake` → `ingest` if needed → `seek`/`audit`. \
+Use `doctor` when the handshake or a retrieval response reports a degraded host \
+surface, empty graph, or stale-looking binding. This gives you codebase-aware context.
 
 **Research**: `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → \
 `learn(feedback)`. Use `seek` for keyword search, `scan` for broad discovery, \
@@ -588,6 +588,20 @@ pub fn tool_schemas() -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "session_handshake",
+                "description": "Cheap session trust handshake before relying on m1nd retrieval",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
+                        "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
+                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" }
                     },
                     "required": ["agent_id"]
                 }
@@ -1857,7 +1871,7 @@ pub fn dispatch_tool(
         // Track savings (skip meta tools)
         if !matches!(
             normalized.as_str(),
-            "health" | "doctor" | "help" | "savings" | "report"
+            "health" | "session_handshake" | "doctor" | "help" | "savings" | "report"
         ) {
             state.savings_tracker.record(&normalized, result_count);
             state.global_savings.total_queries += 1;
@@ -1990,6 +2004,11 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = tools::handle_health(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "session_handshake" => {
+            let input: SessionHandshakeInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            tools::handle_session_handshake(state, input)
         }
         "doctor" => {
             let input: DoctorInput =
@@ -2387,6 +2406,7 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
             | "daemon_tick"
             | "alerts_list"
             | "alerts_ack"
+            | "session_handshake"
     )
 }
 
@@ -3241,6 +3261,7 @@ mod tests {
             "external_references",
             "federate_auto",
             "audit",
+            "session_handshake",
             "doctor",
             "daemon_start",
             "daemon_stop",
@@ -3265,6 +3286,7 @@ mod tests {
             "daemon_tick",
             "alerts_list",
             "alerts_ack",
+            "session_handshake",
         ] {
             assert!(
                 !should_autotick_daemon(skipped),
@@ -3273,6 +3295,132 @@ mod tests {
         }
         assert!(should_autotick_daemon("search"));
         assert!(should_autotick_daemon("apply"));
+    }
+
+    #[test]
+    fn session_handshake_marks_empty_graph_as_needing_ingest() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi"
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "needs_ingest");
+        assert_eq!(output["can_ingest"], true);
+        assert_eq!(output["tool_surface"]["degraded_host_tool_surface"], false);
+        assert_eq!(output["doctor_recovery"]["suggested_tool"], "doctor");
+    }
+
+    #[test]
+    fn session_handshake_flags_degraded_host_tool_surface() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool_count": 3,
+                "available_tools": ["seek", "audit", "doctor"],
+                "missing_tools": ["ingest"]
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "degraded_host_tool_surface");
+        assert_eq!(output["can_ingest"], false);
+        assert_eq!(output["can_recover"], true);
+        assert!(
+            output["tool_surface"]["missing_required_tools"]
+                .as_array()
+                .expect("missing tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("ingest")),
+            "handshake should preserve the missing ingest diagnosis"
+        );
+        assert_eq!(
+            output["doctor_recovery"]["arguments"]["observed_tool"],
+            "tools/list"
+        );
+    }
+
+    #[test]
+    fn session_handshake_does_not_invent_missing_tools_from_count_only() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool_count": 94
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "needs_ingest");
+        assert_eq!(output["tool_surface"]["tool_count"], 94);
+        assert_eq!(output["tool_surface"]["degraded_host_tool_surface"], false);
+        assert!(
+            output["tool_surface"]["missing_required_tools"]
+                .as_array()
+                .expect("missing tools")
+                .is_empty(),
+            "count-only evidence should not invent missing tool names"
+        );
+    }
+
+    #[test]
+    fn session_handshake_returns_full_trust_after_ingest() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(
+            repo.join("src/core.py"),
+            "def session_handshake_target():\n    return 'trusted graph'\n",
+        )
+        .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "available_tools": ["health", "doctor", "ingest", "seek", "help", "session_handshake"]
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "full_trust");
+        assert_eq!(output["doctor_recovery"], serde_json::Value::Null);
+        assert!(
+            output["health"]["node_count"].as_u64().unwrap_or_default() > 0,
+            "handshake should report the populated graph"
+        );
     }
 
     #[test]

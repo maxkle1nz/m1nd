@@ -55,23 +55,25 @@ python3 scripts/mcp_agent_smoke.py --repo . --json
 python3 scripts/mcp_agent_smoke.py --repo . --transport http --json
 ```
 
-For cheap session startup, use the handshake mode before a full smoke:
+For cheap session startup, use the official `session_handshake` tool when the
+live surface exposes it. The repo-local harness calls that tool automatically
+and falls back to its local implementation for older binaries:
 
 ```bash
 python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
 python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --handshake-probe --json
 ```
 
-The default handshake only runs `initialize`, `tools/list`, and `health`; it
-calls `doctor` only when the tool surface is degraded or the graph appears
-empty. `--handshake-probe` adds one tiny `seek` probe when the task depends on
+The default handshake is diagnostic-only: it inspects the host tool surface and
+active graph state without ingesting, repairing, or probing retrieval.
+`--handshake-probe` adds one tiny `seek` probe when the task depends on
 retrieval trust.
 
 This proves the minimum agent trust loop over real stdio framing and the HTTP
 tool API:
 
 ```text
-initialize -> tools/list -> ingest -> seek -> help -> doctor
+initialize -> tools/list -> session_handshake -> ingest -> seek -> help -> doctor
 ```
 
 If these pass locally but a host-provided MCP binding fails the same flow, treat
