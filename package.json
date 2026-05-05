@@ -34,7 +34,8 @@
   "scripts": {
     "m1nd:doctor": "node npm/bin/m1nd.js doctor",
     "m1nd:pack-check": "node npm/bin/m1nd.js pack-check",
-    "m1nd:install-generic": "node npm/bin/m1nd.js install-skills generic --project ."
+    "m1nd:install-generic": "node npm/bin/m1nd.js install-skills generic --project .",
+    "test:npm": "node npm/test/cli.test.js"
   },
   "engines": {
     "node": ">=18"

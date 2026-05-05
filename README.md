@@ -211,6 +211,14 @@ m1nd pack-check
 
 See [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) for the full install map.
 
+Windows is part of the universal target. The installer emits Windows-safe MCP
+paths and looks for `m1nd-mcp.exe` on `PATH`, through `M1ND_MCP_BINARY`, or at
+`%USERPROFILE%\.m1nd\bin\m1nd-mcp.exe`.
+
+The Windows support boundary is the universal MCP lane: `m1nd-core`,
+`m1nd-ingest`, and `m1nd-mcp`. The `m1nd-openclaw` fast path remains a Unix
+socket lane today.
+
 ## Try The Agent Demo
 
 The fastest way to see the agent-first loop is to run the local demo transcript:

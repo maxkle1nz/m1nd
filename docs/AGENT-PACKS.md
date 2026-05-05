@@ -77,6 +77,23 @@ Then point your host at:
 target/release/m1nd-mcp
 ```
 
+On Windows, the native binary is `m1nd-mcp.exe`. The npm installer looks for it
+on `PATH`, through `M1ND_MCP_BINARY`, or at:
+
+```text
+%USERPROFILE%\.m1nd\bin\m1nd-mcp.exe
+```
+
+Generate Windows-safe MCP snippets the same way:
+
+```bash
+m1nd mcp-config generic --binary "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
+```
+
+The universal Windows lane is `m1nd-core` + `m1nd-ingest` + `m1nd-mcp`. The
+`m1nd-openclaw` native fast path uses Unix sockets today, so Windows hosts
+should use plain MCP until a Windows-native fast lane is introduced.
+
 ## Trust Loop For Every Host
 
 1. Call `trust_selftest`.

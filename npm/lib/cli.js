@@ -85,6 +85,19 @@ function which(binary) {
   return null;
 }
 
+function runtimeBinaryName(platform = process.platform) {
+  return platform === "win32" ? "m1nd-mcp.exe" : "m1nd-mcp";
+}
+
+function defaultRuntimePath(platform = process.platform, homeDir = os.homedir()) {
+  const pathModule = platform === "win32" ? path.win32 : path;
+  return pathModule.join(homeDir, ".m1nd", "bin", runtimeBinaryName(platform));
+}
+
+function findRuntimeBinary() {
+  return process.env.M1ND_MCP_BINARY || which("m1nd-mcp") || (fs.existsSync(defaultRuntimePath()) ? defaultRuntimePath() : null);
+}
+
 function readPackageVersion() {
   const packageJson = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8"));
   return packageJson.version;
@@ -163,10 +176,11 @@ function installSkills(host, projectDir) {
 }
 
 function mcpConfig(host, binary) {
-  const command = binary || process.env.M1ND_MCP_BINARY || which("m1nd-mcp") || "/absolute/path/to/m1nd-mcp";
+  const command = binary || findRuntimeBinary() || defaultRuntimePath();
   if (host === "codex") {
+    const escapedCommand = command.replace(/\\/g, "\\\\");
     return `[mcp_servers.m1nd]
-command = "${command}"
+command = "${escapedCommand}"
 args = ["--stdio", "--no-gui"]
 `;
   }
@@ -186,7 +200,7 @@ args = ["--stdio", "--no-gui"]
 
 function doctor() {
   const pack = assertPackShape();
-  const binary = process.env.M1ND_MCP_BINARY || which("m1nd-mcp");
+  const binary = findRuntimeBinary();
   const codexSkillRoot = path.join(os.homedir(), ".codex", "skills");
   const codexSkillsInstalled =
     fs.existsSync(path.join(codexSkillRoot, "m1nd-first", "SKILL.md")) &&
@@ -199,7 +213,10 @@ function doctor() {
     pack_ok: pack.ok,
     missing_pack_files: pack.missing,
     runtime: {
+      platform: process.platform,
+      arch: process.arch,
       binary: binary || null,
+      default_install_path: defaultRuntimePath(),
       visible_on_path_or_env: Boolean(binary),
       hint: binary
         ? "m1nd-mcp is visible. Use m1nd demo from a repo checkout for a live MCP smoke."
@@ -216,7 +233,7 @@ function doctor() {
     result.next_actions.push("Reinstall or rebuild the npm package; required agent-pack files are missing.");
   }
   if (!binary) {
-    result.next_actions.push("From a source checkout: cargo build --release -p m1nd-mcp");
+    result.next_actions.push(`From a source checkout: cargo build --release -p m1nd-mcp, then copy ${runtimeBinaryName()} to ${defaultRuntimePath()}`);
   }
   if (!codexSkillsInstalled) {
     result.next_actions.push("For Codex: m1nd install-skills codex");
@@ -319,7 +336,10 @@ async function main(rawArgs) {
 module.exports = {
   main,
   assertPackShape,
+  defaultRuntimePath,
   doctor,
+  findRuntimeBinary,
   installSkills,
   mcpConfig,
+  runtimeBinaryName,
 };

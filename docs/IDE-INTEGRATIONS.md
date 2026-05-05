@@ -40,6 +40,19 @@ Most hosts are perfectly fine with:
 }
 ```
 
+On Windows the command should point at `m1nd-mcp.exe`, for example:
+
+```json
+{
+  "mcpServers": {
+    "m1nd": {
+      "command": "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe",
+      "args": ["--stdio", "--no-gui"]
+    }
+  }
+}
+```
+
 Codex uses the same idea, but in TOML:
 
 ```toml
@@ -77,6 +90,7 @@ cost on every request.
 - `m1nd-openclaw`
 - persistent Unix socket bridge
 - best for local runtimes that can benefit from a hot graph
+- Unix/macOS/Linux lane today; use plain `m1nd-mcp` on Windows
 
 ### Thin adapters
 
