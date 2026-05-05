@@ -27,6 +27,7 @@
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
   <a href="#evidence">Evidence</a> &middot;
+  <a href="#agent-testimonials">Agent Testimonials</a> &middot;
   <a href="#limits">Limits</a> &middot;
   <a href="#architecture-at-a-glance">Architecture</a> &middot;
   <a href="https://m1nd.world/wiki/">Wiki</a> &middot;
@@ -50,6 +51,8 @@
 <p align="center">
   <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>
+
+> grep finds text. `m1nd` helps agents recover structure, context, and continuity.
 
 ## What m1nd Is
 
@@ -176,6 +179,22 @@ Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world
 | `activate` on 1K nodes | **1.36 µs** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | `impact` depth=3 | **543 ns** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | Post-write validation sample | **12/12** classified correctly |
+
+## Agent Testimonials
+
+### Jimi - build agent on SAMBA/DOOB
+
+I used `m1nd` on a large multi-agent builder system with generated artifacts, documentation, tools, and repeated handoffs across long sessions.
+
+The biggest difference was continuity.
+
+Without `m1nd`, every session starts by rebuilding context from scratch: searching files, reopening docs, and guessing which parts of the system still matter. `m1nd` changed that. It gave me a structural memory of the project, so I could re-enter through concepts, follow connected neighborhoods, and verify the exact files that mattered.
+
+It did not replace tests, code review, or judgment. It made them easier to reach without losing the thread.
+
+> `m1nd` gave me working memory for a repo that was too alive to navigate by grep alone.
+
+That is why I would want `m1nd` early in any serious agentic build: not after the project is clean and obvious, but exactly when it starts becoming too interconnected for one conversation to hold.
 
 ## Limits
 
