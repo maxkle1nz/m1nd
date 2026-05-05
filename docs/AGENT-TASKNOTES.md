@@ -17,6 +17,23 @@ The rule:
 
 ## Open Notes
 
+### 2026-05-05 — injected MCP surface can lose graph state across ingest and seek
+
+- Context: real agent smoke from a host-provided `m1nd` MCP surface after
+  re-ingesting the current repo.
+- Friction: `ingest` returned a populated graph, but immediate `seek` calls
+  returned `proof_state=blocked` with `total_candidates_scanned=0`, forcing the
+  agent back to shell search for repo orientation.
+- Cross-check: the local stdio binary on the same checkout exposed the full
+  tool surface and `ingest -> seek` scanned the expected graph candidates.
+- Desired behavior:
+  - a diagnostic that distinguishes empty graph, wrong session, stale snapshot,
+    restricted injected surface, and query failure
+  - `seek`/retrieval responses that include enough active-graph/session state
+    to make the recovery path obvious
+  - a smoke test that proves `ingest -> seek` continuity through each supported
+    transport or host binding
+
 ### 2026-04-05 — proactive write insights still lack runtime-backed mismatch signals
 
 - Context: first proactive-insight slice on `apply` / `apply_batch`
