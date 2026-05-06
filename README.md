@@ -189,6 +189,14 @@ For graph-native semantic docs, use `adapter: "light"` instead.
 from Codex, Claude, Gemini, Antigravity, Cursor, Cline, Roo, Continue, OpenCode,
 and other MCP-capable hosts.
 
+Install the beta agent pack:
+
+```bash
+npm install -g @m1nd/m1nd@beta
+m1nd doctor
+m1nd pack-check
+```
+
 From a source checkout:
 
 ```bash

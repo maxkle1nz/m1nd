@@ -1,6 +1,6 @@
 {
   "name": "@m1nd/m1nd",
-  "version": "0.8.0",
+  "version": "0.9.0-beta.0",
   "description": "Universal installer and agent pack for the m1nd MCP runtime.",
   "license": "MIT",
   "repository": {
