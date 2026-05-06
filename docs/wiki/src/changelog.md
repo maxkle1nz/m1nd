@@ -6,7 +6,10 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
-The next release train starts here.
+### Fixed
+
+- Aligned the Rust crate versions and `m1nd-mcp --version` output with the
+  `0.9.0-beta.0` npm/package line.
 
 ---
 
