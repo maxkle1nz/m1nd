@@ -10,13 +10,15 @@ It is an internal operating note, not public product copy.
 - First guardian commit on this branch: `27c549b docs(readme): show how m1nd preserves agent continuity`
 - Public README change: added a concise continuity quote and a short agent testimonial.
 - m1nd graph re-ingest on the active checkout succeeded.
+- 2026-05-06 update: the npm/package line is `0.9.0-beta.0`, and the native
+  `m1nd-mcp` crate/bin version string was aligned to `0.9.0-beta.0`.
 
 ## Verified Gates
 
 - `cargo fmt --check`: pass
 - `cargo check -p m1nd-mcp -p m1nd-ingest`: pass
 - `cargo test -p m1nd-mcp help -- --nocapture`: pass
-- Local stdio smoke:
+- Historical local stdio smoke from this 2026-05-05 note:
   - server version: `0.8.0`
   - live tool count from `tools/list`: `92`
   - includes `ingest`, `seek`, and `help`

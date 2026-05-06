@@ -233,7 +233,7 @@ Response:
   "id": 0,
   "result": {
     "protocolVersion": "2024-11-05",
-    "serverInfo": { "name": "m1nd-mcp", "version": "0.8.0" },
+    "serverInfo": { "name": "m1nd-mcp", "version": "0.9.0-beta.0" },
     "capabilities": { "tools": {} }
   }
 }

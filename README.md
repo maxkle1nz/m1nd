@@ -16,7 +16,7 @@
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
-  <a href="https://github.com/maxkle1nz/m1nd/releases"><img src="https://img.shields.io/badge/release-v0.8.0-00f5ff" alt="Release" /></a>
+  <a href="https://github.com/maxkle1nz/m1nd/releases"><img src="https://img.shields.io/badge/release-v0.9.0--beta.0-00f5ff" alt="Release" /></a>
 </p>
 
 <p align="center">
@@ -324,9 +324,9 @@ The workspace is split into three core crates plus one auxiliary bridge crate:
 
 Current crate versions:
 
-- `m1nd-core` `0.8.0`
-- `m1nd-ingest` `0.8.0`
-- `m1nd-mcp` `0.8.0`
+- `m1nd-core` `0.9.0-beta.0`
+- `m1nd-ingest` `0.9.0-beta.0`
+- `m1nd-mcp` `0.9.0-beta.0`
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />
