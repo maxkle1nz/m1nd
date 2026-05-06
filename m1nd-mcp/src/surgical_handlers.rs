@@ -4419,6 +4419,13 @@ mod tests {
         state
     }
 
+    fn recent_test_timestamp() -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_secs_f64()
+    }
+
     #[test]
     fn heuristic_summary_resolves_windows_extended_path_aliases() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -4432,10 +4439,7 @@ mod tests {
         let mut state = build_surgical_state(root, &primary_str);
         let windows_raw = r"C:\repo\src\core.py";
         let windows_extended = r"\\?\C:\repo\src\core.py";
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_secs_f64();
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{windows_raw}"), now - 60.0);
@@ -4460,10 +4464,7 @@ mod tests {
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
         let absolute_alias = format!("file::{primary_str}");
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_secs_f64();
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&absolute_alias, now - 120.0);
@@ -4793,7 +4794,7 @@ mod tests {
         let file_path_str = file_path.to_string_lossy().to_string();
 
         let mut state = build_surgical_state(temp.path(), &file_path_str);
-        let now = 10_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", file_path_str), now - 120.0);
@@ -4878,7 +4879,7 @@ mod tests {
         let file_path_str = file_path.to_string_lossy().to_string();
 
         let mut state = build_surgical_state(temp.path(), &file_path_str);
-        let now = 12_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", file_path_str), now - 60.0);
@@ -4980,7 +4981,7 @@ mod tests {
         let primary_str = primary_path.to_string_lossy().to_string();
         let dependent_str = dependent_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 20_000.0;
+        let now = recent_test_timestamp();
 
         state
             .trust_ledger
@@ -5298,7 +5299,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 30_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", primary_str), now - 120.0);
@@ -5378,7 +5379,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 60_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", primary_str), now - 120.0);
@@ -5503,7 +5504,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 40_000.0;
+        let now = recent_test_timestamp();
 
         for offset in [300.0, 240.0, 180.0, 120.0, 60.0] {
             state
@@ -5560,7 +5561,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 50_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", primary_str), now - 120.0);
