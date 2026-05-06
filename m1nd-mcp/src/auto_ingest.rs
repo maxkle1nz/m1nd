@@ -472,6 +472,19 @@ impl AutoIngestState {
         }
     }
 
+    fn enqueue_missing_manifest_deletes(&mut self) {
+        let missing_paths: Vec<String> = self
+            .persistent
+            .manifest
+            .keys()
+            .filter(|path| !Path::new(path.as_str()).exists())
+            .cloned()
+            .collect();
+        for path in missing_paths {
+            Self::enqueue_change(&self.pending, path, PendingChangeKind::Delete);
+        }
+    }
+
     fn take_ready_changes(&mut self, force: bool) -> Vec<PendingChange> {
         let now_ms = Self::now_ms();
         let debounce_ms = self.persistent.debounce_ms;
@@ -671,6 +684,7 @@ impl AutoIngestState {
         state: &mut SessionState,
         force: bool,
     ) -> M1ndResult<AutoIngestTickOutput> {
+        self.enqueue_missing_manifest_deletes();
         let changes = self.take_ready_changes(force);
         let mut changed_paths = Vec::new();
         let mut ingested_paths = Vec::new();
@@ -1035,6 +1049,36 @@ mod tests {
         let pending = pending.lock();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending["/tmp/a.md"].kind, PendingChangeKind::Delete);
+    }
+
+    #[test]
+    fn missing_manifest_paths_are_enqueued_for_delete_reconciliation() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("docs").join("missing.md");
+        let missing_key = missing.to_string_lossy().to_string();
+        let mut state = AutoIngestState::empty();
+        state.persistent.manifest.insert(
+            missing_key.clone(),
+            AutoIngestManifestEntry {
+                source_path: missing_key.clone(),
+                format: "light".into(),
+                namespace: None,
+                fingerprint: AutoIngestFingerprint {
+                    canonical_path: missing_key.clone(),
+                    size: 1,
+                    mtime_ms: 1,
+                    content_hash: "hash".into(),
+                    detected_format: "light".into(),
+                },
+                claims: SourceClaims::default(),
+                last_ingested_ms: 1,
+            },
+        );
+
+        state.enqueue_missing_manifest_deletes();
+        let pending = state.pending.lock();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[&missing_key].kind, PendingChangeKind::Delete);
     }
 
     #[test]
