@@ -414,6 +414,11 @@ impl TremorRegistry {
     pub fn observation_count(&self, external_id: &str) -> usize {
         self.observations.get(external_id).map_or(0, |q| q.len())
     }
+
+    /// Iterate over observed external IDs without exposing registry internals.
+    pub fn external_ids(&self) -> impl Iterator<Item = &str> {
+        self.observations.keys().map(String::as_str)
+    }
 }
 
 // ── Persistence ──

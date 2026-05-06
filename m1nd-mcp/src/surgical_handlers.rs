@@ -584,6 +584,7 @@ fn surgical_external_id_aliases(
         }
     }
     push_graph_path_aliases(state, file_path, &mut candidates);
+    push_heuristic_memory_aliases(state, external_id, file_path, &mut candidates);
     for root in &state.ingest_roots {
         let root_norm = normalize_path_text(root).trim_end_matches('/').to_string();
         let file_norm = normalize_path_text(file_path);
@@ -640,6 +641,45 @@ fn push_graph_path_aliases(state: &SessionState, file_path: &str, candidates: &m
         if let Some(scope) = normalize_scope_path(Some(path_text), &state.ingest_roots) {
             candidates.push(format!("file::{scope}"));
         }
+    }
+}
+
+fn push_heuristic_memory_aliases(
+    state: &SessionState,
+    external_id: &str,
+    file_path: &str,
+    candidates: &mut Vec<String>,
+) {
+    for alias in state.trust_ledger.external_ids() {
+        if surgical_alias_targets_file(alias, external_id, file_path) {
+            candidates.push(alias.to_string());
+        }
+    }
+    for alias in state.tremor_registry.external_ids() {
+        if surgical_alias_targets_file(alias, external_id, file_path) {
+            candidates.push(alias.to_string());
+        }
+    }
+}
+
+fn surgical_alias_targets_file(alias: &str, external_id: &str, file_path: &str) -> bool {
+    if surgical_id_text_matches(alias, external_id) {
+        return true;
+    }
+
+    let alias_path = alias.strip_prefix("file::").unwrap_or(alias);
+    let external_path = external_id.strip_prefix("file::").unwrap_or(external_id);
+    surgical_paths_match(alias_path, file_path) || surgical_paths_match(alias_path, external_path)
+}
+
+fn surgical_id_text_matches(left: &str, right: &str) -> bool {
+    #[cfg(windows)]
+    {
+        left.eq_ignore_ascii_case(right)
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
     }
 }
 
@@ -1318,8 +1358,8 @@ fn find_nodes_for_file(graph: &m1nd_core::graph::Graph, file_path: &str) -> Vec<
 }
 
 fn surgical_paths_match(left: &str, right: &str) -> bool {
-    let left_norm = normalize_path_text(left);
-    let right_norm = normalize_path_text(right);
+    let left_norm = surgical_path_compare_text(left);
+    let right_norm = surgical_path_compare_text(right);
 
     let left_cmp;
     let right_cmp;
@@ -1335,6 +1375,11 @@ fn surgical_paths_match(left: &str, right: &str) -> bool {
     }
 
     left_cmp == right_cmp || left_cmp.ends_with(&right_cmp) || right_cmp.ends_with(&left_cmp)
+}
+
+fn surgical_path_compare_text(value: &str) -> String {
+    let value = value.strip_prefix("file::").unwrap_or(value);
+    normalize_path_text(&strip_windows_extended_path_prefix_raw(value))
 }
 
 // ---------------------------------------------------------------------------
@@ -4401,6 +4446,52 @@ mod tests {
             summary.risk_score > 0.0,
             "extended Windows path should resolve to the raw ledger path alias"
         );
+    }
+
+    #[test]
+    fn heuristic_summary_resolves_memory_alias_when_graph_path_is_missing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let absolute_alias = format!("file::{primary_str}");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_secs_f64();
+        state
+            .trust_ledger
+            .record_defect(&absolute_alias, now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&absolute_alias, now - 60.0);
+        state
+            .tremor_registry
+            .record_observation(&absolute_alias, 1.0, 4, now - 50.0);
+        state
+            .tremor_registry
+            .record_observation(&absolute_alias, 1.1, 4, now - 40.0);
+        state
+            .tremor_registry
+            .record_observation(&absolute_alias, 1.2, 4, now - 30.0);
+        {
+            let mut graph = state.graph.write();
+            *graph = Graph::new();
+            graph.finalize().expect("empty graph finalize");
+        }
+
+        let summary = build_surgical_heuristic_summary(&state, "file::src/core.py", "src/core.py");
+
+        assert!(
+            summary.risk_score > 0.0,
+            "relative file inputs should still resolve absolute trust/tremor memory"
+        );
+        assert!(summary.heuristic_signals.tremor_observation_count >= 3);
     }
 
     fn build_surgical_state_with_doc_noise(

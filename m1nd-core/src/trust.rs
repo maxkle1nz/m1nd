@@ -511,6 +511,11 @@ impl TrustLedger {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Iterate over recorded external IDs without exposing ledger internals.
+    pub fn external_ids(&self) -> impl Iterator<Item = &str> {
+        self.entries.keys().map(String::as_str)
+    }
 }
 
 // ── Persistence ──
