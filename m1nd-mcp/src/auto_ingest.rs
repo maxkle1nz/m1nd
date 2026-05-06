@@ -3,6 +3,7 @@ use crate::protocol::auto_ingest::{
     AutoIngestStatusOutput, AutoIngestStopInput, AutoIngestStopOutput, AutoIngestTickInput,
     AutoIngestTickOutput,
 };
+use crate::scope::normalize_path_text;
 use crate::session::SessionState;
 use crate::universal_docs;
 use m1nd_core::error::{M1ndError, M1ndResult};
@@ -339,6 +340,41 @@ impl AutoIngestState {
         })
     }
 
+    fn manifest_key_for_path(&self, path: &str) -> Option<String> {
+        if self.persistent.manifest.contains_key(path) {
+            return Some(path.to_string());
+        }
+
+        let path_norm = normalize_path_text(path);
+        let path_cmp;
+        #[cfg(windows)]
+        {
+            path_cmp = path_norm.to_ascii_lowercase();
+        }
+        #[cfg(not(windows))]
+        {
+            path_cmp = path_norm;
+        }
+
+        self.persistent
+            .manifest
+            .keys()
+            .find(|source| {
+                let source_norm = normalize_path_text(source);
+                let source_cmp;
+                #[cfg(windows)]
+                {
+                    source_cmp = source_norm.to_ascii_lowercase();
+                }
+                #[cfg(not(windows))]
+                {
+                    source_cmp = source_norm;
+                }
+                source_cmp == path_cmp
+            })
+            .cloned()
+    }
+
     fn collect_supported_files(root: &Path, out: &mut Vec<PathBuf>) {
         if !root.exists() {
             return;
@@ -650,7 +686,7 @@ impl AutoIngestState {
 
             match change.kind {
                 PendingChangeKind::Delete => {
-                    if self.persistent.manifest.contains_key(&path) {
+                    if let Some(source_path) = self.manifest_key_for_path(&path) {
                         let claims = self
                             .persistent
                             .manifest
@@ -658,15 +694,17 @@ impl AutoIngestState {
                             .map(|(source, claims)| (source.clone(), claims.claims.clone()))
                             .collect::<HashMap<_, _>>();
                         let current = state.graph.read();
-                        let pruned = prune_source_claims(&current, &path, &claims)?;
+                        let pruned = prune_source_claims(&current, &source_path, &claims)?;
                         drop(current);
                         Self::replace_graph(state, pruned)?;
-                        self.persistent.manifest.remove(&path);
-                        state.document_cache.entries.remove(&path);
-                        let _ =
-                            universal_docs::remove_artifacts_for_source(&state.runtime_root, &path);
+                        self.persistent.manifest.remove(&source_path);
+                        state.document_cache.entries.remove(&source_path);
+                        let _ = universal_docs::remove_artifacts_for_source(
+                            &state.runtime_root,
+                            &source_path,
+                        );
                         self.persistent.removals_applied += 1;
-                        removed_paths.push(path.clone());
+                        removed_paths.push(source_path.clone());
                         applied_any = true;
                         self.append_event(
                             &state.runtime_root,
@@ -691,7 +729,7 @@ impl AutoIngestState {
                 }
                 PendingChangeKind::Upsert => {
                     let Some(format) = format else {
-                        if self.persistent.manifest.contains_key(&path) {
+                        if let Some(source_path) = self.manifest_key_for_path(&path) {
                             let claims = self
                                 .persistent
                                 .manifest
@@ -699,17 +737,17 @@ impl AutoIngestState {
                                 .map(|(source, claims)| (source.clone(), claims.claims.clone()))
                                 .collect::<HashMap<_, _>>();
                             let current = state.graph.read();
-                            let pruned = prune_source_claims(&current, &path, &claims)?;
+                            let pruned = prune_source_claims(&current, &source_path, &claims)?;
                             drop(current);
                             Self::replace_graph(state, pruned)?;
-                            self.persistent.manifest.remove(&path);
-                            state.document_cache.entries.remove(&path);
+                            self.persistent.manifest.remove(&source_path);
+                            state.document_cache.entries.remove(&source_path);
                             let _ = universal_docs::remove_artifacts_for_source(
                                 &state.runtime_root,
-                                &path,
+                                &source_path,
                             );
                             self.persistent.removals_applied += 1;
-                            removed_paths.push(path.clone());
+                            removed_paths.push(source_path);
                             applied_any = true;
                         } else {
                             self.persistent.skipped_count += 1;
@@ -1023,5 +1061,33 @@ mod tests {
 
         assert_eq!(first.content_hash, second.content_hash);
         assert_eq!(first.size, second.size);
+    }
+
+    #[test]
+    fn manifest_key_resolves_slash_normalized_aliases() {
+        let mut state = AutoIngestState::empty();
+        let source = "/tmp/m1nd/docs/notes.md".to_string();
+        state.persistent.manifest.insert(
+            source.clone(),
+            AutoIngestManifestEntry {
+                source_path: source.clone(),
+                format: "light".into(),
+                namespace: None,
+                fingerprint: AutoIngestFingerprint {
+                    canonical_path: source.clone(),
+                    size: 1,
+                    mtime_ms: 1,
+                    content_hash: "hash".into(),
+                    detected_format: "light".into(),
+                },
+                claims: SourceClaims::default(),
+                last_ingested_ms: 1,
+            },
+        );
+
+        assert_eq!(
+            state.manifest_key_for_path("/tmp/m1nd\\docs\\notes.md"),
+            Some(source)
+        );
     }
 }
