@@ -571,6 +571,13 @@ fn surgical_external_id_aliases(
         format!("file::{file_path}"),
         format!("file::{}", normalize_path_text(file_path)),
     ];
+    for raw in [
+        external_id.strip_prefix("file::").unwrap_or(external_id),
+        file_path,
+    ] {
+        let stripped = strip_windows_extended_path_prefix_raw(raw);
+        candidates.push(format!("file::{stripped}"));
+    }
     for raw in [external_id, file_path] {
         if let Some(scope) = normalize_scope_path(Some(raw), &state.ingest_roots) {
             candidates.push(format!("file::{scope}"));
@@ -610,6 +617,16 @@ fn surgical_external_id_aliases(
         }
     }
     aliases
+}
+
+fn strip_windows_extended_path_prefix_raw(value: &str) -> String {
+    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = value.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    value.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -4291,6 +4308,35 @@ mod tests {
         state.ingest_roots = vec![root.to_string_lossy().to_string()];
         state.workspace_root = Some(root.to_string_lossy().to_string());
         state
+    }
+
+    #[test]
+    fn heuristic_summary_resolves_windows_extended_path_aliases() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let windows_raw = r"C:\repo\src\core.py";
+        let windows_extended = r"\\?\C:\repo\src\core.py";
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_secs_f64();
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{windows_raw}"), now - 60.0);
+
+        let summary = build_surgical_heuristic_summary(&state, "file::core.py", windows_extended);
+
+        assert!(
+            summary.risk_score > 0.0,
+            "extended Windows path should resolve to the raw ledger path alias"
+        );
     }
 
     fn build_surgical_state_with_doc_noise(
