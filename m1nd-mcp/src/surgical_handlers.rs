@@ -3341,11 +3341,12 @@ pub fn handle_apply_batch(
                     top_affected.push(format!("-{}", n));
                 }
 
+                let agent_file_path = normalize_path_text(&result.file_path);
                 let node_id = post_nodes
                     .iter()
                     .next()
                     .cloned()
-                    .unwrap_or_else(|| format!("file::{}", result.file_path));
+                    .unwrap_or_else(|| format!("file::{agent_file_path}"));
                 let requested_path_aliases: Vec<&str> = resolved_edits
                     .iter()
                     .filter_map(|(validated_path, edit, _)| {
@@ -3365,11 +3366,11 @@ pub fn handle_apply_batch(
                 ));
                 let heuristics_surface_ref = Some(layers::HeuristicsSurfaceRef {
                     node_id: node_id.clone(),
-                    file_path: result.file_path.clone(),
+                    file_path: agent_file_path.clone(),
                 });
 
                 high_impact_files.push(surgical::VerificationImpact {
-                    file_path: result.file_path.clone(),
+                    file_path: agent_file_path,
                     node_id,
                     affected_count: changed_count,
                     risk: risk.to_string(),
@@ -3541,7 +3542,7 @@ pub fn handle_apply_batch(
                 // replace the top_affected with real reachable file node IDs
                 if let Some(impact) = high_impact_files
                     .iter_mut()
-                    .find(|f| f.file_path == result.file_path)
+                    .find(|f| surgical_paths_match(&f.file_path, &result.file_path))
                 {
                     impact.top_affected = top_affected_ids.clone();
                     impact.affected_count = impact.affected_count.max(reachable_count);
