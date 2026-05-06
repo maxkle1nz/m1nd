@@ -428,17 +428,18 @@ fn test_apply_writes_to_correct_lines() {
     // with new_content, leaving all other lines intact.
 
     let (_dir, abs_path, original_lines) = make_test_source();
+    let file_path_json = serde_json::to_string(&abs_path).expect("file path must serialize");
 
     let input: ApplyInput = serde_json::from_str(&format!(
         r#"{{
             "node_id": "func::callee_fn",
             "agent_id": "forge",
-            "file_path": "{}",
+            "file_path": {},
             "line_start": 5,
             "line_end": 7,
             "new_content": "def callee_fn():\n    return 99\n"
         }}"#,
-        abs_path
+        file_path_json
     ))
     .expect("ApplyInput must deserialize");
 

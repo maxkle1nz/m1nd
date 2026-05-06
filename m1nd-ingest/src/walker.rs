@@ -59,6 +59,7 @@ impl DirectoryWalker {
         path.strip_prefix(root)
             .unwrap_or(path)
             .to_string_lossy()
+            .replace('\\', "/")
             .trim_start_matches("./")
             .trim_matches('/')
             .to_string()
@@ -102,6 +103,47 @@ impl DirectoryWalker {
 
         let mut files = Vec::new();
         let root_canonical = root.canonicalize().map_err(M1ndError::Io)?;
+
+        if root_canonical.is_file() {
+            let rel_path = root_canonical
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| root_canonical.to_string_lossy().replace('\\', "/"));
+            if !rel_path.is_empty() {
+                match Self::is_binary(&root_canonical) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        if let Ok(metadata) = root_canonical.metadata() {
+                            files.push(DiscoveredFile {
+                                path: root_canonical.clone(),
+                                relative_path: rel_path,
+                                extension: root_canonical
+                                    .extension()
+                                    .map(|ext| ext.to_string_lossy().to_string()),
+                                size_bytes: metadata.len(),
+                                last_modified: metadata
+                                    .modified()
+                                    .ok()
+                                    .and_then(|time| {
+                                        time.duration_since(std::time::UNIX_EPOCH).ok()
+                                    })
+                                    .map(|duration| duration.as_secs_f64())
+                                    .unwrap_or(0.0),
+                                commit_count: 0,
+                                last_commit_time: 0.0,
+                            });
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+
+            return Ok(WalkResult {
+                files,
+                commit_groups: Vec::new(),
+            });
+        }
 
         for entry in WalkDir::new(&root_canonical)
             .follow_links(false)
@@ -271,5 +313,36 @@ impl DirectoryWalker {
         let mut buf = [0u8; 8192];
         let n = file.read(&mut buf).map_err(M1ndError::Io)?;
         Ok(buf[..n].contains(&0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DirectoryWalker;
+
+    #[test]
+    fn walk_single_file_uses_filename_as_relative_path() {
+        let temp = std::env::temp_dir().join(format!(
+            "m1nd-walker-single-file-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp).expect("tempdir");
+        let file = temp.join("core.rs");
+        std::fs::write(&file, "pub fn core() {}\n").expect("write file");
+
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+        let result = walker.walk(&file).expect("walk single file");
+
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].relative_path, "core.rs");
+        assert_eq!(
+            result.files[0].path,
+            file.canonicalize().expect("canonical file")
+        );
+        std::fs::remove_dir_all(temp).expect("cleanup tempdir");
     }
 }

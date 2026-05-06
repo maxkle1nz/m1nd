@@ -86,6 +86,7 @@ Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the g
 ### Related Tools
 
 - [`health`](#m1ndhealth) -- check graph status before deciding to ingest
+- [`doctor`](#m1nddoctor) -- diagnose graph/session continuity when retrieval looks stale
 - [`drift`](memory.md#m1nddrift) -- see what changed since last session
 - [`federate`](exploration.md#m1ndfederate) -- multi-repo ingestion
 - [`document_resolve`](#m1nddocument_resolve) -- resolve canonical artifacts for a universal document
@@ -401,7 +402,359 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 ### Related Tools
 
 - [`ingest`](#m1ndingest) -- load data if the graph is empty
+- [`trust_selftest`](#m1ndtrust_selftest) -- one-call startup verdict for agents
+- [`session_handshake`](#m1ndsession_handshake) -- classify whether this binding is trustworthy
+- [`recovery_playbook`](#m1ndrecovery_playbook) -- return ordered recovery steps
+- [`doctor`](#m1nddoctor) -- explain empty graphs, blocked retrieval, and binding/session continuity
 - [`drift`](memory.md#m1nddrift) -- check what changed since last session
+
+---
+
+<a id="m1ndtrust_selftest"></a>
+
+## `trust_selftest`
+Returns a one-call startup verdict for agents. It composes the current binding
+fingerprint, graph state, host-visible tool evidence, `session_handshake`, and
+an optional `recovery_playbook`.
+
+The tool is diagnostic-only: it does not ingest, repair, run shell commands,
+mutate files, refresh host bindings, or probe retrieval automatically.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+| `observed_tool` | `string` | No | -- | Tool that produced a suspicious result. |
+| `observed_proof_state` | `string` | No | -- | Observed proof state, such as `blocked`. |
+| `observed_candidates` | `integer` | No | -- | Candidate count from suspicious retrieval. |
+| `scope` | `string` | No | -- | Repo or scope path associated with the incident. |
+| `error_text` | `string` | No | -- | Error text or host message. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "trust_selftest",
+    "arguments": {
+      "agent_id": "jimi"
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-trust-selftest-v0",
+  "ok": true,
+  "status": "ok",
+  "verdict": "full_trust",
+  "next_action": "proceed_with_m1nd_first",
+  "binding_fingerprint": {
+    "schema": "m1nd-binding-fingerprint-v0",
+    "process_id": 12345,
+    "node_count": 9767
+  },
+  "checks": {
+    "graph_populated": true,
+    "host_surface_complete": true,
+    "stale_binding_suspected": false,
+    "recovery_playbook_attached": false
+  },
+  "recovery_playbook": null
+}
+```
+
+### Verdicts
+
+- `full_trust` -- graph has content and the required recovery surface is present.
+- `needs_ingest` -- graph is empty but `ingest` is available.
+- `orientation_only` -- graph is empty and the current host surface cannot ingest.
+- `degraded_host_tool_surface` -- the host is hiding required recovery tools.
+- `stale_binding_suspected` -- populated graph plus blocked/zero-candidate evidence suggests host/session split-brain.
+
+### Related Tools
+
+- [`session_handshake`](#m1ndsession_handshake) -- cheaper sub-check used by the selftest
+- [`recovery_playbook`](#m1ndrecovery_playbook) -- attached when the verdict needs action
+- [`doctor`](#m1nddoctor) -- deeper runtime diagnosis when recovery asks for it
+- [`ingest`](#m1ndingest) -- run only after `needs_ingest`
+
+---
+
+<a id="m1ndsession_handshake"></a>
+
+## `session_handshake`
+Classifies whether the current MCP binding is trustworthy before an agent leans
+on retrieval. The tool is diagnostic-only: it does not ingest, repair, run shell
+commands, or execute a retrieval probe.
+
+Pass the host's `tools/list` evidence when available. That lets m1nd distinguish
+a genuinely empty graph from a host surface that is hiding recovery tools such
+as `ingest`.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "session_handshake",
+    "arguments": {
+      "agent_id": "jimi"
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-session-handshake-v0",
+  "trust_mode": "full_trust",
+  "can_ingest": true,
+  "can_retrieve": true,
+  "can_recover": true,
+  "next_action": "continue with m1nd-first retrieval; use compiler/tests for runtime truth",
+  "binding_fingerprint": {
+    "schema": "m1nd-binding-fingerprint-v0",
+    "process_id": 12345,
+    "runtime_root": "/tmp/m1nd-runtime",
+    "graph_path": "/tmp/m1nd-runtime/graph.json",
+    "graph_generation": 1,
+    "node_count": 9767
+  },
+  "tool_surface": {
+    "status": "ok",
+    "degraded_host_tool_surface": false
+  },
+  "used_probe": false,
+  "probe": null
+}
+```
+
+### Trust Modes
+
+- `full_trust` -- graph has content and the required recovery surface is present.
+- `needs_ingest` -- graph is empty but `ingest` is available.
+- `orientation_only` -- graph is empty and the current host surface cannot ingest.
+- `degraded_host_tool_surface` -- the host is hiding required recovery tools.
+
+### Related Tools
+
+- [`trust_selftest`](#m1ndtrust_selftest) -- preferred one-call startup verdict
+- [`recovery_playbook`](#m1ndrecovery_playbook) -- what to do when trust mode is not full
+- [`ingest`](#m1ndingest) -- load data after `needs_ingest`
+- [`doctor`](#m1nddoctor) -- inspect the recovery payload under suspicion
+- [`seek`](exploration.md#m1ndseek) -- first retrieval pass after `full_trust`
+
+---
+
+<a id="m1ndrecovery_playbook"></a>
+
+## `recovery_playbook`
+Returns deterministic next steps for a degraded host surface, empty graph,
+orientation-only binding, or stale-looking retrieval. The tool is
+diagnostic-only: it does not ingest, repair, run shell commands, mutate files,
+or probe retrieval.
+
+Use it after `session_handshake` reports anything other than `full_trust`, or
+after a retrieval response reports `blocked` or zero candidates when the graph
+should be populated.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `trust_mode` | `string` | No | -- | Prior handshake trust mode to preserve in the diagnostic trail. |
+| `observed_tool` | `string` | No | -- | Tool that produced a suspicious result. |
+| `observed_proof_state` | `string` | No | -- | Observed proof state, such as `blocked`. |
+| `observed_candidates` | `integer` | No | -- | Candidate count from the suspicious retrieval. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+| `scope` | `string` | No | -- | Repo or scope path associated with the incident. |
+| `error_text` | `string` | No | -- | Error text or host message. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "recovery_playbook",
+    "arguments": {
+      "agent_id": "jimi",
+      "observed_tool": "seek",
+      "observed_proof_state": "blocked",
+      "observed_candidates": 0
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-recovery-playbook-v0",
+  "status": "warn",
+  "trust_mode": "stale_binding_suspected",
+  "recovery_goal": "Prove whether host, binary, runtime, or graph identity drift is causing split-brain retrieval.",
+  "next_action": "call_doctor",
+  "steps": [
+    {
+      "id": "call_doctor",
+      "tool": "doctor",
+      "action": "Call doctor with the blocked or zero-candidate observation."
+    },
+    {
+      "id": "compare_binding_fingerprint",
+      "action": "Compare this binding_fingerprint with the host, repo-local stdio, and repo-local HTTP handshake outputs."
+    }
+  ],
+  "non_claims": [
+    "No automatic repair was performed.",
+    "No ingest or graph mutation was performed."
+  ]
+}
+```
+
+### Related Tools
+
+- [`session_handshake`](#m1ndsession_handshake) -- classify the binding first
+- [`doctor`](#m1nddoctor) -- inspect active graph/session/runtime clues
+- [`ingest`](#m1ndingest) -- run only when the playbook says the graph needs it
+
+---
+
+<a id="m1nddoctor"></a>
+
+## `doctor`
+Diagnoses active graph, runtime, session, and stale-binding symptoms. Use it
+when an agent just ingested a repo but retrieval returns `blocked`, zero
+candidates, or a graph that feels empty.
+
+`seek`, `search`, and `activate` include a ready `recovery` payload when they
+return `blocked` or zero actionable candidates. An agent can pass
+`recovery.arguments` directly to `doctor`.
+
+Use the same tool for degraded host surfaces. If `tools/list` is missing
+required recovery tools such as `ingest`, pass the observed count, available
+tool names, and missing tool names to `doctor`. It will flag
+`diagnostics.degraded_host_tool_surface` and explain whether the current host
+binding should be treated as orientation-only.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `observed_tool` | `string` | No | -- | Tool that returned a suspicious result. |
+| `observed_proof_state` | `string` | No | -- | Observed proof state, such as `blocked`. |
+| `observed_candidates` | `integer` | No | -- | Candidate count from the suspicious retrieval. |
+| `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
+| `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
+| `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+| `scope` | `string` | No | -- | Scope/path used by the suspicious call. |
+| `error_text` | `string` | No | -- | Error text or host message. |
+
+### Example Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "jimi",
+      "observed_tool": "seek",
+      "observed_proof_state": "blocked",
+      "observed_candidates": 0
+    }
+  }
+}
+```
+
+### Degraded Tool Surface Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "jimi",
+      "observed_tool": "tools/list",
+      "observed_proof_state": "blocked",
+      "observed_tool_count": 3,
+      "available_tools": ["seek", "audit", "doctor"],
+      "missing_tools": ["ingest"]
+    }
+  }
+}
+```
+
+### Example Response
+
+```json
+{
+  "schema": "m1nd-doctor-v0",
+  "status": "warn",
+  "diagnostics": {
+    "graph_has_nodes": true,
+    "agent_session_known": true,
+    "stale_binding_suspected": true
+  },
+  "warnings": [
+    "seek reported blocked/zero-candidate retrieval while the active graph is populated"
+  ],
+  "next_actions": [
+    "verify the same binding with stdio and HTTP smokes before declaring the graph stale"
+  ]
+}
+```
+
+### When to Use
+
+- **After suspicious retrieval** -- distinguish empty graph from stale binding
+- **After incomplete `tools/list`** -- identify a degraded host tool surface
+- **After transport changes** -- confirm HTTP and stdio see the same session
+- **Before shell fallback** -- give the agent a precise recovery path
+
+### Related Tools
+
+- [`health`](#m1ndhealth) -- basic server health and graph counts
+- [`ingest`](#m1ndingest) -- refresh graph state
+- [`help`](exploration.md#m1ndhelp) -- tool guidance and examples
 
 ---
 

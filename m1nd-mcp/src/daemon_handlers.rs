@@ -1,4 +1,5 @@
 use crate::protocol::layers;
+use crate::scope::normalize_path_text;
 use crate::session::{DaemonAlert, DaemonTrackedFile, FileInventoryEntry, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde_json::json;
@@ -20,6 +21,50 @@ fn simple_content_hash(path: &Path) -> Option<String> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
     Some(format!("{:016x}", hasher.finish()))
+}
+
+fn join_repo_relative(root: &Path, rel: &str) -> PathBuf {
+    normalize_path_text(rel)
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .fold(root.to_path_buf(), |mut acc, part| {
+            acc.push(part);
+            acc
+        })
+}
+
+fn same_path_text(left: &str, right: &str) -> bool {
+    let left = normalize_path_text(left);
+    let right = normalize_path_text(right);
+    if left == right {
+        return true;
+    }
+    let left_canonical = Path::new(&left)
+        .canonicalize()
+        .ok()
+        .map(|path| normalize_path_text(&path.to_string_lossy()));
+    let right_canonical = Path::new(&right)
+        .canonicalize()
+        .ok()
+        .map(|path| normalize_path_text(&path.to_string_lossy()));
+    if let (Some(left), Some(right)) = (left_canonical, right_canonical) {
+        #[cfg(windows)]
+        {
+            return left.eq_ignore_ascii_case(&right);
+        }
+        #[cfg(not(windows))]
+        {
+            return left == right;
+        }
+    }
+    #[cfg(windows)]
+    {
+        left.eq_ignore_ascii_case(&right)
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
 }
 
 fn extension_language(extension: Option<&str>) -> String {
@@ -262,7 +307,7 @@ fn git_changed_absolute_paths(
         if rel.is_empty() {
             continue;
         }
-        changed.push(root.join(rel));
+        changed.push(join_repo_relative(root, &rel));
     }
 
     Ok(changed)
@@ -511,7 +556,7 @@ pub fn handle_daemon_tick(
                         let path_str = path.to_string_lossy().to_string();
                         if let Some(entry) = live_inventory
                             .values()
-                            .find(|entry| entry.file_path == path_str)
+                            .find(|entry| same_path_text(&entry.file_path, &path_str))
                             .cloned()
                         {
                             changed_entries.push(entry);
@@ -971,6 +1016,7 @@ mod tests {
         assert_eq!(ticked["alerts_emitted"], 0);
         assert!(ticked["ingested_files"][0]["file_path"]
             .as_str()
+            .map(normalize_path_text)
             .is_some_and(|path| path.ends_with("src/core.py")));
         let status = handle_daemon_status(
             &mut state,

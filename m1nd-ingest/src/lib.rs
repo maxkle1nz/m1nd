@@ -58,7 +58,7 @@ fn build_file_external_id(rel_path: &str) -> Option<String> {
         return None;
     }
 
-    Some(format!("file::{}", trimmed))
+    Some(format!("file::{}", trimmed.replace('\\', "/")))
 }
 
 pub(crate) fn relative_source_path(root: &Path, path: &Path) -> String {
@@ -418,6 +418,10 @@ mod tests {
         assert_eq!(build_file_external_id("./"), None);
         assert_eq!(
             build_file_external_id("src/main.rs"),
+            Some("file::src/main.rs".to_string())
+        );
+        assert_eq!(
+            build_file_external_id("src\\main.rs"),
             Some("file::src/main.rs".to_string())
         );
     }

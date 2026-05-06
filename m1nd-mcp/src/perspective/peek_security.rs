@@ -288,9 +288,11 @@ mod tests {
 
     #[test]
     fn staleness_detection() {
+        let f = temp_file("fresh");
+        let canonical = fs::canonicalize(f.path()).unwrap();
         // File modified "now" vs last_ingest far in the past
-        assert!(check_staleness(Path::new("/dev/null"), Some(1)));
+        assert!(check_staleness(&canonical, Some(1)));
         // No ingest info
-        assert!(!check_staleness(Path::new("/dev/null"), None));
+        assert!(!check_staleness(&canonical, None));
     }
 }

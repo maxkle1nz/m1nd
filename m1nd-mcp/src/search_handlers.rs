@@ -13,7 +13,7 @@ use crate::protocol::layers::{
     GlobFileEntry, GlobInput, GlobOutput, HelpInput, HelpMode, HelpOutput, SearchInput, SearchMode,
     SearchOutput, SearchResultEntry,
 };
-use crate::scope::normalize_scope_path;
+use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::SessionState;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use std::collections::HashSet;
@@ -138,15 +138,23 @@ pub(crate) fn normalize_help_tool_name(tool_name: &str) -> String {
 /// without changing every handler that needs a canonical path primitive.
 pub(crate) fn canonicalize_path_hint(path_hint: &str, ingest_roots: &[String]) -> PathBuf {
     let path = Path::new(path_hint);
-    if path.is_absolute() {
+    if path.is_absolute() || path_hint.starts_with('/') {
         return path.to_path_buf();
     }
 
+    let relative = normalize_path_text(path_hint)
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .fold(PathBuf::new(), |mut acc, part| {
+            acc.push(part);
+            acc
+        });
+
     if let Some(root) = ingest_roots.first() {
-        return Path::new(root).join(path);
+        return Path::new(root).join(relative);
     }
 
-    path.to_path_buf()
+    relative
 }
 
 fn normalize_scope_hint(scope: Option<&str>, ingest_roots: &[String]) -> Option<String> {
@@ -154,12 +162,12 @@ fn normalize_scope_hint(scope: Option<&str>, ingest_roots: &[String]) -> Option<
 }
 
 fn scope_matches_path(path_like: &str, scope: Option<&str>, ingest_roots: &[String]) -> bool {
-    let Some(scope) = scope else {
+    let Some(normalized_scope) = normalize_scope_path(scope, ingest_roots) else {
         return true;
     };
 
     normalize_scope_path(Some(path_like), ingest_roots)
-        .map(|path| path.starts_with(scope))
+        .map(|path| path == normalized_scope || path.starts_with(&format!("{normalized_scope}/")))
         .unwrap_or(false)
 }
 
@@ -497,6 +505,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 graph_rerank: true,
             };
             let seek_result = crate::layer_handlers::handle_seek(state, seek_input)?;
+            let seek_candidates = seek_result.total_candidates_scanned;
 
             // Convert seek results to search format
             total_matches = seek_result.results.len();
@@ -542,6 +551,29 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                     .map(|entry| entry.node_id.clone())
                     .collect::<Vec<_>>(),
             );
+            let proof_state: String = if total_matches == 0 {
+                "blocked".into()
+            } else {
+                "triaging".into()
+            };
+            let failed_retrieval = proof_state == "blocked" || total_matches == 0;
+            let (graph_state, recovery) = state.retrieval_failure_context(
+                &input.agent_id,
+                "search",
+                &proof_state,
+                Some(seek_candidates as u64),
+                input.scope.as_deref(),
+                None,
+            );
+            let (next_suggested_tool, next_suggested_target, next_step_hint) = if failed_retrieval {
+                (
+                        Some("recovery_playbook".into()),
+                        None,
+                        Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into()),
+                    )
+            } else {
+                (None, None, None)
+            };
             return Ok(SearchOutput {
                 query: input.query,
                 mode: "semantic".into(),
@@ -554,13 +586,15 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
                 truncated,
                 inline_summary,
-                proof_state: "triaging".into(),
-                next_suggested_tool: None,
-                next_suggested_target: None,
-                next_step_hint: None,
+                proof_state,
+                next_suggested_tool,
+                next_suggested_target,
+                next_step_hint,
                 confidence: None,
                 why_this_next_step: None,
                 what_is_missing: None,
+                graph_state,
+                recovery,
             });
         }
     }
@@ -600,6 +634,41 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             .map(|entry| entry.node_id.clone())
             .collect::<Vec<_>>(),
     );
+    let (
+        mut proof_state,
+        mut next_suggested_tool,
+        mut next_suggested_target,
+        mut next_step_hint,
+        confidence,
+        why_this_next_step,
+        what_is_missing,
+    ) = search_contract(&final_results);
+    if total_matches > 0 && final_results.is_empty() {
+        proof_state = "triaging".into();
+        next_suggested_tool = None;
+        next_suggested_target = None;
+        next_step_hint = Some(
+            "Search found matches but did not return result rows, likely because count_only or output limits were requested."
+                .into(),
+        );
+    }
+    let failed_retrieval = proof_state == "blocked" || total_matches == 0;
+    let (graph_state, recovery) = state.retrieval_failure_context(
+        &input.agent_id,
+        "search",
+        &proof_state,
+        Some(total_matches as u64),
+        input.scope.as_deref(),
+        None,
+    );
+    if failed_retrieval {
+        next_suggested_tool = Some("recovery_playbook".into());
+        next_suggested_target = None;
+        next_step_hint = Some(
+            "Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search."
+                .into(),
+        );
+    }
     Ok(SearchOutput {
         query: input.query,
         mode: format!("{:?}", input.mode).to_lowercase(),
@@ -612,13 +681,15 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         auto_ingested_paths: auto_ingest_state.auto_ingested_paths,
         truncated,
         inline_summary,
-        proof_state: "triaging".into(),
-        next_suggested_tool: None,
-        next_suggested_target: None,
-        next_step_hint: None,
-        confidence: None,
-        why_this_next_step: None,
-        what_is_missing: None,
+        proof_state,
+        next_suggested_tool,
+        next_suggested_target,
+        next_step_hint,
+        confidence,
+        why_this_next_step,
+        what_is_missing,
+        graph_state,
+        recovery,
     })
 }
 
@@ -1150,7 +1221,7 @@ fn relativize_against_ingest_roots_slice(
     for root in ingest_roots {
         let root_path = Path::new(root);
         if let Ok(rel) = full_path.strip_prefix(root_path) {
-            return Some(rel.to_string_lossy().to_string());
+            return Some(normalize_path_text(&rel.to_string_lossy()));
         }
     }
 
@@ -1824,6 +1895,62 @@ mod tests {
         );
         assert_eq!(output.results[0].file_path, file_path.to_string_lossy());
         assert!(!output.results[0].graph_linked);
+    }
+
+    #[test]
+    fn search_blocked_response_points_to_recovery_playbook_with_graph_state() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_state(root);
+        add_file_node(&mut state, "src/example.rs");
+
+        let output = handle_search(
+            &mut state,
+            SearchInput {
+                agent_id: "jimi-codex".into(),
+                query: "qzxqzxqzxqzx_jjvjjvjjvjjv".into(),
+                mode: SearchMode::Literal,
+                scope: None,
+                top_k: 10,
+                case_sensitive: false,
+                context_lines: 0,
+                invert: false,
+                count_only: false,
+                multiline: false,
+                auto_ingest: false,
+                filename_pattern: None,
+                max_output_chars: None,
+            },
+        )
+        .expect("search output");
+
+        assert_eq!(output.proof_state, "blocked");
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("recovery_playbook")
+        );
+        assert_eq!(
+            output
+                .graph_state
+                .as_ref()
+                .and_then(|state| state["node_count"].as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery.pointer("/arguments/observed_tool"))
+                .and_then(|value| value.as_str()),
+            Some("search")
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery["suggested_tool"].as_str()),
+            Some("recovery_playbook")
+        );
     }
 
     #[test]

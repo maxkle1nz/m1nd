@@ -4,6 +4,27 @@ These examples are meant to show when `m1nd` is practically useful, not just wha
 
 All payloads below use the canonical MCP tool names from the live registry, without the optional client transport prefix.
 
+## 0. One-minute agent demo
+
+Install the agent pack first when you are setting up a new host:
+
+```bash
+npm install -g .
+m1nd install-skills codex
+m1nd doctor
+```
+
+Run the real agent trust path before reading examples by hand:
+
+```bash
+cargo build -p m1nd-mcp
+python3 scripts/m1nd_agent_demo.py --repo . --transport stdio
+```
+
+That command checks `trust_selftest`, ingests the repo, runs retrieval, asks for
+tool guidance, calls `doctor`, and verifies that empty retrieval returns a
+recovery path. Use `--json` when a client or CI job should consume the summary.
+
 ## 1. First ingest
 
 ```jsonc

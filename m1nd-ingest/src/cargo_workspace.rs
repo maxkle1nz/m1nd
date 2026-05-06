@@ -310,6 +310,6 @@ fn relative_to_root(root: &Path, path: &Path) -> Option<String> {
     if rel_str.is_empty() {
         Some(".".to_string())
     } else {
-        Some(rel_str.to_string())
+        Some(rel_str.replace('\\', "/"))
     }
 }

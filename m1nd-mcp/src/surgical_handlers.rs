@@ -13,6 +13,7 @@
 
 use crate::daemon_handlers::{make_daemon_alert, DaemonAlertSeed};
 use crate::protocol::{layers, surgical};
+use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
@@ -449,20 +450,48 @@ pub(crate) fn build_surgical_heuristic_summary(
     external_id: &str,
     file_path: &str,
 ) -> surgical::SurgicalHeuristicSummary {
+    build_surgical_heuristic_summary_with_extra_paths(state, external_id, file_path, &[])
+}
+
+fn build_surgical_heuristic_summary_with_extra_paths(
+    state: &SessionState,
+    external_id: &str,
+    file_path: &str,
+    extra_file_paths: &[&str],
+) -> surgical::SurgicalHeuristicSummary {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
-    let trust = state.trust_ledger.compute_trust(external_id, now);
-    let raw_trust_factor = state.trust_ledger.adjust_prior(
-        1.0,
-        std::slice::from_ref(&external_id.to_string()),
-        false,
-        now,
-    );
+    let mut aliases = surgical_external_id_aliases(state, external_id, file_path);
+    for extra_path in extra_file_paths {
+        for alias in surgical_external_id_aliases(state, external_id, extra_path) {
+            if !aliases.contains(&alias) {
+                aliases.push(alias);
+            }
+        }
+    }
+    let trust = aliases
+        .iter()
+        .map(|alias| state.trust_ledger.compute_trust(alias, now))
+        .max_by(|left, right| left.risk_multiplier.total_cmp(&right.risk_multiplier))
+        .unwrap_or_else(|| state.trust_ledger.compute_trust(external_id, now));
+    let raw_trust_factor = aliases
+        .iter()
+        .map(|alias| {
+            state
+                .trust_ledger
+                .adjust_prior(1.0, std::slice::from_ref(alias), false, now)
+        })
+        .fold(1.0f32, f32::max);
     let trust_factor = surgical_dampened_trust_factor(raw_trust_factor);
 
-    let tremor_observation_count = state.tremor_registry.observation_count(external_id);
+    let tremor_alias = aliases
+        .iter()
+        .max_by_key(|alias| state.tremor_registry.observation_count(alias))
+        .map(String::as_str)
+        .unwrap_or(external_id);
+    let tremor_observation_count = state.tremor_registry.observation_count(tremor_alias);
     let tremor_alert = if tremor_observation_count < 3 {
         None
     } else {
@@ -472,7 +501,7 @@ pub(crate) fn build_surgical_heuristic_summary(
                 m1nd_core::tremor::TremorWindow::All,
                 0.0,
                 1,
-                Some(external_id),
+                Some(tremor_alias),
                 now,
                 0,
             )
@@ -545,6 +574,139 @@ pub(crate) fn build_surgical_heuristic_summary(
             ),
         },
     }
+}
+
+fn surgical_external_id_aliases(
+    state: &SessionState,
+    external_id: &str,
+    file_path: &str,
+) -> Vec<String> {
+    let mut aliases = Vec::new();
+    let mut candidates = vec![
+        external_id.to_string(),
+        format!("file::{file_path}"),
+        format!("file::{}", normalize_path_text(file_path)),
+    ];
+    for raw in [
+        external_id.strip_prefix("file::").unwrap_or(external_id),
+        file_path,
+    ] {
+        let stripped = strip_windows_extended_path_prefix_raw(raw);
+        candidates.push(format!("file::{stripped}"));
+    }
+    for raw in [external_id, file_path] {
+        if let Some(scope) = normalize_scope_path(Some(raw), &state.ingest_roots) {
+            candidates.push(format!("file::{scope}"));
+        }
+    }
+    push_graph_path_aliases(state, file_path, &mut candidates);
+    push_heuristic_memory_aliases(state, external_id, file_path, &mut candidates);
+    for root in &state.ingest_roots {
+        let root_norm = normalize_path_text(root).trim_end_matches('/').to_string();
+        let file_norm = normalize_path_text(file_path);
+        if !root_norm.is_empty() {
+            let root_prefix = format!("{root_norm}/");
+            let file_cmp;
+            let root_cmp;
+            #[cfg(windows)]
+            {
+                file_cmp = file_norm.to_ascii_lowercase();
+                root_cmp = root_prefix.to_ascii_lowercase();
+            }
+            #[cfg(not(windows))]
+            {
+                file_cmp = file_norm.clone();
+                root_cmp = root_prefix.clone();
+            }
+            if file_cmp.starts_with(&root_cmp) {
+                candidates.push(format!("file::{}", &file_norm[root_prefix.len()..]));
+            }
+        }
+        if let Ok(rel) = Path::new(file_path).strip_prefix(Path::new(root)) {
+            candidates.push(format!(
+                "file::{}",
+                normalize_path_text(&rel.to_string_lossy())
+            ));
+        }
+    }
+    for candidate in candidates {
+        if !candidate.is_empty() && !aliases.contains(&candidate) {
+            aliases.push(candidate);
+        }
+    }
+    aliases
+}
+
+fn push_graph_path_aliases(state: &SessionState, file_path: &str, candidates: &mut Vec<String>) {
+    let graph = state.graph.read();
+    for (index, provenance) in graph.nodes.provenance.iter().enumerate() {
+        let Some(source_path) = provenance.source_path else {
+            continue;
+        };
+        let Some(path_text) = graph.strings.try_resolve(source_path) else {
+            continue;
+        };
+        if !surgical_paths_match(path_text, file_path) {
+            continue;
+        }
+
+        let node_id = NodeId::new(index as u32);
+        candidates.push(resolve_external_id(&graph, node_id));
+        candidates.push(format!("file::{path_text}"));
+        candidates.push(format!("file::{}", normalize_path_text(path_text)));
+        if let Some(scope) = normalize_scope_path(Some(path_text), &state.ingest_roots) {
+            candidates.push(format!("file::{scope}"));
+        }
+    }
+}
+
+fn push_heuristic_memory_aliases(
+    state: &SessionState,
+    external_id: &str,
+    file_path: &str,
+    candidates: &mut Vec<String>,
+) {
+    for alias in state.trust_ledger.external_ids() {
+        if surgical_alias_targets_file(alias, external_id, file_path) {
+            candidates.push(alias.to_string());
+        }
+    }
+    for alias in state.tremor_registry.external_ids() {
+        if surgical_alias_targets_file(alias, external_id, file_path) {
+            candidates.push(alias.to_string());
+        }
+    }
+}
+
+fn surgical_alias_targets_file(alias: &str, external_id: &str, file_path: &str) -> bool {
+    if surgical_id_text_matches(alias, external_id) {
+        return true;
+    }
+
+    let alias_path = alias.strip_prefix("file::").unwrap_or(alias);
+    let external_path = external_id.strip_prefix("file::").unwrap_or(external_id);
+    surgical_paths_match(alias_path, file_path) || surgical_paths_match(alias_path, external_path)
+}
+
+fn surgical_id_text_matches(left: &str, right: &str) -> bool {
+    #[cfg(windows)]
+    {
+        left.eq_ignore_ascii_case(right)
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
+fn strip_windows_extended_path_prefix_raw(value: &str) -> String {
+    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = value.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    value.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -1195,18 +1357,11 @@ fn find_nodes_for_file(graph: &m1nd_core::graph::Graph, file_path: &str) -> Vec<
     let n = graph.num_nodes() as usize;
     let mut results = Vec::new();
 
-    // Normalize path for comparison
-    let normalized = file_path.replace('\\', "/");
-
     for i in 0..n {
         let prov = &graph.nodes.provenance[i];
         if let Some(sp) = prov.source_path {
             if let Some(path_str) = graph.strings.try_resolve(sp) {
-                let path_normalized = path_str.replace('\\', "/");
-                if path_normalized == normalized
-                    || path_normalized.ends_with(&normalized)
-                    || normalized.ends_with(&path_normalized)
-                {
+                if surgical_paths_match(path_str, file_path) {
                     let nid = NodeId::new(i as u32);
                     let ext_id = resolve_external_id(graph, nid);
                     results.push((nid, ext_id));
@@ -1216,6 +1371,31 @@ fn find_nodes_for_file(graph: &m1nd_core::graph::Graph, file_path: &str) -> Vec<
     }
 
     results
+}
+
+fn surgical_paths_match(left: &str, right: &str) -> bool {
+    let left_norm = surgical_path_compare_text(left);
+    let right_norm = surgical_path_compare_text(right);
+
+    let left_cmp;
+    let right_cmp;
+    #[cfg(windows)]
+    {
+        left_cmp = left_norm.to_ascii_lowercase();
+        right_cmp = right_norm.to_ascii_lowercase();
+    }
+    #[cfg(not(windows))]
+    {
+        left_cmp = left_norm;
+        right_cmp = right_norm;
+    }
+
+    left_cmp == right_cmp || left_cmp.ends_with(&right_cmp) || right_cmp.ends_with(&left_cmp)
+}
+
+fn surgical_path_compare_text(value: &str) -> String {
+    let value = value.strip_prefix("file::").unwrap_or(value);
+    normalize_path_text(&strip_windows_extended_path_prefix_raw(value))
 }
 
 // ---------------------------------------------------------------------------
@@ -1562,6 +1742,29 @@ fn find_cargo_workspace(path: &Path) -> Option<PathBuf> {
             _ => return None,
         }
     }
+}
+
+fn find_cargo_project_root(path: &Path) -> Option<String> {
+    let mut dir = path.parent()?;
+    loop {
+        if dir.join("Cargo.toml").exists() {
+            return Some(dir.to_string_lossy().to_string());
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent,
+            _ => return None,
+        }
+    }
+}
+
+fn available_python_command() -> Option<&'static str> {
+    ["python3", "python"].into_iter().find(|command| {
+        Command::new(command)
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    })
 }
 
 /// Detect Go tests: find _test.go files in the same directory.
@@ -3138,23 +3341,36 @@ pub fn handle_apply_batch(
                     top_affected.push(format!("-{}", n));
                 }
 
+                let agent_file_path = normalize_path_text(&result.file_path);
                 let node_id = post_nodes
                     .iter()
                     .next()
                     .cloned()
-                    .unwrap_or_else(|| format!("file::{}", result.file_path));
-                let heuristic_summary = Some(build_surgical_heuristic_summary(
+                    .unwrap_or_else(|| format!("file::{agent_file_path}"));
+                let requested_path_aliases: Vec<&str> = resolved_edits
+                    .iter()
+                    .filter_map(|(validated_path, edit, _)| {
+                        let validated_path_str = validated_path.to_string_lossy();
+                        if surgical_paths_match(&validated_path_str, &result.file_path) {
+                            Some(edit.file_path.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let heuristic_summary = Some(build_surgical_heuristic_summary_with_extra_paths(
                     state,
                     &node_id,
                     &result.file_path,
+                    &requested_path_aliases,
                 ));
                 let heuristics_surface_ref = Some(layers::HeuristicsSurfaceRef {
                     node_id: node_id.clone(),
-                    file_path: result.file_path.clone(),
+                    file_path: agent_file_path.clone(),
                 });
 
                 high_impact_files.push(surgical::VerificationImpact {
-                    file_path: result.file_path.clone(),
+                    file_path: agent_file_path,
                     node_id,
                     affected_count: changed_count,
                     risk: risk.to_string(),
@@ -3326,7 +3542,7 @@ pub fn handle_apply_batch(
                 // replace the top_affected with real reachable file node IDs
                 if let Some(impact) = high_impact_files
                     .iter_mut()
-                    .find(|f| f.file_path == result.file_path)
+                    .find(|f| surgical_paths_match(&f.file_path, &result.file_path))
                 {
                     impact.top_affected = top_affected_ids.clone();
                     impact.affected_count = impact.affected_count.max(reachable_count);
@@ -3376,20 +3592,15 @@ pub fn handle_apply_batch(
                 .or_else(|| state.ingest_roots.last().cloned());
 
             if extensions.contains("rs") {
-                let cargo_dir = ws_root.clone().or_else(|| {
-                    resolved_edits
-                        .iter()
-                        .filter(|(p, _, _)| p.extension().and_then(|e| e.to_str()) == Some("rs"))
-                        .find_map(|(p, _, _)| {
-                            let mut dir = p.parent()?;
-                            loop {
-                                if dir.join("Cargo.toml").exists() {
-                                    return Some(dir.to_string_lossy().to_string());
-                                }
-                                dir = dir.parent()?;
-                            }
-                        })
-                });
+                let cargo_dir = resolved_edits
+                    .iter()
+                    .filter(|(p, _, _)| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+                    .find_map(|(p, _, _)| find_cargo_project_root(p))
+                    .or_else(|| {
+                        ws_root
+                            .clone()
+                            .filter(|dir| Path::new(dir).join("Cargo.toml").exists())
+                    });
                 if let Some(dir) = cargo_dir {
                     match std::process::Command::new("cargo")
                         .arg("check")
@@ -3449,41 +3660,50 @@ pub fn handle_apply_batch(
                     None
                 }
             } else if extensions.contains("py") {
-                let mut py_ok = true;
-                let mut py_err = String::new();
-                for (path, _, _) in &resolved_edits {
-                    if path.extension().and_then(|e| e.to_str()) != Some("py") {
-                        continue;
-                    }
-                    let path_str = path.to_string_lossy();
-                    let script = format!("import ast; ast.parse(open('{}').read())", path_str);
-                    match std::process::Command::new("python3")
-                        .args(["-c", &script])
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .output()
-                    {
-                        Ok(out) if !out.status.success() => {
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            let t: String = stderr.chars().take(200).collect();
-                            if py_err.is_empty() {
-                                py_err = t.to_string();
+                if let Some(python_command) = available_python_command() {
+                    let mut py_ok = true;
+                    let mut py_err = String::new();
+                    for (path, _, _) in resolved_edits.iter().filter(|(path, _, _)| {
+                        path.extension().and_then(|e| e.to_str()) == Some("py")
+                    }) {
+                        let path_str = path.to_string_lossy();
+                        match std::process::Command::new(python_command)
+                            .args([
+                                "-c",
+                                "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())",
+                            ])
+                            .arg(path)
+                            .stdout(std::process::Stdio::piped())
+                            .stderr(std::process::Stdio::piped())
+                            .output()
+                        {
+                            Ok(out) if !out.status.success() => {
+                                let stderr = String::from_utf8_lossy(&out.stderr);
+                                let t: String = stderr.chars().take(200).collect();
+                                if py_err.is_empty() {
+                                    py_err = t.to_string();
+                                }
+                                layer_violations.push(format!(
+                                    "PARSE ERROR ({} ast): {} — {}",
+                                    python_command, path_str, t
+                                ));
+                                py_ok = false;
                             }
-                            layer_violations
-                                .push(format!("PARSE ERROR (python3 ast): {} — {}", path_str, t));
-                            py_ok = false;
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            py_err = format!("failed to spawn python3: {}", e);
-                            py_ok = false;
+                            Ok(_) => {}
+                            Err(e) => {
+                                py_err = format!("failed to spawn {}: {}", python_command, e);
+                                py_ok = false;
+                            }
                         }
                     }
-                }
-                if py_ok {
-                    Some("ok".to_string())
+
+                    if py_ok {
+                        Some("ok".to_string())
+                    } else {
+                        Some(format!("error: {}", py_err))
+                    }
                 } else {
-                    Some(format!("error: {}", py_err))
+                    None
                 }
             } else if extensions.contains("ts") || extensions.contains("tsx") {
                 if let Some(dir) = ws_root.clone() {
@@ -4228,6 +4448,82 @@ mod tests {
         state
     }
 
+    fn recent_test_timestamp() -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_secs_f64()
+    }
+
+    #[test]
+    fn heuristic_summary_resolves_windows_extended_path_aliases() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let windows_raw = r"C:\repo\src\core.py";
+        let windows_extended = r"\\?\C:\repo\src\core.py";
+        let now = recent_test_timestamp();
+        state
+            .trust_ledger
+            .record_defect(&format!("file::{windows_raw}"), now - 60.0);
+
+        let summary = build_surgical_heuristic_summary(&state, "file::core.py", windows_extended);
+
+        assert!(
+            summary.risk_score > 0.0,
+            "extended Windows path should resolve to the raw ledger path alias"
+        );
+    }
+
+    #[test]
+    fn heuristic_summary_resolves_memory_alias_when_graph_path_is_missing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let primary_path = root.join("src/core.py");
+        std::fs::create_dir_all(primary_path.parent().expect("primary parent"))
+            .expect("mk primary parent");
+        std::fs::write(&primary_path, "def core():\n    return 1\n").expect("write primary");
+
+        let primary_str = primary_path.to_string_lossy().to_string();
+        let mut state = build_surgical_state(root, &primary_str);
+        let absolute_alias = format!("file::{primary_str}");
+        let now = recent_test_timestamp();
+        state
+            .trust_ledger
+            .record_defect(&absolute_alias, now - 120.0);
+        state
+            .trust_ledger
+            .record_defect(&absolute_alias, now - 60.0);
+        state
+            .tremor_registry
+            .record_observation(&absolute_alias, 1.0, 4, now - 50.0);
+        state
+            .tremor_registry
+            .record_observation(&absolute_alias, 1.1, 4, now - 40.0);
+        state
+            .tremor_registry
+            .record_observation(&absolute_alias, 1.2, 4, now - 30.0);
+        {
+            let mut graph = state.graph.write();
+            *graph = Graph::new();
+            graph.finalize().expect("empty graph finalize");
+        }
+
+        let summary = build_surgical_heuristic_summary(&state, "file::src/core.py", "src/core.py");
+
+        assert!(
+            summary.risk_score > 0.0,
+            "relative file inputs should still resolve absolute trust/tremor memory"
+        );
+        assert!(summary.heuristic_signals.tremor_observation_count >= 3);
+    }
+
     fn build_surgical_state_with_doc_noise(
         root: &std::path::Path,
         file_path: &str,
@@ -4527,7 +4823,7 @@ mod tests {
         let file_path_str = file_path.to_string_lossy().to_string();
 
         let mut state = build_surgical_state(temp.path(), &file_path_str);
-        let now = 10_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", file_path_str), now - 120.0);
@@ -4612,7 +4908,7 @@ mod tests {
         let file_path_str = file_path.to_string_lossy().to_string();
 
         let mut state = build_surgical_state(temp.path(), &file_path_str);
-        let now = 12_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", file_path_str), now - 60.0);
@@ -4714,7 +5010,7 @@ mod tests {
         let primary_str = primary_path.to_string_lossy().to_string();
         let dependent_str = dependent_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 20_000.0;
+        let now = recent_test_timestamp();
 
         state
             .trust_ledger
@@ -5032,7 +5328,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 30_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", primary_str), now - 120.0);
@@ -5112,7 +5408,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 60_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", primary_str), now - 120.0);
@@ -5237,7 +5533,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 40_000.0;
+        let now = recent_test_timestamp();
 
         for offset in [300.0, 240.0, 180.0, 120.0, 60.0] {
             state
@@ -5294,7 +5590,7 @@ mod tests {
 
         let primary_str = primary_path.to_string_lossy().to_string();
         let mut state = build_surgical_state(root, &primary_str);
-        let now = 50_000.0;
+        let now = recent_test_timestamp();
         state
             .trust_ledger
             .record_defect(&format!("file::{}", primary_str), now - 120.0);

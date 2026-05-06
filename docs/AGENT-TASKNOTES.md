@@ -17,6 +17,106 @@ The rule:
 
 ## Open Notes
 
+### 2026-05-05 — scope normalization failures should prefill doctor recovery too
+
+- Context: `seek`, `search`, and `activate` now attach `graph_state` and a
+  ready `doctor` recovery payload when retrieval returns `blocked` or zero
+  actionable candidates.
+- Remaining friction: hard parameter errors, such as ambiguous auto-ingest
+  scopes, still return normal invalid-param recovery text rather than a
+  structured `doctor` payload.
+- Desired behavior:
+  - invalid-param retrieval errors include compact graph/session breadcrumbs
+    when the active graph state is relevant
+  - scope/path normalization failures point at `doctor` with prefilled observed
+    fields
+
+## Resolved Notes
+
+### 2026-05-06 — agents need one startup verdict, not stitched diagnostics
+
+- Context: `health`, `session_handshake`, and `recovery_playbook` exposed the
+  right primitives, but every agent still had to remember how to compose them
+  when a host binding was partial or retrieval looked stale.
+- Resolution: `trust_selftest` now returns `m1nd-trust-selftest-v0` with a
+  single verdict (`full_trust`, `needs_ingest`, `orientation_only`,
+  `degraded_host_tool_surface`, or `stale_binding_suspected`), the binding
+  fingerprint, graph state, embedded session handshake, and an optional
+  recovery playbook. It is diagnostic-only: no ingest, repair, probe, or
+  mutation happens automatically.
+- Follow-up: agents should call `trust_selftest` first when the live MCP
+  surface exposes it, fall back to `session_handshake` when it does not, and use
+  `recovery_playbook` only when the verdict is not `full_trust` or retrieval
+  evidence is suspicious.
+
+### 2026-05-05 — session startup needs a cheap trust handshake
+
+- Context: after adding `doctor` and degraded-surface diagnostics, the remaining
+  risk was making every agent run a heavy smoke or repeated retrieval probes at
+  the start of a session.
+- Resolution: `scripts/mcp_agent_smoke.py` now has `--handshake-only`, returning
+  `m1nd-session-handshake-v0` with `trust_mode`, `can_ingest`, `can_retrieve`,
+  `can_recover`, tool-surface status, health summary, and next action. It calls
+  `doctor` only under suspicion, and `--handshake-probe` is opt-in.
+- Follow-up: the same contract is now exposed as the official MCP
+  `session_handshake` tool. The smoke harness calls the tool when the live
+  surface supports it, and falls back to its local implementation for older
+  binaries.
+
+### 2026-05-05 — recovery should be in-band, not chat memory
+
+- Context: `session_handshake` could classify a session as trusted, needing
+  ingest, orientation-only, or degraded, but agents still needed remembered
+  operator doctrine to decide the next safe action.
+- Resolution: `recovery_playbook` now returns `m1nd-recovery-playbook-v0` with
+  ordered recovery steps plus `m1nd-binding-fingerprint-v0`. The playbook is
+  diagnostic-only: no ingest, repair, probe, or filesystem mutation happens
+  automatically.
+
+### 2026-05-05 — host MCP surfaces can hide required recovery tools
+
+- Context: another agent saw m1nd through a host-provided surface where `audit`
+  was available but `ingest` was not exposed.
+- Friction: without `ingest`, an agent cannot repair, refresh, or prove the
+  active graph from inside that host session, even if other m1nd tools respond.
+- Resolution: `doctor` now accepts `observed_tool_count`, `available_tools`, and
+  `missing_tools` from `tools/list`, flags
+  `diagnostics.degraded_host_tool_surface`, and tells the agent to treat m1nd as
+  orientation-only until the MCP binding is refreshed. The smoke harness also
+  emits structured `degraded_host_tool_surface` details instead of a bare
+  missing-tool string.
+- Follow-up: `health` now exposes `m1nd-tool-surface-contract-v0` and
+  `m1nd-host-binding-alignment-v0`, so even a partial host that only exposes
+  `health` can tell agents which tools should be visible and when the host is
+  showing a degraded binding.
+
+### 2026-05-05 — retrieval responses need inline active-graph breadcrumbs
+
+- Context: the new `doctor` tool could diagnose active graph/runtime/session
+  state after a stale-looking retrieval, but the retrieval response itself did
+  not include enough continuity breadcrumbs for instant self-recovery.
+- Resolution: `seek`, `search`, and `activate` now include a compact
+  `graph_state` plus a ready `recovery.suggested_tool=recovery_playbook`
+  payload when they return `blocked` or zero actionable candidates. The smoke
+  harness also runs a negative seek after populated ingest to prove the
+  recovery payload and playbook exist.
+
+### 2026-05-05 — injected MCP surface can lose graph state across ingest and seek
+
+- Context: real agent smoke from a host-provided `m1nd` MCP surface after
+  re-ingesting the current repo.
+- Friction: `ingest` returned a populated graph, but immediate `seek` calls
+  returned `proof_state=blocked` with `total_candidates_scanned=0`, forcing the
+  agent back to shell search for repo orientation.
+- Cross-check: the local stdio binary on the same checkout exposed the full
+  tool surface and `ingest -> seek` scanned the expected graph candidates.
+- Resolution: `doctor` now distinguishes empty graph, populated graph with
+  blocked/zero-candidate retrieval, missing ingest roots, unknown workspace
+  root, session gaps, and host-binding split-brain clues. The repo-local smoke
+  harness now proves `initialize/tools -> ingest -> seek -> help -> doctor`
+  over stdio and HTTP. HTTP tool dispatch also tracks `agent_id` before calling
+  the shared dispatcher, matching stdio session semantics more closely.
+
 ### 2026-04-05 — proactive write insights still lack runtime-backed mismatch signals
 
 - Context: first proactive-insight slice on `apply` / `apply_batch`

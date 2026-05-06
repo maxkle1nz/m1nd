@@ -499,6 +499,11 @@ pub async fn run(
                                         .to_string(),
                                 ));
                             }
+                            if let Some(agent_id) =
+                                arguments.get("agent_id").and_then(|v| v.as_str())
+                            {
+                                s.track_agent(agent_id);
+                            }
                             let result = dispatch_tool(&mut s, tool_name, &arguments);
                             s.apply_batch_progress_sink = None;
                             result
@@ -737,6 +742,30 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             "domain": session.domain.name.as_str(),
             "graph_generation": session.graph_generation,
             "plasticity_generation": session.plasticity_generation,
+            "binding_fingerprint": session.binding_fingerprint(),
+            "tool_surface_contract": {
+                "schema": "m1nd-tool-surface-contract-v0",
+                "registry_tool_count": crate::server::tool_schemas()
+                    .get("tools")
+                    .and_then(|tools| tools.as_array())
+                    .map(|tools| tools.len())
+                    .unwrap_or(0),
+                "required_agent_trust_tools": crate::tools::AGENT_TRUST_REQUIRED_TOOLS,
+                "required_host_visible_tools": crate::tools::HOST_BINDING_REQUIRED_TOOLS,
+                "recovery_tool": "recovery_playbook",
+                "diagnostic_tool": "doctor"
+            },
+            "host_binding_alignment": {
+                "schema": "m1nd-host-binding-alignment-v0",
+                "status": "needs_client_surface_comparison",
+                "rule": "Compare the host-visible m1nd tool names and count against tool_surface_contract. If trust_selftest, session_handshake, or recovery_playbook is missing, treat this host binding as degraded_host_tool_surface even when health responds.",
+                "current_runtime_has_graph": node_count > 0 && edge_count > 0,
+                "next_action": "Call trust_selftest with observed_tool_count and available_tools when visible; otherwise use session_handshake, local repo smoke, or refresh the MCP host binding.",
+                "non_claims": [
+                    "health cannot see which subset of tools the client host injected",
+                    "health does not rebind the host or refresh tool schemas automatically"
+                ]
+            }
         })
     })
     .await
@@ -966,6 +995,9 @@ async fn handle_tool_call(
                     "http".to_string(),
                     progress_agent_id.clone(),
                 ));
+            }
+            if let Some(agent_id) = body.get("agent_id").and_then(|v| v.as_str()) {
+                session.track_agent(agent_id);
             }
             let result = dispatch_tool(&mut session, &tool, &body);
             session.apply_batch_progress_sink = None;

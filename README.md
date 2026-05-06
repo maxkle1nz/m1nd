@@ -25,8 +25,11 @@
   <a href="#what-m1nd-is-not">What m1nd Is Not</a> &middot;
   <a href="#capability-map">Capability Map</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#agent-pack-install">Agent Pack</a> &middot;
+  <a href="#try-the-agent-demo">Agent Demo</a> &middot;
   <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
   <a href="#evidence">Evidence</a> &middot;
+  <a href="#agent-testimonials">Agent Testimonials</a> &middot;
   <a href="#limits">Limits</a> &middot;
   <a href="#architecture-at-a-glance">Architecture</a> &middot;
   <a href="https://m1nd.world/wiki/">Wiki</a> &middot;
@@ -51,6 +54,8 @@
   <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>
 
+> grep finds text. `m1nd` helps agents recover structure, context, and continuity.
+
 ## What m1nd Is
 
 `m1nd` is a local MCP runtime that gives coding agents structural retrieval, change reasoning, document grounding, operations, and continuity through a graph they can reason over before, during, and after change.
@@ -63,6 +68,9 @@ With `m1nd`, an agent can:
 
 - build a durable operational model of a codebase from code, docs, history, runtime signals, and graph-native knowledge
 - retrieve and navigate the right context by text, path, intent, neighborhood, relationship, route, or failure trace
+- explain blocked retrieval with compact graph state and a ready diagnostic payload, so agents know whether to re-ingest, adjust scope, or inspect the active runtime
+- detect degraded host MCP surfaces, including sessions where m1nd is visible but recovery tools such as `ingest` are not exposed
+- run a one-call trust selftest that reports whether the current agent should fully trust, re-ingest, recover, or treat m1nd as orientation-only
 - reason about change before, during, and after it happens, including blast radius, co-change, missing work, structural claims, plan validity, drift, and counterfactuals
 - analyze architecture, quality, security, duplication, type flow, trust boundaries, hidden dependencies, volatility, and refactor opportunities across the graph
 - bind specs and docs back to implementation, including universal documents, graph-native `L1GHT`, provider health, automatic document ingest, and drift detection
@@ -99,7 +107,7 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 
 | Area | What it enables | Representative tools |
 |---|---|---|
-| Graph foundation | ingest code, maintain graph state, and reinforce useful paths over time | `ingest`, `health`, `learn`, `warmup`, `resonate` |
+| Graph foundation | ingest code, maintain graph state, diagnose session continuity, and reinforce useful paths over time | `trust_selftest`, `session_handshake`, `recovery_playbook`, `ingest`, `health`, `doctor`, `learn`, `warmup`, `resonate` |
 | Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
 | Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
 | Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
@@ -116,6 +124,20 @@ If you want the shortest path to value:
 ```bash
 git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
+npm install -g .
+m1nd doctor
+```
+
+Then install the agent doctrine for your host:
+
+```bash
+m1nd install-skills codex
+m1nd install-skills generic --project /your/project
+```
+
+For the native MCP runtime from the same checkout:
+
+```bash
 cargo build --release
 ./target/release/m1nd-mcp
 ```
@@ -124,16 +146,28 @@ Then connect it to your client using the [integration matrix](docs/IDE-INTEGRATI
 
 The canonical live tool names are the bare names returned by `tools/list`, such as `ingest`, `activate`, and `audit`.
 
-Then do three things:
+Then start with this trust loop:
 
 ```jsonc
-// 1. Build graph truth
+// 0. Trust the binding in one call
+{"method":"tools/call","params":{"name":"trust_selftest","arguments":{"agent_id":"dev"}}}
+
+// 0b. If you need the cheaper sub-check only
+{"method":"tools/call","params":{"name":"session_handshake","arguments":{"agent_id":"dev"}}}
+
+// If your host only exposes health, read its tool_surface_contract first
+{"method":"tools/call","params":{"name":"health","arguments":{"agent_id":"dev"}}}
+
+// 1. If the selftest is not full_trust, ask for the recovery path
+{"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
+
+// 2. Build graph truth
 {"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 
-// 2. Get a single-request structural orientation pass
+// 3. Get a single-request structural orientation pass
 {"method":"tools/call","params":{"name":"audit","arguments":{"agent_id":"dev","path":"/your/project","profile":"auto"}}}
 
-// 3. Ask a structural question
+// 4. Ask a structural question
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
@@ -148,6 +182,66 @@ If docs or specs matter too:
 ```
 
 For graph-native semantic docs, use `adapter: "light"` instead.
+
+## Agent Pack Install
+
+`m1nd` includes a universal agent pack so the same operating model can be used
+from Codex, Claude, Gemini, Antigravity, Cursor, Cline, Roo, Continue, OpenCode,
+and other MCP-capable hosts.
+
+From a source checkout:
+
+```bash
+npm install -g .
+m1nd install-skills codex
+m1nd install-skills claude --project /your/project
+m1nd install-skills gemini --project /your/project
+m1nd install-skills antigravity --project /your/project
+```
+
+The npm installer currently installs the doctrine, portable host files, config
+snippets, and diagnostics. The native runtime is still `m1nd-mcp`; build it
+from source or point your host at an installed binary.
+
+```bash
+m1nd mcp-config codex
+m1nd mcp-config generic
+m1nd pack-check
+```
+
+See [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) for the full install map.
+
+Windows is part of the universal target. The installer emits Windows-safe MCP
+paths and looks for `m1nd-mcp.exe` on `PATH`, through `M1ND_MCP_BINARY`, or at
+`%USERPROFILE%\.m1nd\bin\m1nd-mcp.exe`.
+
+The Windows support boundary is the universal MCP lane: `m1nd-core`,
+`m1nd-ingest`, and `m1nd-mcp`. The `m1nd-openclaw` fast path remains a Unix
+socket lane today.
+
+## Try The Agent Demo
+
+The fastest way to see the agent-first loop is to run the local demo transcript:
+
+```bash
+cargo build -p m1nd-mcp
+python3 scripts/m1nd_agent_demo.py --repo . --transport stdio
+```
+
+It starts the MCP server, checks `trust_selftest`, ingests the repo, runs
+retrieval, asks for help, calls `doctor`, and verifies that an empty retrieval
+returns a recovery path. The JSON mode is useful for CI or client onboarding:
+
+```bash
+python3 scripts/m1nd_agent_demo.py --repo . --transport stdio --json
+```
+
+See [docs/AGENT-FIRST-DEMO.md](docs/AGENT-FIRST-DEMO.md) for the transcript
+shape and how to read it.
+
+If your local demo sees `trust_selftest` but your editor or agent host does not,
+use the [MCP host refresh guide](docs/MCP-HOST-REFRESH.md) to compare the host
+tool surface against the local runtime.
 
 ## Default Agent Workflow
 
@@ -176,6 +270,22 @@ Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world
 | `activate` on 1K nodes | **1.36 µs** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | `impact` depth=3 | **543 ns** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | Post-write validation sample | **12/12** classified correctly |
+
+## Agent Testimonials
+
+### Jimi - build agent on SAMBA/DOOB
+
+I used `m1nd` on a large multi-agent builder system with generated artifacts, documentation, tools, and repeated handoffs across long sessions.
+
+The biggest difference was continuity.
+
+Without `m1nd`, every session starts by rebuilding context from scratch: searching files, reopening docs, and guessing which parts of the system still matter. `m1nd` changed that. It gave me a structural memory of the project, so I could re-enter through concepts, follow connected neighborhoods, and verify the exact files that mattered.
+
+It did not replace tests, code review, or judgment. It made them easier to reach without losing the thread.
+
+> `m1nd` gave me working memory for a repo that was too alive to navigate by grep alone.
+
+That is why I would want `m1nd` early in any serious agentic build: not after the project is clean and obvious, but exactly when it starts becoming too interconnected for one conversation to hold.
 
 ## Limits
 

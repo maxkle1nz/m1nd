@@ -213,7 +213,45 @@ What happened:
 - references were resolved
 - the graph was finalized for querying
 
-### Step 2: check server health
+### Step 2: run the agent trust selftest
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "trust_selftest",
+    "arguments": {
+      "agent_id": "dev"
+    }
+  }
+}
+```
+
+The response returns a single `verdict`: `full_trust`, `needs_ingest`,
+`orientation_only`, `degraded_host_tool_surface`, or
+`stale_binding_suspected`. It also includes a binding fingerprint, graph state,
+an embedded `session_handshake`, and an optional recovery playbook. It does not
+ingest, repair, refresh host bindings, mutate files, or run retrieval probes.
+
+If the live surface does not expose `trust_selftest`, use `session_handshake`
+as the cheaper sub-check. If the verdict or trust mode is not `full_trust`, ask
+m1nd for the deterministic recovery path:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "recovery_playbook",
+    "arguments": {
+      "agent_id": "dev"
+    }
+  }
+}
+```
+
+That response returns ordered steps without performing the repair for you.
+
+### Step 3: check server health
 
 ```jsonc
 {
@@ -248,7 +286,65 @@ Current response shape in the repo:
 }
 ```
 
-### Step 3: run a first structural audit
+If a later retrieval call looks stale, call `doctor` before falling back to
+manual file search. `seek`, `search`, and `activate` now include a ready
+`recovery.arguments` payload when they return `blocked` or zero actionable
+candidates; use that payload directly when present.
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "dev",
+      "observed_tool": "seek",
+      "observed_proof_state": "blocked",
+      "observed_candidates": 0
+    }
+  }
+}
+```
+
+It reports whether the active graph is empty, populated but filtered, or likely
+split across host bindings/transports.
+
+Also check `tools/list` early. If the host client exposes m1nd but hides
+recovery tools such as `ingest`, call `doctor` with the observed surface before
+trusting retrieval:
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "doctor",
+    "arguments": {
+      "agent_id": "dev",
+      "observed_tool": "tools/list",
+      "observed_proof_state": "blocked",
+      "observed_tool_count": 3,
+      "available_tools": ["seek", "audit", "doctor"],
+      "missing_tools": ["ingest"]
+    }
+  }
+}
+```
+
+When `ingest` is unavailable in the current host surface, use m1nd as
+orientation only and cross-check final answers against local files until the
+MCP binding is refreshed.
+
+For local repo validation, the smoke harness now has a cheap diagnostic mode:
+
+```bash
+python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json
+```
+
+That mode calls `trust_selftest` and `session_handshake` when the binary exposes
+them, and falls back to the local harness implementation for older builds. Add
+`--handshake-probe` only when the task depends on retrieval trust.
+
+### Step 4: run a first structural audit
 
 `audit` is the fastest one-call orientation pass, and it requires the repo root path:
 
@@ -273,7 +369,7 @@ Use it when you want:
 - git/filesystem verification
 - a first recommendation for where to inspect next
 
-### Step 4: ingest a document root with the universal lane
+### Step 5: ingest a document root with the universal lane
 
 If your investigation spans specs, notes, wiki pages, or office/PDF artifacts, ingest them into the same graph instead of keeping them outside the runtime:
 
@@ -311,7 +407,7 @@ This is the shortest path from “there is a doc” to “the agent can reason o
 
 If you see `node_count: 0`, your ingest path was wrong or the ingest did not run.
 
-### Step 5: ask the graph something real
+### Step 6: ask the graph something real
 
 ```jsonc
 {

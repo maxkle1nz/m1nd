@@ -36,8 +36,11 @@ stateful perspective navigation. All tool calls require an `agent_id` parameter.
 
 ## WORKFLOWS
 
-**Session Start**: `health` → `drift` (recover what changed since last session) → \
-`ingest` (if graph is empty or stale). This gives you codebase-aware context.
+**Session Start**: `trust_selftest` → `recovery_playbook` if trust is not full \
+or retrieval looks blocked → `ingest` if needed → `seek`/`audit`. Use `session_handshake` \
+for cheaper host-surface classification and `doctor` when the playbook asks for \
+deeper diagnosis of a degraded host surface, empty graph, or stale-looking binding. \
+This gives you codebase-aware context.
 
 **Research**: `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → \
 `learn(feedback)`. Use `seek` for keyword search, `scan` for broad discovery, \
@@ -87,6 +90,10 @@ blast-radius analysis; activate gives associative exploration.
 for explicit exploration checkpoints.
 8. **Use `boot_memory` for small canonical doctrine/state** that should persist quickly \
 and stay hot in runtime memory without polluting trails or transcripts.
+9. **If `tools/list` is missing recovery tools such as `ingest`, call `doctor` with \
+`observed_tool=\"tools/list\"`, `observed_tool_count`, `available_tools`, and \
+`missing_tools`. Treat the host surface as degraded until it is rebound; use direct \
+repo reads for final truth when m1nd cannot re-ingest from the current session.**
 ";
 
 #[derive(Clone, Copy, Debug)]
@@ -583,6 +590,78 @@ pub fn tool_schemas() -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "session_handshake",
+                "description": "Cheap session trust handshake before relying on m1nd retrieval",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
+                        "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
+                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "trust_selftest",
+                "description": "One-call diagnostic verdict for m1nd host binding, graph, and recovery trust",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
+                        "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
+                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" },
+                        "observed_tool": { "type": "string", "description": "Optional tool that produced a suspicious result" },
+                        "observed_proof_state": { "type": "string", "description": "Optional proof_state from the suspicious result" },
+                        "observed_candidates": { "type": "integer", "description": "Optional candidate count from retrieval" },
+                        "scope": { "type": "string", "description": "Optional repo or scope path associated with the incident" },
+                        "error_text": { "type": "string", "description": "Optional error text or host message" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "recovery_playbook",
+                "description": "Deterministic recovery playbook for degraded bindings, empty graphs, and stale-looking sessions",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "trust_mode": { "type": "string", "description": "Optional prior handshake trust mode to preserve in the diagnostic trail" },
+                        "observed_tool": { "type": "string", "description": "Optional tool that produced a suspicious result" },
+                        "observed_proof_state": { "type": "string", "description": "Optional proof_state from the suspicious result" },
+                        "observed_candidates": { "type": "integer", "description": "Optional candidate count from retrieval" },
+                        "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
+                        "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
+                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" },
+                        "scope": { "type": "string", "description": "Optional repo or scope path associated with the incident" },
+                        "error_text": { "type": "string", "description": "Optional error text or host message" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "doctor",
+                "description": "Diagnose active graph, runtime, session, and stale binding symptoms",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "observed_tool": { "type": "string", "description": "Optional tool that produced a suspicious result" },
+                        "observed_proof_state": { "type": "string", "description": "Optional proof_state from the suspicious result" },
+                        "observed_candidates": { "type": "integer", "description": "Optional candidate count from retrieval" },
+                        "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
+                        "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
+                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" },
+                        "scope": { "type": "string", "description": "Optional scope/path used by the suspicious call" },
+                        "error_text": { "type": "string", "description": "Optional error text or host message" }
                     },
                     "required": ["agent_id"]
                 }
@@ -1796,7 +1875,9 @@ pub fn dispatch_tool(
         })
         .to_string();
 
-    auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
+    if !matches!(normalized.as_str(), "recovery_playbook" | "trust_selftest") {
+        auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
+    }
 
     let result = match normalized.as_str() {
         name if name.starts_with("perspective_") => dispatch_perspective_tool(state, name, params),
@@ -1833,7 +1914,14 @@ pub fn dispatch_tool(
         // Track savings (skip meta tools)
         if !matches!(
             normalized.as_str(),
-            "health" | "help" | "savings" | "report"
+            "health"
+                | "session_handshake"
+                | "trust_selftest"
+                | "recovery_playbook"
+                | "doctor"
+                | "help"
+                | "savings"
+                | "report"
         ) {
             state.savings_tracker.record(&normalized, result_count);
             state.global_savings.total_queries += 1;
@@ -1966,6 +2054,26 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = tools::handle_health(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "session_handshake" => {
+            let input: SessionHandshakeInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            tools::handle_session_handshake(state, input)
+        }
+        "trust_selftest" => {
+            let input: TrustSelftestInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            tools::handle_trust_selftest(state, input)
+        }
+        "recovery_playbook" => {
+            let input: RecoveryPlaybookInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            tools::handle_recovery_playbook(state, input)
+        }
+        "doctor" => {
+            let input: DoctorInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            tools::handle_doctor(state, input)
         }
         // L2-L7: Superpowers layer tools
         "seek" => {
@@ -2358,6 +2466,9 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
             | "daemon_tick"
             | "alerts_list"
             | "alerts_ack"
+            | "session_handshake"
+            | "trust_selftest"
+            | "recovery_playbook"
     )
 }
 
@@ -3212,6 +3323,10 @@ mod tests {
             "external_references",
             "federate_auto",
             "audit",
+            "session_handshake",
+            "trust_selftest",
+            "recovery_playbook",
+            "doctor",
             "daemon_start",
             "daemon_stop",
             "daemon_status",
@@ -3235,6 +3350,9 @@ mod tests {
             "daemon_tick",
             "alerts_list",
             "alerts_ack",
+            "session_handshake",
+            "trust_selftest",
+            "recovery_playbook",
         ] {
             assert!(
                 !should_autotick_daemon(skipped),
@@ -3243,6 +3361,703 @@ mod tests {
         }
         assert!(should_autotick_daemon("search"));
         assert!(should_autotick_daemon("apply"));
+    }
+
+    #[test]
+    fn health_exposes_host_binding_contract() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "health",
+            &serde_json::json!({
+                "agent_id": "jimi"
+            }),
+        )
+        .expect("health output");
+
+        assert_eq!(
+            output["tool_surface_contract"]["schema"],
+            "m1nd-tool-surface-contract-v0"
+        );
+        assert!(
+            output["tool_surface_contract"]["required_host_visible_tools"]
+                .as_array()
+                .expect("required tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("trust_selftest")),
+            "health should tell partial hosts that trust_selftest is required"
+        );
+        assert_eq!(
+            output["host_binding_alignment"]["schema"],
+            "m1nd-host-binding-alignment-v0"
+        );
+        assert_eq!(
+            output["binding_fingerprint"]["schema"],
+            "m1nd-binding-fingerprint-v0"
+        );
+    }
+
+    #[test]
+    fn session_handshake_marks_empty_graph_as_needing_ingest() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi"
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "needs_ingest");
+        assert_eq!(output["can_ingest"], true);
+        assert_eq!(output["tool_surface"]["degraded_host_tool_surface"], false);
+        assert_eq!(
+            output["doctor_recovery"]["suggested_tool"],
+            "recovery_playbook"
+        );
+    }
+
+    #[test]
+    fn session_handshake_includes_binding_fingerprint() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi"
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(
+            output["binding_fingerprint"]["schema"],
+            "m1nd-binding-fingerprint-v0"
+        );
+        assert!(
+            output["binding_fingerprint"]["process_id"]
+                .as_u64()
+                .unwrap_or_default()
+                > 0
+        );
+        assert_eq!(
+            output["binding_fingerprint"]["graph_finalized"],
+            output["health"]["graph_finalized"]
+        );
+    }
+
+    #[test]
+    fn session_handshake_flags_degraded_host_tool_surface() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool_count": 3,
+                "available_tools": ["seek", "audit", "doctor"],
+                "missing_tools": ["ingest"]
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "degraded_host_tool_surface");
+        assert_eq!(output["can_ingest"], false);
+        assert_eq!(output["can_recover"], false);
+        assert!(
+            output["tool_surface"]["missing_required_tools"]
+                .as_array()
+                .expect("missing tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("ingest")),
+            "handshake should preserve the missing ingest diagnosis"
+        );
+        assert_eq!(
+            output["doctor_recovery"]["arguments"]["observed_tool"],
+            "tools/list"
+        );
+    }
+
+    #[test]
+    fn session_handshake_does_not_invent_missing_tools_from_count_only() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool_count": 94
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "needs_ingest");
+        assert_eq!(output["tool_surface"]["tool_count"], 94);
+        assert_eq!(output["tool_surface"]["degraded_host_tool_surface"], false);
+        assert!(
+            output["tool_surface"]["missing_required_tools"]
+                .as_array()
+                .expect("missing tools")
+                .is_empty(),
+            "count-only evidence should not invent missing tool names"
+        );
+    }
+
+    #[test]
+    fn session_handshake_returns_full_trust_after_ingest() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(
+            repo.join("src/core.py"),
+            "def session_handshake_target():\n    return 'trusted graph'\n",
+        )
+        .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "available_tools": ["health", "trust_selftest", "recovery_playbook", "doctor", "ingest", "seek", "help", "session_handshake"]
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["schema"], "m1nd-session-handshake-v0");
+        assert_eq!(output["trust_mode"], "full_trust");
+        assert_eq!(output["doctor_recovery"], serde_json::Value::Null);
+        assert_eq!(
+            output["tool_surface"]["required_tools_present"]["trust_selftest"],
+            true
+        );
+        assert!(
+            output["health"]["node_count"].as_u64().unwrap_or_default() > 0,
+            "handshake should report the populated graph"
+        );
+    }
+
+    #[test]
+    fn trust_selftest_empty_graph_returns_needs_ingest_with_playbook() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "trust_selftest",
+            &serde_json::json!({
+                "agent_id": "jimi"
+            }),
+        )
+        .expect("trust selftest output");
+
+        assert_eq!(output["schema"], "m1nd-trust-selftest-v0");
+        assert_eq!(output["ok"], false);
+        assert_eq!(output["status"], "blocked");
+        assert_eq!(output["verdict"], "needs_ingest");
+        assert_eq!(output["checks"]["graph_populated"], false);
+        assert_eq!(
+            output["recovery_playbook"]["schema"],
+            "m1nd-recovery-playbook-v0"
+        );
+        assert_eq!(
+            output["session_handshake"]["schema"],
+            "m1nd-session-handshake-v0"
+        );
+    }
+
+    #[test]
+    fn trust_selftest_flags_degraded_host_tool_surface() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "trust_selftest",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool_count": 3,
+                "available_tools": ["seek", "audit", "doctor"],
+                "missing_tools": ["ingest", "trust_selftest"]
+            }),
+        )
+        .expect("trust selftest output");
+
+        assert_eq!(output["schema"], "m1nd-trust-selftest-v0");
+        assert_eq!(output["ok"], false);
+        assert_eq!(output["status"], "warn");
+        assert_eq!(output["verdict"], "degraded_host_tool_surface");
+        assert_eq!(output["checks"]["host_surface_complete"], false);
+        assert!(
+            output["session_handshake"]["tool_surface"]["missing_required_tools"]
+                .as_array()
+                .expect("missing tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("trust_selftest")),
+            "selftest should preserve missing trust_selftest evidence"
+        );
+    }
+
+    #[test]
+    fn trust_selftest_returns_full_trust_after_ingest() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(
+            repo.join("src/core.py"),
+            "def trust_selftest_target():\n    return 'trusted graph'\n",
+        )
+        .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "trust_selftest",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "available_tools": ["health", "trust_selftest", "recovery_playbook", "doctor", "ingest", "seek", "help", "session_handshake"]
+            }),
+        )
+        .expect("trust selftest output");
+
+        assert_eq!(output["schema"], "m1nd-trust-selftest-v0");
+        assert_eq!(output["ok"], true);
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["verdict"], "full_trust");
+        assert_eq!(output["next_action"], "proceed_with_m1nd_first");
+        assert_eq!(output["checks"]["recovery_playbook_attached"], false);
+        assert_eq!(output["recovery_playbook"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn trust_selftest_flags_stale_binding_from_suspicious_retrieval() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(
+            repo.join("src/core.py"),
+            "def trust_selftest_stale_binding_target():\n    return 'split brain?'\n",
+        )
+        .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "trust_selftest",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "seek",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0
+            }),
+        )
+        .expect("trust selftest output");
+
+        assert_eq!(output["schema"], "m1nd-trust-selftest-v0");
+        assert_eq!(output["ok"], false);
+        assert_eq!(output["status"], "warn");
+        assert_eq!(output["verdict"], "stale_binding_suspected");
+        assert_eq!(output["checks"]["graph_populated"], true);
+        assert_eq!(output["checks"]["suspicious_retrieval_evidence"], true);
+        assert_eq!(
+            output["recovery_playbook"]["trust_mode"],
+            "stale_binding_suspected"
+        );
+    }
+
+    #[test]
+    fn doctor_blocks_empty_graph_with_recovery_guidance() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "doctor",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "seek",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0
+            }),
+        )
+        .expect("doctor output");
+
+        assert_eq!(output["schema"], "m1nd-doctor-v0");
+        assert_eq!(output["status"], "blocked");
+        assert_eq!(output["diagnostics"]["graph_has_nodes"], false);
+        assert_eq!(output["diagnostics"]["stale_binding_suspected"], false);
+        assert!(
+            output["next_actions"]
+                .as_array()
+                .expect("next actions")
+                .iter()
+                .any(|action| action.as_str().unwrap_or_default().contains("ingest")),
+            "doctor should tell the agent how to recover an empty graph"
+        );
+    }
+
+    #[test]
+    fn doctor_flags_stale_binding_when_retrieval_blocks_on_populated_graph() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(
+            repo.join("src/core.py"),
+            "def schema_registry():\n    return 'm1nd doctor'\n",
+        )
+        .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+        state.track_agent("jimi");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "doctor",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "seek",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0
+            }),
+        )
+        .expect("doctor output");
+
+        assert_eq!(output["schema"], "m1nd-doctor-v0");
+        assert_eq!(output["status"], "warn");
+        assert_eq!(output["diagnostics"]["graph_has_nodes"], true);
+        assert_eq!(output["diagnostics"]["stale_binding_suspected"], true);
+        assert_eq!(output["diagnostics"]["agent_session_known"], true);
+        assert!(
+            output["transport_clues"]["split_brain_rule"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("host binding"),
+            "doctor should name the host binding split-brain risk"
+        );
+    }
+
+    #[test]
+    fn doctor_flags_degraded_host_tool_surface_when_required_tools_are_missing() {
+        let (_temp, mut state) = build_state();
+        state.track_agent("jimi");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "doctor",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "tools/list",
+                "observed_proof_state": "blocked",
+                "observed_tool_count": 3,
+                "available_tools": ["seek", "audit", "doctor"],
+                "missing_tools": ["ingest"]
+            }),
+        )
+        .expect("doctor output");
+
+        assert_eq!(output["schema"], "m1nd-doctor-v0");
+        assert_eq!(output["diagnostics"]["degraded_host_tool_surface"], true);
+        assert!(
+            output["tool_surface"]["missing_tools"]
+                .as_array()
+                .expect("missing tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("ingest")),
+            "doctor should name ingest as a missing recovery tool"
+        );
+        assert!(
+            output["next_actions"]
+                .as_array()
+                .expect("next actions")
+                .iter()
+                .any(|action| action
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("direct repo reads")),
+            "doctor should tell the agent to fall back to file truth when ingest is unavailable"
+        );
+    }
+
+    #[test]
+    fn recovery_playbook_tool_schema_is_exposed() {
+        let schema = tool_schemas();
+        let names: Vec<String> = schema["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()))
+            .map(|value| value.to_string())
+            .collect();
+
+        assert!(
+            names.iter().any(|name| name == "recovery_playbook"),
+            "tool_schemas should expose recovery_playbook"
+        );
+    }
+
+    #[test]
+    fn recovery_playbook_empty_graph_returns_needs_ingest() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "recovery_playbook",
+            &serde_json::json!({
+                "agent_id": "jimi"
+            }),
+        )
+        .expect("recovery playbook output");
+
+        assert_eq!(output["schema"], "m1nd-recovery-playbook-v0");
+        assert_eq!(output["status"], "blocked");
+        assert_eq!(output["trust_mode"], "needs_ingest");
+        assert!(
+            output["steps"]
+                .as_array()
+                .expect("steps")
+                .iter()
+                .any(|step| step["id"] == "call_ingest" && step["tool"] == "ingest"),
+            "recovery playbook should include an ingest step for an empty graph"
+        );
+    }
+
+    #[test]
+    fn recovery_playbook_flags_degraded_host_tool_surface() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "recovery_playbook",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool_count": 3,
+                "available_tools": ["seek", "audit", "doctor"],
+                "missing_tools": ["ingest"]
+            }),
+        )
+        .expect("recovery playbook output");
+
+        assert_eq!(output["trust_mode"], "degraded_host_tool_surface");
+        assert_eq!(output["status"], "warn");
+        assert!(
+            output["tool_surface"]["missing_required_tools"]
+                .as_array()
+                .expect("missing tools")
+                .iter()
+                .any(|tool| tool.as_str() == Some("ingest")),
+            "recovery playbook should preserve the missing ingest diagnosis"
+        );
+        assert!(
+            output["steps"]
+                .as_array()
+                .expect("steps")
+                .iter()
+                .any(|step| step["id"] == "call_doctor" && step["tool"] == "doctor"),
+            "recovery playbook should include doctor guidance when doctor is available"
+        );
+    }
+
+    #[test]
+    fn recovery_playbook_flags_stale_binding_on_populated_graph() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(
+            repo.join("src/core.py"),
+            "def recovery_playbook_target():\n    return 'split brain?'\n",
+        )
+        .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+        state.track_agent("jimi");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "recovery_playbook",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "seek",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0
+            }),
+        )
+        .expect("recovery playbook output");
+
+        assert_eq!(output["trust_mode"], "stale_binding_suspected");
+        assert_eq!(output["status"], "warn");
+        assert!(
+            output["steps"]
+                .as_array()
+                .expect("steps")
+                .iter()
+                .any(|step| step["id"] == "call_doctor" && step["tool"] == "doctor"),
+            "stale binding playbook should tell the agent to call doctor"
+        );
+        assert!(
+            output["steps"]
+                .as_array()
+                .expect("steps")
+                .iter()
+                .any(|step| step["id"] == "compare_binding_fingerprint"),
+            "stale binding playbook should compare binding fingerprints"
+        );
+        assert!(
+            output["steps"]
+                .as_array()
+                .expect("steps")
+                .iter()
+                .any(|step| step["action"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("mcp_agent_smoke.py")),
+            "stale binding playbook should include repo-local smoke commands"
+        );
+    }
+
+    #[test]
+    fn recovery_playbook_count_only_host_evidence_does_not_invent_missing_tools() {
+        let (_temp, mut state) = build_state();
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "recovery_playbook",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool_count": 94
+            }),
+        )
+        .expect("recovery playbook output");
+
+        assert_eq!(output["trust_mode"], "needs_ingest");
+        assert_eq!(output["tool_surface"]["tool_count"], 94);
+        assert!(
+            output["tool_surface"]["missing_required_tools"]
+                .as_array()
+                .expect("missing tools")
+                .is_empty(),
+            "count-only evidence should not invent missing tool names"
+        );
+    }
+
+    #[test]
+    fn activate_blocked_response_points_to_recovery_playbook_with_graph_state() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(repo.join("src/core.py"), "def core():\n    return 1\n")
+            .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "activate",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "query": "   ",
+                "top_k": 5
+            }),
+        )
+        .expect("activate output");
+
+        assert_eq!(output["proof_state"], "blocked");
+        assert_eq!(output["next_suggested_tool"], "recovery_playbook");
+        assert_eq!(output["graph_state"]["node_count"].as_u64().is_some(), true);
+        assert_eq!(
+            output["recovery"]["suggested_tool"].as_str(),
+            Some("recovery_playbook")
+        );
+        assert_eq!(
+            output["recovery"]["arguments"]["observed_tool"].as_str(),
+            Some("activate")
+        );
     }
 
     #[test]

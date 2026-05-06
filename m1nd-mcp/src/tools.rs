@@ -20,12 +20,53 @@ use std::time::Instant;
 // All handlers take &mut SessionState for graph + engine access.
 // ---------------------------------------------------------------------------
 
+pub const AGENT_TRUST_REQUIRED_TOOLS: [&str; 7] = [
+    "health",
+    "trust_selftest",
+    "recovery_playbook",
+    "doctor",
+    "ingest",
+    "seek",
+    "help",
+];
+
+pub const HOST_BINDING_REQUIRED_TOOLS: [&str; 8] = [
+    "health",
+    "trust_selftest",
+    "session_handshake",
+    "recovery_playbook",
+    "doctor",
+    "ingest",
+    "seek",
+    "help",
+];
+
 fn normalized_ingest_mode(mode: &str) -> &str {
     if mode.eq_ignore_ascii_case("merge") {
         "merge"
     } else {
         "replace"
     }
+}
+
+fn playbook_step(
+    id: &str,
+    action: &str,
+    reason: &str,
+    tool: Option<&str>,
+    arguments: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut step = serde_json::Map::new();
+    step.insert("id".into(), serde_json::json!(id));
+    step.insert("action".into(), serde_json::json!(action));
+    step.insert("reason".into(), serde_json::json!(reason));
+    if let Some(tool) = tool.filter(|value| !value.is_empty()) {
+        step.insert("tool".into(), serde_json::json!(tool));
+    }
+    if let Some(arguments) = arguments {
+        step.insert("arguments".into(), arguments);
+    }
+    serde_json::Value::Object(step)
 }
 
 fn note_learn_node_effect(
@@ -308,6 +349,40 @@ pub fn handle_activate(
 ) -> M1ndResult<ActivateOutput> {
     let start = Instant::now();
 
+    if input.query.trim().is_empty() {
+        let (graph_state, recovery) = state.retrieval_failure_context(
+            &input.agent_id,
+            "activate",
+            "blocked",
+            Some(0),
+            None,
+            Some("activate query is empty"),
+        );
+        return Ok(ActivateOutput {
+            query: input.query,
+            seeds: vec![],
+            activated: vec![],
+            ghost_edges: vec![],
+            structural_holes: vec![],
+            plasticity: PlasticityOutput {
+                edges_strengthened: 0,
+                edges_decayed: 0,
+                ltp_events: 0,
+                priming_nodes: 0,
+            },
+            elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            proof_state: "blocked".into(),
+            next_suggested_tool: Some("recovery_playbook".into()),
+            next_suggested_target: None,
+            next_step_hint: Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into()),
+            confidence: Some(0.0),
+            why_this_next_step: Some("Activate needs at least one query seed before graph propagation can produce evidence.".into()),
+            what_is_missing: Some("A non-empty activation query is still missing.".into()),
+            graph_state,
+            recovery,
+        });
+    }
+
     let dimensions: Vec<Dimension> = input
         .dimensions
         .iter()
@@ -537,8 +612,17 @@ pub fn handle_activate(
         max_suggestions: None,
         render: Some(HelpRender::None),
     };
-    let activate_projection =
-        help_guidance::runtime_projection_for_tool("activate", &activate_help_input, "triaging");
+    let activated_count = activated.len();
+    let default_activate_proof_state = if activated_count == 0 {
+        "blocked"
+    } else {
+        "triaging"
+    };
+    let activate_projection = help_guidance::runtime_projection_for_tool(
+        "activate",
+        &activate_help_input,
+        default_activate_proof_state,
+    );
     let next_suggested_target = activated
         .first()
         .and_then(|entry| {
@@ -553,6 +637,38 @@ pub fn handle_activate(
                 .as_ref()
                 .and_then(|projection| projection.next_suggested_target.clone())
         });
+    let proof_state = activate_projection
+        .as_ref()
+        .map(|projection| projection.proof_state.clone())
+        .unwrap_or_else(|| default_activate_proof_state.into());
+    let failed_retrieval = proof_state == "blocked" || activated_count == 0;
+    let (graph_state, recovery) = state.retrieval_failure_context(
+        &input.agent_id,
+        "activate",
+        &proof_state,
+        Some(activated_count as u64),
+        None,
+        None,
+    );
+    let next_suggested_tool = if failed_retrieval {
+        Some("recovery_playbook".into())
+    } else {
+        activate_projection
+            .as_ref()
+            .and_then(|projection| projection.next_suggested_tool.clone())
+    };
+    let next_suggested_target = if failed_retrieval {
+        None
+    } else {
+        next_suggested_target
+    };
+    let next_step_hint = if failed_retrieval {
+        Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into())
+    } else {
+        activate_projection
+            .as_ref()
+            .and_then(|projection| projection.next_step_hint.clone())
+    };
 
     Ok(ActivateOutput {
         query: input.query,
@@ -562,17 +678,10 @@ pub fn handle_activate(
         structural_holes,
         plasticity,
         elapsed_ms,
-        proof_state: activate_projection
-            .as_ref()
-            .map(|projection| projection.proof_state.clone())
-            .unwrap_or_else(|| "triaging".into()),
-        next_suggested_tool: activate_projection
-            .as_ref()
-            .and_then(|projection| projection.next_suggested_tool.clone()),
+        proof_state,
+        next_suggested_tool,
         next_suggested_target,
-        next_step_hint: activate_projection
-            .as_ref()
-            .and_then(|projection| projection.next_step_hint.clone()),
+        next_step_hint,
         confidence: activate_projection
             .as_ref()
             .and_then(|projection| projection.confidence),
@@ -582,6 +691,8 @@ pub fn handle_activate(
         what_is_missing: activate_projection
             .as_ref()
             .and_then(|projection| projection.what_is_missing.clone()),
+        graph_state,
+        recovery,
     })
 }
 
@@ -2144,24 +2255,810 @@ pub fn handle_resonate(
 /// Handle m1nd.health (03-MCP Section 2.12).
 pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResult<HealthOutput> {
     let graph = state.graph.read();
+    let node_count = graph.num_nodes();
+    let edge_count = graph.num_edges() as u64;
+    let plasticity_edge_count = graph.edge_plasticity.original_weight.len();
+    drop(graph);
 
     let last_persist = state
         .last_persist_time
         .map(|t| format!("{:.0}s ago", t.elapsed().as_secs_f64()));
+    let tool_schema = crate::server::tool_schemas();
+    let registry_tool_count = tool_schema
+        .get("tools")
+        .and_then(|tools| tools.as_array())
+        .map(|tools| tools.len() as u64)
+        .unwrap_or(0);
 
     Ok(HealthOutput {
         status: "ok".into(),
-        node_count: graph.num_nodes(),
-        edge_count: graph.num_edges() as u64,
+        node_count,
+        edge_count,
         queries_processed: state.queries_processed,
         uptime_seconds: state.uptime_seconds(),
         memory_usage_bytes: 0, // simplified -- would need jemalloc stats
-        plasticity_state: format!(
-            "{} edges tracked",
-            graph.edge_plasticity.original_weight.len()
-        ),
+        plasticity_state: format!("{} edges tracked", plasticity_edge_count),
         last_persist_time: last_persist,
         active_sessions: state.session_summary(),
         git: crate::audit_handlers::collect_git_state(state, 20),
+        binding_fingerprint: state.binding_fingerprint(),
+        tool_surface_contract: serde_json::json!({
+            "schema": "m1nd-tool-surface-contract-v0",
+            "registry_tool_count": registry_tool_count,
+            "required_agent_trust_tools": AGENT_TRUST_REQUIRED_TOOLS,
+            "required_host_visible_tools": HOST_BINDING_REQUIRED_TOOLS,
+            "minimum_safe_tool_count": registry_tool_count,
+            "degraded_if_missing_any": HOST_BINDING_REQUIRED_TOOLS,
+            "recovery_tool": "recovery_playbook",
+            "diagnostic_tool": "doctor",
+        }),
+        host_binding_alignment: serde_json::json!({
+            "schema": "m1nd-host-binding-alignment-v0",
+            "status": "needs_client_surface_comparison",
+            "rule": "Compare the host-visible m1nd tool names and count against tool_surface_contract. If trust_selftest, session_handshake, or recovery_playbook is missing, treat this host binding as degraded_host_tool_surface even when health responds.",
+            "current_runtime_has_graph": node_count > 0 && edge_count > 0,
+            "next_action": "Call trust_selftest with observed_tool_count and available_tools when visible; otherwise use session_handshake, local repo smoke, or refresh the MCP host binding.",
+            "smoke_commands": [
+                "python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json",
+                "python3 scripts/mcp_agent_smoke.py --repo . --transport http --handshake-only --json"
+            ],
+            "non_claims": [
+                "health cannot see which subset of tools the client host injected",
+                "health does not rebind the host or refresh tool schemas automatically"
+            ],
+        }),
     })
+}
+
+/// Handle m1nd.session_handshake.
+///
+/// The handshake is intentionally cheap: it inspects the host tool surface and
+/// active graph state, then returns an operational trust verdict. It does not
+/// ingest, mutate the graph, or run retrieval probes.
+pub fn handle_session_handshake(
+    state: &mut SessionState,
+    input: SessionHandshakeInput,
+) -> M1ndResult<serde_json::Value> {
+    let mut available_tools = input.available_tools.clone();
+    available_tools.sort();
+    available_tools.dedup();
+    let host_surface_names_observed =
+        !available_tools.is_empty() || !input.missing_tools.is_empty();
+
+    if !host_surface_names_observed {
+        available_tools = AGENT_TRUST_REQUIRED_TOOLS
+            .iter()
+            .map(|tool| (*tool).to_string())
+            .collect();
+        available_tools.push("session_handshake".into());
+        available_tools.push("recovery_playbook".into());
+        available_tools.sort();
+        available_tools.dedup();
+    }
+
+    let available_tool_set: HashSet<_> = available_tools.iter().cloned().collect();
+    let mut missing_tools = input.missing_tools.clone();
+    for tool in AGENT_TRUST_REQUIRED_TOOLS {
+        if !available_tool_set.contains(tool) {
+            missing_tools.push(tool.to_string());
+        }
+    }
+    missing_tools.sort();
+    missing_tools.dedup();
+
+    let degraded_host_tool_surface = !missing_tools.is_empty();
+    let can_ingest = available_tool_set.contains("ingest");
+    let can_retrieve = available_tool_set.contains("seek");
+    let can_recover = available_tool_set.contains("recovery_playbook");
+    let can_diagnose = available_tool_set.contains("doctor");
+
+    let graph = state.graph.read();
+    let node_count = graph.num_nodes();
+    let edge_count = graph.num_edges() as u64;
+    let graph_finalized = graph.finalized;
+    drop(graph);
+
+    let (trust_mode, next_action) = if degraded_host_tool_surface {
+        (
+            "degraded_host_tool_surface",
+            "treat m1nd as orientation only, refresh the MCP binding, and verify final truth with local files",
+        )
+    } else if node_count == 0 || edge_count == 0 {
+        if can_ingest {
+            (
+                "needs_ingest",
+                "run ingest for the intended repo before trusting graph retrieval",
+            )
+        } else {
+            (
+                "orientation_only",
+                "use m1nd only as orientation and verify final truth with local files until ingest is available",
+            )
+        }
+    } else {
+        (
+            "full_trust",
+            "continue with m1nd-first retrieval; use compiler/tests for runtime truth",
+        )
+    };
+
+    let doctor_recovery = if degraded_host_tool_surface {
+        Some(serde_json::json!({
+            "suggested_tool": if can_recover { "recovery_playbook" } else if can_diagnose { "doctor" } else { "" },
+            "arguments": {
+                "agent_id": input.agent_id,
+                "observed_tool": "tools/list",
+                "observed_proof_state": "blocked",
+                "observed_tool_count": input.observed_tool_count.unwrap_or(available_tools.len() as u64),
+                "available_tools": available_tools.clone(),
+                "missing_tools": missing_tools.clone(),
+            },
+            "fallback": "if doctor is unavailable, restart or rebind the MCP host surface and use direct repo reads for final truth",
+        }))
+    } else if node_count == 0 || edge_count == 0 {
+        Some(serde_json::json!({
+            "suggested_tool": if can_recover { "recovery_playbook" } else if can_diagnose { "doctor" } else { "" },
+            "arguments": {
+                "agent_id": input.agent_id,
+                "observed_tool": "health",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0,
+            },
+        }))
+    } else {
+        None
+    };
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-session-handshake-v0",
+        "trust_mode": trust_mode,
+        "binding_fingerprint": state.binding_fingerprint(),
+        "can_ingest": can_ingest,
+        "can_retrieve": can_retrieve,
+        "can_recover": can_recover,
+        "next_action": next_action,
+        "tool_surface": {
+            "status": if degraded_host_tool_surface { "degraded_host_tool_surface" } else { "ok" },
+            "tool_count": input.observed_tool_count.unwrap_or(available_tools.len() as u64),
+            "required_tools": AGENT_TRUST_REQUIRED_TOOLS,
+            "required_tools_present": {
+                "health": available_tool_set.contains("health"),
+                "trust_selftest": available_tool_set.contains("trust_selftest"),
+                "recovery_playbook": can_recover,
+                "doctor": can_diagnose,
+                "ingest": can_ingest,
+                "seek": can_retrieve,
+                "help": available_tool_set.contains("help"),
+            },
+            "missing_required_tools": missing_tools,
+            "available_tools_sample": available_tools.iter().take(24).cloned().collect::<Vec<_>>(),
+            "degraded_host_tool_surface": degraded_host_tool_surface,
+        },
+        "health": {
+            "status": "ok",
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "queries_processed": state.queries_processed,
+            "active_session_count": state.sessions.len(),
+            "graph_finalized": graph_finalized,
+        },
+        "graph_state": state.mini_graph_state(),
+        "doctor_recovery": doctor_recovery,
+        "used_probe": false,
+        "probe": serde_json::Value::Null,
+    }))
+}
+
+/// Handle m1nd.trust_selftest.
+///
+/// The selftest is a one-call diagnostic verdict for agents. It composes the
+/// current binding fingerprint, host-visible tool evidence, graph state,
+/// session handshake, and recovery playbook when needed. It does not ingest,
+/// mutate, repair, or probe retrieval on its own.
+pub fn handle_trust_selftest(
+    state: &mut SessionState,
+    input: TrustSelftestInput,
+) -> M1ndResult<serde_json::Value> {
+    let agent_id = input.agent_id.clone();
+    let observed_blocked = input.observed_proof_state.as_deref() == Some("blocked");
+    let observed_zero_candidates = input.observed_candidates == Some(0);
+    let suspicious_retrieval = observed_blocked || observed_zero_candidates;
+
+    let handshake = handle_session_handshake(
+        state,
+        SessionHandshakeInput {
+            agent_id: agent_id.clone(),
+            observed_tool_count: input.observed_tool_count,
+            available_tools: input.available_tools.clone(),
+            missing_tools: input.missing_tools.clone(),
+        },
+    )?;
+
+    let handshake_trust_mode = handshake
+        .get("trust_mode")
+        .and_then(|value| value.as_str())
+        .unwrap_or("orientation_only");
+    let graph_state = state.graph_runtime_summary();
+    let graph_has_nodes = graph_state
+        .get("node_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0)
+        > 0
+        && graph_state
+            .get("edge_count")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0)
+            > 0;
+
+    let verdict = match handshake_trust_mode {
+        "degraded_host_tool_surface" => "degraded_host_tool_surface",
+        "needs_ingest" => "needs_ingest",
+        "orientation_only" => "orientation_only",
+        "full_trust" if graph_has_nodes && suspicious_retrieval => "stale_binding_suspected",
+        "full_trust" => "full_trust",
+        other if graph_has_nodes && suspicious_retrieval => {
+            if other == "full_trust" {
+                "stale_binding_suspected"
+            } else {
+                other
+            }
+        }
+        other => other,
+    }
+    .to_string();
+
+    let status = match verdict.as_str() {
+        "full_trust" => "ok",
+        "needs_ingest" => "blocked",
+        _ => "warn",
+    };
+    let ok = verdict == "full_trust";
+
+    let recovery_playbook = if !ok || suspicious_retrieval {
+        Some(handle_recovery_playbook(
+            state,
+            RecoveryPlaybookInput {
+                agent_id: agent_id.clone(),
+                trust_mode: Some(verdict.clone()),
+                observed_tool: input.observed_tool.clone(),
+                observed_proof_state: input.observed_proof_state.clone(),
+                observed_candidates: input.observed_candidates,
+                observed_tool_count: input.observed_tool_count,
+                available_tools: input.available_tools.clone(),
+                missing_tools: input.missing_tools.clone(),
+                scope: input.scope.clone(),
+                error_text: input.error_text.clone(),
+            },
+        )?)
+    } else {
+        None
+    };
+
+    let default_next_action = if ok {
+        "proceed_with_m1nd_first"
+    } else {
+        "inspect_trust_selftest_verdict"
+    };
+    let next_action = recovery_playbook
+        .as_ref()
+        .and_then(|playbook| playbook.get("next_action"))
+        .and_then(|value| value.as_str())
+        .unwrap_or(default_next_action);
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-trust-selftest-v0",
+        "ok": ok,
+        "status": status,
+        "verdict": verdict,
+        "next_action": next_action,
+        "binding_fingerprint": state.binding_fingerprint(),
+        "graph_state": graph_state,
+        "session_handshake": handshake,
+        "recovery_playbook": recovery_playbook.unwrap_or(serde_json::Value::Null),
+        "checks": {
+            "binding_fingerprint_present": true,
+            "graph_populated": graph_has_nodes,
+            "host_surface_complete": verdict != "degraded_host_tool_surface",
+            "needs_ingest": verdict == "needs_ingest",
+            "stale_binding_suspected": verdict == "stale_binding_suspected",
+            "suspicious_retrieval_evidence": suspicious_retrieval,
+            "recovery_playbook_attached": !ok || suspicious_retrieval,
+        },
+        "non_claims": [
+            "trust_selftest does not ingest or mutate the graph.",
+            "trust_selftest does not refresh the host MCP binding.",
+            "trust_selftest does not run a retrieval probe automatically.",
+            "trust_selftest does not replace compiler, tests, or local file truth."
+        ],
+    }))
+}
+
+/// Handle m1nd.recovery_playbook.
+///
+/// The recovery playbook is diagnostic-only. It inspects current runtime state
+/// plus caller-provided host evidence, then returns a deterministic sequence of
+/// next actions without mutating the graph or probing the filesystem.
+pub fn handle_recovery_playbook(
+    state: &mut SessionState,
+    input: RecoveryPlaybookInput,
+) -> M1ndResult<serde_json::Value> {
+    let agent_id = input.agent_id.clone();
+    let input_trust_mode = input.trust_mode.clone();
+    let handshake = handle_session_handshake(
+        state,
+        SessionHandshakeInput {
+            agent_id: agent_id.clone(),
+            observed_tool_count: input.observed_tool_count,
+            available_tools: input.available_tools.clone(),
+            missing_tools: input.missing_tools.clone(),
+        },
+    )?;
+
+    let graph = state.graph.read();
+    let graph_has_nodes = graph.num_nodes() > 0;
+    drop(graph);
+
+    let observed_blocked = input.observed_proof_state.as_deref() == Some("blocked");
+    let observed_zero_candidates = input.observed_candidates == Some(0);
+    let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
+
+    let handshake_trust_mode = handshake
+        .get("trust_mode")
+        .and_then(|value| value.as_str())
+        .unwrap_or("orientation_only");
+    let trust_mode = match handshake_trust_mode {
+        "degraded_host_tool_surface" => "degraded_host_tool_surface",
+        "needs_ingest" => "needs_ingest",
+        "orientation_only" => "orientation_only",
+        "full_trust" if stale_binding_suspected => "stale_binding_suspected",
+        "full_trust" => "full_trust",
+        _ if stale_binding_suspected => "stale_binding_suspected",
+        _ => handshake_trust_mode,
+    };
+
+    let can_diagnose = handshake
+        .pointer("/tool_surface/required_tools_present/doctor")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let handshake_doctor_arguments = handshake
+        .get("doctor_recovery")
+        .and_then(|value| value.get("arguments"))
+        .cloned();
+    let observed_tool = input
+        .observed_tool
+        .clone()
+        .unwrap_or_else(|| "seek".to_string());
+    let observed_proof_state = input
+        .observed_proof_state
+        .clone()
+        .unwrap_or_else(|| "blocked".to_string());
+    let stale_doctor_arguments = state
+        .doctor_recovery_payload(
+            &agent_id,
+            &observed_tool,
+            &observed_proof_state,
+            input.observed_candidates,
+            input.scope.as_deref(),
+            input.error_text.as_deref(),
+        )
+        .get("arguments")
+        .cloned();
+    let ingest_path = input
+        .scope
+        .clone()
+        .or_else(|| state.workspace_root.clone())
+        .unwrap_or_else(|| "<intended-repo-path>".to_string());
+
+    let (status, recovery_goal, next_action, steps) = match trust_mode {
+        "degraded_host_tool_surface" => {
+            let mut steps = vec![
+                playbook_step(
+                    "refresh_host_binding",
+                    "Refresh or rebind the MCP host surface so the full m1nd recovery namespace is exposed.",
+                    "The current host surface is missing required tools, so this binding cannot complete its own recovery loop.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "rerun_tools_list",
+                    "Rerun tools/list and capture available_tools plus missing_tools from the host surface.",
+                    "A raw tool count is not enough to prove which recovery capabilities are actually available.",
+                    None,
+                    None,
+                ),
+            ];
+            if can_diagnose {
+                steps.push(playbook_step(
+                    "call_doctor",
+                    "Call doctor with the degraded host evidence.",
+                    "Doctor will confirm whether the missing surface is host-only or reflects a wider runtime mismatch.",
+                    Some("doctor"),
+                    handshake_doctor_arguments.clone(),
+                ));
+            }
+            steps.push(playbook_step(
+                "rerun_session_handshake",
+                "Call session_handshake again after the host surface is rebound.",
+                "The handshake should move from degraded_host_tool_surface to either needs_ingest or full_trust before m1nd retrieval is trusted again.",
+                Some("session_handshake"),
+                Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+            ));
+            steps.push(playbook_step(
+                "use_local_file_truth",
+                "Use local file reads, compiler output, and tests for final truth until the host surface is repaired.",
+                "This playbook does not auto-repair, auto-ingest, or mutate the filesystem.",
+                None,
+                None,
+            ));
+            (
+                "warn",
+                "Restore a complete host-bound m1nd tool surface before trusting graph recovery.",
+                "refresh_host_binding",
+                steps,
+            )
+        }
+        "needs_ingest" => (
+            "blocked",
+            "Populate this binding's active graph for the intended repository.",
+            "call_ingest",
+            vec![
+                playbook_step(
+                    "call_ingest",
+                    "Call ingest for the intended repository on this same binding.",
+                    "The active graph is empty or incomplete, so retrieval cannot yet be trusted.",
+                    Some("ingest"),
+                    Some(serde_json::json!({
+                        "agent_id": agent_id.clone(),
+                        "path": ingest_path,
+                    })),
+                ),
+                playbook_step(
+                    "rerun_session_handshake",
+                    "Call session_handshake again after ingest completes.",
+                    "The handshake should confirm node and edge counts before the next retrieval step.",
+                    Some("session_handshake"),
+                    Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+                ),
+            ],
+        ),
+        "orientation_only" => (
+            "warn",
+            "Recover an ingest-capable binding or fall back to local file truth.",
+            "refresh_binding_for_ingest",
+            vec![
+                playbook_step(
+                    "refresh_binding_for_ingest",
+                    "Refresh or rebind the host surface until ingest is available on this session.",
+                    "The current binding can orient but cannot populate or refresh the graph state.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "use_local_file_truth",
+                    "Use local file reads and runtime truth while the host surface remains orientation-only.",
+                    "Without ingest on this binding, m1nd cannot repair the trust gap from inside the current host session.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "rerun_session_handshake",
+                    "Call session_handshake after the binding exposes ingest.",
+                    "The handshake will tell you whether the recovered binding still needs ingest or is ready for full trust.",
+                    Some("session_handshake"),
+                    Some(serde_json::json!({ "agent_id": agent_id.clone() })),
+                ),
+            ],
+        ),
+        "stale_binding_suspected" => (
+            "warn",
+            "Prove whether host, binary, runtime, or graph identity drift is causing split-brain retrieval.",
+            "call_doctor",
+            vec![
+                playbook_step(
+                    "call_doctor",
+                    "Call doctor with the blocked or zero-candidate observation.",
+                    "Doctor will correlate the suspicious retrieval result with graph state, session continuity, and transport clues.",
+                    Some("doctor"),
+                    stale_doctor_arguments,
+                ),
+                playbook_step(
+                    "compare_binding_fingerprint",
+                    "Compare this binding_fingerprint with the host, repo-local stdio, and repo-local HTTP handshake outputs.",
+                    "Matching process_id, current_exe, runtime_root, graph_path, and generation counters is the fastest way to prove or disprove split-brain binding drift.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "run_stdio_smoke",
+                    "Run `python3 scripts/mcp_agent_smoke.py --repo . --handshake-only --json` and compare its trust_mode plus binding_fingerprint.",
+                    "A repo-local stdio smoke checks the binary directly without the host MCP surface in the middle.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "run_http_smoke",
+                    "Run `python3 scripts/mcp_agent_smoke.py --repo . --transport http --handshake-only --json` and compare the same fingerprint fields.",
+                    "A repo-local HTTP smoke helps separate transport-specific host issues from shared runtime identity.",
+                    None,
+                    None,
+                ),
+                playbook_step(
+                    "fallback_local_file_truth",
+                    "Use direct repo files and focused tests while the binding mismatch remains unresolved.",
+                    "This playbook never performs an automatic repair, ingest, or retrieval probe on your behalf.",
+                    None,
+                    None,
+                ),
+            ],
+        ),
+        _ => (
+            "ok",
+            "Continue with m1nd-first retrieval on the current binding.",
+            "proceed_with_m1nd_first",
+            vec![playbook_step(
+                "proceed_with_m1nd_first",
+                "Proceed with m1nd-first retrieval such as seek, activate, or search on this binding.",
+                "The current graph state and host surface do not show a recovery blocker.",
+                None,
+                None,
+            )],
+        ),
+    };
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-recovery-playbook-v0",
+        "status": status,
+        "trust_mode": trust_mode,
+        "input_trust_mode": input_trust_mode,
+        "binding_fingerprint": handshake.get("binding_fingerprint").cloned().unwrap_or_else(|| state.binding_fingerprint()),
+        "graph_state": state.graph_runtime_summary(),
+        "tool_surface": handshake.get("tool_surface").cloned().unwrap_or_else(|| serde_json::json!({})),
+        "recovery_goal": recovery_goal,
+        "steps": steps,
+        "next_action": next_action,
+        "non_claims": [
+            "No automatic repair was performed.",
+            "No ingest or graph mutation was performed.",
+            "No retrieval probe or filesystem mutation was performed.",
+            "This playbook is derived only from current session state and caller-supplied host evidence."
+        ],
+    }))
+}
+
+/// Handle m1nd.doctor.
+///
+/// Doctor is intentionally diagnostic only: it reports the active graph,
+/// runtime, session, and likely recovery path without mutating the graph.
+pub fn handle_doctor(
+    state: &mut SessionState,
+    input: DoctorInput,
+) -> M1ndResult<serde_json::Value> {
+    let graph = state.graph.read();
+    let node_count = graph.num_nodes();
+    let edge_count = graph.num_edges() as u64;
+    let graph_finalized = graph.finalized;
+    drop(graph);
+
+    let observed_tool = input
+        .observed_tool
+        .clone()
+        .unwrap_or_else(|| "unknown".into());
+    let observed_proof_state = input.observed_proof_state.clone();
+    let observed_candidates = input.observed_candidates;
+    let observed_tool_count = input.observed_tool_count;
+    let mut available_tools = input.available_tools.clone();
+    available_tools.sort();
+    available_tools.dedup();
+    let available_tool_set: std::collections::HashSet<_> =
+        available_tools.iter().cloned().collect();
+    let required_recovery_tools = ["ingest", "seek", "help", "doctor"];
+    let mut missing_tools = input.missing_tools.clone();
+    if !available_tools.is_empty() {
+        for tool in required_recovery_tools {
+            if !available_tool_set.contains(tool) {
+                missing_tools.push(tool.to_string());
+            }
+        }
+    }
+    missing_tools.sort();
+    missing_tools.dedup();
+    let degraded_host_tool_surface = !missing_tools.is_empty();
+    let observed_blocked = observed_proof_state.as_deref() == Some("blocked");
+    let observed_zero_candidates = observed_candidates == Some(0);
+    let graph_has_nodes = node_count > 0;
+    let has_ingest_roots = !state.ingest_roots.is_empty();
+    let workspace_root_known = state.workspace_root.is_some();
+    let agent_session = state.sessions.get(&input.agent_id);
+
+    let mut warnings = Vec::new();
+    let mut next_actions = Vec::new();
+    let mut probable_causes = Vec::new();
+
+    if !graph_has_nodes {
+        warnings.push("active graph has zero nodes".to_string());
+        probable_causes.push("ingest did not populate this active MCP session".to_string());
+        probable_causes
+            .push("the agent is attached to a different m1nd instance than expected".to_string());
+        next_actions.push(
+            "run ingest against the intended repository on this same tool binding".to_string(),
+        );
+        next_actions
+            .push("call doctor again and confirm node_count is greater than zero".to_string());
+    }
+
+    if graph_has_nodes && (observed_blocked || observed_zero_candidates) {
+        warnings.push(format!(
+            "{} reported blocked/zero-candidate retrieval while the active graph is populated",
+            observed_tool
+        ));
+        probable_causes.push(
+            "host MCP binding, transport, or agent session is pointed at stale state".to_string(),
+        );
+        probable_causes
+            .push("scope/path normalization filtered out the intended graph region".to_string());
+        next_actions.push(
+            "verify the same binding with stdio and HTTP smokes before declaring the graph stale"
+                .to_string(),
+        );
+        next_actions.push(
+            "retry retrieval without scope, then with both absolute and repo-relative scope"
+                .to_string(),
+        );
+    }
+
+    if degraded_host_tool_surface {
+        warnings.push(format!(
+            "host tool surface is missing required m1nd tools: {}",
+            missing_tools.join(", ")
+        ));
+        probable_causes
+            .push("the MCP client injected a partial tool namespace or stale binding".to_string());
+        probable_causes.push(
+            "this agent may be seeing a different public tool surface than the local m1nd runtime"
+                .to_string(),
+        );
+        next_actions.push(
+            "treat m1nd as an orientation signal only until the tool surface is rebound"
+                .to_string(),
+        );
+        next_actions.push(
+            "use direct repo reads for final truth when ingest is unavailable on this host surface"
+                .to_string(),
+        );
+        next_actions.push(
+            "restart or refresh the MCP binding, then rerun tools/list and the repo-local smoke harness"
+                .to_string(),
+        );
+    }
+
+    if graph_has_nodes && !has_ingest_roots {
+        warnings.push("graph is populated but ingest_roots are empty".to_string());
+        probable_causes.push(
+            "the graph was loaded from an older snapshot without ingest root sidecar state"
+                .to_string(),
+        );
+        next_actions.push(
+            "rerun ingest in replace or merge mode so workspace_root and ingest_roots are refreshed"
+                .to_string(),
+        );
+    }
+
+    if !workspace_root_known {
+        warnings.push("workspace_root is unknown".to_string());
+        next_actions.push(
+            "ingest a repository path rather than only a standalone graph snapshot".to_string(),
+        );
+    }
+
+    if agent_session.is_none() {
+        warnings.push(format!(
+            "agent session '{}' is not yet present in this runtime state",
+            input.agent_id
+        ));
+        probable_causes.push(
+            "this transport may not be tracking agent sessions before dispatch, or the agent_id changed"
+                .to_string(),
+        );
+        next_actions.push("keep agent_id stable across the investigation".to_string());
+    }
+
+    if next_actions.is_empty() {
+        next_actions.push(
+            "continue with m1nd-first retrieval; use compiler/tests for runtime truth".to_string(),
+        );
+    }
+
+    warnings.sort();
+    warnings.dedup();
+    probable_causes.sort();
+    probable_causes.dedup();
+    next_actions.sort();
+    next_actions.dedup();
+
+    let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
+    let status = if !graph_has_nodes {
+        "blocked"
+    } else if degraded_host_tool_surface || !warnings.is_empty() {
+        "warn"
+    } else {
+        "ok"
+    };
+
+    let recent_agent_queries: Vec<_> = state
+        .query_log
+        .iter()
+        .rev()
+        .filter(|entry| entry.agent_id == input.agent_id)
+        .take(5)
+        .cloned()
+        .collect();
+
+    let last_persist_secs_ago = state
+        .last_persist_time
+        .map(|last| last.elapsed().as_secs_f64());
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-doctor-v0",
+        "status": status,
+        "agent_id": input.agent_id,
+        "diagnostics": {
+            "graph_has_nodes": graph_has_nodes,
+            "graph_finalized": graph_finalized,
+            "has_ingest_roots": has_ingest_roots,
+            "workspace_root_known": workspace_root_known,
+            "agent_session_known": agent_session.is_some(),
+            "stale_binding_suspected": stale_binding_suspected,
+            "degraded_host_tool_surface": degraded_host_tool_surface,
+        },
+        "observed": {
+            "tool": observed_tool,
+            "proof_state": observed_proof_state,
+            "candidates": observed_candidates,
+            "tool_count": observed_tool_count,
+            "scope": input.scope,
+            "error_text": input.error_text,
+        },
+        "tool_surface": {
+            "observed_tool_count": observed_tool_count,
+            "available_tools_sample": available_tools.iter().take(24).cloned().collect::<Vec<_>>(),
+            "missing_tools": missing_tools,
+            "required_recovery_tools": ["ingest", "seek", "help", "doctor"],
+            "degraded_host_tool_surface": degraded_host_tool_surface,
+            "operator_rule": "if ingest is unavailable, m1nd cannot repair or refresh the active graph from inside this host session",
+        },
+        "graph_state": state.graph_runtime_summary(),
+        "runtime_state": {
+            "runtime_root": state.runtime_root.to_string_lossy(),
+            "graph_path": state.graph_path.to_string_lossy(),
+            "graph_path_exists": state.graph_path.exists(),
+            "plasticity_path": state.plasticity_path.to_string_lossy(),
+            "plasticity_path_exists": state.plasticity_path.exists(),
+            "workspace_root": state.workspace_root,
+            "ingest_roots": state.ingest_roots,
+            "last_persist_secs_ago": last_persist_secs_ago,
+            "instance": state.instance.summary(),
+        },
+        "session_state": {
+            "active_agent_sessions": state.sessions.len(),
+            "agent_session": agent_session.map(|session| serde_json::json!({
+                "agent_id": session.agent_id,
+                "first_seen_secs_ago": session.first_seen.elapsed().as_secs_f64(),
+                "last_seen_secs_ago": session.last_seen.elapsed().as_secs_f64(),
+                "query_count": session.query_count,
+            })),
+            "queries_processed": state.queries_processed,
+            "recent_agent_queries": recent_agent_queries,
+        },
+        "transport_clues": {
+            "doctor_is_transport_neutral": true,
+            "split_brain_rule": "if repo-local stdio/http smokes pass but host MCP retrieval is blocked, suspect host binding or session split-brain before blaming the graph",
+            "repo_local_smokes": [
+                "python3 scripts/mcp_agent_smoke.py --repo . --json",
+                "python3 scripts/mcp_agent_smoke.py --repo . --transport http --json"
+            ],
+        },
+        "warnings": warnings,
+        "probable_causes": probable_causes,
+        "next_actions": next_actions,
+    }))
 }

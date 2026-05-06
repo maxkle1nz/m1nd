@@ -354,8 +354,25 @@ fn is_pid_live(pid: u32) -> bool {
     }
     #[cfg(not(unix))]
     {
-        let _ = pid;
-        true
+        #[cfg(windows)]
+        {
+            Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .output()
+                .map(|output| {
+                    if !output.status.success() {
+                        return false;
+                    }
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+                    stdout.contains(&pid.to_string()) && !stdout.contains("no tasks")
+                })
+                .unwrap_or(false)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = pid;
+            false
+        }
     }
 }
 
@@ -410,7 +427,25 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Child;
     use tempfile::tempdir;
+
+    fn spawn_live_pid_fixture() -> Child {
+        #[cfg(windows)]
+        {
+            Command::new("powershell")
+                .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
+                .spawn()
+                .expect("spawn live pid fixture")
+        }
+        #[cfg(not(windows))]
+        {
+            Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .expect("spawn live pid fixture")
+        }
+    }
 
     #[test]
     fn acquires_and_lists_single_instance() {
@@ -454,9 +489,10 @@ mod tests {
         let first =
             InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
                 .unwrap();
+        let mut foreign_owner = spawn_live_pid_fixture();
         let mut foreign = first.summary();
         foreign.instance_id = "inst_foreign".into();
-        foreign.pid = 1;
+        foreign.pid = foreign_owner.id();
         foreign.last_heartbeat_ms = now_ms();
         let lock_path = registry.join(LEASE_DIR_NAME).join(format!(
             "{}.json",
@@ -466,6 +502,8 @@ mod tests {
         let err =
             InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
                 .unwrap_err();
+        let _ = foreign_owner.kill();
+        let _ = foreign_owner.wait();
         assert!(err.to_string().contains("already owned"));
     }
 
