@@ -36,6 +36,27 @@ fn join_repo_relative(root: &Path, rel: &str) -> PathBuf {
 fn same_path_text(left: &str, right: &str) -> bool {
     let left = normalize_path_text(left);
     let right = normalize_path_text(right);
+    if left == right {
+        return true;
+    }
+    let left_canonical = Path::new(&left)
+        .canonicalize()
+        .ok()
+        .map(|path| normalize_path_text(&path.to_string_lossy()));
+    let right_canonical = Path::new(&right)
+        .canonicalize()
+        .ok()
+        .map(|path| normalize_path_text(&path.to_string_lossy()));
+    if let (Some(left), Some(right)) = (left_canonical, right_canonical) {
+        #[cfg(windows)]
+        {
+            return left.eq_ignore_ascii_case(&right);
+        }
+        #[cfg(not(windows))]
+        {
+            return left == right;
+        }
+    }
     #[cfg(windows)]
     {
         left.eq_ignore_ascii_case(&right)

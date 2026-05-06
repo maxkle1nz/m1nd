@@ -138,7 +138,7 @@ pub(crate) fn normalize_help_tool_name(tool_name: &str) -> String {
 /// without changing every handler that needs a canonical path primitive.
 pub(crate) fn canonicalize_path_hint(path_hint: &str, ingest_roots: &[String]) -> PathBuf {
     let path = Path::new(path_hint);
-    if path.is_absolute() {
+    if path.is_absolute() || path_hint.starts_with('/') {
         return path.to_path_buf();
     }
 

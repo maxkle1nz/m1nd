@@ -1,7 +1,14 @@
 use std::path::Path;
 
 pub(crate) fn normalize_path_text(value: &str) -> String {
-    value.replace('\\', "/")
+    let normalized = value.replace('\\', "/");
+    if let Some(rest) = normalized.strip_prefix("//?/UNC/") {
+        return format!("//{rest}");
+    }
+    if let Some(rest) = normalized.strip_prefix("//?/") {
+        return rest.to_string();
+    }
+    normalized
 }
 
 /// Normalize a scope-like path into the canonical repo-relative form.
@@ -117,7 +124,19 @@ fn normalize_relative_scope(scope: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_scope_path;
+    use super::{normalize_path_text, normalize_scope_path};
+
+    #[test]
+    fn normalizes_windows_extended_path_prefixes() {
+        assert_eq!(
+            normalize_path_text(r"\\?\C:\repo\src\main.rs"),
+            "C:/repo/src/main.rs"
+        );
+        assert_eq!(
+            normalize_path_text(r"\\?\UNC\server\share\repo"),
+            "//server/share/repo"
+        );
+    }
 
     #[test]
     fn normalizes_absolute_relative_and_file_prefix_scopes_to_the_same_path() {

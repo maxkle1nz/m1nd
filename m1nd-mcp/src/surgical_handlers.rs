@@ -13,7 +13,7 @@
 
 use crate::daemon_handlers::{make_daemon_alert, DaemonAlertSeed};
 use crate::protocol::{layers, surgical};
-use crate::scope::normalize_path_text;
+use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
@@ -454,7 +454,7 @@ pub(crate) fn build_surgical_heuristic_summary(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
-    let aliases = surgical_external_id_aliases(external_id, file_path);
+    let aliases = surgical_external_id_aliases(state, external_id, file_path);
     let trust = aliases
         .iter()
         .map(|alias| state.trust_ledger.compute_trust(alias, now))
@@ -560,13 +560,51 @@ pub(crate) fn build_surgical_heuristic_summary(
     }
 }
 
-fn surgical_external_id_aliases(external_id: &str, file_path: &str) -> Vec<String> {
+fn surgical_external_id_aliases(
+    state: &SessionState,
+    external_id: &str,
+    file_path: &str,
+) -> Vec<String> {
     let mut aliases = Vec::new();
-    for candidate in [
+    let mut candidates = vec![
         external_id.to_string(),
         format!("file::{file_path}"),
         format!("file::{}", normalize_path_text(file_path)),
-    ] {
+    ];
+    for raw in [external_id, file_path] {
+        if let Some(scope) = normalize_scope_path(Some(raw), &state.ingest_roots) {
+            candidates.push(format!("file::{scope}"));
+        }
+    }
+    for root in &state.ingest_roots {
+        let root_norm = normalize_path_text(root).trim_end_matches('/').to_string();
+        let file_norm = normalize_path_text(file_path);
+        if !root_norm.is_empty() {
+            let root_prefix = format!("{root_norm}/");
+            let file_cmp;
+            let root_cmp;
+            #[cfg(windows)]
+            {
+                file_cmp = file_norm.to_ascii_lowercase();
+                root_cmp = root_prefix.to_ascii_lowercase();
+            }
+            #[cfg(not(windows))]
+            {
+                file_cmp = file_norm.clone();
+                root_cmp = root_prefix.clone();
+            }
+            if file_cmp.starts_with(&root_cmp) {
+                candidates.push(format!("file::{}", &file_norm[root_prefix.len()..]));
+            }
+        }
+        if let Ok(rel) = Path::new(file_path).strip_prefix(Path::new(root)) {
+            candidates.push(format!(
+                "file::{}",
+                normalize_path_text(&rel.to_string_lossy())
+            ));
+        }
+    }
+    for candidate in candidates {
         if !candidate.is_empty() && !aliases.contains(&candidate) {
             aliases.push(candidate);
         }
