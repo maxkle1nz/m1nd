@@ -21,6 +21,6 @@ m1nd install-skills generic --project /path/to/project
 For a published package, the same flow becomes:
 
 ```bash
-npm install -g @m1nd/m1nd
+npm install -g @maxkle1nz/m1nd@beta
 m1nd init --host codex
 ```
