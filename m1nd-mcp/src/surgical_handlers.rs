@@ -583,6 +583,7 @@ fn surgical_external_id_aliases(
             candidates.push(format!("file::{scope}"));
         }
     }
+    push_graph_path_aliases(state, file_path, &mut candidates);
     for root in &state.ingest_roots {
         let root_norm = normalize_path_text(root).trim_end_matches('/').to_string();
         let file_norm = normalize_path_text(file_path);
@@ -617,6 +618,29 @@ fn surgical_external_id_aliases(
         }
     }
     aliases
+}
+
+fn push_graph_path_aliases(state: &SessionState, file_path: &str, candidates: &mut Vec<String>) {
+    let graph = state.graph.read();
+    for (index, provenance) in graph.nodes.provenance.iter().enumerate() {
+        let Some(source_path) = provenance.source_path else {
+            continue;
+        };
+        let Some(path_text) = graph.strings.try_resolve(source_path) else {
+            continue;
+        };
+        if !surgical_paths_match(path_text, file_path) {
+            continue;
+        }
+
+        let node_id = NodeId::new(index as u32);
+        candidates.push(resolve_external_id(&graph, node_id));
+        candidates.push(format!("file::{path_text}"));
+        candidates.push(format!("file::{}", normalize_path_text(path_text)));
+        if let Some(scope) = normalize_scope_path(Some(path_text), &state.ingest_roots) {
+            candidates.push(format!("file::{scope}"));
+        }
+    }
 }
 
 fn strip_windows_extended_path_prefix_raw(value: &str) -> String {
@@ -1277,18 +1301,11 @@ fn find_nodes_for_file(graph: &m1nd_core::graph::Graph, file_path: &str) -> Vec<
     let n = graph.num_nodes() as usize;
     let mut results = Vec::new();
 
-    // Normalize path for comparison
-    let normalized = file_path.replace('\\', "/");
-
     for i in 0..n {
         let prov = &graph.nodes.provenance[i];
         if let Some(sp) = prov.source_path {
             if let Some(path_str) = graph.strings.try_resolve(sp) {
-                let path_normalized = path_str.replace('\\', "/");
-                if path_normalized == normalized
-                    || path_normalized.ends_with(&normalized)
-                    || normalized.ends_with(&path_normalized)
-                {
+                if surgical_paths_match(path_str, file_path) {
                     let nid = NodeId::new(i as u32);
                     let ext_id = resolve_external_id(graph, nid);
                     results.push((nid, ext_id));
@@ -1298,6 +1315,26 @@ fn find_nodes_for_file(graph: &m1nd_core::graph::Graph, file_path: &str) -> Vec<
     }
 
     results
+}
+
+fn surgical_paths_match(left: &str, right: &str) -> bool {
+    let left_norm = normalize_path_text(left);
+    let right_norm = normalize_path_text(right);
+
+    let left_cmp;
+    let right_cmp;
+    #[cfg(windows)]
+    {
+        left_cmp = left_norm.to_ascii_lowercase();
+        right_cmp = right_norm.to_ascii_lowercase();
+    }
+    #[cfg(not(windows))]
+    {
+        left_cmp = left_norm;
+        right_cmp = right_norm;
+    }
+
+    left_cmp == right_cmp || left_cmp.ends_with(&right_cmp) || right_cmp.ends_with(&left_cmp)
 }
 
 // ---------------------------------------------------------------------------
@@ -1644,6 +1681,29 @@ fn find_cargo_workspace(path: &Path) -> Option<PathBuf> {
             _ => return None,
         }
     }
+}
+
+fn find_cargo_project_root(path: &Path) -> Option<String> {
+    let mut dir = path.parent()?;
+    loop {
+        if dir.join("Cargo.toml").exists() {
+            return Some(dir.to_string_lossy().to_string());
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent,
+            _ => return None,
+        }
+    }
+}
+
+fn available_python_command() -> Option<&'static str> {
+    ["python3", "python"].into_iter().find(|command| {
+        Command::new(command)
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    })
 }
 
 /// Detect Go tests: find _test.go files in the same directory.
@@ -3458,20 +3518,15 @@ pub fn handle_apply_batch(
                 .or_else(|| state.ingest_roots.last().cloned());
 
             if extensions.contains("rs") {
-                let cargo_dir = ws_root.clone().or_else(|| {
-                    resolved_edits
-                        .iter()
-                        .filter(|(p, _, _)| p.extension().and_then(|e| e.to_str()) == Some("rs"))
-                        .find_map(|(p, _, _)| {
-                            let mut dir = p.parent()?;
-                            loop {
-                                if dir.join("Cargo.toml").exists() {
-                                    return Some(dir.to_string_lossy().to_string());
-                                }
-                                dir = dir.parent()?;
-                            }
-                        })
-                });
+                let cargo_dir = resolved_edits
+                    .iter()
+                    .filter(|(p, _, _)| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+                    .find_map(|(p, _, _)| find_cargo_project_root(p))
+                    .or_else(|| {
+                        ws_root
+                            .clone()
+                            .filter(|dir| Path::new(dir).join("Cargo.toml").exists())
+                    });
                 if let Some(dir) = cargo_dir {
                     match std::process::Command::new("cargo")
                         .arg("check")
@@ -3531,41 +3586,50 @@ pub fn handle_apply_batch(
                     None
                 }
             } else if extensions.contains("py") {
-                let mut py_ok = true;
-                let mut py_err = String::new();
-                for (path, _, _) in &resolved_edits {
-                    if path.extension().and_then(|e| e.to_str()) != Some("py") {
-                        continue;
-                    }
-                    let path_str = path.to_string_lossy();
-                    let script = format!("import ast; ast.parse(open('{}').read())", path_str);
-                    match std::process::Command::new("python3")
-                        .args(["-c", &script])
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .output()
-                    {
-                        Ok(out) if !out.status.success() => {
-                            let stderr = String::from_utf8_lossy(&out.stderr);
-                            let t: String = stderr.chars().take(200).collect();
-                            if py_err.is_empty() {
-                                py_err = t.to_string();
+                if let Some(python_command) = available_python_command() {
+                    let mut py_ok = true;
+                    let mut py_err = String::new();
+                    for (path, _, _) in resolved_edits.iter().filter(|(path, _, _)| {
+                        path.extension().and_then(|e| e.to_str()) == Some("py")
+                    }) {
+                        let path_str = path.to_string_lossy();
+                        match std::process::Command::new(python_command)
+                            .args([
+                                "-c",
+                                "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())",
+                            ])
+                            .arg(path)
+                            .stdout(std::process::Stdio::piped())
+                            .stderr(std::process::Stdio::piped())
+                            .output()
+                        {
+                            Ok(out) if !out.status.success() => {
+                                let stderr = String::from_utf8_lossy(&out.stderr);
+                                let t: String = stderr.chars().take(200).collect();
+                                if py_err.is_empty() {
+                                    py_err = t.to_string();
+                                }
+                                layer_violations.push(format!(
+                                    "PARSE ERROR ({} ast): {} — {}",
+                                    python_command, path_str, t
+                                ));
+                                py_ok = false;
                             }
-                            layer_violations
-                                .push(format!("PARSE ERROR (python3 ast): {} — {}", path_str, t));
-                            py_ok = false;
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            py_err = format!("failed to spawn python3: {}", e);
-                            py_ok = false;
+                            Ok(_) => {}
+                            Err(e) => {
+                                py_err = format!("failed to spawn {}: {}", python_command, e);
+                                py_ok = false;
+                            }
                         }
                     }
-                }
-                if py_ok {
-                    Some("ok".to_string())
+
+                    if py_ok {
+                        Some("ok".to_string())
+                    } else {
+                        Some(format!("error: {}", py_err))
+                    }
                 } else {
-                    Some(format!("error: {}", py_err))
+                    None
                 }
             } else if extensions.contains("ts") || extensions.contains("tsx") {
                 if let Some(dir) = ws_root.clone() {
