@@ -192,7 +192,7 @@ and other MCP-capable hosts.
 Install the beta agent pack:
 
 ```bash
-npm install -g m1nd@beta
+npm install -g @maxkle1nz/m1nd@beta
 m1nd doctor
 m1nd pack-check
 ```
