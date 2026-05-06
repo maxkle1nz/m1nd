@@ -16,19 +16,19 @@ From the repo root:
 
 ```bash
 cargo build -p m1nd-mcp
-python3 scripts/m1nd_agent_demo.py --repo . --transport stdio
+m1nd smoke --repo . --transport stdio
 ```
 
 For the HTTP tool API:
 
 ```bash
-python3 scripts/m1nd_agent_demo.py --repo . --transport http
+m1nd smoke --repo . --transport http
 ```
 
 For machine-readable output:
 
 ```bash
-python3 scripts/m1nd_agent_demo.py --repo . --transport stdio --json
+m1nd smoke --repo . --transport stdio --json
 ```
 
 ## What It Shows
