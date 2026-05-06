@@ -354,8 +354,25 @@ fn is_pid_live(pid: u32) -> bool {
     }
     #[cfg(not(unix))]
     {
-        let _ = pid;
-        true
+        #[cfg(windows)]
+        {
+            Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .output()
+                .map(|output| {
+                    if !output.status.success() {
+                        return false;
+                    }
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+                    stdout.contains(&pid.to_string()) && !stdout.contains("no tasks")
+                })
+                .unwrap_or(false)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = pid;
+            false
+        }
     }
 }
 

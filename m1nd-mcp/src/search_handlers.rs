@@ -13,7 +13,7 @@ use crate::protocol::layers::{
     GlobFileEntry, GlobInput, GlobOutput, HelpInput, HelpMode, HelpOutput, SearchInput, SearchMode,
     SearchOutput, SearchResultEntry,
 };
-use crate::scope::normalize_scope_path;
+use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::SessionState;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use std::collections::HashSet;
@@ -142,11 +142,19 @@ pub(crate) fn canonicalize_path_hint(path_hint: &str, ingest_roots: &[String]) -
         return path.to_path_buf();
     }
 
+    let relative = normalize_path_text(path_hint)
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .fold(PathBuf::new(), |mut acc, part| {
+            acc.push(part);
+            acc
+        });
+
     if let Some(root) = ingest_roots.first() {
-        return Path::new(root).join(path);
+        return Path::new(root).join(relative);
     }
 
-    path.to_path_buf()
+    relative
 }
 
 fn normalize_scope_hint(scope: Option<&str>, ingest_roots: &[String]) -> Option<String> {
@@ -154,12 +162,12 @@ fn normalize_scope_hint(scope: Option<&str>, ingest_roots: &[String]) -> Option<
 }
 
 fn scope_matches_path(path_like: &str, scope: Option<&str>, ingest_roots: &[String]) -> bool {
-    let Some(scope) = scope else {
+    let Some(normalized_scope) = normalize_scope_path(scope, ingest_roots) else {
         return true;
     };
 
     normalize_scope_path(Some(path_like), ingest_roots)
-        .map(|path| path.starts_with(scope))
+        .map(|path| path == normalized_scope || path.starts_with(&format!("{normalized_scope}/")))
         .unwrap_or(false)
 }
 
@@ -1213,7 +1221,7 @@ fn relativize_against_ingest_roots_slice(
     for root in ingest_roots {
         let root_path = Path::new(root);
         if let Ok(rel) = full_path.strip_prefix(root_path) {
-            return Some(rel.to_string_lossy().to_string());
+            return Some(normalize_path_text(&rel.to_string_lossy()));
         }
     }
 

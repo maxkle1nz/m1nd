@@ -13,6 +13,7 @@
 
 use crate::daemon_handlers::{make_daemon_alert, DaemonAlertSeed};
 use crate::protocol::{layers, surgical};
+use crate::scope::normalize_path_text;
 use crate::session::{EditPreviewState, SessionState};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::{EdgeIdx, NodeId, NodeType};
@@ -453,16 +454,28 @@ pub(crate) fn build_surgical_heuristic_summary(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
-    let trust = state.trust_ledger.compute_trust(external_id, now);
-    let raw_trust_factor = state.trust_ledger.adjust_prior(
-        1.0,
-        std::slice::from_ref(&external_id.to_string()),
-        false,
-        now,
-    );
+    let aliases = surgical_external_id_aliases(external_id, file_path);
+    let trust = aliases
+        .iter()
+        .map(|alias| state.trust_ledger.compute_trust(alias, now))
+        .max_by(|left, right| left.risk_multiplier.total_cmp(&right.risk_multiplier))
+        .unwrap_or_else(|| state.trust_ledger.compute_trust(external_id, now));
+    let raw_trust_factor = aliases
+        .iter()
+        .map(|alias| {
+            state
+                .trust_ledger
+                .adjust_prior(1.0, std::slice::from_ref(alias), false, now)
+        })
+        .fold(1.0f32, f32::max);
     let trust_factor = surgical_dampened_trust_factor(raw_trust_factor);
 
-    let tremor_observation_count = state.tremor_registry.observation_count(external_id);
+    let tremor_alias = aliases
+        .iter()
+        .max_by_key(|alias| state.tremor_registry.observation_count(alias))
+        .map(String::as_str)
+        .unwrap_or(external_id);
+    let tremor_observation_count = state.tremor_registry.observation_count(tremor_alias);
     let tremor_alert = if tremor_observation_count < 3 {
         None
     } else {
@@ -472,7 +485,7 @@ pub(crate) fn build_surgical_heuristic_summary(
                 m1nd_core::tremor::TremorWindow::All,
                 0.0,
                 1,
-                Some(external_id),
+                Some(tremor_alias),
                 now,
                 0,
             )
@@ -545,6 +558,20 @@ pub(crate) fn build_surgical_heuristic_summary(
             ),
         },
     }
+}
+
+fn surgical_external_id_aliases(external_id: &str, file_path: &str) -> Vec<String> {
+    let mut aliases = Vec::new();
+    for candidate in [
+        external_id.to_string(),
+        format!("file::{file_path}"),
+        format!("file::{}", normalize_path_text(file_path)),
+    ] {
+        if !candidate.is_empty() && !aliases.contains(&candidate) {
+            aliases.push(candidate);
+        }
+    }
+    aliases
 }
 
 // ---------------------------------------------------------------------------

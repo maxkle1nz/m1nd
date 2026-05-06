@@ -1,6 +1,6 @@
 use crate::protocol::{self, layers};
 use crate::report_handlers;
-use crate::scope::normalize_scope_path;
+use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::{FileInventoryEntry, SessionState};
 use crate::{layer_handlers, tools};
 use m1nd_core::error::{M1ndError, M1ndResult};
@@ -178,7 +178,7 @@ fn is_auxiliary_code_path(file_path: &str) -> bool {
 }
 
 fn is_placeholder_external_path(path: &Path) -> bool {
-    let value = path.to_string_lossy();
+    let value = normalize_path_text(&path.to_string_lossy());
     value.starts_with("/your/")
         || value == "/your/project"
         || value == "/your/docs"
@@ -194,7 +194,7 @@ fn is_placeholder_external_path(path: &Path) -> bool {
 }
 
 fn is_system_path(path: &Path) -> bool {
-    let value = path.to_string_lossy();
+    let value = normalize_path_text(&path.to_string_lossy());
     value.starts_with("/usr/")
         || value.starts_with("/dev/")
         || value.starts_with("/bin/")
@@ -204,24 +204,55 @@ fn is_system_path(path: &Path) -> bool {
         || value.starts_with("/opt/homebrew/")
 }
 
+fn looks_like_windows_absolute_path(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/')
+}
+
+fn normalized_path_starts_with(path: &Path, root: &Path) -> bool {
+    if path.starts_with(root) {
+        return true;
+    }
+    let path_norm = normalize_path_text(&path.to_string_lossy());
+    let root_norm = normalize_path_text(&root.to_string_lossy());
+    #[cfg(windows)]
+    let (path_cmp, root_cmp) = (
+        path_norm.to_ascii_lowercase(),
+        root_norm.to_ascii_lowercase(),
+    );
+    #[cfg(not(windows))]
+    let (path_cmp, root_cmp) = (path_norm, root_norm);
+    path_cmp == root_cmp || path_cmp.starts_with(&format!("{root_cmp}/"))
+}
+
 fn is_plausible_external_path(path: &Path) -> bool {
-    if !path.is_absolute() {
-        return false;
-    }
     let value = path.to_string_lossy();
-    if value == "/" || value == "//" || value.starts_with("//") || value.len() < 4 {
+    if !path.is_absolute() && !looks_like_windows_absolute_path(&value) {
         return false;
     }
-    if value.contains('[')
-        || value.contains(']')
-        || value.contains('{')
-        || value.contains('}')
-        || value.contains('\\')
+    let normalized = normalize_path_text(&value);
+    if normalized == "/"
+        || normalized == "//"
+        || normalized.starts_with("//")
+        || normalized.len() < 4
     {
         return false;
     }
-    let component_count = path.components().count();
-    component_count >= 2 && value.chars().any(|ch| ch.is_ascii_alphanumeric())
+    if normalized.contains('[')
+        || normalized.contains(']')
+        || normalized.contains('{')
+        || normalized.contains('}')
+    {
+        return false;
+    }
+    let component_count = normalized
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .count();
+    component_count >= 2 && normalized.chars().any(|ch| ch.is_ascii_alphanumeric())
 }
 
 fn is_actionable_repo_candidate_path(path: &Path) -> bool {
@@ -872,22 +903,25 @@ pub fn handle_external_references(
     };
     let disk_entries = filter_inventory_by_scope(state, &inventory, input.scope.as_deref());
     let roots: Vec<PathBuf> = state.ingest_roots.iter().map(PathBuf::from).collect();
-    let markdown_link_regex =
-        Regex::new(r#"\[[^\]]*\]\((/[^)\s]+)\)"#).map_err(|error| M1ndError::InvalidParams {
+    let absolute_path_pattern = r#"(?:/[^)"'\s]+|[A-Za-z]:[\\/][^)"'\s]+)"#;
+    let markdown_link_regex = Regex::new(&format!(r#"\[[^\]]*\]\(({absolute_path_pattern})\)"#))
+        .map_err(|error| M1ndError::InvalidParams {
             tool: "external_references".into(),
             detail: error.to_string(),
         })?;
     let keyed_path_regex = Regex::new(
-        r#"(?i)(path|root|repo|workspace|graph_source|plasticity_state|runtime_dir)[^=\n:]*[:=]\s*["']?(/[^"'\s]+)"#,
+        &format!(r#"(?i)(path|root|repo|workspace|graph_source|plasticity_state|runtime_dir)[^=\n:]*[:=]\s*["']?({absolute_path_pattern})"#),
     )
     .map_err(|error| M1ndError::InvalidParams {
         tool: "external_references".into(),
         detail: error.to_string(),
     })?;
     let quoted_path_regex =
-        Regex::new(r#"["'](/[^"'\s]+)["']"#).map_err(|error| M1ndError::InvalidParams {
-            tool: "external_references".into(),
-            detail: error.to_string(),
+        Regex::new(&format!(r#"["']({absolute_path_pattern})["']"#)).map_err(|error| {
+            M1ndError::InvalidParams {
+                tool: "external_references".into(),
+                detail: error.to_string(),
+            }
         })?;
     let mut seen = BTreeSet::new();
     let mut results = Vec::new();
@@ -921,7 +955,10 @@ pub fn handle_external_references(
                 if is_system_path(&path) {
                     continue;
                 }
-                if roots.iter().any(|root| path.starts_with(root)) {
+                if roots
+                    .iter()
+                    .any(|root| normalized_path_starts_with(&path, root))
+                {
                     continue;
                 }
                 let key = format!(
