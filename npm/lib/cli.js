@@ -20,6 +20,7 @@ Usage:
   m1nd mcp-config <host> [--binary <path>]
   m1nd doctor [--json]
   m1nd demo [--repo <dir>] [--transport stdio|http] [--json]
+  m1nd smoke [--repo <dir>] [--transport stdio|http] [--json]
   m1nd pack-check [--json]
 
 This npm package installs the universal agent doctrine and host adapters. The
@@ -35,7 +36,7 @@ function parseArgs(args) {
       continue;
     }
     const key = arg.slice(2);
-    if (["json", "yes"].includes(key)) {
+    if (["help", "json", "yes"].includes(key)) {
       parsed[key] = true;
       continue;
     }
@@ -219,7 +220,7 @@ function doctor() {
       default_install_path: defaultRuntimePath(),
       visible_on_path_or_env: Boolean(binary),
       hint: binary
-        ? "m1nd-mcp is visible. Use m1nd demo from a repo checkout for a live MCP smoke."
+        ? "m1nd-mcp is visible. Use m1nd smoke from a repo checkout for a live MCP smoke."
         : "m1nd-mcp is not visible. Build from source or install the native runtime before wiring MCP hosts.",
     },
     codex: {
@@ -291,7 +292,7 @@ async function main(rawArgs) {
   const args = parseArgs(rawArgs);
   const command = args._[0] || "help";
 
-  if (["help", "-h", "--help"].includes(command)) {
+  if (args.help || ["help", "-h", "--help"].includes(command)) {
     console.log(usage());
     return;
   }
@@ -325,7 +326,7 @@ async function main(rawArgs) {
     return;
   }
 
-  if (command === "demo") {
+  if (["demo", "smoke"].includes(command)) {
     runDemo(args);
     return;
   }

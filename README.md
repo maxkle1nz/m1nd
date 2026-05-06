@@ -225,7 +225,7 @@ The fastest way to see the agent-first loop is to run the local demo transcript:
 
 ```bash
 cargo build -p m1nd-mcp
-python3 scripts/m1nd_agent_demo.py --repo . --transport stdio
+m1nd smoke --repo . --transport stdio
 ```
 
 It starts the MCP server, checks `trust_selftest`, ingests the repo, runs
@@ -233,7 +233,7 @@ retrieval, asks for help, calls `doctor`, and verifies that an empty retrieval
 returns a recovery path. The JSON mode is useful for CI or client onboarding:
 
 ```bash
-python3 scripts/m1nd_agent_demo.py --repo . --transport stdio --json
+m1nd smoke --repo . --transport stdio --json
 ```
 
 See [docs/AGENT-FIRST-DEMO.md](docs/AGENT-FIRST-DEMO.md) for the transcript
