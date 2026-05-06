@@ -450,11 +450,27 @@ pub(crate) fn build_surgical_heuristic_summary(
     external_id: &str,
     file_path: &str,
 ) -> surgical::SurgicalHeuristicSummary {
+    build_surgical_heuristic_summary_with_extra_paths(state, external_id, file_path, &[])
+}
+
+fn build_surgical_heuristic_summary_with_extra_paths(
+    state: &SessionState,
+    external_id: &str,
+    file_path: &str,
+    extra_file_paths: &[&str],
+) -> surgical::SurgicalHeuristicSummary {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
-    let aliases = surgical_external_id_aliases(state, external_id, file_path);
+    let mut aliases = surgical_external_id_aliases(state, external_id, file_path);
+    for extra_path in extra_file_paths {
+        for alias in surgical_external_id_aliases(state, external_id, extra_path) {
+            if !aliases.contains(&alias) {
+                aliases.push(alias);
+            }
+        }
+    }
     let trust = aliases
         .iter()
         .map(|alias| state.trust_ledger.compute_trust(alias, now))
@@ -3330,10 +3346,22 @@ pub fn handle_apply_batch(
                     .next()
                     .cloned()
                     .unwrap_or_else(|| format!("file::{}", result.file_path));
-                let heuristic_summary = Some(build_surgical_heuristic_summary(
+                let requested_path_aliases: Vec<&str> = resolved_edits
+                    .iter()
+                    .filter_map(|(validated_path, edit, _)| {
+                        let validated_path_str = validated_path.to_string_lossy();
+                        if surgical_paths_match(&validated_path_str, &result.file_path) {
+                            Some(edit.file_path.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let heuristic_summary = Some(build_surgical_heuristic_summary_with_extra_paths(
                     state,
                     &node_id,
                     &result.file_path,
+                    &requested_path_aliases,
                 ));
                 let heuristics_surface_ref = Some(layers::HeuristicsSurfaceRef {
                     node_id: node_id.clone(),
