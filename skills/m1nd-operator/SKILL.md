@@ -46,10 +46,15 @@ Only skip the `m1nd` first pass when:
   mini `graph_state.node_count` is `0` while `ingest` is available, treat the
   session as a recoverable cold graph. Do not jump straight to shell fallback.
   Call `ingest` on the same MCP binding with the absolute intended
-  repo/workspace path, never a `~/.codex/m1nd-runtimes/...` session path. Then
-  rerun `session_handshake` and one cheap retrieval. Fall back only if ingest is
-  unavailable, ingest fails, or post-ingest retrieval is still blocked and
-  `recovery_playbook`/`doctor` confirms stale binding or degraded host surface.
+  repo/workspace path, never a managed runtime/session path such as
+  `~/.codex/m1nd-runtimes/...`, `~/.claude/m1nd-runtimes/...`, an Antigravity
+  agent runtime, or a generic `mcp-runtimes`/`agent-runtimes` folder. Host
+  integrations should prefer `M1ND_WORKSPACE_ROOT`; m1nd also recognizes common
+  workspace hints from Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS
+  Code, and shell/package-manager env vars. Then rerun `session_handshake` and
+  one cheap retrieval. Fall back only if ingest is unavailable, ingest fails,
+  or post-ingest retrieval is still blocked and `recovery_playbook`/`doctor`
+  confirms stale binding or degraded host surface.
 - If the host exposes `health` but not `trust_selftest`, `session_handshake`, or
   `recovery_playbook`, read `health.tool_surface_contract` and
   `health.host_binding_alignment`. Treat missing required host-visible tools as
