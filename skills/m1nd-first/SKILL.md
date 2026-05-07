@@ -36,6 +36,14 @@ Skip the `m1nd` first pass only when:
 
 If `m1nd` does not answer enough, then fall back to shell search, direct file reads, compiler output, tests, logs, and debugger data.
 
+If a tool call fails with `Transport closed`, classify it as a host MCP binding
+failure before m1nd can run. Do not call `doctor`, `recovery_playbook`, or
+`ingest` through that dead binding. Verify the binary with a local smoke, kill
+stale `m1nd-mcp --stdio` processes if you own the host, and restart/rebind the
+agent host or open a fresh thread so the MCP client launches a new transport.
+After rebind, run `trust_selftest` or `session_handshake` before trusting
+retrieval.
+
 For local m1nd repo work, prefer the cheap trust selftest path before a full smoke:
 
 ```bash
