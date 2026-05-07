@@ -20,6 +20,17 @@ execute a tool. Recovery tools such as `doctor`, `recovery_playbook`, and
 restart/rebind the host MCP client or open a fresh session, then call
 `trust_selftest` or `session_handshake` on the newly launched binding.
 
+A third symptom is a cross-repo binding mismatch:
+
+- the active graph is populated for repo A
+- a tool call passes a scope/path from repo B
+- retrieval returns blocked or zero candidates even though repo B has content
+
+Current builds surface this as `wrong_workspace_binding` in `trust_selftest`,
+`session_handshake`, `recovery_playbook`, `doctor`, and `validate_plan`. That
+means the graph may be fine; the host is just bound to the wrong workspace for
+this task.
+
 ## 1. Prove The Local Binary First
 
 From the repo root:
@@ -61,6 +72,12 @@ If `trust_selftest` is visible, call it first:
 
 ```json
 {"agent_id":"dev"}
+```
+
+If the task names a target repo or absolute path, pass it as `scope`:
+
+```json
+{"agent_id":"dev","scope":"/path/to/intended/repo"}
 ```
 
 If it returns `full_trust`, continue with m1nd-first work. If it returns any
@@ -130,6 +147,23 @@ For blocked retrieval after a populated ingest:
 The important rule is to compare binding fingerprints before falling back to
 manual search. If the local stdio/HTTP demo and the host session disagree, the
 problem is likely host binding freshness, not the graph model itself.
+
+For a wrong workspace binding, include the suspicious target scope:
+
+```json
+{
+  "agent_id": "dev",
+  "observed_tool": "seek",
+  "observed_proof_state": "blocked",
+  "observed_candidates": 0,
+  "scope": "/path/to/intended/repo"
+}
+```
+
+If the result includes `context_guard.wrong_workspace_binding=true`, rebind the
+host with `M1ND_WORKSPACE_ROOT=/path/to/intended/repo`, ingest that workspace on
+the same binding, or choose `federate_auto`/`federate` for intentional cross-repo
+reasoning. Do not keep retrying retrieval against the old workspace.
 
 ## Limits
 

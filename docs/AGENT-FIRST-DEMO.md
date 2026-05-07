@@ -47,6 +47,10 @@ The demo proves the practical agent loop:
 The point is not just search. The point is that the agent knows whether it can
 trust the current session before it acts.
 
+When a task points at a different repo than the active binding, the same trust
+loop should return `wrong_workspace_binding` through `context_guard` rather than
+letting the agent confuse workspace mismatch with a stale or empty graph.
+
 ## How To Read The Output
 
 The Markdown output is shaped like a handoff:

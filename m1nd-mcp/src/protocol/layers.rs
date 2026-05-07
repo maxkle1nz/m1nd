@@ -894,6 +894,9 @@ pub struct ValidatePlanInput {
     pub agent_id: String,
     /// Ordered list of planned actions.
     pub actions: Vec<PlannedAction>,
+    /// Optional repo/scope path for multi-repo binding diagnostics.
+    #[serde(default)]
+    pub scope: Option<String>,
     /// Whether to analyze test coverage for modified files. Default: true.
     #[serde(default = "default_true")]
     pub include_test_impact: bool,
@@ -945,6 +948,10 @@ pub struct ValidatePlanOutput {
     pub next_suggested_target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_step_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_state: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<serde_json::Value>,
     pub elapsed_ms: f64,
 }
 

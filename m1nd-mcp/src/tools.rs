@@ -2351,6 +2351,8 @@ pub fn handle_session_handshake(
     let can_retrieve = available_tool_set.contains("seek");
     let can_recover = available_tool_set.contains("recovery_playbook");
     let can_diagnose = available_tool_set.contains("doctor");
+    let workspace_binding_mismatch = state.workspace_binding_mismatch(input.scope.as_deref());
+    let wrong_workspace_binding = workspace_binding_mismatch.is_some();
 
     let graph = state.graph.read();
     let node_count = graph.num_nodes();
@@ -2375,6 +2377,11 @@ pub fn handle_session_handshake(
                 "use m1nd only as orientation and verify final truth with local files until ingest is available",
             )
         }
+    } else if wrong_workspace_binding {
+        (
+            "wrong_workspace_binding",
+            "select, bind, ingest, or federate the requested workspace before trusting scoped retrieval",
+        )
     } else {
         (
             "full_trust",
@@ -2394,6 +2401,19 @@ pub fn handle_session_handshake(
                 "missing_tools": missing_tools.clone(),
             },
             "fallback": "if doctor is unavailable, restart or rebind the MCP host surface and use direct repo reads for final truth",
+        }))
+    } else if let Some(mismatch) = workspace_binding_mismatch.clone() {
+        Some(serde_json::json!({
+            "suggested_tool": if can_recover { "recovery_playbook" } else if can_diagnose { "doctor" } else { "" },
+            "arguments": {
+                "agent_id": input.agent_id,
+                "observed_tool": "scope_router",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0,
+                "scope": input.scope,
+                "workspace_binding_mismatch": mismatch,
+            },
+            "fallback": "if recovery tools are unavailable, rebind the MCP host with M1ND_WORKSPACE_ROOT set to the requested workspace",
         }))
     } else if node_count == 0 || edge_count == 0 {
         Some(serde_json::json!({
@@ -2443,6 +2463,11 @@ pub fn handle_session_handshake(
             "graph_finalized": graph_finalized,
         },
         "graph_state": state.mini_graph_state(),
+        "context_guard": {
+            "schema": "m1nd-context-guard-v0",
+            "wrong_workspace_binding": wrong_workspace_binding,
+            "workspace_binding_mismatch": workspace_binding_mismatch,
+        },
         "doctor_recovery": doctor_recovery,
         "used_probe": false,
         "probe": serde_json::Value::Null,
@@ -2471,6 +2496,7 @@ pub fn handle_trust_selftest(
             observed_tool_count: input.observed_tool_count,
             available_tools: input.available_tools.clone(),
             missing_tools: input.missing_tools.clone(),
+            scope: input.scope.clone(),
         },
     )?;
 
@@ -2492,6 +2518,7 @@ pub fn handle_trust_selftest(
 
     let verdict = match handshake_trust_mode {
         "degraded_host_tool_surface" => "degraded_host_tool_surface",
+        "wrong_workspace_binding" => "wrong_workspace_binding",
         "needs_ingest" => "needs_ingest",
         "orientation_only" => "orientation_only",
         "full_trust" if graph_has_nodes && suspicious_retrieval => "stale_binding_suspected",
@@ -2560,6 +2587,7 @@ pub fn handle_trust_selftest(
             "graph_populated": graph_has_nodes,
             "host_surface_complete": verdict != "degraded_host_tool_surface",
             "needs_ingest": verdict == "needs_ingest",
+            "wrong_workspace_binding": verdict == "wrong_workspace_binding",
             "stale_binding_suspected": verdict == "stale_binding_suspected",
             "suspicious_retrieval_evidence": suspicious_retrieval,
             "recovery_playbook_attached": !ok || suspicious_retrieval,
@@ -2591,6 +2619,7 @@ pub fn handle_recovery_playbook(
             observed_tool_count: input.observed_tool_count,
             available_tools: input.available_tools.clone(),
             missing_tools: input.missing_tools.clone(),
+            scope: input.scope.clone(),
         },
     )?;
 
@@ -2601,6 +2630,8 @@ pub fn handle_recovery_playbook(
     let observed_blocked = input.observed_proof_state.as_deref() == Some("blocked");
     let observed_zero_candidates = input.observed_candidates == Some(0);
     let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
+    let workspace_binding_mismatch = state.workspace_binding_mismatch(input.scope.as_deref());
+    let wrong_workspace_binding = workspace_binding_mismatch.is_some();
 
     let handshake_trust_mode = handshake
         .get("trust_mode")
@@ -2608,6 +2639,7 @@ pub fn handle_recovery_playbook(
         .unwrap_or("orientation_only");
     let trust_mode = match handshake_trust_mode {
         "degraded_host_tool_surface" => "degraded_host_tool_surface",
+        _ if wrong_workspace_binding => "wrong_workspace_binding",
         "needs_ingest" => "needs_ingest",
         "orientation_only" => "orientation_only",
         "full_trust" if stale_binding_suspected => "stale_binding_suspected",
@@ -2650,6 +2682,71 @@ pub fn handle_recovery_playbook(
         .unwrap_or_else(|| "<intended-repo-path>".to_string());
 
     let (status, recovery_goal, next_action, steps) = match trust_mode {
+        "wrong_workspace_binding" => {
+            let mismatch = workspace_binding_mismatch.clone().unwrap_or_else(|| {
+                serde_json::json!({
+                    "schema": "m1nd-workspace-binding-mismatch-v0",
+                    "code": "wrong_workspace_binding"
+                })
+            });
+            let requested_workspace_hint = mismatch
+                .get("requested_workspace_hint")
+                .and_then(|value| value.as_str())
+                .unwrap_or("<requested-workspace-path>")
+                .to_string();
+            (
+                "blocked",
+                "Select or bind the requested workspace before trusting scoped retrieval.",
+                "select_or_bind_workspace",
+                vec![
+                    playbook_step(
+                        "inspect_context_guard",
+                        "Read workspace_binding_mismatch and confirm requested_scope, active_workspace_root, and requested_workspace_hint.",
+                        "The active graph can be healthy while the requested absolute scope belongs to another repository.",
+                        None,
+                        Some(mismatch.clone()),
+                    ),
+                    playbook_step(
+                        "rebind_with_workspace_root",
+                        "Restart or rebind the MCP host with M1ND_WORKSPACE_ROOT set to requested_workspace_hint.",
+                        "An explicit workspace root is the safest host-neutral way to make the next binding load the intended project.",
+                        None,
+                        Some(serde_json::json!({
+                            "env": {
+                                "M1ND_WORKSPACE_ROOT": requested_workspace_hint.clone(),
+                            }
+                        })),
+                    ),
+                    playbook_step(
+                        "same_binding_ingest_if_intentional",
+                        "If this session should intentionally switch or merge context, call ingest for requested_workspace_hint on this same binding.",
+                        "This is an explicit mutation; do it only when the agent truly wants this runtime to carry that repo context.",
+                        Some("ingest"),
+                        Some(serde_json::json!({
+                            "agent_id": agent_id.clone(),
+                            "path": requested_workspace_hint,
+                        })),
+                    ),
+                    playbook_step(
+                        "cross_repo_mode_if_needed",
+                        "Use federate_auto or federate when the task genuinely needs multiple repositories at once.",
+                        "Federation is for cross-repo reasoning; it is not a substitute for selecting the correct active workspace.",
+                        Some("federate_auto"),
+                        Some(serde_json::json!({
+                            "agent_id": agent_id.clone(),
+                            "execute": false,
+                        })),
+                    ),
+                    playbook_step(
+                        "fallback_local_file_truth",
+                        "Use direct file reads and focused tests while the workspace binding remains unresolved.",
+                        "This playbook never changes workspace, ingests, federates, or mutates files by itself.",
+                        None,
+                        None,
+                    ),
+                ],
+            )
+        }
         "degraded_host_tool_surface" => {
             let mut steps = vec![
                 playbook_step(
@@ -2813,6 +2910,11 @@ pub fn handle_recovery_playbook(
         "binding_fingerprint": handshake.get("binding_fingerprint").cloned().unwrap_or_else(|| state.binding_fingerprint()),
         "graph_state": state.graph_runtime_summary(),
         "tool_surface": handshake.get("tool_surface").cloned().unwrap_or_else(|| serde_json::json!({})),
+        "context_guard": {
+            "schema": "m1nd-context-guard-v0",
+            "wrong_workspace_binding": wrong_workspace_binding,
+            "workspace_binding_mismatch": workspace_binding_mismatch,
+        },
         "recovery_goal": recovery_goal,
         "steps": steps,
         "next_action": next_action,
@@ -2846,6 +2948,8 @@ pub fn handle_doctor(
     let observed_proof_state = input.observed_proof_state.clone();
     let observed_candidates = input.observed_candidates;
     let observed_tool_count = input.observed_tool_count;
+    let workspace_binding_mismatch = state.workspace_binding_mismatch(input.scope.as_deref());
+    let wrong_workspace_binding = workspace_binding_mismatch.is_some();
     let mut available_tools = input.available_tools.clone();
     available_tools.sort();
     available_tools.dedup();
@@ -2902,6 +3006,32 @@ pub fn handle_doctor(
         );
         next_actions.push(
             "retry retrieval without scope, then with both absolute and repo-relative scope"
+                .to_string(),
+        );
+    }
+
+    if let Some(mismatch) = workspace_binding_mismatch.as_ref() {
+        let requested_workspace_hint = mismatch
+            .get("requested_workspace_hint")
+            .and_then(|value| value.as_str())
+            .unwrap_or("requested workspace");
+        warnings.push(format!(
+            "requested scope is outside the active workspace binding; requested workspace hint: {}",
+            requested_workspace_hint
+        ));
+        probable_causes.push(
+            "the agent is asking one repository's m1nd binding about another repository"
+                .to_string(),
+        );
+        probable_causes.push(
+            "a weak shell hint such as OLDPWD or a stale host environment selected the wrong workspace root".to_string(),
+        );
+        next_actions.push(
+            "rebind the MCP host with M1ND_WORKSPACE_ROOT set to the requested workspace"
+                .to_string(),
+        );
+        next_actions.push(
+            "use federate_auto/federate only if the task truly requires cross-repo reasoning"
                 .to_string(),
         );
     }
@@ -2976,7 +3106,7 @@ pub fn handle_doctor(
     next_actions.dedup();
 
     let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
-    let status = if !graph_has_nodes {
+    let status = if !graph_has_nodes || wrong_workspace_binding {
         "blocked"
     } else if degraded_host_tool_surface || !warnings.is_empty() {
         "warn"
@@ -3009,6 +3139,7 @@ pub fn handle_doctor(
             "agent_session_known": agent_session.is_some(),
             "stale_binding_suspected": stale_binding_suspected,
             "degraded_host_tool_surface": degraded_host_tool_surface,
+            "wrong_workspace_binding": wrong_workspace_binding,
         },
         "observed": {
             "tool": observed_tool,
@@ -3027,6 +3158,11 @@ pub fn handle_doctor(
             "operator_rule": "if ingest is unavailable, m1nd cannot repair or refresh the active graph from inside this host session",
         },
         "graph_state": state.graph_runtime_summary(),
+        "context_guard": {
+            "schema": "m1nd-context-guard-v0",
+            "wrong_workspace_binding": wrong_workspace_binding,
+            "workspace_binding_mismatch": workspace_binding_mismatch,
+        },
         "runtime_state": {
             "runtime_root": state.runtime_root.to_string_lossy(),
             "graph_path": state.graph_path.to_string_lossy(),

@@ -4020,6 +4020,8 @@ pub fn handle_validate_plan(
             next_suggested_tool: None,
             next_suggested_target: None,
             next_step_hint: None,
+            graph_state: None,
+            recovery: None,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -4303,7 +4305,7 @@ pub fn handle_validate_plan(
     let top_hotspot = heuristic_summary
         .as_ref()
         .and_then(|summary| summary.hotspots.first());
-    let (next_suggested_tool, next_suggested_target, next_step_hint) =
+    let (mut next_suggested_tool, mut next_suggested_target, mut next_step_hint) =
         if let Some(hotspot) = top_hotspot {
             (
                 Some("heuristics_surface".into()),
@@ -4332,6 +4334,37 @@ pub fn handle_validate_plan(
         heuristic_summary.as_ref(),
         &next_suggested_tool,
     );
+    let recovery_scope = input.scope.as_deref().or_else(|| {
+        input
+            .actions
+            .iter()
+            .map(|action| action.file_path.as_str())
+            .find(|path| {
+                let path = path.strip_prefix("file::").unwrap_or(path);
+                std::path::Path::new(path).is_absolute()
+            })
+    });
+    let (graph_state, recovery) = state.retrieval_failure_context(
+        &input.agent_id,
+        "validate_plan",
+        &proof_state,
+        Some(actions_resolved as u64),
+        recovery_scope,
+        None,
+    );
+    if recovery
+        .as_ref()
+        .and_then(|value| value.get("binding_issue"))
+        .and_then(|value| value.as_str())
+        == Some("wrong_workspace_binding")
+    {
+        next_suggested_tool = Some("recovery_playbook".into());
+        next_suggested_target = None;
+        next_step_hint = Some(
+            "Call recovery_playbook with the provided wrong_workspace_binding payload before trusting this plan against the current graph."
+                .into(),
+        );
+    }
 
     Ok(layers::ValidatePlanOutput {
         actions_analyzed,
@@ -4348,6 +4381,8 @@ pub fn handle_validate_plan(
         next_suggested_tool,
         next_suggested_target,
         next_step_hint,
+        graph_state,
+        recovery,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
 }
@@ -9393,6 +9428,7 @@ mod tests {
                     description: Some("equivalence check".into()),
                     depends_on: vec![],
                 }],
+                scope: None,
                 include_test_impact: false,
                 include_risk_score: false,
             },
@@ -10280,6 +10316,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                     description: Some("absolute path should normalize".into()),
                     depends_on: vec![],
                 }],
+                scope: None,
                 include_test_impact: false,
                 include_risk_score: false,
             },
@@ -10306,6 +10343,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                     description: Some("absolute path should resolve from provenance".into()),
                     depends_on: vec![],
                 }],
+                scope: None,
                 include_test_impact: true,
                 include_risk_score: true,
             },
@@ -10317,6 +10355,47 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         assert!(
             output.heuristic_summary.is_some(),
             "resolved plan should emit heuristic summary"
+        );
+    }
+
+    #[test]
+    fn validate_plan_surfaces_wrong_workspace_binding_recovery() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("active");
+        let other = temp.path().join("other");
+        std::fs::create_dir_all(root.join("src")).expect("active src");
+        std::fs::create_dir_all(other.join("src")).expect("other src");
+        std::fs::write(other.join("package.json"), "{\"name\":\"other\"}\n")
+            .expect("other package");
+        let mut state = build_layer_state(&root);
+
+        let output = handle_validate_plan(
+            &mut state,
+            ValidatePlanInput {
+                agent_id: "test".into(),
+                actions: vec![PlannedAction {
+                    action_type: "modify".into(),
+                    file_path: other.join("src/thing.rs").to_string_lossy().to_string(),
+                    description: Some("wrong workspace path".into()),
+                    depends_on: vec![],
+                }],
+                scope: Some(other.join("src").to_string_lossy().to_string()),
+                include_test_impact: false,
+                include_risk_score: false,
+            },
+        )
+        .expect("validate_plan should return structured recovery");
+
+        assert_eq!(output.proof_state, "blocked");
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("recovery_playbook")
+        );
+        let recovery = output.recovery.expect("wrong workspace recovery");
+        assert_eq!(recovery["binding_issue"], "wrong_workspace_binding");
+        assert_eq!(
+            recovery["workspace_binding_mismatch"]["requested_workspace_hint"].as_str(),
+            Some(other.to_string_lossy().as_ref())
         );
     }
 
@@ -10377,6 +10456,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                     description: Some("heuristic hotspot".into()),
                     depends_on: vec![],
                 }],
+                scope: None,
                 include_test_impact: true,
                 include_risk_score: true,
             },
@@ -10452,6 +10532,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                     description: Some("change core".into()),
                     depends_on: vec![],
                 }],
+                scope: None,
                 include_test_impact: false,
                 include_risk_score: true,
             },

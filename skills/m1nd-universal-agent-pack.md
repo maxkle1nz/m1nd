@@ -26,6 +26,15 @@ local file action.
 4. If trust is not full, call or follow `recovery_playbook`.
 5. Only then rely on retrieval surfaces such as `search`, `seek`, or `activate`.
 
+When the task names a concrete repo, worktree, or absolute path, pass it as
+`scope` to `session_handshake`, `trust_selftest`, `recovery_playbook`, `doctor`,
+or `validate_plan`. If the response reports
+`context_guard.wrong_workspace_binding=true` or trust mode
+`wrong_workspace_binding`, the host is bound to a different workspace than the
+one you asked about. Rebind with `M1ND_WORKSPACE_ROOT`, intentionally ingest the
+requested workspace on the same binding, or use explicit federation for real
+cross-repo work. Do not call this graph staleness.
+
 `trust_selftest` and `recovery_playbook` are diagnostic. They do not ingest,
 repair, refresh the host, or mutate the graph.
 

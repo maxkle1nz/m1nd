@@ -75,11 +75,26 @@ one cheap retrieval. Fall back to direct files only when ingest is unavailable,
 ingest fails, or a post-ingest retrieval still reports `blocked` and
 `recovery_playbook`/`doctor` confirms stale binding or degraded host surface.
 
+If `trust_selftest`, `session_handshake`, `recovery_playbook`, `doctor`,
+`validate_plan`, or a retrieval response includes
+`context_guard.wrong_workspace_binding=true`, do not classify the repo graph as
+stale. The active binding is pointed at one workspace while the call asked about
+another. Follow the embedded `recovery_playbook` payload, rebind the host with
+`M1ND_WORKSPACE_ROOT` set to `requested_workspace_hint`, or explicitly ingest
+that workspace on the same binding if the switch is intentional. Use
+`federate_auto`/`federate` only when the task is genuinely cross-repo.
+
 If `trust_selftest` is not exposed but `session_handshake` is, call the cheaper
 sub-check:
 
 ```json
 {"agent_id":"codex-m1nd"}
+```
+
+When the task names a target repo or absolute path, include it as `scope`:
+
+```json
+{"agent_id":"codex-m1nd","scope":"/path/to/intended/repo"}
 ```
 
 Treat its `trust_mode` as the session routing decision before relying on

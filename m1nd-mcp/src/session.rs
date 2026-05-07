@@ -392,8 +392,8 @@ const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
     // Package-manager/shell fallbacks. These are intentionally later because
     // shells can point at transient directories in some hosted runtimes.
     "INIT_CWD",
-    "OLDPWD",
     "PWD",
+    "OLDPWD",
 ];
 
 const MANAGED_RUNTIME_PATH_MARKERS: &[&str] = &[
@@ -479,6 +479,129 @@ impl SessionState {
         })
     }
 
+    pub fn workspace_binding_mismatch(&self, scope: Option<&str>) -> Option<serde_json::Value> {
+        let scope_path = Self::absolute_scope_path(scope?)?;
+        let mut known_roots: Vec<(&str, PathBuf)> = Vec::new();
+        if let Some(workspace_root) = self.workspace_root.as_deref() {
+            known_roots.push(("workspace_root", PathBuf::from(workspace_root)));
+        }
+        for root in &self.ingest_roots {
+            known_roots.push(("ingest_root", PathBuf::from(root)));
+        }
+
+        if known_roots
+            .iter()
+            .any(|(_, root)| Self::path_starts_with_loosely(&scope_path, root))
+        {
+            return None;
+        }
+
+        let requested_workspace_hint = Self::scope_workspace_hint(&scope_path);
+        let requested_context_id = requested_workspace_hint
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or("requested-workspace")
+            .to_string();
+        let known_root_values = known_roots
+            .iter()
+            .map(|(kind, root)| {
+                serde_json::json!({
+                    "kind": kind,
+                    "path": root.to_string_lossy(),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Some(serde_json::json!({
+            "schema": "m1nd-workspace-binding-mismatch-v0",
+            "code": "wrong_workspace_binding",
+            "requested_scope": scope.unwrap_or_default(),
+            "requested_scope_path": scope_path.to_string_lossy(),
+            "requested_workspace_hint": requested_workspace_hint.to_string_lossy(),
+            "requested_context_id": requested_context_id,
+            "active_workspace_root": self.workspace_root,
+            "active_workspace_root_source": self.workspace_root_source,
+            "active_ingest_roots": self.ingest_roots,
+            "known_roots_checked": known_root_values,
+            "runtime_root": self.runtime_root.to_string_lossy(),
+            "message": "The requested absolute scope is outside the active m1nd workspace and ingest roots.",
+            "suggested_fix": {
+                "preferred": "start or rebind the MCP host with M1ND_WORKSPACE_ROOT set to requested_workspace_hint",
+                "env": {
+                    "M1ND_WORKSPACE_ROOT": requested_workspace_hint.to_string_lossy(),
+                },
+                "same_binding_alternative": "call ingest on requested_workspace_hint only if this session should intentionally switch or merge context",
+                "cross_repo_alternative": "use federate_auto or federate when the task genuinely needs multiple repositories in one graph",
+            },
+            "non_claims": [
+                "Context Guard does not switch workspace automatically.",
+                "Context Guard does not ingest, federate, or mutate the active graph.",
+                "Context Guard does not prove the requested workspace is the correct task target."
+            ],
+        }))
+    }
+
+    fn absolute_scope_path(scope: &str) -> Option<std::path::PathBuf> {
+        let scope = scope.trim();
+        if scope.is_empty() {
+            return None;
+        }
+        let scope = scope.strip_prefix("file::").unwrap_or(scope);
+        let candidate = std::path::PathBuf::from(scope);
+        if candidate.is_absolute() {
+            Some(candidate)
+        } else {
+            None
+        }
+    }
+
+    fn path_starts_with_loosely(path: &std::path::Path, root: &std::path::Path) -> bool {
+        if root.as_os_str().is_empty() {
+            return false;
+        }
+        if path.starts_with(root) {
+            return true;
+        }
+        if let (Ok(path), Ok(root)) = (path.canonicalize(), root.canonicalize()) {
+            if path.starts_with(root) {
+                return true;
+            }
+        }
+
+        let path_text = Self::normalized_path_for_compare(path);
+        let root_text = Self::normalized_path_for_compare(root);
+        if path_text == root_text {
+            return true;
+        }
+        path_text.starts_with(&format!("{root_text}/"))
+    }
+
+    fn normalized_path_for_compare(path: &std::path::Path) -> String {
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_string()
+    }
+
+    fn scope_workspace_hint(scope_path: &std::path::Path) -> std::path::PathBuf {
+        let start = if scope_path.is_file() {
+            scope_path.parent().unwrap_or(scope_path)
+        } else {
+            scope_path
+        };
+        for ancestor in start.ancestors() {
+            if ancestor.join(".git").exists()
+                || ancestor.join("package.json").exists()
+                || ancestor.join("Cargo.toml").exists()
+                || ancestor.join("pyproject.toml").exists()
+            {
+                return ancestor.to_path_buf();
+            }
+        }
+        start.to_path_buf()
+    }
+
     pub fn doctor_recovery_payload(
         &self,
         agent_id: &str,
@@ -502,12 +625,27 @@ impl SessionState {
         if let Some(error_text) = error_text.filter(|value| !value.trim().is_empty()) {
             arguments["error_text"] = serde_json::json!(error_text);
         }
+        let workspace_binding_mismatch = self.workspace_binding_mismatch(scope);
+        if let Some(mismatch) = workspace_binding_mismatch.clone() {
+            arguments["workspace_binding_mismatch"] = mismatch;
+        }
 
-        serde_json::json!({
+        let reason = if workspace_binding_mismatch.is_some() {
+            "wrong workspace binding detected; doctor can confirm the active runtime root, workspace root, ingest roots, and requested absolute scope"
+        } else {
+            "retrieval returned blocked or zero actionable candidates; doctor can distinguish empty graph, stale binding, scope filtering, and session drift"
+        };
+
+        let mut payload = serde_json::json!({
             "suggested_tool": "doctor",
-            "reason": "retrieval returned blocked or zero actionable candidates; doctor can distinguish empty graph, stale binding, scope filtering, and session drift",
+            "reason": reason,
             "arguments": arguments,
-        })
+        });
+        if let Some(mismatch) = workspace_binding_mismatch {
+            payload["binding_issue"] = serde_json::json!("wrong_workspace_binding");
+            payload["workspace_binding_mismatch"] = mismatch;
+        }
+        payload
     }
 
     pub fn recovery_playbook_payload(
@@ -533,13 +671,28 @@ impl SessionState {
         if let Some(error_text) = error_text.filter(|value| !value.trim().is_empty()) {
             arguments["error_text"] = serde_json::json!(error_text);
         }
+        let workspace_binding_mismatch = self.workspace_binding_mismatch(scope);
+        if let Some(mismatch) = workspace_binding_mismatch.clone() {
+            arguments["workspace_binding_mismatch"] = mismatch;
+        }
 
-        serde_json::json!({
+        let reason = if workspace_binding_mismatch.is_some() {
+            "wrong workspace binding detected; recovery_playbook returns the ordered context selection path before shell fallback"
+        } else {
+            "retrieval returned blocked or zero actionable candidates; recovery_playbook returns the ordered agent recovery path before deeper diagnosis"
+        };
+
+        let mut payload = serde_json::json!({
             "suggested_tool": "recovery_playbook",
-            "reason": "retrieval returned blocked or zero actionable candidates; recovery_playbook returns the ordered agent recovery path before deeper diagnosis",
+            "reason": reason,
             "arguments": arguments,
             "fallback_tool": "doctor",
-        })
+        });
+        if let Some(mismatch) = workspace_binding_mismatch {
+            payload["binding_issue"] = serde_json::json!("wrong_workspace_binding");
+            payload["workspace_binding_mismatch"] = mismatch;
+        }
+        payload
     }
 
     pub fn retrieval_failure_context(
@@ -551,7 +704,9 @@ impl SessionState {
         scope: Option<&str>,
         error_text: Option<&str>,
     ) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
-        let needs_recovery = observed_proof_state == "blocked" || observed_candidates == Some(0);
+        let needs_recovery = observed_proof_state == "blocked"
+            || observed_candidates == Some(0)
+            || self.workspace_binding_mismatch(scope).is_some();
         if !needs_recovery {
             return (None, None);
         }
@@ -1494,6 +1649,102 @@ mod tests {
 
         assert_eq!(workspace_root, workspace);
         assert_eq!(workspace_root_source.as_str(), "env:CLAUDE_PROJECT_DIR");
+    }
+
+    #[test]
+    fn workspace_root_prefers_pwd_over_oldpwd_for_managed_runtime_graph_path() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _env = EnvGuard::clear_workspace_hints();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("active-project");
+        let stale_workspace = temp.path().join("stale-project");
+        let runtime = temp
+            .path()
+            .join(".codex")
+            .join("m1nd-runtimes")
+            .join("hash")
+            .join("sessions")
+            .join("ppid-1-pid-2");
+        std::fs::create_dir_all(&workspace).expect("workspace dir");
+        std::fs::create_dir_all(&stale_workspace).expect("stale workspace dir");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::env::set_var("PWD", &workspace);
+        std::env::set_var("OLDPWD", &stale_workspace);
+
+        let config = McpConfig {
+            graph_source: std::path::PathBuf::from("./graph_snapshot.json"),
+            plasticity_state: std::path::PathBuf::from("./plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            ..McpConfig::default()
+        };
+
+        let (workspace_root, workspace_root_source) =
+            SessionState::infer_workspace_root_with_current_dir(&config, &runtime, Some(&runtime));
+
+        assert_eq!(workspace_root, workspace);
+        assert_eq!(workspace_root_source.as_str(), "env:PWD");
+    }
+
+    #[test]
+    fn workspace_binding_mismatch_detects_absolute_scope_outside_active_roots() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let other = temp.path().join("other");
+        std::fs::create_dir_all(workspace.join("src")).expect("workspace src");
+        std::fs::create_dir_all(other.join("src")).expect("other src");
+        std::fs::write(
+            workspace.join("Cargo.toml"),
+            "[package]\nname='workspace'\n",
+        )
+        .expect("workspace manifest");
+        std::fs::write(other.join("Cargo.toml"), "[package]\nname='other'\n")
+            .expect("other manifest");
+
+        let config = McpConfig {
+            graph_source: workspace.join("graph_snapshot.json"),
+            plasticity_state: workspace.join("plasticity_state.json"),
+            runtime_dir: Some(workspace.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        let other_scope = other.join("src").to_string_lossy().to_string();
+        let mismatch = state
+            .workspace_binding_mismatch(Some(&other_scope))
+            .expect("scope outside workspace should be flagged");
+
+        assert_eq!(mismatch["code"], "wrong_workspace_binding");
+        assert_eq!(
+            mismatch["requested_workspace_hint"].as_str(),
+            Some(other.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            mismatch["active_workspace_root"].as_str(),
+            Some(workspace.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    fn workspace_binding_mismatch_ignores_absolute_scope_inside_active_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir_all(workspace.join("src")).expect("workspace src");
+
+        let config = McpConfig {
+            graph_source: workspace.join("graph_snapshot.json"),
+            plasticity_state: workspace.join("plasticity_state.json"),
+            runtime_dir: Some(workspace.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        let workspace_scope = workspace.join("src").to_string_lossy().to_string();
+        assert!(state
+            .workspace_binding_mismatch(Some(&workspace_scope))
+            .is_none());
     }
 
     #[test]

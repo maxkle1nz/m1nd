@@ -603,7 +603,8 @@ pub fn tool_schemas() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "observed_tool_count": { "type": "integer", "description": "Optional tools/list count seen by the host client" },
                         "available_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional tool names exposed by the host client" },
-                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" }
+                        "missing_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional required tool names missing from the host client surface" },
+                        "scope": { "type": "string", "description": "Optional absolute or repo-relative scope/path to validate against the active workspace binding" }
                     },
                     "required": ["agent_id"]
                 }
@@ -1037,7 +1038,8 @@ pub fn tool_schemas() -> serde_json::Value {
                             "description": "Ordered list of planned actions"
                         },
                         "include_test_impact": { "type": "boolean", "default": true, "description": "Analyze test coverage for modified files" },
-                        "include_risk_score": { "type": "boolean", "default": true, "description": "Compute composite risk score" }
+                        "include_risk_score": { "type": "boolean", "default": true, "description": "Compute composite risk score" },
+                        "scope": { "type": "string", "description": "Optional repo or scope path for multi-repo binding diagnostics" }
                     },
                     "required": ["agent_id", "actions"]
                 }
@@ -3989,6 +3991,54 @@ mod tests {
     }
 
     #[test]
+    fn session_handshake_flags_wrong_workspace_binding_for_absolute_scope() {
+        let (temp, mut state) = build_state();
+        let active_repo = temp.path().join("active-repo");
+        let other_repo = temp.path().join("other-repo");
+        std::fs::create_dir_all(active_repo.join("src")).expect("active src");
+        std::fs::create_dir_all(other_repo.join("src")).expect("other src");
+        std::fs::write(active_repo.join("src/lib.rs"), "pub fn active() {}\n")
+            .expect("active file");
+        std::fs::write(other_repo.join("Cargo.toml"), "[package]\nname='other'\n")
+            .expect("other manifest");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: active_repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest active repo");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "session_handshake",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "scope": other_repo.join("src").to_string_lossy(),
+            }),
+        )
+        .expect("session handshake output");
+
+        assert_eq!(output["trust_mode"], "wrong_workspace_binding");
+        assert_eq!(
+            output["context_guard"]["workspace_binding_mismatch"]["code"],
+            "wrong_workspace_binding"
+        );
+        assert_eq!(
+            output["doctor_recovery"]["suggested_tool"],
+            "recovery_playbook"
+        );
+    }
+
+    #[test]
     fn recovery_playbook_count_only_host_evidence_does_not_invent_missing_tools() {
         let (_temp, mut state) = build_state();
 
@@ -4011,6 +4061,59 @@ mod tests {
                 .is_empty(),
             "count-only evidence should not invent missing tool names"
         );
+    }
+
+    #[test]
+    fn recovery_playbook_routes_wrong_workspace_binding_before_stale_binding() {
+        let (temp, mut state) = build_state();
+        let active_repo = temp.path().join("active-repo");
+        let other_repo = temp.path().join("other-repo");
+        std::fs::create_dir_all(active_repo.join("src")).expect("active src");
+        std::fs::create_dir_all(other_repo.join("src")).expect("other src");
+        std::fs::write(active_repo.join("src/lib.rs"), "pub fn active() {}\n")
+            .expect("active file");
+        std::fs::write(other_repo.join("package.json"), "{\"name\":\"other\"}\n")
+            .expect("other package");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: active_repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest active repo");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "recovery_playbook",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "observed_tool": "seek",
+                "observed_proof_state": "blocked",
+                "observed_candidates": 0,
+                "scope": other_repo.join("src").to_string_lossy(),
+            }),
+        )
+        .expect("recovery playbook output");
+
+        assert_eq!(output["trust_mode"], "wrong_workspace_binding");
+        assert_eq!(output["next_action"], "select_or_bind_workspace");
+        assert_eq!(
+            output["context_guard"]["workspace_binding_mismatch"]["requested_workspace_hint"],
+            other_repo.to_string_lossy().as_ref()
+        );
+        assert!(output["steps"]
+            .as_array()
+            .expect("steps")
+            .iter()
+            .any(|step| step["id"] == "rebind_with_workspace_root"));
     }
 
     #[test]

@@ -81,6 +81,14 @@ on retrieval trust.
 binding fingerprint so agents can compare host, stdio, HTTP, runtime root,
 graph path, generation counters, and ingest roots before blaming the graph.
 
+If the task names an absolute repo or subtree, pass that path as `scope` to
+`trust_selftest`, `session_handshake`, `recovery_playbook`, `doctor`, or
+`validate_plan`. A `context_guard.wrong_workspace_binding=true` response means
+the host is bound to a different workspace than the one requested. The correct
+path is rebind with `M1ND_WORKSPACE_ROOT`, same-binding ingest if intentional,
+or explicit federation for cross-repo work. It is not evidence of graph
+staleness.
+
 If the host exposes `health` but not `trust_selftest`, `session_handshake`, or
 `recovery_playbook`, inspect `health.tool_surface_contract` and
 `health.host_binding_alignment`. That is the fallback proof that the host is

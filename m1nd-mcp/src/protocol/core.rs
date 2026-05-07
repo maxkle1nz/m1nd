@@ -194,6 +194,8 @@ pub struct SessionHandshakeInput {
     pub available_tools: Vec<String>,
     #[serde(default)]
     pub missing_tools: Vec<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 /// Input for m1nd.trust_selftest.

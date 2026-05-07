@@ -40,15 +40,24 @@ Only skip the `m1nd` first pass when:
   m1nd-first; `needs_ingest` means ingest the intended repo; `orientation_only`
   or `degraded_host_tool_surface` means use m1nd only for orientation and
   verify final truth with local files until the binding is refreshed;
-  `stale_binding_suspected` means compare binding fingerprints and follow the
-  recovery playbook before trusting retrieval.
+  `wrong_workspace_binding` means the active graph is healthy but bound to the
+  wrong repo for the requested scope; `stale_binding_suspected` means compare
+  binding fingerprints and follow the recovery playbook before trusting
+  retrieval.
 - If `trust_selftest` is not exposed but `session_handshake` is, call the
-  handshake and route by `trust_mode` as the cheaper sub-check.
+  handshake and route by `trust_mode` as the cheaper sub-check. When the task
+  names a target repo or absolute path, pass it as `scope` so Context Guard can
+  detect cross-repo binding mistakes before retrieval.
 - If the selftest verdict or handshake trust mode is not `full_trust`, or
   retrieval returns `blocked`/zero candidates unexpectedly, call
   `recovery_playbook` before inventing the next step. Use its ordered steps and
   `binding_fingerprint` to compare host, stdio, HTTP, runtime root, graph paths,
   generation counters, and ingest roots.
+- If a response includes `context_guard.wrong_workspace_binding=true`, stop the
+  normal stale-graph path. Rebind the MCP host with `M1ND_WORKSPACE_ROOT` set to
+  `requested_workspace_hint`, intentionally ingest that workspace on the same
+  binding, or use `federate_auto`/`federate` only when the investigation truly
+  spans repos. Do not treat this as proof that m1nd retrieval is broken.
 - If `trust_selftest` or `session_handshake` reports `needs_ingest`, or the
   mini `graph_state.node_count` is `0` while `ingest` is available, treat the
   session as a recoverable cold graph. Do not jump straight to shell fallback.
@@ -136,6 +145,7 @@ Use the bundled probe script from this skill directory whenever the live runtime
 python3 scripts/probe_m1nd.py tools
 python3 scripts/probe_m1nd.py call health '{"agent_id":"codex-m1nd"}'
 python3 scripts/probe_m1nd.py call trust_selftest '{"agent_id":"codex-m1nd"}'
+python3 scripts/probe_m1nd.py call session_handshake '{"agent_id":"codex-m1nd","scope":"/path/to/intended/repo"}'
 python3 scripts/probe_m1nd.py call recovery_playbook '{"agent_id":"codex-m1nd","observed_tool":"seek","observed_proof_state":"blocked","observed_candidates":0}'
 python3 scripts/probe_m1nd.py call help '{"agent_id":"codex-m1nd","tool_name":"validate_plan"}'
 python3 scripts/probe_m1nd.py run '[{"name":"ingest","arguments":{"agent_id":"codex-m1nd","path":"/path/to/repo"}},{"name":"seek","arguments":{"agent_id":"codex-m1nd","query":"where retry backoff is decided","top_k":5}}]'

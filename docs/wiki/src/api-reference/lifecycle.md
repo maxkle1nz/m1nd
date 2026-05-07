@@ -480,6 +480,10 @@ mutate files, refresh host bindings, or probe retrieval automatically.
 - `needs_ingest` -- graph is empty but `ingest` is available.
 - `orientation_only` -- graph is empty and the current host surface cannot ingest.
 - `degraded_host_tool_surface` -- the host is hiding required recovery tools.
+- `wrong_workspace_binding` -- the requested `scope` points at a different
+  workspace than the active binding. Rebind with `M1ND_WORKSPACE_ROOT`, ingest
+  the requested workspace on the same binding, or use explicit federation for
+  intentional cross-repo work.
 - `stale_binding_suspected` -- populated graph plus blocked/zero-candidate evidence suggests host/session split-brain.
 
 ### Related Tools
@@ -510,6 +514,7 @@ as `ingest`.
 | `observed_tool_count` | `integer` | No | -- | Tool count returned by the host client's `tools/list`. |
 | `available_tools` | `array<string>` | No | `[]` | Tool names exposed by the host client. |
 | `missing_tools` | `array<string>` | No | `[]` | Required tool names missing from the host client surface. |
+| `scope` | `string` | No | -- | Absolute or repo-relative scope/path to validate against the active workspace binding. |
 
 ### Example Request
 
@@ -560,6 +565,9 @@ as `ingest`.
 - `needs_ingest` -- graph is empty but `ingest` is available.
 - `orientation_only` -- graph is empty and the current host surface cannot ingest.
 - `degraded_host_tool_surface` -- the host is hiding required recovery tools.
+- `wrong_workspace_binding` -- the requested scope belongs to a different
+  workspace than the active binding. Follow `context_guard` and
+  `doctor_recovery` before retrieval.
 
 ### Related Tools
 
@@ -582,6 +590,11 @@ or probe retrieval.
 Use it after `session_handshake` reports anything other than `full_trust`, or
 after a retrieval response reports `blocked` or zero candidates when the graph
 should be populated.
+
+If the incident involves an absolute path or another repository, pass it as
+`scope`. The playbook returns `trust_mode=wrong_workspace_binding` and
+`next_action=select_or_bind_workspace` when the active graph is healthy but the
+call targeted a different workspace.
 
 ### Parameters
 
@@ -669,6 +682,11 @@ tool names, and missing tool names to `doctor`. It will flag
 `diagnostics.degraded_host_tool_surface` and explain whether the current host
 binding should be treated as orientation-only.
 
+If the suspicious call included a path from another repo, pass it as `scope`.
+`doctor` will surface `context_guard.wrong_workspace_binding=true` and suggest
+rebinding with `M1ND_WORKSPACE_ROOT`, same-binding ingest, or explicit
+federation instead of diagnosing a stale graph.
+
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -732,7 +750,8 @@ binding should be treated as orientation-only.
   "diagnostics": {
     "graph_has_nodes": true,
     "agent_session_known": true,
-    "stale_binding_suspected": true
+    "stale_binding_suspected": true,
+    "wrong_workspace_binding": false
   },
   "warnings": [
     "seek reported blocked/zero-candidate retrieval while the active graph is populated"
@@ -771,6 +790,7 @@ Validate a proposed modification plan against the code graph. Detects gaps (affe
 | `actions` | `object[]` | Yes | -- | Ordered list of planned actions. Each object has: `action_type` (string, required -- `"modify"`, `"create"`, `"delete"`, `"rename"`, `"test"`), `file_path` (string, required -- relative path), `description` (string, optional), `depends_on` (string[], optional -- other file_paths this action depends on). |
 | `include_test_impact` | `boolean` | No | `true` | Analyze test coverage for modified files. |
 | `include_risk_score` | `boolean` | No | `true` | Compute composite risk score. |
+| `scope` | `string` | No | -- | Optional repo or scope path for multi-repo binding diagnostics. |
 
 ### Example Request
 

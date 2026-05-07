@@ -155,6 +155,10 @@ Then start with this trust loop:
 // 0b. If you need the cheaper sub-check only
 {"method":"tools/call","params":{"name":"session_handshake","arguments":{"agent_id":"dev"}}}
 
+// 0c. If the task names an absolute repo/scope, pass it so Context Guard can
+// detect "active repo A graph, asked about repo B" before retrieval lies by silence.
+{"method":"tools/call","params":{"name":"session_handshake","arguments":{"agent_id":"dev","scope":"/your/project"}}}
+
 // If your host only exposes health, read its tool_surface_contract first
 {"method":"tools/call","params":{"name":"health","arguments":{"agent_id":"dev"}}}
 
@@ -222,6 +226,14 @@ For every host that supports environment variables, prefer setting
 signal used across Codex, Claude Code, Antigravity, Gemini, Cursor, Windsurf,
 VS Code, and generic MCP clients.
 
+When an agent is working across repos, pass the intended absolute repo or
+subtree as `scope` to `session_handshake`, `trust_selftest`,
+`recovery_playbook`, `doctor`, or `validate_plan`. Context Guard returns
+`wrong_workspace_binding` when the host is bound to one workspace but the tool
+call targets another. That is not graph staleness. Rebind the host with
+`M1ND_WORKSPACE_ROOT` set to the requested workspace, ingest that workspace on
+the same binding, or use explicit federation if the task truly spans repos.
+
 See [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) for the full install map.
 
 Windows is part of the universal target. The installer emits Windows-safe MCP
@@ -259,6 +271,11 @@ tool surface against the local runtime.
 If a host returns `Transport closed`, treat it as a dead MCP transport, not a
 stale graph. Restart/rebind the host MCP client or open a fresh session, then
 run `trust_selftest` or `session_handshake` before relying on retrieval.
+
+If a response includes
+`context_guard.wrong_workspace_binding=true`, stop before shell fallback. The
+current graph may be healthy but bound to the wrong repo. Follow the embedded
+`recovery_playbook` payload and rebind or federate intentionally.
 
 ## Default Agent Workflow
 
