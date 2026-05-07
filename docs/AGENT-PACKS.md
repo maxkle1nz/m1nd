@@ -47,6 +47,11 @@ Those commands write into `/path/to/project/.m1nd/agent-pack/`. Point the host
 at the generated rule file or paste it into the host custom-instructions
 surface.
 
+The portable pack includes recovery language for dead MCP transports. If a host
+reports `Transport closed`, treat it as a host binding death, not as stale graph
+state. Relaunch/rebind the MCP client or open a fresh session before calling
+`doctor`, `recovery_playbook`, or `ingest`.
+
 ## MCP Config Snippets
 
 Codex:
@@ -77,6 +82,16 @@ Then point your host at:
 target/release/m1nd-mcp
 ```
 
+When the host supports environment variables, set:
+
+```text
+M1ND_WORKSPACE_ROOT=/path/to/project
+```
+
+That is the host-neutral workspace contract. Host-specific variables from
+Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS Code, and shells are
+recognized as aliases, but `M1ND_WORKSPACE_ROOT` is the preferred signal.
+
 On Windows, the native binary is `m1nd-mcp.exe`. The npm installer looks for it
 on `PATH`, through `M1ND_MCP_BINARY`, or at:
 
@@ -96,6 +111,8 @@ should use plain MCP until a Windows-native fast lane is introduced.
 
 ## Trust Loop For Every Host
 
+0. If the host returns `Transport closed`, restart/rebind the host MCP client
+   first. The transport died before m1nd could run a recovery tool.
 1. Call `trust_selftest`.
 2. If unavailable, call `session_handshake`.
 3. If only `health` is visible, inspect `tool_surface_contract`.

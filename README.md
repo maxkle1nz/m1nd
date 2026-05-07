@@ -217,6 +217,11 @@ m1nd mcp-config generic
 m1nd pack-check
 ```
 
+For every host that supports environment variables, prefer setting
+`M1ND_WORKSPACE_ROOT` to the real repository/workspace. It is the portable
+signal used across Codex, Claude Code, Antigravity, Gemini, Cursor, Windsurf,
+VS Code, and generic MCP clients.
+
 See [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) for the full install map.
 
 Windows is part of the universal target. The installer emits Windows-safe MCP
@@ -250,6 +255,10 @@ shape and how to read it.
 If your local demo sees `trust_selftest` but your editor or agent host does not,
 use the [MCP host refresh guide](docs/MCP-HOST-REFRESH.md) to compare the host
 tool surface against the local runtime.
+
+If a host returns `Transport closed`, treat it as a dead MCP transport, not a
+stale graph. Restart/rebind the host MCP client or open a fresh session, then
+run `trust_selftest` or `session_handshake` before relying on retrieval.
 
 ## Default Agent Workflow
 
