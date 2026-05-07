@@ -28,6 +28,13 @@ Only skip the `m1nd` first pass when:
 - Prefer the live MCP surface over stale prose. If tool names, counts, or parameters matter, run the bundled helper from this skill directory: `python3 scripts/probe_m1nd.py tools`.
 - Keep `agent_id` stable within one investigation. Change it only when intentionally starting another role or another concurrent investigation.
 - Ingest first. Re-ingest after code changes, or use incremental ingest for code repos when appropriate.
+- If a m1nd tool call fails with `Transport closed`, treat it as a host MCP
+  transport death, not as a graph, retrieval, or proof-state failure. Recovery
+  tools cannot run through a closed transport. Verify the local binary with the
+  repo smoke harness, kill stale `m1nd-mcp --stdio` processes if you own that
+  host, then restart/rebind the MCP client or open a fresh thread. After the
+  host relaunches the transport, run `trust_selftest` or `session_handshake`
+  before relying on retrieval.
 - If the live MCP surface exposes `trust_selftest`, call it first and route by
   `verdict` before relying on retrieval. `full_trust` means proceed with
   m1nd-first; `needs_ingest` means ingest the intended repo; `orientation_only`
