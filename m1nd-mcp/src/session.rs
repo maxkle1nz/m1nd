@@ -303,6 +303,9 @@ pub struct SessionState {
     pub ingest_roots: Vec<String>,
     /// Last known project root inferred from ingest or graph location.
     pub workspace_root: Option<String>,
+    /// How `workspace_root` was inferred. This is diagnostic-only and helps
+    /// agents distinguish real repo roots from Codex runtime session folders.
+    pub workspace_root_source: Option<String>,
     /// Dedicated runtime root for persisted sidecar state.
     pub runtime_root: PathBuf,
     /// Registry + lease handle for this process instance.
@@ -374,7 +377,9 @@ impl SessionState {
             "graph_path": self.graph_path.to_string_lossy(),
             "plasticity_path": self.plasticity_path.to_string_lossy(),
             "workspace_root": self.workspace_root,
+            "workspace_root_source": self.workspace_root_source,
             "ingest_roots": self.ingest_roots,
+            "graph_path_exists": self.graph_path.exists(),
             "graph_generation": self.graph_generation,
             "plasticity_generation": self.plasticity_generation,
             "cache_generation": self.cache_generation,
@@ -396,7 +401,10 @@ impl SessionState {
             "ingest_root_count": self.ingest_roots.len(),
             "ingest_roots": self.ingest_roots,
             "workspace_root": self.workspace_root,
+            "workspace_root_source": self.workspace_root_source,
             "runtime_root": self.runtime_root,
+            "graph_path": self.graph_path,
+            "graph_path_exists": self.graph_path.exists(),
         })
     }
 
@@ -409,6 +417,9 @@ impl SessionState {
             "graph_generation": self.graph_generation,
             "ingest_root_count": self.ingest_roots.len(),
             "workspace_root_known": self.workspace_root.is_some(),
+            "workspace_root": self.workspace_root,
+            "workspace_root_source": self.workspace_root_source,
+            "graph_path_exists": self.graph_path.exists(),
             "runtime_root": self.runtime_root.to_string_lossy(),
         })
     }
@@ -550,6 +561,78 @@ impl SessionState {
         })
     }
 
+    fn infer_workspace_root(
+        config: &crate::server::McpConfig,
+        runtime_root: &std::path::Path,
+    ) -> (std::path::PathBuf, String) {
+        let graph_parent = config
+            .graph_source
+            .parent()
+            .unwrap_or(runtime_root)
+            .to_path_buf();
+
+        if !Self::looks_like_managed_runtime_path(&graph_parent, runtime_root) {
+            return (graph_parent, "graph_path_parent".into());
+        }
+
+        for env_name in [
+            "M1ND_WORKSPACE_ROOT",
+            "CODEX_WORKSPACE_ROOT",
+            "CODEX_WORKSPACE",
+            "WORKSPACE_ROOT",
+            "PROJECT_ROOT",
+            "OLDPWD",
+            "PWD",
+        ] {
+            let Ok(value) = std::env::var(env_name) else {
+                continue;
+            };
+            let candidate = std::path::PathBuf::from(value);
+            if Self::usable_workspace_candidate(&candidate, runtime_root) {
+                return (candidate, format!("env:{env_name}"));
+            }
+        }
+
+        if let Ok(candidate) = std::env::current_dir() {
+            if Self::usable_workspace_candidate(&candidate, runtime_root) {
+                return (candidate, "current_dir".into());
+            }
+        }
+
+        (graph_parent, "graph_path_parent_runtime_fallback".into())
+    }
+
+    fn usable_workspace_candidate(
+        candidate: &std::path::Path,
+        runtime_root: &std::path::Path,
+    ) -> bool {
+        candidate.is_dir() && !Self::looks_like_managed_runtime_path(candidate, runtime_root)
+    }
+
+    fn looks_like_managed_runtime_path(
+        path: &std::path::Path,
+        runtime_root: &std::path::Path,
+    ) -> bool {
+        if Self::path_matches_runtime_base(runtime_root) && path.starts_with(runtime_root) {
+            return true;
+        }
+        Self::path_matches_runtime_base(path)
+    }
+
+    fn path_matches_runtime_base(path: &std::path::Path) -> bool {
+        if let Ok(runtime_base) = std::env::var("M1ND_RUNTIME_BASE") {
+            let runtime_base = std::path::PathBuf::from(runtime_base);
+            if path.starts_with(runtime_base) {
+                return true;
+            }
+        }
+        let text = path.to_string_lossy();
+        text.contains("/.codex/m1nd-runtimes/")
+            || text.contains("\\.codex\\m1nd-runtimes\\")
+            || text.contains("/.m1nd-runtimes/")
+            || text.contains("\\.m1nd-runtimes\\")
+    }
+
     /// Initialize from a loaded graph. Builds all engines.
     /// Replaces: 03-MCP Section 1.2 startup sequence steps 3-6.
     pub fn initialize(
@@ -576,11 +659,8 @@ impl SessionState {
                 .to_path_buf()
         });
         std::fs::create_dir_all(&runtime_root)?;
-        let workspace_root = config
-            .graph_source
-            .parent()
-            .unwrap_or(runtime_root.as_path())
-            .to_path_buf();
+        let (workspace_root, workspace_root_source) =
+            Self::infer_workspace_root(config, &runtime_root);
         let instance = InstanceHandle::acquire(
             &workspace_root,
             &runtime_root,
@@ -620,6 +700,7 @@ impl SessionState {
             peek_security: PeekSecurityConfig::default(),
             ingest_roots,
             workspace_root: Some(workspace_root.to_string_lossy().to_string()),
+            workspace_root_source: Some(workspace_root_source),
             runtime_root: runtime_root.clone(),
             instance,
             apply_batch_progress_sink: None,
@@ -1178,4 +1259,85 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
     std::fs::write(&tmp, payload)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionState;
+    use crate::server::McpConfig;
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::Graph;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn workspace_root_uses_graph_parent_for_normal_graph_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = McpConfig {
+            graph_source: temp.path().join("graph_snapshot.json"),
+            plasticity_state: temp.path().join("plasticity_state.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(temp.path().to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("graph_path_parent")
+        );
+    }
+
+    #[test]
+    fn workspace_root_uses_env_hint_for_codex_runtime_graph_path() {
+        let _guard = env_lock().lock().expect("env lock");
+        let old_workspace = std::env::var("M1ND_WORKSPACE_ROOT").ok();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("project");
+        let runtime = temp
+            .path()
+            .join(".codex")
+            .join("m1nd-runtimes")
+            .join("hash")
+            .join("sessions")
+            .join("ppid-1-pid-2");
+        std::fs::create_dir_all(&workspace).expect("workspace dir");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::env::set_var("M1ND_WORKSPACE_ROOT", &workspace);
+
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            ..McpConfig::default()
+        };
+
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(workspace.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("env:M1ND_WORKSPACE_ROOT")
+        );
+
+        if let Some(value) = old_workspace {
+            std::env::set_var("M1ND_WORKSPACE_ROOT", value);
+        } else {
+            std::env::remove_var("M1ND_WORKSPACE_ROOT");
+        }
+    }
 }
