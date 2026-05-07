@@ -54,6 +54,15 @@ retrieval. If the verdict is not `full_trust`, follow the embedded
 guessing the next move. The selftest is diagnostic-only: no ingest, repair,
 host refresh, graph mutation, or retrieval probe happens automatically.
 
+If the verdict is `needs_ingest`, or `graph_state.node_count` is `0` while
+`ingest` is available, treat it as a recoverable cold graph, not as a reason to
+abandon m1nd. Call `ingest` on the same MCP binding with the absolute path of
+the intended repo/workspace, never a `~/.codex/m1nd-runtimes/...` session path.
+Then rerun `session_handshake` and one cheap retrieval. Fall back to direct
+files only when ingest is unavailable, ingest fails, or a post-ingest retrieval
+still reports `blocked` and `recovery_playbook`/`doctor` confirms stale binding
+or degraded host surface.
+
 If `trust_selftest` is not exposed but `session_handshake` is, call the cheaper
 sub-check:
 

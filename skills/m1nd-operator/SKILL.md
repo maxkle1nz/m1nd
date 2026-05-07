@@ -42,6 +42,14 @@ Only skip the `m1nd` first pass when:
   `recovery_playbook` before inventing the next step. Use its ordered steps and
   `binding_fingerprint` to compare host, stdio, HTTP, runtime root, graph paths,
   generation counters, and ingest roots.
+- If `trust_selftest` or `session_handshake` reports `needs_ingest`, or the
+  mini `graph_state.node_count` is `0` while `ingest` is available, treat the
+  session as a recoverable cold graph. Do not jump straight to shell fallback.
+  Call `ingest` on the same MCP binding with the absolute intended
+  repo/workspace path, never a `~/.codex/m1nd-runtimes/...` session path. Then
+  rerun `session_handshake` and one cheap retrieval. Fall back only if ingest is
+  unavailable, ingest fails, or post-ingest retrieval is still blocked and
+  `recovery_playbook`/`doctor` confirms stale binding or degraded host surface.
 - If the host exposes `health` but not `trust_selftest`, `session_handshake`, or
   `recovery_playbook`, read `health.tool_surface_contract` and
   `health.host_binding_alignment`. Treat missing required host-visible tools as
