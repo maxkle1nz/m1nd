@@ -1,6 +1,6 @@
 [package]
 name = "m1nd-mcp"
-version = "0.9.0-beta.0"
+version = "0.9.0-beta.1"
 edition = "2021"
 description = "Local MCP runtime for coding agents: structural retrieval, change reasoning, document grounding, and continuity."
 license = "MIT"
@@ -11,8 +11,8 @@ default = ["serve"]
 serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest"]
 
 [dependencies]
-m1nd-core = { path = "../m1nd-core", version = "0.9.0-beta.0" }
-m1nd-ingest = { path = "../m1nd-ingest", version = "0.9.0-beta.0" }
+m1nd-core = { path = "../m1nd-core", version = "0.9.0-beta.1" }
+m1nd-ingest = { path = "../m1nd-ingest", version = "0.9.0-beta.1" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = { workspace = true }
