@@ -366,6 +366,61 @@ pub struct SessionState {
     pub document_cache: DocumentCacheState,
 }
 
+const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
+    // Host-neutral contract. Any MCP host can set one of these.
+    "M1ND_WORKSPACE_ROOT",
+    "M1ND_PROJECT_ROOT",
+    "M1ND_REPO_ROOT",
+    "WORKSPACE_ROOT",
+    "PROJECT_ROOT",
+    "REPO_ROOT",
+    // Known agent/editor host hints. These are opportunistic aliases; the
+    // host-neutral M1ND_* variables above remain the preferred contract.
+    "CLAUDE_PROJECT_DIR",
+    "CLAUDE_WORKSPACE_ROOT",
+    "ANTHROPIC_WORKSPACE_ROOT",
+    "ANTIGRAVITY_WORKSPACE_ROOT",
+    "ANTIGRAVITY_PROJECT_ROOT",
+    "GEMINI_WORKSPACE_ROOT",
+    "GEMINI_PROJECT_ROOT",
+    "CURSOR_WORKSPACE_ROOT",
+    "CURSOR_PROJECT_ROOT",
+    "WINDSURF_WORKSPACE_ROOT",
+    "WINDSURF_PROJECT_ROOT",
+    "VSCODE_WORKSPACE",
+    "VSCODE_CWD",
+    // Package-manager/shell fallbacks. These are intentionally later because
+    // shells can point at transient directories in some hosted runtimes.
+    "INIT_CWD",
+    "OLDPWD",
+    "PWD",
+];
+
+const MANAGED_RUNTIME_PATH_MARKERS: &[&str] = &[
+    "/.codex/m1nd-runtimes/",
+    "\\.codex\\m1nd-runtimes\\",
+    "/.claude/m1nd-runtimes/",
+    "\\.claude\\m1nd-runtimes\\",
+    "/.antigravity/m1nd-runtimes/",
+    "\\.antigravity\\m1nd-runtimes\\",
+    "/.gemini/m1nd-runtimes/",
+    "\\.gemini\\m1nd-runtimes\\",
+    "/.cursor/m1nd-runtimes/",
+    "\\.cursor\\m1nd-runtimes\\",
+    "/.windsurf/m1nd-runtimes/",
+    "\\.windsurf\\m1nd-runtimes\\",
+    "/.m1nd-runtimes/",
+    "\\.m1nd-runtimes\\",
+    "/m1nd-runtimes/",
+    "\\m1nd-runtimes\\",
+    "/mcp-runtimes/",
+    "\\mcp-runtimes\\",
+    "/agent-runtimes/",
+    "\\agent-runtimes\\",
+    "/sessions/ppid-",
+    "\\sessions\\ppid-",
+];
+
 impl SessionState {
     pub fn binding_fingerprint(&self) -> serde_json::Value {
         let graph = self.graph.read();
@@ -575,15 +630,7 @@ impl SessionState {
             return (graph_parent, "graph_path_parent".into());
         }
 
-        for env_name in [
-            "M1ND_WORKSPACE_ROOT",
-            "CODEX_WORKSPACE_ROOT",
-            "CODEX_WORKSPACE",
-            "WORKSPACE_ROOT",
-            "PROJECT_ROOT",
-            "OLDPWD",
-            "PWD",
-        ] {
+        for env_name in WORKSPACE_ROOT_ENV_CANDIDATES {
             let Ok(value) = std::env::var(env_name) else {
                 continue;
             };
@@ -627,10 +674,9 @@ impl SessionState {
             }
         }
         let text = path.to_string_lossy();
-        text.contains("/.codex/m1nd-runtimes/")
-            || text.contains("\\.codex\\m1nd-runtimes\\")
-            || text.contains("/.m1nd-runtimes/")
-            || text.contains("\\.m1nd-runtimes\\")
+        MANAGED_RUNTIME_PATH_MARKERS
+            .iter()
+            .any(|marker| text.contains(marker))
     }
 
     /// Initialize from a loaded graph. Builds all engines.
@@ -1263,7 +1309,7 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::SessionState;
+    use super::{SessionState, WORKSPACE_ROOT_ENV_CANDIDATES};
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
@@ -1272,6 +1318,35 @@ mod tests {
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvGuard {
+        saved: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvGuard {
+        fn clear_workspace_hints() -> Self {
+            let saved = WORKSPACE_ROOT_ENV_CANDIDATES
+                .iter()
+                .map(|name| (*name, std::env::var(name).ok()))
+                .collect::<Vec<_>>();
+            for name in WORKSPACE_ROOT_ENV_CANDIDATES {
+                std::env::remove_var(name);
+            }
+            Self { saved }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (name, value) in &self.saved {
+                if let Some(value) = value {
+                    std::env::set_var(name, value);
+                } else {
+                    std::env::remove_var(name);
+                }
+            }
+        }
     }
 
     #[test]
@@ -1300,7 +1375,7 @@ mod tests {
     #[test]
     fn workspace_root_uses_env_hint_for_codex_runtime_graph_path() {
         let _guard = env_lock().lock().expect("env lock");
-        let old_workspace = std::env::var("M1ND_WORKSPACE_ROOT").ok();
+        let _env = EnvGuard::clear_workspace_hints();
 
         let temp = tempfile::tempdir().expect("tempdir");
         let workspace = temp.path().join("project");
@@ -1333,11 +1408,80 @@ mod tests {
             state.workspace_root_source.as_deref(),
             Some("env:M1ND_WORKSPACE_ROOT")
         );
+    }
 
-        if let Some(value) = old_workspace {
-            std::env::set_var("M1ND_WORKSPACE_ROOT", value);
-        } else {
-            std::env::remove_var("M1ND_WORKSPACE_ROOT");
-        }
+    #[test]
+    fn workspace_root_uses_claude_hint_for_managed_runtime_graph_path() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _env = EnvGuard::clear_workspace_hints();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("claude-project");
+        let runtime = temp
+            .path()
+            .join(".claude")
+            .join("m1nd-runtimes")
+            .join("hash")
+            .join("sessions")
+            .join("ppid-1-pid-2");
+        std::fs::create_dir_all(&workspace).expect("workspace dir");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::env::set_var("CLAUDE_PROJECT_DIR", &workspace);
+
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            ..McpConfig::default()
+        };
+
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(workspace.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("env:CLAUDE_PROJECT_DIR")
+        );
+    }
+
+    #[test]
+    fn workspace_root_uses_antigravity_hint_for_generic_agent_runtime_graph_path() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _env = EnvGuard::clear_workspace_hints();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("antigravity-project");
+        let runtime = temp
+            .path()
+            .join("agent-runtimes")
+            .join("hash")
+            .join("sessions")
+            .join("ppid-1-pid-2");
+        std::fs::create_dir_all(&workspace).expect("workspace dir");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::env::set_var("ANTIGRAVITY_WORKSPACE_ROOT", &workspace);
+
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime),
+            ..McpConfig::default()
+        };
+
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+
+        assert_eq!(
+            state.workspace_root.as_deref(),
+            Some(workspace.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            state.workspace_root_source.as_deref(),
+            Some("env:ANTIGRAVITY_WORKSPACE_ROOT")
+        );
     }
 }
