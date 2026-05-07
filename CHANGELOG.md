@@ -8,6 +8,15 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 The next release train starts here.
 
+## [0.9.0-beta.1] — 2026-05-07
+
+### Changed
+
+- The universal agent pack and integration docs now teach host-neutral
+  workspace binding with `M1ND_WORKSPACE_ROOT`.
+- The agent recovery doctrine now classifies `Transport closed` as a dead MCP
+  transport that needs host rebind/restart before m1nd recovery tools can run.
+
 ---
 
 ## [0.8.0] — 2026-04-10

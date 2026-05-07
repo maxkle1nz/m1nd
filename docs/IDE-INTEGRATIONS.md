@@ -33,7 +33,8 @@ Most hosts are perfectly fine with:
       "command": "/path/to/m1nd-mcp",
       "env": {
         "M1ND_GRAPH_SOURCE": "/tmp/m1nd-graph.json",
-        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json"
+        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json",
+        "M1ND_WORKSPACE_ROOT": "/path/to/your/project"
       }
     }
   }
@@ -63,6 +64,7 @@ args = ["--stdio", "--no-gui"]
 [mcp_servers.m1nd.env]
 M1ND_GRAPH_SOURCE = "/tmp/m1nd-graph.json"
 M1ND_PLASTICITY_STATE = "/tmp/m1nd-plasticity.json"
+M1ND_WORKSPACE_ROOT = "/path/to/your/project"
 ```
 
 But some editor hosts still pay too much overhead if they cold-start a stdio MCP
@@ -107,6 +109,20 @@ Examples:
 - Cursor / Windsurf → project-local MCP config pointing at a native proxy if desired
 
 ## Practical recommendations
+
+### Set the workspace root when possible
+
+Use `M1ND_WORKSPACE_ROOT` as the portable contract for Codex, Claude Code,
+Antigravity, Gemini, Cursor, Windsurf, VS Code, and generic MCP clients. Point
+it at the real repository or workspace, not at a host-managed runtime folder.
+
+Host-specific hints such as `CLAUDE_PROJECT_DIR` or
+`ANTIGRAVITY_WORKSPACE_ROOT` are recognized as compatibility aliases, but
+`M1ND_WORKSPACE_ROOT` is the clearest cross-host signal.
+
+If a tool call fails with `Transport closed`, the MCP pipe died before m1nd
+could run. Restart/rebind the host MCP client or open a fresh session, then
+call `trust_selftest` or `session_handshake` before retrieval.
 
 ### Use plain MCP when:
 

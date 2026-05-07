@@ -10,6 +10,16 @@ The most common symptom is simple:
 - the host session only sees some of those tools
 - retrieval looks blocked or stale even after ingest
 
+Another common symptom is more abrupt:
+
+- a tool call fails with `Transport closed`
+
+That is not graph staleness. It means the MCP transport died before m1nd could
+execute a tool. Recovery tools such as `doctor`, `recovery_playbook`, and
+`ingest` cannot run through that closed transport. Prove the binary locally,
+restart/rebind the host MCP client or open a fresh session, then call
+`trust_selftest` or `session_handshake` on the newly launched binding.
+
 ## 1. Prove The Local Binary First
 
 From the repo root:
@@ -76,10 +86,15 @@ Recommended order:
 
 1. Rebuild `m1nd-mcp`.
 2. Confirm the MCP config points at the rebuilt binary.
-3. Restart the MCP server process if the host manages it separately.
-4. Reload or restart the client window/session.
-5. Re-run `tools/list`.
-6. Call `trust_selftest`.
+3. Set `M1ND_WORKSPACE_ROOT` to the intended repo/workspace when the host lets
+   you configure environment variables.
+4. Restart the MCP server process if the host manages it separately.
+5. Reload or restart the client window/session.
+6. Re-run `tools/list`.
+7. Call `trust_selftest`.
+
+If the error is `Transport closed`, the old binding is already gone. Skip graph
+recovery calls in that session and relaunch the host binding first.
 
 For hosts that cache tool schemas per conversation or workspace, start a new
 conversation/session after rebuilding the binary. The old conversation may keep

@@ -15,6 +15,10 @@ local file action.
 
 ## Startup Trust Loop
 
+0. If a tool call fails with `Transport closed`, stop treating it as graph
+   staleness. The MCP transport died before m1nd could run. Verify the binary
+   with a local smoke, restart/rebind the host MCP client or open a fresh
+   thread, then continue with this loop.
 1. Call `trust_selftest` if the host exposes it.
 2. If unavailable, call `session_handshake`.
 3. If only `health` is exposed, inspect `tool_surface_contract` and
@@ -39,6 +43,10 @@ repair, refresh the host, or mutate the graph.
   document binding/drift tools
 
 ## Recovery Rules
+
+`Transport closed` is a host transport failure, not a m1nd proof-state. Do not
+call `doctor`, `recovery_playbook`, or `ingest` through that dead binding. A
+fresh MCP transport must be launched first.
 
 If `seek`, `search`, or `activate` returns `blocked`, zero candidates, or an
 unexpectedly empty graph after ingest, treat it as possible stale binding or
@@ -73,6 +81,11 @@ and local file truth. It does not replace them.
 
 Keep `agent_id` stable within one investigation. Use trails, perspectives, and
 coverage sessions when work spans agents, branches, or sessions.
+
+For host setup, prefer exporting `M1ND_WORKSPACE_ROOT` to the actual repository
+or project root. Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS Code,
+and generic shells can expose their own workspace hints too, but
+`M1ND_WORKSPACE_ROOT` is the portable contract.
 
 ## L1GHT
 
