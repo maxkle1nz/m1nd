@@ -620,11 +620,27 @@ impl SessionState {
         config: &crate::server::McpConfig,
         runtime_root: &std::path::Path,
     ) -> (std::path::PathBuf, String) {
-        let graph_parent = config
+        let current_dir = std::env::current_dir().ok();
+        Self::infer_workspace_root_with_current_dir(config, runtime_root, current_dir.as_deref())
+    }
+
+    fn infer_workspace_root_with_current_dir(
+        config: &crate::server::McpConfig,
+        runtime_root: &std::path::Path,
+        current_dir: Option<&std::path::Path>,
+    ) -> (std::path::PathBuf, String) {
+        let raw_graph_parent = config
             .graph_source
             .parent()
             .unwrap_or(runtime_root)
             .to_path_buf();
+        let graph_parent = if raw_graph_parent.is_absolute() {
+            raw_graph_parent
+        } else if let Some(current_dir) = current_dir {
+            current_dir.join(&raw_graph_parent)
+        } else {
+            runtime_root.join(&raw_graph_parent)
+        };
 
         if !Self::looks_like_managed_runtime_path(&graph_parent, runtime_root) {
             return (graph_parent, "graph_path_parent".into());
@@ -640,9 +656,9 @@ impl SessionState {
             }
         }
 
-        if let Ok(candidate) = std::env::current_dir() {
-            if Self::usable_workspace_candidate(&candidate, runtime_root) {
-                return (candidate, "current_dir".into());
+        if let Some(candidate) = current_dir {
+            if Self::usable_workspace_candidate(candidate, runtime_root) {
+                return (candidate.to_path_buf(), "current_dir".into());
             }
         }
 
@@ -1446,6 +1462,38 @@ mod tests {
             state.workspace_root_source.as_deref(),
             Some("env:CLAUDE_PROJECT_DIR")
         );
+    }
+
+    #[test]
+    fn workspace_root_uses_host_hint_for_relative_graph_inside_managed_runtime() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _env = EnvGuard::clear_workspace_hints();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("claude-project");
+        let runtime = temp
+            .path()
+            .join(".claude")
+            .join("m1nd-runtimes")
+            .join("hash")
+            .join("sessions")
+            .join("ppid-1-pid-2");
+        std::fs::create_dir_all(&workspace).expect("workspace dir");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::env::set_var("CLAUDE_PROJECT_DIR", &workspace);
+
+        let config = McpConfig {
+            graph_source: std::path::PathBuf::from("./graph_snapshot.json"),
+            plasticity_state: std::path::PathBuf::from("./plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            ..McpConfig::default()
+        };
+
+        let (workspace_root, workspace_root_source) =
+            SessionState::infer_workspace_root_with_current_dir(&config, &runtime, Some(&runtime));
+
+        assert_eq!(workspace_root, workspace);
+        assert_eq!(workspace_root_source.as_str(), "env:CLAUDE_PROJECT_DIR");
     }
 
     #[test]
