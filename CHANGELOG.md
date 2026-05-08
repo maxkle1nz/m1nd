@@ -10,12 +10,22 @@ The next release train starts here.
 
 ## [0.9.0-beta.1] — 2026-05-07
 
+### Added
+
+- Added `m1nd restart` as an external agent repair helper for stale host
+  bindings, old native runtime binaries, and dead MCP transports. It can build
+  `m1nd-mcp`, install the managed binary, and optionally stop visible runtime
+  processes while preserving the non-claim that host MCP clients still need a
+  restart/rebind.
+
 ### Changed
 
 - The universal agent pack and integration docs now teach host-neutral
   workspace binding with `M1ND_WORKSPACE_ROOT`.
 - The agent recovery doctrine now classifies `Transport closed` as a dead MCP
   transport that needs host rebind/restart before m1nd recovery tools can run.
+- Runtime discovery now accepts both `M1ND_MCP_BINARY` and `M1ND_MCP_BIN`, and
+  prefers the managed `~/.m1nd/bin` runtime before older binaries on `PATH`.
 
 ---
 

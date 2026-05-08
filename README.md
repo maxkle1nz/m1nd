@@ -218,7 +218,22 @@ from source or point your host at an installed binary.
 ```bash
 m1nd mcp-config codex
 m1nd mcp-config generic
+m1nd restart --source /path/to/m1nd --yes
 m1nd pack-check
+```
+
+`m1nd restart` is the external repair button for agents. It is useful when a
+host is still launching an old `m1nd-mcp`, reports `Transport closed`, or keeps
+a stale MCP process alive. With `--yes`, it builds from the source checkout,
+installs the native runtime to the default m1nd binary path, and stops visible
+`m1nd-mcp` processes. The host still needs to restart or rebind afterward so it
+can launch the updated binary.
+
+In live multi-agent work, use `--no-kill` when you want to update the managed
+binary without interrupting active hosts:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes --no-kill
 ```
 
 For every host that supports environment variables, prefer setting
@@ -237,8 +252,9 @@ the same binding, or use explicit federation if the task truly spans repos.
 See [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) for the full install map.
 
 Windows is part of the universal target. The installer emits Windows-safe MCP
-paths and looks for `m1nd-mcp.exe` on `PATH`, through `M1ND_MCP_BINARY`, or at
-`%USERPROFILE%\.m1nd\bin\m1nd-mcp.exe`.
+paths and resolves the runtime in this order: `M1ND_MCP_BINARY`,
+`M1ND_MCP_BIN`, the managed `~/.m1nd/bin` path, then `PATH`. On Windows the
+managed path is `%USERPROFILE%\.m1nd\bin\m1nd-mcp.exe`.
 
 The Windows support boundary is the universal MCP lane: `m1nd-core`,
 `m1nd-ingest`, and `m1nd-mcp`. The `m1nd-openclaw` fast path remains a Unix

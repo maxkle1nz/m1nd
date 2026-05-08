@@ -10,7 +10,12 @@ import shutil
 from typing import Any
 
 
-DEFAULT_BINARY = os.environ.get("M1ND_MCP_BINARY") or shutil.which("m1nd-mcp") or "m1nd-mcp"
+DEFAULT_BINARY = (
+    os.environ.get("M1ND_MCP_BINARY")
+    or os.environ.get("M1ND_MCP_BIN")
+    or shutil.which("m1nd-mcp")
+    or "m1nd-mcp"
+)
 DEFAULT_ARGS = shlex.split(os.environ.get("M1ND_MCP_ARGS", "--stdio --no-gui"))
 
 

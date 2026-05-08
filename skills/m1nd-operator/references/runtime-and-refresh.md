@@ -10,6 +10,8 @@ Most hosts should point their MCP config at the same native binary:
 - Binary name: `m1nd-mcp`
 - Default launch args: `--stdio --no-gui`
 - Optional env override: `M1ND_MCP_BINARY=/absolute/path/to/m1nd-mcp`
+- Compatibility alias accepted by the probe helper:
+  `M1ND_MCP_BIN=/absolute/path/to/m1nd-mcp`
 
 Use the bundled helper script to verify the current runtime instead of trusting memory:
 
@@ -127,6 +129,30 @@ When this skill starts feeling stale:
 2. Re-read `tool-matrix.md`, `api-reference/overview.md`, `EXAMPLES.md`, `faq.md`, `benchmarks.md`, and any changed API pages.
 3. Run `python3 scripts/probe_m1nd.py tools` against the local installed binary.
 4. Update this skill only where the live runtime or official docs actually changed.
+
+## External Restart Helper
+
+When an agent sees `Transport closed`, an old binary version, stale host tools,
+or repeated blocked retrieval after a good local graph, use an external restart
+instead of trying to repair through the dead MCP binding:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes
+```
+
+This command builds the latest source checkout, installs the native runtime to
+the default m1nd binary path, and stops visible `m1nd-mcp` processes. It does
+not refresh the host's cached tool list, choose a workspace, or ingest a graph.
+After it runs, restart/rebind the host client and call `trust_selftest` or
+`session_handshake` with the intended `scope`.
+
+For live multi-agent sessions, prefer:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes --no-kill
+```
+
+Then restart/rebind only the host that needs the new binary.
 
 ## Host-Specific Note For Codex
 

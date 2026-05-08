@@ -6,6 +6,11 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Added
+
+- Added `m1nd restart` as an external repair helper for stale MCP host
+  bindings, old native runtime binaries, and `Transport closed` recovery.
+
 ### Fixed
 
 - Aligned the Rust crate versions and `m1nd-mcp --version` output with the

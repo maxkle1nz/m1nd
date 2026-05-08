@@ -44,6 +44,18 @@ agent host or open a fresh thread so the MCP client launches a new transport.
 After rebind, run `trust_selftest` or `session_handshake` before trusting
 retrieval.
 
+If the host appears to be launching an old native runtime, use the external CLI
+repair path from a m1nd source checkout:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes
+```
+
+Use `--no-kill` in live multi-agent sessions when you only want to install the
+updated managed binary and rebind one selected host. `m1nd restart` does not
+ingest, repair graph contents, choose a workspace, or refresh an already-open
+client's cached MCP tool list.
+
 For local m1nd repo work, prefer the cheap trust selftest path before a full smoke:
 
 ```bash

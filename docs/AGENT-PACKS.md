@@ -52,6 +52,25 @@ reports `Transport closed`, treat it as a host binding death, not as stale graph
 state. Relaunch/rebind the MCP client or open a fresh session before calling
 `doctor`, `recovery_playbook`, or `ingest`.
 
+If the host is stale because it is still launching an older native binary, use
+the external restart helper from a m1nd source checkout:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes
+```
+
+This builds the latest `m1nd-mcp`, installs it to the default m1nd binary path,
+and stops visible `m1nd-mcp` processes so the host can relaunch. It still cannot
+refresh a client's cached MCP tool list by itself; restart or rebind the host
+session afterward.
+
+During live multi-agent work, add `--no-kill` if the goal is only to update the
+managed binary while keeping current host sessions alive:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes --no-kill
+```
+
 ## MCP Config Snippets
 
 Codex:
@@ -92,8 +111,9 @@ That is the host-neutral workspace contract. Host-specific variables from
 Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS Code, and shells are
 recognized as aliases, but `M1ND_WORKSPACE_ROOT` is the preferred signal.
 
-On Windows, the native binary is `m1nd-mcp.exe`. The npm installer looks for it
-on `PATH`, through `M1ND_MCP_BINARY`, or at:
+On Windows, the native binary is `m1nd-mcp.exe`. The npm installer resolves it
+in this order: `M1ND_MCP_BINARY`, `M1ND_MCP_BIN`, the managed m1nd binary path,
+then `PATH`. The managed Windows path is:
 
 ```text
 %USERPROFILE%\.m1nd\bin\m1nd-mcp.exe

@@ -57,6 +57,20 @@ repair, refresh the host, or mutate the graph.
 call `doctor`, `recovery_playbook`, or `ingest` through that dead binding. A
 fresh MCP transport must be launched first.
 
+If the host appears to be launching an old or stale native runtime, and a local
+`m1nd` CLI is available outside the MCP transport, run:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes
+```
+
+Then restart or rebind the host MCP client. `m1nd restart` is external repair:
+it does not ingest, pick the workspace, or refresh a client's cached tool list
+inside an already-open conversation.
+
+In live multi-agent sessions, use `--no-kill` to install the updated managed
+binary without stopping every active `m1nd-mcp` host.
+
 If `seek`, `search`, or `activate` returns `blocked`, zero candidates, or an
 unexpectedly empty graph after ingest, treat it as possible stale binding or
 session split-brain before blaming the repo.

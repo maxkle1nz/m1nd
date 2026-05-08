@@ -113,6 +113,25 @@ Recommended order:
 If the error is `Transport closed`, the old binding is already gone. Skip graph
 recovery calls in that session and relaunch the host binding first.
 
+For agent-driven repair from a source checkout, the shortest external helper is:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes
+```
+
+`m1nd restart` is deliberately outside MCP, so it can still help when the MCP
+transport is stale or closed. With `--yes`, it builds the release binary,
+installs it to the default m1nd binary path, and stops visible `m1nd-mcp`
+processes. Then the agent or human must restart/rebind the host so it launches
+the updated binary. Without `--yes`, it prints the repair plan only.
+
+For a live multi-agent session, use `--no-kill` when you need to update the
+managed binary without stopping current hosts:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes --no-kill
+```
+
 For hosts that cache tool schemas per conversation or workspace, start a new
 conversation/session after rebuilding the binary. The old conversation may keep
 the previous tool registry even though the local binary is correct.

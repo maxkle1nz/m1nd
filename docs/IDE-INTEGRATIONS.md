@@ -124,6 +124,17 @@ If a tool call fails with `Transport closed`, the MCP pipe died before m1nd
 could run. Restart/rebind the host MCP client or open a fresh session, then
 call `trust_selftest` or `session_handshake` before retrieval.
 
+If the host is launching an old native runtime, use the external repair helper
+from a m1nd source checkout:
+
+```bash
+m1nd restart --source /path/to/m1nd --yes
+```
+
+For live multi-agent sessions, add `--no-kill` to install the updated managed
+binary without stopping current host processes, then restart/rebind only the
+target host.
+
 ### Use plain MCP when:
 
 - the host already keeps the MCP server alive
