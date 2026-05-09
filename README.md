@@ -4,24 +4,26 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Operational intelligence for coding agents</h3>
+<h1 align="center">The Agent Memory Layer for Codebases</h1>
 
 <p align="center">
-  <strong>A local intelligence layer for coding agents.</strong><br/>
-  <em>Local execution. MCP over stdio. Optional HTTP/UI surface in the default build.</em>
+  <strong>Your coding agent stops starting blind.</strong><br/>
+  <em>Local-first. MCP-native. Graph memory, recovery, and change reasoning for agent hosts.</em>
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
   <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
-  <a href="https://github.com/maxkle1nz/m1nd/releases"><img src="https://img.shields.io/badge/release-v0.9.0--beta.0-00f5ff" alt="Release" /></a>
 </p>
 
 <p align="center">
+  <a href="#why-agents-need-it">Why Agents Need It</a> &middot;
   <a href="#what-m1nd-is">What m1nd Is</a> &middot;
   <a href="#what-that-intelligence-covers">What That Intelligence Covers</a> &middot;
+  <a href="#how-m1nd-thinks">How m1nd Thinks</a> &middot;
   <a href="#what-m1nd-is-not">What m1nd Is Not</a> &middot;
   <a href="#capability-map">Capability Map</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
@@ -29,6 +31,7 @@
   <a href="#try-the-agent-demo">Agent Demo</a> &middot;
   <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
   <a href="#evidence">Evidence</a> &middot;
+  <a href="#why-m1nd-over-alternatives">Why m1nd</a> &middot;
   <a href="#agent-testimonials">Agent Testimonials</a> &middot;
   <a href="#limits">Limits</a> &middot;
   <a href="#architecture-at-a-glance">Architecture</a> &middot;
@@ -38,6 +41,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/OpenAI_Codex-412991?logo=openai&logoColor=fff" alt="OpenAI Codex" /></a>
   <a href="https://claude.ai/download"><img src="https://img.shields.io/badge/Claude_Code-f0ebe3?logo=claude&logoColor=d97706" alt="Claude Code" /></a>
   <a href="https://cursor.sh"><img src="https://img.shields.io/badge/Cursor-000?logo=cursor&logoColor=fff" alt="Cursor" /></a>
   <a href="https://codeium.com/windsurf"><img src="https://img.shields.io/badge/Windsurf-0d1117?logo=windsurf&logoColor=3ec9a7" alt="Windsurf" /></a>
@@ -47,6 +51,7 @@
   <a href="https://roocode.com"><img src="https://img.shields.io/badge/Roo_Code-6d28d9?logoColor=fff" alt="Roo Code" /></a>
   <a href="https://github.com/continuedev/continue"><img src="https://img.shields.io/badge/Continue-000?logoColor=fff" alt="Continue" /></a>
   <a href="https://opencode.ai"><img src="https://img.shields.io/badge/OpenCode-18181b?logoColor=fff" alt="OpenCode" /></a>
+  <a href="https://aistudio.google.com"><img src="https://img.shields.io/badge/Gemini-4285F4?logo=google&logoColor=fff" alt="Gemini" /></a>
   <a href="https://aws.amazon.com/q/developer"><img src="https://img.shields.io/badge/Amazon_Q-232f3e?logo=amazonaws&logoColor=f90" alt="Amazon Q" /></a>
 </p>
 
@@ -54,15 +59,43 @@
   <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>
 
-> grep finds text. `m1nd` helps agents recover structure, context, and continuity.
+> grep finds text. Vector search finds similar chunks. `m1nd` gives agents a local graph of what connects, what changed, what breaks, what drifted, and where to resume.
+
+## Why Agents Need It
+
+Give a coding agent a large repo and it often starts the same way every time:
+search, open likely files, rebuild context, make a plan, then repeat the whole
+orientation loop in the next session.
+
+That works for small codebases. It falls apart when the project has generated
+artifacts, specs, docs, hidden co-change history, multiple agents, and long
+handoffs.
+
+The problem is not only the agent's reasoning. The agent has no durable model of
+the codebase's structure.
+
+`m1nd` gives it one.
 
 ## What m1nd Is
 
-`m1nd` is a local MCP runtime that gives coding agents structural retrieval, change reasoning, document grounding, operations, and continuity through a graph they can reason over before, during, and after change.
+`m1nd` is a local MCP runtime that gives coding agents graph-native memory of a
+codebase: structure, docs, decisions, change impact, recovery state, and
+investigation continuity.
 
-It ingests repositories, documentation, history, runtime-adjacent signals, and graph-native knowledge into a local graph. That graph is the operational model the agent works against instead of rebuilding context from scratch on every step.
+It ingests repositories, documentation, history, runtime-adjacent signals, and
+graph-native knowledge into a local graph. That graph becomes the operational
+model the agent works against instead of rebuilding context from scratch on
+every task.
 
 It is not only a query surface. It is an operational layer: answers and edit surfaces can carry proof state, next-step guidance, recovery hints, observable execution, verified writes, stateful navigation, and persisted continuity across sessions.
+
+Agents can ask the graph questions that plain file search cannot answer well:
+
+- "What is the authentication flow?" -> `activate` finds the connected chain, not only files named `auth`.
+- "What breaks if I change this?" -> `impact` and `counterfactual` surface blast radius before edits.
+- "Where did this decision live?" -> `boot_memory`, trails, and perspectives recover prior context.
+- "Does this spec still match the code?" -> document bindings and drift checks expose stale claims.
+- "Is this repo binding trustworthy?" -> `trust_selftest`, `session_handshake`, and `recovery_playbook` tell the agent whether to proceed, ingest, rebind, or fall back.
 
 With `m1nd`, an agent can:
 
@@ -88,6 +121,21 @@ With `m1nd`, an agent can:
 - Docs: universal document ingestion, graph-native `L1GHT`, provider health, automatic ingest, bindings between specs and implementation, local-first document runtime behavior, and document drift detection.
 - Operations: audits, graph-vs-disk verification, daemon monitoring, alerts, metrics, diagrams, runtime overlays, panoramas, savings, reporting, built-in help, and recovery-oriented workflow routing.
 - Continuity: perspectives, trails, session coverage, boot memory, persisted state, feedback-driven reinforcement, multi-agent isolation, and cross-repo or cross-session investigative state.
+
+## How m1nd Thinks
+
+Most code intelligence tools treat a repo as a flat index. `m1nd` treats it as a
+system of relationships.
+
+- **Spreading activation** moves signal through topology, semantics, recency, and directed flow so the agent can find connected neighborhoods rather than isolated keyword hits.
+- **Ghost edges** lift hidden coupling from git history, including files that often change together without an explicit import.
+- **Impact and counterfactuals** turn "what if I touch this?" into a graph question before the edit happens.
+- **Hebbian plasticity** reinforces useful paths from repeated feedback, so the graph can preserve local project memory over time.
+- **L1GHT and universal document ingest** let specs, claims, citations, and implementation bindings live in the same graph as code.
+- **Context Guard and recovery tools** keep agents honest when a host is stale, bound to the wrong repo, missing recovery tools, or operating through a dead MCP transport.
+
+The result is not just retrieval. It is structured orientation, change
+reasoning, and recovery behavior that an agent can call before acting.
 
 ## What m1nd Is Not
 
@@ -320,6 +368,22 @@ Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world
 | `activate` on 1K nodes | **1.36 µs** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | `impact` depth=3 | **543 ns** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | Post-write validation sample | **12/12** classified correctly |
+
+## Why m1nd Over Alternatives
+
+| What an agent needs | grep / rg | vector RAG | `m1nd` |
+|---|---:|---:|---:|
+| Find exact text | yes | yes | yes, through `search` |
+| Find similar concepts | no | yes | yes, with graph context |
+| Understand structural relationships | no | limited | yes |
+| Ask "what breaks if I change this?" | no | no | yes, through `impact` and `counterfactual` |
+| Resume investigation state | no | no | yes, through trails, perspectives, and boot memory |
+| Bind docs/specs to code | no | partial | yes, through document bindings and drift checks |
+| Detect hidden co-change coupling | no | no | yes, through ghost edges |
+| Recover from stale host bindings | no | no | yes, through trust and recovery surfaces |
+
+`m1nd` does not replace grep, embeddings, tests, or compilers. It gives agents
+the structural layer those tools do not provide by themselves.
 
 ## Agent Testimonials
 
