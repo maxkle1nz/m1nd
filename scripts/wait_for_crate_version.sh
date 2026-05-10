@@ -6,7 +6,12 @@ version="${2:?crate version required}"
 
 crate_version_exists() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null 2>&1
+    curl \
+      --connect-timeout 5 \
+      --max-time 15 \
+      --retry 2 \
+      --retry-delay 2 \
+      -fsSL "https://crates.io/api/v1/crates/${crate}/${version}" >/dev/null 2>&1
     return $?
   fi
 
