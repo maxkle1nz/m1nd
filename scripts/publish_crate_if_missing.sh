@@ -5,9 +5,27 @@ crate="${1:?crate name required}"
 version="${2:?crate version required}"
 shift 2
 
+crate_search_version_exists() {
+  if ! command -v cargo >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if command -v timeout >/dev/null 2>&1; then
+    if CARGO_HTTP_TIMEOUT=15 CARGO_NET_RETRY=1 timeout 30s \
+      cargo search "$crate" --limit 1 | grep -F "$crate = \"$version\"" >/dev/null; then
+      return 0
+    fi
+  elif CARGO_HTTP_TIMEOUT=15 CARGO_NET_RETRY=1 \
+    cargo search "$crate" --limit 1 | grep -F "$crate = \"$version\"" >/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
 crate_version_exists() {
-  if command -v cargo >/dev/null 2>&1; then
-    cargo search "$crate" --limit 1 | grep -F "$crate = \"$version\"" >/dev/null && return 0
+  if crate_search_version_exists; then
+    return 0
   fi
 
   if command -v curl >/dev/null 2>&1; then
