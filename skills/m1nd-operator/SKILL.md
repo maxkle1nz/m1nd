@@ -35,11 +35,14 @@ Only skip the `m1nd` first pass when:
   host, then restart/rebind the MCP client or open a fresh thread. After the
   host relaunches the transport, run `trust_selftest` or `session_handshake`
   before relying on retrieval.
-- If the host is launching an old native runtime, use the external repair
-  helper from a m1nd source checkout: `m1nd restart --source /path/to/m1nd
-  --yes`. In live multi-agent sessions, add `--no-kill` and rebind only the
-  selected host. This helper does not ingest, choose a workspace, or refresh an
-  already-open client's cached MCP tool list.
+- If the host is launching an old native runtime, use the external self-update
+  helper first: `m1nd update check --channel beta`, `m1nd update plan --channel
+  beta`, then `m1nd update apply --channel beta --yes`. In live multi-agent
+  sessions, add `--no-kill` and rebind only the selected host. This helper does
+  not ingest, choose a workspace, repair graph contents, or refresh an
+  already-open client's cached MCP tool list. `m1nd restart --source
+  /path/to/m1nd --yes` remains the lower-level source-checkout repair path for
+  development builds.
 - If the live MCP surface exposes `trust_selftest`, call it first and route by
   `verdict` before relying on retrieval. `full_trust` means proceed with
   m1nd-first; `needs_ingest` means ingest the intended repo; `orientation_only`

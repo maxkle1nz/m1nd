@@ -53,23 +53,31 @@ state. Relaunch/rebind the MCP client or open a fresh session before calling
 `doctor`, `recovery_playbook`, or `ingest`.
 
 If the host is stale because it is still launching an older native binary, use
-the external restart helper from a m1nd source checkout:
+the self-update surface first:
 
 ```bash
-m1nd restart --source /path/to/m1nd --yes
+m1nd update check --channel beta
+m1nd update plan --channel beta
+m1nd update apply --channel beta --yes
+m1nd update verify --repo /path/to/m1nd --transport stdio
 ```
 
-This builds the latest `m1nd-mcp`, installs it to the default m1nd binary path,
-and stops visible `m1nd-mcp` processes so the host can relaunch. It still cannot
-refresh a client's cached MCP tool list by itself; restart or rebind the host
-session afterward.
+`check` and `plan` are read-only. `apply` mutates only with `--yes`, updates the
+npm package when the selected channel is ahead, installs the native runtime from
+a GitHub Release binary when available, falls back to Cargo when needed,
+refreshes the agent pack when allowed, and records any runtime backup for
+rollback. It still cannot refresh a client's cached MCP tool list by itself;
+restart or rebind the host session afterward.
 
 During live multi-agent work, add `--no-kill` if the goal is only to update the
 managed binary while keeping current host sessions alive:
 
 ```bash
-m1nd restart --source /path/to/m1nd --yes --no-kill
+m1nd update apply --channel beta --yes --no-kill
 ```
+
+`m1nd restart --source /path/to/m1nd --yes` remains available as the lower-level
+source-checkout repair helper for development builds.
 
 ## MCP Config Snippets
 
@@ -85,9 +93,9 @@ Generic JSON:
 m1nd mcp-config generic
 ```
 
-The npm package installs doctrine and config helpers. The native runtime is
-still `m1nd-mcp`; install or build it separately until binary downloads are
-added to the npm installer.
+The npm package installs doctrine, config helpers, diagnostics, and the
+self-update CLI. The native runtime is still `m1nd-mcp`; use `m1nd update` for
+the safe channel-aware path, or build it separately when developing from source.
 
 From this source checkout:
 

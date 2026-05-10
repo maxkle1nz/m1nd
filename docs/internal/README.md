@@ -8,6 +8,7 @@ This folder holds working notes, design explorations, hardening reports, visual 
 - Cortex wave design docs
 - Surgical hardening and contract notes
 - maintainer workflow docs
+- self-update and host-refresh proof boundaries
 - other maintainer-facing build/design artifacts
 
 ## Public docs that stay outside this folder

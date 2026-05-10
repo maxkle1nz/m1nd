@@ -113,24 +113,34 @@ Recommended order:
 If the error is `Transport closed`, the old binding is already gone. Skip graph
 recovery calls in that session and relaunch the host binding first.
 
-For agent-driven repair from a source checkout, the shortest external helper is:
+For agent-driven repair, use the self-update surface first:
 
 ```bash
-m1nd restart --source /path/to/m1nd --yes
+m1nd update check --channel beta
+m1nd update plan --channel beta
+m1nd update apply --channel beta --yes
+m1nd update verify --repo /path/to/m1nd --transport stdio
 ```
 
-`m1nd restart` is deliberately outside MCP, so it can still help when the MCP
-transport is stale or closed. With `--yes`, it builds the release binary,
-installs it to the default m1nd binary path, and stops visible `m1nd-mcp`
-processes. Then the agent or human must restart/rebind the host so it launches
-the updated binary. Without `--yes`, it prints the repair plan only.
+`m1nd update` is deliberately outside MCP, so it can still help when the MCP
+transport is stale or closed. `check` and `plan` never mutate. With `--yes`,
+`apply` updates the npm package when the selected channel is ahead, installs the
+native runtime from a GitHub Release asset when available, falls back to Cargo
+when needed, refreshes agent pack files when allowed, and records a runtime
+backup for rollback. Then the agent or human must restart/rebind the host so it
+launches the updated binary and refreshes its cached tool list.
 
 For a live multi-agent session, use `--no-kill` when you need to update the
 managed binary without stopping current hosts:
 
 ```bash
-m1nd restart --source /path/to/m1nd --yes --no-kill
+m1nd update apply --channel beta --yes --no-kill
 ```
+
+`m1nd restart --source /path/to/m1nd --yes` remains the lower-level source
+checkout repair helper. It is useful when you are developing a local checkout
+and want to build/install that checkout directly instead of resolving a release
+channel.
 
 For hosts that cache tool schemas per conversation or workspace, start a new
 conversation/session after rebuilding the binary. The old conversation may keep

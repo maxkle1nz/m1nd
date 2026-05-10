@@ -247,6 +247,7 @@ Install the beta agent pack:
 npm install -g @maxkle1nz/m1nd@beta
 m1nd doctor
 m1nd pack-check
+m1nd update check --channel beta
 ```
 
 From a source checkout:
@@ -266,23 +267,31 @@ from source or point your host at an installed binary.
 ```bash
 m1nd mcp-config codex
 m1nd mcp-config generic
-m1nd restart --source /path/to/m1nd --yes
+m1nd update plan --channel beta
+m1nd update apply --channel beta --yes
+m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd pack-check
 ```
 
-`m1nd restart` is the external repair button for agents. It is useful when a
-host is still launching an old `m1nd-mcp`, reports `Transport closed`, or keeps
-a stale MCP process alive. With `--yes`, it builds from the source checkout,
-installs the native runtime to the default m1nd binary path, and stops visible
-`m1nd-mcp` processes. The host still needs to restart or rebind afterward so it
-can launch the updated binary.
+`m1nd update` is the agent-safe self-update surface. `check` and `plan` only
+report package/runtime/agent-pack state. `apply` mutates only with `--yes`,
+prefers a GitHub Release runtime binary when one exists, falls back to Cargo
+when needed, writes a local runtime backup before replacement, and still reports
+that every active MCP host must restart or rebind before it can see the new
+binary or tool list.
 
 In live multi-agent work, use `--no-kill` when you want to update the managed
 binary without interrupting active hosts:
 
 ```bash
-m1nd restart --source /path/to/m1nd --yes --no-kill
+m1nd update apply --channel beta --yes --no-kill
 ```
+
+`m1nd restart --source /path/to/m1nd --yes` remains the low-level source
+checkout repair helper for local development. The higher-level update contract
+does not claim to refresh an already-open host, repair graph contents, correct
+ingest roots, or fix semantic retrieval by itself. It updates the local
+installation, then gives the agent the next recovery step.
 
 For every host that supports environment variables, prefer setting
 `M1ND_WORKSPACE_ROOT` to the real repository/workspace. It is the portable

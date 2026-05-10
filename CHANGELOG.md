@@ -8,6 +8,18 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 The next release train starts here.
 
+### Added
+
+- Added `m1nd update` with `check`, `plan`, `apply`, `verify`, and `rollback`
+  subcommands for safe local self-update planning, runtime replacement with
+  backup, agent-pack refresh, and host-rebind guidance.
+
+### Changed
+
+- Agent-pack and host-refresh docs now prefer `m1nd update` for stale runtime
+  recovery while keeping `m1nd restart` as the lower-level source-checkout
+  repair helper.
+
 ## [0.9.0-beta.1] — 2026-05-07
 
 ### Added

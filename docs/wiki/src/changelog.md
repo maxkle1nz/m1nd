@@ -6,6 +6,11 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+### Added
+
+- Added `m1nd update` with read-only check/plan, opt-in apply, verify, and
+  rollback commands for safe local self-update and host-rebind guidance.
+
 ---
 
 ## [0.9.0-beta.2] — 2026-05-10

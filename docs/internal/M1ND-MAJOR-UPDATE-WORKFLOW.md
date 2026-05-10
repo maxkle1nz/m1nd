@@ -183,6 +183,29 @@ If the update changed release/build surfaces, also run the relevant binary build
 cargo build --release --workspace
 ```
 
+If the update changed install, release, native runtime, npm, agent-pack, or host
+refresh behavior, also prove the self-update contract:
+
+```bash
+node --test npm/test/cli.test.js
+m1nd update check --channel beta --json
+m1nd update plan --channel beta --json
+m1nd update verify --repo . --transport stdio --json
+```
+
+For mutating validation, use a fake or isolated runtime target unless the
+release task explicitly calls for updating the developer machine:
+
+```bash
+m1nd update apply --channel beta --yes --no-kill --binary /tmp/m1nd-update-test/m1nd-mcp --json
+m1nd update rollback --json
+```
+
+The self-update proof must keep its non-claims visible: it does not refresh an
+already-open host's cached tool list, repair graph contents, correct ingest
+roots, fix semantic retrieval, update every agent host, or provide unattended
+production auto-update.
+
 ## Phase 5 — PR and merge discipline
 
 Open a PR that includes:

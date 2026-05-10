@@ -136,29 +136,35 @@ When this skill starts feeling stale:
 3. Run `python3 scripts/probe_m1nd.py tools` against the local installed binary.
 4. Update this skill only where the live runtime or official docs actually changed.
 
-## External Restart Helper
+## External Self-Update Helper
 
 When an agent sees `Transport closed`, an old binary version, stale host tools,
-or repeated blocked retrieval after a good local graph, use an external restart
-instead of trying to repair through the dead MCP binding:
+or repeated blocked retrieval after a good local graph, use the external
+self-update CLI instead of trying to repair through the dead MCP binding:
 
 ```bash
-m1nd restart --source /path/to/m1nd --yes
+m1nd update check --channel beta
+m1nd update plan --channel beta
+m1nd update apply --channel beta --yes
 ```
 
-This command builds the latest source checkout, installs the native runtime to
-the default m1nd binary path, and stops visible `m1nd-mcp` processes. It does
-not refresh the host's cached tool list, choose a workspace, or ingest a graph.
-After it runs, restart/rebind the host client and call `trust_selftest` or
-`session_handshake` with the intended `scope`.
+`check` and `plan` are read-only. `apply` mutates only with `--yes`, updates the
+npm package when the selected channel is ahead, installs the native runtime from
+a GitHub Release binary when available, falls back to Cargo when needed, records
+a runtime backup for rollback, and can stop visible `m1nd-mcp` processes. It
+does not refresh the host's cached tool list, choose a workspace, ingest a
+graph, or fix semantic retrieval. After it runs, restart/rebind the host client
+and call `trust_selftest` or `session_handshake` with the intended `scope`.
 
 For live multi-agent sessions, prefer:
 
 ```bash
-m1nd restart --source /path/to/m1nd --yes --no-kill
+m1nd update apply --channel beta --yes --no-kill
 ```
 
-Then restart/rebind only the host that needs the new binary.
+Then restart/rebind only the host that needs the new binary. `m1nd restart
+--source /path/to/m1nd --yes` remains the lower-level source-checkout repair
+path for development builds.
 
 ## Host-Specific Note For Codex
 

@@ -8,6 +8,8 @@ const { spawnSync } = require("child_process");
 const PACKAGE_ROOT = path.resolve(__dirname, "..", "..");
 const SKILLS_ROOT = path.join(PACKAGE_ROOT, "skills");
 const UNIVERSAL_PACK = path.join(SKILLS_ROOT, "m1nd-universal-agent-pack.md");
+const NPM_PACKAGE = "@maxkle1nz/m1nd";
+const SELF_UPDATE_SCHEMA = "m1nd-self-update-v0";
 
 const HOSTS = new Set(["codex", "claude", "gemini", "antigravity", "generic", "all"]);
 
@@ -20,6 +22,11 @@ Usage:
   m1nd mcp-config <host> [--binary <path>]
   m1nd doctor [--json]
   m1nd restart [--source <dir>] [--binary <path>] [--yes] [--json]
+  m1nd update check [--channel beta|latest] [--json]
+  m1nd update plan [--channel beta|latest] [--json]
+  m1nd update apply [--channel beta|latest] [--yes] [--no-npm] [--no-runtime] [--no-skills] [--no-kill] [--json]
+  m1nd update verify [--repo <dir>] [--transport stdio|http] [--json]
+  m1nd update rollback [--json]
   m1nd demo [--repo <dir>] [--transport stdio|http] [--json]
   m1nd smoke [--repo <dir>] [--transport stdio|http] [--json]
   m1nd pack-check [--json]
@@ -30,7 +37,11 @@ native runtime is still m1nd-mcp; doctor tells you whether it is visible.
 restart is an external repair helper for stale host bindings. Without --yes it
 prints the plan. With --yes it builds from source when available, installs the
 native binary to the m1nd default path, and stops visible m1nd-mcp processes so
-the host can relaunch/rebind.`;
+the host can relaunch/rebind.
+
+update is the safe self-update surface. check/plan never mutate. apply mutates
+only with --yes, writes runtime backups before replacement, and always reports
+that active MCP hosts still need restart or rebind.`;
 }
 
 function parseArgs(args) {
@@ -42,7 +53,22 @@ function parseArgs(args) {
       continue;
     }
     const key = arg.slice(2);
-    if (["build", "help", "install", "json", "kill", "no-build", "no-install", "no-kill", "yes"].includes(key)) {
+    if (
+      [
+        "build",
+        "help",
+        "install",
+        "json",
+        "kill",
+        "no-build",
+        "no-install",
+        "no-kill",
+        "no-npm",
+        "no-runtime",
+        "no-skills",
+        "yes",
+      ].includes(key)
+    ) {
       parsed[key] = true;
       continue;
     }
@@ -252,7 +278,7 @@ function doctor() {
     result.next_actions.push(`From a source checkout: cargo build --release -p m1nd-mcp, then copy ${runtimeBinaryName()} to ${defaultRuntimePath()}`);
   }
   if (binary && (!binaryVersion || !binaryVersion.includes(packageVersion))) {
-    result.next_actions.push(`Runtime version ${binaryVersion || "unknown"} does not match package ${packageVersion}; run m1nd restart --source /path/to/m1nd --yes, then rebind the host.`);
+    result.next_actions.push(`Runtime version ${binaryVersion || "unknown"} does not match package ${packageVersion}; run m1nd update plan --channel beta, then m1nd update apply --channel beta --yes and rebind the host.`);
   }
   if (!codexSkillsInstalled) {
     result.next_actions.push("For Codex: m1nd install-skills codex");
@@ -285,10 +311,701 @@ function runCommand(command, args, options = {}) {
 
 function runtimeVersion(binary) {
   if (!binary || !fs.existsSync(binary)) return null;
+  if (process.env.M1ND_TEST_RUNTIME_VERSION) return process.env.M1ND_TEST_RUNTIME_VERSION;
   const result = runCommand(binary, ["--version"], { timeout: 1500 });
   if (result.error && result.error.includes("ETIMEDOUT")) return "version-check-timeout";
   if (!result.ok) return null;
   return result.stdout.trim() || null;
+}
+
+function selfUpdateNonClaims() {
+  return [
+    "m1nd update does not refresh an active MCP host's cached tool list by itself.",
+    "m1nd update does not prove that a currently open host has rebound to the new runtime.",
+    "m1nd update does not repair graph contents.",
+    "m1nd update does not correct ingest roots or workspace selection.",
+    "m1nd update does not fix semantic retrieval by itself.",
+    "m1nd update does not update all agent hosts.",
+    "m1nd update is not production-grade unattended auto-update.",
+  ];
+}
+
+function versionFromText(text) {
+  const match = String(text || "").match(/\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/);
+  return match ? match[1] : null;
+}
+
+function parseSemver(version) {
+  const text = versionFromText(version);
+  if (!text) return null;
+  const match = text.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
+  if (!match) return null;
+  return {
+    raw: text,
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] || "",
+  };
+}
+
+function comparePrerelease(left, right) {
+  if (left === right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+  const leftParts = left.split(".");
+  const rightParts = right.split(".");
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const a = leftParts[index];
+    const b = rightParts[index];
+    if (a === b) continue;
+    if (a === undefined) return -1;
+    if (b === undefined) return 1;
+    const an = Number(a);
+    const bn = Number(b);
+    if (Number.isInteger(an) && Number.isInteger(bn)) return an < bn ? -1 : 1;
+    return a < b ? -1 : 1;
+  }
+  return 0;
+}
+
+function compareSemver(left, right) {
+  const a = parseSemver(left);
+  const b = parseSemver(right);
+  if (!a || !b) return null;
+  for (const key of ["major", "minor", "patch"]) {
+    if (a[key] !== b[key]) return a[key] < b[key] ? -1 : 1;
+  }
+  return comparePrerelease(a.prerelease, b.prerelease);
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeChannel(channel) {
+  const normalized = channel || "beta";
+  if (!["beta", "latest"].includes(normalized)) {
+    throw new Error(`unsupported update channel '${normalized}'. Supported channels: beta, latest`);
+  }
+  return normalized;
+}
+
+function readNpmRegistry(channel) {
+  if (process.env.M1ND_TEST_NPM_VIEW_JSON) {
+    const payload = safeJsonParse(process.env.M1ND_TEST_NPM_VIEW_JSON) || {};
+    const tags = payload["dist-tags"] || payload.distTags || {};
+    const version = payload.version || null;
+    return {
+      ok: true,
+      package: NPM_PACKAGE,
+      dist_tags: tags,
+      version,
+      latest_version: tags[channel] || version,
+      source: "M1ND_TEST_NPM_VIEW_JSON",
+      error: null,
+    };
+  }
+
+  const tagsResult = runCommand("npm", ["view", NPM_PACKAGE, "dist-tags", "--json"], { timeout: 7000 });
+  const versionResult = runCommand("npm", ["view", NPM_PACKAGE, "version", "--json"], { timeout: 7000 });
+  const tags = tagsResult.ok ? safeJsonParse(tagsResult.stdout) || {} : {};
+  const parsedVersion = versionResult.ok ? safeJsonParse(versionResult.stdout) : null;
+  const version = typeof parsedVersion === "string" ? parsedVersion : null;
+  return {
+    ok: tagsResult.ok || versionResult.ok,
+    package: NPM_PACKAGE,
+    dist_tags: tags,
+    version,
+    latest_version: tags[channel] || version,
+    source: "npm-view",
+    error: tagsResult.ok || versionResult.ok ? null : (tagsResult.stderr || versionResult.stderr || tagsResult.error || versionResult.error || "").trim(),
+  };
+}
+
+function readCrateVersion(crateName = "m1nd-mcp") {
+  if (process.env.M1ND_TEST_CRATE_VERSION) {
+    return {
+      ok: true,
+      crate: crateName,
+      version: process.env.M1ND_TEST_CRATE_VERSION,
+      source: "M1ND_TEST_CRATE_VERSION",
+      error: null,
+    };
+  }
+  const result = runCommand("cargo", ["search", crateName, "--limit", "1"], { timeout: 10000 });
+  const match = result.stdout.match(new RegExp(`^${crateName}\\s*=\\s*"([^"]+)"`, "m"));
+  return {
+    ok: result.ok && Boolean(match),
+    crate: crateName,
+    version: match ? match[1] : null,
+    source: "cargo-search",
+    error: result.ok ? null : (result.stderr || result.error || "").trim(),
+  };
+}
+
+function githubReleaseAssetName(platform = process.platform, arch = process.arch) {
+  if (platform === "darwin" && arch === "arm64") return "m1nd-mcp-macos-aarch64";
+  if (platform === "darwin" && arch === "x64") return "m1nd-mcp-macos-x86_64";
+  if (platform === "linux" && arch === "x64") return "m1nd-mcp-linux-x86_64";
+  return null;
+}
+
+function githubReleaseAssetUrl(version, platform = process.platform, arch = process.arch) {
+  const asset = githubReleaseAssetName(platform, arch);
+  if (!asset || !version) return null;
+  return `https://github.com/maxkle1nz/m1nd/releases/download/v${version}/${asset}`;
+}
+
+function githubReleaseAvailability(version, platform = process.platform, arch = process.arch) {
+  const asset = githubReleaseAssetName(platform, arch);
+  const url = githubReleaseAssetUrl(version, platform, arch);
+  if (!asset || !url) {
+    return {
+      ok: false,
+      available: false,
+      asset: null,
+      url: null,
+      source: "platform-map",
+      error: `no v0 release asset is mapped for ${platform}-${arch}`,
+    };
+  }
+  if (process.env.M1ND_TEST_RELEASE_ASSET_PATH) {
+    return {
+      ok: true,
+      available: true,
+      asset,
+      url,
+      source: "M1ND_TEST_RELEASE_ASSET_PATH",
+      error: null,
+    };
+  }
+  if (process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE) {
+    const available = process.env.M1ND_TEST_GITHUB_RELEASE_AVAILABLE !== "false";
+    return {
+      ok: true,
+      available,
+      asset,
+      url,
+      source: "M1ND_TEST_GITHUB_RELEASE_AVAILABLE",
+      error: available ? null : "test override reported unavailable",
+    };
+  }
+  const curl = which("curl");
+  if (!curl) {
+    return {
+      ok: false,
+      available: false,
+      asset,
+      url,
+      source: "curl-missing",
+      error: "curl not found; cannot probe GitHub release asset",
+    };
+  }
+  const result = runCommand(curl, ["-fsI", "-L", url], { timeout: 8000 });
+  return {
+    ok: result.ok,
+    available: result.ok,
+    asset,
+    url,
+    source: "github-release-head",
+    error: result.ok ? null : (result.stderr || result.error || "").trim(),
+  };
+}
+
+function updateStatePath() {
+  return process.env.M1ND_UPDATE_STATE_PATH || path.join(os.homedir(), ".m1nd", "update-state.json");
+}
+
+function updateBackupPath(targetBinary, beforeVersion) {
+  const safeVersion = versionFromText(beforeVersion) || "unknown";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupRoot = process.env.M1ND_UPDATE_BACKUP_DIR || path.join(os.homedir(), ".m1nd", "backups");
+  return path.join(backupRoot, `${path.basename(targetBinary)}-${safeVersion}-${stamp}`);
+}
+
+function selectTargetVersion(packageVersion, registryVersion) {
+  if (!registryVersion) {
+    return {
+      target_version: packageVersion,
+      registry_lag: false,
+      reason: "npm registry version unavailable; using local package version",
+    };
+  }
+  const comparison = compareSemver(packageVersion, registryVersion);
+  if (comparison !== null && comparison > 0) {
+    return {
+      target_version: packageVersion,
+      registry_lag: true,
+      reason: `npm registry channel is behind local package (${registryVersion} < ${packageVersion})`,
+    };
+  }
+  return {
+    target_version: registryVersion,
+    registry_lag: false,
+    reason: "using npm registry channel version",
+  };
+}
+
+function action(id, kind, description, extra = {}) {
+  return { id, kind, description, ...extra };
+}
+
+function buildSelfUpdateProof(args, command = "check") {
+  const channel = normalizeChannel(args.channel);
+  const packageVersion = readPackageVersion();
+  const registry = readNpmRegistry(channel);
+  const selected = selectTargetVersion(packageVersion, registry.latest_version);
+  const targetVersion = selected.target_version;
+  const requestedBinary = args.binary ? path.resolve(args.binary) : findRuntimeBinary();
+  const binary = requestedBinary && fs.existsSync(requestedBinary) ? requestedBinary : null;
+  const targetBinary = path.resolve(args.binary || defaultRuntimePath());
+  const runtimeText = runtimeVersion(binary);
+  const runtimeParsedVersion = versionFromText(runtimeText);
+  const pathBinary = which("m1nd-mcp");
+  const pathRuntimeText = pathBinary ? runtimeVersion(pathBinary) : null;
+  const pack = assertPackShape();
+  const crate = readCrateVersion("m1nd-mcp");
+  const release = githubReleaseAvailability(targetVersion);
+  const plannedActions = [];
+  const blockedActions = [];
+  const staleSurfaces = [];
+  let unknown = false;
+
+  if (registry.latest_version) {
+    const npmComparison = compareSemver(packageVersion, registry.latest_version);
+    if (npmComparison !== null && npmComparison < 0 && !args["no-npm"]) {
+      staleSurfaces.push("npm-package");
+      plannedActions.push(action("npm-install", "npm", `install ${NPM_PACKAGE}@${channel}`, {
+        package: NPM_PACKAGE,
+        channel,
+        target_version: registry.latest_version,
+        command: `npm install -g ${NPM_PACKAGE}@${channel}`,
+      }));
+    } else if (npmComparison !== null && npmComparison < 0 && args["no-npm"]) {
+      staleSurfaces.push("npm-package");
+      blockedActions.push(action("npm-disabled", "npm", "npm package update disabled by --no-npm", {
+        target_version: registry.latest_version,
+      }));
+    } else if (selected.registry_lag) {
+      blockedActions.push(action("npm-registry-lag", "npm", selected.reason, {
+        registry_version: registry.latest_version,
+        local_package_version: packageVersion,
+      }));
+    }
+  } else {
+    unknown = true;
+    blockedActions.push(action("npm-registry-unknown", "npm", "could not resolve npm registry channel version", {
+      error: registry.error,
+    }));
+  }
+
+  if (!binary) {
+    staleSurfaces.push("runtime");
+    if (args["no-runtime"]) {
+      blockedActions.push(action("runtime-disabled", "runtime", "runtime install disabled by --no-runtime", {
+        target_binary: targetBinary,
+      }));
+    } else {
+      plannedActions.push(runtimeInstallAction(release, crate, targetVersion, targetBinary, "runtime missing"));
+    }
+  } else if (!runtimeParsedVersion || (targetVersion && !runtimeText.includes(targetVersion))) {
+    staleSurfaces.push("runtime");
+    if (args["no-runtime"]) {
+      blockedActions.push(action("runtime-disabled", "runtime", "runtime install disabled by --no-runtime", {
+        current_binary: binary,
+        current_version: runtimeText,
+        target_binary: targetBinary,
+      }));
+    } else {
+      plannedActions.push(runtimeInstallAction(release, crate, targetVersion, targetBinary, "runtime stale or unknown"));
+    }
+  }
+
+  const npmWillChange = plannedActions.some((planned) => planned.kind === "npm");
+  if (!pack.ok || npmWillChange) {
+    staleSurfaces.push("agent-pack");
+    if (args["no-skills"]) {
+      blockedActions.push(action("skills-disabled", "agent-pack", "agent pack refresh disabled by --no-skills", {
+        missing_pack_files: pack.missing,
+      }));
+    } else {
+      plannedActions.push(action("skills-refresh", "agent-pack", "refresh Codex agent skills from current package", {
+        host: "codex",
+        missing_pack_files: pack.missing,
+        reason: npmWillChange ? "npm package update may carry agent-pack changes" : "agent-pack files are missing from package",
+      }));
+    }
+  }
+
+  if (
+    pathBinary &&
+    binary &&
+    path.resolve(pathBinary) !== path.resolve(binary) &&
+    pathRuntimeText &&
+    targetVersion &&
+    !pathRuntimeText.includes(targetVersion)
+  ) {
+    blockedActions.push(action("path-runtime-stale", "runtime", "m1nd-mcp on PATH reports a different version than the selected managed runtime", {
+      path_binary: pathBinary,
+      path_runtime_version: pathRuntimeText,
+      selected_binary: binary,
+      selected_runtime_version: runtimeText,
+      target_version: targetVersion,
+      suggested_action: `re-run with --binary ${pathBinary} if this PATH runtime should be updated too`,
+    }));
+  }
+
+  const runtimeWillChange = plannedActions.some((planned) => planned.kind === "runtime");
+  if (runtimeWillChange && args["no-kill"]) {
+    blockedActions.push(action("kill-disabled", "process", "runtime process stop disabled by --no-kill"));
+  } else if (runtimeWillChange && command === "apply") {
+    plannedActions.push(action("stop-runtime-processes", "process", "stop visible m1nd-mcp processes after runtime replacement"));
+  }
+
+  let installState = "current";
+  if (!binary) {
+    installState = "missing";
+  } else if (staleSurfaces.length > 1) {
+    installState = "mixed";
+  } else if (staleSurfaces.length === 1) {
+    installState = "stale";
+  } else if (unknown || !runtimeText) {
+    installState = "unknown";
+  }
+
+  return {
+    schema: SELF_UPDATE_SCHEMA,
+    command,
+    package_name: NPM_PACKAGE,
+    package_version: packageVersion,
+    runtime_version: runtimeText,
+    runtime_parsed_version: runtimeParsedVersion,
+    latest_version: registry.latest_version || null,
+    target_version: targetVersion,
+    channel,
+    install_state: installState,
+    registry,
+    crates: {
+      m1nd_mcp: crate,
+    },
+    github_release: release,
+    runtime: {
+      platform: process.platform,
+      arch: process.arch,
+      binary: binary || null,
+      target_binary: targetBinary,
+      default_install_path: defaultRuntimePath(),
+      path_binary: pathBinary || null,
+      path_version: pathRuntimeText,
+      path_matches_selected: Boolean(pathBinary && binary && path.resolve(pathBinary) === path.resolve(binary)),
+    },
+    agent_pack: {
+      ok: pack.ok,
+      missing: pack.missing,
+    },
+    planned_actions: plannedActions,
+    applied_actions: [],
+    blocked_actions: blockedActions,
+    requires_host_rebind: plannedActions.some((planned) => ["npm", "runtime", "agent-pack", "process"].includes(planned.kind)),
+    dry_run: true,
+    non_claims: selfUpdateNonClaims(),
+    next_actions: [],
+  };
+}
+
+function runtimeInstallAction(release, crate, targetVersion, targetBinary, reason) {
+  if (release.available) {
+    return action("runtime-install-github-release", "runtime", `install native runtime ${targetVersion} from GitHub release`, {
+      reason,
+      source: "github-release",
+      url: release.url,
+      asset: release.asset,
+      target_binary: targetBinary,
+      target_version: targetVersion,
+    });
+  }
+  return action("runtime-install-cargo", "runtime", `install native runtime ${targetVersion} with cargo fallback`, {
+    reason,
+    source: "cargo-install",
+    crate: "m1nd-mcp",
+    crate_version: crate.version,
+    target_binary: targetBinary,
+    target_version: targetVersion,
+    release_error: release.error,
+  });
+}
+
+function installRuntimeBinaryWithBackup(sourceBinary, targetBinary) {
+  const beforeVersion = runtimeVersion(targetBinary);
+  let backup = null;
+  if (fs.existsSync(targetBinary)) {
+    backup = updateBackupPath(targetBinary, beforeVersion);
+    ensureDir(path.dirname(backup));
+    fs.copyFileSync(targetBinary, backup);
+    if (process.platform !== "win32") fs.chmodSync(backup, 0o755);
+  }
+  installRuntimeBinary(sourceBinary, targetBinary);
+  const state = {
+    schema: "m1nd-self-update-rollback-state-v0",
+    created_at: new Date().toISOString(),
+    target_binary: targetBinary,
+    backup_binary: backup,
+    before_version: beforeVersion,
+    after_version: runtimeVersion(targetBinary),
+  };
+  ensureDir(path.dirname(updateStatePath()));
+  fs.writeFileSync(updateStatePath(), `${JSON.stringify(state, null, 2)}\n`);
+  return state;
+}
+
+function stageReleaseAsset(planned) {
+  if (process.env.M1ND_TEST_RELEASE_ASSET_PATH) {
+    return process.env.M1ND_TEST_RELEASE_ASSET_PATH;
+  }
+  const curl = which("curl");
+  if (!curl) throw new Error("curl not found; cannot download GitHub release asset");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-update-"));
+  const target = path.join(dir, runtimeBinaryName());
+  const result = runCommand(curl, ["-fL", planned.url, "-o", target], { timeout: 120000 });
+  if (!result.ok) {
+    throw new Error((result.stderr || result.error || "GitHub release download failed").trim());
+  }
+  if (process.platform !== "win32") fs.chmodSync(target, 0o755);
+  return target;
+}
+
+function cargoInstallRuntime(planned) {
+  const targetBinary = path.resolve(planned.target_binary);
+  const rootDir = path.dirname(path.dirname(targetBinary));
+  const binDir = path.basename(path.dirname(targetBinary));
+  if (binDir !== "bin") {
+    return {
+      ok: false,
+      error: "cargo fallback only supports targets inside a <root>/bin directory",
+    };
+  }
+  const args = ["install", "m1nd-mcp", "--version", planned.target_version, "--force", "--root", rootDir];
+  const result = runCommand("cargo", args, { timeout: 300000 });
+  return {
+    ok: result.ok,
+    status: result.status,
+    stderr: result.stderr.trim(),
+    stdout: result.stdout.trim(),
+    command: `cargo ${args.join(" ")}`,
+  };
+}
+
+function applySelfUpdate(args) {
+  const proof = buildSelfUpdateProof(args, "apply");
+  const yes = Boolean(args.yes);
+  proof.dry_run = !yes;
+  if (!yes) {
+    proof.next_actions.push("Re-run with --yes to apply the planned update actions.");
+    proof.next_actions.push("Use --no-npm, --no-runtime, --no-skills, or --no-kill to narrow the apply surface.");
+    return proof;
+  }
+
+  for (const planned of proof.planned_actions) {
+    if (planned.id === "npm-install") {
+      if (args["no-npm"]) continue;
+      const result = runCommand("npm", ["install", "-g", `${NPM_PACKAGE}@${proof.channel}`], { timeout: 180000 });
+      const applied = {
+        id: planned.id,
+        kind: planned.kind,
+        ok: result.ok,
+        status: result.status,
+        stderr: result.stderr.trim(),
+      };
+      proof.applied_actions.push(applied);
+      if (!result.ok) proof.blocked_actions.push(action("npm-install-failed", "npm", "npm global package update failed", applied));
+    }
+
+    if (planned.id === "runtime-install-github-release") {
+      if (args["no-runtime"]) continue;
+      try {
+        const source = stageReleaseAsset(planned);
+        const state = installRuntimeBinaryWithBackup(source, planned.target_binary);
+        proof.applied_actions.push({
+          id: planned.id,
+          kind: planned.kind,
+          ok: Boolean(process.env.M1ND_TEST_RELEASE_ASSET_PATH) || Boolean(state.after_version && state.after_version.includes(planned.target_version)),
+          source,
+          target_binary: planned.target_binary,
+          rollback_state: updateStatePath(),
+          backup_binary: state.backup_binary,
+          before_version: state.before_version,
+          after_version: state.after_version,
+          version_verified: Boolean(state.after_version && state.after_version.includes(planned.target_version)),
+        });
+        const applied = proof.applied_actions[proof.applied_actions.length - 1];
+        if (!applied.ok) {
+          proof.blocked_actions.push(action("runtime-version-mismatch-after-install", "runtime", "installed runtime did not report the target version", {
+            target_version: planned.target_version,
+            after_version: state.after_version,
+          }));
+        }
+      } catch (error) {
+        proof.blocked_actions.push(action("runtime-install-failed", "runtime", "runtime release install failed", {
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
+    }
+
+    if (planned.id === "runtime-install-cargo") {
+      if (args["no-runtime"]) continue;
+      const result = cargoInstallRuntime(planned);
+      if (result.ok && fs.existsSync(planned.target_binary)) {
+        const state = {
+          schema: "m1nd-self-update-rollback-state-v0",
+          created_at: new Date().toISOString(),
+          target_binary: planned.target_binary,
+          backup_binary: null,
+          before_version: proof.runtime_version,
+          after_version: runtimeVersion(planned.target_binary),
+        };
+        ensureDir(path.dirname(updateStatePath()));
+        fs.writeFileSync(updateStatePath(), `${JSON.stringify(state, null, 2)}\n`);
+      }
+      proof.applied_actions.push({
+        id: planned.id,
+        kind: planned.kind,
+        ...result,
+        version_verified: result.ok ? Boolean(runtimeVersion(planned.target_binary) && runtimeVersion(planned.target_binary).includes(planned.target_version)) : false,
+      });
+      if (!result.ok) proof.blocked_actions.push(action("runtime-cargo-install-failed", "runtime", "cargo runtime install failed", result));
+      if (result.ok && !proof.applied_actions[proof.applied_actions.length - 1].version_verified) {
+        proof.blocked_actions.push(action("runtime-version-mismatch-after-install", "runtime", "installed cargo runtime did not report the target version", {
+          target_version: planned.target_version,
+          after_version: runtimeVersion(planned.target_binary),
+        }));
+      }
+    }
+
+    if (planned.id === "skills-refresh") {
+      if (args["no-skills"]) continue;
+      try {
+        proof.applied_actions.push({
+          id: planned.id,
+          kind: planned.kind,
+          ok: true,
+          result: installSkills(planned.host || "codex", process.cwd()),
+        });
+      } catch (error) {
+        proof.blocked_actions.push(action("skills-refresh-failed", "agent-pack", "agent pack refresh failed", {
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
+    }
+
+    if (planned.id === "stop-runtime-processes") {
+      if (args["no-kill"]) continue;
+      proof.applied_actions.push({
+        id: planned.id,
+        kind: planned.kind,
+        ok: true,
+        stopped_processes: stopRuntimeProcesses(listRuntimeProcesses()),
+      });
+    }
+  }
+
+  proof.runtime_version_after = runtimeVersion(proof.runtime.target_binary);
+  proof.requires_host_rebind =
+    proof.requires_host_rebind ||
+    proof.applied_actions.some((applied) => ["npm", "runtime", "agent-pack", "process"].includes(applied.kind));
+  if (proof.requires_host_rebind) {
+    proof.next_actions.push("Restart or rebind each MCP host/client so it launches the updated runtime and refreshes its cached tool list.");
+  }
+  proof.next_actions.push("Then run m1nd update verify, trust_selftest, or session_handshake with the intended workspace scope.");
+  return proof;
+}
+
+function verifySelfUpdate(args) {
+  const proof = buildSelfUpdateProof(args, "verify");
+  const repo = path.resolve(args.repo || process.cwd());
+  const transport = args.transport || "stdio";
+  const script = path.join(repo, "scripts", "m1nd_agent_demo.py");
+  proof.verify = {
+    repo,
+    transport,
+    doctor: doctor(),
+    smoke: null,
+  };
+  if (!fs.existsSync(script)) {
+    proof.blocked_actions.push(action("smoke-script-missing", "verify", "m1nd smoke harness not found in repo", {
+      script,
+    }));
+    proof.next_actions.push("Run update verify from a m1nd source checkout or pass --repo /path/to/m1nd.");
+    return proof;
+  }
+  const python = process.env.PYTHON || "python3";
+  const result = runCommand(python, [script, "--repo", repo, "--transport", transport, "--json"], { timeout: 120000 });
+  proof.verify.smoke = {
+    ok: result.ok,
+    status: result.status,
+    stdout_json: safeJsonParse(result.stdout),
+    stderr: result.stderr.trim(),
+  };
+  if (!result.ok) {
+    proof.blocked_actions.push(action("smoke-failed", "verify", "m1nd smoke verify failed", {
+      status: result.status,
+      stderr: result.stderr.trim(),
+    }));
+  }
+  return proof;
+}
+
+function rollbackSelfUpdate(args) {
+  const proof = buildSelfUpdateProof(args, "rollback");
+  proof.requires_host_rebind = true;
+  const statePath = updateStatePath();
+  if (!fs.existsSync(statePath)) {
+    proof.blocked_actions.push(action("rollback-state-missing", "rollback", "no local update rollback state exists", {
+      state_path: statePath,
+    }));
+    return proof;
+  }
+  const state = safeJsonParse(fs.readFileSync(statePath, "utf8"));
+  if (!state || !state.backup_binary || !fs.existsSync(state.backup_binary)) {
+    proof.blocked_actions.push(action("rollback-backup-missing", "rollback", "rollback state has no usable runtime backup", {
+      state_path: statePath,
+      backup_binary: state ? state.backup_binary : null,
+    }));
+    return proof;
+  }
+  installRuntimeBinary(state.backup_binary, state.target_binary);
+  proof.applied_actions.push({
+    id: "runtime-rollback",
+    kind: "rollback",
+    ok: true,
+    target_binary: state.target_binary,
+    backup_binary: state.backup_binary,
+    restored_version: runtimeVersion(state.target_binary),
+  });
+  proof.next_actions.push("Restart or rebind each MCP host/client so it launches the restored runtime.");
+  return proof;
+}
+
+function selfUpdate(args) {
+  const subcommand = args._[1] || "check";
+  switch (subcommand) {
+    case "check":
+    case "plan":
+      return buildSelfUpdateProof(args, subcommand);
+    case "apply":
+      return applySelfUpdate(args);
+    case "verify":
+      return verifySelfUpdate(args);
+    case "rollback":
+      return rollbackSelfUpdate(args);
+    default:
+      throw new Error(`unknown update subcommand '${subcommand}'`);
+  }
 }
 
 function sourceReleaseBinary(sourceDir) {
@@ -519,6 +1236,30 @@ function print(value, asJson) {
     for (const action of value.next_actions) console.log(`  - ${action}`);
     return;
   }
+  if (value.schema === SELF_UPDATE_SCHEMA) {
+    console.log(`m1nd update ${value.command}`);
+    console.log(`state: ${value.install_state}`);
+    console.log(`package: ${value.package_version}`);
+    console.log(`runtime: ${value.runtime.binary || "not found"}${value.runtime_version ? ` (${value.runtime_version})` : ""}`);
+    console.log(`channel: ${value.channel}${value.latest_version ? ` -> ${value.latest_version}` : ""}`);
+    console.log(`target: ${value.target_version || "unknown"}`);
+    console.log(`requires host rebind: ${value.requires_host_rebind ? "yes" : "no"}`);
+    console.log(`planned actions: ${value.planned_actions.length}`);
+    for (const planned of value.planned_actions) console.log(`  - ${planned.id}: ${planned.description}`);
+    if (value.applied_actions.length > 0) {
+      console.log(`applied actions: ${value.applied_actions.length}`);
+      for (const applied of value.applied_actions) console.log(`  - ${applied.id}: ${applied.ok ? "ok" : "failed"}`);
+    }
+    if (value.blocked_actions.length > 0) {
+      console.log(`blocked actions: ${value.blocked_actions.length}`);
+      for (const blocked of value.blocked_actions) console.log(`  - ${blocked.id}: ${blocked.description}`);
+    }
+    if (value.next_actions.length > 0) {
+      console.log("next:");
+      for (const actionText of value.next_actions) console.log(`  - ${actionText}`);
+    }
+    return;
+  }
   console.log(String(value));
 }
 
@@ -554,6 +1295,11 @@ async function main(rawArgs) {
     return;
   }
 
+  if (command === "update") {
+    print(selfUpdate(args), args.json);
+    return;
+  }
+
   if (command === "pack-check") {
     const result = assertPackShape();
     if (args.json) {
@@ -581,7 +1327,11 @@ module.exports = {
   findRuntimeBinary,
   installSkills,
   restart,
+  selfUpdate,
   mcpConfig,
   runtimeBinaryName,
   commandLooksLikeRuntime,
+  githubReleaseAssetName,
+  versionFromText,
+  compareSemver,
 };
