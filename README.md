@@ -430,9 +430,9 @@ The workspace is split into three core crates plus one auxiliary bridge crate:
 
 Current crate versions:
 
-- `m1nd-core` `0.9.0-beta.1`
-- `m1nd-ingest` `0.9.0-beta.1`
-- `m1nd-mcp` `0.9.0-beta.1`
+- `m1nd-core` `0.9.0-beta.2`
+- `m1nd-ingest` `0.9.0-beta.2`
+- `m1nd-mcp` `0.9.0-beta.2`
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />
