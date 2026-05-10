@@ -5,6 +5,10 @@ crate="${1:?crate name required}"
 version="${2:?crate version required}"
 
 crate_version_exists() {
+  if command -v cargo >/dev/null 2>&1; then
+    cargo search "$crate" --limit 1 | grep -F "$crate = \"$version\"" >/dev/null && return 0
+  fi
+
   if command -v curl >/dev/null 2>&1; then
     curl \
       --connect-timeout 5 \
@@ -15,7 +19,7 @@ crate_version_exists() {
     return $?
   fi
 
-  cargo search "$crate" --limit 1 | grep -F "$crate = \"$version\"" >/dev/null
+  return 1
 }
 
 for attempt in $(seq 1 40); do
