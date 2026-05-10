@@ -633,7 +633,7 @@ export default function L1ght() {
           >
             <InstallButtons />
             <p className="mt-4 font-mono text-xs text-muted-foreground/45 text-center">
-              cargo install m1nd-mcp &nbsp;·&nbsp; brew install m1nd-mcp/tap/m1nd-mcp
+              npm install -g @maxkle1nz/m1nd@beta &nbsp;·&nbsp; cargo install m1nd-mcp --version 0.9.0-beta.2
             </p>
           </motion.div>
 
@@ -785,7 +785,7 @@ export default function L1ght() {
             transition={{ delay: 0.3 }}>
             <InstallButtons />
             <p className="mt-4 font-mono text-xs text-muted-foreground/45 text-center">
-              cargo install m1nd-mcp &nbsp;·&nbsp; brew install m1nd-mcp/tap/m1nd-mcp
+              npm install -g @maxkle1nz/m1nd@beta &nbsp;·&nbsp; cargo install m1nd-mcp --version 0.9.0-beta.2
             </p>
           </motion.div>
           <motion.div

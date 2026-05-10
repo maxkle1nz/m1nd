@@ -6,6 +6,10 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+---
+
+## [0.9.0-beta.2] — 2026-05-10
+
 ### Added
 
 - Added `m1nd restart` as an external repair helper for stale MCP host
@@ -14,7 +18,9 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 ### Fixed
 
 - Aligned the Rust crate versions and `m1nd-mcp --version` output with the
-  `0.9.0-beta.1` npm/package line.
+  `0.9.0-beta.2` npm/package line.
+- Isolated `m1nd-operator` probe runtimes by default so parallel agents do not
+  collide on stale runtime locks during health checks.
 
 ---
 

@@ -1,6 +1,7 @@
 name: Deploy m1nd Site to GitHub Pages
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main

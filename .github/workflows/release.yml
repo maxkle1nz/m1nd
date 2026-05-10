@@ -105,22 +105,49 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve crate versions
+        id: versions
+        if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import subprocess
+
+          metadata = json.loads(subprocess.check_output([
+              "cargo",
+              "metadata",
+              "--no-deps",
+              "--format-version",
+              "1",
+          ]))
+          versions = {package["name"]: package["version"] for package in metadata["packages"]}
+          print(f"core={versions['m1nd-core']}")
+          print(f"ingest={versions['m1nd-ingest']}")
+          print(f"mcp={versions['m1nd-mcp']}")
+          PY
+
       - name: Publish m1nd-core
         if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: cargo publish -p m1nd-core --token "$CARGO_REGISTRY_TOKEN"
+        run: |
+          ./scripts/publish_crate_if_missing.sh m1nd-core "${{ steps.versions.outputs.core }}" \
+            --token "$CARGO_REGISTRY_TOKEN"
 
-      - name: Wait for crates.io index propagation
+      - name: Wait for m1nd-core index propagation
         if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: sleep 30
+        run: ./scripts/wait_for_crate_version.sh m1nd-core "${{ steps.versions.outputs.core }}"
 
       - name: Publish m1nd-ingest
         if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: cargo publish -p m1nd-ingest --token "$CARGO_REGISTRY_TOKEN"
+        run: |
+          ./scripts/publish_crate_if_missing.sh m1nd-ingest "${{ steps.versions.outputs.ingest }}" \
+            --token "$CARGO_REGISTRY_TOKEN"
 
-      - name: Wait for crates.io index propagation
+      - name: Wait for m1nd-ingest index propagation
         if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: sleep 30
+        run: ./scripts/wait_for_crate_version.sh m1nd-ingest "${{ steps.versions.outputs.ingest }}"
 
       - name: Publish m1nd-mcp
         if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: cargo publish -p m1nd-mcp --token "$CARGO_REGISTRY_TOKEN"
+        run: |
+          ./scripts/publish_crate_if_missing.sh m1nd-mcp "${{ steps.versions.outputs.mcp }}" \
+            --token "$CARGO_REGISTRY_TOKEN"

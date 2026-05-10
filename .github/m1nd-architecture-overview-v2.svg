@@ -132,19 +132,19 @@
   <g>
     <text x="690" y="820" text-anchor="middle" class="node-title">m1nd-ingest</text>
     <text x="690" y="872" text-anchor="middle" class="node-subtitle">Extraction, adapters, and graph construction</text>
-    <text x="928" y="768" text-anchor="end" class="version-tag">0.8.0</text>
+    <text x="928" y="768" text-anchor="end" class="version-tag">0.9.0-beta.2</text>
   </g>
 
   <g>
     <text x="2062" y="820" text-anchor="middle" class="node-title">m1nd-mcp</text>
     <text x="2062" y="872" text-anchor="middle" class="node-subtitle">MCP server, runtime surface, optional HTTP serve</text>
-    <text x="2300" y="768" text-anchor="end" class="version-tag">0.8.0</text>
+    <text x="2300" y="768" text-anchor="end" class="version-tag">0.9.0-beta.2</text>
   </g>
 
   <g>
     <text x="1376" y="1148" text-anchor="middle" class="node-title">m1nd-core</text>
     <text x="1376" y="1200" text-anchor="middle" class="node-subtitle">Graph engine and reasoning primitives used by the whole stack</text>
-    <text x="1688" y="1088" text-anchor="end" class="version-tag">0.8.0</text>
+    <text x="1688" y="1088" text-anchor="end" class="version-tag">0.9.0-beta.2</text>
   </g>
 
   <g opacity="0.95">

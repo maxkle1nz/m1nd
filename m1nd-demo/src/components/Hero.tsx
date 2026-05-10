@@ -138,7 +138,7 @@ export function Hero() {
               MIT License
             </span>
             <span style={{ color: "#ffffff18" }}>·</span>
-            <span style={{ color: "#ffffff45" }}>v0.8.0</span>
+            <span style={{ color: "#ffffff45" }}>v0.9 beta</span>
             <span style={{ color: "#ffffff18" }}>·</span>
             <span style={{ color: "#ffffff45" }}>Local-first</span>
             <span style={{ color: "#ffffff18" }}>·</span>

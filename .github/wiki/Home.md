@@ -175,7 +175,7 @@ Claude Code · Cursor · Windsurf · GitHub Copilot · Zed · Cline · Roo Code 
 
 ## On crates.io
 
-m1nd v0.8.0 is the current release line. Add it from [crates.io](https://crates.io/crates/m1nd-core) or build the binary from source — both paths are fully supported.
+m1nd v0.9 beta is the current release line. Install the current beta runtime with `cargo install m1nd-mcp --version 0.9.0-beta.2`, add the agent pack with `npm install -g @maxkle1nz/m1nd@beta`, or build the binary from source.
 
 ---
 

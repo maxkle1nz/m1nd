@@ -1,10 +1,12 @@
 import { motion } from "framer-motion";
 
-const STEP_INSTALL = `# install the MCP server binary
-cargo install m1nd-mcp
+const STEP_INSTALL = `# agent pack, diagnostics, and host setup
+npm install -g @maxkle1nz/m1nd@beta
+m1nd doctor
+m1nd pack-check
 
-# or with Homebrew
-brew install m1nd-mcp/tap/m1nd-mcp`;
+# native MCP runtime
+cargo install m1nd-mcp --version 0.9.0-beta.2`;
 
 const STEP_CONFIG = `{
   "mcpServers": {
@@ -102,8 +104,8 @@ export function InstallSection() {
     {
       num: "01",
       label: "Install",
-      title: "Install the MCP server",
-      desc: "A single Rust binary. No runtime deps. Ships with every MCP-compatible client.",
+      title: "Install the pack and runtime",
+      desc: "The npm pack gives agents their operating doctrine and diagnostics; the Rust crate gives them the native MCP runtime.",
       code: STEP_INSTALL,
       lang: "bash",
     },
