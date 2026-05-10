@@ -134,19 +134,11 @@ jobs:
           ./scripts/publish_crate_if_missing.sh m1nd-core "${{ steps.versions.outputs.core }}" \
             --token "$CARGO_REGISTRY_TOKEN"
 
-      - name: Wait for m1nd-core index propagation
-        if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: ./scripts/wait_for_crate_version.sh m1nd-core "${{ steps.versions.outputs.core }}"
-
       - name: Publish m1nd-ingest
         if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
         run: |
           ./scripts/publish_crate_if_missing.sh m1nd-ingest "${{ steps.versions.outputs.ingest }}" \
             --token "$CARGO_REGISTRY_TOKEN"
-
-      - name: Wait for m1nd-ingest index propagation
-        if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
-        run: ./scripts/wait_for_crate_version.sh m1nd-ingest "${{ steps.versions.outputs.ingest }}"
 
       - name: Publish m1nd-mcp
         if: ${{ steps.publish_guard.outputs.enabled == 'true' }}
