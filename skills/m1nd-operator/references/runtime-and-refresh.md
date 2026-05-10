@@ -116,10 +116,16 @@ python3 scripts/probe_m1nd.py run '[{"name":"ingest","arguments":{"agent_id":"co
 Behavior:
 
 - launches the configured local `m1nd-mcp` binary
+- injects a temporary isolated `--runtime-dir` by default so independent agent
+  probes can run concurrently without runtime owner-lock collisions
 - performs MCP `initialize`
 - runs `tools/list` or `tools/call`
 - `run` keeps one `m1nd` process alive across multiple calls so in-memory graph state survives `ingest -> query` flows
 - prints parsed JSON instead of raw MCP envelopes when possible
+- use `--shared-runtime` only when you intentionally need to inspect shared
+  runtime state; if you see `runtime_root ... is already owned by instance`,
+  rerun with the current helper or a unique explicit `--runtime-dir` before
+  diagnosing graph/retrieval health
 
 ## Refresh Procedure
 

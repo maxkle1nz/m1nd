@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import sys
 import shutil
+import tempfile
 from typing import Any
 
 
@@ -85,6 +86,10 @@ def print_json(value: Any) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=True))
 
 
+def binary_args_have_runtime_dir(binary_args: list[str]) -> bool:
+    return any(arg == "--runtime-dir" or arg.startswith("--runtime-dir=") for arg in binary_args)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Probe the local m1nd MCP runtime.")
     parser.add_argument("--binary", default=DEFAULT_BINARY, help="Path to m1nd-mcp.")
@@ -92,6 +97,20 @@ def main() -> int:
         "--binary-args",
         default=" ".join(DEFAULT_ARGS),
         help='Arguments for the binary, default: "--stdio --no-gui".',
+    )
+    parser.add_argument(
+        "--runtime-dir",
+        help="Runtime directory for isolated sidecar state. Defaults to a temporary directory.",
+    )
+    parser.add_argument(
+        "--shared-runtime",
+        action="store_true",
+        help="Do not inject an isolated --runtime-dir. Use only when debugging shared runtime state.",
+    )
+    parser.add_argument(
+        "--keep-runtime-dir",
+        action="store_true",
+        help="Keep the temporary runtime directory for debugging.",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -124,8 +143,24 @@ def main() -> int:
     args = parser.parse_args()
 
     binary_args = shlex.split(args.binary_args)
-    client = McpClient(args.binary, binary_args)
+    if args.runtime_dir and args.shared_runtime:
+        raise SystemExit("--runtime-dir and --shared-runtime are mutually exclusive")
+
+    runtime_dir_created = None
+    if not binary_args_have_runtime_dir(binary_args) and not args.shared_runtime:
+        runtime_dir = (
+            os.path.abspath(os.path.expanduser(args.runtime_dir))
+            if args.runtime_dir
+            else tempfile.mkdtemp(prefix="m1nd-probe-")
+        )
+        os.makedirs(runtime_dir, exist_ok=True)
+        if not args.runtime_dir:
+            runtime_dir_created = runtime_dir
+        binary_args.extend(["--runtime-dir", runtime_dir])
+
+    client = None
     try:
+        client = McpClient(args.binary, binary_args)
         if args.command == "tools":
             response = client.tools()
             tools = response["result"]["tools"]
@@ -187,7 +222,10 @@ def main() -> int:
 
         raise SystemExit(f"unsupported command: {args.command}")
     finally:
-        client.close()
+        if client is not None:
+            client.close()
+        if runtime_dir_created and not args.keep_runtime_dir:
+            shutil.rmtree(runtime_dir_created, ignore_errors=True)
 
 
 if __name__ == "__main__":

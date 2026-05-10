@@ -36,6 +36,14 @@ Skip the `m1nd` first pass only when:
 
 If `m1nd` does not answer enough, then fall back to shell search, direct file reads, compiler output, tests, logs, and debugger data.
 
+If a local helper/probe fails before MCP initialization with
+`runtime_root ... is already owned by instance`, classify it as a sidecar
+runtime lock collision, not stale graph truth. Use the current
+`probe_m1nd.py`, which isolates `--runtime-dir` by default, pass a unique
+explicit `--runtime-dir`, or collapse dependent checks into one
+`probe_m1nd.py run` call. Do not tell the user that m1nd retrieval is broken
+until a fresh isolated probe or the repo-local smoke harness also fails.
+
 If a tool call fails with `Transport closed`, classify it as a host MCP binding
 failure before m1nd can run. Do not call `doctor`, `recovery_playbook`, or
 `ingest` through that dead binding. Verify the binary with a local smoke, kill

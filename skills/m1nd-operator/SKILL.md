@@ -156,6 +156,14 @@ python3 scripts/probe_m1nd.py call help '{"agent_id":"codex-m1nd","tool_name":"v
 python3 scripts/probe_m1nd.py run '[{"name":"ingest","arguments":{"agent_id":"codex-m1nd","path":"/path/to/repo"}},{"name":"seek","arguments":{"agent_id":"codex-m1nd","query":"where retry backoff is decided","top_k":5}}]'
 ```
 
+`probe_m1nd.py` uses an isolated temporary `--runtime-dir` by default so
+parallel agent probes do not fight over the same runtime owner lock. If a
+helper or older skill reports `runtime_root ... is already owned by instance`,
+do not classify that as graph staleness or retrieval failure. Rerun with the
+current helper, pass an explicit unique `--runtime-dir`, or combine dependent
+calls with `probe_m1nd.py run` so they share one process intentionally. Use
+`--shared-runtime` only when debugging shared runtime state.
+
 For the m1nd repo itself, prefer the repo-local agent smoke harness when you
 need to distinguish a real runtime problem from a host-provided MCP binding
 problem:

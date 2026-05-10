@@ -57,6 +57,12 @@ repair, refresh the host, or mutate the graph.
 call `doctor`, `recovery_playbook`, or `ingest` through that dead binding. A
 fresh MCP transport must be launched first.
 
+If a local helper/probe fails before initialization with
+`runtime_root ... is already owned by instance`, treat it as a runtime sidecar
+lock collision, not stale graph truth. Use an isolated `--runtime-dir`, use the
+current `probe_m1nd.py` helper, or group dependent checks into one
+`probe_m1nd.py run` process before falling back to files.
+
 If the host appears to be launching an old or stale native runtime, and a local
 `m1nd` CLI is available outside the MCP transport, run:
 
