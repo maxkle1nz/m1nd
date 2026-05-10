@@ -101,6 +101,7 @@ node npm/bin/m1nd.js update check --json
 node npm/bin/m1nd.js update status --json
 node npm/bin/m1nd.js update plan --json
 node npm/bin/m1nd.js update verify --repo . --transport stdio --json
+node npm/bin/m1nd.js hosts status --host all --project . --json
 npm pack --dry-run --json
 cargo check --workspace
 git diff --check
@@ -113,8 +114,8 @@ rollback without touching the developer machine.
 
 - signed/checksummed release downloads;
 - read-only MCP tools for update check and plan;
-- host-specific rebind recipes for Codex, Claude, Gemini, Antigravity, Cursor,
-  Windsurf, Cline, and Continue;
+- host-specific rebind recipes beyond the current read-only
+  `m1nd hosts status` cockpit;
 - background update monitor that only notifies;
 - stable v1 class after npm, Cargo, GitHub binary, macOS, Linux, Windows, and
   at least three host bindings are proven.

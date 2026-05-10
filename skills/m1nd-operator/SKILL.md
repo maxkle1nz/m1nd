@@ -43,6 +43,10 @@ Only skip the `m1nd` first pass when:
   already-open client's cached MCP tool list. `m1nd restart --source
   /path/to/m1nd --yes` remains the lower-level source-checkout repair path for
   development builds.
+- If the uncertainty is host-specific, run `m1nd hosts status --host all
+  --project /path/to/project --json` from the CLI before mutating anything. It
+  is read-only and reports agent-pack presence, likely MCP config wiring,
+  runtime/PATH alignment, workspace hints, and `host_rebind_proven=false`.
 - If the live MCP surface exposes `trust_selftest`, call it first and route by
   `verdict` before relying on retrieval. `full_trust` means proceed with
   m1nd-first; `needs_ingest` means ingest the intended repo; `orientation_only`

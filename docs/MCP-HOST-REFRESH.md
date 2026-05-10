@@ -121,6 +121,7 @@ m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
+m1nd hosts status --host all --project /path/to/project --json
 ```
 
 `m1nd update` is deliberately outside MCP, so it can still help when the MCP
@@ -134,6 +135,12 @@ native runtime from a GitHub Release asset when available, falls back to Cargo
 when needed, refreshes agent pack files when allowed, and records a runtime
 backup for rollback. Then the agent or human must restart/rebind the host so it
 launches the updated binary and refreshes its cached tool list.
+
+When the problem is host-specific, run `m1nd hosts status` before changing
+anything. It is a read-only readiness contract for the supported packaged host
+surfaces and reports agent-pack files, likely MCP config wiring, runtime/PATH
+alignment, workspace hints, and `host_rebind_proven=false`. Treat a red host as
+an installation/binding issue until a fresh host session proves otherwise.
 
 For a live multi-agent session, use `--no-kill` when you need to update the
 managed binary without stopping current hosts:

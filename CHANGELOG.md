@@ -14,6 +14,9 @@ The next release train starts here.
   `rollback` subcommands for safe local self-update planning, cockpit-style
   agent readiness, runtime replacement with backup, agent-pack refresh, and
   host-rebind guidance.
+- Added `m1nd hosts status` as a read-only host readiness cockpit for supported
+  packaged hosts, reporting agent-pack state, MCP config hints, runtime/PATH
+  alignment, workspace hints, and the explicit host-rebind caveat.
 
 ### Changed
 

@@ -10,8 +10,10 @@ const SKILLS_ROOT = path.join(PACKAGE_ROOT, "skills");
 const UNIVERSAL_PACK = path.join(SKILLS_ROOT, "m1nd-universal-agent-pack.md");
 const NPM_PACKAGE = "@maxkle1nz/m1nd";
 const SELF_UPDATE_SCHEMA = "m1nd-self-update-v0";
+const HOST_READINESS_SCHEMA = "m1nd-host-readiness-v0";
 
-const HOSTS = new Set(["codex", "claude", "gemini", "antigravity", "generic", "all"]);
+const HOST_LIST = ["codex", "claude", "gemini", "antigravity", "generic"];
+const HOSTS = new Set([...HOST_LIST, "all"]);
 
 function usage() {
   return `m1nd installer
@@ -20,6 +22,7 @@ Usage:
   m1nd init [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>]
   m1nd install-skills <host> [--project <dir>]
   m1nd mcp-config <host> [--binary <path>]
+  m1nd hosts status [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
   m1nd doctor [--json]
   m1nd restart [--source <dir>] [--binary <path>] [--yes] [--json]
   m1nd update check [--channel beta|latest] [--json]
@@ -42,7 +45,11 @@ the host can relaunch/rebind.
 
 update is the safe self-update surface. check/plan never mutate. apply mutates
 only with --yes, writes runtime backups before replacement, and always reports
-that active MCP hosts still need restart or rebind.`;
+that active MCP hosts still need restart or rebind.
+
+hosts status is a read-only universality-loop cockpit. It reports whether each
+agent host has an agent pack, an MCP config hint, a current runtime, and the
+remaining rebind caveat.`;
 }
 
 function parseArgs(args) {
@@ -236,6 +243,214 @@ args = ["--stdio", "--no-gui"]
     null,
     2
   );
+}
+
+function fileContains(file, needle) {
+  if (!fs.existsSync(file)) return false;
+  try {
+    return fs.readFileSync(file, "utf8").includes(needle);
+  } catch (_) {
+    return false;
+  }
+}
+
+function portableAgentPackPaths(host, projectDir) {
+  const targetRoot = path.join(projectDir, ".m1nd", "agent-pack");
+  const skillsRoot = path.join(targetRoot, "skills");
+  return {
+    target_root: targetRoot,
+    skills_root: skillsRoot,
+    first_skill: path.join(skillsRoot, "m1nd-first", "SKILL.md"),
+    operator_skill: path.join(skillsRoot, "m1nd-operator", "SKILL.md"),
+    rule_file: path.join(targetRoot, hostRuleFilename(host)),
+  };
+}
+
+function agentPackStatusForHost(host, projectDir) {
+  if (host === "codex") {
+    const skillRoot = path.join(os.homedir(), ".codex", "skills");
+    const required = [
+      path.join(skillRoot, "m1nd-first", "SKILL.md"),
+      path.join(skillRoot, "m1nd-operator", "SKILL.md"),
+    ];
+    const missing = required.filter((file) => !fs.existsSync(file));
+    return {
+      install_kind: "codex-skill-root",
+      target_root: skillRoot,
+      rule_file: null,
+      required,
+      missing,
+      installed: missing.length === 0,
+    };
+  }
+
+  const paths = portableAgentPackPaths(host, projectDir);
+  const required = [paths.first_skill, paths.operator_skill, paths.rule_file];
+  const missing = required.filter((file) => !fs.existsSync(file));
+  return {
+    install_kind: "project-local-portable-pack",
+    target_root: paths.target_root,
+    rule_file: paths.rule_file,
+    required,
+    missing,
+    installed: missing.length === 0,
+  };
+}
+
+function hostConfigCandidates(host, projectDir) {
+  switch (host) {
+    case "codex":
+      return [path.join(os.homedir(), ".codex", "config.toml")];
+    case "claude":
+      return [path.join(projectDir, ".claude", "mcp.json"), path.join(projectDir, "claude_mcp.json")];
+    case "gemini":
+      return [path.join(projectDir, ".gemini", "settings.json"), path.join(projectDir, "gemini_mcp.json")];
+    case "antigravity":
+      return [path.join(projectDir, "mcp_config.json")];
+    default:
+      return [];
+  }
+}
+
+function hostConfigStatus(host, projectDir, binary) {
+  const candidates = hostConfigCandidates(host, projectDir);
+  if (candidates.length === 0) {
+    return {
+      status: "manual",
+      candidates: [],
+      expected_command: binary || defaultRuntimePath(),
+      snippet_command: `m1nd mcp-config ${host}`,
+      note: "Generic hosts have no canonical config path; paste the generated MCP snippet into the host's config surface.",
+    };
+  }
+
+  const checked = candidates.map((file) => ({
+    file,
+    exists: fs.existsSync(file),
+    mentions_m1nd: fileContains(file, "m1nd"),
+  }));
+  const configured = checked.some((candidate) => candidate.exists && candidate.mentions_m1nd);
+  const anyPresent = checked.some((candidate) => candidate.exists);
+  return {
+    status: configured ? "configured" : anyPresent ? "present_without_m1nd" : "missing",
+    candidates: checked,
+    expected_command: binary || defaultRuntimePath(),
+    snippet_command: `m1nd mcp-config ${host}`,
+    note: configured
+      ? "A config candidate mentions m1nd; rebind is still required for an already-open host."
+      : "No config candidate currently proves that this host is wired to m1nd.",
+  };
+}
+
+function hostReadinessNonClaims() {
+  return [
+    "m1nd hosts status is read-only and does not mutate host configuration.",
+    "m1nd hosts status does not prove that an already-open MCP host has rebound.",
+    "m1nd hosts status does not refresh a host's cached MCP tool list.",
+    "m1nd hosts status does not repair graph contents, ingest roots, or semantic retrieval.",
+    "m1nd hosts status does not prove that every possible agent host is configured.",
+  ];
+}
+
+function hostInstallCommand(host, projectDir) {
+  if (host === "codex") return "m1nd install-skills codex";
+  return `m1nd install-skills ${host} --project ${projectDir}`;
+}
+
+function hostStatus(args) {
+  const hostSelection = args.host || args._[2] || "all";
+  if (!HOSTS.has(hostSelection)) {
+    throw new Error(`unsupported host '${hostSelection}'. Supported hosts: ${Array.from(HOSTS).join(", ")}`);
+  }
+
+  const selectedHosts = hostSelection === "all" ? HOST_LIST : [hostSelection];
+  const projectDir = path.resolve(args.project || process.cwd());
+  const packageVersion = readPackageVersion();
+  const binary = args.binary ? path.resolve(args.binary) : findRuntimeBinary();
+  const runtimeText = runtimeVersion(binary);
+  const runtimeCurrent = Boolean(binary && runtimeText && runtimeText.includes(packageVersion));
+  const pathBinary = which("m1nd-mcp");
+  const pathRuntimeText = pathBinary ? runtimeVersion(pathBinary) : null;
+  const pathRuntimeCurrent = Boolean(!pathRuntimeText || pathRuntimeText.includes(packageVersion));
+  const workspaceRoot = process.env.M1ND_WORKSPACE_ROOT || null;
+  const workspaceRootMatches = Boolean(workspaceRoot && path.resolve(workspaceRoot) === projectDir);
+
+  const runtime = {
+    package_version: packageVersion,
+    binary: binary || null,
+    version: runtimeText,
+    current: runtimeCurrent,
+    default_install_path: defaultRuntimePath(),
+    path_binary: pathBinary || null,
+    path_version: pathRuntimeText,
+    path_runtime_current: pathRuntimeCurrent,
+  };
+
+  const workspace = {
+    project_dir: projectDir,
+    m1nd_workspace_root: workspaceRoot,
+    matches_project: workspaceRootMatches,
+    status: workspaceRoot ? (workspaceRootMatches ? "aligned" : "different") : "unset",
+    recommendation: `Set M1ND_WORKSPACE_ROOT=${projectDir} in host MCP config when the host supports env vars.`,
+  };
+
+  const hosts = selectedHosts.map((host) => {
+    const agentPack = agentPackStatusForHost(host, projectDir);
+    const config = hostConfigStatus(host, projectDir, binary);
+    const configReady = config.status === "configured" || config.status === "manual";
+    const readiness = runtimeCurrent && pathRuntimeCurrent && agentPack.installed && configReady ? "ready" : "attention";
+    const nextActions = [];
+    if (!runtimeCurrent) {
+      nextActions.push("Run m1nd update status --channel beta --json, then m1nd update plan/apply if the runtime is stale or missing.");
+    }
+    if (!pathRuntimeCurrent) {
+      nextActions.push("Align the m1nd-mcp binary found on PATH or pass --binary to target the runtime this host launches.");
+    }
+    if (!agentPack.installed) {
+      nextActions.push(`Run ${hostInstallCommand(host, projectDir)}.`);
+    }
+    if (config.status === "missing") {
+      nextActions.push(`Run ${config.snippet_command} and add the snippet to one of the listed host config paths.`);
+    }
+    if (config.status === "present_without_m1nd") {
+      nextActions.push(`Update the existing host config with ${config.snippet_command}.`);
+    }
+    if (workspace.status !== "aligned") {
+      nextActions.push(workspace.recommendation);
+    }
+    nextActions.push("Restart/rebind the host, then call trust_selftest or session_handshake before retrieval.");
+
+    return {
+      host,
+      readiness,
+      agent_pack: agentPack,
+      config,
+      workspace,
+      host_rebind_proven: false,
+      next_actions: nextActions,
+    };
+  });
+
+  const uniqueNextActions = Array.from(new Set(hosts.flatMap((host) => host.next_actions)));
+  return {
+    schema: HOST_READINESS_SCHEMA,
+    package_name: NPM_PACKAGE,
+    package_version: packageVersion,
+    project_dir: projectDir,
+    host_selection: hostSelection,
+    runtime,
+    workspace,
+    hosts,
+    summary: {
+      host_count: hosts.length,
+      ready_count: hosts.filter((host) => host.readiness === "ready").length,
+      attention_count: hosts.filter((host) => host.readiness !== "ready").length,
+      overall_readiness: hosts.every((host) => host.readiness === "ready") ? "ready" : "attention",
+      host_rebind_proven: false,
+    },
+    next_actions: uniqueNextActions,
+    non_claims: hostReadinessNonClaims(),
+  };
 }
 
 function doctor() {
@@ -1331,6 +1546,23 @@ function print(value, asJson) {
     }
     return;
   }
+  if (value.schema === HOST_READINESS_SCHEMA) {
+    console.log("m1nd hosts status");
+    console.log(`project: ${value.project_dir}`);
+    console.log(`runtime: ${value.runtime.binary || "not found"}${value.runtime.version ? ` (${value.runtime.version})` : ""}`);
+    console.log(`overall readiness: ${value.summary.overall_readiness}`);
+    console.log(`host rebind proven: ${value.summary.host_rebind_proven ? "yes" : "no"}`);
+    for (const host of value.hosts) {
+      console.log(`${host.host}: ${host.readiness}`);
+      console.log(`  agent pack: ${host.agent_pack.installed ? "installed" : "missing"}`);
+      console.log(`  config: ${host.config.status}`);
+    }
+    if (value.next_actions.length > 0) {
+      console.log("next:");
+      for (const actionText of value.next_actions) console.log(`  - ${actionText}`);
+    }
+    return;
+  }
   console.log(String(value));
 }
 
@@ -1353,6 +1585,15 @@ async function main(rawArgs) {
   if (command === "mcp-config") {
     const host = args._[1] || args.host || "generic";
     console.log(mcpConfig(host, args.binary));
+    return;
+  }
+
+  if (["host", "hosts"].includes(command)) {
+    const subcommand = args._[1] || "status";
+    if (subcommand !== "status") {
+      throw new Error(`unknown hosts subcommand '${subcommand}'`);
+    }
+    print(hostStatus(args), args.json);
     return;
   }
 
@@ -1396,6 +1637,7 @@ module.exports = {
   defaultRuntimePath,
   doctor,
   findRuntimeBinary,
+  hostStatus,
   installSkills,
   restart,
   selfUpdate,

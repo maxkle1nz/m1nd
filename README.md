@@ -249,6 +249,7 @@ m1nd doctor
 m1nd pack-check
 m1nd update check --channel beta
 m1nd update status --channel beta
+m1nd hosts status --host all --project /your/project
 ```
 
 From a source checkout:
@@ -272,6 +273,7 @@ m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
+m1nd hosts status --host all --project /your/project --json
 m1nd pack-check
 ```
 
@@ -284,6 +286,13 @@ prefers a GitHub Release runtime binary when one exists, falls back to Cargo
 when needed, writes a local runtime backup before replacement, and still reports
 that every active MCP host must restart or rebind before it can see the new
 binary or tool list.
+
+`m1nd hosts status` is the read-only universality-loop cockpit. It checks the
+supported host surfaces (`codex`, `claude`, `gemini`, `antigravity`,
+`generic`) for agent-pack presence, likely MCP config wiring, runtime version,
+PATH divergence, workspace hints, and the explicit
+`host_rebind_proven=false` caveat. Use it before mutating anything when an
+agent reports stale tools, wrong workspace binding, or `Transport closed`.
 
 In live multi-agent work, use `--no-kill` when you want to update the managed
 binary without interrupting active hosts:

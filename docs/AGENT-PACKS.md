@@ -61,6 +61,7 @@ m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
+m1nd hosts status --host all --project /path/to/project --json
 ```
 
 `check`, `status`, and `plan` are read-only. `status` is the compact cockpit for
@@ -72,6 +73,12 @@ a GitHub Release binary when available, falls back to Cargo when needed,
 refreshes the agent pack when allowed, and records any runtime backup for
 rollback. It still cannot refresh a client's cached MCP tool list by itself;
 restart or rebind the host session afterward.
+
+Use `m1nd hosts status` when the question is not only "is the install current?"
+but "is this agent host ready?" It reports agent-pack presence, likely MCP
+config wiring, runtime alignment, workspace hints, and
+`host_rebind_proven=false` per supported host. It is read-only and does not edit
+host config.
 
 During live multi-agent work, add `--no-kill` if the goal is only to update the
 managed binary while keeping current host sessions alive:

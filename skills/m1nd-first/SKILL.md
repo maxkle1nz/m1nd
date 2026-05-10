@@ -57,8 +57,10 @@ self-update path:
 
 ```bash
 m1nd update check --channel beta
+m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
+m1nd hosts status --host all --project /path/to/project --json
 ```
 
 Use `--no-kill` in live multi-agent sessions when you only want to update the
@@ -66,6 +68,11 @@ managed binary and rebind one selected host. `m1nd update` does not ingest,
 repair graph contents, choose a workspace, or refresh an already-open client's
 cached MCP tool list. `m1nd restart --source /path/to/m1nd --yes` remains the
 lower-level source-checkout repair path for development builds.
+
+When the question is host-specific, use `m1nd hosts status` before mutating
+anything. It is read-only and reports agent-pack files, likely MCP config
+wiring, runtime/PATH alignment, workspace hints, and `host_rebind_proven=false`
+per supported host.
 
 For local m1nd repo work, prefer the cheap trust selftest path before a full smoke:
 

@@ -9,6 +9,8 @@ const { spawnSync } = require("child_process");
 const {
   commandLooksLikeRuntime,
   defaultRuntimePath,
+  hostStatus,
+  installSkills,
   mcpConfig,
   restart,
   runtimeBinaryName,
@@ -52,6 +54,7 @@ assert(help.stdout.includes("m1nd smoke"));
 assert(help.stdout.includes("m1nd restart"));
 assert(help.stdout.includes("m1nd update"));
 assert(help.stdout.includes("m1nd update status"));
+assert(help.stdout.includes("m1nd hosts status"));
 
 const packCheck = spawnSync(process.execPath, [cli, "pack-check", "--json"], { encoding: "utf8" });
 assert.strictEqual(packCheck.status, 0, packCheck.stderr);
@@ -295,6 +298,49 @@ withEnv(
   }
 );
 
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+  },
+  () => {
+    const tmp = mkTmpDir();
+    const missing = hostStatus({
+      _: ["hosts", "status"],
+      host: "claude",
+      project: tmp,
+      binary: process.execPath,
+    });
+    assert.strictEqual(missing.schema, "m1nd-host-readiness-v0");
+    assert.strictEqual(missing.summary.host_rebind_proven, false);
+    assert.strictEqual(missing.hosts.length, 1);
+    assert.strictEqual(missing.hosts[0].host, "claude");
+    assert.strictEqual(missing.hosts[0].readiness, "attention");
+    assert.strictEqual(missing.hosts[0].agent_pack.installed, false);
+    assert.strictEqual(missing.hosts[0].config.status, "missing");
+    assert(missing.non_claims.some((claim) => claim.includes("does not mutate")));
+
+    installSkills("claude", tmp);
+    fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, ".claude", "mcp.json"),
+      JSON.stringify({ mcpServers: { m1nd: { command: "m1nd-mcp", args: ["--stdio", "--no-gui"] } } })
+    );
+
+    const ready = hostStatus({
+      _: ["hosts", "status"],
+      host: "claude",
+      project: tmp,
+      binary: process.execPath,
+    });
+    assert.strictEqual(ready.hosts[0].agent_pack.installed, true);
+    assert.strictEqual(ready.hosts[0].config.status, "configured");
+    assert.strictEqual(ready.hosts[0].readiness, "ready");
+    assert.strictEqual(ready.summary.overall_readiness, "ready");
+    assert.strictEqual(ready.summary.host_rebind_proven, false);
+  }
+);
+
 const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json", "--binary", process.execPath], {
   encoding: "utf8",
   env: {
@@ -319,5 +365,26 @@ const updateStatusJson = JSON.parse(updateStatus.stdout);
 assert.strictEqual(updateStatusJson.schema, "m1nd-self-update-v0");
 assert.strictEqual(updateStatusJson.command, "status");
 assert(updateStatusJson.status_summary);
+
+const hostStatusCliProject = mkTmpDir();
+installSkills("generic", hostStatusCliProject);
+const hostsStatus = spawnSync(
+  process.execPath,
+  [cli, "hosts", "status", "--json", "--host", "generic", "--project", hostStatusCliProject, "--binary", process.execPath],
+  {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...fakeEnvBase,
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+    },
+  }
+);
+assert.strictEqual(hostsStatus.status, 0, hostsStatus.stderr);
+const hostsStatusJson = JSON.parse(hostsStatus.stdout);
+assert.strictEqual(hostsStatusJson.schema, "m1nd-host-readiness-v0");
+assert.strictEqual(hostsStatusJson.hosts[0].host, "generic");
+assert.strictEqual(hostsStatusJson.hosts[0].config.status, "manual");
+assert.strictEqual(hostsStatusJson.hosts[0].readiness, "ready");
 
 console.log("npm cli tests ok");

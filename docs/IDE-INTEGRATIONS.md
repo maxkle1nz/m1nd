@@ -132,12 +132,19 @@ m1nd update check --channel beta
 m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
+m1nd hosts status --host all --project /path/to/project --json
 ```
 
 For live multi-agent sessions, add `--no-kill` to update the managed binary
 without stopping current host processes, then restart/rebind only the target
 host. `m1nd restart --source /path/to/m1nd --yes` remains the lower-level
 source-checkout repair helper for development builds.
+
+Use `m1nd hosts status` as the read-only host readiness cockpit before editing
+host configs. It checks the packaged host surfaces for agent-pack files, likely
+MCP config presence, runtime/PATH alignment, workspace hints, and the required
+rebind caveat. It does not prove that an already-open host has refreshed its
+cached MCP tool list.
 
 ### Use plain MCP when:
 
