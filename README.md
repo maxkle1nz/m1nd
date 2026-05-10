@@ -248,6 +248,7 @@ npm install -g @maxkle1nz/m1nd@beta
 m1nd doctor
 m1nd pack-check
 m1nd update check --channel beta
+m1nd update status --channel beta
 ```
 
 From a source checkout:
@@ -267,14 +268,18 @@ from source or point your host at an installed binary.
 ```bash
 m1nd mcp-config codex
 m1nd mcp-config generic
+m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd pack-check
 ```
 
-`m1nd update` is the agent-safe self-update surface. `check` and `plan` only
-report package/runtime/agent-pack state. `apply` mutates only with `--yes`,
+`m1nd update` is the agent-safe self-update surface. `check`, `status`, and
+`plan` only report package/runtime/agent-pack state. `status` is the cockpit
+view for agents: it summarizes readiness, PATH/runtime alignment, visible
+`m1nd-mcp` processes, and whether host rebind is still unproven. `apply`
+mutates only with `--yes`,
 prefers a GitHub Release runtime binary when one exists, falls back to Cargo
 when needed, writes a local runtime backup before replacement, and still reports
 that every active MCP host must restart or rebind before it can see the new

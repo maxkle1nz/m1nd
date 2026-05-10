@@ -10,9 +10,10 @@ The next release train starts here.
 
 ### Added
 
-- Added `m1nd update` with `check`, `plan`, `apply`, `verify`, and `rollback`
-  subcommands for safe local self-update planning, runtime replacement with
-  backup, agent-pack refresh, and host-rebind guidance.
+- Added `m1nd update` with `check`, `status`, `plan`, `apply`, `verify`, and
+  `rollback` subcommands for safe local self-update planning, cockpit-style
+  agent readiness, runtime replacement with backup, agent-pack refresh, and
+  host-rebind guidance.
 
 ### Changed
 

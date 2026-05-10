@@ -40,13 +40,17 @@ Allowed `install_state` values:
 
 ```bash
 m1nd update check --channel beta --json
+m1nd update status --channel beta --json
 m1nd update plan --channel beta --json
 m1nd update apply --channel beta --yes --json
 m1nd update verify --repo . --transport stdio --json
 m1nd update rollback --json
 ```
 
-`check` and `plan` are read-only. `apply` mutates only with `--yes`.
+`check`, `status`, and `plan` are read-only. `status` is the agent cockpit: it
+wraps the update proof with doctor state, visible `m1nd-mcp` processes, a
+readiness summary, and `host_rebind_proven=false`.
+`apply` mutates only with `--yes`.
 
 ## Apply Order
 
@@ -94,6 +98,7 @@ Minimum local gate:
 ```bash
 node --test npm/test/cli.test.js
 node npm/bin/m1nd.js update check --json
+node npm/bin/m1nd.js update status --json
 node npm/bin/m1nd.js update plan --json
 node npm/bin/m1nd.js update verify --repo . --transport stdio --json
 npm pack --dry-run --json

@@ -117,13 +117,18 @@ For agent-driven repair, use the self-update surface first:
 
 ```bash
 m1nd update check --channel beta
+m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 ```
 
 `m1nd update` is deliberately outside MCP, so it can still help when the MCP
-transport is stale or closed. `check` and `plan` never mutate. With `--yes`,
+transport is stale or closed. `check`, `status`, and `plan` never mutate.
+`status` is the preferred agent cockpit when the situation is unclear: it
+returns the package/runtime/PATH/agent-pack state, visible runtime process
+count, and explicit `host_rebind_proven=false` so agents do not mistake a fresh
+binary for a refreshed host binding. With `--yes`,
 `apply` updates the npm package when the selected channel is ahead, installs the
 native runtime from a GitHub Release asset when available, falls back to Cargo
 when needed, refreshes agent pack files when allowed, and records a runtime

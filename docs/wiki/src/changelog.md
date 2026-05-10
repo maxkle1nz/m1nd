@@ -8,8 +8,8 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ### Added
 
-- Added `m1nd update` with read-only check/plan, opt-in apply, verify, and
-  rollback commands for safe local self-update and host-rebind guidance.
+- Added `m1nd update` with read-only check/status/plan, opt-in apply, verify,
+  and rollback commands for safe local self-update and host-rebind guidance.
 
 ---
 

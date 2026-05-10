@@ -57,12 +57,16 @@ the self-update surface first:
 
 ```bash
 m1nd update check --channel beta
+m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 ```
 
-`check` and `plan` are read-only. `apply` mutates only with `--yes`, updates the
+`check`, `status`, and `plan` are read-only. `status` is the compact cockpit for
+agents: use it when you need one JSON object for package/runtime/PATH/agent-pack
+readiness, visible runtime processes, and host-rebind caveats. `apply` mutates
+only with `--yes`, updates the
 npm package when the selected channel is ahead, installs the native runtime from
 a GitHub Release binary when available, falls back to Cargo when needed,
 refreshes the agent pack when allowed, and records any runtime backup for

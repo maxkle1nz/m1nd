@@ -51,6 +51,7 @@ assert(help.stdout.includes("m1nd installer"));
 assert(help.stdout.includes("m1nd smoke"));
 assert(help.stdout.includes("m1nd restart"));
 assert(help.stdout.includes("m1nd update"));
+assert(help.stdout.includes("m1nd update status"));
 
 const packCheck = spawnSync(process.execPath, [cli, "pack-check", "--json"], { encoding: "utf8" });
 assert.strictEqual(packCheck.status, 0, packCheck.stderr);
@@ -130,6 +131,32 @@ withEnv(
     assert.strictEqual(current.requires_host_rebind, false);
     assert.deepStrictEqual(current.planned_actions, []);
     assert(current.non_claims.some((claim) => claim.includes("cached tool list")));
+  }
+);
+
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+  },
+  () => {
+    const status = selfUpdate({
+      _: ["update", "status"],
+      binary: process.execPath,
+      channel: "beta",
+      "no-kill": true,
+    });
+    assert.strictEqual(status.schema, "m1nd-self-update-v0");
+    assert.strictEqual(status.command, "status");
+    assert.strictEqual(status.install_state, "current");
+    assert(status.status_summary);
+    assert.strictEqual(status.status_summary.readiness, "ready");
+    assert.strictEqual(status.status_summary.package_runtime_match, true);
+    assert.strictEqual(status.status_summary.agent_pack_ok, true);
+    assert.strictEqual(status.status_summary.host_rebind_proven, false);
+    assert(Array.isArray(status.live_runtime_processes));
+    assert(status.doctor);
+    assert(status.next_actions.some((action) => action.includes("update verify")));
   }
 );
 
@@ -278,5 +305,19 @@ const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json
 });
 assert.strictEqual(updateCheck.status, 0, updateCheck.stderr);
 assert.strictEqual(JSON.parse(updateCheck.stdout).schema, "m1nd-self-update-v0");
+
+const updateStatus = spawnSync(process.execPath, [cli, "update", "status", "--json", "--binary", process.execPath], {
+  encoding: "utf8",
+  env: {
+    ...process.env,
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+  },
+});
+assert.strictEqual(updateStatus.status, 0, updateStatus.stderr);
+const updateStatusJson = JSON.parse(updateStatus.stdout);
+assert.strictEqual(updateStatusJson.schema, "m1nd-self-update-v0");
+assert.strictEqual(updateStatusJson.command, "status");
+assert(updateStatusJson.status_summary);
 
 console.log("npm cli tests ok");

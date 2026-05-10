@@ -129,6 +129,7 @@ surface:
 
 ```bash
 m1nd update check --channel beta
+m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 ```

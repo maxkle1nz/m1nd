@@ -189,6 +189,7 @@ refresh behavior, also prove the self-update contract:
 ```bash
 node --test npm/test/cli.test.js
 m1nd update check --channel beta --json
+m1nd update status --channel beta --json
 m1nd update plan --channel beta --json
 m1nd update verify --repo . --transport stdio --json
 ```

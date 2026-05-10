@@ -23,6 +23,7 @@ Usage:
   m1nd doctor [--json]
   m1nd restart [--source <dir>] [--binary <path>] [--yes] [--json]
   m1nd update check [--channel beta|latest] [--json]
+  m1nd update status [--channel beta|latest] [--json]
   m1nd update plan [--channel beta|latest] [--json]
   m1nd update apply [--channel beta|latest] [--yes] [--no-npm] [--no-runtime] [--no-skills] [--no-kill] [--json]
   m1nd update verify [--repo <dir>] [--transport stdio|http] [--json]
@@ -960,6 +961,68 @@ function verifySelfUpdate(args) {
   return proof;
 }
 
+function buildSelfUpdateStatus(args) {
+  const proof = buildSelfUpdateProof(args, "status");
+  const doctorResult = doctor();
+  const liveRuntimeProcesses = listRuntimeProcesses();
+  const nonBlockingActionIds = new Set(["npm-registry-lag", "kill-disabled"]);
+  const blockingActions = proof.blocked_actions.filter((blocked) => !nonBlockingActionIds.has(blocked.id));
+  const packageRuntimeMatch = Boolean(
+    proof.package_version &&
+      proof.runtime_version &&
+      proof.runtime_version.includes(proof.package_version)
+  );
+  const pathRuntimeMatch = Boolean(
+    !proof.runtime.path_version ||
+      !proof.target_version ||
+      proof.runtime.path_version.includes(proof.target_version)
+  );
+  const agentPackOk = Boolean(proof.agent_pack.ok && doctorResult.pack_ok);
+  const hasPlannedActions = proof.planned_actions.length > 0;
+  const needsAttention =
+    hasPlannedActions ||
+    blockingActions.length > 0 ||
+    !packageRuntimeMatch ||
+    !pathRuntimeMatch ||
+    !agentPackOk;
+
+  proof.doctor = doctorResult;
+  proof.live_runtime_processes = liveRuntimeProcesses;
+  proof.status_summary = {
+    readiness: needsAttention ? "attention" : "ready",
+    install_current: proof.install_state === "current",
+    package_runtime_match: packageRuntimeMatch,
+    path_runtime_match: pathRuntimeMatch,
+    agent_pack_ok: agentPackOk,
+    planned_action_count: proof.planned_actions.length,
+    blocked_action_count: proof.blocked_actions.length,
+    blocking_action_count: blockingActions.length,
+    active_runtime_process_count: liveRuntimeProcesses.length,
+    host_rebind_state:
+      liveRuntimeProcesses.length > 0
+        ? "active_runtime_processes_present_rebind_not_proven"
+        : "no_visible_runtime_processes",
+    host_rebind_proven: false,
+  };
+
+  if (hasPlannedActions) {
+    proof.next_actions.push("Run m1nd update plan --channel beta --json, inspect actions, then apply with --yes when ready.");
+  }
+  if (blockingActions.length > 0) {
+    proof.next_actions.push("Resolve blocking_actions before treating this install as agent-ready.");
+  }
+  if (!pathRuntimeMatch) {
+    proof.next_actions.push("Align the m1nd-mcp found on PATH or pass --binary to target the runtime your host actually launches.");
+  }
+  if (liveRuntimeProcesses.length > 0) {
+    proof.next_actions.push("Visible m1nd-mcp processes exist; after any update, restart/rebind host sessions before trusting cached tool lists.");
+  }
+  if (!hasPlannedActions && blockingActions.length === 0) {
+    proof.next_actions.push("Run m1nd update verify --repo /path/to/m1nd --transport stdio --json for a live smoke proof.");
+  }
+  return proof;
+}
+
 function rollbackSelfUpdate(args) {
   const proof = buildSelfUpdateProof(args, "rollback");
   proof.requires_host_rebind = true;
@@ -997,6 +1060,8 @@ function selfUpdate(args) {
     case "check":
     case "plan":
       return buildSelfUpdateProof(args, subcommand);
+    case "status":
+      return buildSelfUpdateStatus(args);
     case "apply":
       return applySelfUpdate(args);
     case "verify":
@@ -1239,11 +1304,17 @@ function print(value, asJson) {
   if (value.schema === SELF_UPDATE_SCHEMA) {
     console.log(`m1nd update ${value.command}`);
     console.log(`state: ${value.install_state}`);
+    if (value.status_summary) console.log(`readiness: ${value.status_summary.readiness}`);
     console.log(`package: ${value.package_version}`);
     console.log(`runtime: ${value.runtime.binary || "not found"}${value.runtime_version ? ` (${value.runtime_version})` : ""}`);
+    if (value.runtime.path_binary) console.log(`path runtime: ${value.runtime.path_binary}${value.runtime.path_version ? ` (${value.runtime.path_version})` : ""}`);
     console.log(`channel: ${value.channel}${value.latest_version ? ` -> ${value.latest_version}` : ""}`);
     console.log(`target: ${value.target_version || "unknown"}`);
     console.log(`requires host rebind: ${value.requires_host_rebind ? "yes" : "no"}`);
+    if (value.status_summary) {
+      console.log(`visible m1nd-mcp processes: ${value.status_summary.active_runtime_process_count}`);
+      console.log(`host rebind proven: ${value.status_summary.host_rebind_proven ? "yes" : "no"}`);
+    }
     console.log(`planned actions: ${value.planned_actions.length}`);
     for (const planned of value.planned_actions) console.log(`  - ${planned.id}: ${planned.description}`);
     if (value.applied_actions.length > 0) {
