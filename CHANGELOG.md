@@ -17,6 +17,9 @@ The next release train starts here.
 - Added `m1nd hosts status` as a read-only host readiness cockpit for supported
   packaged hosts, reporting agent-pack state, MCP config hints, runtime/PATH
   alignment, workspace hints, and the explicit host-rebind caveat.
+- Added `m1nd hosts plan` and `m1nd mcp-config --project` so agents can emit
+  host-specific rebind recipes with `M1ND_WORKSPACE_ROOT` before touching host
+  files.
 
 ### Changed
 

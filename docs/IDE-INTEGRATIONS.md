@@ -133,6 +133,7 @@ m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd hosts status --host all --project /path/to/project --json
+m1nd hosts plan --host all --project /path/to/project --json
 ```
 
 For live multi-agent sessions, add `--no-kill` to update the managed binary
@@ -145,6 +146,11 @@ host configs. It checks the packaged host surfaces for agent-pack files, likely
 MCP config presence, runtime/PATH alignment, workspace hints, and the required
 rebind caveat. It does not prove that an already-open host has refreshed its
 cached MCP tool list.
+
+Use `m1nd hosts plan` when you need the exact per-host follow-through. It
+emits the install command, candidate config paths, MCP snippet, required
+`M1ND_WORKSPACE_ROOT`, rebind step, and verification step without editing any
+host files.
 
 ### Use plain MCP when:
 

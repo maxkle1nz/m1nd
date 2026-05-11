@@ -62,6 +62,7 @@ m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd hosts status --host all --project /path/to/project --json
+m1nd hosts plan --host all --project /path/to/project --json
 ```
 
 `check`, `status`, and `plan` are read-only. `status` is the compact cockpit for
@@ -80,6 +81,12 @@ config wiring, runtime alignment, workspace hints, and
 `host_rebind_proven=false` per supported host. It is read-only and does not edit
 host config.
 
+Use `m1nd hosts plan` when the status is red or workspace binding is unclear.
+It emits per-host install, MCP snippet, `M1ND_WORKSPACE_ROOT`, rebind, and
+verification recipes without mutating host files. The generated
+`m1nd mcp-config <host> --project /path/to/project` snippets include the
+workspace env explicitly.
+
 During live multi-agent work, add `--no-kill` if the goal is only to update the
 managed binary while keeping current host sessions alive:
 
@@ -95,13 +102,13 @@ source-checkout repair helper for development builds.
 Codex:
 
 ```bash
-m1nd mcp-config codex
+m1nd mcp-config codex --project /path/to/project
 ```
 
 Generic JSON:
 
 ```bash
-m1nd mcp-config generic
+m1nd mcp-config generic --project /path/to/project
 ```
 
 The npm package installs doctrine, config helpers, diagnostics, and the

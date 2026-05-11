@@ -13,6 +13,8 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 - Added `m1nd hosts status`, a read-only host readiness contract for supported
   packaged hosts that reports agent-pack, config, runtime, workspace, and rebind
   caveats before agents mutate anything.
+- Added `m1nd hosts plan` and `m1nd mcp-config --project` to produce
+  host-specific rebind recipes with explicit `M1ND_WORKSPACE_ROOT`.
 
 ---
 

@@ -148,18 +148,22 @@ m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd hosts status --host all --project /path/to/project --json
+m1nd hosts plan --host all --project /path/to/project --json
 ```
 
-`check`, `status`, `plan`, and `hosts status` are read-only. `hosts status` is
-the host-readiness cockpit: it reports agent-pack files, likely MCP config
-wiring, runtime/PATH alignment, workspace hints, and `host_rebind_proven=false`
-per supported host. `apply` mutates only with `--yes`, updates the npm package
-when the selected channel is ahead, installs the native runtime from a GitHub
-Release binary when available, falls back to Cargo when needed, records a
-runtime backup for rollback, and can stop visible `m1nd-mcp` processes. It does
-not refresh the host's cached tool list, choose a workspace, ingest a graph, or
-fix semantic retrieval. After it runs, restart/rebind the host client and call
-`trust_selftest` or `session_handshake` with the intended `scope`.
+`check`, `status`, `plan`, `hosts status`, and `hosts plan` are read-only.
+`hosts status` is the host-readiness cockpit: it reports agent-pack files,
+likely MCP config wiring, runtime/PATH alignment, workspace hints, and
+`host_rebind_proven=false` per supported host. `hosts plan` is the recipe layer:
+it emits install, MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and verification
+steps without editing host files. `apply` mutates only with `--yes`, updates the
+npm package when the selected channel is ahead, installs the native runtime from
+a GitHub Release binary when available, falls back to Cargo when needed,
+records a runtime backup for rollback, and can stop visible `m1nd-mcp`
+processes. It does not refresh the host's cached tool list, choose a workspace,
+ingest a graph, or fix semantic retrieval. After it runs, restart/rebind the
+host client and call `trust_selftest` or `session_handshake` with the intended
+`scope`.
 
 For live multi-agent sessions, prefer:
 

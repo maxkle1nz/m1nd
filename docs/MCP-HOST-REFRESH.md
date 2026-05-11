@@ -122,6 +122,7 @@ m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd hosts status --host all --project /path/to/project --json
+m1nd hosts plan --host all --project /path/to/project --json
 ```
 
 `m1nd update` is deliberately outside MCP, so it can still help when the MCP
@@ -141,6 +142,9 @@ anything. It is a read-only readiness contract for the supported packaged host
 surfaces and reports agent-pack files, likely MCP config wiring, runtime/PATH
 alignment, workspace hints, and `host_rebind_proven=false`. Treat a red host as
 an installation/binding issue until a fresh host session proves otherwise.
+Then use `m1nd hosts plan` for the exact per-host recipe. It emits the MCP
+snippet with `M1ND_WORKSPACE_ROOT`, candidate config paths, rebind steps, and
+verification commands, but it does not edit host files.
 
 For a live multi-agent session, use `--no-kill` when you need to update the
 managed binary without stopping current hosts:

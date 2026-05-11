@@ -9,6 +9,7 @@ const { spawnSync } = require("child_process");
 const {
   commandLooksLikeRuntime,
   defaultRuntimePath,
+  hostPlan,
   hostStatus,
   installSkills,
   mcpConfig,
@@ -37,6 +38,14 @@ const codexWindowsConfig = mcpConfig(
 );
 assert(codexWindowsConfig.includes('command = "C:\\\\Users\\\\you\\\\.m1nd\\\\bin\\\\m1nd-mcp.exe"'));
 assert(codexWindowsConfig.includes('args = ["--stdio", "--no-gui"]'));
+const projectForConfig = path.resolve("project");
+const codexProjectConfig = mcpConfig(
+  "codex",
+  "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe",
+  projectForConfig
+);
+assert(codexProjectConfig.includes("[mcp_servers.m1nd.env]"));
+assert(codexProjectConfig.includes(`M1ND_WORKSPACE_ROOT = "${projectForConfig.replace(/\\/g, "\\\\")}"`));
 
 const genericWindowsConfig = JSON.parse(
   mcpConfig("generic", "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe")
@@ -46,6 +55,10 @@ assert.strictEqual(
   "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe"
 );
 assert.deepStrictEqual(genericWindowsConfig.mcpServers.m1nd.args, ["--stdio", "--no-gui"]);
+const genericProjectConfig = JSON.parse(
+  mcpConfig("generic", "C:\\Users\\you\\.m1nd\\bin\\m1nd-mcp.exe", projectForConfig)
+);
+assert.strictEqual(genericProjectConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, projectForConfig);
 
 const help = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
 assert.strictEqual(help.status, 0, help.stderr);
@@ -55,6 +68,7 @@ assert(help.stdout.includes("m1nd restart"));
 assert(help.stdout.includes("m1nd update"));
 assert(help.stdout.includes("m1nd update status"));
 assert(help.stdout.includes("m1nd hosts status"));
+assert(help.stdout.includes("m1nd hosts plan"));
 
 const packCheck = spawnSync(process.execPath, [cli, "pack-check", "--json"], { encoding: "utf8" });
 assert.strictEqual(packCheck.status, 0, packCheck.stderr);
@@ -324,7 +338,7 @@ withEnv(
     fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
     fs.writeFileSync(
       path.join(tmp, ".claude", "mcp.json"),
-      JSON.stringify({ mcpServers: { m1nd: { command: "m1nd-mcp", args: ["--stdio", "--no-gui"] } } })
+      mcpConfig("claude", process.execPath, tmp)
     );
 
     const ready = hostStatus({
@@ -335,9 +349,24 @@ withEnv(
     });
     assert.strictEqual(ready.hosts[0].agent_pack.installed, true);
     assert.strictEqual(ready.hosts[0].config.status, "configured");
+    assert.strictEqual(ready.hosts[0].config.workspace_configured, true);
     assert.strictEqual(ready.hosts[0].readiness, "ready");
     assert.strictEqual(ready.summary.overall_readiness, "ready");
     assert.strictEqual(ready.summary.host_rebind_proven, false);
+
+    const plan = hostPlan({
+      _: ["hosts", "plan"],
+      host: "claude",
+      project: tmp,
+      binary: process.execPath,
+    });
+    assert.strictEqual(plan.schema, "m1nd-host-rebind-plan-v0");
+    assert.strictEqual(plan.read_only, true);
+    assert.strictEqual(plan.plans[0].host, "claude");
+    assert.strictEqual(plan.plans[0].workspace_binding.env.M1ND_WORKSPACE_ROOT, path.resolve(tmp));
+    assert(plan.plans[0].configure_mcp.snippet.includes("M1ND_WORKSPACE_ROOT"));
+    assert.strictEqual(plan.plans[0].host_rebind_proven, false);
+    assert(plan.non_claims.some((claim) => claim.includes("does not mutate")));
   }
 );
 
@@ -385,6 +414,24 @@ const hostsStatusJson = JSON.parse(hostsStatus.stdout);
 assert.strictEqual(hostsStatusJson.schema, "m1nd-host-readiness-v0");
 assert.strictEqual(hostsStatusJson.hosts[0].host, "generic");
 assert.strictEqual(hostsStatusJson.hosts[0].config.status, "manual");
-assert.strictEqual(hostsStatusJson.hosts[0].readiness, "ready");
+assert.strictEqual(hostsStatusJson.hosts[0].readiness, "attention");
+
+const hostsPlan = spawnSync(
+  process.execPath,
+  [cli, "hosts", "plan", "--json", "--host", "generic", "--project", hostStatusCliProject, "--binary", process.execPath],
+  {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...fakeEnvBase,
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+    },
+  }
+);
+assert.strictEqual(hostsPlan.status, 0, hostsPlan.stderr);
+const hostsPlanJson = JSON.parse(hostsPlan.stdout);
+assert.strictEqual(hostsPlanJson.schema, "m1nd-host-rebind-plan-v0");
+assert.strictEqual(hostsPlanJson.plans[0].configure_mcp.status, "manual");
+assert(hostsPlanJson.plans[0].configure_mcp.snippet.includes("M1ND_WORKSPACE_ROOT"));
 
 console.log("npm cli tests ok");

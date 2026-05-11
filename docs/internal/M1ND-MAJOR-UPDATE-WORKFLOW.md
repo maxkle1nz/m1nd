@@ -193,6 +193,7 @@ m1nd update status --channel beta --json
 m1nd update plan --channel beta --json
 m1nd update verify --repo . --transport stdio --json
 m1nd hosts status --host all --project . --json
+m1nd hosts plan --host all --project . --json
 ```
 
 For mutating validation, use a fake or isolated runtime target unless the

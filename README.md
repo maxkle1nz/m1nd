@@ -250,6 +250,7 @@ m1nd pack-check
 m1nd update check --channel beta
 m1nd update status --channel beta
 m1nd hosts status --host all --project /your/project
+m1nd hosts plan --host all --project /your/project
 ```
 
 From a source checkout:
@@ -267,13 +268,14 @@ snippets, and diagnostics. The native runtime is still `m1nd-mcp`; build it
 from source or point your host at an installed binary.
 
 ```bash
-m1nd mcp-config codex
-m1nd mcp-config generic
+m1nd mcp-config codex --project /your/project
+m1nd mcp-config generic --project /your/project
 m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd hosts status --host all --project /your/project --json
+m1nd hosts plan --host all --project /your/project --json
 m1nd pack-check
 ```
 
@@ -293,6 +295,11 @@ supported host surfaces (`codex`, `claude`, `gemini`, `antigravity`,
 PATH divergence, workspace hints, and the explicit
 `host_rebind_proven=false` caveat. Use it before mutating anything when an
 agent reports stale tools, wrong workspace binding, or `Transport closed`.
+`m1nd hosts plan` is the follow-through: it emits per-host agent-pack,
+MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and verification recipes without
+editing any files. `m1nd mcp-config --project /your/project` now includes the
+workspace env in the generated snippet so host bindings do not silently attach
+to an old repo.
 
 In live multi-agent work, use `--no-kill` when you want to update the managed
 binary without interrupting active hosts:

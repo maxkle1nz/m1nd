@@ -47,6 +47,9 @@ Only skip the `m1nd` first pass when:
   --project /path/to/project --json` from the CLI before mutating anything. It
   is read-only and reports agent-pack presence, likely MCP config wiring,
   runtime/PATH alignment, workspace hints, and `host_rebind_proven=false`.
+  If the host reports `attention`, run `m1nd hosts plan --host all --project
+  /path/to/project --json` for the exact install, config, workspace env,
+  rebind, and verification recipe.
 - If the live MCP surface exposes `trust_selftest`, call it first and route by
   `verdict` before relying on retrieval. `full_trust` means proceed with
   m1nd-first; `needs_ingest` means ingest the intended repo; `orientation_only`

@@ -102,6 +102,7 @@ node npm/bin/m1nd.js update status --json
 node npm/bin/m1nd.js update plan --json
 node npm/bin/m1nd.js update verify --repo . --transport stdio --json
 node npm/bin/m1nd.js hosts status --host all --project . --json
+node npm/bin/m1nd.js hosts plan --host all --project . --json
 npm pack --dry-run --json
 cargo check --workspace
 git diff --check

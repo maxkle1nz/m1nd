@@ -61,6 +61,7 @@ m1nd update status --channel beta
 m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd hosts status --host all --project /path/to/project --json
+m1nd hosts plan --host all --project /path/to/project --json
 ```
 
 Use `--no-kill` in live multi-agent sessions when you only want to update the
@@ -73,6 +74,8 @@ When the question is host-specific, use `m1nd hosts status` before mutating
 anything. It is read-only and reports agent-pack files, likely MCP config
 wiring, runtime/PATH alignment, workspace hints, and `host_rebind_proven=false`
 per supported host.
+If it reports `attention`, call `m1nd hosts plan` for the exact per-host
+install, MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and verification recipe.
 
 For local m1nd repo work, prefer the cheap trust selftest path before a full smoke:
 

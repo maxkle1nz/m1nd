@@ -120,6 +120,17 @@ or project root. Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS Code,
 and generic shells can expose their own workspace hints too, but
 `M1ND_WORKSPACE_ROOT` is the portable contract.
 
+When the host binding looks wrong, run the read-only CLI cockpit before
+mutating anything:
+
+```bash
+m1nd hosts status --host all --project /path/to/project --json
+m1nd hosts plan --host all --project /path/to/project --json
+```
+
+`hosts plan` emits the install, MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and
+verification recipe for each supported packaged host.
+
 ## L1GHT
 
 Use `adapter="light"` for graph-native semantic markdown. Use
