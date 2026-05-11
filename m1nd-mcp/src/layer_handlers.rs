@@ -104,6 +104,14 @@ pub fn handle_seek(
             input.scope.as_deref(),
             error_text,
         );
+        let agent_runtime_contract = Some(state.agent_runtime_contract(
+            &input.agent_id,
+            "seek",
+            "blocked",
+            Some(0),
+            input.scope.as_deref(),
+            error_text,
+        ));
         return Ok(layers::SeekOutput {
             query: input.query,
             results: vec![],
@@ -116,6 +124,7 @@ pub fn handle_seek(
             next_step_hint: Some("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into()),
             graph_state,
             recovery,
+            agent_runtime_contract,
         });
     }
 
@@ -466,6 +475,14 @@ pub fn handle_seek(
         input.scope.as_deref(),
         None,
     );
+    let agent_runtime_contract = Some(state.agent_runtime_contract(
+        &input.agent_id,
+        "seek",
+        &proof_state,
+        Some(candidates_scanned as u64),
+        input.scope.as_deref(),
+        None,
+    ));
     let (next_suggested_tool, next_suggested_target, next_step_hint) = if failed_retrieval {
         (
             Some("recovery_playbook".into()),
@@ -503,6 +520,7 @@ pub fn handle_seek(
         next_step_hint,
         graph_state,
         recovery,
+        agent_runtime_contract,
     })
 }
 
@@ -10102,6 +10120,20 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .as_ref()
                 .and_then(|recovery| recovery.pointer("/arguments/observed_tool"))
                 .and_then(|value| value.as_str()),
+            Some("seek")
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["schema"].as_str()),
+            Some("m1nd-agent-runtime-contract-v0")
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["observed"]["tool"].as_str()),
             Some("seek")
         );
     }

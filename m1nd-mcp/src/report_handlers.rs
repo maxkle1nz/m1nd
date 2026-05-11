@@ -203,6 +203,14 @@ pub fn handle_panoramic(
             input.scope.as_deref(),
             None,
         );
+        let agent_runtime_contract = Some(state.agent_runtime_contract(
+            &input.agent_id,
+            "panoramic",
+            "blocked",
+            Some(0),
+            input.scope.as_deref(),
+            None,
+        ));
         return Ok(PanoramicOutput {
             modules: vec![],
             total_modules: 0,
@@ -216,6 +224,7 @@ pub fn handle_panoramic(
             ),
             graph_state,
             recovery,
+            agent_runtime_contract,
         });
     }
 
@@ -317,6 +326,19 @@ pub fn handle_panoramic(
     } else {
         (None, None)
     };
+    let proof_state = if failed_retrieval {
+        "blocked"
+    } else {
+        "triaging"
+    };
+    let agent_runtime_contract = Some(state.agent_runtime_contract(
+        &input.agent_id,
+        "panoramic",
+        proof_state,
+        Some(total_modules as u64),
+        input.scope.as_deref(),
+        None,
+    ));
 
     Ok(PanoramicOutput {
         modules,
@@ -324,11 +346,7 @@ pub fn handle_panoramic(
         critical_alerts,
         scope_applied,
         elapsed_ms: elapsed,
-        proof_state: Some(if failed_retrieval {
-            "blocked".into()
-        } else {
-            "triaging".into()
-        }),
+        proof_state: Some(proof_state.into()),
         next_suggested_tool: if failed_retrieval {
             Some("recovery_playbook".into())
         } else {
@@ -343,6 +361,7 @@ pub fn handle_panoramic(
         },
         graph_state,
         recovery,
+        agent_runtime_contract,
     })
 }
 
@@ -543,6 +562,20 @@ mod tests {
         assert!(
             output.recovery.is_some(),
             "empty panoramic output should include recovery arguments"
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["schema"].as_str()),
+            Some("m1nd-agent-runtime-contract-v0")
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["trust_mode"].as_str()),
+            Some("wrong_workspace_binding")
         );
     }
 

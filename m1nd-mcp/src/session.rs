@@ -724,6 +724,113 @@ impl SessionState {
         )
     }
 
+    pub fn agent_runtime_contract(
+        &self,
+        agent_id: &str,
+        observed_tool: &str,
+        observed_proof_state: &str,
+        observed_candidates: Option<u64>,
+        scope: Option<&str>,
+        error_text: Option<&str>,
+    ) -> serde_json::Value {
+        let workspace_binding_mismatch = self.workspace_binding_mismatch(scope);
+        let graph = self.graph.read();
+        let node_count = graph.num_nodes() as u64;
+        let edge_count = graph.num_edges() as u64;
+        let graph_finalized = graph.finalized;
+        drop(graph);
+
+        let graph_populated = node_count > 0;
+        let observed_zero_candidates = observed_candidates == Some(0);
+        let observed_blocked = observed_proof_state == "blocked";
+        let needs_recovery = workspace_binding_mismatch.is_some()
+            || !graph_populated
+            || observed_blocked
+            || observed_zero_candidates;
+        let trust_mode = if workspace_binding_mismatch.is_some() {
+            "wrong_workspace_binding"
+        } else if !graph_populated {
+            "needs_ingest"
+        } else if observed_blocked || observed_zero_candidates {
+            "retrieval_needs_recovery"
+        } else {
+            "full_trust"
+        };
+        let status = match trust_mode {
+            "full_trust" => "ok",
+            "retrieval_needs_recovery" => "triaging",
+            _ => "blocked",
+        };
+        let recovery = if needs_recovery {
+            Some(self.recovery_playbook_payload(
+                agent_id,
+                observed_tool,
+                observed_proof_state,
+                observed_candidates,
+                scope,
+                error_text,
+            ))
+        } else {
+            None
+        };
+        let workspace_match = workspace_binding_mismatch.is_none();
+
+        serde_json::json!({
+            "schema": "m1nd-agent-runtime-contract-v0",
+            "status": status,
+            "proof_state": observed_proof_state,
+            "trust_mode": trust_mode,
+            "observed": {
+                "tool": observed_tool,
+                "candidates": observed_candidates,
+                "error_text": error_text,
+            },
+            "session_identity": {
+                "agent_id": agent_id,
+                "tool": observed_tool,
+                "process_id": std::process::id(),
+                "binary": {
+                    "name": "m1nd-mcp",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "current_exe": std::env::current_exe().ok().map(|path| path.to_string_lossy().to_string()),
+                "runtime_root": self.runtime_root.to_string_lossy(),
+            },
+            "workspace_binding": {
+                "requested_scope": scope,
+                "active_workspace_root": self.workspace_root,
+                "active_workspace_root_source": self.workspace_root_source,
+                "active_ingest_roots": self.ingest_roots,
+                "workspace_match": workspace_match,
+                "mismatch": workspace_binding_mismatch,
+            },
+            "graph_identity": {
+                "node_count": node_count,
+                "edge_count": edge_count,
+                "finalized": graph_finalized,
+                "graph_generation": self.graph_generation,
+                "plasticity_generation": self.plasticity_generation,
+                "cache_generation": self.cache_generation,
+                "ingest_root_count": self.ingest_roots.len(),
+                "graph_path": self.graph_path.to_string_lossy(),
+                "graph_path_exists": self.graph_path.exists(),
+            },
+            "next_suggested_tool": if needs_recovery { serde_json::Value::String("recovery_playbook".into()) } else { serde_json::Value::Null },
+            "next_step_hint": if needs_recovery {
+                serde_json::Value::String("Call recovery_playbook with the provided recovery.arguments payload before falling back to shell search.".into())
+            } else {
+                serde_json::Value::Null
+            },
+            "recovery": recovery.unwrap_or(serde_json::Value::Null),
+            "non_claims": [
+                "agent_runtime_contract does not repair the MCP host binding.",
+                "agent_runtime_contract does not ingest or mutate the graph.",
+                "agent_runtime_contract does not prove semantic retrieval correctness.",
+                "agent_runtime_contract does not replace compiler, test, log, or direct file truth."
+            ],
+        })
+    }
+
     pub fn instance_self_summary(&self) -> serde_json::Value {
         let instance: InstanceRegistryEntry = self.instance.summary();
         serde_json::json!({
@@ -1484,6 +1591,7 @@ mod tests {
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
+    use m1nd_core::types::NodeType;
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
@@ -1745,6 +1853,54 @@ mod tests {
         assert!(state
             .workspace_binding_mismatch(Some(&workspace_scope))
             .is_none());
+    }
+
+    #[test]
+    fn agent_runtime_contract_surfaces_wrong_workspace_recovery() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let other = temp.path().join("other");
+        std::fs::create_dir_all(workspace.join("src")).expect("workspace src");
+        std::fs::create_dir_all(other.join("src")).expect("other src");
+        std::fs::write(other.join("Cargo.toml"), "[package]\nname='other'\n")
+            .expect("other manifest");
+
+        let mut graph = Graph::new();
+        graph
+            .add_node("file::src/lib.rs", "lib.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add file node");
+        graph.finalize().expect("finalize graph");
+        let config = McpConfig {
+            graph_source: workspace.join("graph_snapshot.json"),
+            plasticity_state: workspace.join("plasticity_state.json"),
+            runtime_dir: Some(workspace.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("initialize session");
+
+        let other_scope = other.join("src").to_string_lossy().to_string();
+        let contract = state.agent_runtime_contract(
+            "jimi",
+            "seek",
+            "blocked",
+            Some(0),
+            Some(&other_scope),
+            None,
+        );
+
+        assert_eq!(contract["schema"], "m1nd-agent-runtime-contract-v0");
+        assert_eq!(contract["trust_mode"], "wrong_workspace_binding");
+        assert_eq!(contract["workspace_binding"]["workspace_match"], false);
+        assert_eq!(
+            contract["workspace_binding"]["mismatch"]["code"],
+            "wrong_workspace_binding"
+        );
+        assert_eq!(contract["recovery"]["suggested_tool"], "recovery_playbook");
+        assert_eq!(
+            contract["session_identity"]["binary"]["version"],
+            env!("CARGO_PKG_VERSION")
+        );
     }
 
     #[test]

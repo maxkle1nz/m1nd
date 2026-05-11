@@ -350,6 +350,8 @@ pub struct ActivateOutput {
     pub graph_state: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_runtime_contract: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]

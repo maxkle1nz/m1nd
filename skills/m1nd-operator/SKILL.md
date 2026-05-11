@@ -68,6 +68,14 @@ Only skip the `m1nd` first pass when:
   `recovery_playbook` before inventing the next step. Use its ordered steps and
   `binding_fingerprint` to compare host, stdio, HTTP, runtime root, graph paths,
   generation counters, and ingest roots.
+- If a retrieval/orientation response includes `agent_runtime_contract`, treat
+  it as the authoritative agent-facing envelope for that call. Read
+  `trust_mode`, `session_identity`, `workspace_binding`, `graph_identity`, and
+  `recovery.arguments` before interpreting `results: []` or `modules: []`.
+  `wrong_workspace_binding` means rebind or intentionally ingest/federate the
+  requested workspace; `needs_ingest` means cold graph; and
+  `retrieval_needs_recovery` means pass the embedded payload to
+  `recovery_playbook` before falling back to shell search.
 - If a response includes `context_guard.wrong_workspace_binding=true`, stop the
   normal stale-graph path. Rebind the MCP host with `M1ND_WORKSPACE_ROOT` set to
   `requested_workspace_hint`, intentionally ingest that workspace on the same

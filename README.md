@@ -371,6 +371,12 @@ If a response includes
 current graph may be healthy but bound to the wrong repo. Follow the embedded
 `recovery_playbook` payload and rebind or federate intentionally.
 
+Retrieval and orientation tools such as `activate`, `seek`, `search`, and
+`panoramic` also expose `agent_runtime_contract` when the runtime supports it.
+Agents should read that envelope before treating empty results as truth: it
+declares the active binary, runtime root, workspace binding, graph identity,
+trust mode, and recovery payload for the call.
+
 ## Default Agent Workflow
 
 Make `m1nd` the default investigative layer before `rg`, filesystem globbing, or manual file reads when the task depends on structure, docs, impact, or change.

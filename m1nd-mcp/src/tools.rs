@@ -358,6 +358,14 @@ pub fn handle_activate(
             None,
             Some("activate query is empty"),
         );
+        let agent_runtime_contract = Some(state.agent_runtime_contract(
+            &input.agent_id,
+            "activate",
+            "blocked",
+            Some(0),
+            None,
+            Some("activate query is empty"),
+        ));
         return Ok(ActivateOutput {
             query: input.query,
             seeds: vec![],
@@ -380,6 +388,7 @@ pub fn handle_activate(
             what_is_missing: Some("A non-empty activation query is still missing.".into()),
             graph_state,
             recovery,
+            agent_runtime_contract,
         });
     }
 
@@ -650,6 +659,14 @@ pub fn handle_activate(
         None,
         None,
     );
+    let agent_runtime_contract = Some(state.agent_runtime_contract(
+        &input.agent_id,
+        "activate",
+        &proof_state,
+        Some(activated_count as u64),
+        None,
+        None,
+    ));
     let next_suggested_tool = if failed_retrieval {
         Some("recovery_playbook".into())
     } else {
@@ -693,6 +710,7 @@ pub fn handle_activate(
             .and_then(|projection| projection.what_is_missing.clone()),
         graph_state,
         recovery,
+        agent_runtime_contract,
     })
 }
 

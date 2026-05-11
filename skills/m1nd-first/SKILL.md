@@ -95,6 +95,16 @@ retrieval. If the verdict is not `full_trust`, follow the embedded
 guessing the next move. The selftest is diagnostic-only: no ingest, repair,
 host refresh, graph mutation, or retrieval probe happens automatically.
 
+When `seek`, `search`, `activate`, or `panoramic` includes
+`agent_runtime_contract`, read that envelope before interpreting results. It is
+the agent-facing runtime identity contract: `trust_mode` tells whether this is
+`full_trust`, `needs_ingest`, `wrong_workspace_binding`, or
+`retrieval_needs_recovery`; `workspace_binding` shows whether the requested
+scope belongs to the active workspace; `graph_identity` shows the exact graph
+generation and counts; and `recovery.arguments` is the payload to pass directly
+to `recovery_playbook`. Empty result arrays are not final truth until the
+contract says the runtime/workspace/graph identity is coherent.
+
 If the verdict is `needs_ingest`, or `graph_state.node_count` is `0` while
 `ingest` is available, treat it as a recoverable cold graph, not as a reason to
 abandon m1nd. Call `ingest` on the same MCP binding with the absolute path of

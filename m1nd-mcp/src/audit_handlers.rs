@@ -2481,6 +2481,14 @@ pub fn handle_audit(
             ),
             graph_state: Some(state.mini_graph_state()),
             recovery: None,
+            agent_runtime_contract: Some(state.agent_runtime_contract(
+                &input.agent_id,
+                "panoramic",
+                "blocked",
+                Some(0),
+                None,
+                Some("audit panoramic was skipped because health reported zero graph nodes"),
+            )),
         }
     } else {
         report_handlers::handle_panoramic(

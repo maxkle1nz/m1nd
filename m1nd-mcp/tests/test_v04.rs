@@ -71,6 +71,7 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
         what_is_missing: Some("Open the file to confirm implementation details.".into()),
         graph_state: None,
         recovery: None,
+        agent_runtime_contract: None,
     }
 }
 
@@ -168,6 +169,7 @@ fn build_panoramic_output(module_count: usize) -> PanoramicOutput {
         next_step_hint: None,
         graph_state: None,
         recovery: None,
+        agent_runtime_contract: None,
     }
 }
 

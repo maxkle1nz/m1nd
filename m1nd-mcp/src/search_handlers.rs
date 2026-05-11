@@ -565,6 +565,14 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 input.scope.as_deref(),
                 None,
             );
+            let agent_runtime_contract = Some(state.agent_runtime_contract(
+                &input.agent_id,
+                "search",
+                &proof_state,
+                Some(seek_candidates as u64),
+                input.scope.as_deref(),
+                None,
+            ));
             let (next_suggested_tool, next_suggested_target, next_step_hint) = if failed_retrieval {
                 (
                         Some("recovery_playbook".into()),
@@ -595,6 +603,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 what_is_missing: None,
                 graph_state,
                 recovery,
+                agent_runtime_contract,
             });
         }
     }
@@ -661,6 +670,14 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         input.scope.as_deref(),
         None,
     );
+    let agent_runtime_contract = Some(state.agent_runtime_contract(
+        &input.agent_id,
+        "search",
+        &proof_state,
+        Some(total_matches as u64),
+        input.scope.as_deref(),
+        None,
+    ));
     if failed_retrieval {
         next_suggested_tool = Some("recovery_playbook".into());
         next_suggested_target = None;
@@ -690,6 +707,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         what_is_missing,
         graph_state,
         recovery,
+        agent_runtime_contract,
     })
 }
 
@@ -1950,6 +1968,20 @@ mod tests {
                 .as_ref()
                 .and_then(|recovery| recovery["suggested_tool"].as_str()),
             Some("recovery_playbook")
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["schema"].as_str()),
+            Some("m1nd-agent-runtime-contract-v0")
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["trust_mode"].as_str()),
+            Some("retrieval_needs_recovery")
         );
     }
 
