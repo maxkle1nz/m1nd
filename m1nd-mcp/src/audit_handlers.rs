@@ -2474,6 +2474,13 @@ pub fn handle_audit(
             critical_alerts: Vec::new(),
             scope_applied: false,
             elapsed_ms: 0.0,
+            proof_state: Some("blocked".into()),
+            next_suggested_tool: Some("recovery_playbook".into()),
+            next_step_hint: Some(
+                "Run recovery_playbook or ingest the intended workspace before treating an empty panorama as true repo state.".into(),
+            ),
+            graph_state: Some(state.mini_graph_state()),
+            recovery: None,
         }
     } else {
         report_handlers::handle_panoramic(

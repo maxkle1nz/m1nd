@@ -3591,6 +3591,42 @@ mod tests {
     }
 
     #[test]
+    fn trust_selftest_prioritizes_wrong_workspace_over_empty_graph() {
+        let (temp, mut state) = build_state();
+        let active_repo = temp.path().join("active-repo");
+        let other_repo = temp.path().join("other-repo");
+        std::fs::create_dir_all(active_repo.join("src")).expect("active src");
+        std::fs::create_dir_all(other_repo.join("src")).expect("other src");
+        state.workspace_root = Some(active_repo.to_string_lossy().to_string());
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "trust_selftest",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "scope": other_repo.join("src").to_string_lossy(),
+            }),
+        )
+        .expect("trust selftest output");
+
+        assert_eq!(output["schema"], "m1nd-trust-selftest-v0");
+        assert_eq!(output["ok"], false);
+        assert_eq!(output["status"], "blocked");
+        assert_eq!(output["verdict"], "wrong_workspace_binding");
+        assert_eq!(output["checks"]["needs_ingest"], false);
+        assert_eq!(output["checks"]["wrong_workspace_binding"], true);
+        assert_eq!(
+            output["session_handshake"]["trust_mode"],
+            "wrong_workspace_binding"
+        );
+        assert_eq!(
+            output["recovery_playbook"]["trust_mode"],
+            "wrong_workspace_binding"
+        );
+        assert_eq!(output["next_action"], "select_or_bind_workspace");
+    }
+
+    #[test]
     fn trust_selftest_flags_degraded_host_tool_surface() {
         let (_temp, mut state) = build_state();
 

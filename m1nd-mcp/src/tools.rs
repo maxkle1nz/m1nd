@@ -2365,6 +2365,11 @@ pub fn handle_session_handshake(
             "degraded_host_tool_surface",
             "treat m1nd as orientation only, refresh the MCP binding, and verify final truth with local files",
         )
+    } else if wrong_workspace_binding {
+        (
+            "wrong_workspace_binding",
+            "select, bind, ingest, or federate the requested workspace before trusting scoped retrieval",
+        )
     } else if node_count == 0 || edge_count == 0 {
         if can_ingest {
             (
@@ -2377,11 +2382,6 @@ pub fn handle_session_handshake(
                 "use m1nd only as orientation and verify final truth with local files until ingest is available",
             )
         }
-    } else if wrong_workspace_binding {
-        (
-            "wrong_workspace_binding",
-            "select, bind, ingest, or federate the requested workspace before trusting scoped retrieval",
-        )
     } else {
         (
             "full_trust",
@@ -2536,7 +2536,7 @@ pub fn handle_trust_selftest(
 
     let status = match verdict.as_str() {
         "full_trust" => "ok",
-        "needs_ingest" => "blocked",
+        "needs_ingest" | "wrong_workspace_binding" => "blocked",
         _ => "warn",
     };
     let ok = verdict == "full_trust";

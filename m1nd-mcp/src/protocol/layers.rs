@@ -2493,6 +2493,16 @@ pub struct PanoramicOutput {
     pub critical_alerts: Vec<PanoramicAlert>,
     pub scope_applied: bool,
     pub elapsed_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_suggested_tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_state: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<serde_json::Value>,
 }
 
 // =========================================================================

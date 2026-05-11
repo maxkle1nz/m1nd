@@ -194,12 +194,28 @@ pub fn handle_panoramic(
     let num_nodes = graph.num_nodes() as usize;
 
     if num_nodes == 0 {
+        drop(graph);
+        let (graph_state, recovery) = state.retrieval_failure_context(
+            &input.agent_id,
+            "panoramic",
+            "blocked",
+            Some(0),
+            input.scope.as_deref(),
+            None,
+        );
         return Ok(PanoramicOutput {
             modules: vec![],
             total_modules: 0,
             critical_alerts: vec![],
             scope_applied,
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            proof_state: Some("blocked".into()),
+            next_suggested_tool: Some("recovery_playbook".into()),
+            next_step_hint: Some(
+                "Call recovery_playbook with the provided recovery.arguments payload before treating an empty panorama as true repo state.".into(),
+            ),
+            graph_state,
+            recovery,
         });
     }
 
@@ -288,6 +304,19 @@ pub fn handle_panoramic(
     modules.truncate(top_n);
 
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+    let failed_retrieval = total_modules == 0;
+    let (graph_state, recovery) = if failed_retrieval {
+        state.retrieval_failure_context(
+            &input.agent_id,
+            "panoramic",
+            "blocked",
+            Some(0),
+            input.scope.as_deref(),
+            None,
+        )
+    } else {
+        (None, None)
+    };
 
     Ok(PanoramicOutput {
         modules,
@@ -295,6 +324,25 @@ pub fn handle_panoramic(
         critical_alerts,
         scope_applied,
         elapsed_ms: elapsed,
+        proof_state: Some(if failed_retrieval {
+            "blocked".into()
+        } else {
+            "triaging".into()
+        }),
+        next_suggested_tool: if failed_retrieval {
+            Some("recovery_playbook".into())
+        } else {
+            None
+        },
+        next_step_hint: if failed_retrieval {
+            Some(
+                "Call recovery_playbook with the provided recovery.arguments payload before treating an empty panorama as true repo state.".into(),
+            )
+        } else {
+            None
+        },
+        graph_state,
+        recovery,
     })
 }
 
@@ -428,6 +476,21 @@ mod tests {
         state
     }
 
+    fn build_empty_report_state(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime-empty");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init empty session")
+    }
+
     #[test]
     fn panoramic_resolves_absolute_scope_under_ingest_root() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -450,6 +513,37 @@ mod tests {
             .modules
             .iter()
             .all(|m| m.node_id.starts_with("file::src/")));
+    }
+
+    #[test]
+    fn panoramic_empty_graph_points_to_recovery_playbook() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_empty_report_state(temp.path());
+
+        let output = handle_panoramic(
+            &mut state,
+            PanoramicInput {
+                agent_id: "test".into(),
+                scope: Some(temp.path().join("src").to_string_lossy().to_string()),
+                top_n: 10,
+            },
+        )
+        .expect("panoramic should return a diagnostic output");
+
+        assert_eq!(output.total_modules, 0);
+        assert_eq!(output.proof_state.as_deref(), Some("blocked"));
+        assert_eq!(
+            output.next_suggested_tool.as_deref(),
+            Some("recovery_playbook")
+        );
+        assert!(
+            output.graph_state.is_some(),
+            "empty panoramic output should include graph_state"
+        );
+        assert!(
+            output.recovery.is_some(),
+            "empty panoramic output should include recovery arguments"
+        );
     }
 
     #[test]

@@ -163,6 +163,11 @@ fn build_panoramic_output(module_count: usize) -> PanoramicOutput {
         critical_alerts,
         scope_applied: false,
         elapsed_ms: 8.0,
+        proof_state: Some("triaging".into()),
+        next_suggested_tool: None,
+        next_step_hint: None,
+        graph_state: None,
+        recovery: None,
     }
 }
 
@@ -704,6 +709,11 @@ fn test_panoramic_returns_modules() {
     assert_eq!(input.top_n, 50, "top_n must default to 50");
 
     let out = build_panoramic_output(10);
+    assert_eq!(
+        out.proof_state.as_deref(),
+        Some("triaging"),
+        "populated panoramic output should expose a non-blocked proof state"
+    );
     assert_eq!(out.total_modules, 10);
     assert!(
         !out.modules.is_empty(),
