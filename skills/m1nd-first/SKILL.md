@@ -62,6 +62,7 @@ m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd hosts status --host all --project /path/to/project --json
 m1nd hosts plan --host all --project /path/to/project --json
+m1nd hosts apply --host all --project /path/to/project --yes --json
 ```
 
 Use `--no-kill` in live multi-agent sessions when you only want to update the
@@ -81,6 +82,11 @@ runtime as actionable. Then use `m1nd hosts plan` and rebind or open a fresh
 host session; do not claim the client's cached tool list refreshed by itself.
 If it reports `attention`, call `m1nd hosts plan` for the exact per-host
 install, MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and verification recipe.
+Use `m1nd hosts apply` only for the local mutation step after `status` or
+`plan`. Without `--yes` it is still a dry-run preview. With `--yes`, it can
+install or refresh agent-pack files and write canonical MCP config snippets for
+known hosts, but it does not prove rebind, refresh cached tool lists, repair
+graph state, or automate generic-host config paths.
 
 For local m1nd repo work, prefer the cheap trust selftest path before a full smoke:
 

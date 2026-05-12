@@ -149,6 +149,7 @@ m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd hosts status --host all --project /path/to/project --json
 m1nd hosts plan --host all --project /path/to/project --json
+m1nd hosts apply --host all --project /path/to/project --yes --json
 ```
 
 `check`, `status`, `plan`, `hosts status`, and `hosts plan` are read-only.
@@ -156,14 +157,18 @@ m1nd hosts plan --host all --project /path/to/project --json
 likely MCP config wiring, runtime/PATH alignment, workspace hints, and
 `host_rebind_proven=false` per supported host. `hosts plan` is the recipe layer:
 it emits install, MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and verification
-steps without editing host files. `apply` mutates only with `--yes`, updates the
-npm package when the selected channel is ahead, installs the native runtime from
-a GitHub Release binary when available, falls back to Cargo when needed,
-records a runtime backup for rollback, and can stop visible `m1nd-mcp`
-processes. It does not refresh the host's cached tool list, choose a workspace,
-ingest a graph, or fix semantic retrieval. After it runs, restart/rebind the
-host client and call `trust_selftest` or `session_handshake` with the intended
-`scope`.
+steps without editing host files. `hosts apply` is the host-local mutation step:
+without `--yes` it stays a dry-run preview; with `--yes` it can install or
+refresh agent-pack files and write canonical MCP config snippets for known
+hosts, but generic-host config stays manual. `update apply` is the runtime and
+package mutation step: it mutates only with `--yes`, updates the npm package
+when the selected channel is ahead, installs the native runtime from a GitHub
+Release binary when available, falls back to Cargo when needed, records a
+runtime backup for rollback, and can stop visible `m1nd-mcp` processes. Neither
+mutating command refreshes the host's cached tool list, chooses a workspace,
+ingests a graph, or fixes semantic retrieval. After either mutating command
+runs, restart/rebind the host client and call `trust_selftest` or
+`session_handshake` with the intended `scope`.
 
 If a host config points to an absolute current managed runtime, a stale
 `m1nd-mcp` on `PATH` is only a shadow warning, not proof the host is stale. If

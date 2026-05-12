@@ -55,6 +55,12 @@ Only skip the `m1nd` first pass when:
   If the host reports `attention`, run `m1nd hosts plan --host all --project
   /path/to/project --json` for the exact install, config, workspace env,
   rebind, and verification recipe.
+  Use `m1nd hosts apply --host all --project /path/to/project --yes --json`
+  only when you want the local mutation step after status/plan. Without `--yes`
+  it is still a dry-run preview. With `--yes`, it can install or refresh
+  agent-pack files and write canonical MCP config snippets for known hosts, but
+  it does not prove rebind, refresh cached host tool lists, repair graph state,
+  or remove the manual config step for generic hosts.
 - If the live MCP surface exposes `trust_selftest`, call it first and route by
   `verdict` before relying on retrieval. `full_trust` means proceed with
   m1nd-first; `needs_ingest` means ingest the intended repo; `orientation_only`

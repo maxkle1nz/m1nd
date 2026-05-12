@@ -118,7 +118,9 @@ it at the real repository or workspace, not at a host-managed runtime folder.
 
 Host-specific hints such as `CLAUDE_PROJECT_DIR` or
 `ANTIGRAVITY_WORKSPACE_ROOT` are recognized as compatibility aliases, but
-`M1ND_WORKSPACE_ROOT` is the clearest cross-host signal.
+`M1ND_WORKSPACE_ROOT` is the clearest cross-host signal. Prefer it over ambient
+shell state so the host does not bind through `OLDPWD` or another wrong repo
+hint.
 
 If a tool call fails with `Transport closed`, the MCP pipe died before m1nd
 could run. Restart/rebind the host MCP client or open a fresh session, then
@@ -134,6 +136,7 @@ m1nd update plan --channel beta
 m1nd update apply --channel beta --yes
 m1nd hosts status --host all --project /path/to/project --json
 m1nd hosts plan --host all --project /path/to/project --json
+m1nd hosts apply --host all --project /path/to/project --yes --json
 ```
 
 For live multi-agent sessions, add `--no-kill` to update the managed binary
@@ -151,6 +154,13 @@ Use `m1nd hosts plan` when you need the exact per-host follow-through. It
 emits the install command, candidate config paths, MCP snippet, required
 `M1ND_WORKSPACE_ROOT`, rebind step, and verification step without editing any
 host files.
+
+Use `m1nd hosts apply` only when you want the mutating follow-through. Without
+`--yes` it remains a dry-run preview. With `--yes`, it can install or refresh
+agent-pack files and write canonical MCP config snippets for known hosts, but
+you still need a host restart/rebind plus `trust_selftest` or
+`session_handshake` afterward. Generic hosts remain manual for config because
+`apply` cannot know every host-specific config path.
 
 ### Use plain MCP when:
 

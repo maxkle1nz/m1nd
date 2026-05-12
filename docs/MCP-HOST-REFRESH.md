@@ -123,6 +123,7 @@ m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd hosts status --host all --project /path/to/project --json
 m1nd hosts plan --host all --project /path/to/project --json
+m1nd hosts apply --host all --project /path/to/project --yes --json
 ```
 
 `m1nd update` is deliberately outside MCP, so it can still help when the MCP
@@ -151,6 +152,11 @@ already-open client.
 Then use `m1nd hosts plan` for the exact per-host recipe. It emits the MCP
 snippet with `M1ND_WORKSPACE_ROOT`, candidate config paths, rebind steps, and
 verification commands, but it does not edit host files.
+Use `m1nd hosts apply` only when you want the local mutation step. Without
+`--yes` it is still a dry-run preview. With `--yes`, it can install or refresh
+agent-pack files and write canonical MCP config snippets for known hosts. It
+still cannot prove rebind, refresh the live client's cached tool list, fix
+graph/ingest/retrieval state, or fully automate generic-host config paths.
 
 For a live multi-agent session, use `--no-kill` when you need to update the
 managed binary without stopping current hosts:

@@ -12,6 +12,7 @@ const NPM_PACKAGE = "@maxkle1nz/m1nd";
 const SELF_UPDATE_SCHEMA = "m1nd-self-update-v0";
 const HOST_READINESS_SCHEMA = "m1nd-host-readiness-v0";
 const HOST_REBIND_PLAN_SCHEMA = "m1nd-host-rebind-plan-v0";
+const HOST_APPLY_SCHEMA = "m1nd-host-apply-v0";
 
 const HOST_LIST = ["codex", "claude", "gemini", "antigravity", "generic"];
 const HOSTS = new Set([...HOST_LIST, "all"]);
@@ -25,6 +26,7 @@ Usage:
   m1nd mcp-config <host> [--binary <path>] [--project <dir>]
   m1nd hosts status [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
   m1nd hosts plan [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
+  m1nd hosts apply [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--yes] [--no-skills] [--no-config] [--json]
   m1nd doctor [--json]
   m1nd restart [--source <dir>] [--binary <path>] [--yes] [--json]
   m1nd update check [--channel beta|latest] [--json]
@@ -54,7 +56,11 @@ agent host has an agent pack, an MCP config hint, a current runtime, and the
 remaining rebind caveat.
 
 hosts plan is the read-only follow-through: it emits per-host install, config,
-workspace, rebind, and verification recipes without editing any host files.`;
+workspace, rebind, and verification recipes without editing any host files.
+
+hosts apply is the opt-in local mutation step. Without --yes it is a dry-run.
+With --yes it installs local agent packs and writes canonical MCP config files
+for known hosts, but active clients still need restart/rebind.`;
 }
 
 function parseArgs(args) {
@@ -74,6 +80,7 @@ function parseArgs(args) {
         "json",
         "kill",
         "no-build",
+        "no-config",
         "no-install",
         "no-kill",
         "no-npm",
@@ -135,9 +142,13 @@ function runtimeBinaryName(platform = process.platform) {
   return platform === "win32" ? "m1nd-mcp.exe" : "m1nd-mcp";
 }
 
-function defaultRuntimePath(platform = process.platform, homeDir = os.homedir()) {
+function homeDir() {
+  return process.env.M1ND_TEST_HOME || os.homedir();
+}
+
+function defaultRuntimePath(platform = process.platform, homeDirValue = homeDir()) {
   const pathModule = platform === "win32" ? path.win32 : path;
-  return pathModule.join(homeDir, ".m1nd", "bin", runtimeBinaryName(platform));
+  return pathModule.join(homeDirValue, ".m1nd", "bin", runtimeBinaryName(platform));
 }
 
 function findRuntimeBinary() {
@@ -171,7 +182,7 @@ function assertPackShape() {
 }
 
 function installCodex() {
-  const targetRoot = path.join(os.homedir(), ".codex", "skills");
+  const targetRoot = path.join(homeDir(), ".codex", "skills");
   copyDir(path.join(SKILLS_ROOT, "m1nd-first"), path.join(targetRoot, "m1nd-first"));
   copyDir(path.join(SKILLS_ROOT, "m1nd-operator"), path.join(targetRoot, "m1nd-operator"));
   return {
@@ -323,6 +334,39 @@ function runtimeBindingsFromText(text, selectedBinary, packageVersion) {
   });
 }
 
+function tomlSections(text, predicate) {
+  const lines = String(text || "").split(/\r?\n/);
+  const selected = [];
+  let include = false;
+  for (const line of lines) {
+    const section = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (section) {
+      include = predicate(section[1]);
+    }
+    if (include) selected.push(line);
+  }
+  return selected.join("\n");
+}
+
+function hostScopedConfigText(host, text) {
+  if (host === "codex") {
+    return tomlSections(
+      text,
+      (section) => section === "mcp_servers.m1nd" || section.startsWith("mcp_servers.m1nd.")
+    );
+  }
+  const parsed = safeJsonParse(text);
+  const server =
+    parsed &&
+    parsed.mcpServers &&
+    typeof parsed.mcpServers === "object" &&
+    parsed.mcpServers.m1nd &&
+    typeof parsed.mcpServers.m1nd === "object"
+      ? parsed.mcpServers.m1nd
+      : null;
+  return server ? JSON.stringify(server) : text;
+}
+
 function portableAgentPackPaths(host, projectDir) {
   const targetRoot = path.join(projectDir, ".m1nd", "agent-pack");
   const skillsRoot = path.join(targetRoot, "skills");
@@ -337,7 +381,7 @@ function portableAgentPackPaths(host, projectDir) {
 
 function agentPackStatusForHost(host, projectDir) {
   if (host === "codex") {
-    const skillRoot = path.join(os.homedir(), ".codex", "skills");
+    const skillRoot = path.join(homeDir(), ".codex", "skills");
     const required = [
       path.join(skillRoot, "m1nd-first", "SKILL.md"),
       path.join(skillRoot, "m1nd-operator", "SKILL.md"),
@@ -369,7 +413,7 @@ function agentPackStatusForHost(host, projectDir) {
 function hostConfigCandidates(host, projectDir) {
   switch (host) {
     case "codex":
-      return [path.join(os.homedir(), ".codex", "config.toml")];
+      return [path.join(homeDir(), ".codex", "config.toml")];
     case "claude":
       return [path.join(projectDir, ".claude", "mcp.json"), path.join(projectDir, "claude_mcp.json")];
     case "gemini":
@@ -396,13 +440,14 @@ function hostConfigStatus(host, projectDir, binary, packageVersion = readPackage
 
   const checked = candidates.map((file) => {
     const content = readText(file);
+    const scopedContent = hostScopedConfigText(host, content);
     return {
       file,
       exists: fs.existsSync(file),
       mentions_m1nd: content.includes("m1nd"),
-      mentions_workspace_root: content.includes("M1ND_WORKSPACE_ROOT"),
-      mentions_project_dir: content.includes(projectDir),
-      runtime_bindings: runtimeBindingsFromText(content, binary, packageVersion),
+      mentions_workspace_root: scopedContent.includes("M1ND_WORKSPACE_ROOT"),
+      mentions_project_dir: scopedContent.includes(projectDir),
+      runtime_bindings: runtimeBindingsFromText(scopedContent, binary, packageVersion),
     };
   });
   const configured = checked.some((candidate) => candidate.exists && candidate.mentions_m1nd);
@@ -505,6 +550,17 @@ function hostPlanNonClaims() {
   ];
 }
 
+function hostApplyNonClaims() {
+  return [
+    "m1nd hosts apply does not prove that an already-open MCP host has rebound.",
+    "m1nd hosts apply does not refresh a host's cached MCP tool list.",
+    "m1nd hosts apply does not repair graph contents, ingest roots, or semantic retrieval.",
+    "m1nd hosts apply does not align system PATH or update root-owned runtime binaries.",
+    "m1nd hosts apply does not know every possible generic host config path.",
+    "m1nd hosts apply is not production-grade unattended host management.",
+  ];
+}
+
 function hostInstallCommand(host, projectDir) {
   if (host === "codex") return "m1nd install-skills codex";
   return `m1nd install-skills ${host} --project ${projectDir}`;
@@ -577,7 +633,7 @@ function hostStatus(args) {
     if (config.status === "configured" && !config.workspace_configured && workspace.status !== "aligned") {
       nextActions.push(`Update the existing host config with ${config.snippet_command} so it carries M1ND_WORKSPACE_ROOT=${projectDir}.`);
     }
-    if (workspace.status !== "aligned") {
+    if (workspace.status !== "aligned" && !config.workspace_configured) {
       nextActions.push(workspace.recommendation);
     }
     nextActions.push("Restart/rebind the host, then call trust_selftest or session_handshake before retrieval.");
@@ -685,12 +741,252 @@ function hostPlan(args) {
   };
 }
 
+function canonicalHostConfigPath(host, projectDir) {
+  switch (host) {
+    case "codex":
+      return path.join(homeDir(), ".codex", "config.toml");
+    case "claude":
+      return path.join(projectDir, ".claude", "mcp.json");
+    case "gemini":
+      return path.join(projectDir, ".gemini", "settings.json");
+    case "antigravity":
+      return path.join(projectDir, "mcp_config.json");
+    default:
+      return null;
+  }
+}
+
+function removeTomlSections(text, sectionNames) {
+  const lines = String(text || "").split(/\r?\n/);
+  const kept = [];
+  let skipping = false;
+  for (const line of lines) {
+    const section = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (section) {
+      skipping = sectionNames.has(section[1]);
+      if (skipping) continue;
+    }
+    if (!skipping) kept.push(line);
+  }
+  return kept.join("\n").trimEnd();
+}
+
+function writeCodexMcpConfig(file, binary, projectDir) {
+  const before = readText(file);
+  const snippet = mcpConfig("codex", binary, projectDir).trimEnd();
+  const withoutM1nd = removeTomlSections(
+    before,
+    new Set(["mcp_servers.m1nd", "mcp_servers.m1nd.env"])
+  );
+  const after = `${withoutM1nd ? `${withoutM1nd}\n\n` : ""}${snippet}\n`;
+  ensureDir(path.dirname(file));
+  if (before === after) return { changed: false, file };
+  fs.writeFileSync(file, after);
+  return { changed: true, file };
+}
+
+function mcpServerEntry(binary, projectDir) {
+  return {
+    command: binary || findRuntimeBinary() || defaultRuntimePath(),
+    args: ["--stdio", "--no-gui"],
+    env: {
+      M1ND_WORKSPACE_ROOT: path.resolve(projectDir),
+    },
+  };
+}
+
+function writeJsonMcpConfig(file, binary, projectDir) {
+  const before = readText(file);
+  const parsed = before.trim() ? safeJsonParse(before) : {};
+  if (before.trim() && !parsed) {
+    throw new Error(`cannot safely update invalid JSON config at ${file}`);
+  }
+  const config = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  config.mcpServers = config.mcpServers && typeof config.mcpServers === "object" && !Array.isArray(config.mcpServers)
+    ? config.mcpServers
+    : {};
+  config.mcpServers.m1nd = mcpServerEntry(binary, projectDir);
+  const after = `${JSON.stringify(config, null, 2)}\n`;
+  ensureDir(path.dirname(file));
+  if (before === after) return { changed: false, file, parse_ok: Boolean(parsed || !before.trim()) };
+  fs.writeFileSync(file, after);
+  return { changed: true, file, parse_ok: true };
+}
+
+function writeHostConfig(host, file, binary, projectDir) {
+  if (host === "codex") return writeCodexMcpConfig(file, binary, projectDir);
+  return writeJsonMcpConfig(file, binary, projectDir);
+}
+
+function hostApply(args) {
+  const hostSelection = args.host || args._[2] || "all";
+  if (!HOSTS.has(hostSelection)) {
+    throw new Error(`unsupported host '${hostSelection}'. Supported hosts: ${Array.from(HOSTS).join(", ")}`);
+  }
+
+  const selectedHosts = hostSelection === "all" ? HOST_LIST : [hostSelection];
+  const projectDir = path.resolve(args.project || process.cwd());
+  const binary = args.binary ? path.resolve(args.binary) : findRuntimeBinary() || defaultRuntimePath();
+  const yes = Boolean(args.yes);
+  const noSkills = Boolean(args["no-skills"]);
+  const noConfig = Boolean(args["no-config"]);
+  const statusBefore = hostStatus({ ...args, host: hostSelection, project: projectDir, binary });
+  const plannedActions = [];
+  const appliedActions = [];
+  const blockedActions = [];
+  const changedFiles = [];
+  const warnings = [];
+  const hostResults = [];
+
+  for (const hostName of selectedHosts) {
+    const hostBefore = statusBefore.hosts.find((host) => host.host === hostName);
+    const hostResult = {
+      host: hostName,
+      readiness_before: hostBefore ? hostBefore.readiness : "unknown",
+      planned_actions: [],
+      applied_actions: [],
+      blocked_actions: [],
+      changed_files: [],
+    };
+
+    if (!noSkills) {
+      const skillAction = action("install-agent-pack", "agent-pack", `install ${hostName} agent pack`, {
+        host: hostName,
+        command: hostInstallCommand(hostName, projectDir),
+      });
+      plannedActions.push(skillAction);
+      hostResult.planned_actions.push(skillAction);
+      if (yes) {
+        try {
+          const installs = installSkills(hostName, projectDir);
+          const applied = {
+            id: skillAction.id,
+            kind: skillAction.kind,
+            host: hostName,
+            ok: true,
+            installed: installs.flatMap((entry) => entry.installed || []),
+          };
+          appliedActions.push(applied);
+          hostResult.applied_actions.push(applied);
+          for (const installed of applied.installed) {
+            if (!changedFiles.includes(installed)) changedFiles.push(installed);
+            if (!hostResult.changed_files.includes(installed)) hostResult.changed_files.push(installed);
+          }
+        } catch (error) {
+          const blocked = action("install-agent-pack-failed", "agent-pack", `failed to install ${hostName} agent pack`, {
+            host: hostName,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          blockedActions.push(blocked);
+          hostResult.blocked_actions.push(blocked);
+        }
+      }
+    } else {
+      const blocked = action("agent-pack-disabled", "agent-pack", "agent pack install disabled by --no-skills", {
+        host: hostName,
+      });
+      blockedActions.push(blocked);
+      hostResult.blocked_actions.push(blocked);
+    }
+
+    const configFile = canonicalHostConfigPath(hostName, projectDir);
+    if (noConfig) {
+      const blocked = action("config-disabled", "config", "MCP config write disabled by --no-config", {
+        host: hostName,
+      });
+      blockedActions.push(blocked);
+      hostResult.blocked_actions.push(blocked);
+    } else if (!configFile) {
+      const blocked = action("config-manual", "config", "generic host config path is manual; paste the snippet into the target host", {
+        host: hostName,
+        snippet: mcpConfig("generic", binary, projectDir),
+      });
+      blockedActions.push(blocked);
+      hostResult.blocked_actions.push(blocked);
+    } else {
+      const configAction = action("write-mcp-config", "config", `write ${hostName} MCP config with M1ND_WORKSPACE_ROOT`, {
+        host: hostName,
+        file: configFile,
+        command: binary,
+        workspace_root: projectDir,
+      });
+      plannedActions.push(configAction);
+      hostResult.planned_actions.push(configAction);
+      if (yes) {
+        try {
+          const writeResult = writeHostConfig(hostName, configFile, binary, projectDir);
+          const applied = {
+            id: configAction.id,
+            kind: configAction.kind,
+            host: hostName,
+            ok: true,
+            file: writeResult.file,
+            changed: writeResult.changed,
+            workspace_root: projectDir,
+          };
+          appliedActions.push(applied);
+          hostResult.applied_actions.push(applied);
+          if (writeResult.changed) {
+            changedFiles.push(writeResult.file);
+            hostResult.changed_files.push(writeResult.file);
+          }
+        } catch (error) {
+          const blocked = action("write-mcp-config-failed", "config", `failed to write ${hostName} MCP config`, {
+            host: hostName,
+            file: configFile,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          blockedActions.push(blocked);
+          hostResult.blocked_actions.push(blocked);
+        }
+      }
+    }
+
+    hostResults.push(hostResult);
+  }
+
+  if (!yes) {
+    warnings.push("dry-run only; re-run with --yes to install agent packs and write known host MCP configs.");
+  }
+
+  let statusAfter = null;
+  if (yes) {
+    statusAfter = hostStatus({ ...args, host: hostSelection, project: projectDir, binary });
+  }
+
+  return {
+    schema: HOST_APPLY_SCHEMA,
+    package_name: NPM_PACKAGE,
+    package_version: readPackageVersion(),
+    host_selection: hostSelection,
+    project_dir: projectDir,
+    binary,
+    dry_run: !yes,
+    status_before: statusBefore.summary,
+    status_after: statusAfter ? statusAfter.summary : null,
+    hosts: hostResults,
+    planned_actions: plannedActions,
+    applied_actions: appliedActions,
+    blocked_actions: blockedActions,
+    changed_files: Array.from(new Set(changedFiles)),
+    warnings,
+    requires_host_rebind: true,
+    host_rebind_proven: false,
+    next_actions: [
+      "Restart or rebind each affected MCP host, or open a fresh host session.",
+      "Call trust_selftest or session_handshake with the intended scope before retrieval.",
+      "If retrieval is still blocked after full trust, call recovery_playbook with the suspicious tool evidence.",
+    ],
+    non_claims: hostApplyNonClaims(),
+  };
+}
+
 function doctor() {
   const pack = assertPackShape();
   const binary = findRuntimeBinary();
   const binaryVersion = runtimeVersion(binary);
   const packageVersion = readPackageVersion();
-  const codexSkillRoot = path.join(os.homedir(), ".codex", "skills");
+  const codexSkillRoot = path.join(homeDir(), ".codex", "skills");
   const codexSkillsInstalled =
     fs.existsSync(path.join(codexSkillRoot, "m1nd-first", "SKILL.md")) &&
     fs.existsSync(path.join(codexSkillRoot, "m1nd-operator", "SKILL.md"));
@@ -976,13 +1272,13 @@ function githubReleaseAvailability(version, platform = process.platform, arch = 
 }
 
 function updateStatePath() {
-  return process.env.M1ND_UPDATE_STATE_PATH || path.join(os.homedir(), ".m1nd", "update-state.json");
+  return process.env.M1ND_UPDATE_STATE_PATH || path.join(homeDir(), ".m1nd", "update-state.json");
 }
 
 function updateBackupPath(targetBinary, beforeVersion) {
   const safeVersion = versionFromText(beforeVersion) || "unknown";
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupRoot = process.env.M1ND_UPDATE_BACKUP_DIR || path.join(os.homedir(), ".m1nd", "backups");
+  const backupRoot = process.env.M1ND_UPDATE_BACKUP_DIR || path.join(homeDir(), ".m1nd", "backups");
   return path.join(backupRoot, `${path.basename(targetBinary)}-${safeVersion}-${stamp}`);
 }
 
@@ -1818,6 +2114,25 @@ function print(value, asJson) {
     }
     return;
   }
+  if (value.schema === HOST_APPLY_SCHEMA) {
+    console.log(`m1nd hosts apply ${value.dry_run ? "plan" : "result"}`);
+    console.log(`project: ${value.project_dir}`);
+    console.log(`host selection: ${value.host_selection}`);
+    console.log(`requires host rebind: ${value.requires_host_rebind ? "yes" : "no"}`);
+    console.log(`host rebind proven: ${value.host_rebind_proven ? "yes" : "no"}`);
+    console.log(`planned actions: ${value.planned_actions.length}`);
+    console.log(`applied actions: ${value.applied_actions.length}`);
+    console.log(`blocked actions: ${value.blocked_actions.length}`);
+    if (value.changed_files.length > 0) {
+      console.log("changed:");
+      for (const file of value.changed_files) console.log(`  - ${file}`);
+    }
+    if (value.next_actions.length > 0) {
+      console.log("next:");
+      for (const actionText of value.next_actions) console.log(`  - ${actionText}`);
+    }
+    return;
+  }
   console.log(String(value));
 }
 
@@ -1851,6 +2166,10 @@ async function main(rawArgs) {
     }
     if (["plan", "recipes"].includes(subcommand)) {
       print(hostPlan(args), args.json);
+      return;
+    }
+    if (subcommand === "apply") {
+      print(hostApply(args), args.json);
       return;
     }
     throw new Error(`unknown hosts subcommand '${subcommand}'`);
@@ -1897,6 +2216,7 @@ module.exports = {
   doctor,
   findRuntimeBinary,
   hostPlan,
+  hostApply,
   hostStatus,
   installSkills,
   restart,

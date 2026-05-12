@@ -80,6 +80,11 @@ If host config points to an absolute current managed runtime, a stale
 config is unknown, stale `PATH` is actionable. Verify with `m1nd hosts status`
 and `m1nd hosts plan`, then rebind or open a fresh host session before claiming
 the updated runtime or tool surface is active.
+Use `m1nd hosts apply` only as the local mutation step after `status` or
+`plan`. Without `--yes` it stays a dry-run preview. With `--yes`, it can
+install or refresh agent-pack files and write canonical MCP config snippets for
+known hosts, but it does not prove rebind, refresh cached tool lists, repair
+graph state, or automate generic-host config paths.
 
 In live multi-agent sessions, use `--no-kill` to update the managed binary
 without stopping every active `m1nd-mcp` host. `m1nd restart --source
@@ -131,10 +136,13 @@ mutating anything:
 ```bash
 m1nd hosts status --host all --project /path/to/project --json
 m1nd hosts plan --host all --project /path/to/project --json
+m1nd hosts apply --host all --project /path/to/project --yes --json
 ```
 
 `hosts plan` emits the install, MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and
-verification recipe for each supported packaged host.
+verification recipe for each supported packaged host. Prefer
+`M1ND_WORKSPACE_ROOT` in host config so the binding does not fall back to
+`OLDPWD` or another ambient workspace hint.
 
 ## L1GHT
 

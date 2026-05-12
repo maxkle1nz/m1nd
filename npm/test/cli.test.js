@@ -9,6 +9,7 @@ const { spawnSync } = require("child_process");
 const {
   commandLooksLikeRuntime,
   defaultRuntimePath,
+  hostApply,
   hostPlan,
   hostStatus,
   installSkills,
@@ -69,6 +70,7 @@ assert(help.stdout.includes("m1nd update"));
 assert(help.stdout.includes("m1nd update status"));
 assert(help.stdout.includes("m1nd hosts status"));
 assert(help.stdout.includes("m1nd hosts plan"));
+assert(help.stdout.includes("m1nd hosts apply"));
 
 const packCheck = spawnSync(process.execPath, [cli, "pack-check", "--json"], { encoding: "utf8" });
 assert.strictEqual(packCheck.status, 0, packCheck.stderr);
@@ -361,6 +363,7 @@ withEnv(
     assert.strictEqual(ready.hosts[0].readiness, "ready");
     assert.strictEqual(ready.summary.overall_readiness, "ready");
     assert.strictEqual(ready.summary.host_rebind_proven, false);
+    assert(!ready.hosts[0].next_actions.some((action) => action.includes("Set M1ND_WORKSPACE_ROOT")));
 
     const plan = hostPlan({
       _: ["hosts", "plan"],
@@ -439,6 +442,162 @@ withEnv(fakeEnvBase, () => {
   assert.strictEqual(plan.plans[0].runtime.path_shadow.blocking, false);
 });
 
+withEnv(fakeEnvBase, () => {
+  const testHome = mkTmpDir();
+  const project = mkTmpDir();
+  const selectedRuntime = path.join(testHome, ".m1nd", "bin", runtimeBinaryName());
+  const foreignRuntime = path.join(testHome, "foreign", runtimeBinaryName());
+  writeFakeBinary(selectedRuntime);
+  writeFakeBinary(foreignRuntime);
+  fs.mkdirSync(path.join(testHome, ".codex"), { recursive: true });
+  fs.writeFileSync(
+    path.join(testHome, ".codex", "config.toml"),
+    `${mcpConfig("codex", selectedRuntime, project)}
+
+[mcp_servers.dexter.env]
+M1ND_MCP_BINARY = "${foreignRuntime}"
+`
+  );
+
+  const status = withEnv(
+    {
+      M1ND_TEST_HOME: testHome,
+      M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
+        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.3",
+        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.3",
+        [foreignRuntime]: "m1nd-mcp 0.8.0",
+        [realpathOrSame(foreignRuntime)]: "m1nd-mcp 0.8.0",
+      }),
+    },
+    () =>
+      hostStatus({
+        _: ["hosts", "status"],
+        host: "codex",
+        project,
+        binary: selectedRuntime,
+      })
+  );
+
+  assert.strictEqual(status.hosts[0].config.selected_runtime_configured_current, true);
+  assert(!status.hosts[0].config.runtime_bindings.some((binding) => binding.path === foreignRuntime));
+  assert.strictEqual(status.hosts[0].readiness, "attention");
+});
+
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
+  },
+  () => {
+    const tmp = mkTmpDir();
+    const dryRun = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: tmp,
+      binary: process.execPath,
+    });
+    assert.strictEqual(dryRun.schema, "m1nd-host-apply-v0");
+    assert.strictEqual(dryRun.dry_run, true);
+    assert.strictEqual(dryRun.applied_actions.length, 0);
+    assert.strictEqual(fs.existsSync(path.join(tmp, ".claude", "mcp.json")), false);
+    assert.strictEqual(fs.existsSync(path.join(tmp, ".m1nd", "agent-pack")), false);
+    assert.strictEqual(dryRun.requires_host_rebind, true);
+    assert.strictEqual(dryRun.host_rebind_proven, false);
+    assert(dryRun.non_claims.some((claim) => claim.includes("cached MCP tool list")));
+
+    const applied = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: tmp,
+      binary: process.execPath,
+      yes: true,
+    });
+    assert.strictEqual(applied.dry_run, false);
+    assert(applied.applied_actions.some((entry) => entry.id === "install-agent-pack" && entry.ok));
+    assert(applied.applied_actions.some((entry) => entry.id === "write-mcp-config" && entry.ok));
+    assert(fs.existsSync(path.join(tmp, ".m1nd", "agent-pack", "CLAUDE.md")));
+    const claudeConfig = JSON.parse(fs.readFileSync(path.join(tmp, ".claude", "mcp.json"), "utf8"));
+    assert.strictEqual(claudeConfig.mcpServers.m1nd.command, process.execPath);
+    assert.strictEqual(claudeConfig.mcpServers.m1nd.env.M1ND_WORKSPACE_ROOT, path.resolve(tmp));
+    assert(applied.changed_files.includes(path.join(tmp, ".claude", "mcp.json")));
+    assert(applied.next_actions.some((entry) => entry.includes("Restart or rebind")));
+
+    const idempotent = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: tmp,
+      binary: process.execPath,
+      yes: true,
+    });
+    assert(idempotent.applied_actions.some((entry) => entry.id === "write-mcp-config" && entry.changed === false));
+  }
+);
+
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
+  },
+  () => {
+    const tmp = mkTmpDir();
+    const generic = hostApply({
+      _: ["hosts", "apply"],
+      host: "generic",
+      project: tmp,
+      binary: process.execPath,
+      yes: true,
+    });
+    assert(fs.existsSync(path.join(tmp, ".m1nd", "agent-pack", "m1nd-agent-rules.md")));
+    assert(generic.blocked_actions.some((entry) => entry.id === "config-manual"));
+    assert.strictEqual(generic.host_rebind_proven, false);
+
+    const disabled = hostApply({
+      _: ["hosts", "apply"],
+      host: "claude",
+      project: mkTmpDir(),
+      binary: process.execPath,
+      yes: true,
+      "no-skills": true,
+      "no-config": true,
+    });
+    assert.strictEqual(disabled.applied_actions.length, 0);
+    assert(disabled.blocked_actions.some((entry) => entry.id === "agent-pack-disabled"));
+    assert(disabled.blocked_actions.some((entry) => entry.id === "config-disabled"));
+  }
+);
+
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
+  },
+  () => {
+    const testHome = mkTmpDir();
+    const project = mkTmpDir();
+    const applied = withEnv(
+      {
+        M1ND_TEST_HOME: testHome,
+      },
+      () =>
+        hostApply({
+          _: ["hosts", "apply"],
+          host: "codex",
+          project,
+          binary: process.execPath,
+          yes: true,
+        })
+    );
+    const configPath = path.join(testHome, ".codex", "config.toml");
+    assert(fs.existsSync(path.join(testHome, ".codex", "skills", "m1nd-first", "SKILL.md")));
+    assert(fs.existsSync(configPath));
+    const config = fs.readFileSync(configPath, "utf8");
+    assert(config.includes("[mcp_servers.m1nd]"));
+    assert(config.includes("[mcp_servers.m1nd.env]"));
+    assert(config.includes(`M1ND_WORKSPACE_ROOT = "${path.resolve(project).replace(/\\/g, "\\\\")}"`));
+    assert(applied.changed_files.includes(configPath));
+  }
+);
+
 const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json", "--binary", process.execPath], {
   encoding: "utf8",
   env: {
@@ -502,5 +661,26 @@ const hostsPlanJson = JSON.parse(hostsPlan.stdout);
 assert.strictEqual(hostsPlanJson.schema, "m1nd-host-rebind-plan-v0");
 assert.strictEqual(hostsPlanJson.plans[0].configure_mcp.status, "manual");
 assert(hostsPlanJson.plans[0].configure_mcp.snippet.includes("M1ND_WORKSPACE_ROOT"));
+
+const hostApplyCliProject = mkTmpDir();
+const hostApplyCli = spawnSync(
+  process.execPath,
+  [cli, "hosts", "apply", "--json", "--host", "antigravity", "--project", hostApplyCliProject, "--binary", process.execPath, "--yes"],
+  {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ...fakeEnvBase,
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
+    },
+  }
+);
+assert.strictEqual(hostApplyCli.status, 0, hostApplyCli.stderr);
+const hostApplyCliJson = JSON.parse(hostApplyCli.stdout);
+assert.strictEqual(hostApplyCliJson.schema, "m1nd-host-apply-v0");
+assert.strictEqual(hostApplyCliJson.dry_run, false);
+assert.strictEqual(hostApplyCliJson.requires_host_rebind, true);
+assert(fs.existsSync(path.join(hostApplyCliProject, "mcp_config.json")));
+assert(fs.existsSync(path.join(hostApplyCliProject, ".m1nd", "agent-pack", "AGENTS.md")));
 
 console.log("npm cli tests ok");

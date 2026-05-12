@@ -63,6 +63,7 @@ m1nd update apply --channel beta --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd hosts status --host all --project /path/to/project --json
 m1nd hosts plan --host all --project /path/to/project --json
+m1nd hosts apply --host all --project /path/to/project --yes --json
 ```
 
 `check`, `status`, and `plan` are read-only. `status` is the compact cockpit for
@@ -92,6 +93,13 @@ It emits per-host install, MCP snippet, `M1ND_WORKSPACE_ROOT`, rebind, and
 verification recipes without mutating host files. The generated
 `m1nd mcp-config <host> --project /path/to/project` snippets include the
 workspace env explicitly.
+
+Use `m1nd hosts apply` only as the local mutating follow-through after
+`hosts status` or `hosts plan`. Without `--yes` it remains a dry-run preview.
+With `--yes`, it can install or refresh agent-pack files and write canonical
+MCP config snippets for known hosts. It still does not prove rebind, refresh an
+already-open host's cached tool list, repair graph state, or remove the manual
+config step for generic hosts.
 
 During live multi-agent work, add `--no-kill` if the goal is only to update the
 managed binary while keeping current host sessions alive:
@@ -142,6 +150,8 @@ M1ND_WORKSPACE_ROOT=/path/to/project
 That is the host-neutral workspace contract. Host-specific variables from
 Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS Code, and shells are
 recognized as aliases, but `M1ND_WORKSPACE_ROOT` is the preferred signal.
+Prefer it in host config so the binding does not drift to `OLDPWD` or another
+ambient workspace hint.
 
 On Windows, the native binary is `m1nd-mcp.exe`. The npm installer resolves it
 in this order: `M1ND_MCP_BINARY`, `M1ND_MCP_BIN`, the managed m1nd binary path,
