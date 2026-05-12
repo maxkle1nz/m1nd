@@ -165,6 +165,14 @@ ingest a graph, or fix semantic retrieval. After it runs, restart/rebind the
 host client and call `trust_selftest` or `session_handshake` with the intended
 `scope`.
 
+If a host config points to an absolute current managed runtime, a stale
+`m1nd-mcp` on `PATH` is only a shadow warning, not proof the host is stale. If
+the host launches `PATH` or the config target is unknown, stale `PATH` is
+actionable. Verify that distinction with `hosts status` first and `hosts plan`
+when needed, then rebind or open a fresh host session. Do not claim the
+client's cached tool list refreshed until that new host session is actually
+running.
+
 For live multi-agent sessions, prefer:
 
 ```bash

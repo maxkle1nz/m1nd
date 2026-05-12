@@ -120,6 +120,14 @@ function writeFakeBinary(file, content = "fake runtime\n") {
   if (process.platform !== "win32") fs.chmodSync(file, 0o755);
 }
 
+function realpathOrSame(file) {
+  try {
+    return fs.realpathSync.native(file);
+  } catch (_) {
+    return file;
+  }
+}
+
 const registryCurrent = JSON.stringify({
   "dist-tags": { beta: "0.9.0-beta.3", latest: "0.9.0-beta.3" },
   version: "0.9.0-beta.3",
@@ -369,6 +377,67 @@ withEnv(
     assert(plan.non_claims.some((claim) => claim.includes("does not mutate")));
   }
 );
+
+withEnv(fakeEnvBase, () => {
+  const tmp = mkTmpDir();
+  const selectedRuntime = path.join(tmp, "managed", runtimeBinaryName());
+  const pathRuntimeDir = path.join(tmp, "path");
+  const pathRuntime = path.join(pathRuntimeDir, runtimeBinaryName());
+  writeFakeBinary(selectedRuntime);
+  writeFakeBinary(pathRuntime);
+  installSkills("claude", tmp);
+  fs.mkdirSync(path.join(tmp, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, ".claude", "mcp.json"), mcpConfig("claude", selectedRuntime, tmp));
+
+  const status = withEnv(
+    {
+      PATH: `${pathRuntimeDir}${path.delimiter}${process.env.PATH || ""}`,
+      M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
+        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.3",
+        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.3",
+        [pathRuntime]: "m1nd-mcp 0.8.0",
+        [realpathOrSame(pathRuntime)]: "m1nd-mcp 0.8.0",
+      }),
+    },
+    () =>
+      hostStatus({
+        _: ["hosts", "status"],
+        host: "claude",
+        project: tmp,
+        binary: selectedRuntime,
+      })
+  );
+
+  assert.strictEqual(status.runtime.current, true);
+  assert.strictEqual(status.runtime.path_runtime_current, false);
+  assert.strictEqual(status.hosts[0].config.selected_runtime_configured_current, true);
+  assert.strictEqual(status.hosts[0].path_shadow.status, "shadow_warning");
+  assert.strictEqual(status.hosts[0].path_shadow.blocking, false);
+  assert.strictEqual(status.hosts[0].readiness, "ready");
+  assert(status.hosts[0].warnings.some((warning) => warning.includes("PATH has a stale")));
+  assert(!status.hosts[0].next_actions.some((action) => action.includes("Align the m1nd-mcp binary found on PATH")));
+
+  const plan = withEnv(
+    {
+      PATH: `${pathRuntimeDir}${path.delimiter}${process.env.PATH || ""}`,
+      M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
+        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.3",
+        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.3",
+        [pathRuntime]: "m1nd-mcp 0.8.0",
+        [realpathOrSame(pathRuntime)]: "m1nd-mcp 0.8.0",
+      }),
+    },
+    () =>
+      hostPlan({
+        _: ["hosts", "plan"],
+        host: "claude",
+        project: tmp,
+        binary: selectedRuntime,
+      })
+  );
+  assert.strictEqual(plan.plans[0].runtime.path_shadow.status, "shadow_warning");
+  assert.strictEqual(plan.plans[0].runtime.path_shadow.blocking, false);
+});
 
 const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json", "--binary", process.execPath], {
   encoding: "utf8",

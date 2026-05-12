@@ -47,6 +47,11 @@ Only skip the `m1nd` first pass when:
   --project /path/to/project --json` from the CLI before mutating anything. It
   is read-only and reports agent-pack presence, likely MCP config wiring,
   runtime/PATH alignment, workspace hints, and `host_rebind_proven=false`.
+  If host config selects an absolute current managed runtime, a stale
+  `m1nd-mcp` on `PATH` is a shadow warning only. If the host launches `PATH` or
+  config is unknown, stale `PATH` is actionable. In both cases, confirm with
+  `hosts status`/`hosts plan`, then rebind or open a fresh host session; do not
+  claim an already-open client's cached tool list refreshed itself.
   If the host reports `attention`, run `m1nd hosts plan --host all --project
   /path/to/project --json` for the exact install, config, workspace env,
   rebind, and verification recipe.

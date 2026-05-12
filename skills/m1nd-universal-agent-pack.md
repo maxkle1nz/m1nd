@@ -75,6 +75,11 @@ m1nd update apply --channel beta --yes
 Then restart or rebind the host MCP client. `m1nd update` is external repair:
 it does not ingest, pick the workspace, repair graph contents, or refresh a
 client's cached tool list inside an already-open conversation.
+If host config points to an absolute current managed runtime, a stale
+`m1nd-mcp` on `PATH` is a shadow warning only. If the host launches `PATH` or
+config is unknown, stale `PATH` is actionable. Verify with `m1nd hosts status`
+and `m1nd hosts plan`, then rebind or open a fresh host session before claiming
+the updated runtime or tool surface is active.
 
 In live multi-agent sessions, use `--no-kill` to update the managed binary
 without stopping every active `m1nd-mcp` host. `m1nd restart --source

@@ -80,6 +80,12 @@ but "is this agent host ready?" It reports agent-pack presence, likely MCP
 config wiring, runtime alignment, workspace hints, and
 `host_rebind_proven=false` per supported host. It is read-only and does not edit
 host config.
+If host config selects an absolute current managed runtime, a stale
+`m1nd-mcp` on `PATH` is a shadow warning only, not proof the host is stale. If
+the host launches `PATH` or the config target is unknown, stale `PATH` is
+actionable. Confirm with `hosts status` first, use `hosts plan` for the exact
+rebind recipe, and do not claim a client's cached MCP tool list refreshed until
+that fresh host session is actually running.
 
 Use `m1nd hosts plan` when the status is red or workspace binding is unclear.
 It emits per-host install, MCP snippet, `M1ND_WORKSPACE_ROOT`, rebind, and

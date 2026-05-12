@@ -142,6 +142,12 @@ anything. It is a read-only readiness contract for the supported packaged host
 surfaces and reports agent-pack files, likely MCP config wiring, runtime/PATH
 alignment, workspace hints, and `host_rebind_proven=false`. Treat a red host as
 an installation/binding issue until a fresh host session proves otherwise.
+If host config points to an absolute current managed runtime, a stale
+`m1nd-mcp` on `PATH` is a shadow warning only, not proof the host is stale. If
+the host launches `PATH` or the config target is unknown, stale `PATH` is
+actionable. Use `m1nd hosts plan` for the exact rebind recipe, then rebind or
+open a fresh host session; do not claim a cached tool list refreshed inside the
+already-open client.
 Then use `m1nd hosts plan` for the exact per-host recipe. It emits the MCP
 snippet with `M1ND_WORKSPACE_ROOT`, candidate config paths, rebind steps, and
 verification commands, but it does not edit host files.

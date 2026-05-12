@@ -271,6 +271,58 @@ function fileContains(file, needle) {
   }
 }
 
+function readText(file) {
+  if (!fs.existsSync(file)) return "";
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch (_) {
+    return "";
+  }
+}
+
+function realPathOrResolved(file) {
+  if (!file) return null;
+  try {
+    return fs.realpathSync.native(file);
+  } catch (_) {
+    return path.resolve(file);
+  }
+}
+
+function sameFilesystemTarget(left, right) {
+  if (!left || !right) return false;
+  return realPathOrResolved(left) === realPathOrResolved(right);
+}
+
+function extractRuntimePaths(text, selectedBinary = null) {
+  const paths = new Set();
+  const normalized = String(text || "");
+  const runtimePathPattern = process.platform === "win32"
+    ? /[A-Za-z]:\\[^"'\s,\]]*m1nd-mcp(?:\.exe)?/g
+    : /\/[^"'\s,\]]*m1nd-mcp(?:\.exe)?/g;
+  for (const match of normalized.matchAll(runtimePathPattern)) {
+    paths.add(match[0]);
+  }
+  if (selectedBinary && normalized.includes(selectedBinary)) {
+    paths.add(selectedBinary);
+  }
+  return Array.from(paths);
+}
+
+function runtimeBindingsFromText(text, selectedBinary, packageVersion) {
+  return extractRuntimePaths(text, selectedBinary).map((runtimePath) => {
+    const exists = fs.existsSync(runtimePath);
+    const version = exists ? runtimeVersion(runtimePath) : null;
+    return {
+      path: runtimePath,
+      exists,
+      version,
+      current: Boolean(version && version.includes(packageVersion)),
+      matches_selected: Boolean(selectedBinary && exists && sameFilesystemTarget(runtimePath, selectedBinary)),
+    };
+  });
+}
+
 function portableAgentPackPaths(host, projectDir) {
   const targetRoot = path.join(projectDir, ".m1nd", "agent-pack");
   const skillsRoot = path.join(targetRoot, "skills");
@@ -329,7 +381,7 @@ function hostConfigCandidates(host, projectDir) {
   }
 }
 
-function hostConfigStatus(host, projectDir, binary) {
+function hostConfigStatus(host, projectDir, binary, packageVersion = readPackageVersion()) {
   const candidates = hostConfigCandidates(host, projectDir);
   const snippetCommand = `m1nd mcp-config ${host} --project ${projectDir}`;
   if (candidates.length === 0) {
@@ -342,13 +394,17 @@ function hostConfigStatus(host, projectDir, binary) {
     };
   }
 
-  const checked = candidates.map((file) => ({
-    file,
-    exists: fs.existsSync(file),
-    mentions_m1nd: fileContains(file, "m1nd"),
-    mentions_workspace_root: fileContains(file, "M1ND_WORKSPACE_ROOT"),
-    mentions_project_dir: fileContains(file, projectDir),
-  }));
+  const checked = candidates.map((file) => {
+    const content = readText(file);
+    return {
+      file,
+      exists: fs.existsSync(file),
+      mentions_m1nd: content.includes("m1nd"),
+      mentions_workspace_root: content.includes("M1ND_WORKSPACE_ROOT"),
+      mentions_project_dir: content.includes(projectDir),
+      runtime_bindings: runtimeBindingsFromText(content, binary, packageVersion),
+    };
+  });
   const configured = checked.some((candidate) => candidate.exists && candidate.mentions_m1nd);
   const workspaceConfigured = checked.some(
     (candidate) =>
@@ -358,15 +414,74 @@ function hostConfigStatus(host, projectDir, binary) {
       candidate.mentions_project_dir
   );
   const anyPresent = checked.some((candidate) => candidate.exists);
+  const runtimeBindings = checked.flatMap((candidate) => candidate.runtime_bindings);
+  const selectedRuntimeConfigured = runtimeBindings.some((binding) => binding.matches_selected);
+  const selectedRuntimeConfiguredCurrent = runtimeBindings.some(
+    (binding) => binding.matches_selected && binding.current
+  );
+  const currentRuntimeConfigured = runtimeBindings.some((binding) => binding.current);
+  const runtimeBindingStatus = !configured
+    ? "unconfigured"
+    : runtimeBindings.length === 0
+      ? "unknown"
+      : currentRuntimeConfigured
+        ? "current"
+        : "stale_or_missing";
   return {
     status: configured ? "configured" : anyPresent ? "present_without_m1nd" : "missing",
     workspace_configured: workspaceConfigured,
     candidates: checked,
     expected_command: binary || defaultRuntimePath(),
     snippet_command: snippetCommand,
+    runtime_bindings: runtimeBindings,
+    runtime_binding_status: runtimeBindingStatus,
+    selected_runtime_configured: selectedRuntimeConfigured,
+    selected_runtime_configured_current: selectedRuntimeConfiguredCurrent,
+    current_runtime_configured: currentRuntimeConfigured,
     note: configured
       ? "A config candidate mentions m1nd; workspace env and host rebind are still checked separately."
       : "No config candidate currently proves that this host is wired to m1nd.",
+  };
+}
+
+function hostPathShadow(pathRuntimeCurrent, pathBinary, pathRuntimeText, config) {
+  if (!pathBinary || !pathRuntimeText) {
+    return {
+      status: "absent",
+      blocking: false,
+      path_binary: pathBinary || null,
+      path_version: pathRuntimeText,
+      selected_runtime_configured_current: Boolean(config.selected_runtime_configured_current),
+      message: "No m1nd-mcp binary was found on PATH.",
+    };
+  }
+  if (pathRuntimeCurrent) {
+    return {
+      status: "current",
+      blocking: false,
+      path_binary: pathBinary,
+      path_version: pathRuntimeText,
+      selected_runtime_configured_current: Boolean(config.selected_runtime_configured_current),
+      message: "The m1nd-mcp binary on PATH matches the package version.",
+    };
+  }
+  if (config.selected_runtime_configured_current) {
+    return {
+      status: "shadow_warning",
+      blocking: false,
+      path_binary: pathBinary,
+      path_version: pathRuntimeText,
+      selected_runtime_configured_current: true,
+      message: "PATH has a stale m1nd-mcp, but this host config points to the selected current runtime. Align PATH only for hosts that launch PATH.",
+    };
+  }
+  return {
+    status: "actionable",
+    blocking: true,
+    path_binary: pathBinary,
+    path_version: pathRuntimeText,
+    selected_runtime_configured_current: false,
+    message: "PATH has a stale m1nd-mcp and this host does not prove an absolute current runtime binding.",
   };
 }
 
@@ -434,16 +549,21 @@ function hostStatus(args) {
 
   const hosts = selectedHosts.map((host) => {
     const agentPack = agentPackStatusForHost(host, projectDir);
-    const config = hostConfigStatus(host, projectDir, binary);
+    const config = hostConfigStatus(host, projectDir, binary, packageVersion);
+    const pathShadow = hostPathShadow(pathRuntimeCurrent, pathBinary, pathRuntimeText, config);
     const workspaceReady = workspace.status === "aligned" || Boolean(config.workspace_configured);
     const configReady = config.status === "configured" && workspaceReady;
-    const readiness = runtimeCurrent && pathRuntimeCurrent && agentPack.installed && configReady ? "ready" : "attention";
+    const readiness = runtimeCurrent && !pathShadow.blocking && agentPack.installed && configReady ? "ready" : "attention";
     const nextActions = [];
+    const warnings = [];
     if (!runtimeCurrent) {
       nextActions.push("Run m1nd update status --channel beta --json, then m1nd update plan/apply if the runtime is stale or missing.");
     }
-    if (!pathRuntimeCurrent) {
+    if (pathShadow.status === "actionable") {
       nextActions.push("Align the m1nd-mcp binary found on PATH or pass --binary to target the runtime this host launches.");
+    }
+    if (pathShadow.status === "shadow_warning") {
+      warnings.push(pathShadow.message);
     }
     if (!agentPack.installed) {
       nextActions.push(`Run ${hostInstallCommand(host, projectDir)}.`);
@@ -468,6 +588,8 @@ function hostStatus(args) {
       agent_pack: agentPack,
       config,
       workspace,
+      path_shadow: pathShadow,
+      warnings,
       host_rebind_proven: false,
       next_actions: nextActions,
     };
@@ -531,6 +653,7 @@ function hostPlan(args) {
         path_binary: status.runtime.path_binary,
         path_version: status.runtime.path_version,
         path_runtime_current: status.runtime.path_runtime_current,
+        path_shadow: host.path_shadow,
       },
       rebind_steps: [
         "Run the install_agent_pack command if needed.",
@@ -636,6 +759,15 @@ function runCommand(command, args, options = {}) {
 
 function runtimeVersion(binary) {
   if (!binary || !fs.existsSync(binary)) return null;
+  if (process.env.M1ND_TEST_RUNTIME_VERSION_BY_PATH) {
+    const versions = safeJsonParse(process.env.M1ND_TEST_RUNTIME_VERSION_BY_PATH) || {};
+    const candidates = [binary, path.resolve(binary), realPathOrResolved(binary)].filter(Boolean);
+    for (const candidate of candidates) {
+      if (Object.prototype.hasOwnProperty.call(versions, candidate)) {
+        return versions[candidate];
+      }
+    }
+  }
   if (process.env.M1ND_TEST_RUNTIME_VERSION) return process.env.M1ND_TEST_RUNTIME_VERSION;
   const result = runCommand(binary, ["--version"], { timeout: 1500 });
   if (result.error && result.error.includes("ETIMEDOUT")) return "version-check-timeout";

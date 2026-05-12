@@ -74,6 +74,11 @@ When the question is host-specific, use `m1nd hosts status` before mutating
 anything. It is read-only and reports agent-pack files, likely MCP config
 wiring, runtime/PATH alignment, workspace hints, and `host_rebind_proven=false`
 per supported host.
+If host config points to an absolute current managed runtime, a stale
+`m1nd-mcp` on `PATH` is only a shadow warning, not proof that the host is
+stale. If the host launches `PATH` or config is unknown, treat a stale `PATH`
+runtime as actionable. Then use `m1nd hosts plan` and rebind or open a fresh
+host session; do not claim the client's cached tool list refreshed by itself.
 If it reports `attention`, call `m1nd hosts plan` for the exact per-host
 install, MCP-config, `M1ND_WORKSPACE_ROOT`, rebind, and verification recipe.
 
