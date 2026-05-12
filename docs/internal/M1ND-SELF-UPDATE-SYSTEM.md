@@ -15,9 +15,9 @@ Every command returns:
 ```json
 {
   "schema": "m1nd-self-update-v0",
-  "package_version": "0.9.0-beta.2",
-  "runtime_version": "m1nd-mcp 0.9.0-beta.2",
-  "latest_version": "0.9.0-beta.2",
+  "package_version": "0.9.0-beta.3",
+  "runtime_version": "m1nd-mcp 0.9.0-beta.3",
+  "latest_version": "0.9.0-beta.3",
   "channel": "beta",
   "install_state": "current",
   "planned_actions": [],

@@ -6,8 +6,17 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
+No unreleased changes.
+
+---
+
+## [0.9.0-beta.3] — 2026-05-12
+
 ### Added
 
+- Added `agent_runtime_contract` to critical retrieval/orientation responses so
+  agents can distinguish wrong workspace bindings, cold graphs, and retrieval
+  recovery states before interpreting empty results.
 - Added `m1nd update` with read-only check/status/plan, opt-in apply, verify,
   and rollback commands for safe local self-update and host-rebind guidance.
 - Added `m1nd hosts status`, a read-only host readiness contract for supported

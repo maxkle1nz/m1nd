@@ -121,20 +121,20 @@ function writeFakeBinary(file, content = "fake runtime\n") {
 }
 
 const registryCurrent = JSON.stringify({
-  "dist-tags": { beta: "0.9.0-beta.2", latest: "0.9.0-beta.2" },
-  version: "0.9.0-beta.2",
+  "dist-tags": { beta: "0.9.0-beta.3", latest: "0.9.0-beta.3" },
+  version: "0.9.0-beta.3",
 });
 
 const fakeEnvBase = {
   M1ND_TEST_NPM_VIEW_JSON: registryCurrent,
-  M1ND_TEST_CRATE_VERSION: "0.9.0-beta.2",
+  M1ND_TEST_CRATE_VERSION: "0.9.0-beta.3",
   M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "true",
 };
 
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
   },
   () => {
     const current = selfUpdate({
@@ -154,7 +154,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
   },
   () => {
     const status = selfUpdate({
@@ -315,7 +315,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
   },
   () => {
     const tmp = mkTmpDir();
@@ -375,7 +375,7 @@ const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json
   env: {
     ...process.env,
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
   },
 });
 assert.strictEqual(updateCheck.status, 0, updateCheck.stderr);
@@ -386,7 +386,7 @@ const updateStatus = spawnSync(process.execPath, [cli, "update", "status", "--js
   env: {
     ...process.env,
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
   },
 });
 assert.strictEqual(updateStatus.status, 0, updateStatus.stderr);
@@ -405,7 +405,7 @@ const hostsStatus = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
     },
   }
 );
@@ -424,7 +424,7 @@ const hostsPlan = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.2",
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.3",
     },
   }
 );
