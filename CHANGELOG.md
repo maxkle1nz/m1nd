@@ -6,26 +6,59 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
-The next release train starts here.
+No unreleased changes.
+
+---
+
+## [0.9.0-beta.4] — 2026-05-12
 
 ### Added
 
-- Added `m1nd update` with `check`, `status`, `plan`, `apply`, `verify`, and
-  `rollback` subcommands for safe local self-update planning, cockpit-style
-  agent readiness, runtime replacement with backup, agent-pack refresh, and
-  host-rebind guidance.
-- Added `m1nd hosts status` as a read-only host readiness cockpit for supported
-  packaged hosts, reporting agent-pack state, MCP config hints, runtime/PATH
-  alignment, workspace hints, and the explicit host-rebind caveat.
-- Added `m1nd hosts plan` and `m1nd mcp-config --project` so agents can emit
-  host-specific rebind recipes with `M1ND_WORKSPACE_ROOT` before touching host
-  files.
+- Added `m1nd hosts apply`, an opt-in host-local mutation surface that can
+  install or refresh agent packs and write canonical MCP config snippets for
+  known hosts while preserving `host_rebind_proven=false`.
 
-### Changed
+### Fixed
 
-- Agent-pack and host-refresh docs now prefer `m1nd update` for stale runtime
-  recovery while keeping `m1nd restart` as the lower-level source-checkout
-  repair helper.
+- Scoped host runtime/config detection to the actual `m1nd` MCP config entry so
+  unrelated MCP env vars no longer pollute m1nd readiness diagnostics.
+- Demoted stale binaries on `PATH` to a shadow warning when the selected host
+  config already points to a current managed runtime.
+
+---
+
+## [0.9.0-beta.3] — 2026-05-12
+
+### Added
+
+- Added `agent_runtime_contract` to critical retrieval/orientation responses so
+  agents can distinguish wrong workspace bindings, cold graphs, and retrieval
+  recovery states before interpreting empty results.
+- Added `m1nd update` with read-only check/status/plan, opt-in apply, verify,
+  and rollback commands for safe local self-update and host-rebind guidance.
+- Added `m1nd hosts status`, a read-only host readiness contract for supported
+  packaged hosts that reports agent-pack, config, runtime, workspace, and rebind
+  caveats before agents mutate anything.
+- Added `m1nd hosts plan` and `m1nd mcp-config --project` to produce
+  host-specific rebind recipes with explicit `M1ND_WORKSPACE_ROOT`.
+
+---
+
+## [0.9.0-beta.2] — 2026-05-10
+
+### Added
+
+- Added `m1nd restart` as an external repair helper for stale MCP host
+  bindings, old native runtime binaries, and `Transport closed` recovery.
+
+### Fixed
+
+- Aligned the Rust crate versions and `m1nd-mcp --version` output with the
+  `0.9.0-beta.2` npm/package line.
+- Isolated `m1nd-operator` probe runtimes by default so parallel agents do not
+  collide on stale runtime locks during health checks.
+
+---
 
 ## [0.9.0-beta.1] — 2026-05-07
 

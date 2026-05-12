@@ -15,9 +15,9 @@ Every command returns:
 ```json
 {
   "schema": "m1nd-self-update-v0",
-  "package_version": "0.9.0-beta.3",
-  "runtime_version": "m1nd-mcp 0.9.0-beta.3",
-  "latest_version": "0.9.0-beta.3",
+  "package_version": "0.9.0-beta.4",
+  "runtime_version": "m1nd-mcp 0.9.0-beta.4",
+  "latest_version": "0.9.0-beta.4",
   "channel": "beta",
   "install_state": "current",
   "planned_actions": [],
@@ -103,6 +103,7 @@ node npm/bin/m1nd.js update plan --json
 node npm/bin/m1nd.js update verify --repo . --transport stdio --json
 node npm/bin/m1nd.js hosts status --host all --project . --json
 node npm/bin/m1nd.js hosts plan --host all --project . --json
+node npm/bin/m1nd.js hosts apply --host all --project . --json
 npm pack --dry-run --json
 cargo check --workspace
 git diff --check

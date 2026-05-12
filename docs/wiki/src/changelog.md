@@ -10,6 +10,23 @@ No unreleased changes.
 
 ---
 
+## [0.9.0-beta.4] — 2026-05-12
+
+### Added
+
+- Added `m1nd hosts apply`, an opt-in host-local mutation surface that can
+  install or refresh agent packs and write canonical MCP config snippets for
+  known hosts while preserving `host_rebind_proven=false`.
+
+### Fixed
+
+- Scoped host runtime/config detection to the actual `m1nd` MCP config entry so
+  unrelated MCP env vars no longer pollute m1nd readiness diagnostics.
+- Demoted stale binaries on `PATH` to a shadow warning when the selected host
+  config already points to a current managed runtime.
+
+---
+
 ## [0.9.0-beta.3] — 2026-05-12
 
 ### Added
