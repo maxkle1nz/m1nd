@@ -170,6 +170,9 @@ audit task while the operator keeps a private answer key of seeded defects.
 
 Instruction modes:
 
+- `m1nd-full-spec`: the agent receives the full m1nd operating layer and should
+  choose the best tool combination for the situation. This is for testing
+  whether a complete route table helps broad/hard work or slows narrow recall.
 - `m1nd-temponizer-full`: the agent receives the trained-agent loop plus the
   explicit Temponizer formula and per-phase recalibration notes. This is useful
   for testing prompt integration, but may be too heavy for recall tasks.

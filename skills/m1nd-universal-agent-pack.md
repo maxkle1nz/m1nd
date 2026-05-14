@@ -64,6 +64,18 @@ this loop by default:
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
 
+## Full-Spec Escalation
+
+For broad audits, hard bug hunts, multi-repo systems, docs/L1GHT work,
+long-running investigations, security/risk review, or when the user asks for
+the full m1nd system, load the full operating layer:
+
+`skills/m1nd-operator/references/full-spec-agent-os.md`
+
+Treat it as a route table, not a checklist. The compact pack gets you moving;
+the full-spec layer tells you which m1nd/L1GHT tool combination to use for each
+situation.
+
 ## Tool Routing
 
 - Exact text -> `search`

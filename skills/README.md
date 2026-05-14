@@ -7,6 +7,9 @@ It is intentionally host-neutral:
 - `m1nd-first` is the short rule set agents should load before repository work.
 - `m1nd-operator` is the deeper operating manual for routing, recovery, `L1GHT`,
   document binding, multi-agent coordination, and runtime refresh.
+- `m1nd-operator/references/full-spec-agent-os.md` is the full operating layer:
+  a route table for the whole m1nd/L1GHT tool system and high-value tool
+  combinations.
 - `m1nd-universal-agent-pack.md` is the portable prompt-pack form for hosts that
   do not have a native skill directory.
 

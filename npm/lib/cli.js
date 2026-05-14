@@ -172,6 +172,7 @@ function assertPackShape() {
     path.join(SKILLS_ROOT, "m1nd-operator", "SKILL.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "routing-playbooks.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "tool-families.md"),
+    path.join(SKILLS_ROOT, "m1nd-operator", "references", "full-spec-agent-os.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "runtime-and-refresh.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "references", "l1ght-and-docs.md"),
     path.join(SKILLS_ROOT, "m1nd-operator", "scripts", "probe_m1nd.py"),

@@ -22,6 +22,19 @@ pack is part of m1nd.
 
 ## Instruction Modes
 
+`m1nd-full-spec` means the agent receives the full m1nd operating layer:
+
+```text
+skills/m1nd-operator/references/full-spec-agent-os.md
+```
+
+This condition tests whether an agent performs better when it can route through
+the entire m1nd/L1GHT system: architecture maps, docs drift, multi-repo
+federation, perspectives/trails, locks, monitoring, deep risk tools, and
+surgical change prep. It should be interpreted separately from
+`m1nd-trained`; full spec is a route table for broad/hard situations, not a
+checklist for every narrow recall task.
+
 `m1nd-temponizer-full` means the agent receives the shipped trained-agent loop
 plus the explicit Temponizer formula:
 

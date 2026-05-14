@@ -12,6 +12,8 @@ same operating model.
 - `skills/m1nd-operator/SKILL.md` — the deep operator manual.
 - `skills/m1nd-operator/references/` — routing, tool-family, runtime-refresh,
   and `L1GHT` references.
+- `skills/m1nd-operator/references/full-spec-agent-os.md` — the full-spec
+  operating layer with tool-combination recipes for broad/risky work.
 - `skills/m1nd-universal-agent-pack.md` — portable rules for hosts without a
   native skill directory.
 - `npm/bin/m1nd.js` — the npm-facing installer CLI.
@@ -75,6 +77,13 @@ portable pack therefore teaches every host this default sequence:
 
 That loop is what `m1nd-trained` means in benchmark artifacts. It is part of
 the agent pack contract.
+
+For broader or harder work, escalate from the compact loop to the full-spec
+operating layer at
+`skills/m1nd-operator/references/full-spec-agent-os.md`. It is the route table
+for the whole m1nd/L1GHT surface: architecture maps, bug hunts, docs drift,
+multi-repo federation, perspectives/trails, locks, monitoring, and deep risk
+tools. Agents should treat it as a decision router, not as mandatory paperwork.
 
 If the host is stale because it is still launching an older native binary, use
 the self-update surface first:

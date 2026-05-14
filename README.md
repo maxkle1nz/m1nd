@@ -371,6 +371,13 @@ The trained loop that ships in the pack is:
 This loop is included in `m1nd-first`, `m1nd-operator`, and the universal
 agent pack for non-Codex hosts.
 
+For broader work, the pack also ships a full-spec operating layer:
+`skills/m1nd-operator/references/full-spec-agent-os.md`. It is the route table
+for the whole m1nd/L1GHT surface: tool families, recovery, architecture maps,
+docs drift, multi-repo federation, long-lived perspectives, locks, monitoring,
+deep risk tools, and surgical change prep. Agents should load it when the task
+requires the whole system rather than the compact first loop.
+
 ## Try The Agent Demo
 
 The fastest way to see the agent-first loop is to run the local demo transcript:

@@ -29,6 +29,7 @@ NON_CLAIMS = [
 
 
 VALID_INSTRUCTION_MODES = (
+    "m1nd-full-spec",
     "m1nd-temponizer-full",
     "m1nd-temponizer-compact",
     "m1nd-temponizer",
@@ -68,6 +69,7 @@ def median(values):
 
 
 def lane_plan(
+    full_spec_count=0,
     temponizer_full_count=0,
     temponizer_compact_count=0,
     temponizer_count=0,
@@ -76,6 +78,8 @@ def lane_plan(
     direct_count=3,
 ):
     lanes = []
+    for index in range(1, full_spec_count + 1):
+        lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-full-spec"})
     for index in range(1, temponizer_full_count + 1):
         lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-temponizer-full"})
     for index in range(1, temponizer_compact_count + 1):
@@ -107,7 +111,28 @@ def lane_prompt(round_payload, lane):
         "",
     ]
 
-    if lane["instruction_mode"] == "m1nd-temponizer-full":
+    if lane["instruction_mode"] == "m1nd-full-spec":
+        mode = [
+            "## m1nd Full-Spec Operating Layer",
+            "",
+            "Use m1nd as the full agent operating layer, not only as search.",
+            "Before the audit, read or reference the full-spec manual:",
+            "",
+            "`/Users/kle1nz/m1nd/skills/m1nd-operator/references/full-spec-agent-os.md`",
+            "",
+            "Required operating posture:",
+            "",
+            "1. Establish trust with `trust_selftest`, or `session_handshake` scoped to this repo.",
+            "2. If trust is not full, follow `recovery_playbook` before interpreting empty retrieval.",
+            "3. Choose tools by situation: `search`/`glob`/`view` for exact truth, `audit`/`panoramic`/`layers` for repo map, `seek`/`activate`/`why` for connected purpose, `trace`/`heuristics_surface`/`impact` for defects, `validate_plan`/`surgical_context_v2` for connected proof.",
+            "4. Use deeper families when warranted: `document_*`/L1GHT for docs, `perspective_*`/`trail_*` for long investigation, `federate*` for multi-repo, `lock_*` for coordination, `taint_trace`/`ghost_edges`/`tremor`/`epidemic` for deep risk.",
+            "5. Verify final truth with source reads, focused probes, tests, or compiler/runtime output.",
+            "6. Treat the manual as a route table, not a checklist; use the narrowest combination that proves the finding.",
+            "7. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
+            "8. Record m1nd calls, tool combinations, recovery path, files inspected, commands run, fallback reasons, and where the full-spec layer helped or hurt.",
+            "",
+        ]
+    elif lane["instruction_mode"] == "m1nd-temponizer-full":
         mode = [
             "## m1nd + Temponizer Full-Spec Mode",
             "",
@@ -287,6 +312,7 @@ def init_round(args):
 
     lanes = []
     for lane in lane_plan(
+        args.lanes_full_spec,
         args.lanes_temponizer_full,
         args.lanes_temponizer_compact,
         args.lanes_temponizer,
@@ -785,6 +811,7 @@ def main():
     init_parser.add_argument("--workspace-root", type=Path)
     init_parser.add_argument("--source-commit")
     init_parser.add_argument("--seeded-bug-count", type=int, default=5)
+    init_parser.add_argument("--lanes-full-spec", type=int, default=0)
     init_parser.add_argument("--lanes-temponizer-full", type=int, default=0)
     init_parser.add_argument("--lanes-temponizer-compact", type=int, default=0)
     init_parser.add_argument("--lanes-temponizer", type=int, default=0)

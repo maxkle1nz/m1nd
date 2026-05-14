@@ -47,6 +47,11 @@ measured high-signal pattern is:
 Internal bug-hunt rounds call this `m1nd-trained`: graph plus operating
 doctrine. A visible MCP surface without this loop is only `m1nd-basic`.
 
+For broad audits, hard bug hunts, multi-repo systems, docs/L1GHT work,
+long-running investigations, security/risk review, or explicit full-system
+requests, escalate to `references/full-spec-agent-os.md`. It is the route table
+for the whole m1nd/L1GHT tool surface; treat it as a router, not a checklist.
+
 ## Core Rules
 
 - Prefer the live MCP surface over stale prose. If tool names, counts, or parameters matter, run the bundled helper from this skill directory: `python3 scripts/probe_m1nd.py tools`.
