@@ -18,6 +18,16 @@ ROUND_SCHEMA = "m1nd-bug-hunt-round-v0"
 LANE_SCHEMA = "m1nd-bug-hunt-audit-result-v0"
 ANSWER_KEY_SCHEMA = "m1nd-bug-hunt-answer-key-v0"
 REPORT_SCHEMA = "m1nd-bug-hunt-report-v0"
+FINDING_EVENT_TYPES = {
+    "finding",
+    "finding_recorded",
+    "findings_finalized",
+    "findings_identified",
+    "runtime_probe",
+    "runtime_probes_completed",
+    "focused_probes",
+    "probe_result",
+}
 
 NON_CLAIMS = [
     "one bug-hunt round is not a public performance claim",
@@ -491,7 +501,9 @@ def parse_iso_datetime(value):
 
 
 def event_time(event):
-    return parse_iso_datetime(event.get("created_at") or event.get("timestamp"))
+    return parse_iso_datetime(
+        event.get("created_at") or event.get("timestamp") or event.get("ts")
+    )
 
 
 def seconds_between(start, end):
@@ -534,7 +546,7 @@ def summarize_event_timing(events, agent_events, answer_bug_payloads):
         (timestamp, event)
         for timestamp, event in timed_agent_events
         if (event.get("event_type") or event.get("type") or "").lower()
-        in {"finding", "finding_recorded", "findings_finalized"}
+        in FINDING_EVENT_TYPES
     ]
     first_finding_time = min((timestamp for timestamp, _event in finding_events), default=None)
 

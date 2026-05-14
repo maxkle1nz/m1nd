@@ -1,0 +1,158 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-fullspec-20260514T170336Z",
+  "lane_id": "audit-04",
+  "instruction_mode": "m1nd-temponizer-compact",
+  "repo": "p-limit",
+  "model": "GPT-5 Codex",
+  "started_at": "2026-05-14T17:05:30Z",
+  "finished_at": "2026-05-14T17:10:03Z",
+  "findings": [
+    {
+      "title": "Options object silently changes rejectOnClear default to true",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "When the first argument is an options object, destructuring uses `rejectOnClear = true`, while the public docs and type comments state the default is false.",
+      "impact": "Callers using `pLimit({concurrency: 1})` get abort rejections from `clearQueue()` even though the documented default behavior is to discard queued work without rejecting returned promises. This can unexpectedly reject `Promise.all()` or error handlers in code that only opted into the options-object form.",
+      "evidence": "index.js:4-8 initializes object-form `rejectOnClear` to true. index.d.ts:99-105 and readme.md:46-52 document `Default: false`. Runtime probe showed a pending task from `pLimit({concurrency: 1})` rejected with `{state: 'rejected', name: 'AbortError'}` after `clearQueue()`.",
+      "reproduction_or_test": "node --input-type=module probe: create `const limit = pLimit({concurrency: 1})`, start one running task and one pending task, await one tick, call `limit.clearQueue()`, then race the pending promise; actual result is an AbortError rejection, expected default-false behavior is no rejection.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The validation condition is gated by the option value itself: `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`, so falsy non-booleans such as `0`, `''`, or `null` are accepted.",
+      "impact": "The runtime accepts option values that the API and TypeScript surface reject, making JavaScript callers observe inconsistent behavior instead of receiving the documented TypeError for malformed options.",
+      "evidence": "index.js:12 checks `rejectOnClear` truthiness before checking its type. index.d.ts:99-106 declares `rejectOnClear?: boolean`, and index.test-d.ts:29 expects a string value to be a type error. Runtime probe showed `pLimit({concurrency: 1, rejectOnClear: 0})` was accepted.",
+      "reproduction_or_test": "node --input-type=module probe: call `pLimit({concurrency: 1, rejectOnClear: 0})`; actual result is accepted, expected result is TypeError `Expected rejectOnClear to be a boolean`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map stops passing indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "LimitFunction.map",
+      "cause": "`map` now checks `Array.isArray(iterable)` and passes `undefined` as the mapper index for every non-array iterable, despite using `Array.from`, whose mapper callback always receives an index.",
+      "impact": "Set, iterator, and other iterable inputs no longer match the documented `Promise.all(Array.from(iterable, (item, index) => limit(...)))` behavior. Mappers that depend on the index compute wrong results without an error.",
+      "evidence": "index.js:106-114 passes `iterableIsArray ? index : undefined`. readme.md:78-85 and index.d.ts:30-43 say the mapper receives the item value and index for an iterable. Runtime probe `limit.map(new Set(['a', 'b']), (_value, index) => index)` returned `[undefined, undefined]` (serialized as `[null, null]`).",
+      "reproduction_or_test": "node --input-type=module probe: `const limit = pLimit(1); console.log(await limit.map(new Set(['a','b']), (_value, index) => index));`; actual indexes are undefined, expected `[0, 1]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction drops all call arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper is `() => limit(() => function_())`, so it neither declares rest parameters nor forwards them into the wrapped function.",
+      "impact": "Any function wrapped with `limitFunction` that requires arguments receives `undefined` values, producing incorrect return values or runtime failures while still satisfying the exported TypeScript signature.",
+      "evidence": "index.js:121-125 returns a zero-argument wrapper. index.d.ts:133-136 declares `limitFunction<Arguments ...>` returns `(...arguments_: Arguments) => Promise<ReturnType>`, and index.test-d.ts:24-26 expects `lf('input')` to type-check. Runtime probe wrapping `(value, suffix) => `${value}-${suffix}` returned `undefined-undefined` for `limited('x', 'y')`.",
+      "reproduction_or_test": "node --input-type=module probe: `const limited = limitFunction((value, suffix) => `${value}-${suffix}`, {concurrency: 1}); console.log(await limited('x', 'y'));`; actual `undefined-undefined`, expected `x-y`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Number.POSITIVE_INFINITY is rejected as a concurrency limit",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "Concurrency validation now requires `Number.isInteger(concurrency)` and removed the previous `concurrency === Number.POSITIVE_INFINITY` allowance.",
+      "impact": "Callers can no longer use `Infinity` to express an effectively unbounded limiter, even though it is a number greater than 1 and the local baseline accepted it. This is a backward-compatible API regression for consumers that disable limiting conditionally.",
+      "evidence": "index.js:127-130 rejects any non-integer value. `git diff -- index.js` shows the baseline allowed `(Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0`. Runtime probe `pLimit(Number.POSITIVE_INFINITY)` threw TypeError `Expected concurrency to be a number from 1 and up`.",
+      "reproduction_or_test": "node --input-type=module probe: call `pLimit(Number.POSITIVE_INFINITY)` and run two no-op tasks; actual result is TypeError, expected acceptance with unbounded execution based on the repo baseline behavior.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' lane-prompts/audit-04.md",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> tools --names-only",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> run trust_selftest/session_handshake/audit",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> run ingest/session_handshake/audit",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> run ingest/seek/search/activate",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> run ingest/recovery_playbook/activate",
+    "nl -ba index.js | sed -n '1,240p'",
+    "nl -ba test.js | sed -n '1,520p'",
+    "nl -ba index.d.ts | sed -n '1,240p'",
+    "nl -ba index.test-d.ts | sed -n '1,220p'",
+    "nl -ba readme.md | sed -n '1,260p'",
+    "cat package.json",
+    "npm test",
+    "node --input-type=module runtime probe for rejectOnClear default, rejectOnClear validation, map iterable indexes, and limitFunction arguments",
+    "node --input-type=module runtime probe for Number.POSITIVE_INFINITY concurrency",
+    "git diff -- index.js",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> run ingest/impact/validate_plan"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-fullspec-20260514T170336Z/lane-prompts/audit-04.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-fullspec-20260514T170336Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-04/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-04/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-04/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-04/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-04/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-04/p-limit/package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "tools",
+      "result": "Live surface available through /usr/local/bin/m1nd-mcp with trust, recovery, ingest, audit, seek, activate, impact, and validate_plan."
+    },
+    {
+      "tool": "trust_selftest/session_handshake",
+      "result": "Initial binding matched the lane workspace but reported needs_ingest with an empty graph."
+    },
+    {
+      "tool": "ingest/session_handshake",
+      "result": "Recovered to full_trust after ingesting the lane repo in an isolated --no-worktree-artifacts runtime; graph reported 82 nodes and 94 edges."
+    },
+    {
+      "tool": "audit/seek/activate",
+      "result": "Oriented to index.js, validateConcurrency, enqueue, limitFunction, index.d.ts, and index.test-d.ts. Broad audit contained unrelated Cargo noise, so final claims were verified from files and runtime probes."
+    },
+    {
+      "tool": "recovery_playbook",
+      "result": "Called after literal search returned zero results despite a populated graph; playbook advised direct local file truth while retrieval suspicion remained."
+    },
+    {
+      "tool": "impact/validate_plan",
+      "result": "Impact showed index.js fans into the p-limit core functions; validate_plan resolved all audit probe actions and suggested focused tests around index.js."
+    }
+  ],
+  "temponizer_usage": [
+    {
+      "phase": "IO",
+      "tc_estimate": "0.4m from Tp=4m",
+      "te_measured": "about 0.5m",
+      "decision": "Read the lane prompt, schema, and repo status before broader exploration.",
+      "recalibration_note": "Small repo and explicit lane paths made direct orientation cheap."
+    },
+    {
+      "phase": "DBG",
+      "tc_estimate": "0.4m from Tp=5m",
+      "te_measured": "about 1.0m",
+      "decision": "Recover cold m1nd graph via ingest rather than treat empty retrieval as absence.",
+      "recalibration_note": "Probe startup dominated more than reasoning; recovery still stayed cheap."
+    },
+    {
+      "phase": "DBG",
+      "tc_estimate": "0.8m from Tp=10m",
+      "te_measured": "about 1.5m",
+      "decision": "Use source reads and node probes for suspected API contract regressions.",
+      "recalibration_note": "Runtime checks were faster than trying to repair noisy literal search."
+    },
+    {
+      "phase": "GEN",
+      "tc_estimate": "0.3m from Tp=10m",
+      "te_measured": "about 1.0m",
+      "decision": "Stop after five concrete source-backed findings with reproductions.",
+      "recalibration_note": "Additional broad hunting had lower expected yield than packaging proven defects."
+    }
+  ],
+  "agent_testimony": "I did not read operator-only artifacts and did not patch the audited repo. The lane repo already had an uncommitted index.js modification when checked. `npm test` could not run because the workspace's node_modules lacked `.bin/xo`; I used direct Node runtime probes for behavioral proof instead.",
+  "notes": "m1nd recovery: initial trust_selftest reported needs_ingest; ingest restored full_trust. Literal search later returned zero candidates and recovery_playbook advised fallback to local file truth, so final claims are based on direct source reads plus runtime probes. Total Te for meaningful audit work was approximately 4m30s.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

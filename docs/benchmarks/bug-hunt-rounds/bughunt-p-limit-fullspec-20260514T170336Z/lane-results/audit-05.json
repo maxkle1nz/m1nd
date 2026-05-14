@@ -1,0 +1,115 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-fullspec-20260514T170336Z",
+  "lane_id": "audit-05",
+  "instruction_mode": "m1nd-trained",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-14T17:03:36Z",
+  "finished_at": "2026-05-14T17:08:56Z",
+  "findings": [
+    {
+      "title": "limitFunction drops every caller argument before invoking the wrapped function",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper is declared as a zero-argument arrow and schedules `function_()` with no forwarded rest arguments.",
+      "impact": "Any limited function that depends on parameters receives `undefined` values at runtime, even though the TypeScript declaration exposes a generic argument-preserving wrapper.",
+      "evidence": "index.js:121-124 returns `() => limit(() => function_())`; index.d.ts:133-136 declares `limitFunction<Arguments extends unknown[], ReturnType>(function_: (...arguments_: Arguments) => PromiseLike<ReturnType>, options: Options): (...arguments_: Arguments) => Promise<ReturnType>`. Focused probe `limitFunction(async value => value, {concurrency: 1})('kept')` printed `undefined`.",
+      "reproduction_or_test": "node --input-type=module -e \"import {limitFunction} from './index.js'; const limited = limitFunction(async value => value, {concurrency: 1}); console.log(await limited('kept'));\"",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits the mapper index for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "map",
+      "cause": "`limit.map` computes whether the input is an array and passes `undefined` as the mapper index for every other iterable.",
+      "impact": "Set, iterator, and generator inputs violate the documented `Array.from(iterable, (item, index) => limit(mapperFunction, item, index))` behavior, so index-dependent mappers break for supported iterable inputs.",
+      "evidence": "index.js:107-113 uses `iterableIsArray ? index : undefined`; readme.md:78-84 and index.d.ts:30-43 state that the mapper receives item value and index for an iterable. Focused probe over `new Set(['a','b'])` printed `[[\"a\",null],[\"b\",null]]`, where JSON null is the stringified `undefined` index.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; const limit = pLimit(1); console.log(JSON.stringify(await limit.map(new Set(['a','b']), (value, index) => [value, index])));\"",
+      "confidence": "high"
+    },
+    {
+      "title": "pLimit({concurrency}) enables rejectOnClear by default despite the documented false default",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The options-object destructuring sets `rejectOnClear = true`, while the top-level variable and public documentation say the default is false.",
+      "impact": "The numeric and options-object forms are not equivalent: `pLimit({concurrency: 1}).clearQueue()` rejects pending promises with `AbortError` even when the caller did not opt in, which can unexpectedly fail `Promise.all` users.",
+      "evidence": "index.js:4 initializes `rejectOnClear` to false, but index.js:6-8 changes the default to true for an options object. readme.md:46-52, readme.md:149-155, and index.d.ts:99-106 document `Default: false`. A focused probe with `pLimit({concurrency: 1})` printed `AbortError`; the same clear path with `pLimit(1)` remained `still-pending`.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; const limit = pLimit({concurrency: 1}); const running = limit(() => new Promise(resolve => setTimeout(resolve, 30))); const pending = limit(() => 'never'); await Promise.resolve(); limit.clearQueue(); try { await pending; console.log('resolved'); } catch (error) { console.log(error.name); } await running;\"",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsey non-boolean rejectOnClear values bypass runtime validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The validation condition checks `rejectOnClear && typeof rejectOnClear !== 'boolean'`, so falsey non-booleans are accepted instead of rejected.",
+      "impact": "Invalid JavaScript callers can silently pass `0`, `null`, or an empty string for a documented boolean option, hiding configuration mistakes and producing different behavior from truthy invalid values.",
+      "evidence": "index.js:12-14 only throws for truthy non-booleans; index.d.ts:99-106 and readme.md:46-52 define the option as boolean. Focused probe printed `0:accepted`, `null:accepted`, and `:accepted`.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; for (const value of [0, null, '']) { try { pLimit({concurrency: 1, rejectOnClear: value}); console.log(String(value)+':accepted'); } catch (error) { console.log(String(value)+':'+error.name); } }\"",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,260p' lane-prompts/audit-05.md",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-workspace> tools",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-workspace> run '[trust_selftest, session_handshake, audit]'",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-workspace> run '[recovery_playbook, ingest, session_handshake, search, seek, activate]'",
+    "nl -ba index.js | sed -n '1,220p'",
+    "nl -ba index.d.ts | sed -n '1,180p'",
+    "nl -ba test.js | sed -n '1,520p'",
+    "nl -ba readme.md | sed -n '1,180p'",
+    "nl -ba package.json | sed -n '1,200p'",
+    "nl -ba index.test-d.ts | sed -n '1,220p'",
+    "git status --short",
+    "node --input-type=module focused reproduction probes for limitFunction, limit.map, rejectOnClear default, rejectOnClear validation, and pLimit(1) clearQueue baseline",
+    "npm test",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-workspace> run '[ingest, impact, validate_plan]'"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-fullspec-20260514T170336Z/lane-prompts/audit-05.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-fullspec-20260514T170336Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-05/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-05/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-05/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-05/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-05/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-fullspec-20260514T170336Z/audit-05/p-limit/package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "tools",
+      "result": "96 tools exposed from /usr/local/bin/m1nd-mcp"
+    },
+    {
+      "tool": "trust_selftest/session_handshake",
+      "result": "Initial verdict was needs_ingest with correct workspace binding and empty temp graph"
+    },
+    {
+      "tool": "recovery_playbook",
+      "result": "Recommended ingest on the same binding, then rerun session_handshake"
+    },
+    {
+      "tool": "ingest/session_handshake",
+      "result": "Ingested 10 files, 82 nodes, 94 edges; trust_mode full_trust"
+    },
+    {
+      "tool": "audit/search/seek/activate",
+      "result": "Oriented investigation to index.js, index.d.ts, index.test-d.ts, test.js, clearQueue, concurrency, and map/limitFunction surfaces; ignored unrelated m1nd cargo contamination in audit output"
+    },
+    {
+      "tool": "impact/validate_plan",
+      "result": "Impact for file::index.js reached resumeNext, next, run, enqueue, generator, limitFunction, validateConcurrency; validate_plan classified audit-only index.js scope as low risk and suggested missing direct tests"
+    }
+  ],
+  "temponizer_usage": [],
+  "agent_testimony": "I did not read operator-only artifacts and did not patch the audited repo. I used m1nd first, followed its needs_ingest recovery path, then verified every reported finding with direct source reads and focused Node probes.",
+  "notes": "The lane worktree already had `M index.js` before any writes from this audit; no audited files were modified. `npm test` could not run because dev dependencies were absent (`xo: command not found`). Local probe_m1nd.py uses temporary runtimes by default, so ingest and retrieval had to be combined in one run; an isolated retrieval attempt correctly reported needs_ingest and was recovered through recovery_playbook. Te=5m20s.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

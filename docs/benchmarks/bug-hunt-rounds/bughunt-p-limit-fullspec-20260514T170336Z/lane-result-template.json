@@ -1,0 +1,21 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-fullspec-20260514T170336Z",
+  "lane_id": "audit-01",
+  "instruction_mode": "m1nd-full-spec",
+  "repo": "p-limit",
+  "model": "",
+  "started_at": "",
+  "finished_at": "",
+  "findings": [],
+  "commands_run": [],
+  "files_inspected": [],
+  "m1nd_usage": [],
+  "temponizer_usage": [],
+  "agent_testimony": "",
+  "notes": "",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}
