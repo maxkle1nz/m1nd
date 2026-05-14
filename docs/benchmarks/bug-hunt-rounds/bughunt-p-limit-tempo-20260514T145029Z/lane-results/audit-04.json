@@ -1,0 +1,151 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-tempo-20260514T145029Z",
+  "lane_id": "audit-04",
+  "instruction_mode": "m1nd-trained",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-14T14:50:42.655393+00:00",
+  "finished_at": "2026-05-14T15:14:07Z",
+  "findings": [
+    {
+      "title": "Options-object calls flip `rejectOnClear` to true by default",
+      "severity": "high",
+      "file": "index.js:6-13",
+      "symbol": "pLimit",
+      "cause": "The options-object destructuring now uses `rejectOnClear = true`, even though the public contract documents the default as `false`.",
+      "impact": "Any caller using `pLimit({concurrency: 1})` gets aborting `clearQueue()` behavior without opting in. Pending work that should simply be dropped now rejects with `AbortError`, which can break teardown code and `Promise.all` call sites that rely on the documented default.",
+      "evidence": [
+        "`index.js:7` sets `({concurrency, rejectOnClear = true} = concurrency);`.",
+        "`readme.md:48-52` and `readme.md:151-155` document `rejectOnClear` with `Default: false`.",
+        "A focused Node probe showed `pLimit({concurrency: 1})` rejecting a queued promise with `AbortError` immediately after `clearQueue()`."
+      ],
+      "reproduction_or_test": "Run a pending-task probe with `const limit = pLimit({concurrency: 1}); ... limit.clearQueue();`. Observed result: `rejected:AbortError:This operation was aborted`. Existing coverage in `test.js:257-273` only checks basic scheduling for the options object and never exercises `clearQueue()` under default options.",
+      "confidence": "high"
+    },
+    {
+      "title": "`limitFunction` drops forwarded arguments and receiver context",
+      "severity": "high",
+      "file": "index.js:121-124",
+      "symbol": "limitFunction",
+      "cause": "The wrapper returned by `limitFunction` is now `() => limit(() => function_())`, so it never forwards call arguments and also loses any dynamic `this` binding.",
+      "impact": "Any parameterized function wrapped by `limitFunction` receives `undefined` inputs at runtime. Method-style callbacks also lose their receiver. The named export becomes unusable for a large class of real callers despite its advertised signature.",
+      "evidence": [
+        "`index.js:124` returns `() => limit(() => function_());`.",
+        "`index.d.ts:133-136` promises a returned function of shape `(...arguments_: Arguments) => Promise<ReturnType>`.",
+        "A focused Node probe with `limitFunction((a, b) => `${String(a)}|${String(b)}`, {concurrency: 1})` returned `undefined|undefined` when called with `('left', 'right')`."
+      ],
+      "reproduction_or_test": "Create `const limited = limitFunction((a, b) => `${String(a)}|${String(b)}`, {concurrency: 1}); await limited('left', 'right');`. Observed output: `undefined|undefined`. Existing coverage in `test.js:343-356` only exercises a zero-argument function, so the regression is currently invisible to the suite.",
+      "confidence": "high"
+    },
+    {
+      "title": "`limit.map()` stops passing indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js:107-113",
+      "symbol": "generator.map",
+      "cause": "The mapper call now substitutes `undefined` for the index unless `Array.isArray(iterable)` is true.",
+      "impact": "Code that uses `limit.map()` with `Set`, iterator, or other iterable inputs no longer receives positional indexes, even though the API promises them. Position-dependent mappers silently compute the wrong results.",
+      "evidence": [
+        "`index.js:111` calls `this(function_, value, iterableIsArray ? index : undefined)`.",
+        "`readme.md:78-85` says the mapper receives the item value and its index for `iterable` inputs in general.",
+        "A focused Node probe with `pLimit(2).map(new Set(['a', 'b', 'c']), (value, index) => `${value}:${String(index)}`)` produced `[\"a:undefined\", \"b:undefined\", \"c:undefined\"]`."
+      ],
+      "reproduction_or_test": "Call `limit.map(new Set(['a', 'b', 'c']), (value, index) => `${value}:${String(index)}`)`. Observed output: `a:undefined,b:undefined,c:undefined`. The iterable tests in `test.js:239-255` only assert mapped values and do not verify the index argument, so this regression passes current coverage.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean `rejectOnClear` values are accepted silently",
+      "severity": "low",
+      "file": "index.js:12-13",
+      "symbol": "pLimit",
+      "cause": "Validation was narrowed from `typeof rejectOnClear !== 'boolean'` to `rejectOnClear && typeof rejectOnClear !== 'boolean'`, which skips all falsy non-boolean inputs.",
+      "impact": "Configuration mistakes such as `rejectOnClear: 0`, `''`, or `null` no longer fail fast and instead change behavior silently. Callers can think they passed a valid boolean option when the library actually coerces bad input into the non-rejecting path.",
+      "evidence": [
+        "`index.js:12-13` only throws when `rejectOnClear` is truthy and not boolean.",
+        "`readme.md:47-52` documents `rejectOnClear` as a boolean option.",
+        "A focused Node probe accepted `pLimit({concurrency: 1, rejectOnClear: 0})` without throwing."
+      ],
+      "reproduction_or_test": "Run `pLimit({concurrency: 1, rejectOnClear: 0})`. Observed result: accepted without error. The invalid-input coverage in `test.js:275-303` only checks `concurrency`, so bad `rejectOnClear` types are currently untested.",
+      "confidence": "high"
+    },
+    {
+      "title": "`validateConcurrency` regresses `Infinity` support",
+      "severity": "medium",
+      "file": "index.js:127-130",
+      "symbol": "validateConcurrency",
+      "cause": "The guard now requires `Number.isInteger(concurrency)` and no longer permits `Number.POSITIVE_INFINITY`, even though the pre-change diff and user-facing wording allow a number 'from 1 and up'.",
+      "impact": "Callers can no longer disable limiting by passing `Infinity` while keeping the same API shape. Existing code that treated `Infinity` as an 'unbounded' limiter will now throw synchronously.",
+      "evidence": [
+        "`index.js:128-129` now rejects any non-integer `concurrency` value.",
+        "`git diff -- index.js` shows the previous guard explicitly allowed `concurrency === Number.POSITIVE_INFINITY`.",
+        "A focused Node probe showed `pLimit(Infinity)` now throws `TypeError: Expected `concurrency` to be a number from 1 and up`."
+      ],
+      "reproduction_or_test": "Run `pLimit(Infinity)`. Observed result: `TypeError: Expected `concurrency` to be a number from 1 and up`. Current invalid-input coverage in `test.js:275-303` does not cover `Infinity`, so this regression slips through.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-04.md",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py tools",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py call trust_selftest '{\"agent_id\":\"audit-04\",\"scope\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-04/p-limit\"}'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py call session_handshake '{\"agent_id\":\"audit-04\",\"scope\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-04/p-limit\"}'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[{\"name\":\"ingest\",\"arguments\":{\"agent_id\":\"audit-04\",\"path\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-04/p-limit\"}},{\"name\":\"session_handshake\",\"arguments\":{\"agent_id\":\"audit-04\",\"scope\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-04/p-limit\"}},{\"name\":\"audit\",\"arguments\":{\"agent_id\":\"audit-04\",\"path\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-04/p-limit\",\"profile\":\"auto\"}}]'",
+    "nl -ba index.js | sed -n '1,260p'",
+    "nl -ba index.d.ts | sed -n '1,260p'",
+    "nl -ba test.js | sed -n '1,420p'",
+    "nl -ba readme.md | sed -n '1,260p'",
+    "git status --short",
+    "git diff -- index.js test.js index.d.ts readme.md",
+    "node --input-type=module <<'EOF' ... clearQueue/limitFunction/map probes ... EOF",
+    "node --input-type=module <<'EOF' ... rejectOnClear:0 / Infinity probes ... EOF",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[{\"name\":\"ingest\",\"arguments\":{\"agent_id\":\"audit-04\",\"path\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-04/p-limit\"}},{\"name\":\"search\",\"arguments\":{\"agent_id\":\"audit-04\",\"mode\":\"literal\",\"query\":\"rejectOnClear = true\",\"filename_pattern\":\"index.js\",\"context_lines\":3}},{\"name\":\"search\",\"arguments\":{\"agent_id\":\"audit-04\",\"mode\":\"literal\",\"query\":\"Default: `false`\",\"filename_pattern\":\"readme.md\",\"context_lines\":2}},{\"name\":\"search\",\"arguments\":{\"agent_id\":\"audit-04\",\"mode\":\"literal\",\"query\":\"return () => limit(() => function_())\",\"filename_pattern\":\"index.js\",\"context_lines\":2}},{\"name\":\"search\",\"arguments\":{\"agent_id\":\"audit-04\",\"mode\":\"literal\",\"query\":\"...arguments_: Arguments\",\"filename_pattern\":\"index.d.ts\",\"context_lines\":2}},{\"name\":\"search\",\"arguments\":{\"agent_id\":\"audit-04\",\"mode\":\"literal\",\"query\":\"iterableIsArray ? index : undefined\",\"filename_pattern\":\"index.js\",\"context_lines\":2}},{\"name\":\"search\",\"arguments\":{\"agent_id\":\"audit-04\",\"mode\":\"literal\",\"query\":\"The mapper function receives the item value and its index.\",\"filename_pattern\":\"readme.md\",\"context_lines\":2}},{\"name\":\"impact\",\"arguments\":{\"agent_id\":\"audit-04\",\"node_id\":\"file::index.js::fn::limitFunction\"}}]'"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-04.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-result-template.json",
+    "index.js",
+    "index.d.ts",
+    "test.js",
+    "readme.md",
+    "package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "trust_selftest",
+      "purpose": "Establish trust and classify binding state before retrieval.",
+      "result": "Returned `needs_ingest` with a recovery playbook that correctly pointed to `ingest` on the lane workspace."
+    },
+    {
+      "tool": "session_handshake",
+      "purpose": "Confirm workspace binding and graph health before and after ingest.",
+      "result": "Confirmed `full_trust` after ingest with the lane workspace bound correctly."
+    },
+    {
+      "tool": "ingest",
+      "purpose": "Populate the graph for the assigned workspace.",
+      "result": "Parsed the p-limit workspace and enabled graph-backed audit/search for the rest of the investigation."
+    },
+    {
+      "tool": "audit",
+      "purpose": "Get one-pass repo orientation and risk concentration.",
+      "result": "Flagged `index.js` as the central risk surface, which matched the eventual behavioral defects."
+    },
+    {
+      "tool": "search",
+      "purpose": "Tie implementation lines to public contract text.",
+      "result": "Confirmed the exact implementation/doc mismatches around `rejectOnClear`, `limitFunction`, and `limit.map()`."
+    },
+    {
+      "tool": "impact",
+      "purpose": "Check connected proof for the `limitFunction` seam.",
+      "result": "Returned a tiny local blast radius, consistent with the small single-file surface of this package."
+    }
+  ],
+  "temponizer_usage": [],
+  "agent_testimony": "I followed the m1nd-trained loop: trust_selftest/session_handshake first, then ingest, audit, graph-backed search, direct source reads, git diff, and focused `node --input-type=module` runtime probes. I did not run the full `npm test` suite because the lane note explicitly said small behavior probes were sufficient.",
+  "notes": "The local `probe_m1nd.py` ingest/audit workflow materialized `graph_snapshot.json`, `ingest_roots.json`, and `plasticity_state.json` inside the workspace during investigation. I did not edit or clean those generated files afterward.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

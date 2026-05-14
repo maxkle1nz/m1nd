@@ -1,0 +1,177 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-tempo-20260514T145029Z",
+  "lane_id": "audit-07",
+  "instruction_mode": "m1nd-temponizer-full",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-14T15:38:12Z",
+  "finished_at": "2026-05-14T15:43:14Z",
+  "findings": [
+    {
+      "title": "Options-object construction enables rejectOnClear by default",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The options destructuring path uses `rejectOnClear = true`, so `pLimit({concurrency: 1})` flips on rejection even though the documented and typed default is false.",
+      "impact": "Callers that follow the documented options-object form can get unexpected `AbortError` rejections from `clearQueue()`, which changes teardown and `Promise.all` behavior instead of leaving discarded work unresolved.",
+      "evidence": "Code: `index.js:6-13`. Contract: `readme.md:46-58`, `index.d.ts:99-106`. Probe: `pLimit({concurrency: 1})` + `clearQueue()` rejected a pending promise with `AbortError`, while `pLimit(1)` left the comparable pending promise unsettled.",
+      "reproduction_or_test": "Run a `node --input-type=module` probe that enqueues one running task and one pending task with `const limit = pLimit({concurrency: 1}); await Promise.resolve(); limit.clearQueue(); await pending;` and observe `{\"name\":\"AbortError\",\"message\":\"This operation was aborted\"}`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction drops all call arguments to the wrapped function",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The wrapper returned from `limitFunction()` is `() => limit(() => function_())`, so it never forwards the caller's arguments into `function_`.",
+      "impact": "Reusable limited functions that accept parameters silently receive `undefined` inputs. That breaks the documented `limitFunction()` use case and the `recipes.md` example that wraps `fetchUrl(url)`.",
+      "evidence": "Code: `index.js:121-124`. Contract: `index.d.ts:133-136`, `recipes.md:142-163`. Probe: wrapping `async (a, b) => ({a: String(a), b: String(b)})` and calling `limited('left', 'right')` returned `{\"a\":\"undefined\",\"b\":\"undefined\"}`.",
+      "reproduction_or_test": "Run `const limited = limitFunction(async (a, b) => ({a: String(a), b: String(b)}), {concurrency: 1}); console.log(await limited('left', 'right'));` and observe both arguments arrive as `undefined`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits mapper index for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "generator.map",
+      "cause": "The mapper call site passes `iterableIsArray ? index : undefined`, so Sets, iterators, and other iterables never receive the documented index argument.",
+      "impact": "Code that relies on `limit.map()` to supply stable indexes across general iterables breaks silently for `Set` and iterator inputs even though the README and typings promise `Array.from(iterable, (item, index) => ...)` semantics.",
+      "evidence": "Code: `index.js:107-112`. Contract: `readme.md:78-85`, `index.d.ts:30-43`. Probe: `await limit.map(new Set(['a', 'b', 'c']), async (value, index) => ...)` recorded indexes as `undefined` for every item.",
+      "reproduction_or_test": "Run a `node --input-type=module` probe with `const seen = []; await limit.map(new Set(['a', 'b', 'c']), async (value, index) => { seen.push({value, index: String(index)}); }); console.log(seen);` and observe every `index` string is `\"undefined\"`.",
+      "confidence": "high"
+    },
+    {
+      "title": "rejectOnClear validation accepts falsey non-boolean values",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The type guard checks `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`, which only rejects truthy non-booleans and lets `0`, `''`, and `null` slip through.",
+      "impact": "Misconfigured callers do not get a `TypeError` for invalid option values and instead silently fall back to falsey behavior, making API misuse harder to detect.",
+      "evidence": "Code: `index.js:12-13`. Contract: `readme.md:46-52`, `index.d.ts:99-106`. Probe: `pLimit({concurrency: 1, rejectOnClear: 0})`, `''`, and `null` all constructed successfully instead of throwing.",
+      "reproduction_or_test": "Run `for (const value of [0, '', null]) { try { pLimit({concurrency: 1, rejectOnClear: value}); console.log('accepted'); } catch { console.log('rejected'); } }` and observe all three invalid values are accepted.",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-07.md",
+    "sed -n '1,240p' /Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+    "pwd",
+    "sed -n '1,260p' /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py",
+    "sed -n '1,240p' /Users/kle1nz/m1nd/docs/benchmarks/lane-result-template.json (failed: no such file)",
+    "m1nd --help (failed: command not found)",
+    "rg --files /Users/kle1nz/m1nd/docs | rg 'lane-result-template\\.json$'",
+    "command -v m1nd-mcp && m1nd-mcp --help | sed -n '1,240p'",
+    "rg -n \"temponizer|alpha\\(phi\\)|Tc = alpha\\(phi\\) \\* Tp|recalibration_note\" /Users/kle1nz/m1nd/docs /Users/kle1nz/m1nd -g '!**/lane-results/**' -g '!**/event-streams/**' -g '!**/operator-only/**'",
+    "sed -n '180,280p' /Users/kle1nz/m1nd/scripts/benchmark/bug_hunt_round.py",
+    "rg --files .",
+    "rg -n \"LANE_SCHEMA|ROUND_SCHEMA|ANSWER_KEY_SCHEMA|event_source|commands_run|m1nd_usage|temponizer_usage\" /Users/kle1nz/m1nd/scripts/benchmark/bug_hunt_round.py",
+    "sed -n '1,260p' index.js",
+    "sed -n '1,260p' test.js",
+    "sed -n '1,240p' package.json",
+    "sed -n '241,520p' test.js",
+    "sed -n '1,260p' index.d.ts",
+    "sed -n '1,260p' readme.md",
+    "sed -n '1,220p' index.test-d.ts",
+    "test -d node_modules && echo yes || echo no",
+    "node --input-type=module (probe: limitFunction argument forwarding)",
+    "node --input-type=module (probe: limit.map index on Set)",
+    "nl -ba index.js | sed -n '1,220p'",
+    "npm test",
+    "rg -n \"runtime-dir|sidecar state|event log|registry-dir|plasticity\" /Users/kle1nz/m1nd/m1nd-mcp /Users/kle1nz/m1nd/m1nd-core -g '!**/target/**'",
+    "node --input-type=module (probe: rejectOnClear default on options object)",
+    "node --input-type=module (probe: numeric-form clearQueue baseline)",
+    "node --input-type=module (probe: rejectOnClear falsey non-boolean validation)",
+    "sed -n '1,220p' recipes.md",
+    "nl -ba readme.md | sed -n '20,140p'",
+    "nl -ba recipes.md | sed -n '80,180p'",
+    "nl -ba index.d.ts | sed -n '1,180p'",
+    "sed -n '288,340p' /Users/kle1nz/m1nd/scripts/benchmark/bug_hunt_round.py",
+    "sed -n '430,500p' /Users/kle1nz/m1nd/scripts/benchmark/bug_hunt_round.py",
+    "nl -ba /Users/kle1nz/m1nd/m1nd-mcp/src/cli.rs | sed -n '40,80p'",
+    "nl -ba /Users/kle1nz/m1nd/m1nd-mcp/src/session.rs | sed -n '300,320p'",
+    "nl -ba /Users/kle1nz/m1nd/m1nd-mcp/src/report_handlers.rs | sed -n '440,456p'",
+    "sed -n '1,80p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/event-streams/audit-07.jsonl",
+    "sed -n '1,260p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-results/audit-07.json"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-07.md",
+    "/Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+    "/Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py",
+    "/Users/kle1nz/m1nd/scripts/benchmark/bug_hunt_round.py",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-07/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-07/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-07/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-07/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-07/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-07/p-limit/recipes.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-07/p-limit/package.json",
+    "/Users/kle1nz/m1nd/m1nd-mcp/src/cli.rs",
+    "/Users/kle1nz/m1nd/m1nd-mcp/src/session.rs",
+    "/Users/kle1nz/m1nd/m1nd-mcp/src/report_handlers.rs"
+  ],
+  "m1nd_usage": [
+    {
+      "step": "surface_discovery",
+      "tool": "tool_search.tool_search_tool",
+      "query": "m1nd MCP trust_selftest session_handshake audit search seek activate impact validate_plan surgical_context_v2",
+      "result": "No direct live m1nd MCP namespace surfaced in this session. Deferred discovery only exposed the DEXT3R wrappers `dexter_m1nd_flash` and `dexter_set_m1nd_context`.",
+      "compliance_note": "I did not call the DEXT3R wrappers because they persist session memory outside the two artifact files that were the only allowed write targets."
+    },
+    {
+      "step": "runtime_feasibility_check",
+      "tool": "m1nd-mcp --help plus source inspection",
+      "result": "`m1nd-mcp` is installed, but it documents `--runtime-dir` as instance sidecar state and `--event-log` as append-only JSONL. Source also shows a dedicated `runtime_root` and runtime directory creation with `graph.json` and `plasticity.json` sidecar files.",
+      "evidence": [
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/cli.rs:47",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/session.rs:309",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/report_handlers.rs:443"
+      ],
+      "compliance_note": "Because I could not prove a zero-write live m1nd path inside the lane's write fence, I did not invoke the trained trust loop directly and instead recorded the constraint here."
+    }
+  ],
+  "temponizer_usage": [
+    {
+      "phase": "PAR",
+      "tp_estimate": "5m",
+      "alpha": 0.05,
+      "tc_estimate": "15s",
+      "te_measured": "~50s",
+      "decision": "Investigate tool surface and write-fence constraints before trusting any repo search path; reject the surfaced DEXT3R wrapper and raw live m1nd invocation as non-compliant.",
+      "recalibration_note": "Environment and compliance checks took materially longer than the base PAR prior; use roughly 0.17 for similar host-tooling classification steps next time."
+    },
+    {
+      "phase": "IO",
+      "tp_estimate": "12m",
+      "alpha": 0.10,
+      "tc_estimate": "72s",
+      "te_measured": "~90s",
+      "decision": "Read source, tests, typings, README, recipes, and benchmark schema before making any claim.",
+      "recalibration_note": "Mixed repo-plus-harness reads ran a bit longer than the base IO prior; a local alpha near 0.12 would better fit this shape."
+    },
+    {
+      "phase": "DBG",
+      "tp_estimate": "20m",
+      "alpha": 0.08,
+      "tc_estimate": "96s",
+      "te_measured": "~75s",
+      "decision": "Use small `node --input-type=module` probes instead of broad installs or a full suite run; confirm behavior directly for each suspected contract mismatch.",
+      "recalibration_note": "Focused probes were faster than the inherited human estimate because runtime dependencies were already present; keep local DBG alpha near 0.06-0.08 for this case."
+    },
+    {
+      "phase": "GEN",
+      "tp_estimate": "10m",
+      "alpha": 0.03,
+      "tc_estimate": "18s",
+      "te_measured": "~45s",
+      "decision": "Package evidence into the lane result JSON and append agent events only after the proofs were complete.",
+      "recalibration_note": "Structured audit bookkeeping took longer than the bare GEN prior; for benchmark packaging a local alpha near 0.07 is more realistic."
+    }
+  ],
+  "agent_testimony": "I followed the lane prompt, stayed inside the assigned p-limit workspace, and wrote only the result JSON plus the event-stream JSONL. I did not read other lane prompts or results and did not inspect operator-only artifacts. Because the live m1nd surface available here would have required writes outside the allowed artifact files, I recorded the m1nd constraint and used direct source reads plus focused Node probes to prove the findings. A full `npm test` run was not available in this workspace because the script fails immediately at `xo` (`sh: xo: command not found`).",
+  "notes": "Main proven issues: (1) options-object construction flips `rejectOnClear` on by default, (2) `limitFunction()` drops arguments, (3) `limit.map()` suppresses index for non-array iterables, and (4) falsey non-boolean `rejectOnClear` values bypass validation. The benchmark harness template was inferred from `bug_hunt_round.py` because the first attempted template path did not exist.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

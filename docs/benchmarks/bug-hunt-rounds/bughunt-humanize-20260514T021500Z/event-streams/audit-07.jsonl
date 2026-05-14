@@ -1,0 +1,37 @@
+{"schema":"m1nd-bug-hunt-event-v0","round_id":"bughunt-humanize-20260514T021500Z","lane_id":"audit-07","event_type":"audit_assigned","event_source":"harness","created_at":"2026-05-14T02:46:44.228Z"}
+{"event_type":"m1nd_attempt","event_source":"agent","detail":"tool_search exposed no direct m1nd search/seek/audit tool; command -v m1nd and m1nd --help returned exit 1 with no output, so local files/tests are used as final truth"}
+{"event_type":"command","event_source":"agent","detail":"pwd; ls -la in repo to orient top-level structure"}
+{"event_type":"command","event_source":"agent","detail":"git status --short --branch showed clean master branch"}
+{"event_type":"command","event_source":"agent","detail":"rg --files enumerated src, tests, docs, locale files"}
+{"event_type":"test_run","event_source":"agent","detail":"uv run --extra tests pytest -q passed: 685 passed, 69 skipped in 0.53s"}
+{"event_type":"file_read","event_source":"agent","detail":"read pyproject.toml for package/test config"}
+{"event_type":"file_read","event_source":"agent","detail":"read src/humanize/number.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read src/humanize/time.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read src/humanize/filesize.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read src/humanize/lists.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read src/humanize/i18n.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read src/humanize/__init__.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read tests/test_time.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read tests/test_number.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read tests/test_filesize.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read tests/test_i18n.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read tests/test_lists.py"}
+{"event_type":"prompt_read","event_source":"agent","detail":"fresh audit pass read lane prompt audit-07.md and target repo path"}
+{"event_type":"m1nd_usage","event_source":"agent","detail":"probe_m1nd.py tools returned 96 available m1nd tools including trust_selftest, session_handshake, ingest, audit, seek, search"}
+{"event_type":"file_read","event_source":"agent","detail":"inspected assigned prior audit-07 result JSON and event JSONL metadata before appending fresh events"}
+{"event_type":"m1nd_usage","event_source":"agent","detail":"trust_selftest/session_handshake for target repo returned needs_ingest with correct workspace binding"}
+{"event_type":"m1nd_usage","event_source":"agent","detail":"m1nd help audit confirmed required inputs agent_id and path and recommended audit as session opener"}
+{"event_type":"m1nd_usage","event_source":"agent","detail":"m1nd ingest parsed 67 files, created 213 nodes and 220 edges; session_handshake then returned full_trust"}
+{"event_type":"m1nd_usage","event_source":"agent","detail":"m1nd audit identified src/humanize/time.py, number.py, i18n.py, filesize.py and tests as risk modules; ignored external m1nd Cargo references caused by generated graph artifacts"}
+{"event_type":"file_read","event_source":"agent","detail":"listed repository files excluding generated graph artifacts and inspected pyproject.toml plus git status"}
+{"event_type":"file_read","event_source":"agent","detail":"read src/humanize/number.py, time.py, filesize.py, lists.py, i18n.py, __init__.py"}
+{"event_type":"file_read","event_source":"agent","detail":"read tests/test_number.py, test_time.py, test_filesize.py, test_lists.py, test_i18n.py and README excerpts"}
+{"event_type":"test_run","event_source":"agent","detail":"uv run --extra tests pytest -q passed: 685 passed, 69 skipped in 0.54s"}
+{"event_type":"test_run","event_source":"agent","detail":"targeted python probe showed intcomma(-1234567) -> '-1234567', fractional(-0.3) -> '3/10', fractional(-1.5) -> '-1 -1/2', time functions raise OverflowError on math.inf, naturalsize(math.nan) raises ValueError"}
+{"event_type":"test_run","event_source":"agent","detail":"targeted clamp probe showed clamp at exact floor/ceil emits '<'/'>' tokens despite doc example expecting no token at equality"}
+{"event_type":"test_run","event_source":"agent","detail":"targeted metric probe showed 999.9 -> '1000', 999999 -> '1000 k', 0.9999 -> '1000 m' at default precision"}
+{"event_type":"test_run","event_source":"agent","detail":"translation probe showed activate('fr_FR'), activate('ru_RU'), activate('de_DE') all raise FileNotFoundError with zero .mo files present"}
+{"event_type":"cleanup","event_source":"agent","detail":"removed m1nd-generated untracked graph_snapshot.json, ingest_roots.json, plasticity_state.json from audit workspace; git status then clean"}
+{"event_type":"result_write","event_source":"agent","detail":"wrote final audit-07.json with 7 findings and validated it with python3 -m json.tool"}
+{"event_type":"validation","event_source":"agent","detail":"validated audit-07.jsonl as JSONL with 35 existing lines before appending this validation event"}
+{"event_type":"validation","event_source":"agent","detail":"revalidated audit-07.json after updating commands_run list"}

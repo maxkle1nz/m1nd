@@ -23,6 +23,30 @@ Only skip the `m1nd` first pass when:
 - the question is pure compiler/test/runtime truth
 - the task is a trivial local file action with no search or structural uncertainty
 
+## Trained Agent Loop
+
+For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, the
+measured high-signal pattern is:
+
+1. Establish trust: `trust_selftest`, or `session_handshake` with `scope` set to
+   the intended repo/workspace.
+2. Recover before interpreting absence: if trust is not full or retrieval is
+   `blocked`/empty unexpectedly, follow `recovery_playbook`.
+3. Classify workspace issues precisely: `wrong_workspace_binding` means rebind,
+   intentional ingest, or federation; it is not graph staleness.
+4. Orient cheaply: `audit` for unfamiliar repos, `search` for exact text,
+   `seek` for purpose, `activate` for connected neighborhoods.
+5. Read the runtime contract/envelope before trusting results.
+6. Prove final truth with direct source reads, tests, compiler/runtime output,
+   and focused probes.
+7. Before edits/reviews, run `impact`, `validate_plan`, and usually
+   `surgical_context_v2`.
+8. Record the investigation path: m1nd calls, recovery decisions, files
+   inspected, commands run, and fallback reason.
+
+Internal bug-hunt rounds call this `m1nd-trained`: graph plus operating
+doctrine. A visible MCP surface without this loop is only `m1nd-basic`.
+
 ## Core Rules
 
 - Prefer the live MCP surface over stale prose. If tool names, counts, or parameters matter, run the bundled helper from this skill directory: `python3 scripts/probe_m1nd.py tools`.
@@ -192,6 +216,15 @@ do not classify that as graph staleness or retrieval failure. Rerun with the
 current helper, pass an explicit unique `--runtime-dir`, or combine dependent
 calls with `probe_m1nd.py run` so they share one process intentionally. Use
 `--shared-runtime` only when debugging shared runtime state.
+The helper prefers `~/.m1nd/bin/m1nd-mcp` over a stale `m1nd-mcp` earlier on
+`PATH`; override with `M1ND_MCP_BINARY`, `M1ND_MCP_BIN`, or `--binary` only when
+you intentionally want another runtime.
+For benchmark lanes or tight worktrees, add `--no-worktree-artifacts`; it
+launches the runtime from the isolated runtime directory and sets the caller
+directory as `M1ND_WORKSPACE_ROOT`, so probe metadata does not appear in
+the target repo unless the runtime is explicitly configured to write there. If
+you invoke the helper from a director repo while inspecting another checkout,
+pass `--workspace-root /path/to/that/checkout` explicitly.
 
 For the m1nd repo itself, prefer the repo-local agent smoke harness when you
 need to distinguish a real runtime problem from a host-provided MCP binding

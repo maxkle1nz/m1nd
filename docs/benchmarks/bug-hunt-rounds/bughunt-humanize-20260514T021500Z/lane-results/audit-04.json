@@ -1,0 +1,197 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-humanize-20260514T021500Z",
+  "lane_id": "audit-04",
+  "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-humanize-20260514T021500Z/audit-04/humanize",
+  "findings": [
+    {
+      "title": "clamp marks exact floor and ceil values as out of range",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "clamp",
+      "cause": "The boundary checks use `value <= floor` and `value >= ceil`, while the function contract and examples describe adding a token only when the value is smaller than the floor or larger than the ceil.",
+      "impact": "Values exactly equal to the allowed threshold are mislabeled as under/over the limit, e.g. a value exactly at 99% displays as `>99%`.",
+      "evidence": [
+        "src/humanize/number.py:464 describes clamping only if the number is larger than ceil or smaller than floor",
+        "src/humanize/number.py:473 documents clamp(0.99, format=\"{:.0%}\", ceil=0.99) as `99%`",
+        "src/humanize/number.py:509-514 uses inclusive <=/>= comparisons",
+        "focused probe: clamp(0.99, format=\"{:.0%}\", ceil=0.99) -> `>99%`; clamp(0.01, floor=0.01) -> `<0.01`"
+      ],
+      "reproduction_or_test": "Add equality cases to tests/test_number.py: assert humanize.clamp(0.99, format=\"{:.0%}\", ceil=0.99) == \"99%\" and assert humanize.clamp(0.01, floor=0.01) == \"0.01\".",
+      "confidence": "high"
+    },
+    {
+      "title": "intcomma never groups negative numbers",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "intcomma",
+      "cause": "The grouping regex anchors on leading digits only (`^(\\d+)(\\d{3})`), so strings beginning with `-` never match and the loop returns the ungrouped original value.",
+      "impact": "Negative integers and floats lose the main purpose of the formatter: `-1234567.89` renders as `-1234567.89` instead of `-1,234,567.89`.",
+      "evidence": [
+        "src/humanize/number.py:164-168 builds the original numeric string",
+        "src/humanize/number.py:171-174 only inserts separators when the string starts with digits",
+        "tests/test_number.py:41-83 covers positive intcomma values and non-finites but no negative finite values",
+        "focused probe: intcomma(-1234) -> `-1234`; intcomma(\"-1234\") -> `-1234`; intcomma(-1234567.89) -> `-1234567.89`"
+      ],
+      "reproduction_or_test": "Add `assert humanize.intcomma(-1234567.89) == \"-1,234,567.89\"` and the equivalent string-input case to tests/test_number.py.",
+      "confidence": "high"
+    },
+    {
+      "title": "fractional corrupts the sign of negative fractions",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "fractional",
+      "cause": "`int(number)` truncates negative values toward zero, the fractional remainder can be negative, and the output either applies `abs()` only for sub-unit fractions or prints a negative numerator inside a mixed fraction.",
+      "impact": "Negative values are mathematically misrepresented: `-0.5` becomes positive `1/2`, while `-1.5` becomes the awkward `-1 -1/2`.",
+      "evidence": [
+        "src/humanize/number.py:370-373 splits whole number and fractional remainder",
+        "src/humanize/number.py:379-382 drops the sign for values with no whole part and keeps a negative numerator for mixed fractions",
+        "tests/test_number.py:166-189 covers positive fractional values but no negative fractional values",
+        "focused probe: fractional(-0.5) -> `1/2`; fractional(-1.5) -> `-1 -1/2`; fractional(-4/3) -> `-1 -1/3`"
+      ],
+      "reproduction_or_test": "Add negative cases such as `assert humanize.fractional(-0.5) == \"-1/2\"` and `assert humanize.fractional(-1.5) == \"-1 1/2\"`.",
+      "confidence": "high"
+    },
+    {
+      "title": "naturalsize mishandles NaN and infinity",
+      "severity": "medium",
+      "file": "src/humanize/filesize.py",
+      "symbol": "naturalsize",
+      "cause": "The function converts input with `float(value)` but never validates finiteness before calling `log()` and formatting with the largest suffix.",
+      "impact": "NaN raises a ValueError instead of returning a stable representation, and infinity is displayed as a real large byte size (`inf QB`), which is misleading and inconsistent with the number formatters' `NaN`/`+Inf` handling.",
+      "evidence": [
+        "src/humanize/filesize.py:89-91 converts to float and computes abs without a finiteness check",
+        "src/humanize/filesize.py:99-101 computes the suffix exponent and formats the scaled value",
+        "tests/test_filesize.py:12-88 covers finite sizes only",
+        "focused probe: naturalsize(math.nan) raises `ValueError: cannot convert float NaN to integer`; naturalsize(math.inf) -> `inf QB`"
+      ],
+      "reproduction_or_test": "Add non-finite cases to tests/test_filesize.py, e.g. `assert humanize.naturalsize(math.nan) == \"NaN\"` and `assert humanize.naturalsize(math.inf) == \"+Inf\"` if aligning with number.py behavior.",
+      "confidence": "high"
+    },
+    {
+      "title": "naturaldelta and naturaltime leak OverflowError for infinity",
+      "severity": "medium",
+      "file": "src/humanize/time.py",
+      "symbol": "naturaldelta / naturaltime",
+      "cause": "The numeric path calls `int(value)` to reject string infinities but catches only ValueError and TypeError; `int(math.inf)` raises OverflowError and escapes.",
+      "impact": "Public time-formatting helpers crash on infinite numeric input instead of returning a stable string as they do for invalid values; `naturaltime()` inherits the same failure through `_date_and_delta()`/`naturaldelta()` paths.",
+      "evidence": [
+        "src/humanize/time.py:148-152 catches ValueError and TypeError only around `int(value)` and `datetime.timedelta(seconds=value)`",
+        "src/humanize/time.py:284-292 routes numeric values through delta calculation before tense formatting",
+        "tests/test_time.py:130 and tests/test_time.py:181 cover the string `NaN`, but not float NaN or infinity",
+        "focused probe: naturaldelta(math.inf) raises `OverflowError: cannot convert float infinity to integer`; naturaltime(math.inf) raises the same OverflowError"
+      ],
+      "reproduction_or_test": "Add tests asserting the intended non-finite policy, for example `assert humanize.naturaldelta(math.inf) == \"inf\"` or `\"+Inf\"`, and the same for `naturaltime(math.inf)`.",
+      "confidence": "high"
+    },
+    {
+      "title": "metric does not promote prefixes after rounding",
+      "severity": "low",
+      "file": "src/humanize/number.py",
+      "symbol": "metric",
+      "cause": "The SI prefix is selected from the original exponent before formatting; after rounding, the mantissa can become `1000` without being promoted to the next prefix.",
+      "impact": "Near-threshold values violate the documented goal of avoiding non-significant zero digits: `999500` and `999950` render as `1000 k` instead of a promoted mega-unit form.",
+      "evidence": [
+        "src/humanize/number.py:547-551 says the unit prefix is chosen so non-significant zero digits are not required",
+        "src/humanize/number.py:570-582 chooses exponent/prefix before formatting the rounded value",
+        "tests/test_number.py:243-309 covers many metric values but not rounding promotion at prefix thresholds",
+        "focused probe: metric(999500) -> `1000 k`; metric(999950) -> `1000 k`"
+      ],
+      "reproduction_or_test": "Add threshold tests such as `assert humanize.metric(999500) == \"1.00 M\"` if the documented no-extra-zero rule is the intended behavior.",
+      "confidence": "medium"
+    },
+    {
+      "title": "ordinal gives wrong suffixes for negative ordinals",
+      "severity": "low",
+      "file": "src/humanize/number.py",
+      "symbol": "ordinal",
+      "cause": "The suffix lookup uses Python modulo directly on negative values, so `value % 10` and `value % 100` do not preserve the ordinal suffix of the absolute number.",
+      "impact": "Negative ordinal values render as `-1th`, `-2th`, and `-3th`, which is visibly wrong for callers that pass signed ranks or deltas.",
+      "evidence": [
+        "src/humanize/number.py:73-77 coerces input to int without rejecting negatives",
+        "src/humanize/number.py:105-107 chooses suffix from `value % 100` and `value % 10`",
+        "tests/test_number.py:14-38 covers positive and non-finite ordinals but no finite negatives",
+        "focused probe: ordinal(-1) -> `-1th`; ordinal(-2) -> `-2th`; ordinal(-3) -> `-3th`"
+      ],
+      "reproduction_or_test": "Add `assert humanize.ordinal(-1) == \"-1st\"`, `assert humanize.ordinal(-2) == \"-2nd\"`, and `assert humanize.ordinal(-3) == \"-3rd\"` if signed ordinals are supported.",
+      "confidence": "high"
+    },
+    {
+      "title": "natural_list empty and iterable boundaries are ambiguous",
+      "severity": "low",
+      "file": "src/humanize/lists.py",
+      "symbol": "natural_list",
+      "cause": "The docstring says the argument is an iterable, but the implementation requires `len()`, indexing, and slicing; it also returns the literal string `None` for an empty list, which is the same output as a one-item list containing `None`.",
+      "impact": "Generator/iterator inputs raise TypeError despite the documented iterable contract, and empty lists are indistinguishable from `[None]` in rendered output.",
+      "evidence": [
+        "src/humanize/lists.py:25-29 documents `items` as an iterable and promises a string with list punctuation",
+        "src/humanize/lists.py:31-38 branches on `len(items)` and indexes/slices the object",
+        "tests/test_lists.py:8-23 covers one, two, and three-item lists but no empty list or non-list iterable",
+        "focused probe: natural_list([]) -> `None`; natural_list(iter([\"a\", \"b\"])) raises `TypeError: object of type 'list_iterator' has no len()`"
+      ],
+      "reproduction_or_test": "Add explicit policy tests for `natural_list([])` and `natural_list(iter([\"a\", \"b\"]))`; either update the implementation to materialize iterables or narrow the documentation/type contract.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,260p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-prompts/audit-04.md",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py tools",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[trust_selftest, session_handshake, ingest, audit]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[ingest, session_handshake, audit, help(search), help(seek)]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[search exact symbols: intcomma, fractional, clamp, natural_list, naturaltime, naturaldelta, naturaldate, naturalsize, metric]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[seek intent queries for number/list/time/filesize/date boundaries]'",
+    "rg --files",
+    "git status --short",
+    "nl -ba src/humanize/number.py",
+    "nl -ba src/humanize/lists.py",
+    "nl -ba src/humanize/filesize.py",
+    "nl -ba src/humanize/time.py",
+    "nl -ba tests/test_number.py",
+    "nl -ba tests/test_lists.py",
+    "nl -ba tests/test_filesize.py",
+    "nl -ba tests/test_time.py",
+    "nl -ba tests/test_i18n.py",
+    "nl -ba pyproject.toml",
+    "uv run --extra tests pytest -q",
+    "uv run python - <<'PY' ... boundary probe for suspected cases ... PY",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[impact on clamp, intcomma, fractional, naturalsize, naturaldelta, metric]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py call validate_plan '{...six boundary-fix actions...}'"
+  ],
+  "files_inspected": [
+    "src/humanize/number.py",
+    "src/humanize/lists.py",
+    "src/humanize/filesize.py",
+    "src/humanize/time.py",
+    "tests/test_number.py",
+    "tests/test_lists.py",
+    "tests/test_filesize.py",
+    "tests/test_time.py",
+    "tests/test_i18n.py",
+    "pyproject.toml",
+    "README.md"
+  ],
+  "tests_run": [
+    {
+      "command": "uv run --extra tests pytest -q",
+      "result": "passed: 685 passed, 69 skipped in 0.60s"
+    },
+    {
+      "command": "uv run python - <<'PY' ... boundary probe ... PY",
+      "result": "reproduced boundary outputs/exceptions for negative intcomma/fractional, clamp equality, naturalsize non-finite, naturaldelta/naturaltime infinity, metric rounding, ordinal negatives, and natural_list empty/generator"
+    }
+  ],
+  "m1nd_usage": [
+    "Used m1nd-operator guidance because the prompt and AGENTS.md required m1nd-first investigation.",
+    "Direct m1nd MCP tools were not exposed in the active tool list, so I used /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py with isolated runtimes.",
+    "probe_m1nd.py tools reported 96 tools including trust_selftest, session_handshake, ingest, audit, search, seek, impact, validate_plan, and surgical_context_v2.",
+    "trust_selftest and session_handshake initially reported needs_ingest for the target workspace; ingest parsed the repo and produced 216 nodes and 224 edges; a follow-up session_handshake reported full_trust.",
+    "m1nd audit ran after retrying with the required path parameter. Its repo-shape output was useful, but generated graph artifacts appeared in the workspace and were ignored as product findings.",
+    "m1nd search was run for exact symbols requested in the prompt: intcomma, fractional, clamp, natural_list, naturaltime, naturaldelta, naturaldate, naturalsize, and metric.",
+    "m1nd seek was run for intent queries around number formatting boundaries, empty collections, future tense handling, filesize formatting, and date/time boundaries.",
+    "m1nd impact was run for clamp, intcomma, fractional, naturalsize, naturaldelta, and metric; blast radius centered on the source modules and their existing test files.",
+    "m1nd validate_plan was run for six proposed boundary-fix/test actions; it resolved all actions, reported no gaps, low structural risk, and existing test files covering planned files."
+  ],
+  "final_notes": "No source patch was committed or published. The full existing pytest suite is green, so these findings are boundary regressions/missing-test gaps exposed by focused probes rather than current suite failures. m1nd ingest and uv test setup wrote local workspace artifacts only: graph_snapshot.json, ingest_roots.json, plasticity_state.json, and .venv. I did not read operator-only files and did not modify /Users/kle1nz/m1nd source files outside the assigned result JSON/event JSONL and the assigned local workspace artifacts created by m1nd/uv.",
+  "agent_testimony": "I followed the prompt as a correctness audit: m1nd first for trust/orientation/search/impact, then direct source/test reads and runtime probes for evidence. The strongest defects are clamp's inclusive boundary comparisons, intcomma's missing negative grouping, fractional's negative sign corruption, and non-finite handling gaps in naturalsize/time. m1nd helped locate the relevant modules quickly but also surfaced its own generated graph files in search results, so final claims rely on code lines and local execution output.",
+  "confidence": "high"
+}

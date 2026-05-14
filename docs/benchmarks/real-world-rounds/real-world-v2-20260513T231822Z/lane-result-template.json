@@ -1,0 +1,432 @@
+{
+  "schema": "m1nd-real-world-agent-lane-result-v0",
+  "round_id": "real-world-v2-20260513T231822Z",
+  "lane_id": "m1nd-1",
+  "arm": "m1nd_available",
+  "model": "",
+  "started_at": "",
+  "finished_at": "",
+  "event_log_path": "event-streams/m1nd-1.jsonl",
+  "agent_testimony": "",
+  "adjudications": [],
+  "task_results": [
+    {
+      "task_id": "repo_architecture_audit",
+      "task_payload_id": "click-architecture-v1",
+      "task_payload": {
+        "focus": "Audit Click's public export layer, decorators, command core, parser, and testing harness.",
+        "must_cover": [
+          "public API re-exports",
+          "command and group invocation path",
+          "parameter/type conversion",
+          "test runner IO isolation"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "audit",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "feature_location",
+      "task_payload_id": "p-limit-clear-queue-reject-on-clear-v1",
+      "task_payload": {
+        "feature": "The rejectOnClear and clearQueue behavior for pending tasks.",
+        "must_find": [
+          "runtime implementation",
+          "type definition",
+          "test coverage",
+          "README/API docs"
+        ]
+      },
+      "repo_id": "p-limit-node",
+      "mode": "localize",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "flow_explanation",
+      "task_payload_id": "human-panic-release-panic-flow-v1",
+      "task_payload": {
+        "flow": "Explain what happens when setup_panic!() is installed and a release-mode panic occurs.",
+        "must_cover": [
+          "public macro or setup entrypoint",
+          "panic hook behavior",
+          "report writing path",
+          "observable user-facing output"
+        ]
+      },
+      "repo_id": "human-panic-rust-cli",
+      "mode": "explain",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "task_payload_id": "click-callable-instance-type-triage-v1",
+      "task_payload": {
+        "symptom": "A callable instance used as a custom Click option type crashes during command construction with AttributeError because the object has no __name__ attribute.",
+        "must_answer": [
+          "most likely fault boundary",
+          "why it is not a parser/runtime invocation issue",
+          "next focused regression test"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "diagnose",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "safe_change_plan",
+      "task_payload_id": "p-limit-clear-queue-return-count-plan-v1",
+      "task_payload": {
+        "change_request": "Plan a backwards-compatible change so clearQueue() returns the number of pending tasks it discarded or rejected, without touching already running tasks.",
+        "must_cover": [
+          "runtime edit target",
+          "types/docs/test targets",
+          "rejectOnClear behavior",
+          "no change to activeCount semantics"
+        ]
+      },
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "small_feature_patch",
+      "task_payload_id": "human-panic-metadata-name-version-builders-v1",
+      "task_payload": {
+        "change_request": "Add Metadata::name(...) and Metadata::version(...) builder methods that preserve the existing non-empty string guard style.",
+        "must_cover": [
+          "minimal implementation",
+          "focused unit tests",
+          "no public panic/report behavior rewrite"
+        ]
+      },
+      "repo_id": "human-panic-rust-cli",
+      "mode": "patch",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": true,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "task_payload_id": "click-seeded-callable-instance-type-fix-v1",
+      "task_payload": {
+        "seeded_artifact_id": "click-callable-instance-type-test-v1",
+        "bug": "The lane workspace contains a seeded regression test proving callable instances should work as custom option types.",
+        "must_cover": [
+          "root cause",
+          "minimal fix",
+          "seeded regression test result"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "patch",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": true,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "task_payload_id": "p-limit-queue-scheduling-refactor-plan-v1",
+      "task_payload": {
+        "refactor_scope": "Queue scheduling and draining helpers only.",
+        "must_cover": [
+          "resumeNext",
+          "next",
+          "enqueue",
+          "clearQueue",
+          "concurrency setter"
+        ]
+      },
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "code_review_diff",
+      "task_payload_id": "human-panic-review-diff-v1",
+      "task_payload": {
+        "supplied_diff": "benchmark-payloads/review-diff-human-panic.patch",
+        "review_focus": "Find real user-visible regressions and missing tests in the supplied diff.",
+        "must_cover": [
+          "duplicate or noisy support output when homepage and repository coexist",
+          "missing regression test",
+          "avoid style-only findings"
+        ]
+      },
+      "repo_id": "human-panic-rust-cli",
+      "mode": "review",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    },
+    {
+      "task_id": "docs_drift_check",
+      "task_payload_id": "click-lazy-loading-docs-drift-v1",
+      "task_payload": {
+        "claim": "README/docs say Click supports lazy loading of subcommands at runtime.",
+        "must_compare": [
+          "README and docs/index claim",
+          "docs/complex lazy loading pattern",
+          "actual Group behavior"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "docs",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 0,
+        "localization": 0,
+        "causal_understanding": 0,
+        "proof": 0,
+        "efficiency": 0,
+        "outcome": 0
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [],
+      "search_iterations": 0,
+      "tests_or_commands_run": [],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "",
+      "evidence": [],
+      "event_refs": [],
+      "agent_confidence": "unknown"
+    }
+  ]
+}

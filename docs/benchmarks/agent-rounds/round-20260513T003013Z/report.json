@@ -1,0 +1,450 @@
+{
+  "schema": "m1nd-agent-reliability-report-v0",
+  "round_id": "round-20260513T003013Z",
+  "generated_at": "2026-05-13T00:45:29.955567+00:00",
+  "runs_dir": "docs/benchmarks/agent-rounds/round-20260513T003013Z/lane-results",
+  "lane_result_count": 7,
+  "ignored_result_files": [],
+  "primary_lane_count_ok": true,
+  "template_like_lanes": [],
+  "primary_template_like_lanes": [],
+  "structurally_comparable_primary_arms": true,
+  "live_proof_comparable_primary_arms": false,
+  "comparable_primary_arms": false,
+  "comparability_blockers": [
+    "at least one live-required task was scored as success or high proof without live_state_verified"
+  ],
+  "public_claim_worthy": false,
+  "public_claim_blockers": [
+    "single benchmark round",
+    "requires repeated comparable rounds before headline claims",
+    "live-proof tasks must be separated from route-only or static inference"
+  ],
+  "arms": {
+    "adjudication": {
+      "lanes": 1,
+      "task_count": 7,
+      "success_rate": 0.4286,
+      "invalidated_rate": 0.1429,
+      "median_run_score": 103,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "median_files_opened": 14,
+      "median_search_iterations": 7,
+      "live_required_count": 4,
+      "live_required_verified_count": 0,
+      "live_required_verified_rate": 0.0,
+      "live_proof_gap_count": 4,
+      "live_required_success_without_live_count": 0,
+      "live_required_score_cap_violation_count": 0,
+      "proof_mode_counts": {
+        "static": 7
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7,
+        "report_json": 7
+      },
+      "recovery_followed_rate": null,
+      "failure_classes": {
+        "correct_answer_poor_recovery": 1,
+        "fresh_rediscovery_after_hint": 1,
+        "host_not_comparable": 2
+      },
+      "claim_overreach_counts": {
+        "none": 7
+      }
+    },
+    "m1nd_available": {
+      "lanes": 3,
+      "task_count": 21,
+      "success_rate": 0.7143,
+      "invalidated_rate": 0.0,
+      "median_run_score": 121,
+      "median_time_to_good_context_ms": 440,
+      "median_false_start_count": 0,
+      "median_files_opened": 13,
+      "median_search_iterations": 13,
+      "live_required_count": 12,
+      "live_required_verified_count": 7,
+      "live_required_verified_rate": 0.5833,
+      "live_proof_gap_count": 5,
+      "live_required_success_without_live_count": 0,
+      "live_required_score_cap_violation_count": 4,
+      "proof_mode_counts": {
+        "live": 12,
+        "mixed": 6,
+        "route_only": 3
+      },
+      "evidence_origin_counts": {
+        "direct_files": 21,
+        "m1nd_probe": 21
+      },
+      "recovery_followed_rate": 0.9412,
+      "failure_classes": {
+        "fresh_rediscovery_after_hint": 2,
+        "host_not_comparable": 1,
+        "missing_live_transport_failure": 1,
+        "stale_path_or_binary": 1
+      },
+      "claim_overreach_counts": {
+        "none": 21
+      }
+    },
+    "no_m1nd": {
+      "lanes": 3,
+      "task_count": 21,
+      "success_rate": 0.9048,
+      "invalidated_rate": 0.0,
+      "median_run_score": 127,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "median_files_opened": 19,
+      "median_search_iterations": 16,
+      "live_required_count": 12,
+      "live_required_verified_count": 0,
+      "live_required_verified_rate": 0.0,
+      "live_proof_gap_count": 12,
+      "live_required_success_without_live_count": 10,
+      "live_required_score_cap_violation_count": 12,
+      "proof_mode_counts": {
+        "route_only": 6,
+        "static": 15
+      },
+      "evidence_origin_counts": {
+        "direct_files": 21
+      },
+      "recovery_followed_rate": 0.9375,
+      "failure_classes": {
+        "stale_path_or_binary": 2
+      },
+      "claim_overreach_counts": {
+        "none": 21
+      }
+    }
+  },
+  "lanes": [
+    {
+      "lane_id": "control-1",
+      "arm": "no_m1nd",
+      "looks_like_template": false,
+      "task_count": 7,
+      "success_count": 6,
+      "partial_count": 1,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 121,
+      "max_score": 140,
+      "median_task_score": 18,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "search_iterations": 20,
+      "files_opened": 18,
+      "evidence_count": 14,
+      "raw_event_evidence_count": 0,
+      "proof_mode_counts": {
+        "route_only": 2,
+        "static": 5
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7
+      },
+      "live_required_count": 4,
+      "live_verified_count": 0,
+      "live_required_verified_count": 0,
+      "live_proof_gap_count": 4,
+      "live_required_success_without_live_count": 3,
+      "live_required_score_cap_violation_count": 4,
+      "live_required_verified_rate": 0.0,
+      "recovery_events": 6,
+      "recovery_followed": 5,
+      "recovery_opportunities": 6,
+      "recovery_followed_rate": 0.8333,
+      "claim_overreach_counts": {
+        "none": 7
+      },
+      "failure_classes": {
+        "stale_path_or_binary": 1
+      },
+      "agent_testimony": "Control lane used shell/file/git inspection only. Static work reached neighborhoods and recovery routes, but stale-runtime proof stayed partial because no live m1nd CLI/binary comparison was allowed."
+    },
+    {
+      "lane_id": "control-2",
+      "arm": "no_m1nd",
+      "looks_like_template": false,
+      "task_count": 7,
+      "success_count": 6,
+      "partial_count": 1,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 127,
+      "max_score": 140,
+      "median_task_score": 18,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "search_iterations": 16,
+      "files_opened": 19,
+      "evidence_count": 15,
+      "raw_event_evidence_count": 0,
+      "proof_mode_counts": {
+        "route_only": 2,
+        "static": 5
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7
+      },
+      "live_required_count": 4,
+      "live_verified_count": 0,
+      "live_required_verified_count": 0,
+      "live_proof_gap_count": 4,
+      "live_required_success_without_live_count": 3,
+      "live_required_score_cap_violation_count": 4,
+      "live_required_verified_rate": 0.0,
+      "recovery_events": 5,
+      "recovery_followed": 5,
+      "recovery_opportunities": 5,
+      "recovery_followed_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 7
+      },
+      "failure_classes": {
+        "stale_path_or_binary": 1
+      },
+      "agent_testimony": "Control lane stayed off m1nd tools and CLI. Shell/file/git inspection was enough for static orientation and recovery routes; live stale runtime stayed partial because CLI/runtime probing was prohibited."
+    },
+    {
+      "lane_id": "control-3",
+      "arm": "no_m1nd",
+      "looks_like_template": false,
+      "task_count": 7,
+      "success_count": 7,
+      "partial_count": 0,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 132,
+      "max_score": 140,
+      "median_task_score": 19,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "search_iterations": 14,
+      "files_opened": 20,
+      "evidence_count": 14,
+      "raw_event_evidence_count": 0,
+      "proof_mode_counts": {
+        "route_only": 2,
+        "static": 5
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7
+      },
+      "live_required_count": 4,
+      "live_verified_count": 0,
+      "live_required_verified_count": 0,
+      "live_proof_gap_count": 4,
+      "live_required_success_without_live_count": 4,
+      "live_required_score_cap_violation_count": 4,
+      "live_required_verified_rate": 0.0,
+      "recovery_events": 5,
+      "recovery_followed": 5,
+      "recovery_opportunities": 5,
+      "recovery_followed_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 7
+      },
+      "failure_classes": {},
+      "agent_testimony": "Control lane used shell/file/git inspection only. No m1nd MCP tools or CLI were used; recovery claims are source/doc route diagnoses, not live host repair proof."
+    },
+    {
+      "lane_id": "judge-1",
+      "arm": "adjudication",
+      "looks_like_template": false,
+      "task_count": 7,
+      "success_count": 3,
+      "partial_count": 3,
+      "failed_count": 0,
+      "invalidated_count": 1,
+      "run_score": 103,
+      "max_score": 140,
+      "median_task_score": 13,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "search_iterations": 7,
+      "files_opened": 14,
+      "evidence_count": 14,
+      "raw_event_evidence_count": 11,
+      "proof_mode_counts": {
+        "static": 7
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7,
+        "report_json": 7
+      },
+      "live_required_count": 4,
+      "live_verified_count": 0,
+      "live_required_verified_count": 0,
+      "live_proof_gap_count": 4,
+      "live_required_success_without_live_count": 0,
+      "live_required_score_cap_violation_count": 0,
+      "live_required_verified_rate": 0.0,
+      "recovery_events": 0,
+      "recovery_followed": 0,
+      "recovery_opportunities": 0,
+      "recovery_followed_rate": null,
+      "claim_overreach_counts": {
+        "none": 7
+      },
+      "failure_classes": {
+        "correct_answer_poor_recovery": 1,
+        "fresh_rediscovery_after_hint": 1,
+        "host_not_comparable": 2
+      },
+      "agent_testimony": "Adjudication: the round is structurally comparable but not substantively comparable on live-required tasks. Control over-scoring is concentrated in transport_closed_recovery, continuity_resume, and one stale_runtime_route case. wrong_workspace_binding is mostly comparable at diagnosis level, but recovered flags need live verified repair."
+    },
+    {
+      "lane_id": "m1nd-1",
+      "arm": "m1nd_available",
+      "looks_like_template": false,
+      "task_count": 7,
+      "success_count": 5,
+      "partial_count": 2,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 121,
+      "max_score": 140,
+      "median_task_score": 18,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "search_iterations": 22,
+      "files_opened": 10,
+      "evidence_count": 15,
+      "raw_event_evidence_count": 0,
+      "proof_mode_counts": {
+        "live": 4,
+        "mixed": 2,
+        "route_only": 1
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7,
+        "m1nd_probe": 7
+      },
+      "live_required_count": 4,
+      "live_verified_count": 5,
+      "live_required_verified_count": 2,
+      "live_proof_gap_count": 2,
+      "live_required_success_without_live_count": 0,
+      "live_required_score_cap_violation_count": 1,
+      "live_required_verified_rate": 0.5,
+      "recovery_events": 4,
+      "recovery_followed": 3,
+      "recovery_opportunities": 4,
+      "recovery_followed_rate": 0.75,
+      "claim_overreach_counts": {
+        "none": 7
+      },
+      "failure_classes": {
+        "fresh_rediscovery_after_hint": 1,
+        "host_not_comparable": 1
+      },
+      "agent_testimony": "Used m1nd first through repo-local probe/smoke because native host tools were not exposed; m1nd helped orientation, wrong-workspace diagnosis, recovery routing, and edit prep, while Transport closed was not reproduced live."
+    },
+    {
+      "lane_id": "m1nd-2",
+      "arm": "m1nd_available",
+      "looks_like_template": false,
+      "task_count": 7,
+      "success_count": 4,
+      "partial_count": 3,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 119,
+      "max_score": 140,
+      "median_task_score": 18,
+      "median_time_to_good_context_ms": null,
+      "median_false_start_count": 0,
+      "search_iterations": 12,
+      "files_opened": 13,
+      "evidence_count": 14,
+      "raw_event_evidence_count": 0,
+      "proof_mode_counts": {
+        "live": 4,
+        "mixed": 2,
+        "route_only": 1
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7,
+        "m1nd_probe": 7
+      },
+      "live_required_count": 4,
+      "live_verified_count": 5,
+      "live_required_verified_count": 2,
+      "live_proof_gap_count": 2,
+      "live_required_success_without_live_count": 0,
+      "live_required_score_cap_violation_count": 2,
+      "live_required_verified_rate": 0.5,
+      "recovery_events": 6,
+      "recovery_followed": 7,
+      "recovery_opportunities": 7,
+      "recovery_followed_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 7
+      },
+      "failure_classes": {
+        "fresh_rediscovery_after_hint": 1,
+        "stale_path_or_binary": 1
+      },
+      "agent_testimony": "m1nd found the harness, exposed graph/tool trust envelope, and forced honest recovery when literal search returned zero candidates; friction was host/session scoping through DEXT3R flash."
+    },
+    {
+      "lane_id": "m1nd-3",
+      "arm": "m1nd_available",
+      "looks_like_template": false,
+      "task_count": 7,
+      "success_count": 6,
+      "partial_count": 1,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 131,
+      "max_score": 140,
+      "median_task_score": 19,
+      "median_time_to_good_context_ms": 440,
+      "median_false_start_count": 0,
+      "search_iterations": 13,
+      "files_opened": 17,
+      "evidence_count": 16,
+      "raw_event_evidence_count": 0,
+      "proof_mode_counts": {
+        "live": 4,
+        "mixed": 2,
+        "route_only": 1
+      },
+      "evidence_origin_counts": {
+        "direct_files": 7,
+        "m1nd_probe": 7
+      },
+      "live_required_count": 4,
+      "live_verified_count": 6,
+      "live_required_verified_count": 3,
+      "live_proof_gap_count": 1,
+      "live_required_success_without_live_count": 0,
+      "live_required_score_cap_violation_count": 1,
+      "live_required_verified_rate": 0.75,
+      "recovery_events": 6,
+      "recovery_followed": 6,
+      "recovery_opportunities": 6,
+      "recovery_followed_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 7
+      },
+      "failure_classes": {
+        "missing_live_transport_failure": 1
+      },
+      "agent_testimony": "Used m1nd first via trust_selftest/session_handshake/seek/recovery_playbook/surgical_context_v2/validate_plan, then verified with files and read-only smoke/status commands."
+    }
+  ],
+  "non_claims": [
+    "no public performance claim is made from one benchmark round",
+    "agent testimony is not evidence by itself without scored task results",
+    "m1nd does not replace tests, compiler output, git history, rg, or direct file truth",
+    "warm-graph results do not equal cold-start behavior",
+    "host, transport, runtime, and workspace failures must be recorded instead of smoothed away"
+  ]
+}

@@ -24,6 +24,32 @@ This is a doctrine, not a manual.
 - Before risky edits or change reviews, pass through `impact`, `validate_plan`, and usually `surgical_context_v2`.
 - Keep `agent_id` stable across one investigation unless intentionally splitting roles.
 
+## Trained Agent Loop
+
+For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, use
+this loop by default:
+
+1. Establish trust: `trust_selftest`, or `session_handshake` with the requested
+   repo/workspace as `scope`.
+2. If trust is not full, follow `recovery_playbook` before interpreting empty
+   results. `wrong_workspace_binding` means rebind, intentional ingest, or real
+   federation; it is not stale graph proof.
+3. Orient with `audit` for unfamiliar repos or `search`/`seek`/`activate` for
+   focused questions.
+4. Read the compact runtime envelope on retrieval responses. Empty results are
+   not final truth until workspace, graph identity, and recovery state are
+   coherent.
+5. Verify with direct source, tests, compiler/runtime output, and focused
+   probes. m1nd narrows and connects; execution truth still comes from the
+   repo.
+6. Before edits or reviews, run `impact`, `validate_plan`, and usually
+   `surgical_context_v2`.
+7. Record what happened: m1nd calls, recovery path, files inspected, commands
+   run, and any fallback reason.
+
+This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
+plus operating doctrine, not graph alone.
+
 ## Skip Conditions
 
 Skip the `m1nd` first pass only when:
@@ -43,6 +69,12 @@ runtime lock collision, not stale graph truth. Use the current
 explicit `--runtime-dir`, or collapse dependent checks into one
 `probe_m1nd.py run` call. Do not tell the user that m1nd retrieval is broken
 until a fresh isolated probe or the repo-local smoke harness also fails.
+In benchmark lanes or repos with narrow write scopes, add
+`--no-worktree-artifacts` to the helper so graph/runtime metadata stays in the
+isolated runtime directory instead of the target worktree. If the helper is
+launched outside the repo being inspected, also pass
+`--workspace-root /path/to/repo` so context guard and recovery hints bind to
+the intended workspace.
 
 If a tool call fails with `Transport closed`, classify it as a host MCP binding
 failure before m1nd can run. Do not call `doctor`, `recovery_playbook`, or

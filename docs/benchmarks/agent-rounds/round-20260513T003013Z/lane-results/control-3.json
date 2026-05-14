@@ -1,0 +1,326 @@
+{
+  "schema": "m1nd-agent-reliability-lane-result-v0",
+  "round_id": "round-20260513T003013Z",
+  "lane_id": "control-3",
+  "arm": "no_m1nd",
+  "repo": "/Users/kle1nz/m1nd",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-13T00:30:13Z",
+  "finished_at": "2026-05-13T00:33:11Z",
+  "agent_testimony": "Control lane used shell/file/git inspection only. No m1nd MCP tools or CLI were used; recovery claims are source/doc route diagnoses, not live host repair proof.",
+  "task_results": [
+    {
+      "task_id": "multi_repo_orientation",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/docs/benchmarks/agent-rounds/round-20260513T003013Z/round.json",
+        "/Users/kle1nz/m1nd/scripts/benchmark/agent_reliability_round.py",
+        "/Users/kle1nz/m1nd/Cargo.toml",
+        "/Users/kle1nz/m1nd/package.json"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [],
+      "recovery_followed": false,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Repo and benchmark/runtime subsystems identified from git, round, package, and cargo files.",
+      "evidence": [
+        "git rev-parse confirmed repo",
+        "harness and workspace members identified"
+      ],
+      "requires_live_proof": false,
+      "live_state_verified": false,
+      "evidence_origin": [
+        "direct_files"
+      ],
+      "proof_mode": "static",
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "wrong_workspace_binding",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/README.md",
+        "/Users/kle1nz/m1nd/docs/MCP-HOST-REFRESH.md",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/session.rs",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/tools.rs",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/server.rs"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [
+        {
+          "type": "wrong_workspace_binding"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": true,
+      "wrong_workspace_recovered": true,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Wrong workspace diagnosis and recovery route grounded in docs/code.",
+      "evidence": [
+        "session.rs mismatch payload",
+        "tools.rs recovery steps",
+        "server tests route wrong_workspace first"
+      ],
+      "requires_live_proof": true,
+      "live_state_verified": false,
+      "evidence_origin": [
+        "direct_files"
+      ],
+      "proof_mode": "route_only",
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "transport_closed_recovery",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/README.md",
+        "/Users/kle1nz/m1nd/docs/MCP-HOST-REFRESH.md"
+      ],
+      "search_iterations": 1,
+      "recovery_events": [
+        {
+          "type": "transport_closed_route"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": true,
+      "transport_failure_recovered": true,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Transport closed treated as dead transport; missing live failure preserved.",
+      "evidence": [
+        "README and docs say relaunch binding first"
+      ],
+      "requires_live_proof": true,
+      "live_state_verified": false,
+      "evidence_origin": [
+        "direct_files"
+      ],
+      "proof_mode": "route_only",
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "stale_runtime_route",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/README.md",
+        "/Users/kle1nz/m1nd/docs/MCP-HOST-REFRESH.md",
+        "/Users/kle1nz/m1nd/npm/lib/cli.js"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [
+        {
+          "type": "runtime_route_static"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": true,
+      "stale_path_recovered": true,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Static runtime route and versions showed 0.9.0-beta.4; host rebind caveat preserved.",
+      "evidence": [
+        "package/Cargo 0.9.0-beta.4",
+        "PATH shadowing logic in cli.js"
+      ],
+      "requires_live_proof": true,
+      "live_state_verified": false,
+      "evidence_origin": [
+        "direct_files"
+      ],
+      "proof_mode": "static",
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "structural_edit_prep",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 3,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/scripts/benchmark/agent_reliability_round.py",
+        "/Users/kle1nz/m1nd/docs/benchmarks/README.md"
+      ],
+      "search_iterations": 3,
+      "recovery_events": [],
+      "recovery_followed": false,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Harness target and proof gates identified with extra analogous surgical context references.",
+      "evidence": [
+        "validate_score/load_lane_result/score_round gates",
+        "public_claim_worthy false"
+      ],
+      "requires_live_proof": false,
+      "live_state_verified": false,
+      "evidence_origin": [
+        "direct_files"
+      ],
+      "proof_mode": "static",
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "root_cause_triage",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/tools.rs",
+        "/Users/kle1nz/m1nd/docs/MCP-HOST-REFRESH.md"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [
+        {
+          "type": "root_cause_triage"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": true,
+      "wrong_workspace_recovered": true,
+      "transport_failure_detected": true,
+      "transport_failure_recovered": true,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Root-cause taxonomy split zero candidates, wrong workspace, stale binding, degraded surface, dead transport.",
+      "evidence": [
+        "tools.rs distinguishes zero graph vs populated blocked retrieval",
+        "docs separate Transport closed"
+      ],
+      "requires_live_proof": false,
+      "live_state_verified": false,
+      "evidence_origin": [
+        "direct_files"
+      ],
+      "proof_mode": "static",
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "continuity_resume",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/docs/benchmarks/scenarios/continuity_actionable_resume.json",
+        "/Users/kle1nz/m1nd/docs/benchmarks/agent-rounds/round-20260513T003013Z/round.json"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [
+        {
+          "type": "continuity_resume"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Round/task context restored from prompt/template and continuity scenario docs.",
+      "evidence": [
+        "continuity scenarios and trail_resume code",
+        "current round prompt reused"
+      ],
+      "requires_live_proof": true,
+      "live_state_verified": false,
+      "evidence_origin": [
+        "direct_files"
+      ],
+      "proof_mode": "static",
+      "raw_event_evidence": []
+    }
+  ]
+}

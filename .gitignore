@@ -18,6 +18,10 @@ antibodies.json
 tremor_state.json
 trust_state.json
 trails/
+.m1nd-benchmark-fixtures/
+docs/benchmarks/**/operator-only/seeded-diff.patch
 .DS_Store
 *.bak
 *.tsbuildinfo
+
+.m1nd-field-workspaces/

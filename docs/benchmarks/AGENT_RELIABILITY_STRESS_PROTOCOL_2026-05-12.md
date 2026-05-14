@@ -48,6 +48,27 @@ Recommended round shape:
 3. send one failed or disputed outcome to the adjudication lane
 4. score primary outcomes first, adjudication outcome second
 
+Operational harness:
+
+```bash
+python3 scripts/benchmark/agent_reliability_round.py init \
+  --out-dir docs/benchmarks/agent-rounds/round-001 \
+  --repo . \
+  --round-id round-001 \
+  --json
+
+python3 scripts/benchmark/agent_reliability_round.py score \
+  --runs-dir docs/benchmarks/agent-rounds/round-001/lane-results \
+  --output docs/benchmarks/agent-rounds/round-001/report.json \
+  --round-id round-001 \
+  --json
+```
+
+The harness creates blinded lane prompts and lane result templates, then scores
+completed lane JSON files. It does not spawn agents, does not adjudicate
+subjective claims automatically, and does not turn one round into public
+performance copy.
+
 ## Task Battery
 
 Use hard tasks that force orientation, recovery, and proof rather than toy lookup.
@@ -97,6 +118,11 @@ For each run, record:
 Agent-first reliability adds these run-level fields:
 
 - `time_to_good_context_ms`: first moment the lane has the right repo/workspace/tool direction
+- `requires_live_proof`: task requires observed live host/runtime/session evidence
+- `proof_mode`: `live`, `static`, `route_only`, `mixed`, or `unreported`
+- `live_state_verified`: the lane observed the live state rather than only reading the route
+- `evidence_origin`: source classes such as `m1nd_probe`, `direct_files`, `test_output`, or `agent_testimony`
+- `raw_event_evidence`: event lines, transcript references, or immutable run evidence when available
 - `wrong_workspace_detected`: yes / no
 - `wrong_workspace_recovered`: yes / no
 - `transport_failure_detected`: yes / no
@@ -138,6 +164,7 @@ A run counts as `success` only when all of the following are true:
 - the lane does not claim proof it did not actually gather
 - the lane names missing proof when proof is still missing
 - the lane avoids unnecessary restart behavior after a useful hint is available
+- for tasks with `requires_live_proof=true`, the lane either sets `live_state_verified=true` or preserves the result as route-only/static/partial
 
 A run counts as `partial` when:
 
@@ -197,6 +224,15 @@ Rollups:
 - `arm_median_false_start_count`
 - `arm_success_rate`
 - `arm_recovery_followed_rate`
+- `arm_live_required_verified_rate`
+- `arm_live_proof_gap_count`
+- `arm_live_required_score_cap_violation_count`
+- `structurally_comparable_primary_arms`
+- `live_proof_comparable_primary_arms`
+
+Do not normalize a live-proof task after the fact just because a lane found the
+right source route. The adjudicator may call out over-scoring, but the safer
+next round fix is to preserve `proof_mode` and tighten the task prompt.
 
 Do not publish a headline advantage from one round alone. Look for repeated wins
 across task classes, not one dramatic outlier.

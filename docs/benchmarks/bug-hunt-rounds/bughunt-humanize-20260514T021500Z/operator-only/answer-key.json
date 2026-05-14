@@ -1,0 +1,58 @@
+{
+  "schema": "m1nd-bug-hunt-answer-key-v0",
+  "round_id": "bughunt-humanize-20260514T021500Z",
+  "repo": "humanize",
+  "source_commit": "877e1fda9829073fe086625915d1197cd07412ad",
+  "seeded_bug_count": 5,
+  "bugs": [
+    {
+      "id": "intcomma-negative-numbers-not-grouped",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "intcomma",
+      "planted_change": "regex no longer allows a leading minus sign",
+      "expected": "Negative numbers should be grouped the same way as positive numbers, preserving the minus sign.",
+      "proof_hint": "humanize.intcomma(-1234567) should be \"-1,234,567\"."
+    },
+    {
+      "id": "fractional-negative-proper-fraction-loses-sign",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "fractional",
+      "planted_change": "proper fractions use abs(numerator)",
+      "expected": "Negative proper fractions must preserve the negative sign instead of becoming positive.",
+      "proof_hint": "humanize.fractional(-0.25) should keep a negative numerator/sign."
+    },
+    {
+      "id": "clamp-equal-boundary-marked-out-of-range",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "clamp",
+      "planted_change": "floor/ceil comparisons changed from strict to inclusive",
+      "expected": "Values exactly equal to floor or ceil are in range and should not receive floor/ceil tokens.",
+      "proof_hint": "humanize.clamp(0.99, format=\"{:.0%}\", ceil=0.99) should be \"99%\", not \">99%\"."
+    },
+    {
+      "id": "natural-list-empty-list-renders-none",
+      "severity": "low",
+      "file": "src/humanize/lists.py",
+      "symbol": "natural_list",
+      "planted_change": "empty list returns \"None\"",
+      "expected": "An empty list should not render as the string \"None\"; it should be an empty natural list or be handled explicitly.",
+      "proof_hint": "humanize.natural_list([]) should not produce \"None\"."
+    },
+    {
+      "id": "naturaltime-numeric-future-flag-ignored",
+      "severity": "medium",
+      "file": "src/humanize/time.py",
+      "symbol": "naturaltime",
+      "planted_change": "future=True numeric values are re-evaluated from date > now",
+      "expected": "For numeric/timedelta-style inputs, the future argument controls tense and should produce \"from now\".",
+      "proof_hint": "humanize.naturaltime(30, future=True) should be \"30 seconds from now\"."
+    }
+  ],
+  "non_claims": [
+    "Primary auditors are not told bug count or comparison arm.",
+    "Finding extra real issues is allowed but seeded recall is measured against these five defects."
+  ]
+}

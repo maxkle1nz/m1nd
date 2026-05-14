@@ -1,0 +1,2766 @@
+{
+  "schema": "m1nd-real-world-agent-report-v0",
+  "round_id": "real-world-v2-20260513T231822Z",
+  "generated_at": "2026-05-13T23:47:29.637006+00:00",
+  "runs_dir": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/lane-results",
+  "round_root": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z",
+  "lane_result_count": 7,
+  "ignored_result_files": [],
+  "primary_lane_count_ok": true,
+  "template_like_lanes": [],
+  "primary_template_like_lanes": [],
+  "comparable_primary_arms": true,
+  "event_capture_present": true,
+  "primary_agent_events_present": true,
+  "public_claim_worthy": false,
+  "public_claim_blockers": [
+    "single real-world benchmark round",
+    "requires repeated comparable rounds across repo families"
+  ],
+  "arms": {
+    "adjudication": {
+      "lanes": 1,
+      "task_count": 0,
+      "success_rate": null,
+      "invalidated_rate": null,
+      "median_run_score": 0,
+      "median_time_to_good_context_ms": null,
+      "median_time_to_full_proof_ms": null,
+      "median_false_start_count": null,
+      "median_files_opened": 0,
+      "median_search_iterations": 0,
+      "median_tests_or_commands_run": 0,
+      "median_agent_event_count": 7,
+      "event_log_present_rate": 1.0,
+      "agent_event_capture_rate": 1.0,
+      "invalid_event_count": 0,
+      "code_change_task_count": 0,
+      "code_change_completed_count": 0,
+      "code_change_completion_rate": null,
+      "claim_overreach_counts": {},
+      "failure_classes": {},
+      "mode_success_counts": {}
+    },
+    "m1nd_available": {
+      "lanes": 3,
+      "task_count": 30,
+      "success_rate": 0.9667,
+      "invalidated_rate": 0.0,
+      "median_run_score": 230,
+      "median_time_to_good_context_ms": null,
+      "median_time_to_full_proof_ms": null,
+      "median_false_start_count": 0.0,
+      "median_files_opened": 42,
+      "median_search_iterations": 39,
+      "median_tests_or_commands_run": 27,
+      "median_agent_event_count": 17,
+      "event_log_present_rate": 1.0,
+      "agent_event_capture_rate": 1.0,
+      "invalid_event_count": 19,
+      "code_change_task_count": 6,
+      "code_change_completed_count": 6,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 30
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 3,
+        "diagnose": 3,
+        "docs": 3,
+        "explain": 3,
+        "localize": 3,
+        "patch": 6,
+        "plan": 6,
+        "review": 2
+      }
+    },
+    "no_m1nd": {
+      "lanes": 3,
+      "task_count": 30,
+      "success_rate": 1.0,
+      "invalidated_rate": 0.0,
+      "median_run_score": 233,
+      "median_time_to_good_context_ms": 106500.0,
+      "median_time_to_full_proof_ms": 232250.0,
+      "median_false_start_count": 0.0,
+      "median_files_opened": 44,
+      "median_search_iterations": 22,
+      "median_tests_or_commands_run": 19,
+      "median_agent_event_count": 5,
+      "event_log_present_rate": 1.0,
+      "agent_event_capture_rate": 1.0,
+      "invalid_event_count": 25,
+      "code_change_task_count": 6,
+      "code_change_completed_count": 6,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 30
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 3,
+        "diagnose": 3,
+        "docs": 3,
+        "explain": 3,
+        "localize": 3,
+        "patch": 6,
+        "plan": 6,
+        "review": 3
+      }
+    }
+  },
+  "adjudication": {
+    "schema": "m1nd-real-world-agent-adjudication-rollup-v0",
+    "judge_lane_count": 1,
+    "adjudication_count": 60,
+    "adjudicated_primary_lane_ids": [
+      "control-1",
+      "control-2",
+      "control-3",
+      "m1nd-1",
+      "m1nd-2",
+      "m1nd-3"
+    ],
+    "missing_primary_adjudication_lanes": [],
+    "complete_primary_adjudication": true,
+    "arms": {
+      "m1nd_available": {
+        "adjudicated_task_count": 30,
+        "success_rate": 0.9667,
+        "excluded_rate": 0.0,
+        "median_adjudicated_score": 23.0,
+        "comparability_classes": {
+          "comparable": 30
+        }
+      },
+      "no_m1nd": {
+        "adjudicated_task_count": 30,
+        "success_rate": 1.0,
+        "excluded_rate": 0.0,
+        "median_adjudicated_score": 23.0,
+        "comparability_classes": {
+          "comparable": 30
+        }
+      }
+    },
+    "items": [
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "repo_architecture_audit",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 3,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Minor grounding/minimality penalty for false-positive or supporting files outside the core answer-key surface.",
+        "evidence": [
+          "answer_key_expected_files: src/click/__init__.py, src/click/decorators.py, src/click/core.py, src/click/parser.py, src/click/testing.py",
+          "answer_key_expected_points: Click's public surface is re-exported from src/click/__init__.py. | Decorators assemble commands and parameters before core invocation. | testing.py owns CliRunner and IO isolation risks.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['src/click/__init__.py', 'src/click/decorators.py', 'src/click/core.py', 'src/click/parser.py', 'src/click/testing.py', 'src/click/types.py']; missed_files=[]; false_positive_files=['CHANGES.rst']",
+          "primary_evidence: src/click/__init__.py:10-68 is the flat public export layer, re-exporting core commands/contexts/parameters, decorators, exceptions, terminal helpers, and type singletons.",
+          "primary_evidence: src/click/decorators.py:224-249 turns decorated callbacks into Command objects; src/click/core.py:1210-1281 builds a Context, parses args with _OptionParser, and fills ctx.params before invoke.",
+          "primary_evidence: src/click/core.py:1867-1959 drives Group invocation through resolve_command/get_command; src/click/core.py:2369-2418 type-casts values by calling ParamType implementations.",
+          "primary_tests_or_commands: probe_m1nd.py run [ingest,audit] on click shared fixture | probe_m1nd.py run [ingest,seek,search(CliRunner),search(lazy loading)] on click shared fixture | rg -n on click src/docs/tests for core, parser, types, CliRunner, and lazy-loading seams",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 21
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "feature_location",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: clearQueue lives on the returned generator function. | rejectOnClear rejects queued pending promises while preserving running tasks. | Types/docs/tests all need mention for behavior changes.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:3-14 parses the options object and validates `rejectOnClear` before constructing the limiter.",
+          "primary_evidence: index.js:77-89 implements `clearQueue()`: the non-reject path calls `queue.clear()`, while the reject path drains the queue and rejects each pending item with `AbortSignal.abort().reason`.",
+          "primary_evidence: index.d.ts:17-27 documents `clearQueue()` and its current `() => void` return type; index.d.ts:99-106 defines `Options.rejectOnClear`.",
+          "primary_tests_or_commands: probe_m1nd.py run [ingest,seek,search(rejectOnClear),search(clearQueue)] on p-limit shared fixture | rg -n \"rejectOnClear|clearQueue|activeCount|pendingCount|resumeNext|enqueue\" index.js index.d.ts test.js readme.md | nl -ba on index.js, index.d.ts, index.test-d.ts, test.js, and readme.md",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "flow_explanation",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/lib.rs, src/panic.rs, src/report.rs",
+          "answer_key_expected_points: setup_panic! installs a panic hook. | panic.rs formats the user-facing message and report path. | report.rs is the report serialization/writing boundary.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/lib.rs', 'src/panic.rs', 'src/report.rs', 'tests/single-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/lib.rs:64-72 builds default metadata from Cargo env and src/lib.rs:98-106 expands `setup_panic!()` to `setup_panic(|| metadata!())`.",
+          "primary_evidence: src/panic.rs:15-38 selects `PanicStyle::Human` in release mode without `RUST_BACKTRACE`, installs `panic::set_hook`, builds `Report::with_panic`, persists unless `CI` is set, and then prints the human-facing message.",
+          "primary_evidence: src/report.rs:68-110 extracts panic payload/location and writes `report-<uuid>.toml` to the temp directory.",
+          "primary_tests_or_commands: probe_m1nd.py run [ingest,seek,search(setup_panic),search(Metadata)] on human-panic shared fixture | rg -n \"setup_panic|set_hook|persist|print_msg|Panic occurred in file\" src tests README.md | nl -ba on src/lib.rs, src/panic.rs, src/report.rs, and tests/single-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "bug_symptom_triage",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 3,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Minor grounding/minimality penalty for false-positive or supporting files outside the core answer-key surface.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: The constructor assumes func.__name__ exists. | The fault happens before parsing, during type construction/registration.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/click/decorators.py', 'src/click/core.py', 'src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=['src/click/parser.py', 'README.md']",
+          "primary_evidence: src/click/decorators.py:373-375 instantiates `Option` inside the decorator, so failure happens during command construction rather than at runtime.",
+          "primary_evidence: src/click/core.py:2179-2183 calls `types.convert_type(type, default)` inside `Parameter.__init__` before parsing or invocation.",
+          "primary_evidence: src/click/types.py:1218-1259 falls through to `FuncParamType` for generic callable types, and src/click/types.py:185-188 reads `func.__name__`, which callable instances like `UpperCase()` do not define.",
+          "primary_tests_or_commands: rg -n on click decorators/core/types and the seeded lane test | uv run pytest -q tests/test_m1nd_seeded_callable_type.py (pre-fix failure capture)",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 21
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "safe_change_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: Return queued size from clearQueue before clearing. | Keep active/running promises untouched. | Cover rejectOnClear true and false.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Runtime edit target is index.js:77-89. Capture `queue.size` before clearing/draining, return that count, and leave `activeCount` alone.",
+          "primary_evidence: Type/doc targets are index.d.ts:17-27 and 99-106 plus readme.md:96-105. The type tests at index.test-d.ts:21-22 must change from `void` to `number`.",
+          "primary_evidence: Proof gates are test.js:184-215 for `clearQueue()`/`rejectOnClear`, plus test.js:155-181 to prove `activeCount` and `pendingCount` semantics do not change.",
+          "primary_tests_or_commands: probe_m1nd.py run [ingest,impact,surgical_context_v2,validate_plan] on p-limit shared fixture | rg -n and nl -ba on index.js, index.d.ts, index.test-d.ts, test.js, and readme.md",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "small_feature_patch",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+        "evidence": [
+          "answer_key_expected_files: src/metadata.rs",
+          "answer_key_expected_symbols: Metadata::name, Metadata::version",
+          "answer_key_expected_points: Mirror existing builder style. | Preserve non-empty guard. | Add focused tests near metadata builder tests.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/metadata.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Lane workspace src/metadata.rs:28-44 adds `name()` and `version()` using the same empty-string guard style as the existing builder methods.",
+          "primary_evidence: Lane workspace src/metadata.rs:83-114 adds four focused unit tests covering non-empty override and empty-string no-op behavior.",
+          "primary_evidence: cargo test -q --lib .../human-panic-rust-cli/Cargo.toml passed 4 tests.",
+          "primary_tests_or_commands: probe_m1nd.py run [ingest,impact,surgical_context_v2,validate_plan] on human-panic lane workspace | cargo test -q --lib --manifest-path /Users/kle1nz/m1nd/.m1nd-benchmark-fixtures/real-world-lanes/real-world-v2-20260513T231822Z/m1nd-1/human-panic-rust-cli/Cargo.toml",
+          "adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "seeded_bug_fix",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py, tests/test_m1nd_seeded_callable_type.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: Use a fallback name for callable instances without __name__. | Seeded test must pass after the patch.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py', 'tests/test_types.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Root cause is src/click/types.py:185-188 assuming every callable has `__name__`.",
+          "primary_evidence: The lane patch in src/click/types.py:185-188 now uses `getattr(func, \"__name__\", type(func).__name__)`, which preserves function behavior and supports callable instances.",
+          "primary_evidence: Pre-fix the seeded regression failed with `AttributeError`; post-fix `uv run pytest -q tests/test_m1nd_seeded_callable_type.py tests/test_types.py::test_func_param_type_uses_value_error_message` passed (3 tests total, including the seeded artifact).",
+          "primary_tests_or_commands: uv run pytest -q tests/test_m1nd_seeded_callable_type.py | uv run pytest -q tests/test_m1nd_seeded_callable_type.py tests/test_types.py::test_func_param_type_uses_value_error_message",
+          "adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "bounded_refactor_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, test.js",
+          "answer_key_expected_symbols: resumeNext, next, enqueue, clearQueue, concurrency",
+          "answer_key_expected_points: Refactor must not alter queue scheduling semantics. | Concurrency setter and clearQueue are coupled to scheduling state.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['index.js', 'index.d.ts', 'test.js', 'readme.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:19-29 (`resumeNext`/`next`), 50-64 (`enqueue`), 77-89 (`clearQueue`), and 94-103 (the `concurrency` setter) all share `queue.size`, `activeCount`, and the queue item shape `{run, reject}`.",
+          "primary_evidence: Safe ordering: first name/extract the queue-item contract used by `enqueue` and `clearQueue`; next extract a drain helper for `clearQueue`; only then consider reuse from concurrency scheduling if the invariants remain identical.",
+          "primary_evidence: Rollback/proof boundary: keep test.js:184-215 (`clearQueue`), 155-181 (`activeCount`/`pendingCount`), and 305-340 (`concurrency` setter) green before accepting any helper extraction.",
+          "primary_tests_or_commands: probe_m1nd.py run [ingest,impact,surgical_context_v2,validate_plan] on p-limit shared fixture | nl -ba on index.js, index.d.ts, test.js, and readme.md",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "code_review_diff",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/panic.rs",
+          "answer_key_expected_points: The diff makes support output noisier by printing repository even when homepage exists. | If homepage and repository duplicate the same URL, output can become redundant. | Needs a focused regression test around support lines.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/panic.rs', 'tests/custom-panic/src/main.rs', 'tests/custom-panic/tests/integration.rs', 'benchmark-payloads/review-diff-human-panic.patch']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: P1: The diff changes src/panic.rs so `homepage` and `repository` are printed independently instead of mutually exclusively. In the current code, src/panic.rs:126-129 intentionally prints Repository only when Homepage is absent; the diff would make metadata with both values emit extra user-facing noise.",
+          "primary_evidence: P2: There is no regression test for the both-homepage-and-repository case. tests/custom-panic/src/main.rs:5-10 only sets `homepage`, and tests/custom-panic/tests/integration.rs:7-23 snapshots only Homepage + Authors + Support output.",
+          "primary_evidence: No style-only findings: the diff is tiny, and the substantive review points are the changed stderr surface semantics and the missing regression coverage.",
+          "primary_tests_or_commands: sed -n on benchmark-payloads/review-diff-human-panic.patch | rg -n and nl -ba on src/panic.rs and custom-panic tests",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-1",
+        "arm": "m1nd_available",
+        "task_id": "docs_drift_check",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 4,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence.",
+        "evidence": [
+          "answer_key_expected_files: README.md, docs/index.rst, docs/complex.rst, src/click/core.py",
+          "answer_key_expected_points: The high-level claim is true only with the documented LazyGroup/subclass pattern. | Built-in Group is not itself a magic lazy loader for arbitrary subcommands. | The correct conclusion should preserve nuance rather than call the docs simply false.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['README.md', 'docs/index.rst', 'docs/complex.md', 'src/click/core.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Claim sources are README.md:16-18 and docs/index.rst:21-23, both stating that Click supports lazy loading of subcommands at runtime.",
+          "primary_evidence: docs/complex.md:252-285 and 339-355 documents the supported pattern: subclass `Group`, override `get_command`, lazily import commands, and expect lazy loads during command resolution, help rendering, and shell completion.",
+          "primary_evidence: Code truth is src/click/core.py:1806-1810 and 1935-1959: the default `Group.get_command()` only looks up `self.commands`, but both `format_commands()` and `resolve_command()` route through `get_command()`, which is exactly the extension seam the docs rely on.",
+          "primary_tests_or_commands: probe_m1nd.py run [ingest,search(lazy loading)] on click shared fixture | nl -ba on README.md, docs/index.rst, docs/complex.md, and src/click/core.py",
+          "event_stream_summary: valid_events=22; invalid_events=0; types={'file_read': 4, 'finding': 1, 'handoff': 1, 'lane_assigned': 1, 'm1nd_call': 7, 'patch_write': 1, 'recovery_step': 1, 'shell_command': 3, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 4,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 24
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "repo_architecture_audit",
+        "adjudicated_final_state": "partial",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 3,
+          "proof": 3,
+          "efficiency": 3,
+          "outcome": 3
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Partial: the answer correctly covered exports, decorators, core invocation, type conversion, and testing, but omitted parser.py even though parser coverage was an explicit task requirement and answer-key file. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/__init__.py, src/click/decorators.py, src/click/core.py, src/click/parser.py, src/click/testing.py",
+          "answer_key_expected_points: Click's public surface is re-exported from src/click/__init__.py. | Decorators assemble commands and parameters before core invocation. | testing.py owns CliRunner and IO isolation risks.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/__init__.py', 'src/click/decorators.py', 'src/click/core.py', 'src/click/types.py', 'src/click/testing.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/click/__init__.py re-exports Command, Group, Option, Parameter plus decorator helpers, defining the public export surface.",
+          "primary_evidence: src/click/decorators.py command()/group()/option()/argument() attach Parameter objects and turn decorated callables into Command/Group instances.",
+          "primary_evidence: src/click/core.py make_context -> parse_args -> invoke/main is the command path; Group.invoke/resolve_command/list_commands/get_command handle subcommand dispatch.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py call audit {path: click-python-cli} | python3 .../probe_m1nd.py run [session_handshake, ingest, seek] (seek blocked) | rg -n / sed -n over src/click/{__init__,decorators,core,types,testing}.py",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 3,
+          "evidence_quality": 3,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 18
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "feature_location",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: clearQueue lives on the returned generator function. | rejectOnClear rejects queued pending promises while preserving running tasks. | Types/docs/tests all need mention for behavior changes.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js owns the runtime behavior: rejectOnClear is parsed at the top, and clearQueue either queue.clear()s or rejects queued items with AbortSignal.abort().reason.",
+          "primary_evidence: index.d.ts documents rejectOnClear and currently types clearQueue as () => void.",
+          "primary_evidence: test.js covers both plain clearQueue and the rejectOnClear pending-promise rejection path.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py call audit {path: p-limit-node} | python3 .../probe_m1nd.py run [ingest, search rejectOnClear, search clearQueue, search resumeNext] | sed -n on index.js, index.d.ts, index.test-d.ts, test.js, readme.md",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "flow_explanation",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/lib.rs, src/panic.rs, src/report.rs",
+          "answer_key_expected_points: setup_panic! installs a panic hook. | panic.rs formats the user-facing message and report path. | report.rs is the report serialization/writing boundary.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/lib.rs', 'src/panic.rs', 'src/report.rs', 'tests/single-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/lib.rs setup_panic!() expands to setup_panic(|| metadata!()) (or a caller-supplied metadata expression).",
+          "primary_evidence: src/panic.rs setup_panic installs panic::set_hook only in Human mode, builds Report::with_panic, persists it locally unless CI, then prints the human-facing message.",
+          "primary_evidence: src/report.rs with_panic collects panic location/cause and persist() writes report-<uuid>.toml into the temp dir.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py call audit {path: human-panic-rust-cli} | python3 .../probe_m1nd.py run [ingest, search setup_panic!] | rg -n / sed -n over src/lib.rs src/panic.rs src/report.rs tests/single-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "bug_symptom_triage",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: The constructor assumes func.__name__ exists. | The fault happens before parsing, during type construction/registration.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/click/types.py', 'src/click/core.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: m1nd search localized self.name = func.__name__ in src/click/types.py as the only direct callable-name assumption in the option-type path.",
+          "primary_evidence: src/click/core.py Parameter.__init__ immediately calls types.convert_type(type, default), so the crash happens while building the Option object.",
+          "primary_evidence: The seeded regression test fails at @click.option(..., type=UpperCase()) decoration time, not during argument parsing or callback invocation.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py run [ingest, search .__name__] | rg -n convert_type src/click/core.py | sed -n around FuncParamType and Parameter.__init__",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "safe_change_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: Return queued size from clearQueue before clearing. | Keep active/running promises untouched. | Cover rejectOnClear true and false.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js clearQueue already distinguishes plain queue.clear() from rejectOnClear-driven per-item rejection, so the return-count change belongs there.",
+          "primary_evidence: index.d.ts and index.test-d.ts are the public type gates that would need clearQueue to change from void to number.",
+          "primary_evidence: test.js already covers both clearQueue modes and can be extended to assert the returned count and unchanged activeCount semantics.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py run [ingest, search rejectOnClear, search clearQueue] | python3 .../probe_m1nd.py run [ingest, validate_plan actions=index.js,index.d.ts,index.test-d.ts,test.js,readme.md] | sed -n on runtime/types/tests/docs files",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "small_feature_patch",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+        "evidence": [
+          "answer_key_expected_files: src/metadata.rs",
+          "answer_key_expected_symbols: Metadata::name, Metadata::version",
+          "answer_key_expected_points: Mirror existing builder style. | Preserve non-empty guard. | Add focused tests near metadata builder tests.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/metadata.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/metadata.rs now has pub fn name(...) and pub fn version(...) following the same non-empty guard pattern used by authors/homepage/repository/support.",
+          "primary_evidence: No panic hook, report persistence, or console output logic was rewritten.",
+          "primary_evidence: cargo test -q name_and_version_builders_preserve_non_empty_guard passed after the patch.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py run [ingest, impact file::src/metadata.rs, validate_plan] | cargo test -q name_and_version_builders_preserve_non_empty_guard",
+          "adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "seeded_bug_fix",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py, tests/test_m1nd_seeded_callable_type.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: Use a fallback name for callable instances without __name__. | Seeded test must pass after the patch.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py', 'tests/test_types.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Pre-patch uv run pytest shows AttributeError at src/click/types.py FuncParamType.__init__ when UpperCase() lacks __name__.",
+          "primary_evidence: The fix is a one-line fallback in src/click/types.py, leaving convert_type and parser behavior untouched.",
+          "primary_evidence: Post-patch focused proof: the seeded callable-instance regression and the nearby FuncParamType ValueError-message test both pass.",
+          "primary_tests_or_commands: pytest -q tests/test_m1nd_seeded_callable_type.py (pytest missing on PATH) | python3 -m pytest -q tests/test_m1nd_seeded_callable_type.py (pytest module missing) | uv run pytest -q tests/test_m1nd_seeded_callable_type.py (fails before patch)",
+          "adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "bounded_refactor_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, test.js",
+          "answer_key_expected_symbols: resumeNext, next, enqueue, clearQueue, concurrency",
+          "answer_key_expected_points: Refactor must not alter queue scheduling semantics. | Concurrency setter and clearQueue are coupled to scheduling state.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['index.js', 'test.js']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js ties resumeNext, next, run, enqueue, clearQueue, and the concurrency setter together in one closure over queue, activeCount, concurrency, and rejectOnClear.",
+          "primary_evidence: m1nd impact on file::index.js surfaced the exact helper cluster as the blast radius.",
+          "primary_evidence: validate_plan kept the safe proof boundary at index.js plus test.js rather than widening into types/docs before behavior is stable.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py run [ingest, search resumeNext] | python3 .../probe_m1nd.py run [ingest, impact file::index.js] | python3 .../probe_m1nd.py run [ingest, validate_plan actions=index.js,test.js]",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "code_review_diff",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Upgraded from primary partial to adjudicated success on correctness: the two substantive review findings match the answer key, but evidence quality and recovery are reduced by a blocked m1nd search and a malformed cargo-test false start. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/panic.rs",
+          "answer_key_expected_points: The diff makes support output noisier by printing repository even when homepage exists. | If homepage and repository duplicate the same URL, output can become redundant. | Needs a focused regression test around support lines.",
+          "primary_result_summary: final_state=partial; old_score=19/24; correct_files=['benchmark-payloads/review-diff-human-panic.patch', 'src/panic.rs', 'tests/custom-panic/tests/integration.rs', 'tests/custom-panic/Cargo.toml']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The supplied diff changes the else-if fallback in src/panic.rs so homepage and repository would both print when present.",
+          "primary_evidence: Current write_msg behavior uses repository only when homepage is absent, which looks deliberate rather than accidental.",
+          "primary_evidence: tests/custom-panic/tests/integration.rs only snapshots a homepage line, and tests/custom-panic/Cargo.toml has no repository/homepage package metadata, so coexistence is untested.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py run [ingest, search homepage repository support] (blocked) | cargo test -q release custom-panic-test (malformed invocation, preserved as false start) | sed -n / rg over review-diff-human-panic.patch, src/panic.rs, and custom-panic fixtures",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 3,
+          "minimality": 4,
+          "recovery_quality": 2
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 21
+      },
+      {
+        "primary_lane_id": "m1nd-2",
+        "arm": "m1nd_available",
+        "task_id": "docs_drift_check",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 7 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: README.md, docs/index.rst, docs/complex.rst, src/click/core.py",
+          "answer_key_expected_points: The high-level claim is true only with the documented LazyGroup/subclass pattern. | Built-in Group is not itself a magic lazy loader for arbitrary subcommands. | The correct conclusion should preserve nuance rather than call the docs simply false.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['README.md', 'docs/index.rst', 'docs/complex.md', 'src/click/core.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: README.md and docs/index.rst both claim Click supports lazy loading of subcommands at runtime.",
+          "primary_evidence: docs/complex.md shows the supported pattern explicitly: subclass Group, override list_commands/get_command, and lazy-load on get_command.",
+          "primary_evidence: src/click/core.py default Group.get_command/list_commands only consult self.commands, so lazy loading is supported via customization rather than built-in automatic import behavior.",
+          "primary_tests_or_commands: python3 .../probe_m1nd.py run [ingest, search lazy|get_command|list_commands] | rg -n lazy|get_command|list_commands README.md docs/index.rst docs/complex.md src/click/core.py | sed -n around Group.get_command/list_commands and docs/complex.md lazy group example",
+          "event_stream_summary: valid_events=18; invalid_events=7; types={'file_read': 2, 'lane_assigned': 1, 'm1nd_call': 8, 'shell_command': 3, 'test_run': 4}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "repo_architecture_audit",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/__init__.py, src/click/decorators.py, src/click/core.py, src/click/parser.py, src/click/testing.py",
+          "answer_key_expected_points: Click's public surface is re-exported from src/click/__init__.py. | Decorators assemble commands and parameters before core invocation. | testing.py owns CliRunner and IO isolation risks.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['src/click/__init__.py', 'src/click/decorators.py', 'src/click/core.py', 'src/click/parser.py', 'src/click/types.py', 'src/click/testing.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Public API re-exports are centralized in src/click/__init__.py:10-74, which forwards core classes, decorators, exceptions, termui helpers, and common types.",
+          "primary_evidence: Decorator-to-command conversion happens in src/click/decorators.py:221-249, where memoized params are recovered from `__click_params__`, a name is derived, and `cls(...)` instantiates the command object.",
+          "primary_evidence: Command invocation enters through src/click/core.py:1210-1281 (`make_context` + `parse_args`) and then flows through src/click/core.py:1867-1901 for group dispatch and subcommand invocation.",
+          "primary_tests_or_commands: probe_m1nd tools + trust/selftest on the repo-local runtime | probe_m1nd ingest + audit + seek/search/recovery_playbook on the click lane fixture | rg/sed/nl on src/click/{__init__,decorators,core,parser,types,testing}.py",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "feature_location",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 3,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Minor grounding/minimality penalty for false-positive or supporting files outside the core answer-key surface. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: clearQueue lives on the returned generator function. | rejectOnClear rejects queued pending promises while preserving running tasks. | Types/docs/tests all need mention for behavior changes.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'index.d.ts', 'test.js', 'index.test-d.ts', 'readme.md']; missed_files=[]; false_positive_files=['recipes.md']",
+          "primary_evidence: Runtime implementation is in index.js:3-14 and 77-89, where `rejectOnClear` is parsed/validated and `clearQueue` either clears the queue silently or rejects each pending entry with `AbortSignal.abort().reason`.",
+          "primary_evidence: The type definition is in index.d.ts:17-27 and 99-106, which documents `clearQueue` plus the `rejectOnClear?: boolean` option.",
+          "primary_evidence: Type-level coverage is in index.test-d.ts:21-22 and 28-29, which asserts the `clearQueue()` return type and rejects a non-boolean `rejectOnClear` option.",
+          "primary_tests_or_commands: probe_m1nd ingest + search rejectOnClear/clearQueue on the p-limit lane fixture | sed/nl on index.js, index.d.ts, test.js, readme.md, recipes.md, index.test-d.ts, and package.json | checked for node_modules presence in the isolated workspace",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 20
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "flow_explanation",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/lib.rs, src/panic.rs, src/report.rs",
+          "answer_key_expected_points: setup_panic! installs a panic hook. | panic.rs formats the user-facing message and report path. | report.rs is the report serialization/writing boundary.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/lib.rs', 'src/panic.rs', 'src/report.rs', 'tests/single-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The public entrypoint is the `setup_panic!` macro in src/lib.rs:98-106, which expands to `$crate::setup_panic(|| $meta)` and defaults to `metadata!()` when no explicit metadata is passed.",
+          "primary_evidence: Default metadata comes from src/lib.rs:65-70, where `metadata!()` seeds the crate name/version plus authors/homepage/repository from Cargo env vars.",
+          "primary_evidence: Release-mode selection happens in src/panic.rs:15-18 and 58-67: `PanicStyle::default()` returns `Human` outside debug builds when `RUST_BACKTRACE` is not set.",
+          "primary_tests_or_commands: probe_m1nd ingest + search setup_panic!/Metadata/homepage on the human-panic lane fixture | sed/nl on src/lib.rs, src/panic.rs, src/report.rs, and tests/single-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "bug_symptom_triage",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: The constructor assumes func.__name__ exists. | The fault happens before parsing, during type construction/registration.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/core.py', 'src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Command construction crosses src/click/core.py:2179-2182, where `Option.__init__` eagerly calls `types.convert_type(type, default)`.",
+          "primary_evidence: Custom callable adaptation ends in src/click/types.py:1218-1259, where non-`ParamType` callables are wrapped as `FuncParamType(guessed)`.",
+          "primary_evidence: The failing boundary is src/click/types.py:185-188, where `FuncParamType.__init__` reads `func.__name__`; callable instances like `UpperCase()` do not define that attribute.",
+          "primary_tests_or_commands: probe_m1nd search on the click type-conversion path and shell reads on core/types | uv run --locked --no-default-groups --group tests pytest tests/test_m1nd_seeded_callable_type.py",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "safe_change_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: Return queued size from clearQueue before clearing. | Keep active/running promises untouched. | Cover rejectOnClear true and false.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['index.js', 'index.d.ts', 'test.js', 'readme.md', 'index.test-d.ts']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The runtime edit target is index.js:77-89, where `clearQueue` already owns the pending queue drain and can return a counter without widening the scheduling surface.",
+          "primary_evidence: The no-active-work change boundary is index.js:19-29 and 71-75: `activeCount` is incremented/decremented by `resumeNext`/`next`, and `clearQueue` currently never touches it.",
+          "primary_evidence: Type/docs/test targets are index.d.ts:17-27 and 99-106, readme.md:96-105, test.js:184-214, and index.test-d.ts:21-22.",
+          "primary_tests_or_commands: probe_m1nd impact/validate_plan on a reused runtime (blocked) and then again from a fresh isolated runtime dir | sed/nl on index.js, index.d.ts, test.js, readme.md, and index.test-d.ts | checked workspace dependency state (node_modules missing)",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "small_feature_patch",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+        "evidence": [
+          "answer_key_expected_files: src/metadata.rs",
+          "answer_key_expected_symbols: Metadata::name, Metadata::version",
+          "answer_key_expected_points: Mirror existing builder style. | Preserve non-empty guard. | Add focused tests near metadata builder tests.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/metadata.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The minimal implementation is in src/metadata.rs:28-44, where `name(...)` and `version(...)` were added with the same `if !value.is_empty()` guard style as the existing optional builders.",
+          "primary_evidence: Focused unit coverage lives in src/metadata.rs:83-105 and passed under `cargo test metadata::tests --lib`.",
+          "primary_evidence: No public panic/report behavior was rewritten: the patch never touched src/panic.rs or src/report.rs.",
+          "primary_tests_or_commands: probe_m1nd ingest + impact + validate_plan on src/metadata.rs | cargo test metadata::tests --lib | git diff -- src/metadata.rs",
+          "adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "seeded_bug_fix",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py, tests/test_m1nd_seeded_callable_type.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: Use a fallback name for callable instances without __name__. | Seeded test must pass after the patch.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Root cause was src/click/types.py:185-188, where `FuncParamType.__init__` assumed every callable has `__name__`.",
+          "primary_evidence: The fix is a one-line fallback in src/click/types.py:187 that now uses `getattr(func, \"__name__\", type(func).__name__)`.",
+          "primary_evidence: The seeded regression is tests/test_m1nd_seeded_callable_type.py:10-19.",
+          "primary_tests_or_commands: probe_m1nd ingest + impact + validate_plan on src/click/types.py | python -m pytest tests/test_m1nd_seeded_callable_type.py (python alias missing) | python3 -m pytest tests/test_m1nd_seeded_callable_type.py (pytest missing in system Python)",
+          "adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "bounded_refactor_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, test.js",
+          "answer_key_expected_symbols: resumeNext, next, enqueue, clearQueue, concurrency",
+          "answer_key_expected_points: Refactor must not alter queue scheduling semantics. | Concurrency setter and clearQueue are coupled to scheduling state.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['index.js', 'test.js', 'index.d.ts']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Hidden coupling is concentrated in index.js:19-29 (`resumeNext`/`next`), 50-68 (`enqueue`/`generator`), 77-89 (`clearQueue`), and 91-104 (the concurrency setter).",
+          "primary_evidence: The concurrency setter already shares the same queue/activeCount invariant as `resumeNext`, so any extracted helper must preserve the `activeCount < concurrency && queue.size > 0` gate from index.js:21-24 and 98-102.",
+          "primary_evidence: The async-context preservation seam lives in `enqueue` at index.js:53-58, so the refactor scope should not move that promise handoff unless a separate proof step is added.",
+          "primary_tests_or_commands: probe_m1nd fresh ingest + impact on file::index.js | probe_m1nd validate_plan on queue-helper edit set | sed/nl on index.js, test.js, and index.d.ts",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "code_review_diff",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/panic.rs",
+          "answer_key_expected_points: The diff makes support output noisier by printing repository even when homepage exists. | If homepage and repository duplicate the same URL, output can become redundant. | Needs a focused regression test around support lines.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/panic.rs', 'src/lib.rs', 'Cargo.toml', 'tests/custom-panic/src/main.rs', 'tests/custom-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The supplied diff changes `else if let Some(repository)` into an unconditional second `if` in benchmark-payloads/review-diff-human-panic.patch, altering the current fallback behavior implemented in src/panic.rs:126-129.",
+          "primary_evidence: That is user-visible noise because `write_msg` currently promises one location line: homepage first, repository only as fallback. The diff would emit both whenever both fields exist.",
+          "primary_evidence: A realistic coexistence path already exists: `metadata!()` populates both homepage and repository in src/lib.rs:67-70, and this crate defines both package fields in Cargo.toml:5-6 and 92-99.",
+          "primary_tests_or_commands: sed on benchmark-payloads/review-diff-human-panic.patch | rg/sed/nl on src/panic.rs, src/lib.rs, Cargo.toml, tests/custom-panic/src/main.rs, and tests/custom-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "m1nd-3",
+        "arm": "m1nd_available",
+        "task_id": "docs_drift_check",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 12 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: README.md, docs/index.rst, docs/complex.rst, src/click/core.py",
+          "answer_key_expected_points: The high-level claim is true only with the documented LazyGroup/subclass pattern. | Built-in Group is not itself a magic lazy loader for arbitrary subcommands. | The correct conclusion should preserve nuance rather than call the docs simply false.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['README.md', 'docs/index.rst', 'docs/complex.md', 'src/click/core.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The public claim appears in README.md:16-18 and docs/index.rst:21-23, both of which say Click “supports lazy loading of subcommands at runtime.”",
+          "primary_evidence: The detailed pattern in docs/complex.md:224-228 and 261-269 is narrower: a custom `Group` subclass stores extra metadata, extends `list_commands`, and makes `get_command` perform the import.",
+          "primary_evidence: Actual base behavior is simpler in src/click/core.py:1806-1814, where `Group.get_command` just does `self.commands.get(cmd_name)` and `list_commands` just sorts `self.commands`.",
+          "primary_tests_or_commands: probe_m1nd search \"lazy loading\" plus recovery_playbook on the click lane fixture | sed/nl on README.md, docs/index.rst, docs/complex.md, and src/click/core.py",
+          "event_stream_summary: valid_events=5; invalid_events=12; types={'file_read': 1, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "m1nd_available",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "repo_architecture_audit",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/__init__.py, src/click/decorators.py, src/click/core.py, src/click/parser.py, src/click/testing.py",
+          "answer_key_expected_points: Click's public surface is re-exported from src/click/__init__.py. | Decorators assemble commands and parameters before core invocation. | testing.py owns CliRunner and IO isolation risks.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/__init__.py', 'src/click/decorators.py', 'src/click/core.py', 'src/click/testing.py', 'src/click/parser.py', 'src/click/types.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Public API re-exports live in src/click/__init__.py:10-75, with deprecated compatibility via __getattr__ at lines 77-126.",
+          "primary_evidence: decorators.command collects __click_params__, derives the command name, and instantiates cls(name=..., callback=f, params=...) in src/click/decorators.py:221-249.",
+          "primary_evidence: Command.main drives make_context and invoke in src/click/core.py:1431-1445; Group.invoke resolves subcommands in src/click/core.py:1867-1902.",
+          "primary_tests_or_commands: rg -n \"(__all__|def command|class Command|make_parser|CliRunner|lazy load|__name__)\" src/click tests README docs | nl -ba src/click/__init__.py src/click/decorators.py src/click/core.py src/click/testing.py docs/index.rst docs/complex.md",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "feature_location",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 3,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Minor grounding/minimality penalty for false-positive or supporting files outside the core answer-key surface. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: clearQueue lives on the returned generator function. | rejectOnClear rejects queued pending promises while preserving running tasks. | Types/docs/tests all need mention for behavior changes.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md', 'recipes.md']; missed_files=[]; false_positive_files=['benchmark.js']",
+          "primary_evidence: clearQueue and rejectOnClear runtime behavior live in index.js:77-89.",
+          "primary_evidence: The public clearQueue/rejectOnClear types are declared in index.d.ts:17-27 and 99-106.",
+          "primary_evidence: Type-level expectations currently assert void returns in index.test-d.ts:21-22.",
+          "primary_tests_or_commands: rg -n \"rejectOnClear|clearQueue|resumeNext|enqueue|concurrency|activeCount|queue\" p-limit-node | nl -ba index.js index.d.ts test.js readme.md recipes.md",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 20
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "flow_explanation",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/lib.rs, src/panic.rs, src/report.rs",
+          "answer_key_expected_points: setup_panic! installs a panic hook. | panic.rs formats the user-facing message and report path. | report.rs is the report serialization/writing boundary.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/lib.rs', 'src/panic.rs', 'src/report.rs', 'tests/single-panic/tests/integration.rs', 'tests/custom-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: setup_panic! expands to setup_panic(|| metadata) in src/lib.rs:99-106.",
+          "primary_evidence: setup_panic chooses PanicStyle::Human and installs panic::set_hook in src/panic.rs:15-38.",
+          "primary_evidence: Report::with_panic extracts the payload/location and persist() writes report-<uuid>.toml under env::temp_dir() in src/report.rs:68-110.",
+          "primary_tests_or_commands: rg -n \"setup_panic!|panic::set_hook|Report::with_panic|persist|panic\" human-panic-rust-cli | nl -ba src/lib.rs src/panic.rs src/report.rs tests/single-panic/tests/integration.rs tests/custom-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "bug_symptom_triage",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: The constructor assumes func.__name__ exists. | The fault happens before parsing, during type construction/registration.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/types.py', 'src/click/core.py', 'src/click/decorators.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The live failure stack goes decorators.py:374 -> core.py:2182 -> types.py:1259 -> FuncParamType.__init__.",
+          "primary_evidence: FuncParamType assumed every callable has __name__ in src/click/types.py:185-188.",
+          "primary_evidence: Parameter initialization converts the provided type before any parse/invoke path in src/click/core.py:2179-2183.",
+          "primary_tests_or_commands: cd click-python-cli && uv run --group tests python -m pytest tests/test_m1nd_seeded_callable_type.py | nl -ba src/click/types.py src/click/core.py src/click/decorators.py tests/test_m1nd_seeded_callable_type.py",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "safe_change_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 3,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Minor grounding/minimality penalty for false-positive or supporting files outside the core answer-key surface. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: Return queued size from clearQueue before clearing. | Keep active/running promises untouched. | Cover rejectOnClear true and false.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md', 'recipes.md']; missed_files=[]; false_positive_files=['benchmark.js']",
+          "primary_evidence: The runtime edit target is clearQueue in index.js:77-89.",
+          "primary_evidence: Public types and current void expectations live in index.d.ts:17-27 and index.test-d.ts:21-22.",
+          "primary_evidence: Behavioral coverage targets are test.js:184-214.",
+          "primary_tests_or_commands: rg -n \"rejectOnClear|clearQueue|activeCount|concurrency\" p-limit-node | nl -ba index.js index.d.ts index.test-d.ts test.js readme.md recipes.md",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 20
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "small_feature_patch",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+        "evidence": [
+          "answer_key_expected_files: src/metadata.rs",
+          "answer_key_expected_symbols: Metadata::name, Metadata::version",
+          "answer_key_expected_points: Mirror existing builder style. | Preserve non-empty guard. | Add focused tests near metadata builder tests.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/metadata.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: New builder methods are in src/metadata.rs:28-44.",
+          "primary_evidence: Focused unit tests are in src/metadata.rs:83-104.",
+          "primary_evidence: cargo test name_and_version --lib passed with 2 tests.",
+          "primary_tests_or_commands: cd human-panic-rust-cli && cargo test name_and_version --lib",
+          "adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "seeded_bug_fix",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py, tests/test_m1nd_seeded_callable_type.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: Use a fallback name for callable instances without __name__. | Seeded test must pass after the patch.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py', 'tests/test_types.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The seeded regression failed before the patch with AttributeError from src/click/types.py:187.",
+          "primary_evidence: The minimal fix is the one-line fallback in src/click/types.py:185-188.",
+          "primary_evidence: After the patch, tests/test_m1nd_seeded_callable_type.py and the existing function-type test in tests/test_types.py both passed.",
+          "primary_tests_or_commands: cd click-python-cli && uv run --group tests python -m pytest tests/test_m1nd_seeded_callable_type.py | cd click-python-cli && uv run --group tests python -m pytest tests/test_m1nd_seeded_callable_type.py tests/test_types.py -k 'test_callable_instance_type_has_stable_name or test_func_param_type_uses_value_error_message'",
+          "adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "bounded_refactor_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 3,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Minor grounding/minimality penalty for false-positive or supporting files outside the core answer-key surface. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, test.js",
+          "answer_key_expected_symbols: resumeNext, next, enqueue, clearQueue, concurrency",
+          "answer_key_expected_points: Refactor must not alter queue scheduling semantics. | Concurrency setter and clearQueue are coupled to scheduling state.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'test.js']; missed_files=[]; false_positive_files=['benchmark.js']",
+          "primary_evidence: resumeNext/next/enqueue/clearQueue/concurrency setter all live together in index.js:19-104.",
+          "primary_evidence: The existing proof boundary for scheduler behavior is test.js:184-340.",
+          "primary_evidence: clearQueue currently does not touch activeCount, which is the invariant to preserve during refactor.",
+          "primary_tests_or_commands: rg -n \"resumeNext|next|enqueue|clearQueue|concurrency\" p-limit-node/index.js p-limit-node/test.js | nl -ba index.js test.js",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 20
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "code_review_diff",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/panic.rs",
+          "answer_key_expected_points: The diff makes support output noisier by printing repository even when homepage exists. | If homepage and repository duplicate the same URL, output can become redundant. | Needs a focused regression test around support lines.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['benchmark-payloads/review-diff-human-panic.patch', 'src/panic.rs', 'src/lib.rs', 'tests/custom-panic/src/main.rs', 'tests/custom-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: The supplied diff changes the else-if in benchmark-payloads/review-diff-human-panic.patch:5-12.",
+          "primary_evidence: Current write_msg intentionally prints homepage else repository in src/panic.rs:126-129.",
+          "primary_evidence: metadata! already populates repository in src/lib.rs:67-70, while the custom-panic fixture adds homepage in tests/custom-panic/src/main.rs:5-9.",
+          "primary_tests_or_commands: rg -n \"homepage|repository|support|metadata!\" supplied diff and human-panic fixture | nl -ba benchmark-payloads/review-diff-human-panic.patch src/panic.rs src/lib.rs tests/custom-panic/src/main.rs tests/custom-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-1",
+        "arm": "no_m1nd",
+        "task_id": "docs_drift_check",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 6 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: README.md, docs/index.rst, docs/complex.rst, src/click/core.py",
+          "answer_key_expected_points: The high-level claim is true only with the documented LazyGroup/subclass pattern. | Built-in Group is not itself a magic lazy loader for arbitrary subcommands. | The correct conclusion should preserve nuance rather than call the docs simply false.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['README.md', 'docs/index.rst', 'docs/complex.md', 'src/click/core.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: README.md:14-18 and docs/index.rst:19-24 both claim Click supports lazy loading of subcommands at runtime.",
+          "primary_evidence: docs/complex.md:222-355 narrows the claim to a custom LazyGroup built on Group.list_commands and Group.get_command.",
+          "primary_evidence: Built-in Group.get_command/list_commands just read self.commands in src/click/core.py:1806-1814.",
+          "primary_tests_or_commands: rg -n \"lazy\" README.md docs/index.rst docs/complex.md | nl -ba README.md docs/index.rst docs/complex.md src/click/core.py",
+          "event_stream_summary: valid_events=9; invalid_events=6; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1, 'test_run': 3}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "repo_architecture_audit",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/__init__.py, src/click/decorators.py, src/click/core.py, src/click/parser.py, src/click/testing.py",
+          "answer_key_expected_points: Click's public surface is re-exported from src/click/__init__.py. | Decorators assemble commands and parameters before core invocation. | testing.py owns CliRunner and IO isolation risks.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['src/click/__init__.py', 'src/click/decorators.py', 'src/click/core.py', 'src/click/parser.py', 'src/click/types.py', 'src/click/testing.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/click/__init__.py:10-75 re-exports core, decorators, termui, types, and utils; __getattr__ handles deprecated names at 77-124.",
+          "primary_evidence: src/click/decorators.py:217-249 builds Command objects from decorated callables after collecting __click_params__.",
+          "primary_evidence: src/click/core.py:1210-1298 and 1366-1445 show make_context -> parse_args -> invoke inside Command.main.",
+          "primary_tests_or_commands: rg --files click-python-cli | rg -n '__name__|convert_type|FuncParamType|lazy|CliRunner|def main|def invoke' click-python-cli | nl -ba src/click/{__init__.py,decorators.py,core.py,parser.py,types.py,testing.py} and docs/complex.md",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "feature_location",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: clearQueue lives on the returned generator function. | rejectOnClear rejects queued pending promises while preserving running tasks. | Types/docs/tests all need mention for behavior changes.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md', 'recipes.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:77-89 implements clearQueue and the rejectOnClear AbortError branch.",
+          "primary_evidence: index.d.ts:17-27 and 99-106 document clearQueue plus rejectOnClear and currently type clearQueue as () => void.",
+          "primary_evidence: index.test-d.ts:5 and 21-29 assert the rejectOnClear option type and clearQueue return type.",
+          "primary_tests_or_commands: rg -n 'rejectOnClear|clearQueue|resumeNext|next|enqueue|concurrency' p-limit-node | nl -ba index.js index.d.ts index.test-d.ts test.js readme.md recipes.md",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "flow_explanation",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/lib.rs, src/panic.rs, src/report.rs",
+          "answer_key_expected_points: setup_panic! installs a panic hook. | panic.rs formats the user-facing message and report path. | report.rs is the report serialization/writing boundary.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/lib.rs', 'src/panic.rs', 'src/report.rs', 'tests/single-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/lib.rs:65-71 and 99-106 define metadata! and setup_panic! macro entrypoints.",
+          "primary_evidence: src/panic.rs:15-38 selects Human mode in release without RUST_BACKTRACE and installs the panic hook.",
+          "primary_evidence: src/report.rs:68-110 extracts panic payload/location and writes report-<uuid>.toml under env::temp_dir().",
+          "primary_tests_or_commands: rg -n 'setup_panic|set_hook|persist|print_msg|Metadata|homepage|repository' human-panic-rust-cli | nl -ba src/lib.rs src/panic.rs src/report.rs tests/single-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "bug_symptom_triage",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 3,
+          "localization": 3,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 3,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Minor grounding/minimality penalty for false-positive or supporting files outside the core answer-key surface. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: The constructor assumes func.__name__ exists. | The fault happens before parsing, during type construction/registration.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/types.py', 'src/click/core.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=['src/click/parser.py']",
+          "primary_evidence: src/click/core.py:2179-2183 converts the option type during Parameter construction, before any parser invocation.",
+          "primary_evidence: src/click/types.py:185-193 showed the unconditional func.__name__ read before the fix.",
+          "primary_evidence: uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q reproduced AttributeError from FuncParamType during decorator/Option construction.",
+          "primary_tests_or_commands: rg -n '__name__|convert_type|FuncParamType' click-python-cli | uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 3,
+          "minimality": 3,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 20
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "safe_change_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: Return queued size from clearQueue before clearing. | Keep active/running promises untouched. | Cover rejectOnClear true and false.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md', 'recipes.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:77-89 is the only runtime branch that can count discarded/rejected pending tasks.",
+          "primary_evidence: index.d.ts:27 and index.test-d.ts:21-22 would both need a void -> number signature update.",
+          "primary_evidence: test.js:184-214 already exercises both clearQueue modes and can be extended without touching running-task semantics.",
+          "primary_tests_or_commands: rg -n 'rejectOnClear|clearQueue|resumeNext|next|enqueue|concurrency' p-limit-node",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "small_feature_patch",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+        "evidence": [
+          "answer_key_expected_files: src/metadata.rs",
+          "answer_key_expected_symbols: Metadata::name, Metadata::version",
+          "answer_key_expected_points: Mirror existing builder style. | Preserve non-empty guard. | Add focused tests near metadata builder tests.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/metadata.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/metadata.rs:28-44 now defines the new name/version builder methods with the same empty-string guard used by authors/homepage/repository/support.",
+          "primary_evidence: src/metadata.rs:83-104 adds two unit tests that prove empty strings do not overwrite existing values, while non-empty strings do.",
+          "primary_evidence: cargo test --lib metadata_ -- --nocapture passed 2 focused builder tests after the patch.",
+          "primary_tests_or_commands: cargo test --lib metadata -- --nocapture | cargo test --lib metadata_ -- --nocapture",
+          "adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "seeded_bug_fix",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py, tests/test_m1nd_seeded_callable_type.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: Use a fallback name for callable instances without __name__. | Seeded test must pass after the patch.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py', 'tests/test_types.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: Pre-fix proof: uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q failed with AttributeError from src/click/types.py:187.",
+          "primary_evidence: Patch: src/click/types.py:186-193 now uses getattr(func, \"__name__\", None) and falls back to type(func).__name__.",
+          "primary_evidence: Post-fix proof: uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py tests/test_types.py -q passed 42 tests with 1 skip.",
+          "primary_tests_or_commands: PYTHONPATH=src python3 -m pytest tests/test_m1nd_seeded_callable_type.py -q | uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q | uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py tests/test_types.py -q",
+          "adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "bounded_refactor_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, test.js",
+          "answer_key_expected_symbols: resumeNext, next, enqueue, clearQueue, concurrency",
+          "answer_key_expected_points: Refactor must not alter queue scheduling semantics. | Concurrency setter and clearQueue are coupled to scheduling state.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'test.js', 'index.d.ts', 'readme.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:19-30 defines resumeNext and next around the activeCount invariant.",
+          "primary_evidence: index.js:50-63 defines enqueue, which decides when pending work becomes runnable.",
+          "primary_evidence: index.js:77-89 clearQueue and 91-104 concurrency setter both manipulate queue draining behavior.",
+          "primary_tests_or_commands: rg -n 'rejectOnClear|clearQueue|resumeNext|next|enqueue|concurrency' p-limit-node",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "code_review_diff",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/panic.rs",
+          "answer_key_expected_points: The diff makes support output noisier by printing repository even when homepage exists. | If homepage and repository duplicate the same URL, output can become redundant. | Needs a focused regression test around support lines.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['benchmark-payloads/review-diff-human-panic.patch', 'src/panic.rs', 'src/lib.rs', 'tests/custom-panic/tests/integration.rs', 'tests/custom-panic/src/main.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: benchmark-payloads/review-diff-human-panic.patch changes src/panic.rs from `else if let Some(repository)` to a second `if let Some(repository)` branch.",
+          "primary_evidence: src/panic.rs:126-129 in the current code shows the existing mutually exclusive homepage/repository behavior that the diff would replace.",
+          "primary_evidence: src/lib.rs:67-70 shows metadata! already populates both homepage and repository when Cargo provides them.",
+          "primary_tests_or_commands: sed -n 1,220p benchmark-payloads/review-diff-human-panic.patch | rg -n 'homepage|repository|support|metadata!' human-panic-rust-cli",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-2",
+        "arm": "no_m1nd",
+        "task_id": "docs_drift_check",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 10 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: README.md, docs/index.rst, docs/complex.rst, src/click/core.py",
+          "answer_key_expected_points: The high-level claim is true only with the documented LazyGroup/subclass pattern. | Built-in Group is not itself a magic lazy loader for arbitrary subcommands. | The correct conclusion should preserve nuance rather than call the docs simply false.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['README.md', 'docs/index.rst', 'docs/complex.md', 'src/click/core.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: README.md:16-18 and docs/index.rst:19-23 make the top-level “supports lazy loading” claim.",
+          "primary_evidence: docs/complex.md:224-355 shows the actual supported pattern: a custom LazyGroup overriding list_commands/get_command and doing imports there.",
+          "primary_evidence: src/click/core.py:1806-1810 returns self.commands.get(cmd_name), and resolve_command at 1935-1959 just asks get_command to resolve the subcommand.",
+          "primary_tests_or_commands: rg -n 'lazy|lazily|Group.get_command' README.md docs/index.rst docs/complex.md | nl -ba docs/complex.md README.md docs/index.rst src/click/core.py",
+          "event_stream_summary: valid_events=6; invalid_events=10; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "repo_architecture_audit",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/__init__.py, src/click/decorators.py, src/click/core.py, src/click/parser.py, src/click/testing.py",
+          "answer_key_expected_points: Click's public surface is re-exported from src/click/__init__.py. | Decorators assemble commands and parameters before core invocation. | testing.py owns CliRunner and IO isolation risks.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['src/click/__init__.py', 'src/click/decorators.py', 'src/click/core.py', 'src/click/parser.py', 'src/click/types.py', 'src/click/testing.py', 'tests/test_testing.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/click/__init__.py:10-75 re-exports the public API surface from core, decorators, termui, types, and utils.",
+          "primary_evidence: src/click/decorators.py:217-249 collects __click_params__, derives the command name, and instantiates Command objects.",
+          "primary_evidence: src/click/core.py:1210-1255 creates Context and hands argv to the parser; src/click/core.py:1867-1901 resolves a subcommand and invokes it.",
+          "primary_tests_or_commands: rg --files src tests docs | sort | rg -n \"__all__|def command|class Group|CliRunner|lazy|__name__|convert_type\" src tests docs | nl -ba src/click/__init__.py src/click/decorators.py src/click/core.py src/click/types.py src/click/testing.py src/click/parser.py",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "feature_location",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: clearQueue lives on the returned generator function. | rejectOnClear rejects queued pending promises while preserving running tasks. | Types/docs/tests all need mention for behavior changes.",
+          "primary_result_summary: final_state=success; old_score=23/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md', 'recipes.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:3-13 parses the options object and validates rejectOnClear; index.js:77-89 implements clearQueue.",
+          "primary_evidence: index.d.ts:17-27 declares clearQueue(): void and describes the rejectOnClear behavior; index.d.ts:99-106 types the rejectOnClear option.",
+          "primary_evidence: index.test-d.ts:21-22 asserts clearQueue returns void in both default and rejectOnClear configurations.",
+          "primary_tests_or_commands: rg -n \"rejectOnClear|clearQueue|activeCount|pendingCount|concurrency|resumeNext|next|enqueue\" . | test -d node_modules/yocto-queue && echo yes || echo no",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "flow_explanation",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/lib.rs, src/panic.rs, src/report.rs",
+          "answer_key_expected_points: setup_panic! installs a panic hook. | panic.rs formats the user-facing message and report path. | report.rs is the report serialization/writing boundary.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/lib.rs', 'src/panic.rs', 'src/report.rs', 'tests/single-panic/tests/integration.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/lib.rs:99-106 defines setup_panic! to call setup_panic with either supplied metadata or metadata!().",
+          "primary_evidence: src/panic.rs:15-22 and 58-67 select Human style in release builds when RUST_BACKTRACE is unset, then install panic::set_hook.",
+          "primary_evidence: src/panic.rs:20-37 turns PanicHookInfo into a Report, persists it unless CI is set, and prints the user-facing message.",
+          "primary_tests_or_commands: rg -n \"setup_panic|set_hook|persist|print_msg|panic\" src tests | nl -ba src/lib.rs src/panic.rs src/report.rs tests/single-panic/tests/integration.rs",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "bug_symptom_triage",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: The constructor assumes func.__name__ exists. | The fault happens before parsing, during type construction/registration.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/click/types.py', 'src/click/core.py', 'src/click/decorators.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/click/decorators.py:373-375 instantiates Option while the decorator is building the command object.",
+          "primary_evidence: src/click/core.py:2179-2182 converts the declared option type during Parameter construction, before any parser/runtime invocation.",
+          "primary_evidence: src/click/types.py:1218-1259 wraps non-ParamType callables in FuncParamType; src/click/types.py:186-188 previously assumed __name__ exists.",
+          "primary_tests_or_commands: rg -n \"__name__|FuncParamType|convert_type\" src tests | PYTHONPATH=src python3 inline CliRunner callable-instance regression",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "safe_change_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, index.d.ts, test.js, readme.md",
+          "answer_key_expected_points: Return queued size from clearQueue before clearing. | Keep active/running promises untouched. | Cover rejectOnClear true and false.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['index.js', 'index.d.ts', 'index.test-d.ts', 'test.js', 'readme.md', 'recipes.md']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:77-89 is the only runtime branch that discards or rejects pending work.",
+          "primary_evidence: index.d.ts:17-27 and index.test-d.ts:21-22 would need the return type changed from void to number.",
+          "primary_evidence: test.js:184-215 already covers pendingCount and rejectOnClear behavior; extend those cases with return-value assertions.",
+          "primary_tests_or_commands: rg -n \"clearQueue|rejectOnClear|activeCount|pendingCount\" .",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "small_feature_patch",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+        "evidence": [
+          "answer_key_expected_files: src/metadata.rs",
+          "answer_key_expected_symbols: Metadata::name, Metadata::version",
+          "answer_key_expected_points: Mirror existing builder style. | Preserve non-empty guard. | Add focused tests near metadata builder tests.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/metadata.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/metadata.rs:28-44 adds name(...) and version(...) with the same empty-string guard style as authors/homepage/repository/support.",
+          "primary_evidence: src/metadata.rs:83-104 adds focused unit tests covering both successful override and empty-string no-op behavior.",
+          "primary_evidence: cargo test metadata::tests --lib passed with 2 tests.",
+          "primary_tests_or_commands: cargo test metadata::tests --lib",
+          "adjudicator_diff_check: each lane touched only src/metadata.rs and added Metadata::name plus Metadata::version with non-empty guards and focused tests.",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "seeded_bug_fix",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence. adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+        "evidence": [
+          "answer_key_expected_files: src/click/types.py, tests/test_m1nd_seeded_callable_type.py",
+          "answer_key_expected_symbols: FuncParamType.__init__",
+          "answer_key_expected_points: Use a fallback name for callable instances without __name__. | Seeded test must pass after the patch.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['src/click/types.py', 'tests/test_m1nd_seeded_callable_type.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: src/click/types.py:186-188 now uses getattr(func, \"__name__\", func.__class__.__name__) instead of assuming __name__ exists.",
+          "primary_evidence: src/click/core.py:2179-2182 shows why the crash happened during option construction rather than during parsing.",
+          "primary_evidence: Seeded regression proof observed {exit_code: 0, output: \"HELLO\\n\"} for a callable-instance option type matching tests/test_m1nd_seeded_callable_type.py:10-19.",
+          "primary_tests_or_commands: python3 -m pytest tests/test_m1nd_seeded_callable_type.py | PYTHONPATH=src python3 inline CliRunner callable-instance regression",
+          "adjudicator_diff_check: each lane touched only src/click/types.py and replaced the FuncParamType __name__ assumption with a callable-instance fallback.",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 3
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "bounded_refactor_plan",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: index.js, test.js",
+          "answer_key_expected_symbols: resumeNext, next, enqueue, clearQueue, concurrency",
+          "answer_key_expected_points: Refactor must not alter queue scheduling semantics. | Concurrency setter and clearQueue are coupled to scheduling state.",
+          "primary_result_summary: final_state=success; old_score=22/24; correct_files=['index.js', 'test.js', 'index.d.ts']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: index.js:19-30 couples resumeNext and next through activeCount accounting.",
+          "primary_evidence: index.js:50-63 couples enqueue to the queue item shape expected by clearQueue and resumeNext.",
+          "primary_evidence: index.js:77-103 couples clearQueue and the concurrency setter to queue.size and queue.dequeue() behavior.",
+          "primary_tests_or_commands: rg -n \"resumeNext|next|enqueue|clearQueue|concurrency\" index.js test.js index.d.ts",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "code_review_diff",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: src/panic.rs",
+          "answer_key_expected_points: The diff makes support output noisier by printing repository even when homepage exists. | If homepage and repository duplicate the same URL, output can become redundant. | Needs a focused regression test around support lines.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['benchmark-payloads/review-diff-human-panic.patch', 'src/panic.rs', 'tests/custom-panic/tests/integration.rs', 'tests/custom-panic/src/main.rs']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: benchmark-payloads/review-diff-human-panic.patch:5-12 removes the else-if fallback semantics and makes homepage + repository additive.",
+          "primary_evidence: src/panic.rs:126-129 currently treats repository as a fallback only when homepage is absent.",
+          "primary_evidence: tests/custom-panic/tests/integration.rs:7-23 asserts the release-mode support block but does not cover a metadata fixture where both homepage and repository are set.",
+          "primary_tests_or_commands: nl -ba benchmark-payloads/review-diff-human-panic.patch | nl -ba src/panic.rs tests/custom-panic/tests/integration.rs tests/custom-panic/src/main.rs",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      },
+      {
+        "primary_lane_id": "control-3",
+        "arm": "no_m1nd",
+        "task_id": "docs_drift_check",
+        "adjudicated_final_state": "success",
+        "adjudicated_scores": {
+          "orientation": 4,
+          "localization": 4,
+          "causal_understanding": 4,
+          "proof": 3,
+          "efficiency": 4,
+          "outcome": 4
+        },
+        "comparability_class": "comparable",
+        "exclusion_reason": "",
+        "notes": "Success: the submitted result satisfies the answer-key files or concepts and is supported by task-level evidence. Primary event stream contains 9 invalid event entries; adjudication relies more heavily on result JSON and file/test evidence.",
+        "evidence": [
+          "answer_key_expected_files: README.md, docs/index.rst, docs/complex.rst, src/click/core.py",
+          "answer_key_expected_points: The high-level claim is true only with the documented LazyGroup/subclass pattern. | Built-in Group is not itself a magic lazy loader for arbitrary subcommands. | The correct conclusion should preserve nuance rather than call the docs simply false.",
+          "primary_result_summary: final_state=success; old_score=24/24; correct_files=['README.md', 'docs/index.rst', 'docs/complex.md', 'src/click/core.py']; missed_files=[]; false_positive_files=[]",
+          "primary_evidence: README.md:14-19 says Click “Supports lazy loading of subcommands at runtime.”",
+          "primary_evidence: docs/index.rst:19-24 repeats the same top-level claim.",
+          "primary_evidence: docs/complex.md:224-286 clarifies that a custom Group subclass must implement lazy loading via list_commands/get_command overrides.",
+          "primary_tests_or_commands: rg -n \"lazy loading|lazy load|lazy subcommands\" README.md docs/index.rst docs/complex.md | nl -ba README.md docs/index.rst docs/complex.md src/click/core.py",
+          "event_stream_summary: valid_events=6; invalid_events=9; types={'file_read': 2, 'finding': 3, 'lane_assigned': 1}"
+        ],
+        "judge_score_detail": {
+          "correctness": 4,
+          "evidence_quality": 3,
+          "repo_grounding": 4,
+          "minimality": 4,
+          "recovery_quality": 4
+        },
+        "judge_lane_id": "judge-1",
+        "primary_arm": "no_m1nd",
+        "adjudicated_score": 23
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "lane_id": "control-1",
+      "arm": "no_m1nd",
+      "looks_like_template": false,
+      "task_count": 10,
+      "success_count": 10,
+      "partial_count": 0,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 233,
+      "max_score": 240,
+      "median_task_score": 23.0,
+      "median_time_to_good_context_ms": null,
+      "median_time_to_full_proof_ms": null,
+      "median_false_start_count": 0.0,
+      "files_opened": 44,
+      "search_iterations": 22,
+      "tests_or_commands_run": 19,
+      "code_change_task_count": 2,
+      "code_change_completed_count": 2,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 10
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 1,
+        "diagnose": 1,
+        "docs": 1,
+        "explain": 1,
+        "localize": 1,
+        "patch": 2,
+        "plan": 2,
+        "review": 1
+      },
+      "agent_testimony": "Used direct file reads, rg, git diff, focused uv/pytest and cargo test inside lane workspaces only. Did not use m1nd MCP/CLI/docs as an investigative surface, did not touch shared fixtures, and only modified the owned outputs plus the two isolated patch workspaces required by the task battery.",
+      "event_log_path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/event-streams/control-1.jsonl",
+      "event_log_exists": true,
+      "event_count": 9,
+      "agent_event_count": 8,
+      "invalid_event_count": 6,
+      "event_type_counts": {
+        "file_read": 2,
+        "finding": 3,
+        "lane_assigned": 1,
+        "test_run": 3
+      },
+      "m1nd_event_count": 0,
+      "shell_event_count": 0,
+      "test_event_count": 3
+    },
+    {
+      "lane_id": "control-2",
+      "arm": "no_m1nd",
+      "looks_like_template": false,
+      "task_count": 10,
+      "success_count": 10,
+      "partial_count": 0,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 231,
+      "max_score": 240,
+      "median_task_score": 23.0,
+      "median_time_to_good_context_ms": 72000.0,
+      "median_time_to_full_proof_ms": 251500.0,
+      "median_false_start_count": 0.0,
+      "files_opened": 44,
+      "search_iterations": 18,
+      "tests_or_commands_run": 20,
+      "code_change_task_count": 2,
+      "code_change_completed_count": 2,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 10
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 1,
+        "diagnose": 1,
+        "docs": 1,
+        "explain": 1,
+        "localize": 1,
+        "patch": 2,
+        "plan": 2,
+        "review": 1
+      },
+      "agent_testimony": "Worked entirely with direct file reads, rg, git diff, uv, and cargo as required by the no_m1nd lane. I had one harmless shell false start while mapping files and one missing-host-pytest detour before switching to uv. Only the Click and human-panic patch tasks have live proof from focused test runs; p-limit audit/plan answers remain static-file conclusions.",
+      "event_log_path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/event-streams/control-2.jsonl",
+      "event_log_exists": true,
+      "event_count": 6,
+      "agent_event_count": 5,
+      "invalid_event_count": 10,
+      "event_type_counts": {
+        "file_read": 2,
+        "finding": 3,
+        "lane_assigned": 1
+      },
+      "m1nd_event_count": 0,
+      "shell_event_count": 0,
+      "test_event_count": 0
+    },
+    {
+      "lane_id": "control-3",
+      "arm": "no_m1nd",
+      "looks_like_template": false,
+      "task_count": 10,
+      "success_count": 10,
+      "partial_count": 0,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 234,
+      "max_score": 240,
+      "median_task_score": 24.0,
+      "median_time_to_good_context_ms": 141000.0,
+      "median_time_to_full_proof_ms": 213000.0,
+      "median_false_start_count": 0.0,
+      "files_opened": 43,
+      "search_iterations": 23,
+      "tests_or_commands_run": 18,
+      "code_change_task_count": 2,
+      "code_change_completed_count": 2,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 10
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 1,
+        "diagnose": 1,
+        "docs": 1,
+        "explain": 1,
+        "localize": 1,
+        "patch": 2,
+        "plan": 2,
+        "review": 1
+      },
+      "agent_testimony": "Used direct file inspection, rg, git diff/status, one inline Click regression proof, and focused cargo unit tests only. Avoided all m1nd surfaces, kept edits inside the lane fixture copies, and recorded tooling gaps instead of smoothing them away.",
+      "event_log_path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/event-streams/control-3.jsonl",
+      "event_log_exists": true,
+      "event_count": 6,
+      "agent_event_count": 5,
+      "invalid_event_count": 9,
+      "event_type_counts": {
+        "file_read": 2,
+        "finding": 3,
+        "lane_assigned": 1
+      },
+      "m1nd_event_count": 0,
+      "shell_event_count": 0,
+      "test_event_count": 0
+    },
+    {
+      "lane_id": "judge-1",
+      "arm": "adjudication",
+      "looks_like_template": false,
+      "task_count": 0,
+      "success_count": 0,
+      "partial_count": 0,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 0,
+      "max_score": 0,
+      "median_task_score": null,
+      "median_time_to_good_context_ms": null,
+      "median_time_to_full_proof_ms": null,
+      "median_false_start_count": null,
+      "files_opened": 0,
+      "search_iterations": 0,
+      "tests_or_commands_run": 0,
+      "code_change_task_count": 0,
+      "code_change_completed_count": 0,
+      "code_change_completion_rate": null,
+      "claim_overreach_counts": {},
+      "failure_classes": {},
+      "mode_success_counts": {},
+      "agent_testimony": "Correction-only rewrite: preserved the 60 adjudications, wrapped them in the harness lane-result schema, mapped judge score details into harness adjudication score keys, and left task_results empty as permitted for adjudication lanes.",
+      "event_log_path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/event-streams/judge-1.jsonl",
+      "event_log_exists": true,
+      "event_count": 8,
+      "agent_event_count": 7,
+      "invalid_event_count": 0,
+      "event_type_counts": {
+        "file_read": 1,
+        "finding": 2,
+        "handoff": 2,
+        "lane_assigned": 1,
+        "m1nd_call": 1,
+        "shell_command": 1
+      },
+      "m1nd_event_count": 1,
+      "shell_event_count": 1,
+      "test_event_count": 0
+    },
+    {
+      "lane_id": "m1nd-1",
+      "arm": "m1nd_available",
+      "looks_like_template": false,
+      "task_count": 10,
+      "success_count": 10,
+      "partial_count": 0,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 230,
+      "max_score": 240,
+      "median_task_score": 23.0,
+      "median_time_to_good_context_ms": null,
+      "median_time_to_full_proof_ms": null,
+      "median_false_start_count": 1.0,
+      "files_opened": 44,
+      "search_iterations": 39,
+      "tests_or_commands_run": 24,
+      "code_change_task_count": 2,
+      "code_change_completed_count": 2,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 10
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 1,
+        "diagnose": 1,
+        "docs": 1,
+        "explain": 1,
+        "localize": 1,
+        "patch": 2,
+        "plan": 2,
+        "review": 1
+      },
+      "agent_testimony": "Used m1nd first via the repo-local smoke/probe helpers, then verified final truth from local files and focused tests when fixture-specific `seek` calls returned zero actionable candidates and `recovery_playbook` reported `stale_binding_suspected` under fresh helper runtimes. Files changed: `.m1nd-benchmark-fixtures/real-world-lanes/real-world-v2-20260513T231822Z/m1nd-1/click-python-cli/src/click/types.py`; `.m1nd-benchmark-fixtures/real-world-lanes/real-world-v2-20260513T231822Z/m1nd-1/human-panic-rust-cli/src/metadata.rs`. Commands run: `probe_m1nd.py` (`tools`, `session_handshake`, `trust_selftest`, `ingest`, `search`, `seek`, `impact`, `surgical_context_v2`, `validate_plan`, `recovery_playbook`), `rg`, `nl`, `sed`, `uv run pytest`, `cargo test`, and `git status/diff` in fixture repos. Limitations/non-claims: I did not install JS dev dependencies for `p-limit-node`, so its feature/plan tasks are proven from source, typings, docs, and committed tests rather than an executed AVA run. `recovery_playbook` evidence came from fresh isolated helper runtimes, so I treated repo files and targeted tests as final truth after recording the recovery path. Measured Te: about 432000 ms from lane assignment to final artifact write. Event count after this write: 22 total (21 agent, 1 harness).",
+      "event_log_path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/event-streams/m1nd-1.jsonl",
+      "event_log_exists": true,
+      "event_count": 22,
+      "agent_event_count": 21,
+      "invalid_event_count": 0,
+      "event_type_counts": {
+        "file_read": 4,
+        "finding": 1,
+        "handoff": 1,
+        "lane_assigned": 1,
+        "m1nd_call": 7,
+        "patch_write": 1,
+        "recovery_step": 1,
+        "shell_command": 3,
+        "test_run": 3
+      },
+      "m1nd_event_count": 8,
+      "shell_event_count": 3,
+      "test_event_count": 3
+    },
+    {
+      "lane_id": "m1nd-2",
+      "arm": "m1nd_available",
+      "looks_like_template": false,
+      "task_count": 10,
+      "success_count": 9,
+      "partial_count": 1,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 233,
+      "max_score": 240,
+      "median_task_score": 24.0,
+      "median_time_to_good_context_ms": null,
+      "median_time_to_full_proof_ms": null,
+      "median_false_start_count": 0.0,
+      "files_opened": 37,
+      "search_iterations": 37,
+      "tests_or_commands_run": 33,
+      "code_change_task_count": 2,
+      "code_change_completed_count": 2,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 10
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 1,
+        "diagnose": 1,
+        "docs": 1,
+        "explain": 1,
+        "localize": 1,
+        "patch": 2,
+        "plan": 2
+      },
+      "agent_testimony": "Used the repo-local m1nd checkout binary and smoke harness first; a generic fixture-cwd probe surfaced only the minimal handshake contract, so I recorded that recovery and then ran full m1nd calls from /Users/kle1nz/m1nd with explicit fixture paths.\nFiles changed: click-python-cli/src/click/types.py; human-panic-rust-cli/src/metadata.rs; lane-results/m1nd-2.json; event-streams/m1nd-2.jsonl.\nCommands run: m1nd smoke/probe audit-search-impact-validate_plan flows; uv run pytest for focused Click regression proof; cargo test -q name_and_version_builders_preserve_non_empty_guard; cargo test --release -q release in tests/single-panic.\nLimitations/non-claims: I did not read operator-only artifacts; Click semantic seek blocked after ingest and one broad human-panic search also blocked, so final truth was verified from local files/tests; pytest was not available on PATH and the host python lacked pytest, so Click tests were run through uv; one early cargo test invocation for custom-panic was malformed and is preserved as a false start.\nSchema correction: remapped invalid final_state values to the valid enum without changing scores.\nEvent count: 25 total (24 agent). Measured Te: 845334 ms.",
+      "event_log_path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/event-streams/m1nd-2.jsonl",
+      "event_log_exists": true,
+      "event_count": 18,
+      "agent_event_count": 17,
+      "invalid_event_count": 7,
+      "event_type_counts": {
+        "file_read": 2,
+        "lane_assigned": 1,
+        "m1nd_call": 8,
+        "shell_command": 3,
+        "test_run": 4
+      },
+      "m1nd_event_count": 8,
+      "shell_event_count": 3,
+      "test_event_count": 4
+    },
+    {
+      "lane_id": "m1nd-3",
+      "arm": "m1nd_available",
+      "looks_like_template": false,
+      "task_count": 10,
+      "success_count": 10,
+      "partial_count": 0,
+      "failed_count": 0,
+      "invalidated_count": 0,
+      "run_score": 229,
+      "max_score": 240,
+      "median_task_score": 23.0,
+      "median_time_to_good_context_ms": null,
+      "median_time_to_full_proof_ms": null,
+      "median_false_start_count": 0.0,
+      "files_opened": 42,
+      "search_iterations": 39,
+      "tests_or_commands_run": 27,
+      "code_change_task_count": 2,
+      "code_change_completed_count": 2,
+      "code_change_completion_rate": 1.0,
+      "claim_overreach_counts": {
+        "none": 10
+      },
+      "failure_classes": {},
+      "mode_success_counts": {
+        "audit": 1,
+        "diagnose": 1,
+        "docs": 1,
+        "explain": 1,
+        "localize": 1,
+        "patch": 2,
+        "plan": 2,
+        "review": 1
+      },
+      "agent_testimony": "The chat surface initially exposed only the DEXT3R flash path, so I switched to the repo-local `probe_m1nd.py` helper to interrogate the live m1nd runtime directly. That helper reported the full 96-tool surface. On the click fixture, semantic `seek` degraded after ingest and `recovery_playbook` flagged stale-binding suspicion, so I recorded the recovery evidence and completed the click tasks with exact `search`, direct file reads, and a focused `uv` pytest run. On p-limit and human-panic, fresh isolated runtime dirs made `search`, `impact`, and `validate_plan` useful, and I verified final truth with direct source inspection plus targeted tests. Files changed: `.m1nd-benchmark-fixtures/real-world-lanes/real-world-v2-20260513T231822Z/m1nd-3/click-python-cli/src/click/types.py`, `.m1nd-benchmark-fixtures/real-world-lanes/real-world-v2-20260513T231822Z/m1nd-3/human-panic-rust-cli/src/metadata.rs`, `lane-results/m1nd-3.json`, and `event-streams/m1nd-3.jsonl` (plus tool-generated `ingest_roots.json` in lane workspaces). Commands run: `probe_m1nd.py tools/call/run`, `rg`/`sed`/`nl`, `uv run --locked --no-default-groups --group tests pytest tests/test_m1nd_seeded_callable_type.py`, `cargo test metadata::tests --lib`, and `git status`/`git diff`. Limitations/non-claims: I did not execute p-limit runtime tests because the lane workspace has no `node_modules`; the first two click pytest attempts failed under the system Python before I switched to `uv`; and I did not touch `/Users/kle1nz/m1nd` source/docs, commit, push, or read operator-only artifacts. Event count: 16 agent events appended, 17 total lines including the harness entry. Measured Te: 8m22s (2026-05-13T23:18:40Z to 2026-05-13T23:27:02Z).",
+      "event_log_path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/event-streams/m1nd-3.jsonl",
+      "event_log_exists": true,
+      "event_count": 5,
+      "agent_event_count": 4,
+      "invalid_event_count": 12,
+      "event_type_counts": {
+        "file_read": 1,
+        "finding": 3,
+        "lane_assigned": 1
+      },
+      "m1nd_event_count": 0,
+      "shell_event_count": 0,
+      "test_event_count": 0
+    }
+  ],
+  "non_claims": [
+    "one real-world round is not a public performance claim",
+    "benchmark repos are fixtures, not proof of universal repo performance",
+    "m1nd does not replace tests, compiler output, git history, rg, or direct file truth",
+    "agent testimony is not evidence without scored task artifacts",
+    "warm-graph and cold-graph results must be reported separately",
+    "a correct plan is not the same evidence as a correct patch"
+  ]
+}

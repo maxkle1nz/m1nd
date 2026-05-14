@@ -52,6 +52,30 @@ reports `Transport closed`, treat it as a host binding death, not as stale graph
 state. Relaunch/rebind the MCP client or open a fresh session before calling
 `doctor`, `recovery_playbook`, or `ingest`.
 
+## Default Trained-Agent Loop
+
+Internal bug-hunt evidence showed the important distinction: `m1nd` works best
+when the agent receives the operating loop, not merely a graph endpoint. The
+portable pack therefore teaches every host this default sequence:
+
+1. Establish trust with `trust_selftest`, or `session_handshake` scoped to the
+   intended repo.
+2. Follow `recovery_playbook` before interpreting blocked or empty retrieval.
+3. Treat `wrong_workspace_binding` as a binding/scope problem, not as stale
+   graph truth.
+4. Orient with `audit`, then use `search`, `seek`, or `activate` for focused
+   discovery.
+5. Read runtime envelopes before trusting empty results.
+6. Verify final truth with source files, tests, compiler/runtime output, and
+   focused probes.
+7. Use `impact`, `validate_plan`, and `surgical_context_v2` before risky edits
+   or reviews.
+8. Record tool calls, recovery paths, files inspected, commands run, and
+   fallback reasons.
+
+That loop is what `m1nd-trained` means in benchmark artifacts. It is part of
+the agent pack contract.
+
 If the host is stale because it is still launching an older native binary, use
 the self-update surface first:
 
@@ -110,6 +134,23 @@ m1nd update apply --channel beta --yes --no-kill
 
 `m1nd restart --source /path/to/m1nd --yes` remains available as the lower-level
 source-checkout repair helper for development builds.
+
+For benchmark lanes or narrow write scopes, use the operator helper with
+`--no-worktree-artifacts`:
+
+```bash
+python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
+  --no-worktree-artifacts \
+  --workspace-root /path/to/project \
+  run '[{"name":"ingest","arguments":{"agent_id":"lane","path":"/path/to/project"}}]'
+```
+
+This keeps probe runtime state in the isolated runtime directory while
+setting `M1ND_WORKSPACE_ROOT` to the inspected repo. If `--workspace-root` is
+omitted, the helper uses the caller directory. It avoids accidental
+`graph_snapshot.json`, `ingest_roots.json`, or `plasticity_state.json` files in
+the audited repo. The helper prefers the managed runtime at
+`~/.m1nd/bin/m1nd-mcp` before a potentially stale `m1nd-mcp` on `PATH`.
 
 ## MCP Config Snippets
 

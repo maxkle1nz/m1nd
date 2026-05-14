@@ -2,6 +2,232 @@
 
 This directory holds reproducible benchmark inputs for `m1nd`.
 
+## Agent Reliability Rounds
+
+Use this when you want a blinded, agent-first comparison between lanes with
+`m1nd` available and lanes without `m1nd`.
+
+There are three round families:
+
+- `agent_reliability_round.py`: host/session recovery, stale binding, transport, and runtime trust
+- `real_world_agent_round.py`: normal coding-agent work on external repositories
+- `bug_hunt_round.py`: blinded seeded-defect recall scoring for real repo audits
+
+For product usefulness claims, prefer the real-world round. The host-recovery
+round is still valuable, but it only measures whether agents can tell when the
+tooling environment is confused.
+
+Create a round:
+
+```bash
+python3 scripts/benchmark/agent_reliability_round.py init \
+  --out-dir docs/benchmarks/agent-rounds/round-001 \
+  --repo . \
+  --round-id round-001 \
+  --json
+```
+
+The command writes:
+
+- `round.json` with the 7-lane protocol
+- `lane-prompts/*.md` for 3 `m1nd_available` lanes, 3 `no_m1nd` lanes, and 1 adjudicator
+- `lane-results/*.json` templates for each lane to fill after work
+
+Score the completed lane results:
+
+```bash
+python3 scripts/benchmark/agent_reliability_round.py score \
+  --runs-dir docs/benchmarks/agent-rounds/round-001/lane-results \
+  --output docs/benchmarks/agent-rounds/round-001/report.json \
+  --round-id round-001 \
+  --json
+```
+
+This report is intentionally conservative. It records success rates, median
+scores, recovery follow-through, false starts, failure taxonomy, and agent
+testimony, but `public_claim_worthy` remains `false` for a single round. Repeat
+comparable rounds before turning any result into public copy.
+
+Each task result also separates the kind of evidence gathered:
+
+- `requires_live_proof`: the task cannot be fully proved from docs/code alone
+- `proof_mode`: `live`, `static`, `route_only`, `mixed`, or `unreported`
+- `live_state_verified`: the lane actually observed the live host/runtime/session state
+- `evidence_origin`: source classes such as `m1nd_probe`, `direct_files`, or `test_output`
+- `raw_event_evidence`: auditable event lines or transcript references when available
+
+This distinction matters for recovery benchmarks. A control lane may correctly
+describe the `Transport closed` route from source files, but that is still not
+the same evidence as watching a live transport fail and recover. The report
+therefore includes `live_required_verified_rate` and `live_proof_gap_count` so
+static route knowledge cannot masquerade as runtime proof.
+
+The report keeps `structurally_comparable_primary_arms` separate from
+`live_proof_comparable_primary_arms`. A round can have the right number of lanes
+and tasks while still being non-comparable for live-proof claims. In that case
+`comparable_primary_arms` is `false`, and `comparability_blockers` explains why.
+
+If a lane result still looks like an untouched template, the report lists it in
+`template_like_lanes` and marks the primary arms as not comparable. This prevents
+empty scaffolds from being mistaken for evidence.
+
+The scorer only consumes JSON files whose `schema` is
+`m1nd-agent-reliability-lane-result-v0`. Other JSON files in `lane-results/`
+are listed under `ignored_result_files` so stray runtime artifacts cannot crash
+or silently pollute the round.
+
+## Real-World Agent Rounds
+
+Use this when the question is whether `m1nd` helps with everyday code work in
+unknown repos: audit, localization, flow explanation, bug triage, safe change
+planning, small patches, seeded bug fixes, bounded refactors, code review, and
+docs drift.
+
+Fetch external fixture repos into the ignored local fixture directory:
+
+```bash
+python3 scripts/benchmark/real_world_agent_round.py fetch-fixtures \
+  --fixtures-dir .m1nd-benchmark-fixtures/real-world \
+  --json
+```
+
+Create a round:
+
+```bash
+python3 scripts/benchmark/real_world_agent_round.py init \
+  --out-dir docs/benchmarks/real-world-rounds/round-001 \
+  --fixtures-dir .m1nd-benchmark-fixtures/real-world \
+  --round-id round-001 \
+  --json
+```
+
+The round includes deterministic task payloads, a parent/adjudicator-only
+`operator-only/answer-key.json`, and supplied benchmark payload artifacts such
+as review diffs. Do not hand the answer key to primary lanes.
+
+It also writes `operator-only/fixture-lock.json`, capturing the local fixture
+HEAD commits used for the round. `prepare-lane-fixtures` checks lane checkout
+HEADs against that lock and reports `ok=false` on mismatch.
+
+It also creates `event-streams/*.jsonl`. The harness writes the first
+`lane_assigned` event; agents append their own events with
+`event_source="agent"`. A lane without agent-authored events remains useful for
+setup smoke, but not for a clean benchmark claim.
+
+Prepare isolated lane fixture checkouts:
+
+```bash
+python3 scripts/benchmark/real_world_agent_round.py prepare-lane-fixtures \
+  --round-file docs/benchmarks/real-world-rounds/round-001/round.json \
+  --write docs/benchmarks/real-world-rounds/round-001/lane-workspaces.json \
+  --json
+```
+
+This step injects deterministic seeded artifacts into isolated lane workspaces.
+For the first v2 task set, Click receives
+`tests/test_m1nd_seeded_callable_type.py` so every primary lane fixes the same
+callable-instance custom type bug.
+
+Score the completed lane results:
+
+```bash
+python3 scripts/benchmark/real_world_agent_round.py score \
+  --runs-dir docs/benchmarks/real-world-rounds/round-001/lane-results \
+  --output docs/benchmarks/real-world-rounds/round-001/report.json \
+  --round-id round-001 \
+  --json
+```
+
+Build an operator-only judge packet:
+
+```bash
+python3 scripts/benchmark/real_world_agent_round.py judge-input \
+  --round-file docs/benchmarks/real-world-rounds/round-001/round.json \
+  --lane-results-dir docs/benchmarks/real-world-rounds/round-001/lane-results \
+  --answer-key docs/benchmarks/real-world-rounds/round-001/operator-only/answer-key.json \
+  --output docs/benchmarks/real-world-rounds/round-001/operator-only/judge-input.json \
+  --json
+```
+
+The judge packet uses `m1nd-real-world-agent-judge-input-v0` and includes the
+task matrix, answer key, primary lane summaries, event summaries, and empty
+adjudication templates.
+
+This round uses `m1nd-real-world-agent-round-v0`,
+`m1nd-real-world-agent-lane-result-v0`, and
+`m1nd-real-world-agent-report-v0`. The optional event stream schema is
+`m1nd-real-world-agent-event-v0`. The judge lane can fill top-level
+`adjudications[]` in its lane result so the report can separate self-score from
+adjudicated score. `public_claim_worthy` remains `false` until results are
+repeated across pinned repo snapshots, all primary lanes have event evidence,
+and patch/review tasks are adjudicated.
+
+## Bug-Hunt Rounds
+
+Use this when the question is whether agents find more real defects when m1nd is
+available and taught correctly. A bug-hunt round gives agents an ordinary repo
+audit task while the operator keeps a private answer key of seeded defects.
+
+Instruction modes:
+
+- `m1nd-temponizer-full`: the agent receives the trained-agent loop plus the
+  explicit Temponizer formula and per-phase recalibration notes. This is useful
+  for testing prompt integration, but may be too heavy for recall tasks.
+- `m1nd-temponizer-compact`: the agent receives the trained-agent loop plus the
+  full Temponizer formula in compact form: calculate corrected agent time around
+  major branch decisions, record `Te` where it matters, and keep moving.
+- `m1nd-temponizer`: the earlier lighter Tempo mode with phase/time awareness
+  and `Te` notes, but without the full formula.
+- `m1nd-trained`: the agent receives the default trained-agent loop from the
+  m1nd pack: trust check, recovery before absence, scoped orientation,
+  retrieval-envelope reading, direct proof, and evidence logging.
+- `m1nd-basic`: the agent knows m1nd is available but does not receive the full
+  operating loop.
+- `direct`: the agent does not use m1nd and relies on direct repo tools.
+
+The first accepted round showed that `m1nd-trained` was the meaningful product
+condition. Do not collapse it into "m1nd installed" when designing future
+rounds. The first Tempo comparison showed that prompt weight matters too:
+Temponizer should be compact operating physics, not an audit-form tax.
+
+Create a round scaffold:
+
+```bash
+python3 scripts/benchmark/bug_hunt_round.py init \
+  --out-dir docs/benchmarks/bug-hunt-rounds/round-001 \
+  --round-id round-001 \
+  --repo your-fixture-repo \
+  --source-repo .m1nd-benchmark-fixtures/bug-hunt/your-fixture-source \
+  --seeded-repo .m1nd-benchmark-fixtures/bug-hunt/round-001/your-fixture-seeded \
+  --seeded-bug-count 5 \
+  --json
+```
+
+The init command writes lane prompts, lane result templates, event streams,
+`round.json`, and an operator-only answer-key template. It does not plant bugs
+or prepare workspaces; the operator must do that before dispatching agents.
+
+Score a completed round:
+
+```bash
+python3 scripts/benchmark/bug_hunt_round.py score \
+  --round-file docs/benchmarks/bug-hunt-rounds/round-001/round.json \
+  --answer-key docs/benchmarks/bug-hunt-rounds/round-001/operator-only/answer-key.json \
+  --lane-results-dir docs/benchmarks/bug-hunt-rounds/round-001/lane-results \
+  --output docs/benchmarks/bug-hunt-rounds/round-001/report.json \
+  --notes docs/benchmarks/bug-hunt-rounds/round-001/ROUND-NOTES.md \
+  --json
+```
+
+The scorer reports seeded recall by instruction mode and preserves extra
+findings as `extra_unadjudicated_findings_count`. It does not treat extras as
+false positives unless a separate judge validates them. `public_claim_worthy`
+stays `false` for a single internal round.
+
+The first accepted bug-hunt round is:
+
+- `docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/report.json`
+
 ## Runner
 
 Use:

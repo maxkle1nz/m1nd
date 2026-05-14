@@ -1163,20 +1163,15 @@ impl SessionState {
     }
 
     fn persist_ingest_roots(&mut self) {
-        let workspace_root = self
-            .workspace_root
-            .clone()
-            .or_else(|| Some(self.runtime_root.to_string_lossy().to_string()));
-        let Some(root) = workspace_root else {
+        let persist_root = self
+            .graph_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| self.runtime_root.clone());
+        if let Err(e) = std::fs::create_dir_all(&persist_root) {
+            eprintln!("[m1nd] WARNING: ingest roots persist dir failed: {}", e);
             return;
-        };
-
-        let root_path = std::path::Path::new(&root);
-        let persist_root = if root_path.is_dir() {
-            root_path.to_path_buf()
-        } else {
-            self.runtime_root.clone()
-        };
+        }
         let ingest_roots_path = persist_root.join("ingest_roots.json");
         if let Ok(json) = serde_json::to_string_pretty(&self.ingest_roots) {
             if let Err(e) = std::fs::write(&ingest_roots_path, json) {
@@ -1687,6 +1682,37 @@ mod tests {
             state.workspace_root_source.as_deref(),
             Some("env:M1ND_WORKSPACE_ROOT")
         );
+    }
+
+    #[test]
+    fn ingest_roots_persist_next_to_graph_not_workspace_hint() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _env = EnvGuard::clear_workspace_hints();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("project");
+        let runtime = temp.path().join("runtime");
+        std::fs::create_dir_all(&workspace).expect("workspace dir");
+        std::fs::create_dir_all(&runtime).expect("runtime dir");
+        std::env::set_var("M1ND_WORKSPACE_ROOT", &workspace);
+
+        let config = McpConfig {
+            graph_source: runtime.join("graph_snapshot.json"),
+            plasticity_state: runtime.join("plasticity_state.json"),
+            runtime_dir: Some(runtime.clone()),
+            ..McpConfig::default()
+        };
+
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.ingest_roots = vec![workspace.to_string_lossy().to_string()];
+        state.persist_ingest_roots();
+
+        assert!(runtime.join("ingest_roots.json").exists());
+        assert!(!workspace.join("ingest_roots.json").exists());
+        let persisted = std::fs::read_to_string(runtime.join("ingest_roots.json"))
+            .expect("persisted ingest roots");
+        assert!(persisted.contains(&workspace.to_string_lossy().to_string()));
     }
 
     #[test]

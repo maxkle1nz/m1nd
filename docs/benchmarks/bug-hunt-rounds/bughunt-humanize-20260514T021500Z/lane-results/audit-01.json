@@ -1,0 +1,151 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-humanize-20260514T021500Z",
+  "lane_id": "audit-01",
+  "started_at": "2026-05-14T04:46:44+02:00",
+  "finished_at": "2026-05-14T04:54:20+02:00",
+  "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-humanize-20260514T021500Z/audit-01/humanize",
+  "findings": [
+    {
+      "title": "intcomma skips grouping for signed negative numbers",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "intcomma",
+      "cause": "The separator loop applies re.sub(r\"^(\\d+)(\\d{3})\", ...) to the whole formatted string, so any leading minus sign prevents the integer part from ever matching.",
+      "impact": "Negative integers, floats, and numeric strings are returned without thousands separators, which breaks the function contract for common monetary and count values and also affects locale-formatted output.",
+      "evidence": [
+        "src/humanize/number.py:164-174 formats to a string, then only inserts separators when the string starts with digits.",
+        "tests/test_number.py:41-83 covers positive intcomma inputs and non-finite values but no negative finite inputs.",
+        "Focused probe: intcomma(-1234) actual='-1234' expected='-1,234'; intcomma('-1234.56') actual='-1234.56' expected='-1,234.56'."
+      ],
+      "reproduction_or_test": "Add assertions to test_intcomma: assert humanize.intcomma(-1234) == '-1,234' and assert humanize.intcomma('-1234.56') == '-1,234.56'.",
+      "confidence": "high"
+    },
+    {
+      "title": "clamp marks exact floor and ceil values as out of range",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "clamp",
+      "cause": "The implementation clamps with value <= floor and value >= ceil, while the docstring and argument docs describe only values smaller than the floor or larger than the ceil as token-worthy.",
+      "impact": "Exact threshold values get misleading under/over labels such as >99% or <1%, which can invert boundary semantics in dashboards, reports, and validation messaging.",
+      "evidence": [
+        "src/humanize/number.py:464-475 says larger than ceil/smaller than floor are clamped and documents clamp(0.99, ceil=0.99) -> 99%.",
+        "src/humanize/number.py:509-514 uses <= and >=, adding tokens at equality.",
+        "tests/test_number.py:223-240 tests below/above thresholds but omits exact floor/ceil equality.",
+        "Focused probe: clamp(0.99, format=\"{:.0%}\", ceil=0.99) actual='>99%' expected='99%'; clamp(0.01, floor=0.01) actual='<1%' expected='1%'."
+      ],
+      "reproduction_or_test": "Add equality cases to test_clamp for floor and ceil, e.g. assert humanize.clamp(0.99, format='{:.0%}', ceil=0.99) == '99%'.",
+      "confidence": "high"
+    },
+    {
+      "title": "fractional loses or duplicates the sign for negative fractions",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "fractional",
+      "cause": "The function truncates toward zero with int(number), then builds the fractional remainder from number - whole_number; for pure negative fractions it calls abs(numerator), and for mixed negatives it prints the negative numerator after a negative whole number.",
+      "impact": "Negative fractional values are not data-preserving: -0.5 becomes positive 1/2, and -1.5 becomes the awkward double-negative string -1 -1/2.",
+      "evidence": [
+        "src/humanize/number.py:370-382 computes the remainder from the signed number and applies abs only in the no-whole-number branch.",
+        "tests/test_number.py:166-189 covers positive fractions and non-finite values but no negative finite fractions.",
+        "Focused probe: fractional(-0.5) actual='1/2' expected='-1/2'; fractional(-1.5) actual='-1 -1/2' expected='-1 1/2'."
+      ],
+      "reproduction_or_test": "Add negative cases to test_fractional: assert humanize.fractional(-0.5) == '-1/2' and assert humanize.fractional(-1.5) == '-1 1/2'.",
+      "confidence": "high"
+    },
+    {
+      "title": "naturalsize crashes or invents byte units for non-finite floats",
+      "severity": "medium",
+      "file": "src/humanize/filesize.py",
+      "symbol": "naturalsize",
+      "cause": "naturalsize converts to float and immediately uses log(abs_bytes, base) without a finite check, unlike the number helpers that route NaN and infinities through _format_not_finite.",
+      "impact": "NaN raises ValueError and infinities format as inf QB or -inf QB, so callers formatting calculation results or untrusted numeric input can crash or display a bogus finite filesize unit.",
+      "evidence": [
+        "src/humanize/filesize.py:89-101 converts to float, compares sizes, then computes int(min(log(...))) without math.isfinite handling.",
+        "tests/test_filesize.py:12-96 covers ordinary positive/negative sizes but no nan/inf inputs.",
+        "Focused probe: naturalsize(math.nan) raised ValueError; naturalsize(math.inf) actual='inf QB' expected='+Inf' for consistency with other numeric helpers."
+      ],
+      "reproduction_or_test": "Add non-finite cases to test_naturalsize, e.g. assert humanize.naturalsize(math.nan) == 'NaN', assert humanize.naturalsize(math.inf) == '+Inf', assert humanize.naturalsize(-math.inf) == '-Inf'.",
+      "confidence": "high"
+    },
+    {
+      "title": "naturaldelta and naturaltime leak OverflowError for numeric infinity",
+      "severity": "low",
+      "file": "src/humanize/time.py",
+      "symbol": "naturaldelta / naturaltime",
+      "cause": "naturaldelta catches ValueError and TypeError around int(value) and timedelta construction, but int(math.inf) raises OverflowError. naturaltime also reaches unchecked OverflowError through round(value) in _date_and_delta for numeric infinity.",
+      "impact": "The documented fallback for values that cannot be converted due to inf/nan is inconsistent: string NaN is returned unchanged, but numeric infinity can crash relative-time formatting.",
+      "evidence": [
+        "src/humanize/time.py:112-116 documents that values that cannot be converted to int due to 'inf' or 'nan' are returned unchanged.",
+        "src/humanize/time.py:86-90 and 148-153 catch ValueError/TypeError but not OverflowError.",
+        "tests/test_time.py:120-136 and 170-187 include string NaN but no math.inf case.",
+        "Focused probe: naturaldelta(math.inf) and naturaltime(math.inf) both raised OverflowError: cannot convert float infinity to integer."
+      ],
+      "reproduction_or_test": "Add tests for math.inf and -math.inf in test_naturaldelta/test_naturaltime, deciding whether they should return str(value) or use the shared +Inf/-Inf formatting convention.",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "sed -n 1,240p lane-prompts/audit-01.md",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py tools",
+    "probe_m1nd.py run trust_selftest/session_handshake/ingest/audit/search/seek for assigned repo and requested symbols",
+    "probe_m1nd.py run recovery_playbook/audit/search exact symbols/seek intent queries",
+    "rg --files",
+    "git status --short --untracked-files=all",
+    "sed/nl reads of src/humanize/{number,filesize,lists,time,i18n,__init__}.py and tests",
+    "uv run --extra tests pytest -q",
+    "uv run python focused edge-case probe for intcomma, clamp, fractional, naturalsize, naturaldelta, naturaltime",
+    "probe_m1nd.py help impact/validate_plan/surgical_context_v2",
+    "probe_m1nd.py run impact/surgical_context_v2/validate_plan, then reingest + file-level impact/validate_plan",
+    "rg -n boundary searches across src, tests, README.md, docs",
+    "uv run python natural_list empty-list observation",
+    "rm -f graph_snapshot.json ingest_roots.json plasticity_state.json src/humanize/ingest_roots.json tests/ingest_roots.json",
+    "date '+%Y-%m-%dT%H:%M:%S%z'"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-prompts/audit-01.md",
+    "pyproject.toml",
+    "README.md",
+    "docs/number.md",
+    "docs/filesize.md",
+    "docs/time.md",
+    "docs/lists.md",
+    "src/humanize/__init__.py",
+    "src/humanize/i18n.py",
+    "src/humanize/number.py",
+    "src/humanize/filesize.py",
+    "src/humanize/lists.py",
+    "src/humanize/time.py",
+    "tests/test_number.py",
+    "tests/test_filesize.py",
+    "tests/test_lists.py",
+    "tests/test_time.py",
+    "tests/test_i18n.py"
+  ],
+  "tests_run": [
+    {
+      "command": "uv run --extra tests pytest -q",
+      "result": "685 passed, 69 skipped in 0.65s"
+    },
+    {
+      "command": "uv run python focused edge-case probe",
+      "result": "Reproduced mismatches/exceptions for five reported findings."
+    },
+    {
+      "command": "uv run python natural_list empty-list observation",
+      "result": "humanize.natural_list([]) returned 'None'; not counted as a finding because the empty-list contract is ambiguous without maintainer intent."
+    }
+  ],
+  "m1nd_usage": [
+    "probe_m1nd.py tools returned 96 tools; live m1nd MCP tools were not directly exposed, so the isolated probe helper was used.",
+    "trust_selftest returned full_trust for the initial probe runtime, but session_handshake against the assigned repo reported wrong_workspace_binding; followed prompt recovery guidance by ingesting the assigned repo.",
+    "ingest on the assigned humanize repo completed successfully (67+ scanned files, 213+ nodes depending on probe run).",
+    "Initial audit call with scope failed because audit requires path; retried audit with path/profile auto successfully.",
+    "Combined literal search over all symbols returned zero and requested recovery; recovery_playbook was called and classified the earlier state as stale_binding_suspected/wrong workspace context.",
+    "Individual m1nd searches and seek queries oriented to src/humanize/number.py, src/humanize/filesize.py, src/humanize/time.py, src/humanize/lists.py and their tests before shell inspection.",
+    "impact on function node IDs was blocked in one probe, so direct file/test evidence was used; a later reingest plus file-level impact resolved number.py and filesize.py blast-radius surfaces.",
+    "surgical_context_v2 returned ready_to_edit context for src/humanize/number.py and src/humanize/filesize.py; validate_plan resolved the proposed source/test actions with medium risk after reingest."
+  ],
+  "final_notes": "No source patches were left in the audit clone; m1nd probe artifacts were removed and git status was clean after cleanup. I did not read operator-only files and did not commit, push, or modify /Users/kle1nz/m1nd source files. I observed natural_list([]) -> \"None\" but did not count it as a defect because the empty-list API contract is not explicit enough without maintainer intent.",
+  "agent_testimony": "I used m1nd first as requested, including probe tooling, ingest, audit/search/seek, recovery, impact, surgical_context_v2, and validate_plan. m1nd had temporary workspace-binding quirks, so final claims are backed by direct source lines, existing test gaps, the full pytest run, and focused executable probes rather than by retrieval alone.",
+  "confidence": "high"
+}

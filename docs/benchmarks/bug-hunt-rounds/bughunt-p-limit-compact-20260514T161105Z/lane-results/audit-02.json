@@ -1,0 +1,165 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-compact-20260514T161105Z",
+  "lane_id": "audit-02",
+  "instruction_mode": "m1nd-temponizer-compact",
+  "repo": "p-limit",
+  "model": "GPT-5 Codex",
+  "started_at": "2026-05-14T16:11:28Z",
+  "finished_at": "2026-05-14T16:14:09Z",
+  "findings": [
+    {
+      "title": "Options-object default rejects cleared work despite documented default false",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The options destructuring changed the default to `rejectOnClear = true` when `pLimit` is called with an object, even though the local default starts as false and the docs/types say the option defaults to false.",
+      "impact": "`pLimit({concurrency: 1})` now rejects pending tasks on `clearQueue()` by default. Existing callers that adopted the options object only to set concurrency can get unexpected `AbortError` rejections, especially in `Promise.all` flows.",
+      "evidence": "index.js:4-8 defaults `rejectOnClear` to true for object options; index.js:77-88 rejects queued promises when that flag is true. readme.md:46-52 and index.d.ts:99-106 both document `rejectOnClear` default as false.",
+      "reproduction_or_test": "Ran `node --input-type=module -e \"import pLimit from './index.js'; const limit = pLimit({concurrency: 1}); const running = limit(() => new Promise(resolve => setTimeout(resolve, 50))); const pending = limit(() => 'pending'); await Promise.resolve(); limit.clearQueue(); const outcome = await Promise.race([pending.then(() => 'resolved', error => 'rejected:' + error.name), new Promise(resolve => setTimeout(() => resolve('pending'), 80))]); await running; console.log(outcome);\"`; observed `rejected:AbortError`, while the documented default-false behavior should leave the pending promise unsettled after clearing.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsey non-boolean `rejectOnClear` values bypass runtime validation",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The type guard only runs when `rejectOnClear` is truthy: `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`, so `0`, `null`, and empty string are accepted.",
+      "impact": "JavaScript callers can pass invalid option types without a `TypeError`, producing silent false-mode behavior instead of the declared boolean-only contract.",
+      "evidence": "index.js:12-14 validates only truthy non-booleans. index.d.ts:99-106 declares `rejectOnClear?: boolean`, and index.test-d.ts:29 only covers a truthy invalid string.",
+      "reproduction_or_test": "Ran `node --input-type=module -e \"import pLimit from './index.js'; for (const value of [0, null, '']) { try { pLimit({concurrency: 1, rejectOnClear: value}); console.log(String(value) + ':accepted'); } catch { console.log(String(value) + ':threw'); } }\"`; observed `0:accepted`, `null:accepted`, and `:accepted`.",
+      "confidence": "high"
+    },
+    {
+      "title": "`limitFunction` drops all caller arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The wrapper returned by `limitFunction` takes no rest parameters and invokes the original function as `function_()` instead of forwarding `...arguments_`.",
+      "impact": "Any limited function that depends on parameters receives `undefined` values at runtime, despite the TypeScript signature preserving the original argument list.",
+      "evidence": "index.js:121-125 returns `() => limit(() => function_())`. index.d.ts:133-136 declares `limitFunction<Arguments ...>(function_: (...arguments_: Arguments) ...)` returning `(...arguments_: Arguments) => Promise<ReturnType>`, and index.test-d.ts:24-26 type-checks a one-argument limited function without a runtime assertion.",
+      "reproduction_or_test": "Ran `node --input-type=module -e \"import {limitFunction} from './index.js'; const limited = limitFunction((a, b) => [a, b], {concurrency: 1}); console.log(JSON.stringify(await limited('x', 'y')));\"`; observed `[null,null]` from JSON-encoded `undefined` arguments instead of `[\"x\",\"y\"]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "`limit.map` omits the mapper index for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "LimitFunction.map",
+      "cause": "The map implementation conditionally passes `undefined` as the index unless the input is an array, even though `Array.from` already supplies a correct index for every iterable.",
+      "impact": "Documented `limit.map` behavior breaks for `Set`, iterator, generator, and other iterable inputs whenever the mapper uses its index argument.",
+      "evidence": "index.js:106-113 computes `iterableIsArray` and passes `iterableIsArray ? index : undefined`. readme.md:78-85 and index.d.ts:29-43 say the mapper receives the item value and its index and is equivalent to `Array.from(iterable, (item, index) => limit(mapperFunction, item, index))`.",
+      "reproduction_or_test": "Ran `node --input-type=module -e \"import pLimit from './index.js'; const limit = pLimit(1); console.log(JSON.stringify(await limit.map(new Set(['a', 'b']), (value, index) => [value, index])));\"`; observed `[[\"a\",null],[\"b\",null]]` from JSON-encoded `undefined` indexes instead of `[[\"a\",0],[\"b\",1]]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "`pLimit(Infinity)` is rejected after removing the explicit Infinity allowance",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "The concurrency validator now requires `Number.isInteger(concurrency)` and no longer accepts `Number.POSITIVE_INFINITY`, even though the checked-in diff shows the previous public validator explicitly allowed it.",
+      "impact": "Callers using `Infinity` to disable limiting while keeping a uniform limiter API now fail at construction with `TypeError`.",
+      "evidence": "index.js:127-130 rejects anything that is not a positive integer. `git diff -- index.js` shows the baseline condition was `((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)`, so the Infinity path was intentionally removed in the dirty workspace.",
+      "reproduction_or_test": "Ran `node --input-type=module -e \"import pLimit from './index.js'; try { pLimit(Infinity); console.log('Infinity:accepted'); } catch (error) { console.log('Infinity:threw:' + error.message); }\"`; observed `Infinity:threw:Expected `concurrency` to be a number from 1 and up`.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' lane-prompts/audit-02.md and sed -n '1,220p' m1nd-operator/SKILL.md",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts tools",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts run '[session_handshake,audit]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts run '[ingest,session_handshake,seek,search]'",
+    "nl -ba index.js | sed -n '1,240p'",
+    "nl -ba test.js | sed -n '1,520p'",
+    "nl -ba index.d.ts | sed -n '1,180p'",
+    "nl -ba readme.md | sed -n '1,240p'",
+    "nl -ba package.json | sed -n '1,180p'",
+    "nl -ba index.test-d.ts | sed -n '1,200p'",
+    "git status --short && git diff -- index.js ndex.js ingest_roots.json | sed -n '1,240p'",
+    "node --input-type=module focused probe for default options-object clearQueue rejection",
+    "node --input-type=module focused probe for limitFunction argument forwarding",
+    "node --input-type=module focused probe for limit.map Set indexes",
+    "node --input-type=module focused probe for falsey rejectOnClear values and Infinity concurrency",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts run '[help impact,help validate_plan]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts run '[ingest,impact,validate_plan]'"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-compact-20260514T161105Z/lane-prompts/audit-02.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-compact-20260514T161105Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-compact-20260514T161105Z/audit-02/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-compact-20260514T161105Z/audit-02/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-compact-20260514T161105Z/audit-02/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-compact-20260514T161105Z/audit-02/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-compact-20260514T161105Z/audit-02/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-compact-20260514T161105Z/audit-02/p-limit/package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "tools",
+      "result": "Confirmed 96-tool m1nd surface through local probe with --no-worktree-artifacts."
+    },
+    {
+      "tool": "session_handshake",
+      "result": "Scoped to assigned p-limit workspace; initial trust_mode was needs_ingest with no wrong_workspace_binding."
+    },
+    {
+      "tool": "audit",
+      "result": "Initial orientation identified index.js as the central risk module; not treated as final retrieval truth until ingest completed."
+    },
+    {
+      "tool": "ingest + session_handshake",
+      "result": "Ingested assigned workspace in isolated probe runtime; follow-up handshake returned full_trust with ingest root bound to the assigned repo."
+    },
+    {
+      "tool": "seek + search",
+      "result": "Focused discovery landed on limitFunction, enqueue, validateConcurrency, and concurrency/options docs as the relevant public API surface."
+    },
+    {
+      "tool": "impact + validate_plan",
+      "result": "Impact on index.js covered limiter internals, test.js, benchmark.js, and type tests; validate_plan resolved both audit actions with medium structural risk and no unresolved gaps."
+    }
+  ],
+  "temponizer_usage": [
+    {
+      "phase": "IO",
+      "tc_estimate": "0.2s from Tp=2s at alpha=0.10",
+      "te_measured": "under 1s",
+      "decision": "Use local m1nd probe with --no-worktree-artifacts rather than spend time on host/tool discovery.",
+      "recalibration_note": "Probe latency was small enough to keep m1nd in the loop."
+    },
+    {
+      "phase": "DBG",
+      "tc_estimate": "0.8s from Tp=10s at alpha=0.08",
+      "te_measured": "under 1s",
+      "decision": "After needs_ingest, run ingest and re-handshake before trusting retrieval.",
+      "recalibration_note": "Cold graph recovery was cheaper than falling back immediately."
+    },
+    {
+      "phase": "IO",
+      "tc_estimate": "0.5s from Tp=5s at alpha=0.10",
+      "te_measured": "under 1s",
+      "decision": "Read index.js, tests, types, README, package metadata, and git diff in parallel.",
+      "recalibration_note": "Parallel source reads made broad contract comparison inexpensive."
+    },
+    {
+      "phase": "DBG",
+      "tc_estimate": "1.2s from Tp=15s at alpha=0.08",
+      "te_measured": "under 1s",
+      "decision": "Use focused node probes for each suspected defect instead of adding temporary test files.",
+      "recalibration_note": "Executable probes were fast and avoided disallowed workspace writes."
+    },
+    {
+      "phase": "GEN",
+      "tc_estimate": "0.9s from Tp=30s at alpha=0.03",
+      "te_measured": "not separately measured",
+      "decision": "Stop at five concrete source-backed findings after source, docs/types, git diff, m1nd, and runtime probes agreed.",
+      "recalibration_note": "Additional broad searching was unlikely to improve confidence under the compact audit constraints."
+    }
+  ],
+  "agent_testimony": "I did not read operator-only artifacts or other lane prompts/results; I audited only the assigned p-limit workspace, used m1nd with --no-worktree-artifacts, and verified each reported behavior with direct source reads plus focused runtime probes.",
+  "notes": "The assigned repo was already dirty (`index.js` modified and `ingest_roots.json` untracked) when inspected; I did not patch repo source or revert any existing changes.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

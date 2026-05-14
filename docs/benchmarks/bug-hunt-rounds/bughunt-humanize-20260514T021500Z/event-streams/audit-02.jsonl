@@ -1,0 +1,15 @@
+{"schema":"m1nd-bug-hunt-event-v0","round_id":"bughunt-humanize-20260514T021500Z","lane_id":"audit-02","event_type":"audit_assigned","event_source":"harness","created_at":"2026-05-14T02:46:44.227Z"}
+{"event_type":"file_read","event_source":"agent","created_at":"2026-05-14T02:47:10Z","detail":"read lane prompt audit-02.md and m1nd-operator skill instructions"}
+{"event_type":"m1nd_call","event_source":"agent","created_at":"2026-05-14T02:47:25Z","detail":"probe_m1nd.py tools returned 96 tools including trust_selftest, session_handshake, ingest, audit, search, seek, impact, validate_plan, recovery_playbook, surgical_context_v2"}
+{"event_type":"m1nd_call","event_source":"agent","created_at":"2026-05-14T02:48:00Z","detail":"trust_selftest/session_handshake initially detected wrong_workspace_binding for requested humanize repo; ingested assigned audit workspace"}
+{"event_type":"m1nd_call","event_source":"agent","created_at":"2026-05-14T02:48:25Z","detail":"m1nd ingest parsed 67-68 files; audit/search/seek oriented to number.py, time.py, filesize.py, lists.py, and tests"}
+{"event_type":"file_read","event_source":"agent","created_at":"2026-05-14T02:49:00Z","detail":"read pyproject.toml, source modules number.py time.py filesize.py lists.py i18n.py, and related tests"}
+{"event_type":"test_run","event_source":"agent","created_at":"2026-05-14T02:50:10Z","detail":"uv run --extra tests pytest -q returned 685 passed, 69 skipped"}
+{"event_type":"finding","event_source":"agent","created_at":"2026-05-14T02:50:35Z","detail":"identified naturaltime numeric future=True regression in src/humanize/time.py"}
+{"event_type":"finding","event_source":"agent","created_at":"2026-05-14T02:50:50Z","detail":"identified intcomma negative-number grouping regression in src/humanize/number.py"}
+{"event_type":"finding","event_source":"agent","created_at":"2026-05-14T02:51:05Z","detail":"identified clamp floor/ceil equality boundary regression in src/humanize/number.py"}
+{"event_type":"finding","event_source":"agent","created_at":"2026-05-14T02:51:20Z","detail":"identified fractional negative proper fraction sign-loss in src/humanize/number.py"}
+{"event_type":"finding","event_source":"agent","created_at":"2026-05-14T02:51:35Z","detail":"identified natural_list empty-list output collision with [None] in src/humanize/lists.py"}
+{"event_type":"m1nd_call","event_source":"agent","created_at":"2026-05-14T02:52:00Z","detail":"ran m1nd impact/validate_plan/surgical_context_v2 for number.py and impact/validate_plan for time.py and lists.py"}
+{"event_type":"test_run","event_source":"agent","created_at":"2026-05-14T02:52:45Z","detail":"focused boundary proof exited 1 with FAIL lines for naturaltime future, intcomma negatives, clamp equality, fractional negative proper fraction, and natural_list empty distinction"}
+{"event_type":"result_written","event_source":"agent","created_at":"2026-05-14T02:53:30Z","detail":"wrote lane-results/audit-02.json with 5 findings"}

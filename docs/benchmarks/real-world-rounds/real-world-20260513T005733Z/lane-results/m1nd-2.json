@@ -1,0 +1,508 @@
+{
+  "schema": "m1nd-real-world-agent-lane-result-v0",
+  "round_id": "real-world-20260513T005733Z",
+  "lane_id": "m1nd-2",
+  "arm": "m1nd_available",
+  "model": "gpt-5-codex",
+  "started_at": "",
+  "finished_at": "",
+  "agent_testimony": "Host MCP did not expose the full m1nd tool surface in this thread; only the Dexter flash tools were present. I recorded that limitation, then used the repo-local m1nd probe (`probe_m1nd.py`) for ingest/seek/activate/impact/validate_plan against the isolated fixture copies. An initial false start was trying `scripts/mcp_agent_smoke.py` against fixture repos directly; that harness expected an m1nd checkout with a local `m1nd-mcp` binary, so I switched to the probe path. Final truth was verified with direct files, git diff/status, `uv run -m pytest` in Click, and `cargo test -q` in human-panic. For p-limit I grounded the answers in source, tests, types, docs, and one failed `npm test` attempt (`xo: command not found`) rather than inventing runtime proof. I only edited the isolated fixture copies plus this lane result JSON and removed probe exhaust (`ingest_roots.json`) before finishing.",
+  "task_results": [
+    {
+      "task_id": "repo_architecture_audit",
+      "repo_id": "click-python-cli",
+      "mode": "audit",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 1,
+      "files_opened": [
+        "README.md",
+        "src/click/core.py",
+        "src/click/decorators.py",
+        "src/click/parser.py",
+        "src/click/shell_completion.py"
+      ],
+      "search_iterations": 4,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest(click-python-cli), activate('command parsing, shell completion, parameter handling')]",
+        "rg -n '^class Context|^class Command|^class Group|def parse_args|def invoke|def main' src/click/core.py",
+        "rg -n 'def command|def group|def option|def argument' src/click/decorators.py",
+        "rg -n 'class _OptionParser|def parse_args|def _match_long_opt|def _match_short_opt' src/click/parser.py",
+        "rg -n 'def shell_complete|class ShellComplete|def get_completions|def _resolve_context' src/click/shell_completion.py"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/core.py",
+        "src/click/decorators.py",
+        "src/click/parser.py",
+        "src/click/shell_completion.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Architecture summary: user-defined callbacks are turned into `Command` / `Group` / `Option` objects by decorators in `src/click/decorators.py`; runtime execution then centers on `Context`, `Command.parse_args`, `Command.main`, and `Group.invoke` in `src/click/core.py`; low-level token handling lives in `src/click/parser.py`; shell completion splits between early dispatch in `src/click/core.py` and the completion resolver classes in `src/click/shell_completion.py`. Proven risk: `src/click/core.py` is the main coupling hub for parsing, parameter sourcing, invocation, and completion handoff. Additional risk hypothesis: platform-specific console and completion behavior likely hides edge cases outside the Linux/macOS path covered here.",
+      "evidence": [
+        "Runtime entrypoints are `Command.main` and `Group.invoke` in `src/click/core.py` (lines 1333, 1853).",
+        "Decorator entrypoints are `command`, `group`, `argument`, and `option` in `src/click/decorators.py` (lines 138, 263, 324, 352).",
+        "Parsing is delegated into `_OptionParser` in `src/click/parser.py` (line 224) via `Command.parse_args` / `Group.parse_args` in `src/click/core.py` (lines 1233, 1839).",
+        "Shell completion uses `shell_complete` / `ShellComplete` / `_resolve_context` in `src/click/shell_completion.py` (lines 19, 204, 573)."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "feature_location",
+      "repo_id": "p-limit-node",
+      "mode": "localize",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 2,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "readme.md"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest(p-limit-node), seek('where clearQueue rejectOnClear limitFunction map activeCount pendingCount are implemented and tested')]",
+        "rg -n 'rejectOnClear|clearQueue|activeCount|pendingCount|limitFunction' index.js test.js index.d.ts index.test-d.ts readme.md",
+        "npm test -- --runInBand (failed: `xo` missing because dev dependencies were not installed)"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "/Users/kle1nz/m1nd/m1nd-ingest/Cargo.toml",
+        "/Users/kle1nz/m1nd/m1nd-core/Cargo.toml",
+        "/Users/kle1nz/m1nd/m1nd-mcp/Cargo.toml"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Named feature localized: `clearQueue()` with optional `rejectOnClear`. Runtime implementation is in `index.js`; the behavior contract is documented in `readme.md` and the TypeScript surface in `index.d.ts`; regression coverage sits in `test.js` and `index.test-d.ts`. The local m1nd `activate` pass surfaced a few stray nodes from the parent m1nd repo, but direct file verification kept the answer anchored to p-limit itself.",
+      "evidence": [
+        "`rejectOnClear` is parsed and validated in `index.js` (lines 4-13).",
+        "`clearQueue` either calls `queue.clear()` or rejects pending items with an `AbortError` in `index.js` (lines 77-90).",
+        "Behavioral tests are `test('clearQueue', ...)` and `test('clearQueue rejects pending promises when enabled', ...)` in `test.js` (lines 184-213).",
+        "Type-level protection is in `index.d.ts` (lines 24-27, 100-106) and `index.test-d.ts` (lines 21-29)."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "flow_explanation",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "explain",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest(human-panic-rust-cli), activate('panic flow, report writing, metadata, CLI entrypoints or public macros')]",
+        "rg -n 'macro_rules! metadata|macro_rules! setup_panic' src/lib.rs",
+        "rg -n 'pub fn setup_panic|panic::set_hook|Report::with_panic|report.persist|pub fn print_msg' src/panic.rs",
+        "cargo test -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Realistic flow explained: `setup_panic!()` in user code expands to `setup_panic(|| metadata!())` from `src/lib.rs`. That registers a panic hook in `src/panic.rs`; on panic, the hook builds `Report::with_panic`, persists it unless running in CI, and then prints the human-facing message. The integration fixture under `tests/single-panic` proves the release, debug, and CI branches of that flow.",
+      "evidence": [
+        "`setup_panic!` lives in `src/lib.rs` (line 99) and calls the function re-exported from `src/panic.rs` (line 52 of `src/lib.rs`, line 9 of `src/panic.rs`).",
+        "The hook closure uses `panic::set_hook`, `Report::with_panic`, `report.persist()`, and `print_msg` in `src/panic.rs` (lines 20-33).",
+        "Crash reports are assembled in `src/report.rs` via `Report::with_panic`, `serialize`, and `persist` (lines 68, 98, 103).",
+        "Observable stderr/file behavior is asserted in `tests/single-panic/tests/integration.rs` (release at line 3, release_with_ci at line 114, debug at line 170)."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "repo_id": "click-python-cli",
+      "mode": "diagnose",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "tests/test_chain.py",
+        "src/click/core.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "uv run -m pytest tests/test_chain.py -k group_chaining -q",
+        "uv run -m pytest tests/test_chain.py -k group_chaining --runxfail -vv",
+        "rg -n '_check_nested_chain' src/click/core.py"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "tests/test_chain.py",
+        "src/click/core.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Symptom chosen: adding a nested group below `@click.group(chain=True)` raises a `RuntimeError` during registration instead of allowing the chain to run. Most likely fault boundary is `_check_nested_chain` in `src/click/core.py`, not the downstream invocation loop. Alternative theory: even if registration passed, `Group.invoke` would fail to resolve nested chained contexts; I kept that theory alive until runtime verification because the guard might have been masking a deeper parser limitation.",
+      "evidence": [
+        "The failing symptom is captured by `test_group_chaining` in `tests/test_chain.py` (line 221 before the patch).",
+        "The failure reproduced with `uv run -m pytest tests/test_chain.py -k group_chaining --runxfail -vv`, raising from `_check_nested_chain` in `src/click/core.py`.",
+        "`_check_nested_chain` was referenced both during command registration and command collection lookup in `src/click/core.py` (lines 1657 and 2029 before the patch).",
+        "Next verification step named and executed: rerun the targeted test with `--runxfail` to see the real traceback instead of the xfail wrapper."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "safe_change_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 2,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "readme.md"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest(p-limit-node), seek('where clearQueue rejectOnClear limitFunction map activeCount pendingCount are implemented and tested')]",
+        "rg -n 'limitFunction|expectError\\(limitFunction|Promise-returning/async function' index.d.ts index.test-d.ts readme.md"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.d.ts",
+        "index.test-d.ts",
+        "readme.md",
+        "index.js"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Planned change: widen `limitFunction`'s TypeScript signature to accept synchronous functions, matching the runtime wrapper in `index.js`. Edit targets would be `index.d.ts` plus `index.test-d.ts`; `readme.md` should be checked because it currently describes `limitFunction` as promise-returning/async. Blast radius is type consumers and docs only; runtime behavior already supports sync callbacks. Proof gates: `tsd`, the existing `test('limitFunction()', ...)` in `test.js`, and a README snippet review. Risky assumption: the current type restriction may be intentional, so this would need a maintainer-level API decision before shipping.",
+      "evidence": [
+        "Runtime wrapper is `limitFunction(function_, options)` in `index.js` (lines 117-120) and does not reject synchronous callbacks.",
+        "Type declaration currently requires `PromiseLike<ReturnType>` in `index.d.ts` (line 134 onward).",
+        "Type test explicitly rejects a sync callback in `index.test-d.ts` (line 28).",
+        "Docs frame `limitFunction` as promise-returning/async in `readme.md` (lines 111-149)."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "small_feature_patch",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/panic.rs",
+        "src/metadata.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest(human-panic-rust-cli), impact(src/panic.rs), validate_plan(feature patch touching panic.rs + custom-panic fixture)]",
+        "cargo test -q"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Extended the human-facing crash message so it can print both homepage and repository metadata when both are set, while suppressing duplicate lines if the URLs are identical. Updated the custom panic fixture to provide a repository and expanded its integration expectation.",
+      "correct_files": [
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "This was a deliberately tiny feature patch: I only changed message rendering in `src/panic.rs` and used the existing custom fixture to exercise the new branch. I also tightened the implementation after review so crates with identical homepage/repository URLs do not get duplicate output lines.",
+      "evidence": [
+        "Feature logic lives in `src/panic.rs` where `write_msg` now prints homepage and repository separately with a duplicate-URL guard (around lines 125-131 in the final file).",
+        "The custom fixture now sets `.repository(...)` in `tests/custom-panic/src/main.rs` (line 9).",
+        "Regression expectation includes the repository line in `tests/custom-panic/tests/integration.rs` (line 13).",
+        "`cargo test -q` passed after the patch."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "repo_id": "click-python-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/click/core.py",
+        "tests/test_chain.py"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest(click-python-cli), impact(file::src/click/core.py::fn::_check_nested_chain), validate_plan(edit core.py + tests/test_chain.py)]",
+        "uv run -m pytest tests/test_chain.py -k group_chaining --runxfail -vv",
+        "uv run -m pytest tests/test_chain.py -q",
+        "uv run -m pytest tests/test_commands.py -q"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Fixed the chained nested-group regression by removing the `_check_nested_chain` guard that was blocking registration and lookup of groups under `chain=True`, then converted the existing xfail into a normal passing regression test.",
+      "correct_files": [
+        "src/click/core.py",
+        "tests/test_chain.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "I treated the existing xfail as the seeded bug because it described a reproducible failure in the shipped behavior. The key observation was that bypassing the guard manually let `Group.invoke` already handle the nested chain correctly, so the fix stayed very narrow.",
+      "evidence": [
+        "Root cause was `_check_nested_chain` in `src/click/core.py`, which raised before the chain could run.",
+        "A direct runtime experiment that bypassed `add_command` showed the nested chain already executed successfully (`cli=`, `l1a=`, `l2a=`, `l1b=`), so the guard was the fault boundary rather than the invocation loop.",
+        "The xfail marker was removed from `tests/test_chain.py::test_group_chaining` and the targeted chain file passed (`16 passed`).",
+        "Neighboring command tests also passed after the fix (`82 passed` in `tests/test_commands.py`)."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 2,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "test.js",
+        "readme.md",
+        "package.json"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "probe_m1nd.py call audit {path:p-limit-node, profile:auto}",
+        "sed -n '1,140p' index.js",
+        "sed -n '150,230p' test.js"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Bounded refactor target: split `pLimit` into (1) option normalization/validation and (2) queue scheduling helpers without changing behavior. Hidden coupling to watch: `enqueue` uses an internal promise specifically to preserve async context; `resumeNext` increments `activeCount` before running the dequeued task; `clearQueue` depends on queued items carrying `reject`; the `concurrency` setter reuses the same scheduler assumptions. Safe order: pin tests around AsyncLocalStorage, clearQueue rejection, and counters; extract pure options helper first; then extract a scheduler/drain helper; rerun test/lint/type gates; rollback immediately if `activeCount` / `pendingCount` or abort semantics shift.",
+      "evidence": [
+        "Core scheduler pieces are `resumeNext`, `next`, `run`, and `enqueue` in `index.js` (lines 19-62).",
+        "Counter and queue semantics are asserted in `test.js` around `activeCount` / `pendingCount` and `clearQueue` (lines 155-213).",
+        "The public contract for these behaviors is duplicated in `readme.md` (`activeCount`, `pendingCount`, `clearQueue`, `rejectOnClear` sections).",
+        "No edit was made because the task asked for a bounded refactor plan before any mutation."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "code_review_diff",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "review",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 3,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 3
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "git diff -- src/panic.rs tests/custom-panic/src/main.rs tests/custom-panic/tests/integration.rs",
+        "cargo test -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Review target was the human-panic feature diff created in task 6. The real issue caught during review was that my first draft printed a repository line unconditionally after homepage, which would duplicate the same URL for crates that use identical homepage and repository metadata. I fixed that before finalizing the patch by guarding the repository line when both fields match. After that correction and `cargo test -q`, I had no remaining blocking findings on the final diff.",
+      "evidence": [
+        "Potential regression boundary was `src/panic.rs` around the new homepage/repository rendering block.",
+        "Final diff now contains a duplicate-URL guard: `if !matches!(homepage, Some(homepage) if homepage == repository)` in `src/panic.rs`.",
+        "Fixture coverage for the new branch remains in `tests/custom-panic/src/main.rs` and `tests/custom-panic/tests/integration.rs`.",
+        "`cargo test -q` passed after the review-driven fix."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "docs_drift_check",
+      "repo_id": "click-python-cli",
+      "mode": "docs",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 3,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "README.md",
+        "docs/index.rst",
+        "docs/complex.md",
+        "src/click/core.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "rg -n 'lazy loading|lazy load' README.md docs/index.rst docs/complex.md src/click/core.py",
+        "sed -n '227,260p' docs/complex.md",
+        "sed -n '1792,1796p' src/click/core.py"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "README.md",
+        "docs/index.rst",
+        "docs/complex.md",
+        "src/click/core.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "I found mild docs drift / overstatement. `README.md` and `docs/index.rst` say Click 'supports lazy loading of subcommands at runtime', but the built-in `Group.get_command` implementation is just a direct dictionary lookup. The detailed docs in `docs/complex.md` show that lazy loading is achieved by subclassing `Group` and overriding `get_command`, not by a built-in switch. I did not patch docs because this task only asked for drift detection.",
+      "evidence": [
+        "Claim source: `README.md` line 18 and `docs/index.rst` line 23 both advertise lazy loading support.",
+        "Code truth: built-in `Group.get_command` in `src/click/core.py` (lines 1792-1796) only returns `self.commands.get(cmd_name)`.",
+        "Detailed docs clarify the real mechanism: `docs/complex.md` line 227 says a `Group` subclass can implement a lazy loader by taking over `Group.get_command`.",
+        "Conclusion: the docs are directionally true at the ecosystem level, but the top-level claim overstates what the core `Group` does out of the box."
+      ],
+      "agent_confidence": "medium"
+    }
+  ]
+}

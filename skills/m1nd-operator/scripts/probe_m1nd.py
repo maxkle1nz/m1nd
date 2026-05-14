@@ -11,23 +11,40 @@ import tempfile
 from typing import Any
 
 
-DEFAULT_BINARY = (
-    os.environ.get("M1ND_MCP_BINARY")
-    or os.environ.get("M1ND_MCP_BIN")
-    or shutil.which("m1nd-mcp")
-    or "m1nd-mcp"
-)
+def default_binary() -> str:
+    env_binary = os.environ.get("M1ND_MCP_BINARY") or os.environ.get("M1ND_MCP_BIN")
+    if env_binary:
+        return env_binary
+
+    binary_name = "m1nd-mcp.exe" if os.name == "nt" else "m1nd-mcp"
+    managed_binary = os.path.expanduser(os.path.join("~", ".m1nd", "bin", binary_name))
+    if os.path.exists(managed_binary) and os.access(managed_binary, os.X_OK):
+        return managed_binary
+
+    return shutil.which("m1nd-mcp") or "m1nd-mcp"
+
+
+DEFAULT_BINARY = default_binary()
 DEFAULT_ARGS = shlex.split(os.environ.get("M1ND_MCP_ARGS", "--stdio --no-gui"))
 
 
 class McpClient:
-    def __init__(self, binary: str, extra_args: list[str]) -> None:
+    def __init__(
+        self,
+        binary: str,
+        extra_args: list[str],
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None:
         self.proc = subprocess.Popen(
             [binary, *extra_args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            cwd=cwd,
+            env=env,
         )
         self._initialize()
 
@@ -90,6 +107,19 @@ def binary_args_have_runtime_dir(binary_args: list[str]) -> bool:
     return any(arg == "--runtime-dir" or arg.startswith("--runtime-dir=") for arg in binary_args)
 
 
+def binary_args_have_option(binary_args: list[str], option_name: str) -> bool:
+    return any(arg == option_name or arg.startswith(f"{option_name}=") for arg in binary_args)
+
+
+def runtime_dir_from_args(binary_args: list[str]) -> str | None:
+    for index, arg in enumerate(binary_args):
+        if arg.startswith("--runtime-dir="):
+            return arg.split("=", 1)[1]
+        if arg == "--runtime-dir" and index + 1 < len(binary_args):
+            return binary_args[index + 1]
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Probe the local m1nd MCP runtime.")
     parser.add_argument("--binary", default=DEFAULT_BINARY, help="Path to m1nd-mcp.")
@@ -111,6 +141,22 @@ def main() -> int:
         "--keep-runtime-dir",
         action="store_true",
         help="Keep the temporary runtime directory for debugging.",
+    )
+    parser.add_argument(
+        "--no-worktree-artifacts",
+        action="store_true",
+        help=(
+            "Launch m1nd-mcp from the isolated runtime directory so probe state "
+            "does not materialize in the caller worktree. M1ND_WORKSPACE_ROOT "
+            "is set from --workspace-root or the caller cwd."
+        ),
+    )
+    parser.add_argument(
+        "--workspace-root",
+        help=(
+            "Workspace root to expose to m1nd when --no-worktree-artifacts is set. "
+            "Defaults to the caller cwd."
+        ),
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -145,8 +191,11 @@ def main() -> int:
     binary_args = shlex.split(args.binary_args)
     if args.runtime_dir and args.shared_runtime:
         raise SystemExit("--runtime-dir and --shared-runtime are mutually exclusive")
+    if args.no_worktree_artifacts and args.shared_runtime:
+        raise SystemExit("--no-worktree-artifacts cannot be combined with --shared-runtime")
 
     runtime_dir_created = None
+    runtime_dir = runtime_dir_from_args(binary_args)
     if not binary_args_have_runtime_dir(binary_args) and not args.shared_runtime:
         runtime_dir = (
             os.path.abspath(os.path.expanduser(args.runtime_dir))
@@ -157,10 +206,35 @@ def main() -> int:
         if not args.runtime_dir:
             runtime_dir_created = runtime_dir
         binary_args.extend(["--runtime-dir", runtime_dir])
+    elif runtime_dir:
+        runtime_dir = os.path.abspath(os.path.expanduser(runtime_dir))
+
+    launch_cwd = None
+    launch_env = None
+    if args.no_worktree_artifacts:
+        if not runtime_dir:
+            raise SystemExit("--no-worktree-artifacts requires an isolated runtime directory")
+        os.makedirs(runtime_dir, exist_ok=True)
+        launch_env = dict(os.environ)
+        workspace_root = os.path.abspath(
+            os.path.expanduser(args.workspace_root or os.getcwd())
+        )
+        launch_env["M1ND_WORKSPACE_ROOT"] = workspace_root
+        launch_env.setdefault("M1ND_RUNTIME_BASE", runtime_dir)
+        launch_cwd = runtime_dir
+        if not binary_args_have_option(binary_args, "--graph"):
+            launch_env.setdefault(
+                "M1ND_GRAPH_SOURCE", os.path.join(runtime_dir, "graph_snapshot.json")
+            )
+        if not binary_args_have_option(binary_args, "--plasticity"):
+            launch_env.setdefault(
+                "M1ND_PLASTICITY_STATE",
+                os.path.join(runtime_dir, "plasticity_state.json"),
+            )
 
     client = None
     try:
-        client = McpClient(args.binary, binary_args)
+        client = McpClient(args.binary, binary_args, cwd=launch_cwd, env=launch_env)
         if args.command == "tools":
             response = client.tools()
             tools = response["result"]["tools"]

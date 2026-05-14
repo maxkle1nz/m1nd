@@ -1,0 +1,536 @@
+{
+  "schema": "m1nd-real-world-agent-lane-result-v0",
+  "round_id": "real-world-20260513T005733Z",
+  "lane_id": "judge-1",
+  "arm": "adjudication",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-13T01:21:00Z",
+  "finished_at": "2026-05-13T01:27:23Z",
+  "agent_testimony": "Adjudicated the round against round.json, report.json, the six primary lane result files, and the isolated fixture diffs where patch-task comparability mattered. Key verdict: this round is useful internal evidence but not a clean comparative benchmark. Repo architecture audit, flow explanation, and bounded refactor plan stayed meaningfully anchored across lanes. Feature location, bug triage, safe change plan, small feature patch, seeded bug fix, code review diff, and docs drift were underanchored enough that the self-scores are visibly inflated relative to shared-task comparability. Round-level limitations that apply to every task: the parent accidentally injected a timebox interruption mid-run and later corrected it; m1nd-3 used a 0-5 scale and the parent mechanically clamped 31 score fields above 4 down to 4 with parent_normalization; seeded_bug_fix had no deterministic seeded failing test/bug artifact; code_review_diff had no supplied independent diff. Treat arm deltas as exploratory only, not public-claim material.",
+  "task_results": [
+    {
+      "task_id": "repo_architecture_audit",
+      "repo_id": "click-python-cli",
+      "mode": "audit",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 3,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 3
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/round.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/report.json",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/src/click/__init__.py",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/src/click/decorators.py",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/src/click/core.py",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/src/click/parser.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "jq task summaries over the six primary lane result JSON files",
+        "sed -n on round.json, report.json, and key Click source files"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/__init__.py",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "This was one of the cleanest benchmark tasks. All six primary lanes converged on the same architectural center of gravity around the public export layer, decorators, core runtime, and parser, so task-level arm comparison is usable here. The self-scores still run hot because most proof was static reading rather than independent runtime validation, but the underlying task was meaningfully shared.",
+      "evidence": [
+        "All six lanes cited src/click/core.py, and five of six also cited the public facade/parser split.",
+        "The report marked comparable_primary_arms=true, and this task is one of the few where the semantic evidence supports that structural claim.",
+        "Lane totals still clustered at 22-24, which is slightly ceilinged given that proof was mostly file inspection rather than execution."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "feature_location",
+      "repo_id": "p-limit-node",
+      "mode": "localize",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 3,
+        "localization": 3,
+        "causal_understanding": 3,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 2
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-3.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-2.json",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/index.js",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/test.js",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/index.d.ts"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "jq task summaries for feature_location across the six primary lane result JSON files",
+        "git diff --name-only and diff --stat over isolated lane workspaces"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "benchmark.js",
+        "/Users/kle1nz/m1nd/m1nd-core/Cargo.toml",
+        "/Users/kle1nz/m1nd/m1nd-ingest/Cargo.toml",
+        "/Users/kle1nz/m1nd/m1nd-mcp/Cargo.toml"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": "underanchored_target_selection",
+      "notes": "This task produced decent localized answers, but it was not tightly anchored enough for clean comparison. Five lanes chose rejectOnClear/clearQueue, while control-3 chose dynamic concurrency instead, and one m1nd lane reported parent-repo retrieval noise before correcting with direct file checks. Proof inside each lane was usually fine; the benchmark weakness is that the prompt never named the feature.",
+      "evidence": [
+        "Five of six lanes localized clearQueue/rejectOnClear; control-3 localized limit.concurrency instead.",
+        "One control lane called out benchmark.js as irrelevant noise, and one m1nd lane surfaced stray m1nd Cargo.toml files before direct verification corrected the answer.",
+        "Despite that target drift and retrieval noise, all six lanes still self-scored success with totals from 20 to 24."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "flow_explanation",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "explain",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/src/lib.rs",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/src/panic.rs",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/src/report.rs",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/tests/single-panic/tests/integration.rs"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "jq task summaries for flow_explanation across the six primary lane result JSON files",
+        "sed -n on human-panic lib.rs, panic.rs, report.rs, and integration test files"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Another strong benchmark task. All six lanes explained the same release-mode panic path from setup_panic! through the hook, report creation, persistence, and human-facing stderr output. Proof was mostly citation-level rather than fresh runtime generation, but the shared target and shared file surfaces make this task comparably useful.",
+      "evidence": [
+        "Every lane traced setup_panic! to setup_panic, then into Report creation and message output.",
+        "All six lanes cited the same four key surfaces: src/lib.rs, src/panic.rs, src/report.rs, and the single-panic integration test.",
+        "Self-scores were high but less misleading here because the task actually stayed on one coherent flow."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "repo_id": "click-python-cli",
+      "mode": "diagnose",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 2,
+        "localization": 2,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 1,
+        "outcome": 1
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-2.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-3.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-2.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-3.json"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "jq task summaries for bug_symptom_triage across the six primary lane result JSON files",
+        "sed -n on baseline Click docs/test/core snippets related to the nested-chain ambiguity"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/core.py",
+        "src/click/testing.py",
+        "src/click/types.py",
+        "tests/test_chain.py",
+        "tests/test_options.py",
+        "tests/test_testing.py",
+        "tests/test_types.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": "underanchored_symptom_selection",
+      "notes": "The reasoning quality inside several lanes was good, but the benchmark task was too open-ended for comparison. The six lanes chose six different symptoms or symptom families: envvar batching, faulthandler stderr plumbing, callable-instance type naming, EchoingStdin.readlines, and two nested-chain variants. That makes the near-ceiling self-scores look inflated relative to what was actually shared.",
+      "evidence": [
+        "All six lanes marked success, with totals from 22 to 24, even though they were not diagnosing one common symptom.",
+        "Two lanes converged on the nested-chain guard, while the other four targeted unrelated surfaces in core.py, testing.py, or types.py.",
+        "This task is informative about agent bug-hunting style, but weak as an arm-to-arm benchmark because the prompt supplied no common symptom fixture."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "safe_change_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 3,
+        "localization": 3,
+        "causal_understanding": 3,
+        "proof": 2,
+        "efficiency": 2,
+        "outcome": 2
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-3.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-2.json",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/index.js",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/index.d.ts",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/test.js"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "jq task summaries for safe_change_plan across the six primary lane result JSON files",
+        "git diff --name-only and diff --stat over isolated p-limit lane workspaces"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "test.js",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": "underanchored_change_selection",
+      "notes": "The planning discipline was real, but the task anchor was loose. Five lanes planned around clearQueue semantics, while m1nd-2 planned a TypeScript-only limitFunction widening instead. Because the prompt did not pin one behavior change, the scores overstate cross-lane comparability even though many individual plans were thoughtful.",
+      "evidence": [
+        "Four lanes converged on changing clearQueue return/rejection behavior; one lane proposed a different limitFunction type-contract change.",
+        "Most plans still named realistic edit targets and proof gates in index.js, index.d.ts, test.js, and readme.md.",
+        "All six lanes self-scored success from 20 to 24 despite not planning the same change."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "small_feature_patch",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "patch",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 2,
+        "localization": 2,
+        "causal_understanding": 3,
+        "proof": 4,
+        "efficiency": 1,
+        "outcome": 1
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-3.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-1.json",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/src/metadata.rs",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/src/panic.rs",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/tests/custom-panic/tests/integration.rs"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "git -C isolated lane workspaces diff --stat for all six primary lanes",
+        "jq task summaries for small_feature_patch across the six primary lane result JSON files"
+      ],
+      "code_changed": false,
+      "requires_code_change": true,
+      "patch_summary": "Observed two distinct patch families rather than one shared benchmark target: three lanes added metadata builder methods in src/metadata.rs, and three lanes changed panic message rendering plus custom-panic fixture expectations in src/panic.rs and tests/custom-panic.",
+      "correct_files": [
+        "src/metadata.rs",
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": "non_comparable_patch_targets",
+      "notes": "Patch proof inside the lanes was generally solid, but this is not one benchmark task in any strict sense. The lane diffs split cleanly into two unrelated feature families: metadata builder extensions versus repository/homepage output rendering. That makes the success totals look much stronger than the task-level comparability actually was.",
+      "evidence": [
+        "control-1, control-2, and m1nd-3 changed src/metadata.rs; control-3, m1nd-1, and m1nd-2 changed src/panic.rs plus custom-panic fixture files.",
+        "Each patch family had focused proof, but the benchmark never forced the lanes onto one shared user-facing feature target.",
+        "All six lanes still marked success with totals from 22 to 24."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "repo_id": "click-python-cli",
+      "mode": "patch",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 1,
+        "localization": 1,
+        "causal_understanding": 3,
+        "proof": 2,
+        "efficiency": 1,
+        "outcome": 1
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/ROUND-NOTES.md",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-2.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-2.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-3.json",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/docs/commands.md",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/tests/test_chain.py",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/src/click/core.py"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "git -C isolated Click lane workspaces diff --stat and diff --name-only",
+        "jq task summaries for seeded_bug_fix across the six primary lane result JSON files",
+        "sed -n on baseline Click docs/commands.md, tests/test_chain.py, and src/click/core.py"
+      ],
+      "code_changed": false,
+      "requires_code_change": true,
+      "patch_summary": "There was no deterministic seeded failing artifact. The six lanes fixed five different things: envvar batching, a docs stub, callable-instance converter naming, EchoingStdin.readlines hint forwarding, and two variants of the nested-chain guard change.",
+      "correct_files": [
+        "src/click/core.py",
+        "src/click/testing.py",
+        "src/click/types.py",
+        "tests/test_chain.py",
+        "tests/test_options.py",
+        "tests/test_testing.py",
+        "tests/test_types.py",
+        "docs/commands.md",
+        "docs/upgrade-guides.md"
+      ],
+      "missed_files": [
+        "seeded failing test (not provided)",
+        "supplied bug description or diff artifact (not provided)"
+      ],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": "missing_seeded_diff",
+      "notes": "This is the biggest benchmark-design gap in the round. The prompt said seeded bug fix, but the round did not actually supply a deterministic failing bug artifact. One lane explicitly marked partial and patched docs instead; two lanes treated the nested-chain xfail as the seed even though baseline docs simultaneously say nesting below a chain group is unsupported. The result is useful internal bug-fix evidence, but weak comparative evidence.",
+      "evidence": [
+        "ROUND-NOTES.md explicitly records that seeded_bug_fix was less controlled than ideal because the harness did not yet generate a deterministic seeded bug.",
+        "Baseline Click docs/commands.md says nested groups below a chain group are unsupported, while baseline tests/test_chain.py still contains an xfailed expectation for that exact shape.",
+        "control-2 stayed partial and patched docs/upgrade-guides.md, while the other lanes fixed different runtime bugs and still mostly self-scored 23-24."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/index.js",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/test.js",
+        ".m1nd-benchmark-fixtures/real-world/p-limit-node/index.d.ts",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-2.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-3.json"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "jq task summaries for bounded_refactor_plan across the six primary lane result JSON files",
+        "sed -n on baseline p-limit source and test files"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "This was the other clearly comparable planning task. Every lane converged on the queue scheduling/drain cluster in index.js and named the same coupling points around activeCount, clearQueue, queue item shape, and the concurrency setter. Proof is still plan-level rather than patch-level, but the shared target is strong enough to compare reasoning quality here.",
+      "evidence": [
+        "All six lanes proposed extracting some queue-drain/scheduling helper around resumeNext, next, enqueue, clearQueue, or the concurrency setter.",
+        "The plan surfaces converged on index.js first, with test.js and occasionally index.d.ts/readme.md as downstream proof boundaries.",
+        "This task is one of the few where comparable_primary_arms=true is well supported by the task-level evidence."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "code_review_diff",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "review",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 1,
+        "localization": 2,
+        "causal_understanding": 2,
+        "proof": 1,
+        "efficiency": 1,
+        "outcome": 1
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/ROUND-NOTES.md",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-2.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-3.json",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/src/metadata.rs",
+        ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli/src/panic.rs"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "jq task summaries for code_review_diff across the six primary lane result JSON files",
+        "git -C isolated human-panic lane workspaces diff --stat and diff --name-only"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "No supplied review diff existed. Every lane reviewed its own small_feature_patch diff instead, so the task became self-review rather than independent code review.",
+      "correct_files": [
+        "src/metadata.rs",
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "missed_files": [
+        "supplied review diff (not provided)"
+      ],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": "missing_seeded_diff",
+      "notes": "This task is materially weaker than the self-scores suggest. The harness did not provide an independent review target, so all six lanes reviewed their own patch from task 6. Two lanes explicitly downgraded themselves to partial for that reason; the rest mostly stayed at success despite the missing independent diff. That makes the task informative about self-critique, but not about normal code review performance.",
+      "evidence": [
+        "ROUND-NOTES.md explicitly records that code_review_diff lacked a deterministic supplied diff.",
+        "control-2 and m1nd-3 marked partial because they were reviewing a locally created diff rather than an independent target.",
+        "The other four lanes still reported success with totals from 16 to 22, which is generous relative to the missing benchmark artifact."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "docs_drift_check",
+      "repo_id": "click-python-cli",
+      "mode": "docs",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 2,
+        "localization": 2,
+        "causal_understanding": 3,
+        "proof": 3,
+        "efficiency": 2,
+        "outcome": 2
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/control-2.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-1.json",
+        "docs/benchmarks/real-world-rounds/real-world-20260513T005733Z/lane-results/m1nd-2.json",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/README.md",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/docs/index.rst",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/docs/commands.md",
+        ".m1nd-benchmark-fixtures/real-world/click-python-cli/docs/testing.md"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "jq task summaries for docs_drift_check across the six primary lane result JSON files",
+        "sed -n on baseline Click docs and core files implicated by the strongest drift claims"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "README.md",
+        "docs/index.rst",
+        "docs/commands.md",
+        "docs/testing.md",
+        "docs/complex.md",
+        "docs/parameter-types.md",
+        "src/click/core.py",
+        "src/click/types.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": "underanchored_claim_selection",
+      "notes": "This task found real documentation reasoning, but not one shared doc claim. The lanes inspected different slices and reached conflicting outcomes, including one no-drift conclusion and several distinct drift claims. One lane also relied on a docs patch it had already landed in another task. The task is still useful qualitatively, but not comparable enough for outcome scoring at face value.",
+      "evidence": [
+        "control-1 found no drift in the command-chaining slice, while control-2, control-3, m1nd-1, and m1nd-2 all named different drift or gap claims.",
+        "m1nd-3 concluded no material README/code drift in the claims it checked, showing that the prompt let lanes choose different claim surfaces entirely.",
+        "Even with that divergence, all six lanes marked success and scored between 20 and 24."
+      ],
+      "agent_confidence": "high"
+    }
+  ]
+}

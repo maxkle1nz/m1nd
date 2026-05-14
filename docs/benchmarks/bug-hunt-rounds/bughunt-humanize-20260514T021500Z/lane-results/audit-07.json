@@ -1,0 +1,179 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-humanize-20260514T021500Z",
+  "lane_id": "audit-07",
+  "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-humanize-20260514T021500Z/audit-07/humanize",
+  "findings": [
+    {
+      "title": "clamp marks exact floor and ceil values as out of range",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "clamp",
+      "cause": "The boundary checks use <= for floor and >= for ceil even though the docs describe clamping only when the number is smaller than floor or larger than ceil, and the docstring example expects an exact ceil value to format without the token.",
+      "impact": "Values exactly on accepted thresholds are displayed with '<' or '>' warning tokens, so threshold UI, reports, or metrics can falsely label in-range values as under or over limit.",
+      "evidence": [
+        "src/humanize/number.py:509-514 uses inclusive comparisons",
+        "src/humanize/number.py:473-476 documents clamp(0.99, ceil=0.99) as '99%' and clamp(0.999, ceil=0.99) as '>99%'",
+        "tests/test_number.py:223-240 covers below and above but not equality",
+        "probe: clamp(0.99, format='{:.0%}', ceil=0.99) -> '>99%'; clamp(0.01, format='{:.0%}', floor=0.01) -> '<1%'"
+      ],
+      "reproduction_or_test": "uv run python - <<'PY'\nimport humanize\nassert humanize.clamp(0.99, format='{:.0%}', ceil=0.99) == '99%'\nassert humanize.clamp(0.01, format='{:.0%}', floor=0.01) == '1%'\nPY",
+      "confidence": "high"
+    },
+    {
+      "title": "intcomma leaves negative numbers ungrouped",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "intcomma",
+      "cause": "After coercion, the formatter repeatedly applies a regex anchored to leading digits only. A leading '-' prevents the grouping substitution from ever matching.",
+      "impact": "Negative integers and negative decimal amounts are returned without thousands separators, unlike positive values and unlike other public number functions that intentionally preserve negative signs.",
+      "evidence": [
+        "src/humanize/number.py:164-174 formats the string with r'^(\\d+)(\\d{3})'",
+        "tests/test_number.py:41-83 has no negative intcomma cases",
+        "probe: intcomma(-1234567) -> '-1234567'; intcomma('-1234567') -> '-1234567'"
+      ],
+      "reproduction_or_test": "uv run python - <<'PY'\nimport humanize\nassert humanize.intcomma(-1234567) == '-1,234,567'\nassert humanize.intcomma('-1234567') == '-1,234,567'\nPY",
+      "confidence": "high"
+    },
+    {
+      "title": "fractional loses or duplicates the sign for negative fractions",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "fractional",
+      "cause": "The function truncates with int(), computes a negative fractional remainder, then either abs() hides the numerator sign for values between -1 and 0 or emits a negative numerator in the mixed fraction.",
+      "impact": "Negative values are not data-preserved: -0.3 becomes positive and negative mixed fractions render as malformed strings such as '-1 -1/2'.",
+      "evidence": [
+        "src/humanize/number.py:370-382 computes whole_number, frac, numerator, denominator and uses abs(numerator) only in the no-whole-number branch",
+        "tests/test_number.py:166-189 covers positive fractions and non-finite values but no negative fractions",
+        "probe: fractional(-0.3) -> '3/10'; fractional(-1.5) -> '-1 -1/2'; fractional('-8.9') -> '-8 -9/10'"
+      ],
+      "reproduction_or_test": "uv run python - <<'PY'\nimport humanize\nassert humanize.fractional(-0.3) == '-3/10'\nassert humanize.fractional(-1.5) == '-1 1/2'\nPY",
+      "confidence": "high"
+    },
+    {
+      "title": "time humanizers crash on float infinity",
+      "severity": "medium",
+      "file": "src/humanize/time.py",
+      "symbol": "naturaldelta, naturaltime, precisedelta, _date_and_delta",
+      "cause": "The numeric coercion paths catch ValueError and TypeError, but int(inf), round(inf), and datetime.timedelta(seconds=inf) raise OverflowError.",
+      "impact": "Non-finite numeric inputs can raise instead of returning a stable string, which is inconsistent with the documented naturaldelta fallback for inf/nan and with the number-formatting functions' explicit non-finite handling.",
+      "evidence": [
+        "src/humanize/time.py:113-116 says non-convertible inf/nan values are returned unchanged",
+        "src/humanize/time.py:149-153 catches ValueError and TypeError around int(value)/timedelta only",
+        "src/humanize/time.py:87-90 and src/humanize/time.py:534-536 route naturaltime/precisedelta through _date_and_delta with the same missing OverflowError handling",
+        "tests/test_time.py:130,181,230 cover string 'NaN' but not math.inf",
+        "probe: naturaldelta(math.inf), naturaltime(math.inf), and precisedelta(math.inf) all raise OverflowError"
+      ],
+      "reproduction_or_test": "uv run python - <<'PY'\nimport math, humanize\nfor fn in (humanize.naturaldelta, humanize.naturaltime, humanize.precisedelta):\n    assert fn(math.inf) in {'inf', '+Inf'}\nPY",
+      "confidence": "high"
+    },
+    {
+      "title": "metric does not promote rounded 1000 mantissas",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "metric",
+      "cause": "The SI prefix is selected from the pre-rounded exponent and the formatted mantissa is never rechecked when it rounds up to 1000.",
+      "impact": "Boundary values violate the precision contract and produce awkward lower-prefix output such as '1000 k' instead of promoting to the next SI prefix.",
+      "evidence": [
+        "src/humanize/number.py:570-583 chooses exponent/prefix before formatting value_",
+        "src/humanize/number.py:547-551 says the prefix avoids non-significant zero digits and the precision argument controls the number of output digits",
+        "tests/test_number.py:243-309 lacks 999.x and 999999-style promotion boundaries",
+        "probe: metric(999.9) -> '1000'; metric(999999) -> '1000 k'; metric(0.9999) -> '1000 m'"
+      ],
+      "reproduction_or_test": "uv run python - <<'PY'\nimport humanize\nassert humanize.metric(999.9, 'Hz') == '1.00 kHz'\nassert humanize.metric(999999, 'Hz') == '1.00 MHz'\nPY",
+      "confidence": "medium"
+    },
+    {
+      "title": "translation coverage can pass while all locale binaries are missing",
+      "severity": "medium",
+      "file": "tests/test_i18n.py",
+      "symbol": "i18n translation tests and packaging",
+      "cause": "The repository contains .po files but zero .mo files, the build config only includes existing .mo artifacts, and the i18n tests skip on FileNotFoundError instead of failing when catalogs are absent.",
+      "impact": "The advertised non-English locales are unavailable in the current checkout, and CI can report a green test suite with localization effectively untested and broken for users unless an external release step happens to compile catalogs.",
+      "evidence": [
+        "find src/humanize/locale -name '*.mo' | wc -l -> 0",
+        "pyproject.toml:53 lists build.artifacts = ['*.mo'] but no build hook compiles them",
+        "scripts/generate-translation-binaries.sh:3-7 is a manual compiler script",
+        "tests/test_i18n.py:36-37,68-69,87-88,166-167,188-189,199-200 skip on FileNotFoundError",
+        "uv run --extra tests pytest -q passed with 685 passed, 69 skipped",
+        "probe: activate('fr_FR'), activate('ru_RU'), activate('de_DE') each raised FileNotFoundError"
+      ],
+      "reproduction_or_test": "find src/humanize/locale -name '*.mo' | wc -l\nuv run python - <<'PY'\nimport humanize\nhumanize.i18n.activate('fr_FR')\nPY",
+      "confidence": "medium"
+    },
+    {
+      "title": "naturalsize lacks non-finite input handling",
+      "severity": "low",
+      "file": "src/humanize/filesize.py",
+      "symbol": "naturalsize",
+      "cause": "The function converts to float and immediately uses abs/log without checking math.isfinite, unlike the number module's public formatters.",
+      "impact": "NaN inputs raise ValueError and infinity is rendered as a maximum-suffix filesize, which is surprising and inconsistent for a public numeric formatting helper.",
+      "evidence": [
+        "src/humanize/filesize.py:89-101 converts value to float, computes log(abs_bytes, base), and indexes a suffix without a finite guard",
+        "tests/test_filesize.py:12-88 covers finite positive and negative values only",
+        "probe: naturalsize(math.nan) raised ValueError; naturalsize(math.inf) -> 'inf QB'"
+      ],
+      "reproduction_or_test": "uv run python - <<'PY'\nimport math, humanize\nassert humanize.naturalsize(math.nan) == 'NaN'\nassert humanize.naturalsize(math.inf) == '+Inf'\nPY",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py tools",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[trust_selftest, session_handshake]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py call help '{\"agent_id\":\"codex-audit-07\",\"tool_name\":\"audit\"}'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[ingest, session_handshake, audit]'",
+    "rg --files -g '!graph_snapshot.json' -g '!plasticity_state.json' -g '!ingest_roots.json'",
+    "git status --short",
+    "uv run --extra tests pytest -q",
+    "uv run python targeted probes for intcomma, fractional, time non-finite, naturalsize non-finite",
+    "uv run python targeted probe for clamp exact floor/ceil boundaries",
+    "uv run python targeted probe for metric rounding/prefix boundaries",
+    "find src/humanize/locale -name '*.mo' | wc -l",
+    "uv run python targeted probe for i18n.activate on fr_FR, ru_RU, de_DE",
+    "rm -- graph_snapshot.json ingest_roots.json plasticity_state.json",
+    "python3 -m json.tool /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-results/audit-07.json",
+    "python3 JSONL validation script for /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/event-streams/audit-07.jsonl",
+    "wc -l /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/event-streams/audit-07.jsonl /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-results/audit-07.json"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-prompts/audit-07.md",
+    "pyproject.toml",
+    "RELEASING.md",
+    "README.md",
+    "scripts/generate-translation-binaries.sh",
+    "scripts/update-translations.sh",
+    "src/humanize/__init__.py",
+    "src/humanize/filesize.py",
+    "src/humanize/i18n.py",
+    "src/humanize/lists.py",
+    "src/humanize/number.py",
+    "src/humanize/time.py",
+    "tests/test_filesize.py",
+    "tests/test_i18n.py",
+    "tests/test_lists.py",
+    "tests/test_number.py",
+    "tests/test_time.py"
+  ],
+  "tests_run": [
+    {
+      "command": "uv run --extra tests pytest -q",
+      "result": "passed: 685 passed, 69 skipped in 0.54s"
+    },
+    {
+      "command": "uv run python targeted probes for candidate bugs",
+      "result": "confirmed clamp equality, negative intcomma, negative fractional, float infinity time, metric promotion, i18n missing .mo, and naturalsize non-finite behaviors"
+    }
+  ],
+  "m1nd_usage": [
+    "Used m1nd first through /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py because no direct m1nd MCP tool surface was exposed outside DEXT3R.",
+    "probe_m1nd.py tools returned 96 available tools.",
+    "trust_selftest/session_handshake initially returned needs_ingest with the correct humanize workspace binding.",
+    "ingest parsed 67 files, created 213 nodes and 220 edges; post-ingest session_handshake returned full_trust.",
+    "m1nd audit highlighted src/humanize/time.py, src/humanize/number.py, src/humanize/i18n.py, src/humanize/filesize.py, and tests as risk areas.",
+    "Ignored m1nd audit external Cargo references because they came from generated graph artifacts, not from the humanize codebase under audit.",
+    "Removed m1nd-generated untracked graph artifacts from the audit workspace and verified git status was clean."
+  ],
+  "final_notes": "No code patches were made. I did not commit, push, publish, or read operator-only files. Baseline tests pass, but 69 i18n tests skip because compiled catalogs are missing. The strongest claims are backed by direct source lines and local runtime probes; expected strings for metric promotion are inferred from the function's documented precision/prefix contract.",
+  "agent_testimony": "I used m1nd first for orientation, then verified final truth with direct repository files and pytest/python probes. m1nd helped prioritize number/time/i18n/filesize modules, but its audit also produced graph artifacts and irrelevant external m1nd Cargo references, so I treated it as orientation only and cleaned the temporary files before handoff.",
+  "confidence": "high"
+}

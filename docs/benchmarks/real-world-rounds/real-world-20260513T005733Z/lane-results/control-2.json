@@ -1,0 +1,486 @@
+{
+  "schema": "m1nd-real-world-agent-lane-result-v0",
+  "round_id": "real-world-20260513T005733Z",
+  "lane_id": "control-2",
+  "arm": "no_m1nd",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-13T01:05:00Z",
+  "finished_at": "2026-05-13T01:13:10Z",
+  "agent_testimony": "Worked only in the control-2 isolated fixture repos and did not use m1nd. The round did not contain explicit seeded runtime bugs or a supplied review diff inside the lane repos, so I chose repo-backed tasks, kept the weaker cases scored and marked partial where appropriate, and made no commits or pushes. Patch work was limited to the isolated click-python-cli and human-panic-rust-cli copies.",
+  "task_results": [
+    {
+      "task_id": "repo_architecture_audit",
+      "repo_id": "click-python-cli",
+      "mode": "audit",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "pyproject.toml",
+        "README.md",
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/parser.py",
+        "src/click/testing.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "rg --files .m1nd-benchmark-fixtures/real-world-lanes/real-world-20260513T005733Z/control-2/click-python-cli",
+        "sed -n '1,320p' src/click/core.py",
+        "sed -n '1,260p' src/click/parser.py"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/parser.py",
+        "src/click/testing.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Public API is re-exported from src/click/__init__.py, but execution is centered in src/click/core.py: commands create contexts, parse args, and invoke callbacks there. parser.py still owns low-level token splitting and option parsing even though its public aliases are deprecated. testing.py is a separate boundary because CliRunner swaps global stdio and helper functions during isolation. Proven risk: core.py is the shared choke point for command, group, and context behavior. Hypothesis: lazy-loading and completion overrides are the most fragile extension points because they cross Group resolution, parser behavior, and docs expectations.",
+      "evidence": [
+        "Public surface is re-exported from src/click/__init__.py:10-74.",
+        "Command/context flow and shared helpers live in src/click/core.py:23-48 and 185-220.",
+        "Low-level parser boundary is src/click/parser.py:46-98 and 224-237.",
+        "CliRunner isolation and stdio monkeypatching are in src/click/testing.py:89-160 and 525-597."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "feature_location",
+      "repo_id": "p-limit-node",
+      "mode": "localize",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "readme.md",
+        "index.d.ts",
+        "index.js",
+        "test.js"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "npm test -- --match='clearQueue rejects pending promises when enabled|map passes index and preserves order with concurrency|accepts options object'",
+        "node --input-type=module -e \"import pLimit from './index.js'; ... limit.clearQueue(); ...\""
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Localized the named public behavior to rejectOnClear/clearQueue. The contract is documented in readme.md and index.d.ts, implemented in index.js, and protected by AVA tests in test.js. I avoided scripts/benchmarker.js even though xo warned about a TODO there; it is unrelated benchmarking scaffolding, not runtime behavior.",
+      "evidence": [
+        "Implementation branches on options-object input and stores rejectOnClear in index.js:3-14.",
+        "Pending rejection happens in clearQueue at index.js:77-89.",
+        "The public contract is documented in readme.md:46-105 and typed in index.d.ts:13-27 and 92-105.",
+        "Regression coverage is in test.js:184-215."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "flow_explanation",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "explain",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "cargo test -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "A realistic release-build flow starts at setup_panic!(), which expands to setup_panic(|| metadata!()). setup_panic installs a panic hook when PanicStyle resolves to Human. The hook builds a Report from PanicHookInfo, persists it to a temp file unless CI is set, then prints the user-facing message. Integration tests verify both the temp-file path and the CI fallback that serializes the report to stderr.",
+      "evidence": [
+        "Entry macro is exported from src/lib.rs:64-72 and 98-106.",
+        "Hook installation and CI/file decision happen in src/panic.rs:15-38.",
+        "Report construction and persistence happen in src/report.rs:67-110.",
+        "Observable stderr/file output is asserted in tests/single-panic/tests/integration.rs:12-65 and 112-148."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "repo_id": "click-python-cli",
+      "mode": "diagnose",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/click/testing.py",
+        "tests/test_testing.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "PYTHONPATH=src uv run --with pytest --with colorama --no-project python -m pytest tests/test_testing.py -k faulthandler -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/testing.py",
+        "tests/test_testing.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Chosen symptom: faulthandler.enable() inside CliRunner crashes with io.UnsupportedOperation: fileno. The most likely fault boundary is the stderr replacement in CliRunner isolation, specifically _NamedTextIOWrapper.fileno() and the original-fd plumbing. An alternative theory was StreamMixer buffering alone, but the test and symptom both point at missing fileno support on stderr, not mixed stdout/stderr semantics.",
+      "evidence": [
+        "Regression description and reproduction live in tests/test_testing.py:525-547.",
+        "The relevant fd-preserving wrapper is src/click/testing.py:103-152.",
+        "CliRunner.isolation installs the patched wrappers and restores globals in src/click/testing.py:433-523.",
+        "Focused verification passed: tests/test_testing.py -k faulthandler."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "safe_change_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "readme.md",
+        "test.js"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "npm test -- --match='clearQueue rejects pending promises when enabled|map passes index and preserves order with concurrency|accepts options object'"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "index.d.ts",
+        "readme.md",
+        "test.js"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Planned change: allow callers to pass an explicit rejection reason to clearQueue when rejectOnClear is enabled. Edit targets would be index.js for clearQueue semantics, index.d.ts for the updated signature/docs, readme.md for public behavior, and test.js for both default AbortError and custom-reason cases. Blast radius is limited to queued-item rejection behavior; running promises must remain untouched. Proof gates are the existing clearQueue tests, the concurrency-change tests, and tsd through npm test.",
+      "evidence": [
+        "Current clearQueue semantics are isolated to index.js:77-89.",
+        "Public docs and types live in readme.md:96-109 and index.d.ts:13-27.",
+        "Relevant downstream tests are test.js:184-215 and 305-320."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "small_feature_patch",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 3,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/metadata.rs"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "cargo test -q"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Added fluent Metadata::name() and Metadata::version() overrides, both ignoring empty input to preserve existing defaults, plus a unit test that covers empty overrides and explicit replacements.",
+      "correct_files": [
+        "src/metadata.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "This is a tiny API addition that fits the existing builder style. It makes metadata!() easier to customize when a crate wants to keep the default metadata chain but override the displayed app name or version.",
+      "evidence": [
+        "New builder methods are in src/metadata.rs:28-44.",
+        "Focused regression coverage is in src/metadata.rs:83-98.",
+        "cargo test -q passed after the patch."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "repo_id": "click-python-cli",
+      "mode": "patch",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 2
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 1,
+      "files_opened": [
+        "tests/test_chain.py",
+        "docs/commands.md",
+        "docs/upgrade-guides.md",
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "PYTHONPATH=src uv run --with pytest --with colorama --no-project python -m pytest tests/test_chain.py::test_group_chaining -q -rA",
+        "uv run --with build --with flit_core --no-project python -m build --wheel --no-isolation",
+        "uv run --with ./dist/click-8.3.3-py3-none-any.whl --with myst-parser --with pallets-sphinx-themes --with sphinx --with sphinx-tabs --with sphinxcontrib-log-cabinet --no-project python -m sphinx -W -b dirhtml docs docs/_build/dirhtml"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Replaced the 9.0 upgrade-guide placeholder with concrete migrations for BaseCommand, MultiCommand, OptionParser/parser aliases, Context.protected_args, parser.split_arg_string, and click.__version__, then verified the docs build against a locally built wheel.",
+      "correct_files": [
+        "docs/upgrade-guides.md",
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "The harness did not include a seeded failing runtime test or supplied bug description inside the isolated Click copy. I first checked the xfailed chained-group test, but docs/commands.md explicitly documents that nested groups under chain=True are unsupported, so that was a false start rather than a fix target. I then treated the public upgrade guide stub as the clearly broken artifact on this repo: it was linked in the docs tree but still shipped TBD placeholders while the code already emitted migration warnings. That is a real fix, but weaker than landing a seeded runtime regression, so I kept the task partial.",
+      "evidence": [
+        "Documented unsupported behavior for nested chain groups is in docs/commands.md:141-171, matching the xfail in tests/test_chain.py:221-240.",
+        "The original gap was the placeholder upgrade guide; the patched content is now in docs/upgrade-guides.md:13-48.",
+        "The migrations come directly from src/click/__init__.py:77-124, src/click/core.py:457-468, and src/click/parser.py:503-531.",
+        "Packaging and docs verification both passed after the patch."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "readme.md",
+        "test.js"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "npm test -- --match='clearQueue rejects pending promises when enabled|map passes index and preserves order with concurrency|accepts options object'"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "index.d.ts",
+        "readme.md",
+        "test.js"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Best bounded refactor target is the scheduling cluster around resumeNext, next, enqueue, and the concurrency setter. Hidden coupling lives between activeCount updates, queue.dequeue().run(), clearQueue rejection semantics, and the map helper that assumes ordering is preserved. Safe order: (1) keep existing tests as a proof harness; (2) extract a private drain/dequeue helper without changing behavior; (3) move clearQueue and concurrency setter to use the same helper; (4) only then consider larger API changes. Rollback boundary is a green npm test with unchanged public signatures/docs.",
+      "evidence": [
+        "Scheduling and queue mutation are concentrated in index.js:19-64 and 77-104.",
+        "Behavioral coupling is covered by test.js:155-215 and 305-320.",
+        "Public API/documentation constraints are in index.d.ts and readme.md:96-109."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "code_review_diff",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "review",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 3,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 2
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/metadata.rs"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "git diff -- src/metadata.rs",
+        "cargo test -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/metadata.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "No correctness bug stood out in the local metadata.rs diff: the new builders only overwrite fields when given non-empty values, and the unit test covers the empty-input and explicit-override path. I am keeping this partial because the harness did not supply an external diff, so this was a self-review of the small_feature_patch diff rather than an independent review target.",
+      "evidence": [
+        "Reviewed diff adds name/version builders in src/metadata.rs:28-44.",
+        "Reviewed diff adds matching test coverage in src/metadata.rs:83-98.",
+        "cargo test -q stayed green after the reviewed diff."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "docs_drift_check",
+      "repo_id": "click-python-cli",
+      "mode": "docs",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/index.rst",
+        "docs/upgrade-guides.md",
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "uv run --with build --with flit_core --no-project python -m build --wheel --no-isolation",
+        "uv run --with ./dist/click-8.3.3-py3-none-any.whl --with myst-parser --with pallets-sphinx-themes --with sphinx --with sphinx-tabs --with sphinxcontrib-log-cabinet --no-project python -m sphinx -W -b dirhtml docs docs/_build/dirhtml"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "docs/index.rst",
+        "docs/upgrade-guides.md",
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "There was real docs drift at the start of the task: docs/index.rst exposed upgrade-guides in the public docs tree, but docs/upgrade-guides.md was still a stub with TBD sections while the code already emitted concrete deprecation warnings for public migration paths. I fixed that drift during the click patch task and then rebuilt the docs successfully.",
+      "evidence": [
+        "The guide is publicly linked from docs/index.rst:58-66.",
+        "Current upgrade content now covers the previously missing migration paths in docs/upgrade-guides.md:13-48.",
+        "The code truths behind those migrations are in src/click/__init__.py:77-124, src/click/core.py:457-468, and src/click/parser.py:503-531.",
+        "Sphinx dirhtml build succeeded after the update."
+      ],
+      "agent_confidence": "high"
+    }
+  ]
+}

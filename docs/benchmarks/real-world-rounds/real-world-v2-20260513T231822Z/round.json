@@ -1,0 +1,483 @@
+{
+  "schema": "m1nd-real-world-agent-round-v0",
+  "round_id": "real-world-v2-20260513T231822Z",
+  "created_at": "2026-05-13T23:18:27.907361+00:00",
+  "status": "planned",
+  "fixture_repos": [
+    {
+      "repo_id": "click-python-cli",
+      "url": "https://github.com/pallets/click.git",
+      "ecosystem": "python",
+      "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli",
+      "fixture_present": true,
+      "revision": {
+        "fixture_present": true,
+        "head_commit": "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1",
+        "head_commit_short": "fc6c7c47edd6"
+      }
+    },
+    {
+      "repo_id": "p-limit-node",
+      "url": "https://github.com/sindresorhus/p-limit.git",
+      "ecosystem": "typescript",
+      "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node",
+      "fixture_present": true,
+      "revision": {
+        "fixture_present": true,
+        "head_commit": "9f52583119f0cb0d85c6fec600c94a21fd89d060",
+        "head_commit_short": "9f52583119f0"
+      }
+    },
+    {
+      "repo_id": "human-panic-rust-cli",
+      "url": "https://github.com/rust-cli/human-panic.git",
+      "ecosystem": "rust",
+      "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli",
+      "fixture_present": true,
+      "revision": {
+        "fixture_present": true,
+        "head_commit": "f2530e9357e1c2fd089d75ffaf4561f96c9a0f43",
+        "head_commit_short": "f2530e9357e1"
+      }
+    }
+  ],
+  "fixture_lock_file": "operator-only/fixture-lock.json",
+  "lane_workspace_root": ".m1nd-benchmark-fixtures/real-world-lanes/real-world-v2-20260513T231822Z",
+  "benchmark_payloads": [
+    {
+      "artifact_id": "human-panic-review-diff-v1",
+      "path": "docs/benchmarks/real-world-rounds/real-world-v2-20260513T231822Z/benchmark-payloads/review-diff-human-panic.patch",
+      "purpose": "supplied diff for code_review_diff task"
+    }
+  ],
+  "task_count": 10,
+  "task_matrix": [
+    {
+      "task": {
+        "task_id": "repo_architecture_audit",
+        "mode": "audit",
+        "title": "Architecture audit",
+        "prompt": "Explain the repo architecture, main modules, entrypoints, data/control flow, and top risks.",
+        "expected_evidence": [
+          "main entrypoints named",
+          "module boundaries named",
+          "at least two real file references",
+          "risk list separates proven facts from hypotheses"
+        ],
+        "requires_code_change": false,
+        "repo_id": "click-python-cli",
+        "payload_id": "click-architecture-v1",
+        "payload": {
+          "focus": "Audit Click's public export layer, decorators, command core, parser, and testing harness.",
+          "must_cover": [
+            "public API re-exports",
+            "command and group invocation path",
+            "parameter/type conversion",
+            "test runner IO isolation"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1",
+          "head_commit_short": "fc6c7c47edd6"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "feature_location",
+        "mode": "localize",
+        "title": "Feature localization",
+        "prompt": "Find where a named feature or public behavior is implemented and identify the tests that protect it.",
+        "expected_evidence": [
+          "implementation file named",
+          "test file named or missing test stated",
+          "false-positive files avoided"
+        ],
+        "requires_code_change": false,
+        "repo_id": "p-limit-node",
+        "payload_id": "p-limit-clear-queue-reject-on-clear-v1",
+        "payload": {
+          "feature": "The rejectOnClear and clearQueue behavior for pending tasks.",
+          "must_find": [
+            "runtime implementation",
+            "type definition",
+            "test coverage",
+            "README/API docs"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "p-limit-node",
+        "url": "https://github.com/sindresorhus/p-limit.git",
+        "ecosystem": "typescript",
+        "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "9f52583119f0cb0d85c6fec600c94a21fd89d060",
+          "head_commit_short": "9f52583119f0"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "flow_explanation",
+        "mode": "explain",
+        "title": "End-to-end flow explanation",
+        "prompt": "Explain a realistic request/command/API flow from public entrypoint to internal behavior.",
+        "expected_evidence": [
+          "entrypoint named",
+          "intermediate calls named",
+          "observable output or side effect named"
+        ],
+        "requires_code_change": false,
+        "repo_id": "human-panic-rust-cli",
+        "payload_id": "human-panic-release-panic-flow-v1",
+        "payload": {
+          "flow": "Explain what happens when setup_panic!() is installed and a release-mode panic occurs.",
+          "must_cover": [
+            "public macro or setup entrypoint",
+            "panic hook behavior",
+            "report writing path",
+            "observable user-facing output"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "human-panic-rust-cli",
+        "url": "https://github.com/rust-cli/human-panic.git",
+        "ecosystem": "rust",
+        "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "f2530e9357e1c2fd089d75ffaf4561f96c9a0f43",
+          "head_commit_short": "f2530e9357e1"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "bug_symptom_triage",
+        "mode": "diagnose",
+        "title": "Bug symptom triage",
+        "prompt": "Given a realistic symptom, isolate the most likely fault boundary and name the next verification step.",
+        "expected_evidence": [
+          "most likely fault file or function named",
+          "alternative theory preserved or rejected",
+          "next command/test/file named"
+        ],
+        "requires_code_change": false,
+        "repo_id": "click-python-cli",
+        "payload_id": "click-callable-instance-type-triage-v1",
+        "payload": {
+          "symptom": "A callable instance used as a custom Click option type crashes during command construction with AttributeError because the object has no __name__ attribute.",
+          "must_answer": [
+            "most likely fault boundary",
+            "why it is not a parser/runtime invocation issue",
+            "next focused regression test"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1",
+          "head_commit_short": "fc6c7c47edd6"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "safe_change_plan",
+        "mode": "plan",
+        "title": "Safe change plan",
+        "prompt": "Plan a small behavior change, including blast radius, files to edit, and proof gates.",
+        "expected_evidence": [
+          "edit targets named",
+          "downstream callers or tests named",
+          "risky assumptions explicit"
+        ],
+        "requires_code_change": false,
+        "repo_id": "p-limit-node",
+        "payload_id": "p-limit-clear-queue-return-count-plan-v1",
+        "payload": {
+          "change_request": "Plan a backwards-compatible change so clearQueue() returns the number of pending tasks it discarded or rejected, without touching already running tasks.",
+          "must_cover": [
+            "runtime edit target",
+            "types/docs/test targets",
+            "rejectOnClear behavior",
+            "no change to activeCount semantics"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "p-limit-node",
+        "url": "https://github.com/sindresorhus/p-limit.git",
+        "ecosystem": "typescript",
+        "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "9f52583119f0cb0d85c6fec600c94a21fd89d060",
+          "head_commit_short": "9f52583119f0"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "small_feature_patch",
+        "mode": "patch",
+        "title": "Small feature patch",
+        "prompt": "Implement a tiny feature or option consistent with local style and run focused checks.",
+        "expected_evidence": [
+          "minimal patch",
+          "test or example updated when appropriate",
+          "focused check result recorded"
+        ],
+        "requires_code_change": true,
+        "repo_id": "human-panic-rust-cli",
+        "payload_id": "human-panic-metadata-name-version-builders-v1",
+        "payload": {
+          "change_request": "Add Metadata::name(...) and Metadata::version(...) builder methods that preserve the existing non-empty string guard style.",
+          "must_cover": [
+            "minimal implementation",
+            "focused unit tests",
+            "no public panic/report behavior rewrite"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "human-panic-rust-cli",
+        "url": "https://github.com/rust-cli/human-panic.git",
+        "ecosystem": "rust",
+        "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "f2530e9357e1c2fd089d75ffaf4561f96c9a0f43",
+          "head_commit_short": "f2530e9357e1"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "seeded_bug_fix",
+        "mode": "patch",
+        "title": "Seeded bug fix",
+        "prompt": "Fix a seeded or clearly described bug without broad refactors.",
+        "expected_evidence": [
+          "root cause named",
+          "patch is scoped",
+          "regression proof recorded"
+        ],
+        "requires_code_change": true,
+        "repo_id": "click-python-cli",
+        "payload_id": "click-seeded-callable-instance-type-fix-v1",
+        "payload": {
+          "seeded_artifact_id": "click-callable-instance-type-test-v1",
+          "bug": "The lane workspace contains a seeded regression test proving callable instances should work as custom option types.",
+          "must_cover": [
+            "root cause",
+            "minimal fix",
+            "seeded regression test result"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1",
+          "head_commit_short": "fc6c7c47edd6"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "bounded_refactor_plan",
+        "mode": "plan",
+        "title": "Bounded refactor plan",
+        "prompt": "Prepare a bounded refactor and identify hidden coupling before any edit.",
+        "expected_evidence": [
+          "coupled files named",
+          "safe ordering proposed",
+          "rollback or proof boundary named"
+        ],
+        "requires_code_change": false,
+        "repo_id": "p-limit-node",
+        "payload_id": "p-limit-queue-scheduling-refactor-plan-v1",
+        "payload": {
+          "refactor_scope": "Queue scheduling and draining helpers only.",
+          "must_cover": [
+            "resumeNext",
+            "next",
+            "enqueue",
+            "clearQueue",
+            "concurrency setter"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "p-limit-node",
+        "url": "https://github.com/sindresorhus/p-limit.git",
+        "ecosystem": "typescript",
+        "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "9f52583119f0cb0d85c6fec600c94a21fd89d060",
+          "head_commit_short": "9f52583119f0"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "code_review_diff",
+        "mode": "review",
+        "title": "Code review of a diff",
+        "prompt": "Review a supplied or seeded diff for real bugs, regressions, and missing tests.",
+        "expected_evidence": [
+          "findings ordered by severity",
+          "file/line references when available",
+          "style-only comments avoided"
+        ],
+        "requires_code_change": false,
+        "repo_id": "human-panic-rust-cli",
+        "payload_id": "human-panic-review-diff-v1",
+        "payload": {
+          "supplied_diff": "benchmark-payloads/review-diff-human-panic.patch",
+          "review_focus": "Find real user-visible regressions and missing tests in the supplied diff.",
+          "must_cover": [
+            "duplicate or noisy support output when homepage and repository coexist",
+            "missing regression test",
+            "avoid style-only findings"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "human-panic-rust-cli",
+        "url": "https://github.com/rust-cli/human-panic.git",
+        "ecosystem": "rust",
+        "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "f2530e9357e1c2fd089d75ffaf4561f96c9a0f43",
+          "head_commit_short": "f2530e9357e1"
+        }
+      }
+    },
+    {
+      "task": {
+        "task_id": "docs_drift_check",
+        "mode": "docs",
+        "title": "Docs/spec drift check",
+        "prompt": "Compare README/docs claims against implementation and identify drift or missing documentation.",
+        "expected_evidence": [
+          "claim source named",
+          "code truth named",
+          "drift or no-drift conclusion justified"
+        ],
+        "requires_code_change": false,
+        "repo_id": "click-python-cli",
+        "payload_id": "click-lazy-loading-docs-drift-v1",
+        "payload": {
+          "claim": "README/docs say Click supports lazy loading of subcommands at runtime.",
+          "must_compare": [
+            "README and docs/index claim",
+            "docs/complex lazy loading pattern",
+            "actual Group behavior"
+          ]
+        }
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli",
+        "fixture_present": true,
+        "revision": {
+          "fixture_present": true,
+          "head_commit": "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1",
+          "head_commit_short": "fc6c7c47edd6"
+        }
+      }
+    }
+  ],
+  "lanes": [
+    {
+      "lane_id": "m1nd-1",
+      "arm": "m1nd_available"
+    },
+    {
+      "lane_id": "m1nd-2",
+      "arm": "m1nd_available"
+    },
+    {
+      "lane_id": "m1nd-3",
+      "arm": "m1nd_available"
+    },
+    {
+      "lane_id": "control-1",
+      "arm": "no_m1nd"
+    },
+    {
+      "lane_id": "control-2",
+      "arm": "no_m1nd"
+    },
+    {
+      "lane_id": "control-3",
+      "arm": "no_m1nd"
+    },
+    {
+      "lane_id": "judge-1",
+      "arm": "adjudication"
+    }
+  ],
+  "success_criteria": [
+    "correct files or modules identified with evidence",
+    "causal explanation matches actual code paths",
+    "missing tests and missing proof are named honestly",
+    "patch tasks stay minimal and are verified with focused checks",
+    "control and m1nd lanes use comparable repo snapshots"
+  ],
+  "non_claims": [
+    "one real-world round is not a public performance claim",
+    "benchmark repos are fixtures, not proof of universal repo performance",
+    "m1nd does not replace tests, compiler output, git history, rg, or direct file truth",
+    "agent testimony is not evidence without scored task artifacts",
+    "warm-graph and cold-graph results must be reported separately",
+    "a correct plan is not the same evidence as a correct patch"
+  ]
+}

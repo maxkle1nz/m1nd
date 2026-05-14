@@ -10,6 +10,10 @@ It is intentionally host-neutral:
 - `m1nd-universal-agent-pack.md` is the portable prompt-pack form for hosts that
   do not have a native skill directory.
 
+All three carry the trained-agent loop measured in internal bug-hunt rounds:
+trust check, recovery before absence, workspace binding clarity, graph
+orientation, direct proof, risky-edit context, and evidence logging.
+
 Use the npm installer from the repo root to install the right shape:
 
 ```bash

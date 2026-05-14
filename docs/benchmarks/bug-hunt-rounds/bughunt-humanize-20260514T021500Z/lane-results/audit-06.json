@@ -1,0 +1,141 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-humanize-20260514T021500Z",
+  "lane_id": "audit-06",
+  "started_at": "2026-05-14T02:46:44Z",
+  "finished_at": "2026-05-14T02:52:12Z",
+  "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-humanize-20260514T021500Z/audit-06/humanize",
+  "findings": [
+    {
+      "title": "intcomma leaves finite negative numbers ungrouped",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "intcomma",
+      "cause": "After coercion, negative inputs still start with '-' but the grouping regex only matches strings that begin with digits, so the loop returns the original negative string unchanged.",
+      "impact": "Negative balances, counts, and deltas are formatted less readably than positive values and violate the function's advertised integer/float grouping behavior.",
+      "evidence": [
+        "src/humanize/number.py:164 formats orig from the numeric value",
+        "src/humanize/number.py:171-174 applies r'^(\\d+)(\\d{3})', which cannot match '-1234567'",
+        "tests/test_number.py:41-83 covers positive intcomma cases and non-finite negatives but no finite negative values",
+        "repro output: intcomma(-1234567) -> '-1234567'; intcomma(-1234567.89) -> '-1234567.89'"
+      ],
+      "reproduction_or_test": "Add cases such as assert humanize.intcomma(-1234567) == '-1,234,567' and assert humanize.intcomma(-1234567.89) == '-1,234,567.89'.",
+      "confidence": "high"
+    },
+    {
+      "title": "fractional loses or duplicates the sign for negative fractions",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "fractional",
+      "cause": "The code truncates the whole part with int(number), computes a signed Fraction from the remainder, then uses abs(numerator) only for values with no whole part and leaves the signed numerator in mixed fractions.",
+      "impact": "Negative fractional values are misrepresented: values between -1 and 0 become positive, while negative mixed values render with a double negative component.",
+      "evidence": [
+        "src/humanize/number.py:370-382 computes whole_number and numerator without preserving one clear sign for the result",
+        "tests/test_number.py:166-189 covers positive fractional inputs and non-finite negatives but no finite negative fractions",
+        "repro output: fractional(-0.3) -> '3/10'; fractional(-1.3) -> '-1 -3/10'"
+      ],
+      "reproduction_or_test": "Add cases such as assert humanize.fractional(-0.3) == '-3/10' and assert humanize.fractional(-1.3) == '-1 3/10'.",
+      "confidence": "high"
+    },
+    {
+      "title": "clamp marks exact floor and ceil values as out of range",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "clamp",
+      "cause": "The comparisons use <= for floor and >= for ceil even though the docstring says only values smaller than floor or larger than ceil should receive the clamp token.",
+      "impact": "Boundary values displayed in dashboards or reports get misleading '<' or '>' prefixes even when they are exactly within the allowed range.",
+      "evidence": [
+        "src/humanize/number.py:464-475 documents strict smaller/larger behavior and includes clamp(0.99, ceil=0.99) -> '99%'",
+        "src/humanize/number.py:509-514 uses inclusive <= and >= comparisons",
+        "tests/test_number.py:223-240 covers below-floor and above-ceil cases but not equality",
+        "repro output: clamp(0.99, format='{:.0%}', ceil=0.99) -> '>99%'; clamp(0.01, floor=0.01) -> '<0.01'"
+      ],
+      "reproduction_or_test": "Add equality cases for floor and ceil, e.g. assert humanize.clamp(0.99, format='{:.0%}', ceil=0.99) == '99%' and assert humanize.clamp(0.01, floor=0.01) == '0.01'.",
+      "confidence": "high"
+    },
+    {
+      "title": "ordinal applies suffix rules to negative remainders",
+      "severity": "low",
+      "file": "src/humanize/number.py",
+      "symbol": "ordinal",
+      "cause": "Suffix selection uses value % 100 and value % 10 directly; Python modulo makes -1 select the 9 suffix slot and -2 select the 8 suffix slot.",
+      "impact": "Finite negative ordinals render with incorrect suffixes such as '-1th' and '-2th', which is visible for signed rankings or offsets.",
+      "evidence": [
+        "src/humanize/number.py:105-107 selects suffixes from modulo results on the signed value",
+        "tests/test_number.py:14-38 covers positive ordinal values and non-finite negatives but no finite negative ordinals",
+        "repro output: ordinal(-1) -> '-1th'; ordinal(-2) -> '-2th'"
+      ],
+      "reproduction_or_test": "Add finite negative ordinal cases such as assert humanize.ordinal(-1) == '-1st' and assert humanize.ordinal(-2) == '-2nd'.",
+      "confidence": "medium"
+    },
+    {
+      "title": "naturalsize has no non-finite float guard",
+      "severity": "low",
+      "file": "src/humanize/filesize.py",
+      "symbol": "naturalsize",
+      "cause": "The function converts input with float(value) but never checks math.isfinite before comparing and taking log(abs_bytes). NaN reaches int(min(log(...))) and raises, while infinity is formatted with the largest suffix.",
+      "impact": "Telemetry or filesystem-size inputs containing NaN or infinity either crash formatting or produce a misleading value such as 'inf QB', unlike the number APIs that normalize non-finite values to 'NaN', '+Inf', or '-Inf'.",
+      "evidence": [
+        "src/humanize/filesize.py:89-101 converts to float, branches on abs_bytes, then logs without a finite check",
+        "src/humanize/number.py:21-31 defines the shared non-finite display convention used by number helpers",
+        "tests/test_filesize.py:12-96 has no NaN or infinity naturalsize cases",
+        "repro output: naturalsize(math.nan) -> ValueError: cannot convert float NaN to integer; naturalsize(math.inf) -> 'inf QB'"
+      ],
+      "reproduction_or_test": "Add cases for math.nan, math.inf, and -math.inf, either expecting the same non-finite strings as number helpers or an explicitly documented exception.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "cat /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-prompts/audit-06.md",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py tools",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[trust_selftest, session_handshake, help(audit), help(seek)]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[trust_selftest, session_handshake, ingest, session_handshake, audit]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[ingest, seek(number boundaries), seek(time boundaries), seek(locale state), seek(list/data preservation)]'",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py run '[ingest, recovery_playbook, doctor]'",
+    "rg --files",
+    "git status --short",
+    "sed -n / nl -ba reads of src/humanize/{number.py,time.py,filesize.py,i18n.py,lists.py} and tests",
+    "uv run --extra tests pytest -q",
+    "uv run python - <<'PY' ... boundary reproduction script ... PY",
+    "rg -n -- '-1234567|-1000|ordinal\\(-|fractional\\(-|ceil=0\\.99|floor=0\\.01|naturalsize\\(math\\.(nan|inf)|math\\.nan|math\\.inf' tests src/humanize",
+    "rm -f graph_snapshot.json ingest_roots.json plasticity_state.json",
+    "date -u +%Y-%m-%dT%H:%M:%SZ"
+  ],
+  "files_inspected": [
+    "pyproject.toml",
+    "README.md",
+    "docs/number.md",
+    "docs/filesize.md",
+    "docs/i18n.md",
+    "src/humanize/number.py",
+    "src/humanize/time.py",
+    "src/humanize/filesize.py",
+    "src/humanize/i18n.py",
+    "src/humanize/lists.py",
+    "tests/test_number.py",
+    "tests/test_time.py",
+    "tests/test_filesize.py",
+    "tests/test_i18n.py",
+    "tests/test_lists.py"
+  ],
+  "tests_run": [
+    {
+      "command": "uv run --extra tests pytest -q",
+      "result": "685 passed, 69 skipped in 0.64s"
+    },
+    {
+      "command": "uv run python - <<'PY' ... boundary reproduction script ... PY",
+      "result": "Confirmed current outputs for negative ordinal, negative intcomma, negative fractional, clamp equality, and naturalsize non-finite cases."
+    }
+  ],
+  "m1nd_usage": [
+    "Probed live m1nd tool surface: 96 tools available including trust_selftest, session_handshake, ingest, audit, seek, recovery_playbook, and doctor.",
+    "Initial handshake from the default Codex workspace reported wrong_workspace_binding for the target repo; reran probe from the target humanize workspace.",
+    "Target workspace ingest succeeded with 67-70 files scanned and 213-216 nodes depending on temporary m1nd probe files.",
+    "m1nd audit oriented the review toward src/humanize/time.py, src/humanize/number.py, src/humanize/i18n.py, src/humanize/filesize.py, and list helpers.",
+    "m1nd seek provided useful hints for number, time, locale, and list/data-preservation surfaces but also reported retrieval_needs_recovery/stale_binding_suspected; recovery_playbook and doctor were run, then final truth was verified with direct file reads and tests."
+  ],
+  "final_notes": "No source patches, commits, pushes, or /Users/kle1nz/m1nd source modifications were made. m1nd probe snapshot files created in the lane clone were removed, and git status in the lane repo was clean after cleanup. I did not generate translation .mo files, so locale alias separator behavior was not claimed as a finding.",
+  "agent_testimony": "I treated the task as a correctness audit rather than a style review. m1nd helped identify the relevant public API modules, but its scoped seek reported recovery warnings after returning hints, so I used it only for orientation and grounded every finding in source lines, existing test gaps, a passing baseline suite, and focused runtime reproductions.",
+  "confidence": "high"
+}

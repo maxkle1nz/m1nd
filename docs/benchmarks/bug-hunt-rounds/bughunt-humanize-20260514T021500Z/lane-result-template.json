@@ -1,0 +1,16 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-humanize-20260514T021500Z",
+  "lane_id": null,
+  "started_at": null,
+  "finished_at": null,
+  "repo_path": null,
+  "findings": [],
+  "commands_run": [],
+  "files_inspected": [],
+  "tests_run": [],
+  "m1nd_usage": [],
+  "final_notes": "",
+  "agent_testimony": "",
+  "confidence": "medium"
+}

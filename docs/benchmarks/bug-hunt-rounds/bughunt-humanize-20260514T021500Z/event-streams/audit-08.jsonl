@@ -1,0 +1,14 @@
+{"schema":"m1nd-bug-hunt-event-v0","round_id":"bughunt-humanize-20260514T021500Z","lane_id":"audit-08","event_type":"audit_assigned","event_source":"harness","created_at":"2026-05-14T02:46:44.228Z"}
+{"event_type":"audit_start","event_source":"agent","detail":"fresh audit-08 run started; prompt read and m1nd tools/docs excluded by lane constraint"}
+{"event_type":"file_read","event_source":"agent","detail":"read core source modules src/humanize/{number,time,filesize,i18n,lists}.py and matching tests"}
+{"event_type":"test_run","event_source":"agent","detail":"uv run --extra tests pytest -q passed: 685 passed, 69 skipped"}
+{"event_type":"test_run","event_source":"agent","detail":"uv run python focused probes reproduced negative intcomma/ordinal/fractional, clamp equality, metric/naturalsize boundary promotion, infinite time values, huge integer float precheck, and i18n path cache issues"}
+{"event_type":"finding","event_source":"agent","detail":"intcomma does not insert separators for negative numbers because regex only matches leading digits"}
+{"event_type":"finding","event_source":"agent","detail":"fractional loses or duplicates the sign for negative non-integer values"}
+{"event_type":"finding","event_source":"agent","detail":"clamp marks values exactly equal to floor or ceil as under/over despite documented strict bounds"}
+{"event_type":"finding","event_source":"agent","detail":"metric and naturalsize fail to promote rounded boundary outputs such as 1000 k and 1024.0 KiB"}
+{"event_type":"finding","event_source":"agent","detail":"time functions do not catch OverflowError for infinite numeric seconds"}
+{"event_type":"finding","event_source":"agent","detail":"number functions coerce integer-like values through float, breaking huge ints and misclassifying huge integer strings"}
+{"event_type":"finding","event_source":"agent","detail":"i18n activate cache ignores custom path for same locale"}
+{"event_type":"finding","event_source":"agent","detail":"ordinal uses signed modulo for suffix selection, producing -21th/-22th/-23th"}
+{"event_type":"audit_complete","event_source":"agent","detail":"wrote validated result JSON with 9 findings; JSONL validated; repo workspace git status clean"}

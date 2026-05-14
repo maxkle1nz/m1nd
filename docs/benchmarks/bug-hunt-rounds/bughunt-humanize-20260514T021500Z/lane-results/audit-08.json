@@ -1,0 +1,191 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-humanize-20260514T021500Z",
+  "lane_id": "audit-08",
+  "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-humanize-20260514T021500Z/audit-08/humanize",
+  "findings": [
+    {
+      "title": "Negative numbers are not grouped by intcomma",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "intcomma",
+      "cause": "The grouping loop only applies a regex anchored to leading digits, so strings beginning with '-' never match after conversion to '-1234567' or '-1234567.89'.",
+      "impact": "All negative integer and float inputs bypass thousands separators, producing inconsistent public formatting and breaking the Django-compatibility expectation for signed values.",
+      "evidence": [
+        "src/humanize/number.py:164-175 formats orig then applies r'^(\\d+)(\\d{3})', which cannot match a leading sign",
+        "tests/test_number.py covers many positive intcomma cases but no negative value",
+        "focused probe: humanize.intcomma(-1234567.89) returned '-1234567.89'"
+      ],
+      "reproduction_or_test": "Add `assert humanize.intcomma(-1234567.89) == '-1,234,567.89'` and `assert humanize.intcomma('-1234567') == '-1,234,567'` to tests/test_number.py.",
+      "confidence": "high"
+    },
+    {
+      "title": "Negative ordinals choose suffixes from signed modulo",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "ordinal",
+      "cause": "Suffix selection uses `value % 100` and `value % 10` directly on negative integers. Python's modulo maps -21 % 10 to 9, so the sign changes the suffix decision.",
+      "impact": "Negative ordinal values render as '-21th', '-22th', and '-23th' instead of preserving the normal ordinal suffix for the absolute value.",
+      "evidence": [
+        "src/humanize/number.py:105-107 computes ordinal suffixes from the signed value",
+        "tests/test_number.py covers positive ordinals and non-finite values but no negative ordinals",
+        "focused probe: humanize.ordinal(-21), humanize.ordinal(-22), humanize.ordinal(-23) returned '-21th -22th -23th'"
+      ],
+      "reproduction_or_test": "Add parametrized cases expecting `ordinal(-1) == '-1st'`, `ordinal(-2) == '-2nd'`, `ordinal(-3) == '-3rd'`, and teen exceptions like `ordinal(-11) == '-11th'`.",
+      "confidence": "medium"
+    },
+    {
+      "title": "fractional loses or duplicates the sign for negative fractions",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "fractional",
+      "cause": "The function truncates negative floats toward zero, computes a negative Fraction remainder, then either strips the numerator sign when there is no whole number or prints a signed whole part plus a signed numerator.",
+      "impact": "Negative fractional values are not data-preserving: -0.5 becomes '1/2', while -1.5 becomes '-1 -1/2', which is not a normal human-readable mixed fraction.",
+      "evidence": [
+        "src/humanize/number.py:370-382 uses int(number), Fraction(number - whole_number), abs(numerator) only when whole_number is false, and a raw signed numerator for mixed fractions",
+        "tests/test_number.py covers positive and zero-ish fractional values but no negative non-integers",
+        "focused probe: humanize.fractional(-0.5) returned '1/2'; humanize.fractional(-1.5) returned '-1 -1/2'"
+      ],
+      "reproduction_or_test": "Add `assert humanize.fractional(-0.5) == '-1/2'` and `assert humanize.fractional(-1.5) == '-1 1/2'` or the maintainer-approved negative mixed-fraction spelling.",
+      "confidence": "high"
+    },
+    {
+      "title": "clamp labels exact floor and ceil values as under or over",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "clamp",
+      "cause": "The implementation clamps with `value <= floor` and `value >= ceil`, but the docstring says only values smaller than floor or larger than ceil should receive limit tokens, and it includes an equality example that should not be tokenized.",
+      "impact": "Boundary values exactly equal to the configured limits are mislabeled as '<' or '>', which can misstate percentages, thresholds, and public metrics.",
+      "evidence": [
+        "src/humanize/number.py:464-476 documents strict smaller/larger behavior and `clamp(0.99, ceil=0.99) == '99%'`",
+        "src/humanize/number.py:509-514 implements inclusive comparisons",
+        "focused probe: `humanize.clamp(0.99, '{:.0%}', None, 0.99)` returned '>99%' and `humanize.clamp(0.01, '{:.0%}', 0.01, None)` returned '<1%'"
+      ],
+      "reproduction_or_test": "Add tests for exact equality at floor and ceil, including the docstring example `clamp(0.99, format='{:.0%}', ceil=0.99) == '99%'`.",
+      "confidence": "high"
+    },
+    {
+      "title": "metric does not promote values that round to 1000 of a prefix",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "metric",
+      "cause": "The prefix is chosen before formatting, and the function never rechecks whether rounding produced 1000 of the selected unit.",
+      "impact": "Boundary values produce awkward and sometimes scale-confusing output such as '1000 k' and '1000 \\u00b5' instead of promoting to the next larger or smaller SI prefix.",
+      "evidence": [
+        "src/humanize/number.py:570-582 computes exponent/prefix once, then formats without post-rounding promotion",
+        "tests/test_number.py covers ordinary metric prefixes but not values that round across a prefix boundary",
+        "focused probe: humanize.metric(999500) returned '1000 k'; humanize.metric(0.0009999) returned '1000 \\u00b5'"
+      ],
+      "reproduction_or_test": "Add focused metric boundary tests such as `metric(999500)` expecting a promoted mega-unit form and `metric(0.0009999)` expecting a milli-unit form under the chosen precision policy.",
+      "confidence": "medium"
+    },
+    {
+      "title": "naturalsize emits 1000.0 or 1024.0 of the lower suffix after rounding",
+      "severity": "low",
+      "file": "src/humanize/filesize.py",
+      "symbol": "naturalsize",
+      "cause": "The exponent is based on the raw logarithm of the byte count, and the formatted quotient is returned directly even when rounding reaches the next suffix boundary.",
+      "impact": "Human-readable size output can show boundary artifacts like '1000.0 kB' and '1024.0 KiB' instead of promoting to '1.0 MB' or '1.0 MiB', making output less consistent around common thresholds.",
+      "evidence": [
+        "src/humanize/filesize.py:89-102 computes exp once and formats bytes_ / base**exp without post-rounding promotion",
+        "tests/test_filesize.py covers exact powers and ordinary values but not one-unit-below-boundary rounding",
+        "focused probe: humanize.naturalsize(999950) returned '1000.0 kB'; humanize.naturalsize(1024**2 - 1, binary=True) returned '1024.0 KiB'"
+      ],
+      "reproduction_or_test": "Add tests for `naturalsize(999950)` and `naturalsize(1024**2 - 1, binary=True)` documenting whether rounded boundary outputs should promote suffixes.",
+      "confidence": "medium"
+    },
+    {
+      "title": "Infinite numeric seconds raise OverflowError instead of returning unchanged",
+      "severity": "low",
+      "file": "src/humanize/time.py",
+      "symbol": "naturaldelta / naturaltime / precisedelta",
+      "cause": "The numeric conversion paths catch ValueError and TypeError but not OverflowError from `int(float('inf'))`, `round(float('inf'))`, or `datetime.timedelta(seconds=float('inf'))`.",
+      "impact": "The documented fallback for non-convertible numeric inputs is inconsistent: NaN-like values are returned as strings, but infinity crashes the caller.",
+      "evidence": [
+        "src/humanize/time.py:112-119 says values that cannot be converted to int because of inf or nan are returned unchanged, while only truly too-large timedeltas raise OverflowError",
+        "src/humanize/time.py:148-153 catches only ValueError and TypeError in naturaldelta",
+        "src/humanize/time.py:86-91 catches only ValueError and TypeError in _date_and_delta, used by naturaltime and precisedelta",
+        "focused probe: naturaldelta(math.inf), naturaltime(math.inf), and precisedelta(math.inf) all raised OverflowError"
+      ],
+      "reproduction_or_test": "Add non-finite numeric tests for `math.inf`, `-math.inf`, and `math.nan` across naturaldelta, naturaltime, and precisedelta, then decide whether infinity should return 'inf'/'-inf' or a formatted not-finite token.",
+      "confidence": "high"
+    },
+    {
+      "title": "Number helpers coerce arbitrary integer-like inputs through float first",
+      "severity": "medium",
+      "file": "src/humanize/number.py",
+      "symbol": "ordinal / intcomma / intword / apnumber / fractional / scientific / metric",
+      "cause": "Several functions use `float(value)` solely to check finiteness before applying integer or string formatting logic, and most catch only TypeError and ValueError.",
+      "impact": "Arbitrary-precision integers can raise OverflowError before the intended formatting path runs, while very large integer strings can be misclassified as '+Inf'. This violates documented behavior such as ordinal working for any integer or anything `int()` accepts.",
+      "evidence": [
+        "src/humanize/number.py:73-77, 148-160, 232-237, 299-304, 362-367, 431-436, and 568-573 use float-based finite checks",
+        "focused probe: humanize.ordinal(10**400) raised OverflowError: int too large to convert to float",
+        "focused probe: humanize.ordinal('9' * 500) returned '+Inf' even though the string is an integer-like value"
+      ],
+      "reproduction_or_test": "Add large integer tests for at least ordinal, intcomma, and apnumber using `10**400` and `'9' * 500`; avoid float conversion before the int/string path except for actual float inputs.",
+      "confidence": "high"
+    },
+    {
+      "title": "activate ignores a new translation path for an already-cached locale",
+      "severity": "medium",
+      "file": "src/humanize/i18n.py",
+      "symbol": "activate",
+      "cause": "The translation cache is keyed only by locale, so once a locale is loaded from one path, later calls with the same locale and a different explicit path reuse the old translation object.",
+      "impact": "Applications that switch between bundled and custom translation directories, tenant-specific locales, or test fixtures cannot rely on the `path` argument after the first activation for a locale.",
+      "evidence": [
+        "src/humanize/i18n.py:60-95 accepts a path argument but caches only in `_TRANSLATIONS[locale]`",
+        "tests/test_i18n.py exercises default activation paths but not same-locale different-path behavior",
+        "focused probe monkeypatched gettext.translation; activate('xx_XX', '/tmp/locale-a') then activate('xx_XX', '/tmp/locale-b') called translation only for '/tmp/locale-a' and kept returning '/tmp/locale-a:hello'"
+      ],
+      "reproduction_or_test": "Add a test that monkeypatches `gettext.translation`, activates the same fake locale with two different paths, and asserts either a reload or an explicitly documented cache policy.",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,260p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-prompts/audit-08.md",
+    "rg --files",
+    "git status --short",
+    "sed -n ... src/humanize/{number,time,filesize,i18n,lists}.py",
+    "sed -n ... tests/test_{number,time,filesize,i18n,lists}.py",
+    "sed -n '1,260p' pyproject.toml",
+    "uv run --extra tests pytest -q",
+    "uv run python focused reproduction probes for final findings",
+    "nl -ba src/humanize/{number,time,filesize,i18n}.py | sed -n ...",
+    "tail -n 20 /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/event-streams/audit-08.jsonl"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-humanize-20260514T021500Z/lane-prompts/audit-08.md",
+    "pyproject.toml",
+    "src/humanize/__init__.py",
+    "src/humanize/number.py",
+    "src/humanize/time.py",
+    "src/humanize/filesize.py",
+    "src/humanize/i18n.py",
+    "src/humanize/lists.py",
+    "tests/test_number.py",
+    "tests/test_time.py",
+    "tests/test_filesize.py",
+    "tests/test_i18n.py",
+    "tests/test_lists.py",
+    "docs/number.md",
+    "docs/time.md",
+    "docs/filesize.md"
+  ],
+  "tests_run": [
+    {
+      "command": "uv run --extra tests pytest -q",
+      "result": "passed: 685 passed, 69 skipped"
+    },
+    {
+      "command": "uv run python focused reproduction probes for the reported edge cases",
+      "result": "completed; reproduced all reported outputs/exceptions"
+    }
+  ],
+  "m1nd_usage": [
+    "No m1nd MCP tools, m1nd CLI helpers, probe_m1nd.py, graph retrieval, or m1nd docs were used for repository investigation because the lane prompt explicitly prohibited them.",
+    "The local m1nd-first skill file was read before the lane prompt output made the audit-specific prohibition visible; after that, investigation used only local engineering tools."
+  ],
+  "final_notes": "The existing test suite passes, so these findings are uncovered boundary and regression risks rather than current-suite failures. I did not patch source files, commit, push, publish, or read operator-only files. I did not inspect generated .mo translation binaries; i18n findings are based on source behavior and a monkeypatched focused probe.",
+  "agent_testimony": "I treated this as a fresh correctness audit, first orienting on the lane prompt and repo shape, then reading source and tests side by side. The most useful signal came from probing undocumented boundaries that mirror the implementation structure: signed numeric formatting, equality thresholds, suffix promotion after rounding, non-finite numeric inputs, and cache keys. The full suite passing helped identify missing test coverage rather than confirming the edge cases were safe.",
+  "confidence": "high"
+}

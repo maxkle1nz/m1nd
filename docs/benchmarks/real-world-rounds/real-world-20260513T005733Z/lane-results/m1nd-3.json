@@ -1,0 +1,500 @@
+{
+  "schema": "m1nd-real-world-agent-lane-result-v0",
+  "round_id": "real-world-20260513T005733Z",
+  "lane_id": "m1nd-3",
+  "arm": "m1nd_available",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-13T01:04:35Z",
+  "finished_at": "2026-05-13T01:13:28Z",
+  "agent_testimony": "I used repo-local m1nd first via the bundled probe and smoke harness because a direct host-side callable m1nd MCP surface was not exposed in this session. The local m1nd path had full-trust handshake results on /Users/kle1nz/m1nd, then I ingested each isolated fixture repo, oriented with audit/seek/activate, and verified final truth with file reads plus uv/pytest, cargo test, npm test, and git diff/status. I kept all code edits scoped to the isolated lane fixture copies and cleaned investigation artifacts back out of those worktrees.",
+  "task_results": [
+    {
+      "task_id": "repo_architecture_audit",
+      "repo_id": "click-python-cli",
+      "mode": "audit",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/click/__init__.py",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/parser.py",
+        "src/click/formatting.py",
+        "README.md"
+      ],
+      "search_iterations": 4,
+      "tests_or_commands_run": [
+        "probe_m1nd.py tools",
+        "probe_m1nd.py run [ingest,audit] on click-python-cli",
+        "probe_m1nd.py run [ingest,seek,activate] on click-python-cli",
+        "uv run --group tests pytest -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/__init__.py",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/parser.py",
+        "src/click/formatting.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "The repo is structured as a public facade plus a heavy execution core. `src/click/__init__.py` re-exports the public API; `src/click/decorators.py` turns Python callables plus collected parameter metadata into `Command` and `Group` objects; `src/click/core.py` owns `Context`, `Command`, `Group`, parse/invoke/help orchestration, and a large amount of compatibility behavior; `src/click/parser.py` is the legacy low-level token parser; `src/click/formatting.py` renders usage/help output. Proven risk: `src/click/core.py` is a concentration point for parsing, dispatch, help-option generation, deprecation, and chaining. Hypothesis, not reproduced as a live bug outside the known xfail area: parser and formatter behavior can still drift at edge cases because the public API depends on multiple legacy layers interacting.",
+      "evidence": [
+        "Public API surface is re-exported from `src/click/__init__.py`.",
+        "`@click.command` and `@click.group` create `Command`/`Group` objects in `src/click/decorators.py:168-311`.",
+        "`Command` owns parser and help construction in `src/click/core.py:903-1116`.",
+        "`Group` dispatches nested commands and chain mode in `src/click/core.py:1806-2041`.",
+        "Low-level option token handling lives in `src/click/parser.py:45-260`.",
+        "Help rendering is implemented by `HelpFormatter` in `src/click/formatting.py:104-240`."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "feature_location",
+      "repo_id": "p-limit-node",
+      "mode": "localize",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "test.js",
+        "readme.md",
+        "package.json"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,seek,activate] on p-limit-node",
+        "npm install --no-package-lock",
+        "npm test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "readme.md",
+        "scripts/benchmarker.js"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Chosen public behavior: `rejectOnClear` rejects pending promises with an `AbortError` when `clearQueue()` is called. Option normalization happens at the top of `index.js`, and the queue-draining rejection behavior is implemented inside the `clearQueue` property. The protecting test is the explicit AVA case for `clearQueue rejects pending promises when enabled`. I intentionally excluded `readme.md` as documentation-only and `scripts/benchmarker.js` as benchmark-only noise.",
+      "evidence": [
+        "`rejectOnClear` is parsed from the options object in `index.js:3-14`.",
+        "Queued rejection behavior is implemented in `index.js:77-89`.",
+        "Type and docs surface mention the same behavior in `index.d.ts:17-27` and `readme.md:46-57` plus `readme.md:96-105`.",
+        "The protecting test is `test.js:199-215`."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "flow_explanation",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "explain",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "src/metadata.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,seek,activate] on human-panic-rust-cli",
+        "cargo test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "A realistic release-mode flow starts at the public macro `setup_panic!()` in `src/lib.rs`, which expands to the exported function `setup_panic` in `src/panic.rs`. In release mode without `RUST_BACKTRACE`, that function installs a panic hook; when a panic occurs, the hook builds a `Report` from panic info, tries to persist it, and then prints a human-readable message. The side effects are visible in the integration test: stderr contains the human message and a report file is written under the temporary directory.",
+      "evidence": [
+        "`setup_panic!()` expands to `$crate::setup_panic(|| $meta)` in `src/lib.rs:99-105`.",
+        "The hook is installed in `src/panic.rs:9-37`.",
+        "The hook creates a report with `Report::with_panic`, persists it, and prints via `print_msg` in `src/panic.rs:20-37`.",
+        "Report construction and file persistence are implemented in `src/report.rs:60-105`.",
+        "Observable stderr and persisted report assertions are in `tests/single-panic/tests/integration.rs:1-95`."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "repo_id": "click-python-cli",
+      "mode": "diagnose",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/click/core.py",
+        "tests/test_chain.py"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,missing] on click-python-cli",
+        "uv run --group tests python reproducer for chain parent + non-chain subgroup",
+        "uv run --group tests pytest -rxX -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/core.py",
+        "tests/test_chain.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "src/click/parser.py"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Chosen symptom: a `chain=True` top-level CLI rejects a nested non-chain subgroup at definition time, even though the runtime dispatch path can execute that shape. The most likely fault boundary is `_check_nested_chain` in `src/click/core.py`, because the failure happens during `Group.add_command`, before parse/invoke work starts. Alternative theory was that chain-mode runtime dispatch could not safely hand control back to the outer chain after invoking a subgroup, but a temporary no-op of that guard made `CliRunner().invoke(cli, ['l1a', 'l2a', 'l1b'])` succeed. The next verification step was to convert the existing xfail in `tests/test_chain.py` into a real regression test.",
+      "evidence": [
+        "Registration-time failure comes from `_check_nested_chain` via `Group.add_command` in `src/click/core.py:76-93` and `src/click/core.py:1650-1658`.",
+        "The existing known symptom was captured as `@pytest.mark.xfail` in `tests/test_chain.py:221-244` before the fix.",
+        "A monkeypatched reproducer showed the runtime flow itself worked once the guard was removed."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "safe_change_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "test.js",
+        "readme.md"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,seek,activate] on p-limit-node",
+        "npm test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "index.d.ts",
+        "test.js",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Chosen small behavior change: make `limit.clearQueue()` return the number of discarded queued tasks. Edit targets would be `index.js` for the runtime behavior, `index.d.ts` for the public signature, `readme.md` for API docs, and `test.js` for AVA coverage. Downstream proof gates would be the existing `clearQueue` and `clearQueue rejects pending promises when enabled` tests plus `tsd` coverage from `npm test`. Risky assumptions: queued items keep the current `{run, reject}` shape, and callers are not depending on the method returning `undefined`.",
+      "evidence": [
+        "`clearQueue` is currently void-returning in `index.js:77-89` and `index.d.ts:17-27`.",
+        "Public docs promise only side effects in `readme.md:96-105`.",
+        "Current behavior is covered by `test.js:184-215`."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "small_feature_patch",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/metadata.rs"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,validate_plan,surgical_context_v2] on human-panic-rust-cli",
+        "cargo test"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Added a new `Metadata::version(...)` builder method in `src/metadata.rs` and two unit tests that prove non-empty overrides are applied while empty strings preserve the constructor version.",
+      "correct_files": [
+        "src/metadata.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "I chose a tiny API extension consistent with the existing builder style on `Metadata`: callers can now override the version field without replacing `Metadata::new`. The patch stayed in one file and used local unit tests instead of widening into the integration fixtures.",
+      "evidence": [
+        "Builder method added in `src/metadata.rs:37-44`.",
+        "Regression tests added in `src/metadata.rs:74-91`.",
+        "`cargo test` passed after the patch."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "repo_id": "click-python-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/click/core.py",
+        "tests/test_chain.py"
+      ],
+      "search_iterations": 4,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,impact,validate_plan,surgical_context_v2] on click-python-cli",
+        "uv run --group tests python reproducer for `cli l1a l2a l1b`",
+        "uv run --group tests pytest -q tests/test_chain.py",
+        "uv run --group tests pytest -q"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Relaxed `_check_nested_chain` so a chain-enabled parent only rejects nested subgroups that are themselves `chain=True`. Un-xfailed the non-chain nested subgroup scenario and added a regression that nested chain groups still raise.",
+      "correct_files": [
+        "src/click/core.py",
+        "tests/test_chain.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "I treated the repo's lone xfail as the local seeded bug because there was no separate preloaded diff or failing fixture change. Root cause was the guard in `_check_nested_chain`: it rejected all nested groups under a chain parent, even though non-chain subgroups already executed correctly. The patch kept the original protection for nested chain groups, which I verified still raise at registration time.",
+      "evidence": [
+        "Guard relaxed in `src/click/core.py:76-93`.",
+        "Former xfail converted to passing regression in `tests/test_chain.py:221-244`.",
+        "Nested chain groups still rejected by new test `tests/test_chain.py:247-255`.",
+        "Focused check: `uv run --group tests pytest -q tests/test_chain.py` -> `17 passed`.",
+        "Full suite check: `uv run --group tests pytest -q` -> `1495 passed, 24 skipped, 30000 deselected`."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "test.js",
+        "index.d.ts"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,seek,activate] on p-limit-node",
+        "npm test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Chosen bounded refactor: extract queue-item creation and pending-queue draining into small internal helpers inside `index.js` without changing any public API. Hidden coupling to watch first: `enqueue` creates queue items with `{reject, run}` and `clearQueue` depends on that exact shape; `resumeNext`, `next`, and the `concurrency` setter all share invariants around `activeCount` and `queue.size`. Safe ordering: add helper for queue item creation, add helper for draining pending tasks, keep `index.d.ts` untouched unless the API changes, then rerun `npm test`. Rollback/proof boundary is clean because the implementation lives in one exported file.",
+      "evidence": [
+        "Queue item shape is created in `index.js:50-58` and consumed again in `index.js:77-89`.",
+        "Scheduling invariants are shared by `resumeNext`, `next`, and the setter in `index.js:19-30` and `index.js:91-104`.",
+        "Behavioral coverage is centralized in `test.js`, especially around clearQueue and concurrency updates."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "code_review_diff",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "review",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/metadata.rs"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "git diff -- src/metadata.rs",
+        "cargo test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/metadata.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": "missing_seeded_diff",
+      "notes": "No blocking issues found in the reviewed diff for `src/metadata.rs`. I reviewed the concrete local diff from the small feature patch because the repo began with no supplied or pre-seeded diff. Residual risk: proof is unit-level only; there is still no integration snapshot proving an overridden version propagates all the way into a persisted crash report file.",
+      "evidence": [
+        "Reviewed diff: `git diff -- src/metadata.rs`.",
+        "New behavior is scoped to the builder and tests in `src/metadata.rs:37-44` and `src/metadata.rs:74-91`.",
+        "`cargo test` passed after the diff review."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "docs_drift_check",
+      "repo_id": "click-python-cli",
+      "mode": "docs",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "README.md",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/formatting.py",
+        "tests/test_arguments.py"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "probe_m1nd.py run [ingest,seek,activate] on click-python-cli",
+        "uv run --group tests pytest -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "README.md",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/formatting.py",
+        "tests/test_arguments.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "I did not find a material README/code drift in the public claims I checked. README says Click supports arbitrary nesting, automatic help-page generation, and lazy-loading of subcommands at runtime. Arbitrary nesting is supported by the decorator and group machinery and exercised by nested help tests; help generation is implemented by `Command.get_help` plus `HelpFormatter`; lazy subcommand lookup is supported by `Group.get_command`/`list_commands` extension points and `CommandCollection` source lookup. The README is concise, but its claims match the implementation.",
+      "evidence": [
+        "Claim source: `README.md:14-18`.",
+        "Command and group construction are implemented in `src/click/decorators.py:168-311`.",
+        "Help generation flows through `Command.get_help` and related methods in `src/click/core.py:1023-1159` and `HelpFormatter` in `src/click/formatting.py:104-240`.",
+        "Nested command help is covered by `tests/test_arguments.py:514-552`.",
+        "Lazy or delegated subcommand lookup is supported by `Group.get_command`/`list_commands` and `CommandCollection` in `src/click/core.py:1806-2041`."
+      ],
+      "agent_confidence": "high"
+    }
+  ],
+  "parent_normalization": {
+    "reason": "lane used 0-5 score scale while harness requires integer 0-4 scores",
+    "action": "mechanically clamped scores greater than 4 to 4; no notes/evidence/final_state changed",
+    "normalized_score_fields": 31
+  }
+}

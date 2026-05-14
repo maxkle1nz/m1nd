@@ -1,0 +1,251 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-tempo-20260514T145029Z",
+  "lane_id": "audit-01",
+  "instruction_mode": "m1nd-temponizer",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-14T14:50:42.654742+00:00",
+  "finished_at": "2026-05-14T15:15:05.158584+00:00",
+  "findings": [
+    {
+      "title": "limitFunction drops all caller arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper no longer accepts rest arguments and always invokes the wrapped function as `function_()` with no parameters.",
+      "impact": "Any parameterized function wrapped with `limitFunction()` receives `undefined` inputs, breaking the exported helper for common call sites like `urls.map(url => limitedFetchUrl(url))`.",
+      "evidence": [
+        "index.js:121-124 returns `() => limit(() => function_())`.",
+        "index.d.ts:133-136 types the helper as `(...arguments_: Arguments) => Promise<ReturnType>`.",
+        "recipes.md:144-163 documents `const limitedFetchUrl = limitFunction(fetchUrl, {concurrency: 3});` followed by `urls.map(url => limitedFetchUrl(url))`."
+      ],
+      "reproduction_or_test": "Focused Node probe: `const limited = limitFunction(async (...arguments_) => arguments_, {concurrency: 1}); await limited('x', 42)` returned `[]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map stops passing indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "generator.map",
+      "cause": "The mapper now passes `iterableIsArray ? index : undefined`, so `Set`s and iterators lose the documented `index` argument.",
+      "impact": "Users relying on the documented `(value, index)` signature for generic iterables receive `undefined` indexes and can compute wrong results or hit downstream type assumptions.",
+      "evidence": [
+        "index.js:106-113 branches on `Array.isArray(iterable)` before forwarding the second mapper argument.",
+        "readme.md:78-84 and index.d.ts:32-42 promise `Promise.all(Array.from(iterable, (item, index) => limit(mapperFunction, item, index)))` for any iterable.",
+        "test.js:239-254 checks non-array iterables only for values, not for index delivery."
+      ],
+      "reproduction_or_test": "Focused Node probe: `await limit.map(new Set(['a', 'b', 'c']), (value, index) => `${value}:${String(index)}`)` produced `[\"a:undefined\", \"b:undefined\", \"c:undefined\"]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Options-object construction silently enables rejectOnClear by default",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "Object destructuring changed the default to `rejectOnClear = true` when callers pass `{concurrency: ...}`.",
+      "impact": "Code that uses the documented options form without opting into `rejectOnClear` now gets unexpected `AbortError` rejections from `clearQueue()`, which can reject `Promise.all` trees that previously stayed pending unless explicitly opted in.",
+      "evidence": [
+        "index.js:4-8 destructures `rejectOnClear = true`.",
+        "readme.md:46-58 and index.d.ts:101-106 document a default of `false`.",
+        "test.js:257-273 covers `{concurrency: 1}` creation but never exercises `clearQueue()` with the defaulted option."
+      ],
+      "reproduction_or_test": "Focused Node probe: with `const limit = pLimit({concurrency: 1});` and one queued task, `limit.clearQueue()` caused the pending promise to reject with `{name: 'AbortError', message: 'This operation was aborted'}` instead of remaining pending unless the option is explicitly enabled.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "Validation is now guarded by `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`, so falsy invalid values skip the type check entirely.",
+      "impact": "JavaScript callers can silently misconfigure the API with `0`, `''`, or `null`, masking call-site mistakes and diverging from the documented boolean-only contract.",
+      "evidence": [
+        "index.js:10-13 only throws when `rejectOnClear` is both truthy and non-boolean.",
+        "readme.md:48 and index.d.ts:106 declare `rejectOnClear` as a boolean option."
+      ],
+      "reproduction_or_test": "Focused Node probe: `pLimit({concurrency: 1, rejectOnClear: 0})` did not throw.",
+      "confidence": "high"
+    },
+    {
+      "title": "Infinity concurrency is no longer accepted",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "The validator dropped the previous `concurrency === Number.POSITIVE_INFINITY` allowance and now accepts only positive integers.",
+      "impact": "Callers can no longer use `Infinity` to disable throttling while reusing the same limiter API, and both `pLimit(Infinity)` and `pLimit({concurrency: Infinity})` now throw.",
+      "evidence": [
+        "git diff for index.js shows the explicit `concurrency === Number.POSITIVE_INFINITY` branch was removed.",
+        "index.js:127-129 now requires `Number.isInteger(concurrency) && concurrency > 0`.",
+        "test.js:275-302 covers several invalid inputs but does not preserve or assert the prior Infinity behavior."
+      ],
+      "reproduction_or_test": "Focused Node probe: `pLimit(Infinity)` and `pLimit({concurrency: Infinity})` both threw `TypeError: Expected `concurrency` to be a number from 1 and up`.",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    {
+      "cmd": "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-01.md",
+      "purpose": "load lane instructions"
+    },
+    {
+      "cmd": "sed -n '1,220p' /Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+      "purpose": "load m1nd operator workflow"
+    },
+    {
+      "cmd": "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py tools",
+      "purpose": "inspect live m1nd tool surface"
+    },
+    {
+      "cmd": "python3 .../probe_m1nd.py run '[{\"name\":\"trust_selftest\",...},{\"name\":\"session_handshake\",...},{\"name\":\"audit\",...}]'",
+      "purpose": "initial trust selftest/handshake; surfaced needs_ingest and an audit parameter mismatch"
+    },
+    {
+      "cmd": "python3 .../probe_m1nd.py run '[{\"name\":\"ingest\",...},{\"name\":\"session_handshake\",...},{\"name\":\"audit\",...},{\"name\":\"seek\",...},{\"name\":\"activate\",...}]'",
+      "purpose": "ingest the repo, re-establish trust, and orient on queue/concurrency code paths"
+    },
+    {
+      "cmd": "git diff -- index.js index.d.ts test.js package.json",
+      "purpose": "inspect the seeded source delta"
+    },
+    {
+      "cmd": "sed -n '1,240p' index.js",
+      "purpose": "read implementation"
+    },
+    {
+      "cmd": "sed -n '1,420p' test.js",
+      "purpose": "read runtime coverage"
+    },
+    {
+      "cmd": "sed -n '1,220p' index.d.ts",
+      "purpose": "read exported type contract"
+    },
+    {
+      "cmd": "rg -n \"Infinity|rejectOnClear|limitFunction|map\\(|index\" readme.md recipes.md index.d.ts test.js",
+      "purpose": "locate docs, types, and tests for impacted APIs"
+    },
+    {
+      "cmd": "nl -ba readme.md | sed -n '40,135p'",
+      "purpose": "capture README contract lines"
+    },
+    {
+      "cmd": "nl -ba recipes.md | sed -n '140,170p'",
+      "purpose": "capture the public `limitFunction()` usage example"
+    },
+    {
+      "cmd": "python3 .../probe_m1nd.py call help '{\"agent_id\":\"audit-01\",\"tool_name\":\"impact\"}'",
+      "purpose": "confirm impact call shape before a blast-radius pass"
+    },
+    {
+      "cmd": "python3 .../probe_m1nd.py run '[{\"name\":\"ingest\",...},{\"name\":\"impact\",...},{\"name\":\"impact\",...}]'",
+      "purpose": "check m1nd blast-radius proof around `limitFunction` and `validateConcurrency`"
+    },
+    {
+      "cmd": "node --input-type=module <<'EOF' ... EOF",
+      "purpose": "run focused runtime probes for rejectOnClear defaults, rejectOnClear validation, iterable indexes, limitFunction arguments, and Infinity concurrency"
+    }
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-01.md",
+    "/Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/round.json",
+    "index.js",
+    "index.d.ts",
+    "test.js",
+    "package.json",
+    "readme.md",
+    "recipes.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/event-streams/audit-01.jsonl",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-results/audit-01.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "trust_selftest",
+      "phase": "IO",
+      "te_seconds": 0.086,
+      "result": "needs_ingest",
+      "notes": "Tool surface was complete; no wrong_workspace_binding; recovery path instructed an ingest on the same binding."
+    },
+    {
+      "tool": "session_handshake",
+      "phase": "IO",
+      "te_seconds": 0.086,
+      "result": "needs_ingest",
+      "notes": "Workspace binding matched the repo; the graph was simply cold."
+    },
+    {
+      "tool": "ingest",
+      "phase": "IO",
+      "te_seconds": 0.588,
+      "result": "success",
+      "notes": "Used the official `probe_m1nd.py` helper because direct `m1nd` tool handles were not surfaced by `tool_search` in this host."
+    },
+    {
+      "tool": "session_handshake",
+      "phase": "IO",
+      "te_seconds": 0.588,
+      "result": "full_trust",
+      "notes": "Post-ingest handshake reported 82 nodes, 94 edges, and `full_trust`."
+    },
+    {
+      "tool": "audit",
+      "phase": "GEN",
+      "te_seconds": 0.588,
+      "result": "repo orientation",
+      "notes": "Useful for inventory, but noisy external references from m1nd sidecars meant final truth still came from direct source reads and runtime probes."
+    },
+    {
+      "tool": "seek",
+      "phase": "GEN",
+      "te_seconds": 0.588,
+      "result": "pointed to `validateConcurrency`, `enqueue`, and related queue logic",
+      "notes": "Query: `where concurrency limit and queue scheduling are implemented`."
+    },
+    {
+      "tool": "activate",
+      "phase": "GEN",
+      "te_seconds": 0.588,
+      "result": "centered the investigation on `index.js` public API transitions",
+      "notes": "Returned some unrelated cargo-module noise, treated as orientation only."
+    },
+    {
+      "tool": "help(impact), help(view)",
+      "phase": "GEN",
+      "result": "confirmed exact call shapes",
+      "notes": "Used before the optional blast-radius pass."
+    },
+    {
+      "tool": "impact",
+      "phase": "DBG",
+      "result": "empty blast radius for `limitFunction` and `validateConcurrency`",
+      "notes": "Because the graph was not especially rich for this tiny package, direct docs/tests and runtime probes carried the proof."
+    }
+  ],
+  "temponizer_usage": [
+    {
+      "phase": "IO",
+      "te_seconds": 0.086,
+      "loop": "trust_selftest + session_handshake",
+      "note": "Short binding check before trusting any empty retrieval."
+    },
+    {
+      "phase": "IO",
+      "te_seconds": 0.588,
+      "loop": "ingest + session_handshake + audit/seek/activate",
+      "note": "Kept ingest and retrieval on the same measured runtime instead of spreading state across long manual steps."
+    },
+    {
+      "phase": "DBG",
+      "te_seconds": 0.128,
+      "loop": "combined Node runtime probe",
+      "note": "One focused behavior probe covered all seeded branches without paying for a full `npm test` run."
+    }
+  ],
+  "agent_testimony": "I treated this as a production-minded dependency audit, used m1nd to establish trust and orient on the package, then verified every suspicious branch with direct source reads and one compact Node probe. I found five concrete behavioral regressions in `index.js`: the default `rejectOnClear` flip, a falsy-value validation bypass, missing iterable indexes in `map`, lost arguments in `limitFunction`, and removed `Infinity` concurrency support. I did not patch source files or inspect operator-only artifacts.",
+  "notes": "Fallback reason: `tool_search` did not expose direct `m1nd` MCP handles in this host, so I used the official `/Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py` helper. I did not run full `npm test`; the lane prompt explicitly allowed focused runtime probes, and the combined Node probe was enough to prove each defect. A broad schema-discovery `rg` over the round directory surfaced sibling-lane metadata lines before I narrowed the search, but I did not open other lane result files. Artifact writes from this lane were `/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-results/audit-01.json` and `/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/event-streams/audit-01.jsonl`; the m1nd ingest helper also materialized workspace-local sidecars (`graph_snapshot.json`, `ingest_roots.json`, `plasticity_state.json`) during orientation.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-tempo-20260514T145029Z",
+  "lane_id": "audit-06",
+  "instruction_mode": "direct",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-14T14:50:42.655797+00:00",
+  "finished_at": "2026-05-14T15:14:56Z",
+  "findings": [
+    {
+      "title": "Options-object form enables `rejectOnClear` by default",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit(options)",
+      "cause": "The options destructuring at `index.js:6-7` uses `rejectOnClear = true`, so omitting the property flips the documented default from `false` to `true` whenever callers use `pLimit({concurrency: ...})`.",
+      "impact": "Code that migrates from `pLimit(1)` to `pLimit({concurrency: 1})` changes `clearQueue()` semantics from silent discard to `AbortError` rejection. Awaited queues can start failing unexpectedly, and callers that do not handle the rejection can surface unhandled rejections.",
+      "evidence": "Implementation: `index.js:4-8` initializes `rejectOnClear` to `false` but overwrites it with a destructuring default of `true`. Public contract: `readme.md:46-58` and `index.d.ts:99-106` both say the default is `false`. Coverage gap: `test.js:257-272` exercises the options-object form without asserting `clearQueue()` behavior.",
+      "reproduction_or_test": "From the repo root: `node --input-type=module -e \"import pLimit from './index.js'; import {setTimeout as delay} from 'node:timers/promises'; const limit = pLimit({concurrency: 1}); const running = limit(() => delay(50)); const pending = limit(() => 'done'); await Promise.resolve(); limit.clearQueue(); try { await pending; console.log('pending resolved'); } catch (error) { console.log('pending rejected:', error.name); } await running;\"` prints `pending rejected: AbortError`.",
+      "confidence": "high"
+    },
+    {
+      "title": "`limitFunction()` drops all call arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The wrapper returned by `limitFunction()` is `() => limit(() => function_())`, so it never forwards the caller's arguments to either the limiter or the wrapped function.",
+      "impact": "Any parameterized function wrapped with `limitFunction()` receives `undefined` for every argument, which produces incorrect results or incorrect side effects while the type signature still promises argument preservation.",
+      "evidence": "Implementation: `index.js:121-124` discards `...arguments_`. Public contract: `index.d.ts:133-136` says the returned function has the same `(...arguments_: Arguments)` signature, and `readme.md:111-155` documents `limitFunction(fn, options)` as a general wrapper. Coverage gap: `test.js:343-356` only tests a zero-argument function, so the regression is not exercised.",
+      "reproduction_or_test": "From the repo root: `node --input-type=module -e \"import {limitFunction} from './index.js'; const limited = limitFunction(async value => value * 2, {concurrency: 1}); console.log('limitFunction result:', await limited(21));\"` prints `limitFunction result: NaN`.",
+      "confidence": "high"
+    },
+    {
+      "title": "`limit.map()` suppresses indices for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "LimitFunction.map",
+      "cause": "The mapper uses `Array.isArray(iterable)` and passes `undefined` instead of `index` whenever the iterable is a `Set`, iterator, or any other non-array iterable.",
+      "impact": "Consumers that rely on the documented `(value, index)` signature get `undefined` indices for valid iterable inputs, so batching logic, key generation, and ordering logic based on the index breaks even though the API claims parity with `Array.from(iterable, (item, index) => ...)`.",
+      "evidence": "Implementation: `index.js:106-112` computes `iterableIsArray` and substitutes `undefined` for non-arrays. Public contract: `readme.md:78-85` and `index.d.ts:30-43` both say the mapper receives the item value and its index for any iterable. Coverage gap: `test.js:239-255` checks `Set` and iterator inputs only for values, not for index propagation.",
+      "reproduction_or_test": "From the repo root: `node --input-type=module -e \"import pLimit from './index.js'; const limit = pLimit(2); console.log('set indices:', await limit.map(new Set(['a','b','c']), async (_value, index) => index)); console.log('iter indices:', await limit.map(['x','y','z'].values(), async (_value, index) => index));\"` prints `set indices: [ undefined, undefined, undefined ]` and `iter indices: [ undefined, undefined, undefined ]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean `rejectOnClear` values bypass validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit(options)",
+      "cause": "The type check is guarded by `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`, so falsy non-boolean values such as `0`, `''`, and `null` skip validation entirely.",
+      "impact": "JavaScript callers with misconfigured option values silently get `false` behavior instead of the documented type error, which hides configuration mistakes and weakens the new options API contract.",
+      "evidence": "Implementation: `index.js:12-14` only rejects truthy non-booleans. Public contract: `readme.md:46-52` and `index.d.ts:99-106` define `rejectOnClear` as a boolean option. Existing type coverage only checks a truthy invalid value: `index.test-d.ts:23-24` uses `'nope'`, so falsy invalid inputs are untested.",
+      "reproduction_or_test": "From the repo root: `node --input-type=module -e \"import pLimit from './index.js'; for (const value of [0, '', null]) { try { pLimit({concurrency: 1, rejectOnClear: value}); console.log('accepted', JSON.stringify(value)); } catch (error) { console.log('rejected', JSON.stringify(value), error.message); } }\"` prints `accepted 0`, `accepted \"\"`, and `accepted null`.",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-06.md",
+    "rg --files /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-result-template.json",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.js",
+    "sed -n '1,260p' /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/test.js",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.d.ts",
+    "sed -n '261,520p' /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/test.js",
+    "sed -n '1,260p' /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/readme.md",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/package.json",
+    "sed -n '1,240p' /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.test-d.ts",
+    "node --input-type=module -e <limitFunction and limit.map behavior probe>",
+    "nl -ba /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.js | sed -n '1,220p'",
+    "nl -ba /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/test.js | sed -n '1,360p'",
+    "node --input-type=module -e <clearQueue default behavior probe>",
+    "node --input-type=module -e <rejectOnClear falsy validation probe>",
+    "nl -ba /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/readme.md | sed -n '1,220p'",
+    "nl -ba /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.d.ts | sed -n '1,240p'",
+    "ls -l /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-results/audit-06.json /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/event-streams/audit-06.jsonl",
+    "sed -n '1,120p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-results/audit-06.json",
+    "sed -n '1,120p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/event-streams/audit-06.jsonl",
+    "date -u +\"%Y-%m-%dT%H:%M:%SZ\"",
+    "node --input-type=module -e <result JSON parse validation>",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-results/audit-06.json",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/event-streams/audit-06.jsonl",
+    "date -u +\"%Y-%m-%dT%H:%M:%SZ\""
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-prompts/audit-06.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-tempo-20260514T145029Z/audit-06/p-limit/package.json",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/lane-results/audit-06.json",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-tempo-20260514T145029Z/event-streams/audit-06.jsonl"
+  ],
+  "m1nd_usage": [],
+  "temponizer_usage": [],
+  "agent_testimony": "I used direct local repo inspection plus focused `node --input-type=module` probes and found four concrete contract/behavior mismatches: three user-visible API defects and one low-severity validation gap. I did not patch source files or read operator-only artifacts.",
+  "notes": "Full `npm test` was not run; the lane instructions preferred targeted local behavior probes, which were sufficient to reproduce each reported issue. The written result JSON was parsed successfully after the write.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

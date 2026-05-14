@@ -1,0 +1,94 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-compact-20260514T161105Z",
+  "lane_id": "audit-06",
+  "instruction_mode": "direct",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-14T16:11:45Z",
+  "finished_at": "2026-05-14T16:16:17Z",
+  "findings": [
+    {
+      "title": "limit.map drops the mapper index for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "limit.map",
+      "cause": "The map implementation special-cases arrays and passes undefined instead of the Array.from index for every non-array iterable: this(function_, value, iterableIsArray ? index : undefined).",
+      "impact": "Set, Map, generator, and iterator inputs violate the documented API and TypeScript signature, which say the mapper receives a numeric index and that map is equivalent to Array.from(iterable, (item, index) => limit(mapperFunction, item, index)). Callers that key output, report progress, batch by index, or preserve positional metadata get undefined instead.",
+      "evidence": "index.js:107-113 computes iterableIsArray and substitutes undefined for index on non-arrays. readme.md:78-85 and index.d.ts:40-43 document mapperFunction(input, index: number) for any Iterable<Input>. The existing tests cover Set and array iterator inputs but only assert values, not the index.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; console.log(await pLimit(2).map(new Set(['a','b','c']), (_value, index) => index));\" prints [ undefined, undefined, undefined ] (JSON probe showed [null,null,null]) instead of [0,1,2].",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction ignores arguments passed to the limited wrapper",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "limitFunction returns () => limit(() => function_()), so the wrapper never captures or forwards its own arguments to function_.",
+      "impact": "The named export is unusable for the documented reusable limited-function use case whenever the wrapped function needs inputs. The README recipe urls.map(url => limitedFetchUrl(url)), the TypeScript declaration (...arguments_: Arguments) => Promise<ReturnType>, and benchmark coverage with limitedTask(delay, i) all imply argument forwarding, but runtime calls the wrapped function with no arguments.",
+      "evidence": "index.js:121-125 returns a zero-argument function and invokes function_() with no spread. index.d.ts:133-136 declares the returned function as accepting the original Arguments. recipes.md's reusable limited function example calls limitedFetchUrl(url). benchmark.js's limitFunction scenario calls limitedTask(delay, i).",
+      "reproduction_or_test": "node --input-type=module -e \"import {limitFunction} from './index.js'; let seen; const limited = limitFunction(async value => { seen = value; return value; }, {concurrency: 1}); console.log(await limited(42), seen);\" prints undefined undefined instead of 42 42.",
+      "confidence": "high"
+    },
+    {
+      "title": "Options object silently changes rejectOnClear default to true",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit options destructuring",
+      "cause": "When pLimit receives an object, destructuring uses rejectOnClear = true even though the top-level default is false and the public docs/types state Default: false.",
+      "impact": "pLimit({concurrency: 1}) has different clearQueue semantics than pLimit(1): pending promises reject with AbortError instead of remaining unsettled/discarded by default. This can break existing users who adopt the options object only to configure concurrency and are not handling AbortError from queued calls.",
+      "evidence": "index.js:4 initializes rejectOnClear to false, but index.js:6-8 destructures {concurrency, rejectOnClear = true}. readme.md:46-52 and index.d.ts:99-106 state rejectOnClear is boolean with Default: false. test.js:249-264 verifies pLimit({concurrency: 1}) but does not exercise clearQueue on that path.",
+      "reproduction_or_test": "node --input-type=module probe: const limit = pLimit({concurrency: 1}); const running = limit(() => new Promise(r => setTimeout(r, 30))); const pending = limit(() => 'pending-result'); await Promise.resolve(); limit.clearQueue(); await Promise.race([pending.then(v => ['resolved', v], e => ['rejected', e.name]), timeout]); The observed outcome was [\"rejected\",\"AbortError\"], while the documented default false path should leave the pending promise unsettled after the queue is cleared.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit option validation",
+      "cause": "Validation checks if (rejectOnClear && typeof rejectOnClear !== 'boolean'), so only truthy non-boolean values throw.",
+      "impact": "Invalid API inputs such as rejectOnClear: 0, '', or null are accepted despite the documented boolean contract and tsd test intent. This can hide configuration bugs and makes runtime validation weaker than the TypeScript surface.",
+      "evidence": "index.js:12-14 gates the typeof check on truthiness. readme.md:46-49 documents Type: boolean. index.d.ts:99-106 declares readonly rejectOnClear?: boolean. index.test-d.ts asserts pLimit({concurrency: 1, rejectOnClear: 'nope'}) is a type error, but runtime only catches truthy non-booleans.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; try { pLimit({concurrency: 1, rejectOnClear: 0}); console.log('accepted'); } catch (error) { console.log('rejected'); }\" prints accepted.",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' lane-prompts/audit-06.md",
+    "rg --files",
+    "sed -n '1,220p' lane-result-template.json",
+    "sed -n '1,260p' index.js",
+    "sed -n '1,320p' test.js",
+    "sed -n '1,280p' readme.md",
+    "sed -n '1,240p' package.json && sed -n '1,240p' index.d.ts && sed -n '1,220p' index.test-d.ts",
+    "sed -n '240,520p' test.js",
+    "npm test",
+    "nl -ba index.js/readme.md/index.d.ts excerpts",
+    "node --input-type=module import smoke test",
+    "node --input-type=module focused behavioral probe for map indexes, limitFunction args, clearQueue default, rejectOnClear validation",
+    "sed -n '1,260p' recipes.md",
+    "sed -n '1,220p' benchmark.js",
+    "sed -n '1,220p' scripts/benchmarker.js"
+  ],
+  "files_inspected": [
+    "index.js",
+    "test.js",
+    "readme.md",
+    "index.d.ts",
+    "index.test-d.ts",
+    "package.json",
+    "recipes.md",
+    "benchmark.js",
+    "scripts/benchmarker.js",
+    "lane-result-template.json",
+    "lane-prompts/audit-06.md"
+  ],
+  "m1nd_usage": [],
+  "temponizer_usage": [],
+  "agent_testimony": "I performed a direct-mode local audit only, did not use m1nd or helper scripts, did not inspect operator-only artifacts or other lanes, and did not patch repo source.",
+  "notes": "npm test could not complete because the workspace lacks the dev command xo (sh: xo: command not found). Direct Node ESM import of ./index.js succeeded, so focused runtime probes were run against the actual implementation.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

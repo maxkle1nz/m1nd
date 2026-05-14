@@ -1,0 +1,13 @@
+diff --git a/src/panic.rs b/src/panic.rs
+--- a/src/panic.rs
++++ b/src/panic.rs
+@@
+-    if let Some(homepage) = homepage {
+-        writeln!(buffer, "- Homepage: {homepage}")?;
+-    } else if let Some(repository) = repository {
++    if let Some(homepage) = homepage {
++        writeln!(buffer, "- Homepage: {homepage}")?;
++    }
++    if let Some(repository) = repository {
+         writeln!(buffer, "- Repository: {repository}")?;
+     }

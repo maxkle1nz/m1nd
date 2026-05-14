@@ -1,0 +1,289 @@
+{
+  "schema": "m1nd-real-world-agent-round-v0",
+  "round_id": "real-world-20260513T005733Z",
+  "created_at": "2026-05-13T01:04:21.132054+00:00",
+  "status": "planned",
+  "fixture_repos": [
+    {
+      "repo_id": "click-python-cli",
+      "url": "https://github.com/pallets/click.git",
+      "ecosystem": "python",
+      "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli"
+    },
+    {
+      "repo_id": "p-limit-node",
+      "url": "https://github.com/sindresorhus/p-limit.git",
+      "ecosystem": "typescript",
+      "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node"
+    },
+    {
+      "repo_id": "human-panic-rust-cli",
+      "url": "https://github.com/rust-cli/human-panic.git",
+      "ecosystem": "rust",
+      "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli"
+    }
+  ],
+  "lane_workspace_root": ".m1nd-benchmark-fixtures/real-world-lanes/real-world-20260513T005733Z",
+  "task_count": 10,
+  "task_matrix": [
+    {
+      "task": {
+        "task_id": "repo_architecture_audit",
+        "mode": "audit",
+        "title": "Architecture audit",
+        "prompt": "Explain the repo architecture, main modules, entrypoints, data/control flow, and top risks.",
+        "expected_evidence": [
+          "main entrypoints named",
+          "module boundaries named",
+          "at least two real file references",
+          "risk list separates proven facts from hypotheses"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli"
+      }
+    },
+    {
+      "task": {
+        "task_id": "feature_location",
+        "mode": "localize",
+        "title": "Feature localization",
+        "prompt": "Find where a named feature or public behavior is implemented and identify the tests that protect it.",
+        "expected_evidence": [
+          "implementation file named",
+          "test file named or missing test stated",
+          "false-positive files avoided"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "p-limit-node",
+        "url": "https://github.com/sindresorhus/p-limit.git",
+        "ecosystem": "typescript",
+        "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node"
+      }
+    },
+    {
+      "task": {
+        "task_id": "flow_explanation",
+        "mode": "explain",
+        "title": "End-to-end flow explanation",
+        "prompt": "Explain a realistic request/command/API flow from public entrypoint to internal behavior.",
+        "expected_evidence": [
+          "entrypoint named",
+          "intermediate calls named",
+          "observable output or side effect named"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "human-panic-rust-cli",
+        "url": "https://github.com/rust-cli/human-panic.git",
+        "ecosystem": "rust",
+        "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli"
+      }
+    },
+    {
+      "task": {
+        "task_id": "bug_symptom_triage",
+        "mode": "diagnose",
+        "title": "Bug symptom triage",
+        "prompt": "Given a realistic symptom, isolate the most likely fault boundary and name the next verification step.",
+        "expected_evidence": [
+          "most likely fault file or function named",
+          "alternative theory preserved or rejected",
+          "next command/test/file named"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli"
+      }
+    },
+    {
+      "task": {
+        "task_id": "safe_change_plan",
+        "mode": "plan",
+        "title": "Safe change plan",
+        "prompt": "Plan a small behavior change, including blast radius, files to edit, and proof gates.",
+        "expected_evidence": [
+          "edit targets named",
+          "downstream callers or tests named",
+          "risky assumptions explicit"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "p-limit-node",
+        "url": "https://github.com/sindresorhus/p-limit.git",
+        "ecosystem": "typescript",
+        "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node"
+      }
+    },
+    {
+      "task": {
+        "task_id": "small_feature_patch",
+        "mode": "patch",
+        "title": "Small feature patch",
+        "prompt": "Implement a tiny feature or option consistent with local style and run focused checks.",
+        "expected_evidence": [
+          "minimal patch",
+          "test or example updated when appropriate",
+          "focused check result recorded"
+        ],
+        "requires_code_change": true
+      },
+      "repo": {
+        "repo_id": "human-panic-rust-cli",
+        "url": "https://github.com/rust-cli/human-panic.git",
+        "ecosystem": "rust",
+        "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli"
+      }
+    },
+    {
+      "task": {
+        "task_id": "seeded_bug_fix",
+        "mode": "patch",
+        "title": "Seeded bug fix",
+        "prompt": "Fix a seeded or clearly described bug without broad refactors.",
+        "expected_evidence": [
+          "root cause named",
+          "patch is scoped",
+          "regression proof recorded"
+        ],
+        "requires_code_change": true
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli"
+      }
+    },
+    {
+      "task": {
+        "task_id": "bounded_refactor_plan",
+        "mode": "plan",
+        "title": "Bounded refactor plan",
+        "prompt": "Prepare a bounded refactor and identify hidden coupling before any edit.",
+        "expected_evidence": [
+          "coupled files named",
+          "safe ordering proposed",
+          "rollback or proof boundary named"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "p-limit-node",
+        "url": "https://github.com/sindresorhus/p-limit.git",
+        "ecosystem": "typescript",
+        "why": "small TypeScript utility with compact source, tests, package metadata, and public API docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node"
+      }
+    },
+    {
+      "task": {
+        "task_id": "code_review_diff",
+        "mode": "review",
+        "title": "Code review of a diff",
+        "prompt": "Review a supplied or seeded diff for real bugs, regressions, and missing tests.",
+        "expected_evidence": [
+          "findings ordered by severity",
+          "file/line references when available",
+          "style-only comments avoided"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "human-panic-rust-cli",
+        "url": "https://github.com/rust-cli/human-panic.git",
+        "ecosystem": "rust",
+        "why": "Rust library/CLI-adjacent crate with examples, feature flags, tests, and public docs",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli"
+      }
+    },
+    {
+      "task": {
+        "task_id": "docs_drift_check",
+        "mode": "docs",
+        "title": "Docs/spec drift check",
+        "prompt": "Compare README/docs claims against implementation and identify drift or missing documentation.",
+        "expected_evidence": [
+          "claim source named",
+          "code truth named",
+          "drift or no-drift conclusion justified"
+        ],
+        "requires_code_change": false
+      },
+      "repo": {
+        "repo_id": "click-python-cli",
+        "url": "https://github.com/pallets/click.git",
+        "ecosystem": "python",
+        "why": "mature Python CLI library with docs, tests, commands, options, and parser internals",
+        "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli"
+      }
+    }
+  ],
+  "lanes": [
+    {
+      "lane_id": "m1nd-1",
+      "arm": "m1nd_available"
+    },
+    {
+      "lane_id": "m1nd-2",
+      "arm": "m1nd_available"
+    },
+    {
+      "lane_id": "m1nd-3",
+      "arm": "m1nd_available"
+    },
+    {
+      "lane_id": "control-1",
+      "arm": "no_m1nd"
+    },
+    {
+      "lane_id": "control-2",
+      "arm": "no_m1nd"
+    },
+    {
+      "lane_id": "control-3",
+      "arm": "no_m1nd"
+    },
+    {
+      "lane_id": "judge-1",
+      "arm": "adjudication"
+    }
+  ],
+  "success_criteria": [
+    "correct files or modules identified with evidence",
+    "causal explanation matches actual code paths",
+    "missing tests and missing proof are named honestly",
+    "patch tasks stay minimal and are verified with focused checks",
+    "control and m1nd lanes use comparable repo snapshots"
+  ],
+  "non_claims": [
+    "one real-world round is not a public performance claim",
+    "benchmark repos are fixtures, not proof of universal repo performance",
+    "m1nd does not replace tests, compiler output, git history, rg, or direct file truth",
+    "agent testimony is not evidence without scored task artifacts",
+    "warm-graph and cold-graph results must be reported separately",
+    "a correct plan is not the same evidence as a correct patch"
+  ]
+}

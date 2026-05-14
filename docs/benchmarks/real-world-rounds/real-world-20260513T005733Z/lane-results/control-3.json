@@ -1,0 +1,507 @@
+{
+  "schema": "m1nd-real-world-agent-lane-result-v0",
+  "round_id": "real-world-20260513T005733Z",
+  "lane_id": "control-3",
+  "arm": "no_m1nd",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-13T01:04:30Z",
+  "finished_at": "2026-05-13T01:13:57Z",
+  "agent_testimony": "Did not use m1nd. The prompt only specified task modes, not concrete payloads, so I grounded each task in real public behavior inside the isolated control-3 fixture repos, patched only the control-3 Click and human-panic copies, and left per-task timing fields null because I did not instrument them precisely.",
+  "task_results": [
+    {
+      "task_id": "repo_architecture_audit",
+      "repo_id": "click-python-cli",
+      "mode": "audit",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "pyproject.toml",
+        "src/click/__init__.py",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "search_iterations": 5,
+      "tests_or_commands_run": [
+        "uv run pytest -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/__init__.py",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Architecture is centered on a public re-export layer, decorator-based command construction, a large core runtime, and a lower-level argv parser. Proven risks: core.py is the blast-radius center for command lifecycle changes, parser.py is still wired into core despite being deprecated, and chained-group behavior has an explicit unsupported nested-group guard. Hypothesis: platform-specific stream and terminal behavior remains a likely change-risk area because it is split across multiple compatibility modules.",
+      "evidence": [
+        "src/click/__init__.py:10-74 re-exports the public API surface from core, decorators, termui, types, and utils.",
+        "src/click/decorators.py:168-240 turns Python callables plus collected __click_params__ into Command objects.",
+        "src/click/core.py:903-1018 defines Command as the main runtime unit; src/click/core.py:1366-1448 shows Command.main() building context and dispatching invoke().",
+        "src/click/parser.py:241-314 builds the low-level option parser that core uses to parse argv into values, leftovers, and declaration order.",
+        "pyproject.toml:1-75 shows the package boundary and test surface; uv run pytest -q passed 1493 tests before patch work."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "feature_location",
+      "repo_id": "p-limit-node",
+      "mode": "localize",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "test.js",
+        "readme.md",
+        "recipes.md",
+        "index.d.ts"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "npm install",
+        "npm test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "benchmark.js"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Named behavior localized: runtime concurrency changes through limit.concurrency. The implementation is the generator property setter in index.js, and the protection tests are the two change-concurrency AVA cases.",
+      "evidence": [
+        "index.js:91-104 implements the public concurrency getter/setter and drains queued work via queueMicrotask().",
+        "test.js:305-340 protects both shrinking and growing concurrency with observable running-count logs.",
+        "readme.md:107-109 documents limit.concurrency as a get/set public API; recipes.md:116-140 shows runtime adjustment in a real usage pattern.",
+        "benchmark.js mentions dynamic concurrency scenarios, but it is only a benchmark consumer, not the implementation or the protecting test surface.",
+        "npm test passed 21 tests; the only extra output was an xo warning about a TODO comment in scripts/benchmarker.js."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "flow_explanation",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "explain",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "search_iterations": 4,
+      "tests_or_commands_run": [
+        "cargo test -q --release"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Realistic flow: an application calls setup_panic!() near main(). In release/human mode, the crate installs a panic hook, builds a Report when panic fires, persists it unless CI is set, and prints a human-facing stderr message. In debug or when RUST_BACKTRACE is set, it leaves the standard panic style in place instead.",
+      "evidence": [
+        "src/lib.rs:64-71 metadata!() builds default Metadata from Cargo env vars, and src/lib.rs:99-106 setup_panic!() forwards it into the runtime hook installer.",
+        "src/panic.rs:15-40 chooses PanicStyle, captures Metadata once, and installs a panic::set_hook closure that creates a Report, optionally persists it, then calls print_msg().",
+        "src/report.rs:68-110 extracts panic payload/location, serializes the report, and writes report-<uuid>.toml into the temp dir.",
+        "tests/single-panic/tests/integration.rs:12-28 asserts the release-mode stderr message and tests/single-panic/tests/integration.rs:30-61 verifies that a report file is actually created and contains the expected fields.",
+        "tests/single-panic/tests/integration.rs:123-147 shows the CI branch: raw TOML is printed to stderr, no report file is written, then the human-facing message follows."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "repo_id": "click-python-cli",
+      "mode": "diagnose",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/click/types.py",
+        "tests/test_types.py",
+        "docs/parameter-types.md"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "uv run python3 - <<'PY' ... click.Option(['--name'], type=Parser()) ... PY",
+        "uv run pytest -q tests/test_types.py -k func_param_type"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/types.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "src/click/core.py"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Chosen symptom: defining an option with a callable-instance converter crashes at command construction time with AttributeError on __name__. The most likely fault boundary is FuncParamType.__init__ in types.py, which assumes every callable has __name__. Alternative theory that the decorator or core command path is at fault is weaker because the failure happens before any parsing or invocation, during type wrapping.",
+      "evidence": [
+        "src/click/types.py:185-188 is the boundary where Click wraps plain callables into FuncParamType and derives the display name from the callable object.",
+        "A direct repro before the fix was: click.Option(['--name'], type=Parser()) -> AttributeError: 'Parser' object has no attribute '__name__'.",
+        "src/click/core.py was only the public entry path; the crash reproduced even when constructing click.Option directly, which ruled out parser/invocation code as the primary fault boundary.",
+        "The next verification step was a public-path regression test using @click.option(type=Prefixer()) and runner.invoke(...); that exact test now lives at tests/test_types.py:73-85 and passes."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "safe_change_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "readme.md",
+        "recipes.md",
+        "test.js"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "npm test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "index.d.ts",
+        "test.js",
+        "readme.md",
+        "recipes.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "benchmark.js"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Concrete change planned: make clearQueue() return the number of discarded queued tasks. Edit targets would be index.js for runtime behavior, index.d.ts for the public return type, test.js for clearQueue expectations, and readme/recipes for shutdown examples. Blast radius is moderate because JavaScript callers ignoring the return value remain source-compatible, but TypeScript consumers would see an API signature change. Proof gates: AVA clearQueue tests, tsd type assertions, and docs snippets describing graceful shutdown.",
+      "evidence": [
+        "index.js:77-89 owns the clearQueue() behavior for both silent discard and rejectOnClear mode.",
+        "index.d.ts:17-27 currently types clearQueue as () => void, so any return-value change is a public TS surface edit.",
+        "test.js:184-214 already provides the right behavior-focused proof boundary for silent and rejecting queue clears.",
+        "readme.md:96-105 and recipes.md:76-113 document clearQueue() for graceful shutdown, so downstream docs would need to be kept aligned."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "small_feature_patch",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "search_iterations": 4,
+      "tests_or_commands_run": [
+        "cargo test -q --release",
+        "git diff --check"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Extended the human-facing crash message to print a distinct repository URL when repository metadata differs from homepage, and updated the custom-panic release fixture to prove the new line.",
+      "correct_files": [
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "I kept the feature narrow: homepage still prints first, repository only prints when it adds new information, which avoids duplicate Homepage/Repository lines for metadata!() cases where both URLs are the same.",
+      "evidence": [
+        "src/lib.rs:67-70 shows repository metadata already exists in the default metadata!() path; the feature only needed to surface it in the message layer.",
+        "src/panic.rs:126-133 now prints homepage unconditionally when present and prints repository only when homepage.as_ref() != Some(repository).",
+        "tests/custom-panic/src/main.rs:5-10 now provides both homepage and repository metadata in a realistic override path.",
+        "tests/custom-panic/tests/integration.rs:7-24 asserts the new release-mode stderr output, including the repository line.",
+        "cargo test -q --release passed after the patch, and git diff --check reported no whitespace or patch hygiene issues."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "repo_id": "click-python-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/click/types.py",
+        "tests/test_types.py",
+        "docs/parameter-types.md"
+      ],
+      "search_iterations": 5,
+      "tests_or_commands_run": [
+        "uv run pytest -q tests/test_types.py -k func_param_type",
+        "uv run pytest -q tests/test_types.py",
+        "uv run python3 - <<'PY' ... Prefixer + CliRunner invoke ... PY",
+        "git diff --check"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Fixed FuncParamType so callable-instance converters no longer crash on missing __name__, by falling back to the callable class name; added a public CLI regression test using @click.option(type=Prefixer()).",
+      "correct_files": [
+        "src/click/types.py",
+        "tests/test_types.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "src/click/core.py"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Root cause was narrow and user-visible: Click already accepts simple converters via convert_type(), but FuncParamType assumed function-style metadata. That made callable objects fail during option construction before any parse or invoke path could run.",
+      "evidence": [
+        "src/click/types.py:185-188 now derives FuncParamType.name with getattr(func, \"__name__\", func.__class__.__name__), which covers both plain functions and callable instances.",
+        "tests/test_types.py:73-85 adds a regression test that exercises the public decorator path instead of only constructing FuncParamType directly.",
+        "uv run pytest -q tests/test_types.py -k func_param_type passed 3 tests, and uv run pytest -q tests/test_types.py passed 42 tests with 1 skip.",
+        "The direct runtime repro after the patch succeeded: CliRunner invoking a command with type=Prefixer() returned exit 0, output x-hello, exception None.",
+        "git diff --check on the Click worktree returned clean."
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "readme.md"
+      ],
+      "search_iterations": 4,
+      "tests_or_commands_run": [
+        "npm test"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "index.d.ts",
+        "readme.md"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Bounded refactor target: extract queue-draining/scheduling into an internal helper without touching the public API. Hidden coupling sits between resumeNext(), next(), enqueue(), clearQueue(), and the concurrency setter because they all mutate activeCount and assume the queue stores objects with run/reject callbacks. Safe ordering: add helper with no externally visible changes, route enqueue() through it, then route the concurrency setter loop through it, running npm test after each step. Rollback boundary is simple because no types/docs/API need to move in the first phase.",
+      "evidence": [
+        "index.js:19-30 couples activeCount bookkeeping with dequeuing and next-step scheduling.",
+        "index.js:50-63 and index.js:91-104 each start queue draining from different entry points, which is the duplication worth extracting.",
+        "index.js:77-89 uses the same queued item shape for clearQueue() in rejectOnClear mode, so helper extraction must preserve that contract.",
+        "test.js:184-214, 305-340, and 343-356 are the real proof boundary because they cover clearQueue, dynamic concurrency, and limitFunction behavior.",
+        "index.d.ts and readme.md should stay untouched in phase one because this refactor should not change the public API."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "code_review_diff",
+      "repo_id": "human-panic-rust-cli",
+      "mode": "review",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 3,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 3
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 1,
+      "files_opened": [
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "git diff -- src/panic.rs tests/custom-panic/src/main.rs tests/custom-panic/tests/integration.rs",
+        "git diff --check",
+        "cargo test -q --release"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/panic.rs",
+        "tests/custom-panic/src/main.rs",
+        "tests/custom-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Reviewed the local small-feature diff after landing it. No correctness findings remained in the final diff. The only plausible regression risk was duplicate homepage/repository output when the two URLs match, and the final implementation explicitly guards against that while the release fixture covers the distinct-URL case.",
+      "evidence": [
+        "The behavior change is fully localized to src/panic.rs:126-133 plus fixture-only test updates in tests/custom-panic/src/main.rs:5-10 and tests/custom-panic/tests/integration.rs:7-24.",
+        "git diff --check returned clean, which ruled out patch-format problems.",
+        "cargo test -q --release passed after the diff, so the review had runtime proof for the touched path.",
+        "Because the diff was scoped and covered, I recorded no findings rather than inventing style-only comments."
+      ],
+      "agent_confidence": "medium"
+    },
+    {
+      "task_id": "docs_drift_check",
+      "repo_id": "click-python-cli",
+      "mode": "docs",
+      "final_state": "success",
+      "scores": {
+        "orientation": 3,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": null,
+      "time_to_full_proof_ms": null,
+      "false_start_count": 0,
+      "files_opened": [
+        "docs/parameter-types.md",
+        "src/click/types.py",
+        "tests/test_types.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "uv run pytest -q tests/test_types.py -k func_param_type"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "docs/parameter-types.md",
+        "src/click/types.py",
+        "tests/test_types.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "README.md"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "I found a documentation gap rather than a contradiction. docs/parameter-types.md still frames simple converters as a Python function case, while the implementation now also supports callable objects after the bug fix. The docs are not false, but they are narrower than the current behavior and could mislead users into thinking callable instances are unsupported.",
+      "evidence": [
+        "docs/parameter-types.md:158-160 says simple converters can be passed as a Python function that raises ValueError.",
+        "src/click/types.py:185-188 now accepts any callable that convert_type routes into FuncParamType, including callable instances with no __name__.",
+        "tests/test_types.py:73-85 is executable proof that a callable object works through the public @click.option(type=...) path.",
+        "That makes this a missing-documentation conclusion, not a code/docs contradiction."
+      ],
+      "agent_confidence": "high"
+    }
+  ]
+}

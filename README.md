@@ -28,6 +28,7 @@
   <a href="#capability-map">Capability Map</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#agent-pack-install">Agent Pack</a> &middot;
+  <a href="#the-trained-agent-loop">Trained Loop</a> &middot;
   <a href="#try-the-agent-demo">Agent Demo</a> &middot;
   <a href="#default-agent-workflow">Default Agent Workflow</a> &middot;
   <a href="#evidence">Evidence</a> &middot;
@@ -346,6 +347,30 @@ The Windows support boundary is the universal MCP lane: `m1nd-core`,
 `m1nd-ingest`, and `m1nd-mcp`. The `m1nd-openclaw` fast path remains a Unix
 socket lane today.
 
+## The Trained Agent Loop
+
+The agent pack is not decorative documentation. It is part of the product.
+
+Internal bug-hunt rounds showed the important distinction: `m1nd` is strongest
+when the agent receives the operating loop, not merely a graph endpoint. In the
+accepted `humanize` seeded-defect round, `m1nd-trained` lanes found `16/20`
+seeded defects while `m1nd-basic` and direct lanes each found `8/15`. That is
+internal product evidence, not a universal public benchmark claim.
+
+The trained loop that ships in the pack is:
+
+1. establish trust with `trust_selftest`, or `session_handshake` scoped to the intended repo
+2. follow `recovery_playbook` before interpreting blocked or empty retrieval
+3. treat `wrong_workspace_binding` as a scope/binding problem, not stale graph truth
+4. orient with `audit`, then use `search`, `seek`, or `activate` for focused discovery
+5. read runtime envelopes before trusting empty results
+6. verify final truth with source files, tests, compiler/runtime output, and focused probes
+7. use `impact`, `validate_plan`, and `surgical_context_v2` before risky edits or reviews
+8. record tool calls, recovery paths, files inspected, commands run, and fallback reasons
+
+This loop is included in `m1nd-first`, `m1nd-operator`, and the universal
+agent pack for non-Codex hosts.
+
 ## Try The Agent Demo
 
 The fastest way to see the agent-first loop is to run the local demo transcript:
@@ -412,6 +437,7 @@ Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world
 | `activate` on 1K nodes | **1.36 µs** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | `impact` depth=3 | **543 ns** ([benchmarks](https://m1nd.world/wiki/benchmarks.html)) |
 | Post-write validation sample | **12/12** classified correctly |
+| Internal seeded bug-hunt signal | `m1nd-trained` found `16/20` seeded defects in the first accepted `humanize` round; `public_claim_worthy=false` until repeated across more fixtures |
 
 ## Why m1nd Over Alternatives
 

@@ -1,0 +1,336 @@
+{
+  "schema": "m1nd-agent-reliability-lane-result-v0",
+  "round_id": "round-20260513T003013Z",
+  "lane_id": "m1nd-3",
+  "arm": "m1nd_available",
+  "repo": "/Users/kle1nz/m1nd",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-13T00:30:13Z",
+  "finished_at": "2026-05-13T00:33:11Z",
+  "agent_testimony": "Used m1nd first via trust_selftest/session_handshake/seek/recovery_playbook/surgical_context_v2/validate_plan, then verified with files and read-only smoke/status commands.",
+  "task_results": [
+    {
+      "task_id": "multi_repo_orientation",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 3,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 440,
+      "time_to_full_proof_ms": 2962,
+      "false_start_count": 1,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/scripts/benchmark/agent_reliability_round.py",
+        "/Users/kle1nz/m1nd/docs/benchmarks/agent-rounds/round-20260513T003013Z/round.json"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [],
+      "recovery_followed": false,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "m1nd full_trust and seek oriented directly to benchmark harness and round files.",
+      "evidence": [
+        "trust_selftest full_trust node_count >5000",
+        "harness schema and task battery found"
+      ],
+      "requires_live_proof": false,
+      "evidence_origin": [
+        "m1nd_probe",
+        "direct_files"
+      ],
+      "proof_mode": "live",
+      "live_state_verified": true,
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "wrong_workspace_binding",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 531,
+      "time_to_full_proof_ms": 531,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/session.rs",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/tools.rs",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/server.rs",
+        "/Users/kle1nz/m1nd/docs/MCP-HOST-REFRESH.md"
+      ],
+      "search_iterations": 1,
+      "recovery_events": [
+        {
+          "type": "wrong_workspace_binding"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": true,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "session_handshake with non-m1nd scope returned wrong_workspace_binding; route recorded without mutation.",
+      "evidence": [
+        "context_guard wrong_workspace_binding=true",
+        "M1ND_WORKSPACE_ROOT fix suggested"
+      ],
+      "requires_live_proof": true,
+      "evidence_origin": [
+        "m1nd_probe",
+        "direct_files"
+      ],
+      "proof_mode": "live",
+      "live_state_verified": true,
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "transport_closed_recovery",
+      "final_state": "partial",
+      "scores": {
+        "orientation": 3,
+        "recovery": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 3
+      },
+      "time_to_good_context_ms": 448,
+      "time_to_full_proof_ms": 448,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/docs/MCP-HOST-REFRESH.md",
+        "/Users/kle1nz/m1nd/scripts/mcp_agent_smoke.py"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [
+        {
+          "type": "missing_live_transport_failure"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": "missing_live_transport_failure",
+      "notes": "Live stdio smoke succeeded, so no actual Transport closed recovery was exercised.",
+      "evidence": [
+        "docs say relaunch binding first",
+        "stdio/http smokes full_trust"
+      ],
+      "requires_live_proof": true,
+      "evidence_origin": [
+        "m1nd_probe",
+        "direct_files"
+      ],
+      "proof_mode": "route_only",
+      "live_state_verified": false,
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "stale_runtime_route",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 1000,
+      "time_to_full_proof_ms": 1000,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/npm/lib/cli.js",
+        "/Users/kle1nz/m1nd/docs/MCP-HOST-REFRESH.md"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [
+        {
+          "type": "runtime_status_checked"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "hosts/update status checked package/runtime/PATH and found no stale runtime; host rebind remains unproven.",
+      "evidence": [
+        "hosts status current",
+        "update status current",
+        "host_rebind_proven=false"
+      ],
+      "requires_live_proof": true,
+      "evidence_origin": [
+        "m1nd_probe",
+        "direct_files"
+      ],
+      "proof_mode": "live",
+      "live_state_verified": true,
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "structural_edit_prep",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 1,
+      "time_to_full_proof_ms": 1000,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/scripts/benchmark/agent_reliability_round.py",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/layer_handlers.rs"
+      ],
+      "search_iterations": 2,
+      "recovery_events": [
+        {
+          "type": "structural_edit_prep"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "m1nd surgical_context_v2 and validate_plan identified harness target and proof gates.",
+      "evidence": [
+        "surgical_context_v2 ready_to_edit",
+        "validate_plan resolved action risk_score 0.34"
+      ],
+      "requires_live_proof": false,
+      "evidence_origin": [
+        "m1nd_probe",
+        "direct_files"
+      ],
+      "proof_mode": "live",
+      "live_state_verified": true,
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "root_cause_triage",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 111,
+      "time_to_full_proof_ms": 1000,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/session.rs",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/tools.rs",
+        "/Users/kle1nz/m1nd/m1nd-mcp/src/server.rs"
+      ],
+      "search_iterations": 3,
+      "recovery_events": [
+        {
+          "type": "blocked_zero_candidates"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Blocked zero-candidate search produced recovery payload; recovery_playbook classified stale_binding_suspected.",
+      "evidence": [
+        "search proof_state blocked",
+        "recovery_playbook next_action call_doctor",
+        "stdio/http smokes compared"
+      ],
+      "requires_live_proof": false,
+      "evidence_origin": [
+        "m1nd_probe",
+        "direct_files"
+      ],
+      "proof_mode": "mixed",
+      "live_state_verified": true,
+      "raw_event_evidence": []
+    },
+    {
+      "task_id": "continuity_resume",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "recovery": 3,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 15,
+      "time_to_full_proof_ms": 1000,
+      "false_start_count": 0,
+      "files_opened": [
+        "/Users/kle1nz/m1nd/docs/benchmarks/scenarios/continuity_boot_memory.json",
+        "/Users/kle1nz/m1nd/docs/benchmarks/runs/continuity-boot-memory.m1nd_warm.json"
+      ],
+      "search_iterations": 1,
+      "recovery_events": [
+        {
+          "type": "continuity_resume"
+        }
+      ],
+      "recovery_followed": true,
+      "wrong_workspace_detected": false,
+      "wrong_workspace_recovered": false,
+      "transport_failure_detected": false,
+      "transport_failure_recovered": false,
+      "stale_path_detected": false,
+      "stale_path_recovered": false,
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "m1nd seek continuity routed to continuity scenario and trail_resume code, avoiding broad rediscovery.",
+      "evidence": [
+        "continuity_boot_memory top result",
+        "warm run records trail_resume then view"
+      ],
+      "requires_live_proof": true,
+      "evidence_origin": [
+        "m1nd_probe",
+        "direct_files"
+      ],
+      "proof_mode": "mixed",
+      "live_state_verified": true,
+      "raw_event_evidence": []
+    }
+  ]
+}

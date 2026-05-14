@@ -1,0 +1,230 @@
+{
+  "schema": "m1nd-real-world-agent-answer-key-v0",
+  "round_id": "real-world-v2-20260513T231822Z",
+  "generated_at": "2026-05-13T23:18:27.908222+00:00",
+  "fixture_repos": [
+    {
+      "repo_id": "click-python-cli",
+      "ecosystem": "python",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/click-python-cli",
+      "fixture_present": true,
+      "lock_commit": "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1",
+      "revision": {
+        "fixture_present": true,
+        "head_commit": "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1",
+        "head_commit_short": "fc6c7c47edd6"
+      }
+    },
+    {
+      "repo_id": "p-limit-node",
+      "ecosystem": "typescript",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/p-limit-node",
+      "fixture_present": true,
+      "lock_commit": "9f52583119f0cb0d85c6fec600c94a21fd89d060",
+      "revision": {
+        "fixture_present": true,
+        "head_commit": "9f52583119f0cb0d85c6fec600c94a21fd89d060",
+        "head_commit_short": "9f52583119f0"
+      }
+    },
+    {
+      "repo_id": "human-panic-rust-cli",
+      "ecosystem": "rust",
+      "local_path": ".m1nd-benchmark-fixtures/real-world/human-panic-rust-cli",
+      "fixture_present": true,
+      "lock_commit": "f2530e9357e1c2fd089d75ffaf4561f96c9a0f43",
+      "revision": {
+        "fixture_present": true,
+        "head_commit": "f2530e9357e1c2fd089d75ffaf4561f96c9a0f43",
+        "head_commit_short": "f2530e9357e1"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "repo_architecture_audit",
+      "repo_id": "click-python-cli",
+      "payload_id": "click-architecture-v1",
+      "answer_key": {
+        "expected_files": [
+          "src/click/__init__.py",
+          "src/click/decorators.py",
+          "src/click/core.py",
+          "src/click/parser.py",
+          "src/click/testing.py"
+        ],
+        "expected_points": [
+          "Click's public surface is re-exported from src/click/__init__.py.",
+          "Decorators assemble commands and parameters before core invocation.",
+          "testing.py owns CliRunner and IO isolation risks."
+        ]
+      }
+    },
+    {
+      "task_id": "feature_location",
+      "repo_id": "p-limit-node",
+      "payload_id": "p-limit-clear-queue-reject-on-clear-v1",
+      "answer_key": {
+        "expected_files": [
+          "index.js",
+          "index.d.ts",
+          "test.js",
+          "readme.md"
+        ],
+        "expected_points": [
+          "clearQueue lives on the returned generator function.",
+          "rejectOnClear rejects queued pending promises while preserving running tasks.",
+          "Types/docs/tests all need mention for behavior changes."
+        ]
+      }
+    },
+    {
+      "task_id": "flow_explanation",
+      "repo_id": "human-panic-rust-cli",
+      "payload_id": "human-panic-release-panic-flow-v1",
+      "answer_key": {
+        "expected_files": [
+          "src/lib.rs",
+          "src/panic.rs",
+          "src/report.rs"
+        ],
+        "expected_points": [
+          "setup_panic! installs a panic hook.",
+          "panic.rs formats the user-facing message and report path.",
+          "report.rs is the report serialization/writing boundary."
+        ]
+      }
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "repo_id": "click-python-cli",
+      "payload_id": "click-callable-instance-type-triage-v1",
+      "answer_key": {
+        "expected_files": [
+          "src/click/types.py"
+        ],
+        "expected_symbols": [
+          "FuncParamType.__init__"
+        ],
+        "expected_points": [
+          "The constructor assumes func.__name__ exists.",
+          "The fault happens before parsing, during type construction/registration."
+        ]
+      }
+    },
+    {
+      "task_id": "safe_change_plan",
+      "repo_id": "p-limit-node",
+      "payload_id": "p-limit-clear-queue-return-count-plan-v1",
+      "answer_key": {
+        "expected_files": [
+          "index.js",
+          "index.d.ts",
+          "test.js",
+          "readme.md"
+        ],
+        "expected_points": [
+          "Return queued size from clearQueue before clearing.",
+          "Keep active/running promises untouched.",
+          "Cover rejectOnClear true and false."
+        ]
+      }
+    },
+    {
+      "task_id": "small_feature_patch",
+      "repo_id": "human-panic-rust-cli",
+      "payload_id": "human-panic-metadata-name-version-builders-v1",
+      "answer_key": {
+        "expected_files": [
+          "src/metadata.rs"
+        ],
+        "expected_symbols": [
+          "Metadata::name",
+          "Metadata::version"
+        ],
+        "expected_points": [
+          "Mirror existing builder style.",
+          "Preserve non-empty guard.",
+          "Add focused tests near metadata builder tests."
+        ]
+      }
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "repo_id": "click-python-cli",
+      "payload_id": "click-seeded-callable-instance-type-fix-v1",
+      "answer_key": {
+        "expected_files": [
+          "src/click/types.py",
+          "tests/test_m1nd_seeded_callable_type.py"
+        ],
+        "expected_symbols": [
+          "FuncParamType.__init__"
+        ],
+        "expected_points": [
+          "Use a fallback name for callable instances without __name__.",
+          "Seeded test must pass after the patch."
+        ]
+      }
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "repo_id": "p-limit-node",
+      "payload_id": "p-limit-queue-scheduling-refactor-plan-v1",
+      "answer_key": {
+        "expected_files": [
+          "index.js",
+          "test.js"
+        ],
+        "expected_symbols": [
+          "resumeNext",
+          "next",
+          "enqueue",
+          "clearQueue",
+          "concurrency"
+        ],
+        "expected_points": [
+          "Refactor must not alter queue scheduling semantics.",
+          "Concurrency setter and clearQueue are coupled to scheduling state."
+        ]
+      }
+    },
+    {
+      "task_id": "code_review_diff",
+      "repo_id": "human-panic-rust-cli",
+      "payload_id": "human-panic-review-diff-v1",
+      "answer_key": {
+        "expected_files": [
+          "src/panic.rs"
+        ],
+        "expected_points": [
+          "The diff makes support output noisier by printing repository even when homepage exists.",
+          "If homepage and repository duplicate the same URL, output can become redundant.",
+          "Needs a focused regression test around support lines."
+        ]
+      }
+    },
+    {
+      "task_id": "docs_drift_check",
+      "repo_id": "click-python-cli",
+      "payload_id": "click-lazy-loading-docs-drift-v1",
+      "answer_key": {
+        "expected_files": [
+          "README.md",
+          "docs/index.rst",
+          "docs/complex.rst",
+          "src/click/core.py"
+        ],
+        "expected_points": [
+          "The high-level claim is true only with the documented LazyGroup/subclass pattern.",
+          "Built-in Group is not itself a magic lazy loader for arbitrary subcommands.",
+          "The correct conclusion should preserve nuance rather than call the docs simply false."
+        ]
+      }
+    }
+  ],
+  "non_claims": [
+    "operator-only/answer-key.json is for parent and adjudicator use, not for primary benchmark lanes",
+    "the answer key does not replace direct proof from fixture files and tests"
+  ]
+}

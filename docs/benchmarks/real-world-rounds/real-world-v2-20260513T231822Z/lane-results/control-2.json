@@ -1,0 +1,649 @@
+{
+  "schema": "m1nd-real-world-agent-lane-result-v0",
+  "round_id": "real-world-v2-20260513T231822Z",
+  "lane_id": "control-2",
+  "arm": "no_m1nd",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-13T23:18:40+00:00",
+  "finished_at": "2026-05-13T23:27:55.634480+00:00",
+  "event_log_path": "event-streams/control-2.jsonl",
+  "agent_testimony": "Worked entirely with direct file reads, rg, git diff, uv, and cargo as required by the no_m1nd lane. I had one harmless shell false start while mapping files and one missing-host-pytest detour before switching to uv. Only the Click and human-panic patch tasks have live proof from focused test runs; p-limit audit/plan answers remain static-file conclusions.",
+  "adjudications": [],
+  "task_results": [
+    {
+      "task_id": "repo_architecture_audit",
+      "task_payload_id": "click-architecture-v1",
+      "task_payload": {
+        "focus": "Audit Click's public export layer, decorators, command core, parser, and testing harness.",
+        "must_cover": [
+          "public API re-exports",
+          "command and group invocation path",
+          "parameter/type conversion",
+          "test runner IO isolation"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "audit",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 55000,
+      "time_to_full_proof_ms": 92000,
+      "false_start_count": 1,
+      "files_opened": [
+        "src/click/__init__.py",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/parser.py",
+        "src/click/types.py",
+        "src/click/testing.py",
+        "docs/complex.md"
+      ],
+      "search_iterations": 3,
+      "tests_or_commands_run": [
+        "rg --files click-python-cli",
+        "rg -n '__name__|convert_type|FuncParamType|lazy|CliRunner|def main|def invoke' click-python-cli",
+        "nl -ba src/click/{__init__.py,decorators.py,core.py,parser.py,types.py,testing.py} and docs/complex.md"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/__init__.py",
+        "src/click/decorators.py",
+        "src/click/core.py",
+        "src/click/parser.py",
+        "src/click/types.py",
+        "src/click/testing.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Proven facts: click.__init__ is the public export layer, command/group decorators turn callables into Command/Group objects, Command.main -> make_context -> parse_args -> invoke is the top-level control path, Group.invoke resolves subcommands through get_command/resolve_command, and CliRunner isolation mutates global stdio/env state and is explicitly single-threaded. Proven risks: CliRunner global-state mutation and the docs warning that lazy loading can trigger circular-import bugs. Hypothesis: callable-type inference is a brittle seam because unknown callables always route through convert_type/FuncParamType.",
+      "evidence": [
+        "src/click/__init__.py:10-75 re-exports core, decorators, termui, types, and utils; __getattr__ handles deprecated names at 77-124.",
+        "src/click/decorators.py:217-249 builds Command objects from decorated callables after collecting __click_params__.",
+        "src/click/core.py:1210-1298 and 1366-1445 show make_context -> parse_args -> invoke inside Command.main.",
+        "src/click/core.py:1806-1959 shows Group.get_command, Group.invoke, and resolve_command for subcommand dispatch.",
+        "src/click/testing.py:261-345 and 525-636 show IO/environment isolation and CliRunner.invoke plumbing."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L5"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "feature_location",
+      "task_payload_id": "p-limit-clear-queue-reject-on-clear-v1",
+      "task_payload": {
+        "feature": "The rejectOnClear and clearQueue behavior for pending tasks.",
+        "must_find": [
+          "runtime implementation",
+          "type definition",
+          "test coverage",
+          "README/API docs"
+        ]
+      },
+      "repo_id": "p-limit-node",
+      "mode": "localize",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 72000,
+      "time_to_full_proof_ms": 72000,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "test.js",
+        "readme.md",
+        "recipes.md"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "rg -n 'rejectOnClear|clearQueue|resumeNext|next|enqueue|concurrency' p-limit-node",
+        "nl -ba index.js index.d.ts index.test-d.ts test.js readme.md recipes.md"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "test.js",
+        "readme.md",
+        "recipes.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "The clearQueue/rejectOnClear behavior is fully localized: runtime in index.js, public type/docs in index.d.ts and readme.md, tsd coverage in index.test-d.ts, AVA behavior coverage in test.js, and extra shutdown guidance in recipes.md.",
+      "evidence": [
+        "index.js:77-89 implements clearQueue and the rejectOnClear AbortError branch.",
+        "index.d.ts:17-27 and 99-106 document clearQueue plus rejectOnClear and currently type clearQueue as () => void.",
+        "index.test-d.ts:5 and 21-29 assert the rejectOnClear option type and clearQueue return type.",
+        "test.js:184-214 covers default clearQueue and rejectOnClear rejection behavior.",
+        "readme.md:46-52, 96-105, and 149-155 document rejectOnClear and clearQueue semantics; recipes.md:76-103 adds shutdown guidance."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L6"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "flow_explanation",
+      "task_payload_id": "human-panic-release-panic-flow-v1",
+      "task_payload": {
+        "flow": "Explain what happens when setup_panic!() is installed and a release-mode panic occurs.",
+        "must_cover": [
+          "public macro or setup entrypoint",
+          "panic hook behavior",
+          "report writing path",
+          "observable user-facing output"
+        ]
+      },
+      "repo_id": "human-panic-rust-cli",
+      "mode": "explain",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 92000,
+      "time_to_full_proof_ms": 92000,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs",
+        "README.md"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "rg -n 'setup_panic|set_hook|persist|print_msg|Metadata|homepage|repository' human-panic-rust-cli",
+        "nl -ba src/lib.rs src/panic.rs src/report.rs tests/single-panic/tests/integration.rs"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/lib.rs",
+        "src/panic.rs",
+        "src/report.rs",
+        "tests/single-panic/tests/integration.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "setup_panic!() expands to setup_panic(|| metadata), setup_panic() installs a panic hook only in PanicStyle::Human, the hook builds Report::with_panic, persists report-NNN.toml under env::temp_dir() when not in CI, and then prints the human message to stderr. In CI, persistence is skipped and the serialized TOML report is emitted to stderr before the user-facing message.",
+      "evidence": [
+        "src/lib.rs:65-71 and 99-106 define metadata! and setup_panic! macro entrypoints.",
+        "src/panic.rs:15-38 selects Human mode in release without RUST_BACKTRACE and installs the panic hook.",
+        "src/report.rs:68-110 extracts panic payload/location and writes report-<uuid>.toml under env::temp_dir().",
+        "src/panic.rs:96-145 formats the observable stderr message, including homepage/repository, authors, support, and privacy note.",
+        "tests/single-panic/tests/integration.rs:12-27 asserts the release-mode human-facing stderr output."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L7"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bug_symptom_triage",
+      "task_payload_id": "click-callable-instance-type-triage-v1",
+      "task_payload": {
+        "symptom": "A callable instance used as a custom Click option type crashes during command construction with AttributeError because the object has no __name__ attribute.",
+        "must_answer": [
+          "most likely fault boundary",
+          "why it is not a parser/runtime invocation issue",
+          "next focused regression test"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "diagnose",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 55000,
+      "time_to_full_proof_ms": 195000,
+      "false_start_count": 1,
+      "files_opened": [
+        "src/click/types.py",
+        "src/click/core.py",
+        "tests/test_m1nd_seeded_callable_type.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "rg -n '__name__|convert_type|FuncParamType' click-python-cli",
+        "uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "src/click/types.py",
+        "src/click/core.py",
+        "tests/test_m1nd_seeded_callable_type.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [
+        "src/click/parser.py"
+      ],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Most likely fault boundary: FuncParamType.__init__ in src/click/types.py. It is reached from Parameter.__init__ via types.convert_type while the option object is being constructed, so this is not a parser or runtime invocation failure. The next focused verification step is the seeded regression test tests/test_m1nd_seeded_callable_type.py::test_callable_instance_type_has_stable_name.",
+      "evidence": [
+        "src/click/core.py:2179-2183 converts the option type during Parameter construction, before any parser invocation.",
+        "src/click/types.py:185-193 showed the unconditional func.__name__ read before the fix.",
+        "uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q reproduced AttributeError from FuncParamType during decorator/Option construction."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L5",
+        "event-streams/control-2.jsonl#L10"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "safe_change_plan",
+      "task_payload_id": "p-limit-clear-queue-return-count-plan-v1",
+      "task_payload": {
+        "change_request": "Plan a backwards-compatible change so clearQueue() returns the number of pending tasks it discarded or rejected, without touching already running tasks.",
+        "must_cover": [
+          "runtime edit target",
+          "types/docs/test targets",
+          "rejectOnClear behavior",
+          "no change to activeCount semantics"
+        ]
+      },
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 72000,
+      "time_to_full_proof_ms": 274000,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "test.js",
+        "readme.md",
+        "recipes.md"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "rg -n 'rejectOnClear|clearQueue|resumeNext|next|enqueue|concurrency' p-limit-node"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "test.js",
+        "readme.md",
+        "recipes.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Runtime edit target is index.js clearQueue: capture queue.size before clearing or rejecting, return that count from both branches, and leave activeCount untouched. Types/docs/tests target index.d.ts, index.test-d.ts, test.js, readme.md, and recipes.md. Proof gates: clearQueue tests must show returned counts in both modes, tsd must change from void to number, and activeCount/pendingCount tests must remain unchanged. Risky assumption: return count should mean the number of pending tasks discarded or rejected, not the number still active.",
+      "evidence": [
+        "index.js:77-89 is the only runtime branch that can count discarded/rejected pending tasks.",
+        "index.d.ts:27 and index.test-d.ts:21-22 would both need a void -> number signature update.",
+        "test.js:184-214 already exercises both clearQueue modes and can be extended without touching running-task semantics.",
+        "readme.md:96-105 and recipes.md:78-103 would need docs updates because the API surface would now return a count."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L6",
+        "event-streams/control-2.jsonl#L15"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "small_feature_patch",
+      "task_payload_id": "human-panic-metadata-name-version-builders-v1",
+      "task_payload": {
+        "change_request": "Add Metadata::name(...) and Metadata::version(...) builder methods that preserve the existing non-empty string guard style.",
+        "must_cover": [
+          "minimal implementation",
+          "focused unit tests",
+          "no public panic/report behavior rewrite"
+        ]
+      },
+      "repo_id": "human-panic-rust-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 92000,
+      "time_to_full_proof_ms": 258000,
+      "false_start_count": 0,
+      "files_opened": [
+        "src/metadata.rs"
+      ],
+      "search_iterations": 1,
+      "tests_or_commands_run": [
+        "cargo test --lib metadata -- --nocapture",
+        "cargo test --lib metadata_ -- --nocapture"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "Added Metadata::name(...) and Metadata::version(...) builder methods that reuse the existing non-empty-string guard style, plus two focused unit tests in metadata.rs.",
+      "correct_files": [
+        "src/metadata.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "The patch stayed entirely inside metadata.rs and did not rewrite panic hook, report persistence, or human-facing output code.",
+      "evidence": [
+        "src/metadata.rs:28-44 now defines the new name/version builder methods with the same empty-string guard used by authors/homepage/repository/support.",
+        "src/metadata.rs:83-104 adds two unit tests that prove empty strings do not overwrite existing values, while non-empty strings do.",
+        "cargo test --lib metadata_ -- --nocapture passed 2 focused builder tests after the patch."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L8",
+        "event-streams/control-2.jsonl#L11",
+        "event-streams/control-2.jsonl#L13"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "seeded_bug_fix",
+      "task_payload_id": "click-seeded-callable-instance-type-fix-v1",
+      "task_payload": {
+        "seeded_artifact_id": "click-callable-instance-type-test-v1",
+        "bug": "The lane workspace contains a seeded regression test proving callable instances should work as custom option types.",
+        "must_cover": [
+          "root cause",
+          "minimal fix",
+          "seeded regression test result"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "patch",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 3,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 55000,
+      "time_to_full_proof_ms": 245000,
+      "false_start_count": 1,
+      "files_opened": [
+        "src/click/types.py",
+        "tests/test_m1nd_seeded_callable_type.py",
+        "tests/test_types.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "PYTHONPATH=src python3 -m pytest tests/test_m1nd_seeded_callable_type.py -q",
+        "uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q",
+        "uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py tests/test_types.py -q"
+      ],
+      "code_changed": true,
+      "requires_code_change": true,
+      "patch_summary": "FuncParamType now falls back to type(func).__name__ when the callable object lacks __name__, so callable instances can be used as custom option types.",
+      "correct_files": [
+        "src/click/types.py",
+        "tests/test_m1nd_seeded_callable_type.py",
+        "tests/test_types.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Root cause was a single unconditional attribute read inside FuncParamType; the fix remained scoped to that constructor and left convert semantics untouched.",
+      "evidence": [
+        "Pre-fix proof: uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py -q failed with AttributeError from src/click/types.py:187.",
+        "Patch: src/click/types.py:186-193 now uses getattr(func, \"__name__\", None) and falls back to type(func).__name__.",
+        "Post-fix proof: uv run --group tests pytest tests/test_m1nd_seeded_callable_type.py tests/test_types.py -q passed 42 tests with 1 skip."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L9",
+        "event-streams/control-2.jsonl#L10",
+        "event-streams/control-2.jsonl#L11",
+        "event-streams/control-2.jsonl#L12"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "bounded_refactor_plan",
+      "task_payload_id": "p-limit-queue-scheduling-refactor-plan-v1",
+      "task_payload": {
+        "refactor_scope": "Queue scheduling and draining helpers only.",
+        "must_cover": [
+          "resumeNext",
+          "next",
+          "enqueue",
+          "clearQueue",
+          "concurrency setter"
+        ]
+      },
+      "repo_id": "p-limit-node",
+      "mode": "plan",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 72000,
+      "time_to_full_proof_ms": 274000,
+      "false_start_count": 0,
+      "files_opened": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "readme.md"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "rg -n 'rejectOnClear|clearQueue|resumeNext|next|enqueue|concurrency' p-limit-node"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "index.js",
+        "test.js",
+        "index.d.ts",
+        "readme.md"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Hidden coupling is concentrated inside index.js: resumeNext increments activeCount and dequeues work, next decrements and pumps again, enqueue bridges queue items to Promise resolution, clearQueue drains pending work, and the concurrency setter also pumps resumeNext in a microtask. Safe ordering: extract a drainPending helper first, then a scheduler pump helper, while leaving next() semantics in place until tests pass. Rollback/proof boundary is a single runtime file plus clearQueue/concurrency tests and the tsd signature file.",
+      "evidence": [
+        "index.js:19-30 defines resumeNext and next around the activeCount invariant.",
+        "index.js:50-63 defines enqueue, which decides when pending work becomes runnable.",
+        "index.js:77-89 clearQueue and 91-104 concurrency setter both manipulate queue draining behavior.",
+        "test.js:184-214 and 305-340 already cover clearQueue and concurrency changes and would be the first proof boundary after any refactor."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L6",
+        "event-streams/control-2.jsonl#L15"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "code_review_diff",
+      "task_payload_id": "human-panic-review-diff-v1",
+      "task_payload": {
+        "supplied_diff": "benchmark-payloads/review-diff-human-panic.patch",
+        "review_focus": "Find real user-visible regressions and missing tests in the supplied diff.",
+        "must_cover": [
+          "duplicate or noisy support output when homepage and repository coexist",
+          "missing regression test",
+          "avoid style-only findings"
+        ]
+      },
+      "repo_id": "human-panic-rust-cli",
+      "mode": "review",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 4,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 92000,
+      "time_to_full_proof_ms": 282000,
+      "false_start_count": 0,
+      "files_opened": [
+        "benchmark-payloads/review-diff-human-panic.patch",
+        "src/panic.rs",
+        "src/lib.rs",
+        "tests/custom-panic/tests/integration.rs",
+        "tests/custom-panic/src/main.rs"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "sed -n 1,220p benchmark-payloads/review-diff-human-panic.patch",
+        "rg -n 'homepage|repository|support|metadata!' human-panic-rust-cli"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "benchmark-payloads/review-diff-human-panic.patch",
+        "src/panic.rs",
+        "src/lib.rs",
+        "tests/custom-panic/tests/integration.rs",
+        "tests/custom-panic/src/main.rs"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "Findings, ordered by severity: [P2] The diff changes homepage/repository output from mutually exclusive to additive, so crates that have both metadata fields will show a noisier support block with two location URLs instead of the previous single preferred line. [P2] There is no regression test for the both-homepage-and-repository case, so the behavior change is unpinned. I did not record style-only findings.",
+      "evidence": [
+        "benchmark-payloads/review-diff-human-panic.patch changes src/panic.rs from `else if let Some(repository)` to a second `if let Some(repository)` branch.",
+        "src/panic.rs:126-129 in the current code shows the existing mutually exclusive homepage/repository behavior that the diff would replace.",
+        "src/lib.rs:67-70 shows metadata! already populates both homepage and repository when Cargo provides them.",
+        "tests/custom-panic/tests/integration.rs:7-23 only covers homepage without repository, so the changed case is not tested today."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L7",
+        "event-streams/control-2.jsonl#L16"
+      ],
+      "agent_confidence": "high"
+    },
+    {
+      "task_id": "docs_drift_check",
+      "task_payload_id": "click-lazy-loading-docs-drift-v1",
+      "task_payload": {
+        "claim": "README/docs say Click supports lazy loading of subcommands at runtime.",
+        "must_compare": [
+          "README and docs/index claim",
+          "docs/complex lazy loading pattern",
+          "actual Group behavior"
+        ]
+      },
+      "repo_id": "click-python-cli",
+      "mode": "docs",
+      "final_state": "success",
+      "scores": {
+        "orientation": 4,
+        "localization": 4,
+        "causal_understanding": 4,
+        "proof": 3,
+        "efficiency": 4,
+        "outcome": 4
+      },
+      "time_to_good_context_ms": 55000,
+      "time_to_full_proof_ms": 266000,
+      "false_start_count": 0,
+      "files_opened": [
+        "README.md",
+        "docs/index.rst",
+        "docs/complex.md",
+        "src/click/core.py"
+      ],
+      "search_iterations": 2,
+      "tests_or_commands_run": [
+        "rg -n 'lazy|lazily|Group.get_command' README.md docs/index.rst docs/complex.md",
+        "nl -ba docs/complex.md README.md docs/index.rst src/click/core.py"
+      ],
+      "code_changed": false,
+      "requires_code_change": false,
+      "patch_summary": "",
+      "correct_files": [
+        "README.md",
+        "docs/index.rst",
+        "docs/complex.md",
+        "src/click/core.py"
+      ],
+      "missed_files": [],
+      "false_positive_files": [],
+      "claim_overreach": "none",
+      "primary_failure_class": null,
+      "notes": "No hard documentation drift: the top-level README/index claim is shorthand, while docs/complex accurately explains that lazy loading is achieved by a custom Group subclass overriding list_commands/get_command. Code truth is that the default Group implementation only returns already-registered commands from self.commands, so lazy loading is supported as an extension pattern rather than as default built-in behavior.",
+      "evidence": [
+        "README.md:16-18 and docs/index.rst:19-23 make the top-level \u201csupports lazy loading\u201d claim.",
+        "docs/complex.md:224-355 shows the actual supported pattern: a custom LazyGroup overriding list_commands/get_command and doing imports there.",
+        "src/click/core.py:1806-1810 returns self.commands.get(cmd_name), and resolve_command at 1935-1959 just asks get_command to resolve the subcommand."
+      ],
+      "event_refs": [
+        "event-streams/control-2.jsonl#L5",
+        "event-streams/control-2.jsonl#L14"
+      ],
+      "agent_confidence": "high"
+    }
+  ]
+}

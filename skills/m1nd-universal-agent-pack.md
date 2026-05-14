@@ -38,6 +38,32 @@ cross-repo work. Do not call this graph staleness.
 `trust_selftest` and `recovery_playbook` are diagnostic. They do not ingest,
 repair, refresh the host, or mutate the graph.
 
+## Default Trained Investigation Loop
+
+For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, use
+this loop by default:
+
+1. Establish trust with `trust_selftest`, or `session_handshake` with the
+   intended repo/workspace as `scope`.
+2. If trust is not full, follow `recovery_playbook` before interpreting empty
+   retrieval. `wrong_workspace_binding` means rebind, intentional ingest, or
+   real federation; it is not stale graph proof.
+3. Orient with `audit` for unfamiliar repos, or route focused questions through
+   `search`, `seek`, or `activate`.
+4. Read the runtime envelope on retrieval responses. Empty result arrays are
+   not final truth until workspace binding, graph identity, and recovery state
+   are coherent.
+5. Verify with direct source, tests, compiler/runtime output, and focused
+   probes. `m1nd` narrows and connects; execution truth still comes from the
+   repo.
+6. Before edits or reviews, run `impact`, `validate_plan`, and usually
+   `surgical_context_v2`.
+7. Record what happened: m1nd calls, recovery path, files inspected, commands
+   run, and fallback reasons.
+
+This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
+operating doctrine, not graph alone.
+
 ## Tool Routing
 
 - Exact text -> `search`
@@ -62,6 +88,12 @@ If a local helper/probe fails before initialization with
 lock collision, not stale graph truth. Use an isolated `--runtime-dir`, use the
 current `probe_m1nd.py` helper, or group dependent checks into one
 `probe_m1nd.py run` process before falling back to files.
+In benchmark lanes or strict write scopes, prefer `probe_m1nd.py
+--no-worktree-artifacts ...` so runtime metadata stays in the isolated runtime
+dir while the caller directory becomes the declared `M1ND_WORKSPACE_ROOT`.
+If the command is launched from outside the inspected repo, add
+`--workspace-root /path/to/repo`.
+The helper prefers `~/.m1nd/bin/m1nd-mcp` before a stale `m1nd-mcp` on `PATH`.
 
 If the host appears to be launching an old or stale native runtime, and a local
 `m1nd` CLI is available outside the MCP transport, run:
