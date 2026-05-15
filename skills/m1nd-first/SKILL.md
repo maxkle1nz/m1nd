@@ -59,8 +59,20 @@ probes than by extended graph navigation.
 1. Establish trust with `trust_selftest`, or `session_handshake` scoped to the
    intended repo.
 2. If trust is not full, do one bounded recovery/ingest pass. With
-   `probe_m1nd.py`, prefer one same-process `run` call that combines trust,
-   ingest when needed, and one cheap orientation query.
+   `probe_m1nd.py`, prefer the dedicated `short-audit` command so trust,
+   ingest when needed, one cheap orientation query, and the direct-proof
+   handoff happen in one MCP process:
+
+   ```bash
+   python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
+     --no-worktree-artifacts \
+     --workspace-root /path/to/repo \
+     short-audit \
+     --agent-id lane-short-audit \
+     --repo /path/to/repo \
+     --query "focused subsystem or bug surface" \
+     --tool search
+   ```
 3. Run at most one or two orientation calls such as `audit`, `search`, `seek`,
    or `activate`.
 4. Switch to direct files, `rg`, git diff, tests, compiler/runtime output, and

@@ -235,8 +235,11 @@ def lane_prompt(round_payload, lane):
             "Short-audit loop:",
             "",
             "1. Establish trust with `trust_selftest`, or `session_handshake` scoped to this repo.",
-            "2. If trust is not full, run one recovery step. Prefer a single same-process `probe_m1nd.py run` that combines trust, ingest when needed, and one cheap orientation query.",
-            "3. Spend a fixed small budget on m1nd: at most one recovery/ingest sequence plus one or two orientation calls such as `audit`, `search`, `seek`, or `activate`.",
+            "2. Prefer `probe_m1nd.py --no-worktree-artifacts --workspace-root <repo> "
+            "short-audit --agent-id <lane> --repo <repo> --query <focused query> "
+            "--tool search` so trust, ingest when needed, one cheap orientation call, "
+            "and the direct-proof handoff happen in one MCP process.",
+            "3. Spend a fixed small budget on m1nd: at most one helper call plus, only if it produced concrete leads, one additional focused orientation call.",
             "4. Record `m1nd_usage_mode=\"short_audit_orientation\"` in notes or `m1nd_usage`.",
             "5. After that budget, switch to direct source reads, git diff, focused runtime probes, tests, or compiler output.",
             "6. If m1nd is blocked, stale, or noisy after the bounded pass, record `recovery_overhead` and continue directly.",

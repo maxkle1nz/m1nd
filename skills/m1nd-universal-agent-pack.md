@@ -78,10 +78,23 @@ orientation pass instead of a long graph investigation:
 5. Record `short_audit_orientation` if this helped, or `recovery_overhead` if
    m1nd state repair consumed meaningful time.
 
-With `probe_m1nd.py`, group trust, ingest, and focused retrieval into one
-same-process `run` call when possible. Fresh helper invocations may use fresh
-temporary runtimes, which protects the worktree but can add overhead on short
-tasks.
+With `probe_m1nd.py`, prefer the dedicated same-process short-audit helper:
+
+```bash
+python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
+  --no-worktree-artifacts \
+  --workspace-root /path/to/repo \
+  short-audit \
+  --agent-id lane-short-audit \
+  --repo /path/to/repo \
+  --query "focused subsystem or bug surface" \
+  --tool search
+```
+
+It returns `schema=m1nd-short-audit-helper-v0`, records
+`short_audit_orientation` or `recovery_overhead`, and always tells the agent to
+switch to direct proof. Use raw `probe_m1nd.py run` only when a custom
+multi-tool sequence is needed.
 
 ## Full-Spec Escalation
 

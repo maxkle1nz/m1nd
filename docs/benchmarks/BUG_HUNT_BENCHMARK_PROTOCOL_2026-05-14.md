@@ -39,10 +39,11 @@ needs a short-audit route: make one scoped trust/ingest/orientation pass, then
 move quickly to direct source reads and runtime probes.
 
 The short-audit route preserved recall parity on the p-limit fixture but did
-not yet recover direct-mode speed. The next benchmark/product target is a
-dedicated short-audit helper that performs trust, ingest-if-needed, and one
-cheap orientation query in one stable call, then tells the agent when to switch
-to direct proof.
+not yet recover direct-mode speed. That product target is now represented by
+`probe_m1nd.py short-audit`: it performs trust, ingest-if-needed, and one cheap
+orientation query in one stable call, emits
+`schema=m1nd-short-audit-helper-v0`, and tells the agent to switch to direct
+proof.
 
 ## Instruction Modes
 

@@ -64,7 +64,11 @@ For local helper use:
 python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
   --no-worktree-artifacts \
   --workspace-root /path/to/repo \
-  run '[{"name":"trust_selftest","arguments":{"agent_id":"agent","scope":"/path/to/repo"}},{"name":"ingest","arguments":{"agent_id":"agent","path":"/path/to/repo"}}]'
+  short-audit \
+  --agent-id agent \
+  --repo /path/to/repo \
+  --query "focused subsystem or bug surface" \
+  --tool search
 ```
 
 Use `--workspace-root` whenever the process is launched from a director repo but

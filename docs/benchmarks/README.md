@@ -184,7 +184,10 @@ Instruction modes:
 - `m1nd-short-audit`: the agent uses m1nd for one bounded trust/recovery and
   orientation pass, then switches to direct source reads, git diff, focused
   runtime probes, tests, or compiler output. Use this for tiny repos and
-  localized bug surfaces where graph context should not become overhead.
+  localized bug surfaces where graph context should not become overhead. The
+  current recommended helper is `probe_m1nd.py short-audit`, which bundles
+  trust, ingest-if-needed, one orientation call, and the direct-proof handoff
+  into `schema=m1nd-short-audit-helper-v0`.
 - `m1nd-trained`: the agent receives the default trained-agent loop from the
   m1nd pack: trust check, recovery before absence, scoped orientation,
   retrieval-envelope reading, direct proof, and evidence logging.
@@ -198,7 +201,9 @@ rounds. The first Tempo comparison showed that prompt weight matters too:
 Temponizer should be compact operating physics, not an audit-form tax.
 The p-limit confirmation round added the short-audit lesson: when the fixture is
 small and localized, direct controls can win, so m1nd lanes need a deliberately
-bounded orientation route before direct proof.
+bounded orientation route before direct proof. Use the dedicated helper for new
+short-audit rounds instead of asking each agent to hand-roll trust + ingest +
+retrieval sequencing.
 
 Create a round scaffold:
 

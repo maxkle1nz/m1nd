@@ -85,6 +85,25 @@ orientation calls, then switch to direct source reads, git diff, focused
 runtime probes, tests, or compiler output. Record whether m1nd acted as
 `short_audit_orientation` or whether it became `recovery_overhead`.
 
+For local helper use, run the dedicated short-audit command so trust,
+ingest-if-needed, one orientation query, and the direct-proof handoff stay in
+one MCP process:
+
+```bash
+python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
+  --no-worktree-artifacts \
+  --workspace-root /path/to/project \
+  short-audit \
+  --agent-id lane-short-audit \
+  --repo /path/to/project \
+  --query "focused subsystem or bug surface" \
+  --tool search
+```
+
+The JSON schema is `m1nd-short-audit-helper-v0`. It is intentionally not a
+final proof surface; it is a bounded orientation envelope that tells the agent
+to switch to direct source/runtime proof.
+
 For broader or harder work, escalate from the compact loop to the full-spec
 operating layer at
 `skills/m1nd-operator/references/full-spec-agent-os.md`. It is the route table

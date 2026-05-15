@@ -361,7 +361,10 @@ A later p-limit confirmation round showed the complementary boundary: on tiny,
 localized audit fixtures, direct source reads and focused runtime probes can
 beat a heavier graph pass. The agent pack now teaches a short-audit route for
 that case: establish trust, make one bounded orientation pass, then move
-quickly to direct proof.
+quickly to direct proof. The bundled operator helper now exposes this as
+`probe_m1nd.py short-audit`, returning
+`schema=m1nd-short-audit-helper-v0` with `short_audit_orientation` or
+`recovery_overhead` and an explicit `switch_to_direct_proof` handoff.
 
 The trained loop that ships in the pack is:
 

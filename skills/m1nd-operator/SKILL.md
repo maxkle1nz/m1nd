@@ -65,10 +65,23 @@ The route is:
 6. Record `m1nd_usage_mode=short_audit_orientation` when it helped, or
    `recovery_overhead` when state repair consumed meaningful time.
 
-For local helper use, prefer one same-process `probe_m1nd.py run` containing
-trust, ingest when needed, and focused retrieval. Separate helper invocations
-can create fresh temporary runtimes, which is useful isolation but expensive in
-short audits.
+For local helper use, prefer the dedicated same-process helper:
+
+```bash
+python3 scripts/probe_m1nd.py \
+  --no-worktree-artifacts \
+  --workspace-root /path/to/repo \
+  short-audit \
+  --agent-id lane-short-audit \
+  --repo /path/to/repo \
+  --query "focused subsystem or bug surface" \
+  --tool search
+```
+
+It returns `schema=m1nd-short-audit-helper-v0`, records whether the lane was
+`short_audit_orientation` or `recovery_overhead`, and always tells the agent to
+switch to direct proof. Use raw `probe_m1nd.py run` only when you need a custom
+sequence of multiple tools.
 
 For broad audits, hard bug hunts, multi-repo systems, docs/L1GHT work,
 long-running investigations, security/risk review, or explicit full-system
@@ -234,6 +247,7 @@ python3 scripts/probe_m1nd.py call trust_selftest '{"agent_id":"codex-m1nd"}'
 python3 scripts/probe_m1nd.py call session_handshake '{"agent_id":"codex-m1nd","scope":"/path/to/intended/repo"}'
 python3 scripts/probe_m1nd.py call recovery_playbook '{"agent_id":"codex-m1nd","observed_tool":"seek","observed_proof_state":"blocked","observed_candidates":0}'
 python3 scripts/probe_m1nd.py call help '{"agent_id":"codex-m1nd","tool_name":"validate_plan"}'
+python3 scripts/probe_m1nd.py --no-worktree-artifacts --workspace-root /path/to/repo short-audit --agent-id codex-m1nd --repo /path/to/repo --query "focused subsystem or bug surface" --tool search
 python3 scripts/probe_m1nd.py run '[{"name":"ingest","arguments":{"agent_id":"codex-m1nd","path":"/path/to/repo"}},{"name":"seek","arguments":{"agent_id":"codex-m1nd","query":"where retry backoff is decided","top_k":5}}]'
 ```
 
@@ -241,7 +255,8 @@ python3 scripts/probe_m1nd.py run '[{"name":"ingest","arguments":{"agent_id":"co
 parallel agent probes do not fight over the same runtime owner lock. If a
 helper or older skill reports `runtime_root ... is already owned by instance`,
 do not classify that as graph staleness or retrieval failure. Rerun with the
-current helper, pass an explicit unique `--runtime-dir`, or combine dependent
+current helper, pass an explicit unique `--runtime-dir`, use
+`probe_m1nd.py short-audit` for narrow tasks, or combine custom dependent
 calls with `probe_m1nd.py run` so they share one process intentionally. Use
 `--shared-runtime` only when debugging shared runtime state.
 The helper prefers `~/.m1nd/bin/m1nd-mcp` over a stale `m1nd-mcp` earlier on
