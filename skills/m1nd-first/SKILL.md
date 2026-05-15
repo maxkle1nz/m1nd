@@ -50,6 +50,26 @@ this loop by default:
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.
 
+## Short-Audit Route
+
+Use the short-audit route when the repo or suspected surface is small,
+localized, and likely to be proven faster by direct source reads or runtime
+probes than by extended graph navigation.
+
+1. Establish trust with `trust_selftest`, or `session_handshake` scoped to the
+   intended repo.
+2. If trust is not full, do one bounded recovery/ingest pass. With
+   `probe_m1nd.py`, prefer one same-process `run` call that combines trust,
+   ingest when needed, and one cheap orientation query.
+3. Run at most one or two orientation calls such as `audit`, `search`, `seek`,
+   or `activate`.
+4. Switch to direct files, `rg`, git diff, tests, compiler/runtime output, and
+   focused probes.
+5. Record whether this was `short_audit_orientation` or `recovery_overhead`.
+
+The short-audit route is still m1nd-first. It just caps graph/recovery spend so
+tiny localized tasks do not turn into tool-operation exercises.
+
 ## Skip Conditions
 
 Skip the `m1nd` first pass only when:

@@ -357,6 +357,12 @@ accepted `humanize` seeded-defect round, `m1nd-trained` lanes found `16/20`
 seeded defects while `m1nd-basic` and direct lanes each found `8/15`. That is
 internal product evidence, not a universal public benchmark claim.
 
+A later p-limit confirmation round showed the complementary boundary: on tiny,
+localized audit fixtures, direct source reads and focused runtime probes can
+beat a heavier graph pass. The agent pack now teaches a short-audit route for
+that case: establish trust, make one bounded orientation pass, then move
+quickly to direct proof.
+
 The trained loop that ships in the pack is:
 
 1. establish trust with `trust_selftest`, or `session_handshake` scoped to the intended repo

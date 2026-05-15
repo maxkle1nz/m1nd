@@ -43,6 +43,7 @@ VALID_INSTRUCTION_MODES = (
     "m1nd-temponizer-full",
     "m1nd-temponizer-compact",
     "m1nd-temponizer",
+    "m1nd-short-audit",
     "m1nd-trained",
     "m1nd-basic",
     "direct",
@@ -83,6 +84,7 @@ def lane_plan(
     temponizer_full_count=0,
     temponizer_compact_count=0,
     temponizer_count=0,
+    short_audit_count=0,
     trained_count=3,
     basic_count=3,
     direct_count=3,
@@ -96,6 +98,8 @@ def lane_plan(
         lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-temponizer-compact"})
     for index in range(1, temponizer_count + 1):
         lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-temponizer"})
+    for index in range(1, short_audit_count + 1):
+        lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-short-audit"})
     for index in range(1, trained_count + 1):
         lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-trained"})
     for index in range(1, basic_count + 1):
@@ -221,6 +225,25 @@ def lane_prompt(round_payload, lane):
             "10. Record m1nd calls, recovery path, files inspected, commands run, fallback reasons, and `Te` notes.",
             "",
         ]
+    elif lane["instruction_mode"] == "m1nd-short-audit":
+        mode = [
+            "## m1nd Short-Audit Mode",
+            "",
+            "Use m1nd as a bounded orientation pass, then move quickly to direct source and runtime proof.",
+            "This mode is for small or localized audit tasks where full graph navigation may cost more than it returns.",
+            "",
+            "Short-audit loop:",
+            "",
+            "1. Establish trust with `trust_selftest`, or `session_handshake` scoped to this repo.",
+            "2. If trust is not full, run one recovery step. Prefer a single same-process `probe_m1nd.py run` that combines trust, ingest when needed, and one cheap orientation query.",
+            "3. Spend a fixed small budget on m1nd: at most one recovery/ingest sequence plus one or two orientation calls such as `audit`, `search`, `seek`, or `activate`.",
+            "4. Record `m1nd_usage_mode=\"short_audit_orientation\"` in notes or `m1nd_usage`.",
+            "5. After that budget, switch to direct source reads, git diff, focused runtime probes, tests, or compiler output.",
+            "6. If m1nd is blocked, stale, or noisy after the bounded pass, record `recovery_overhead` and continue directly.",
+            "7. Do not keep exploring the graph after concrete suspect files and behaviors are visible.",
+            "8. Record m1nd calls, recovery path, files inspected, commands run, direct probes, fallback reason, and where short-audit helped or hurt.",
+            "",
+        ]
     elif lane["instruction_mode"] == "m1nd-trained":
         mode = [
             "## m1nd-Trained Operating Loop",
@@ -329,6 +352,7 @@ def init_round(args):
         args.lanes_temponizer_full,
         args.lanes_temponizer_compact,
         args.lanes_temponizer,
+        args.lanes_short_audit,
         args.lanes_trained,
         args.lanes_basic,
         args.lanes_direct,
@@ -839,6 +863,7 @@ def main():
     init_parser.add_argument("--lanes-temponizer-full", type=int, default=0)
     init_parser.add_argument("--lanes-temponizer-compact", type=int, default=0)
     init_parser.add_argument("--lanes-temponizer", type=int, default=0)
+    init_parser.add_argument("--lanes-short-audit", type=int, default=0)
     init_parser.add_argument("--lanes-trained", type=int, default=3)
     init_parser.add_argument("--lanes-basic", type=int, default=3)
     init_parser.add_argument("--lanes-direct", type=int, default=3)

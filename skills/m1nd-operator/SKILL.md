@@ -47,6 +47,29 @@ measured high-signal pattern is:
 Internal bug-hunt rounds call this `m1nd-trained`: graph plus operating
 doctrine. A visible MCP surface without this loop is only `m1nd-basic`.
 
+## Short-Audit Route
+
+Use `m1nd-short-audit` when the task is a small or localized bug hunt, a narrow
+review, or a tiny repo where source/runtime proof is likely cheaper than deep
+graph navigation.
+
+The route is:
+
+1. Establish trust with `trust_selftest` or scoped `session_handshake`.
+2. If needed, perform one bounded recovery/ingest pass.
+3. Run one or two cheap orientation calls: `audit`, `search`, `seek`, or
+   `activate`.
+4. Stop graph exploration once suspect files and behaviors are visible.
+5. Prove with direct source reads, git diff, tests, compiler/runtime output, and
+   focused probes.
+6. Record `m1nd_usage_mode=short_audit_orientation` when it helped, or
+   `recovery_overhead` when state repair consumed meaningful time.
+
+For local helper use, prefer one same-process `probe_m1nd.py run` containing
+trust, ingest when needed, and focused retrieval. Separate helper invocations
+can create fresh temporary runtimes, which is useful isolation but expensive in
+short audits.
+
 For broad audits, hard bug hunts, multi-repo systems, docs/L1GHT work,
 long-running investigations, security/risk review, or explicit full-system
 requests, escalate to `references/full-spec-agent-os.md`. It is the route table

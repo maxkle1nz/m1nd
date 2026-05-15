@@ -181,6 +181,10 @@ Instruction modes:
   major branch decisions, record `Te` where it matters, and keep moving.
 - `m1nd-temponizer`: the earlier lighter Tempo mode with phase/time awareness
   and `Te` notes, but without the full formula.
+- `m1nd-short-audit`: the agent uses m1nd for one bounded trust/recovery and
+  orientation pass, then switches to direct source reads, git diff, focused
+  runtime probes, tests, or compiler output. Use this for tiny repos and
+  localized bug surfaces where graph context should not become overhead.
 - `m1nd-trained`: the agent receives the default trained-agent loop from the
   m1nd pack: trust check, recovery before absence, scoped orientation,
   retrieval-envelope reading, direct proof, and evidence logging.
@@ -192,6 +196,9 @@ The first accepted round showed that `m1nd-trained` was the meaningful product
 condition. Do not collapse it into "m1nd installed" when designing future
 rounds. The first Tempo comparison showed that prompt weight matters too:
 Temponizer should be compact operating physics, not an audit-form tax.
+The p-limit confirmation round added the short-audit lesson: when the fixture is
+small and localized, direct controls can win, so m1nd lanes need a deliberately
+bounded orientation route before direct proof.
 
 Create a round scaffold:
 

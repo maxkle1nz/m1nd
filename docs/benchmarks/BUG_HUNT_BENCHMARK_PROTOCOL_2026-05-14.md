@@ -71,6 +71,13 @@ This is the preferred next experimental condition.
 forms may preserve recall better than the full-spec checklist while still
 improving telemetry.
 
+`m1nd-short-audit` means the agent uses m1nd as a bounded orientation pass, not
+as the main investigation engine. The agent establishes trust, performs at most
+one recovery/ingest sequence and one or two cheap orientation calls, then moves
+to direct source reads, git diff, focused runtime probes, tests, or compiler
+output. This mode exists because the p-limit confirmation round showed that
+tiny localized tasks can be hurt by m1nd recovery/orientation overhead.
+
 `m1nd-trained` means the agent receives the shipped trained-agent loop:
 
 1. trust check scoped to the repo

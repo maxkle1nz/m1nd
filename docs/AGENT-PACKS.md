@@ -78,6 +78,13 @@ portable pack therefore teaches every host this default sequence:
 That loop is what `m1nd-trained` means in benchmark artifacts. It is part of
 the agent pack contract.
 
+For tiny repos, narrow reviews, or localized bug hunts, agents should use the
+short-audit route instead of turning m1nd into a long investigation. Establish
+trust, run one bounded recovery/ingest pass if needed, make one or two cheap
+orientation calls, then switch to direct source reads, git diff, focused
+runtime probes, tests, or compiler output. Record whether m1nd acted as
+`short_audit_orientation` or whether it became `recovery_overhead`.
+
 For broader or harder work, escalate from the compact loop to the full-spec
 operating layer at
 `skills/m1nd-operator/references/full-spec-agent-os.md`. It is the route table

@@ -64,6 +64,25 @@ this loop by default:
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
 
+## Short-Audit Route
+
+For tiny repos, localized bug hunts, or narrow reviews, use m1nd as a bounded
+orientation pass instead of a long graph investigation:
+
+1. Establish trust with `trust_selftest` or scoped `session_handshake`.
+2. If trust is not full, run one recovery/ingest pass.
+3. Run one or two cheap orientation calls: `audit`, `search`, `seek`, or
+   `activate`.
+4. When suspect files or behaviors are visible, switch to direct source reads,
+   git diff, tests, compiler/runtime output, and focused probes.
+5. Record `short_audit_orientation` if this helped, or `recovery_overhead` if
+   m1nd state repair consumed meaningful time.
+
+With `probe_m1nd.py`, group trust, ingest, and focused retrieval into one
+same-process `run` call when possible. Fresh helper invocations may use fresh
+temporary runtimes, which protects the worktree but can add overhead on short
+tasks.
+
 ## Full-Spec Escalation
 
 For broad audits, hard bug hunts, multi-repo systems, docs/L1GHT work,

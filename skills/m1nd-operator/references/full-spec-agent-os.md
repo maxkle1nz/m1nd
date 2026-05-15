@@ -134,6 +134,15 @@ Deep risk and architecture:
 
 ## Decision Router
 
+Tiny localized audit:
+
+- `trust_selftest` or scoped `session_handshake`
+- one bounded recovery/ingest pass if needed
+- one or two cheap orientation calls: `audit`, `search`, `seek`, or `activate`
+- then stop graph exploration and prove with direct files, git diff, tests,
+  compiler/runtime output, and focused probes
+- record `short_audit_orientation` or `recovery_overhead`
+
 Exact text:
 
 - `search`
@@ -469,6 +478,7 @@ the task through the best tool combination, not only the compact trained loop.
 It should be compared separately from:
 
 - `m1nd-basic`: graph available, no doctrine
+- `m1nd-short-audit`: bounded orientation plus direct proof for tiny/localized tasks
 - `m1nd-trained`: compact doctrine
 - `m1nd-temponizer-compact`: compact doctrine plus temporal recalibration
 - `direct`: no m1nd
