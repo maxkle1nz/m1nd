@@ -1,0 +1,139 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-short-audit-20260515T113006Z",
+  "lane_id": "audit-02",
+  "instruction_mode": "m1nd-short-audit",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-15T11:31:46Z",
+  "finished_at": "2026-05-15T11:38:25Z",
+  "findings": [
+    {
+      "title": "limitFunction drops all caller arguments",
+      "severity": "high",
+      "file": "index.js:121",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper is zero-argument: `return () => limit(() => function_());`, so values passed to the limited function are never forwarded to the wrapped function.",
+      "impact": "Any real use of `limitFunction` with a parameterized function returns results for `undefined` inputs. This breaks the declared return type `(...arguments_: Arguments) => Promise<ReturnType>` and the documented usage pattern where callers invoke the returned function with inputs.",
+      "evidence": "index.js:121-124 returns a no-arg wrapper. index.d.ts:133-136 declares the returned function as accepting the original function arguments. A focused runtime probe returned `limitFunctionArg: \"missing\"` for `await limitFunction(async value => value ?? 'missing', {concurrency: 1})('sentinel')`.",
+      "reproduction_or_test": "Add an AVA test: `const limited = limitFunction(async value => value, {concurrency: 1}); t.is(await limited('sentinel'), 'sentinel');`. It currently resolves to `undefined` or the fallback used by the wrapped function.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js:106",
+      "symbol": "generator.map",
+      "cause": "`map` checks `Array.isArray(iterable)` and passes `undefined` as the mapper index for Sets, generators, and other valid iterables.",
+      "impact": "The public contract says the mapper receives the item value and its index for any iterable. Consumers using Sets or generator iterables get `undefined` indexes despite the TypeScript signature requiring `index: number`.",
+      "evidence": "index.js:108-112 passes `iterableIsArray ? index : undefined`. readme.md:78-84 and index.d.ts:30-43 specify index delivery for iterable mapping. A focused runtime probe returned `mapSetIndexes: [\"missing\", \"missing\", \"missing\"]` for a Set input.",
+      "reproduction_or_test": "Add an AVA test: `const indexes = await pLimit(2).map(new Set(['a', 'b']), (_value, index) => index); t.deepEqual(indexes, [0, 1]);`. It currently produces `[undefined, undefined]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Options-object form enables rejectOnClear by default despite documented default false",
+      "severity": "medium",
+      "file": "index.js:6",
+      "symbol": "pLimit",
+      "cause": "The options destructuring uses `rejectOnClear = true` when callers pass `{concurrency}`, overriding the module-level default of `false`.",
+      "impact": "`pLimit({concurrency: 1})` now rejects pending promises on `clearQueue()` even though docs and types say `rejectOnClear` defaults to `false`. This makes the numeric and object forms behave differently and can unexpectedly reject pending work in code that only switched to object syntax.",
+      "evidence": "index.js:4 initializes `rejectOnClear` to false, but index.js:6-7 changes the default to true for options objects. readme.md:46-52 and index.d.ts:99-106 both state default false. A runtime probe observed `optionsDefaultClearOutcome: \"rejected:AbortError\"` for `pLimit({concurrency: 1})` without `rejectOnClear`.",
+      "reproduction_or_test": "Create a running task and one pending task with `const limit = pLimit({concurrency: 1});`, call `limit.clearQueue()`, and assert the pending promise remains unsettled like `pLimit(1)`. It currently rejects with `AbortError`.",
+      "confidence": "high"
+    },
+    {
+      "title": "rejectOnClear accepts falsey non-boolean values",
+      "severity": "low",
+      "file": "index.js:12",
+      "symbol": "pLimit options validation",
+      "cause": "Validation only throws when `rejectOnClear` is truthy and not boolean: `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`.",
+      "impact": "Invalid configuration values such as `0`, `''`, and `null` are silently accepted, violating the documented boolean contract and hiding caller mistakes. Truthy invalid values still throw, so validation behavior is inconsistent.",
+      "evidence": "readme.md:46-52 and index.d.ts:99-106 define `rejectOnClear` as boolean. The focused runtime probe recorded `rejectOnClear_0: \"accepted\"`, `rejectOnClear_: \"accepted\"`, and `rejectOnClear_null: \"accepted\"`, while `'nope'` throws.",
+      "reproduction_or_test": "Add an AVA test asserting `t.throws(() => pLimit({concurrency: 1, rejectOnClear: 0}), {instanceOf: TypeError});` and similarly for `null` or `''`. These are currently accepted.",
+      "confidence": "high"
+    },
+    {
+      "title": "Infinity is rejected as a concurrency limit",
+      "severity": "medium",
+      "file": "index.js:127",
+      "symbol": "validateConcurrency",
+      "cause": "`validateConcurrency` now requires `Number.isInteger(concurrency)`, which excludes `Number.POSITIVE_INFINITY`.",
+      "impact": "The package no longer supports the unbounded concurrency mode represented by `Infinity`, even though the committed baseline allowed it and the public contract describes a number with minimum 1 rather than an integer-only subset. This can break callers that use `Infinity` to disable limiting without branching.",
+      "evidence": "index.js:127-129 rejects non-integers. `git show HEAD:index.js` shows the baseline validator accepted `(Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0`. A focused runtime probe printed `Infinity threw TypeError Expected \\`concurrency\\` to be a number from 1 and up`.",
+      "reproduction_or_test": "Add an AVA test: `const limit = pLimit(Number.POSITIVE_INFINITY); t.is(limit.concurrency, Number.POSITIVE_INFINITY); await Promise.all([limit(() => 1), limit(() => 2)]);`. Construction currently throws.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' lane-prompts/audit-02.md",
+    "sed -n '1,220p' lane-result-template.json",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --help",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> run '[session_handshake,audit]'",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root <lane-repo> run '[ingest,session_handshake,seek]'",
+    "rg --files -g '!operator-only/**'",
+    "sed -n '1,260p' index.js",
+    "sed -n '1,260p' index.d.ts",
+    "sed -n '1,520p' test.js",
+    "sed -n '1,240p' package.json",
+    "sed -n '1,260p' index.test-d.ts",
+    "rg -n 'rejectOnClear|limitFunction|concurrency|clearQueue|map|Infinity|arguments|TypeError|AbortError|pending' readme.md recipes.md test.js index.js index.d.ts index.test-d.ts package.json",
+    "sed -n '33,170p' readme.md",
+    "git status --short && git log --oneline -5",
+    "git diff -- index.js index.d.ts test.js readme.md package.json",
+    "nl -ba index.js | sed -n '1,150p'",
+    "nl -ba readme.md | sed -n '33,125p'",
+    "nl -ba index.d.ts | sed -n '1,145p'",
+    "node --input-type=module <focused behavioral probe>",
+    "git show HEAD:index.js | nl -ba | sed -n '1,145p'",
+    "npm test"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit/recipes.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit/package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "mode": "short_audit_orientation",
+      "agent_id": "audit-02",
+      "binary": "/usr/local/bin/m1nd-mcp",
+      "helper": "/Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py",
+      "workspace_root": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-02/p-limit",
+      "calls": [
+        {
+          "tool": "session_handshake",
+          "result": "needs_ingest with correct workspace binding, node_count=0"
+        },
+        {
+          "tool": "audit",
+          "result": "invalid params because audit required path/profile; treated as noisy orientation call"
+        },
+        {
+          "tool": "ingest",
+          "result": "code ingest succeeded: files_scanned=10, files_parsed=10, node_count=82, edge_count=94"
+        },
+        {
+          "tool": "session_handshake",
+          "result": "full_trust after ingest"
+        },
+        {
+          "tool": "seek",
+          "result": "oriented to index.js validateConcurrency, enqueue, next/resumeNext, and limitFunction"
+        }
+      ],
+      "recovery_overhead": "One recovery/ingest sequence was needed because the initial graph was cold. The attempted audit call was parameter-noisy, so I stopped m1nd after the allowed recovery plus seek orientation and used direct source/runtime proof.",
+      "fallback_reason": "Concrete suspect symbols were visible after seek; final truth came from direct source reads, git diff, and node runtime probes."
+    }
+  ],
+  "temponizer_usage": [],
+  "agent_testimony": "I did not read operator-only artifacts and did not patch the audited repo. I wrote only the lane result JSON and appended lane event JSONL records. The local `npm test` command could not run because `xo` was not available on PATH (`sh: xo: command not found`), so behavioral verification used focused `node --input-type=module` probes.",
+  "notes": "m1nd_usage_mode=short_audit_orientation. Recovery/overhead: initial session was needs_ingest; one ingest recovered full trust; audit call was parameter-noisy; direct probes supplied proof. Te=2026-05-15T11:38:25Z.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

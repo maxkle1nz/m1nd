@@ -1,0 +1,87 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-short-audit-20260515T113006Z",
+  "lane_id": "audit-03",
+  "instruction_mode": "direct",
+  "repo": "p-limit",
+  "model": "GPT-5 Codex",
+  "started_at": "2026-05-15T11:31:41Z",
+  "finished_at": "2026-05-15T11:33:57Z",
+  "findings": [
+    {
+      "title": "Options-object construction silently enables rejectOnClear by default",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "When the input is an options object, destructuring uses `rejectOnClear = true` even though the top-level default and public API document the default as false.",
+      "impact": "`pLimit({concurrency: 1})` behaves differently from `pLimit(1)`: `clearQueue()` rejects pending promises with AbortError instead of leaving them pending/discarded. This is a contract mismatch for users adopting the documented options-object form without explicitly opting into rejection.",
+      "evidence": "index.js:4 initializes `rejectOnClear` to false, but index.js:6-8 overwrites omitted object values with true. readme.md:46-52 and index.d.ts:99-106 state `rejectOnClear` default is false. Runtime probe printed {\"pendingCount\":0,\"settled\":true,\"outcome\":[\"rejected\",\"AbortError\",\"This operation was aborted\"]} after `pLimit({concurrency: 1}).clearQueue()` on a pending task.",
+      "reproduction_or_test": "Run `node --input-type=module` with: import pLimit from \"./index.js\"; const limit = pLimit({concurrency: 1}); const first = limit(() => new Promise(resolve => setTimeout(resolve, 50))); const second = limit(() => \"second\"); await Promise.resolve(); limit.clearQueue(); second.then(v => console.log(\"fulfilled\", v), e => console.log(\"rejected\", e.name)); await first; Expected under docs: pending promise is not rejected unless rejectOnClear is explicitly true. Actual: rejected AbortError.",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction drops every argument passed to the limited wrapper",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "`limitFunction` returns a zero-argument wrapper and invokes `function_()` without forwarding the wrapper call arguments.",
+      "impact": "Any limited function that depends on parameters receives `undefined` values at runtime, despite the TypeScript signature returning `(...arguments_: Arguments) => Promise<ReturnType>`. This breaks normal use cases such as limiting a request helper, mapper, or keyed operation.",
+      "evidence": "index.js:121-124 implements `return () => limit(() => function_());`. index.d.ts:133-136 promises that the returned function accepts the same argument tuple as the source function. Runtime probe `limited(\"alpha\", \"beta\")` returned `undefined:undefined` for an async `(value, suffix) => `${value}:${suffix}`` function.",
+      "reproduction_or_test": "Run `node --input-type=module` with: import {limitFunction} from \"./index.js\"; const limited = limitFunction(async (value, suffix) => `${value}:${suffix}`, {concurrency: 1}); console.log(await limited(\"alpha\", \"beta\")); Expected: `alpha:beta`. Actual: `undefined:undefined`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map passes undefined as the index for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "LimitFunction.map",
+      "cause": "`map` detects arrays and only forwards the Array.from index for arrays; all other iterables receive `undefined` as the second mapper argument.",
+      "impact": "The API claims support for arbitrary iterables and says the mapper receives `(item, index)`. Set, generator, and iterator inputs lose the index, causing incorrect output for mapper functions that rely on documented positional data.",
+      "evidence": "index.js:107-112 computes `iterableIsArray` and calls `this(function_, value, iterableIsArray ? index : undefined)`. readme.md:78-85 and index.d.ts:29-43 state the mapper receives the item value and its index, equivalent to `Array.from(iterable, (item, index) => limit(mapperFunction, item, index))`. Runtime probe over `new Set([\"a\", \"b\", \"c\"])` printed `[\"a:undefined\",\"b:undefined\",\"c:undefined\"]`.",
+      "reproduction_or_test": "Run `node --input-type=module` with: import pLimit from \"./index.js\"; const limit = pLimit(2); console.log(await limit.map(new Set([\"a\", \"b\", \"c\"]), (value, index) => `${value}:${String(index)}`)); Expected: `[\"a:0\",\"b:1\",\"c:2\"]`. Actual: `[\"a:undefined\",\"b:undefined\",\"c:undefined\"]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass runtime validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit option validation",
+      "cause": "The runtime type check is guarded by the option value itself: `if (rejectOnClear && typeof rejectOnClear !== \"boolean\")`, so only truthy invalid values throw.",
+      "impact": "Invalid options such as `{rejectOnClear: 0}`, `{rejectOnClear: \"\"}`, or `{rejectOnClear: null}` are silently accepted and treated as disabled. This undermines the documented boolean contract and can hide configuration mistakes in JavaScript callers.",
+      "evidence": "index.js:12-14 only throws for truthy non-booleans. index.d.ts:99-106 declares `rejectOnClear?: boolean`, and index.test-d.ts:29 only covers the truthy invalid string case. Runtime probe accepted 0, empty string, and null, while throwing only for \"nope\".",
+      "reproduction_or_test": "Run `node --input-type=module` with: import pLimit from \"./index.js\"; for (const rejectOnClear of [0, \"\", null, \"nope\"]) { try { pLimit({concurrency: 1, rejectOnClear}); console.log(rejectOnClear, \"accepted\"); } catch (error) { console.log(rejectOnClear, \"threw\", error.message); } } Expected: all non-booleans throw. Actual: 0, empty string, and null are accepted.",
+      "confidence": "high"
+    }
+  ],
+  "commands_run": [
+    "sed -n 1,220p lane-prompts/audit-03.md",
+    "sed -n 1,240p package.json / index.js / test.js / readme.md",
+    "sed -n 261,520p test.js && sed -n 1,260p index.d.ts && sed -n 1,260p index.test-d.ts",
+    "node --input-type=module runtime probe for options-object rejectOnClear default",
+    "node --input-type=module runtime probe for limitFunction argument forwarding",
+    "node --input-type=module runtime probe for limit.map Set index forwarding",
+    "nl -ba index.js / readme.md / index.d.ts for line evidence",
+    "git status --short && git log --oneline -5",
+    "npm test",
+    "node --input-type=module runtime probe for falsy non-boolean rejectOnClear validation",
+    "rg -n rejectOnClear|limitFunction|map accepts|mapper function|Default: `false`|expectError\\(pLimit readme.md index.d.ts index.test-d.ts test.js index.js"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-short-audit-20260515T113006Z/lane-prompts/audit-03.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-short-audit-20260515T113006Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-03/p-limit/package.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-03/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-03/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-03/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-03/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-short-audit-20260515T113006Z/audit-03/p-limit/index.test-d.ts"
+  ],
+  "m1nd_usage": [],
+  "temponizer_usage": [],
+  "agent_testimony": "Direct Mode honored: I did not use m1nd tools, m1nd helper scripts, or operator-only artifacts, and I did not patch the audited repo. I wrote only the required lane result JSON and appended required agent events to the lane event JSONL.",
+  "notes": "Focused runtime probes were executed successfully with Node. `npm test` could not complete because devDependencies are not installed in this workspace (`xo: command not found`). The audited git worktree already showed `M index.js` before any repo writes by this agent; no audited files were modified.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

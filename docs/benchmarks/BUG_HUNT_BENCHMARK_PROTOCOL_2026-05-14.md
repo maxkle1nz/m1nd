@@ -27,11 +27,22 @@ localized fixture:
 - `m1nd-trained`: `9/10`, `90.0%`, median wall-clock `176.5s`
 - `m1nd-temponizer-compact`: `8/10`, `80.0%`, median wall-clock `192.5s`
 
+The first short-audit round tested the resulting route:
+
+- `direct`: `9/10`, `90.0%`, median wall-clock `117.5s`
+- `m1nd-short-audit`: `9/10`, `90.0%`, median wall-clock `281.5s`
+
 Treat this as a design signal, not a contradiction to hide. m1nd's advantage
 should grow when structural context, continuity, docs/code binding, impact
 analysis, or multi-file reasoning matter. On small local bugs, the agent pack
 needs a short-audit route: make one scoped trust/ingest/orientation pass, then
 move quickly to direct source reads and runtime probes.
+
+The short-audit route preserved recall parity on the p-limit fixture but did
+not yet recover direct-mode speed. The next benchmark/product target is a
+dedicated short-audit helper that performs trust, ingest-if-needed, and one
+cheap orientation query in one stable call, then tells the agent when to switch
+to direct proof.
 
 ## Instruction Modes
 
