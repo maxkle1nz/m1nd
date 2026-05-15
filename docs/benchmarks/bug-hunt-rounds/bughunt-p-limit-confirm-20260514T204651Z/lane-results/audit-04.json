@@ -1,0 +1,118 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-confirm-20260514T204651Z",
+  "lane_id": "audit-04",
+  "instruction_mode": "m1nd-trained",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-15T10:18:16Z",
+  "finished_at": "2026-05-15T10:20:43Z",
+  "findings": [
+    {
+      "title": "Options object silently enables rejectOnClear by default",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "When the first argument is an options object, destructuring uses `rejectOnClear = true` even though the local default, README, and type documentation say the default is false.",
+      "impact": "Callers using `pLimit({concurrency: 1})` get different clearQueue behavior from `pLimit(1)`: pending returned promises reject with AbortError instead of remaining pending/discarded. This is a public API contract mismatch and can break consumers that adopted the documented options-object form without opting into rejection.",
+      "evidence": "index.js:4 initializes `rejectOnClear` to false, but index.js:6-8 changes the default to true for object arguments. readme.md:46-52 and index.d.ts:99-106 document `rejectOnClear` default false. test.js:257-273 covers `pLimit({concurrency: 1})` but never calls `clearQueue`, so this behavior is not covered.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit({concurrency:1}); const running=limit(()=>new Promise(resolve=>setTimeout(resolve,50))); const pending=limit(()=>42); await Promise.resolve(); limit.clearQueue(); try { await pending; console.log('resolved'); } catch (error) { console.log(error.name); } await running;\" prints `AbortError`; with the documented default it should not reject unless `rejectOnClear: true` is supplied.",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction drops all caller arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper is `() => limit(() => function_())`, so it neither accepts nor forwards the arguments passed to the limited function.",
+      "impact": "The named helper is unusable for any function that depends on parameters, despite the TypeScript declaration returning `(...arguments_: Arguments) => Promise<ReturnType>`. Real callers receive undefined parameters at runtime while type-checking succeeds.",
+      "evidence": "index.js:121-125 returns a zero-argument wrapper. index.d.ts:133-136 declares that the returned function accepts the original argument tuple. index.test-d.ts:25 type-checks a one-argument limited function, but test.js:343-357 only covers a zero-argument runtime function.",
+      "reproduction_or_test": "node --input-type=module -e \"import {limitFunction} from './index.js'; const f=limitFunction(async (a,b)=>a+b,{concurrency:1}); console.log(await f(2,3));\" prints `NaN`; it should print `5`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "limit.map",
+      "cause": "The mapper passes `index` only when `Array.isArray(iterable)` is true; for Sets, iterator objects, and other iterables it deliberately passes undefined.",
+      "impact": "The documented `limit.map(iterable, mapperFunction)` contract says the mapper receives value and index and is equivalent to `Array.from(iterable, (item, index) => limit(mapperFunction, item, index))`. Consumers using a Set or generator get undefined for index, which can corrupt output or logic while still resolving successfully.",
+      "evidence": "index.js:106-114 computes `iterableIsArray` and passes `iterableIsArray ? index : undefined`. readme.md:78-85 and index.d.ts:29-43 promise an index for the mapper. test.js:239-255 covers Set and array iterator values but does not assert the index parameter for those iterable types.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit(1); console.log(JSON.stringify(await limit.map(new Set(['a','b']), (value,index)=>[value,index])));\" prints `[[\"a\",null],[\"b\",null]]` because undefined indexes stringify as null; expected indexes are 0 and 1.",
+      "confidence": "high"
+    },
+    {
+      "title": "Infinity is rejected as a concurrency value",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "The validator now requires `Number.isInteger(concurrency) && concurrency > 0`, removing the explicit `concurrency === Number.POSITIVE_INFINITY` acceptance path.",
+      "impact": "Existing callers that use `Number.POSITIVE_INFINITY` to disable limiting through the same API now get a TypeError during construction or when assigning `limit.concurrency`. This is a behavior regression for a previously accepted positive concurrency setting.",
+      "evidence": "index.js:127-130 rejects every non-integer, including `Number.POSITIVE_INFINITY`. `git diff -- index.js` shows the previous validator accepted `(Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0` before the current change.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; try { const limit=pLimit(Number.POSITIVE_INFINITY); console.log('created', limit.concurrency); } catch (error) { console.log(error.name + ': ' + error.message); }\" prints `TypeError: Expected `concurrency` to be a number from 1 and up`; previous behavior would create the limiter.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-confirm-20260514T204651Z/lane-prompts/audit-04.md",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-04/p-limit tools",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-04/p-limit run '[trust_selftest, session_handshake, audit]'",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-04/p-limit run '[ingest, session_handshake, audit]'",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-04/p-limit run '[ingest, seek, search activeCount, search clearQueue, search concurrency]'",
+    "nl -ba index.js | sed -n '1,180p'",
+    "nl -ba index.d.ts | sed -n '1,180p'",
+    "nl -ba test.js | sed -n '1,420p'",
+    "nl -ba readme.md | sed -n '35,170p'",
+    "nl -ba package.json | sed -n '1,180p'",
+    "git status --short",
+    "git diff -- index.js",
+    "node --input-type=module -e \"import pLimit,{limitFunction} from './index.js'; const f=limitFunction(async (a,b)=>a+b,{concurrency:1}); console.log(await f(2,3));\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit({concurrency:1}); const running=limit(()=>new Promise(resolve=>setTimeout(resolve,50))); const pending=limit(()=>42); await Promise.resolve(); limit.clearQueue(); try { await pending; console.log('resolved'); } catch (error) { console.log(error.name); } await running;\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit(1); console.log(JSON.stringify(await limit.map(new Set(['a','b']), (value,index)=>[value,index])));\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; try { const limit=pLimit(Number.POSITIVE_INFINITY); console.log('created', limit.concurrency); } catch (error) { console.log(error.name + ': ' + error.message); }\"",
+    "rg -n \"Infinity|POSITIVE_INFINITY|number from 1|concurrency\" test.js readme.md index.d.ts index.test-d.ts",
+    "npm test",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /usr/local/bin/m1nd-mcp --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-04/p-limit run '[ingest, impact file::index.js, validate_plan]'"
+  ],
+  "files_inspected": [
+    "index.js",
+    "index.d.ts",
+    "test.js",
+    "index.test-d.ts",
+    "readme.md",
+    "package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "tools",
+      "result": "Live m1nd surface available with 96 tools via /usr/local/bin/m1nd-mcp."
+    },
+    {
+      "tool": "trust_selftest/session_handshake",
+      "result": "Initial isolated runtime was healthy but returned `needs_ingest`; no wrong_workspace_binding was reported."
+    },
+    {
+      "tool": "ingest/session_handshake",
+      "result": "Ingested the lane repo with --no-worktree-artifacts and --workspace-root set to the lane workspace; post-ingest handshake reported full_trust with 82 nodes and 94 edges."
+    },
+    {
+      "tool": "audit",
+      "result": "Oriented to index.js and the concurrency queue surface. Generic scan output included unrelated runtime-side cargo references, so final claims were verified only against lane source and runtime probes."
+    },
+    {
+      "tool": "seek/search",
+      "result": "Focused retrieval found limitFunction, enqueue, validateConcurrency, activeCount, and clearQueue surfaces. A separate fresh probe returned needs_ingest again because probe_m1nd.py uses isolated runtimes; repeated as a combined ingest+retrieval run."
+    },
+    {
+      "tool": "impact/validate_plan",
+      "result": "impact(file::index.js) linked the edited file to resumeNext, next, run, enqueue, generator, limitFunction, and validateConcurrency; validate_plan suggested missing test coverage for index.js."
+    }
+  ],
+  "temponizer_usage": [],
+  "agent_testimony": "I did not read operator-only artifacts and did not patch the audited repo. I used m1nd first with the specified /usr/local/bin/m1nd-mcp binary and probe_m1nd.py flags, then verified final findings with direct source reads and focused Node runtime probes. `npm test` could not complete because `xo` was not installed in the lane workspace.",
+  "notes": "The lane repo was already dirty (`git status --short` showed `M index.js`) before any audit write; no audited source file was modified by this lane. Result JSON and event JSONL were the only benchmark output paths written.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

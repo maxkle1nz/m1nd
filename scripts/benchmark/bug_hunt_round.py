@@ -261,6 +261,9 @@ def lane_prompt(round_payload, lane):
         "",
         f"Write your final JSON result to `{lane['result']}`.",
         f"Append investigation events to `{lane['events']}` using `event_source=\"agent\"`.",
+        "Every event must include `schema`, `round_id`, `lane_id`, `event_source`, `event_type`, and `created_at`.",
+        "Record at least `audit_started`, one first-discovery event such as `findings_identified`, `focused_probes`, or `runtime_probe`, and `result_written`.",
+        "Use ISO timestamps; do not use `ts` or `event` as substitutes in new rounds.",
         "Use the schema in `lane-result-template.json`.",
         "",
         "Findings should include title, severity, file, symbol, cause, impact, evidence, reproduction_or_test, and confidence.",
@@ -506,6 +509,10 @@ def event_time(event):
     )
 
 
+def event_kind(event):
+    return (event.get("event_type") or event.get("type") or event.get("event") or "").lower()
+
+
 def seconds_between(start, end):
     if start is None or end is None:
         return None
@@ -514,9 +521,15 @@ def seconds_between(start, end):
 
 def event_payload_text(event):
     parts = [
-        str(event.get("event_type") or event.get("type") or ""),
+        event_kind(event),
         str(event.get("title") or ""),
-        str(event.get("detail") or event.get("summary") or ""),
+        str(
+            event.get("detail")
+            or event.get("summary")
+            or event.get("message")
+            or event.get("note")
+            or ""
+        ),
     ]
     for field in ("data", "details"):
         value = event.get(field)
@@ -545,8 +558,7 @@ def summarize_event_timing(events, agent_events, answer_bug_payloads):
     finding_events = [
         (timestamp, event)
         for timestamp, event in timed_agent_events
-        if (event.get("event_type") or event.get("type") or "").lower()
-        in FINDING_EVENT_TYPES
+        if event_kind(event) in FINDING_EVENT_TYPES
     ]
     first_finding_time = min((timestamp for timestamp, _event in finding_events), default=None)
 

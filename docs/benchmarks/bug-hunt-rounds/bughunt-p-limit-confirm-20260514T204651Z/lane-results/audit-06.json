@@ -1,0 +1,112 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-confirm-20260514T204651Z",
+  "lane_id": "audit-06",
+  "instruction_mode": "direct",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-15T10:18:21Z",
+  "finished_at": "2026-05-15T10:19:43Z",
+  "findings": [
+    {
+      "title": "Options-object calls enable rejectOnClear by default",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The options destructuring sets `rejectOnClear = true` when the caller omits the option, while the public API documents the default as `false`.",
+      "impact": "Code using `pLimit({concurrency})` and then calling `clearQueue()` now rejects all pending promises with AbortError instead of silently discarding them. Existing callers that intentionally rely on the documented default can see new promise rejections and failed `Promise.all` flows after a teardown path.",
+      "evidence": "index.js:6-8 destructures `({concurrency, rejectOnClear = true} = concurrency)`. readme.md:46-49 and index.d.ts:99-103 both state `rejectOnClear` default is `false`. Runtime probe: `pLimit({concurrency:1})`, enqueue one running and one pending task, call `clearQueue()`, observe pending outcome `AbortError`.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; const delay=ms=>new Promise(r=>setTimeout(r,ms)); const limit=pLimit({concurrency:1}); const running=limit(()=>delay(25)); const pending=limit(()=>delay(1)); let outcome='pending'; pending.then(()=>{outcome='resolved';}, error=>{outcome=error.name;}); await Promise.resolve(); limit.clearQueue(); await delay(0); console.log(outcome); await running;\" prints `AbortError`; expected the pending promise to remain pending under the documented default.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsey non-boolean rejectOnClear values bypass validation",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "The validation guard checks `rejectOnClear && typeof rejectOnClear !== 'boolean'`, so falsey non-booleans such as `0`, empty string, and `null` are accepted.",
+      "impact": "Runtime accepts invalid option shapes that the TypeScript contract rejects. This can hide caller configuration bugs and creates inconsistent behavior between JavaScript and TypeScript users.",
+      "evidence": "index.js:12 only validates truthy values. index.d.ts:106 types `rejectOnClear?: boolean`, and index.test-d.ts includes `expectError(pLimit({concurrency: 1, rejectOnClear: 'nope'}))`. Runtime probe printed `0:accepted`, `:accepted`, and `null:accepted`.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; for (const value of [0, '', null]) { try { pLimit({concurrency:1, rejectOnClear:value}); console.log(String(value)+':accepted'); } catch (error) { console.log(String(value)+':'+error.name); } }\" should throw TypeError for every non-boolean value.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits the mapper index for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "LimitFunction.map",
+      "cause": "`map` now passes the index only when `Array.isArray(iterable)` is true, even though `Array.from` supplies an index for every iterable.",
+      "impact": "Consumers mapping Sets, array iterators, generators, or other iterables receive `undefined` for the documented `index` parameter. Index-dependent transforms return wrong data while the same mapper works for arrays.",
+      "evidence": "index.js:107-112 computes `iterableIsArray` and passes `undefined` for non-array iterables. readme.md:78-84 and index.d.ts:29-43 state that the mapper receives item value and index and is equivalent to `Array.from(iterable, (item, index) => limit(mapperFunction, item, index))`. Runtime probe over `new Set(['a','b','c'])` printed `[[\"a\",null],[\"b\",null],[\"c\",null]]` because JSON stringifies `undefined` array elements as `null`.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit(2); console.log(JSON.stringify(await limit.map(new Set(['a','b','c']), (value, index) => [value, index])));\" should print indexes `0`, `1`, and `2`, not undefined/null.",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction drops all call arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The wrapper returned by `limitFunction` is now zero-argument and invokes the original function without spreading the caller's arguments.",
+      "impact": "Any limited function that depends on input parameters now receives `undefined` values. This breaks the exported helper's TypeScript signature and typical usage where callers wrap an existing function but still pass per-call arguments.",
+      "evidence": "index.js:124 returns `() => limit(() => function_())`. index.d.ts:133-136 declares the returned function as `(...arguments_: Arguments) => Promise<ReturnType>`. Runtime probe `limitFunction(async value => value, {concurrency:1})('sentinel')` printed `undefined`.",
+      "reproduction_or_test": "node --input-type=module -e \"import {limitFunction} from './index.js'; const limited=limitFunction(async value => value, {concurrency:1}); console.log(JSON.stringify(await limited('sentinel')));\" should print `\"sentinel\"`; it prints `undefined`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Infinity is rejected as a concurrency value",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "The validator now requires `Number.isInteger(concurrency)`, removing the explicit `concurrency === Number.POSITIVE_INFINITY` allowance present in the base implementation.",
+      "impact": "Callers using `pLimit(Infinity)` as an unlimited/no-throttle mode now receive a TypeError, even though the prior implementation accepted it and the error text still describes any number from 1 and up.",
+      "evidence": "`git diff -- index.js` shows the validator changed from `((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)` to `(Number.isInteger(concurrency) && concurrency > 0)`. Runtime probe printed `threw TypeError Expected \\`concurrency\\` to be a number from 1 and up` for `pLimit(Number.POSITIVE_INFINITY)`.",
+      "reproduction_or_test": "node --input-type=module -e \"import pLimit from './index.js'; try { const limit=pLimit(Number.POSITIVE_INFINITY); console.log('accepted', limit.concurrency); } catch (error) { console.log('threw', error.name, error.message); }\" should accept Infinity if preserving the base contract.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-confirm-20260514T204651Z/lane-prompts/audit-06.md",
+    "printf audit_started event >> /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-confirm-20260514T204651Z/event-streams/audit-06.jsonl",
+    "pwd",
+    "rg --files",
+    "git status --short",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-confirm-20260514T204651Z/lane-result-template.json",
+    "git diff -- index.js",
+    "sed -n '1,260p' index.js",
+    "sed -n '1,260p' test.js",
+    "sed -n '1,220p' package.json",
+    "sed -n '220,520p' test.js",
+    "sed -n '1,260p' index.d.ts",
+    "sed -n '1,260p' index.test-d.ts",
+    "sed -n '1,320p' readme.md",
+    "npm test",
+    "test -d node_modules && find node_modules -maxdepth 2 -type d | sed -n '1,40p' || true",
+    "nl -ba index.js | sed -n '1,180p'",
+    "nl -ba index.d.ts | sed -n '1,180p'",
+    "nl -ba readme.md | sed -n '20,140p'",
+    "node --input-type=module -e \"import pLimit from './index.js'; const delay=ms=>new Promise(r=>setTimeout(r,ms)); const limit=pLimit({concurrency:1}); const running=limit(()=>delay(25)); const pending=limit(()=>delay(1)); let outcome='pending'; pending.then(()=>{outcome='resolved';}, error=>{outcome=error.name;}); await Promise.resolve(); limit.clearQueue(); await delay(0); console.log(outcome); await running;\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; for (const value of [0, '', null]) { try { pLimit({concurrency:1, rejectOnClear:value}); console.log(String(value)+':accepted'); } catch (error) { console.log(String(value)+':'+error.name); } }\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit(2); console.log(JSON.stringify(await limit.map(new Set(['a','b','c']), (value, index) => [value, index])));\"",
+    "node --input-type=module -e \"import {limitFunction} from './index.js'; const limited=limitFunction(async value => value, {concurrency:1}); console.log(JSON.stringify(await limited('sentinel')));\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; try { const limit=pLimit(Number.POSITIVE_INFINITY); console.log('accepted', limit.concurrency); } catch (error) { console.log('threw', error.name, error.message); }\"",
+    "printf findings_identified event >> /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-confirm-20260514T204651Z/event-streams/audit-06.jsonl"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-confirm-20260514T204651Z/lane-prompts/audit-06.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-confirm-20260514T204651Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-06/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-06/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-06/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-06/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-06/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-confirm-20260514T204651Z/audit-06/p-limit/package.json"
+  ],
+  "m1nd_usage": [],
+  "temponizer_usage": [],
+  "agent_testimony": "Direct Mode audit only. I did not use m1nd tools, m1nd helper scripts, or operator-only artifacts. I did not patch the audited repository. The only writes were the required lane result JSON and event JSONL.",
+  "notes": "The full npm test suite could not run because dev dependencies are absent in this workspace (`xo: command not found`). Runtime probes were run with the available installed runtime dependency `yocto-queue`.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

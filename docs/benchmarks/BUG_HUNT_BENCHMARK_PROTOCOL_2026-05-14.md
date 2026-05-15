@@ -20,6 +20,19 @@ The accepted `humanize` round showed a clear internal signal:
 That result is not public benchmark copy. It is product evidence that the agent
 pack is part of m1nd.
 
+The p-limit confirmation round showed the opposite pressure on a tiny,
+localized fixture:
+
+- `direct`: `10/10`, `100.0%`, median wall-clock `119.208s`
+- `m1nd-trained`: `9/10`, `90.0%`, median wall-clock `176.5s`
+- `m1nd-temponizer-compact`: `8/10`, `80.0%`, median wall-clock `192.5s`
+
+Treat this as a design signal, not a contradiction to hide. m1nd's advantage
+should grow when structural context, continuity, docs/code binding, impact
+analysis, or multi-file reasoning matter. On small local bugs, the agent pack
+needs a short-audit route: make one scoped trust/ingest/orientation pass, then
+move quickly to direct source reads and runtime probes.
+
 ## Instruction Modes
 
 `m1nd-full-spec` means the agent receives the full m1nd operating layer:
@@ -76,6 +89,15 @@ improving telemetry.
 Future reports must keep these modes separate. "m1nd installed" is not the same
 experimental condition as "m1nd trained", and "Temponizer formula present" is
 not the same condition as "Temponizer integrated ergonomically".
+
+For small bug-hunt fixtures, agents should record whether m1nd was used as:
+
+- `short_audit_orientation`: bounded trust/ingest/orientation, then direct proof.
+- `deep_structural_investigation`: graph navigation remains central after the first map.
+- `recovery_overhead`: m1nd state repair consumed meaningful time before findings.
+
+This distinction prevents a tiny-repo result from being overread as a global
+m1nd quality score.
 
 ## Create A Round
 
