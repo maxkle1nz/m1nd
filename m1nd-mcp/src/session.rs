@@ -1712,7 +1712,9 @@ mod tests {
         assert!(!workspace.join("ingest_roots.json").exists());
         let persisted = std::fs::read_to_string(runtime.join("ingest_roots.json"))
             .expect("persisted ingest roots");
-        assert!(persisted.contains(&workspace.to_string_lossy().to_string()));
+        let persisted_roots: Vec<String> =
+            serde_json::from_str(&persisted).expect("persisted ingest roots json");
+        assert!(persisted_roots.contains(&workspace.to_string_lossy().to_string()));
     }
 
     #[test]
