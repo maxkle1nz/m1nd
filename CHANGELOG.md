@@ -10,6 +10,27 @@ No unreleased changes.
 
 ---
 
+## [0.9.0-beta.5] — 2026-05-16
+
+### Added
+
+- Added `probe_m1nd.py short-audit`, a bounded helper that lets agents run a
+  compact, file-backed orientation pass for real-world repo audits without
+  treating it as final proof.
+
+### Changed
+
+- Updated the m1nd agent doctrine and benchmark guidance so m1nd-first agents
+  learn the short-audit route, compare graph evidence against local truth, and
+  preserve explicit non-claims around host rebinds and graph correctness.
+
+### Fixed
+
+- Fixed persisted ingest-root parsing on Windows by decoding JSON paths instead
+  of reconstructing strings by hand.
+
+---
+
 ## [0.9.0-beta.4] — 2026-05-12
 
 ### Added

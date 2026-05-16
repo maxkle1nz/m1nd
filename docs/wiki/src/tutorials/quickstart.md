@@ -35,7 +35,7 @@ cp ./target/release/m1nd-mcp /usr/local/bin/
 ### 2. Install from crates.io
 
 ```bash
-cargo install m1nd-mcp --version 0.9.0-beta.4
+cargo install m1nd-mcp --version 0.9.0-beta.5
 ```
 
 ### 3. Download a release binary
