@@ -219,6 +219,9 @@ python3 scripts/benchmark/bug_hunt_round.py init \
   --source-repo .m1nd-benchmark-fixtures/bug-hunt/your-fixture-source \
   --seeded-repo .m1nd-benchmark-fixtures/bug-hunt/round-001/your-fixture-seeded \
   --seeded-bug-count 5 \
+  --lanes-mission-control 2 \
+  --lanes-trained 2 \
+  --lanes-direct 2 \
   --json
 ```
 

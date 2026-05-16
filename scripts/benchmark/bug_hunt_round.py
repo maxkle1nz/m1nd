@@ -44,6 +44,7 @@ VALID_INSTRUCTION_MODES = (
     "m1nd-temponizer-compact",
     "m1nd-temponizer",
     "m1nd-short-audit",
+    "m1nd-mission-control",
     "m1nd-trained",
     "m1nd-basic",
     "direct",
@@ -85,6 +86,7 @@ def lane_plan(
     temponizer_compact_count=0,
     temponizer_count=0,
     short_audit_count=0,
+    mission_control_count=0,
     trained_count=3,
     basic_count=3,
     direct_count=3,
@@ -100,6 +102,8 @@ def lane_plan(
         lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-temponizer"})
     for index in range(1, short_audit_count + 1):
         lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-short-audit"})
+    for index in range(1, mission_control_count + 1):
+        lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-mission-control"})
     for index in range(1, trained_count + 1):
         lanes.append({"lane_id": f"audit-{len(lanes) + 1:02d}", "instruction_mode": "m1nd-trained"})
     for index in range(1, basic_count + 1):
@@ -247,6 +251,27 @@ def lane_prompt(round_payload, lane):
             "8. Record m1nd calls, recovery path, files inspected, commands run, direct probes, fallback reason, and where short-audit helped or hurt.",
             "",
         ]
+    elif lane["instruction_mode"] == "m1nd-mission-control":
+        mode = [
+            "## m1nd Mission Control Mode",
+            "",
+            "Use Mission Control v0 as the operating loop for this audit.",
+            "Mission Control is not a replacement for source reads, tests, compiler output, or runtime proof.",
+            "",
+            "Required operating loop:",
+            "",
+            "1. Establish trust with `trust_selftest`, or `session_handshake` scoped to this repo.",
+            "2. If mission tools are not visible in this host, record `mission_control_unavailable=true`, fall back to the `m1nd-trained` loop, and do not fake mission calls.",
+            "3. Start a repo-scoped mission with `mission_start`: `agent_id=<lane_id>`, `repo=<workspace>`, `task=\"bug-hunt audit for behavioral defects\"`, `mode=\"bug_hunt\"`, `budget=\"normal\"`, and `risk=\"medium\"`.",
+            "4. Take the starter move, then call `mission_next` after each meaningful action with a concise `last_event` summary.",
+            "5. Treat `do_not` entries from `mission_next` as guardrails. If you disagree, record a dissent event explaining the chosen tool and required evidence.",
+            "6. When `mission_next` switches to direct proof, stop graph exploration and use direct source reads, rg, tests, compiler output, or focused runtime probes.",
+            "7. Call `mission_verify` before finalizing material findings. If a claim is rejected or needs evidence, gather that evidence or lower the confidence.",
+            "8. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, and proof-packet summary.",
+            "9. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
+            "10. Record `mission_id`, mission route, `mission_next` decisions, `do_not` guardrails, verified/rejected claims, direct-proof switches, files inspected, commands run, and proof-packet summary in `m1nd_usage` or notes.",
+            "",
+        ]
     elif lane["instruction_mode"] == "m1nd-trained":
         mode = [
             "## m1nd-Trained Operating Loop",
@@ -356,6 +381,7 @@ def init_round(args):
         args.lanes_temponizer_compact,
         args.lanes_temponizer,
         args.lanes_short_audit,
+        args.lanes_mission_control,
         args.lanes_trained,
         args.lanes_basic,
         args.lanes_direct,
@@ -867,6 +893,7 @@ def main():
     init_parser.add_argument("--lanes-temponizer-compact", type=int, default=0)
     init_parser.add_argument("--lanes-temponizer", type=int, default=0)
     init_parser.add_argument("--lanes-short-audit", type=int, default=0)
+    init_parser.add_argument("--lanes-mission-control", type=int, default=0)
     init_parser.add_argument("--lanes-trained", type=int, default=3)
     init_parser.add_argument("--lanes-basic", type=int, default=3)
     init_parser.add_argument("--lanes-direct", type=int, default=3)
