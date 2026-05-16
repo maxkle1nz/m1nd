@@ -101,6 +101,10 @@ Memory and learning:
 - `learn`, `drift`, `trail_save`, `trail_resume`, `trail_list`,
   `trail_merge`, `persist`, `boot_memory`
 
+Mission control:
+
+- `mission_start`, `mission_next`, `mission_verify`, `mission_close`
+
 Stateful navigation:
 
 - `perspective_start`, `perspective_routes`, `perspective_inspect`,
@@ -146,6 +150,18 @@ Tiny localized audit:
 - then stop graph exploration and prove with direct files, git diff, tests,
   compiler/runtime output, and focused probes
 - record `short_audit_orientation` or `recovery_overhead`
+
+Broad review, bug hunt, refactor, or proof-sensitive investigation:
+
+- start with `mission_start` so repo, task, mode, budget, risk, and non-claims
+  are explicit
+- use `mission_next` after meaningful events so the runtime can stop loops and
+  issue `do_not` guardrails
+- when `mission_next` switches to direct proof, stop graph calls unless a
+  dissent event justifies the deviation
+- call `mission_verify` before finalizing any material claim
+- close with `mission_close` so the result carries verified claims, rejected
+  claims, gaps, and non-claims
 
 Exact text:
 
@@ -482,6 +498,8 @@ the task through the best tool combination, not only the compact trained loop.
 It should be compared separately from:
 
 - `m1nd-basic`: graph available, no doctrine
+- `m1nd-mission-control`: trained loop expressed as mission state, next-move
+  guardrails, claim verification, and proof packets
 - `m1nd-short-audit`: bounded orientation plus direct proof for tiny/localized tasks
 - `m1nd-trained`: compact doctrine
 - `m1nd-temponizer-compact`: compact doctrine plus temporal recalibration

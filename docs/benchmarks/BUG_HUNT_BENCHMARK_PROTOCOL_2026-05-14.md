@@ -90,6 +90,13 @@ to direct source reads, git diff, focused runtime probes, tests, or compiler
 output. This mode exists because the p-limit confirmation round showed that
 tiny localized tasks can be hurt by m1nd recovery/orientation overhead.
 
+`m1nd-mission-control` means the agent uses the trained loop through
+`mission_start`, `mission_next`, `mission_verify`, and `mission_close`. This
+condition tests the runtime operating layer: budget envelope, one-next-move
+routing, `do_not` guardrails, graph-to-direct-proof switching, and proof packet
+closure. It must be reported separately from `m1nd-trained` until repeated
+rounds prove whether MC0 improves recall, speed, variance, or evidence quality.
+
 `m1nd-trained` means the agent receives the shipped trained-agent loop:
 
 1. trust check scoped to the repo

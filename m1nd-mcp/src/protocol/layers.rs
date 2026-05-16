@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 // =========================================================================
 // L1: Cross-File Edges — New Edge Types (no new MCP tools, ingest-only)
@@ -2761,6 +2762,70 @@ pub struct DiagramOutput {
 }
 
 // =========================================================================
+// Mission Control v0 — Agent operating loop contract
+// =========================================================================
+
+fn default_mission_mode() -> String {
+    "review".to_string()
+}
+fn default_mission_budget() -> String {
+    "normal".to_string()
+}
+fn default_mission_risk() -> String {
+    "medium".to_string()
+}
+
+/// Input for mission_start — create a bounded, repo-scoped mission contract.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MissionStartInput {
+    pub agent_id: String,
+    pub repo: String,
+    pub task: String,
+    #[serde(default = "default_mission_mode")]
+    pub mode: String,
+    #[serde(default = "default_mission_budget")]
+    pub budget: String,
+    #[serde(default = "default_mission_risk")]
+    pub risk: String,
+    #[serde(default)]
+    pub parent_mission_id: Option<String>,
+}
+
+/// Input for mission_next — append the last observed event and return one next move.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MissionNextInput {
+    pub agent_id: String,
+    pub mission_id: String,
+    #[serde(default)]
+    pub last_event: Option<Value>,
+}
+
+/// Input for mission_verify — test whether a claim has enough direct evidence.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MissionVerifyInput {
+    pub agent_id: String,
+    pub mission_id: String,
+    pub claim: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+}
+
+/// Input for mission_close — emit a proof packet and close the mission.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MissionCloseInput {
+    pub agent_id: String,
+    pub mission_id: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub non_claims: Vec<String>,
+    #[serde(default)]
+    pub gaps: Vec<String>,
+}
+
+// =========================================================================
 // Tests
 // =========================================================================
 
@@ -3011,5 +3076,30 @@ mod tests {
         let input: ApplyInput = serde_json::from_str(json).unwrap();
         assert!(!input.include_predictions);
         assert!(input.fail_on_stale); // default still true
+    }
+
+    #[test]
+    fn mission_start_input_defaults() {
+        let json = r#"{
+            "agent_id": "jimi",
+            "repo": "/tmp/project",
+            "task": "audit auth/session boundary"
+        }"#;
+        let input: MissionStartInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.mode, "review");
+        assert_eq!(input.budget, "normal");
+        assert_eq!(input.risk, "medium");
+    }
+
+    #[test]
+    fn mission_next_input_accepts_event_payload() {
+        let json = r#"{
+            "agent_id": "jimi",
+            "mission_id": "msn_123_jimi",
+            "last_event": {"event": "file_read", "path": "src/auth.rs"}
+        }"#;
+        let input: MissionNextInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.mission_id, "msn_123_jimi");
+        assert!(input.last_event.is_some());
     }
 }

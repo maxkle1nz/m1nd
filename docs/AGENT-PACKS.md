@@ -78,6 +78,15 @@ portable pack therefore teaches every host this default sequence:
 That loop is what `m1nd-trained` means in benchmark artifacts. It is part of
 the agent pack contract.
 
+When the live runtime exposes Mission Control v0, broad reviews, bug hunts, and
+risky refactors can make the trained loop explicit with four tools:
+`mission_start`, `mission_next`, `mission_verify`, and `mission_close`.
+`mission_start` creates a repo-scoped route and budget; `mission_next` gives one
+move plus `do_not` guardrails; `mission_verify` rejects graph-only claims; and
+`mission_close` emits a proof packet with verified claims, rejected claims,
+gaps, and non-claims. This is an operating-loop contract, not proof that the
+host was rebound, the graph was repaired, or retrieval became correct.
+
 For tiny repos, narrow reviews, or localized bug hunts, agents should use the
 short-audit route instead of turning m1nd into a long investigation. Establish
 trust, run one bounded recovery/ingest pass if needed, make one or two cheap

@@ -4,6 +4,7 @@ use crate::auto_ingest;
 use crate::help_guidance;
 use crate::instance_registry::InstanceHandle;
 use crate::layer_handlers;
+use crate::mission_handlers;
 use crate::personality;
 use crate::protocol::layers;
 use crate::protocol::*;
@@ -1627,6 +1628,99 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             {
+                "name": "mission_start",
+                "description": "Start a bounded agent mission with route, budget envelope, starter moves, and non-claims.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "repo": { "type": "string", "description": "Absolute or host-resolved repository path this mission is scoped to" },
+                        "task": { "type": "string", "description": "Mission task in plain language" },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["bug_hunt", "review", "refactor", "docs_drift", "architecture", "release"],
+                            "default": "review",
+                            "description": "Mission mode"
+                        },
+                        "budget": {
+                            "type": "string",
+                            "enum": ["short", "normal", "deep"],
+                            "default": "normal",
+                            "description": "Mission budget envelope"
+                        },
+                        "risk": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                            "default": "medium",
+                            "description": "Risk level for routing"
+                        },
+                        "parent_mission_id": { "type": "string", "description": "Optional parent mission id for handoff or sub-mission tracking" }
+                    },
+                    "required": ["agent_id", "repo", "task"]
+                }
+            },
+            {
+                "name": "mission_next",
+                "description": "Append the latest mission event and return exactly one recommended next move plus do-not guardrails.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "mission_id": { "type": "string", "description": "Mission id returned by mission_start" },
+                        "last_event": {
+                            "type": "object",
+                            "description": "Optional event from the action just taken, such as graph_query, file_read, test_run, or dissent"
+                        }
+                    },
+                    "required": ["agent_id", "mission_id"]
+                }
+            },
+            {
+                "name": "mission_verify",
+                "description": "Verify whether a mission claim has enough direct evidence; graph-only evidence is rejected.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "mission_id": { "type": "string", "description": "Mission id returned by mission_start" },
+                        "claim": { "type": "string", "description": "Candidate conclusion to validate" },
+                        "evidence_refs": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "default": [],
+                            "description": "Evidence references such as file_read:path:line, test_run:name, compiler:error, or runtime_probe:id"
+                        },
+                        "confidence": { "type": "number", "description": "Optional agent confidence before verification" }
+                    },
+                    "required": ["agent_id", "mission_id", "claim"]
+                }
+            },
+            {
+                "name": "mission_close",
+                "description": "Close a mission with a proof packet containing verified claims, rejected claims, events, gaps, and non-claims.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "mission_id": { "type": "string", "description": "Mission id returned by mission_start" },
+                        "summary": { "type": "string", "description": "Optional concise mission summary" },
+                        "non_claims": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "default": [],
+                            "description": "Extra non-claims to preserve in the proof packet"
+                        },
+                        "gaps": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "default": [],
+                            "description": "Known remaining gaps"
+                        }
+                    },
+                    "required": ["agent_id", "mission_id"]
+                }
+            },
+            {
                 "name": "report",
                 "description": "Session intelligence report: queries, bugs, graph evolution, and estimated savings.",
                 "inputSchema": {
@@ -1877,7 +1971,15 @@ pub fn dispatch_tool(
         })
         .to_string();
 
-    if !matches!(normalized.as_str(), "recovery_playbook" | "trust_selftest") {
+    if !matches!(
+        normalized.as_str(),
+        "recovery_playbook"
+            | "trust_selftest"
+            | "mission_start"
+            | "mission_next"
+            | "mission_verify"
+            | "mission_close"
+    ) {
         auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
     }
 
@@ -1922,6 +2024,10 @@ pub fn dispatch_tool(
                 | "recovery_playbook"
                 | "doctor"
                 | "help"
+                | "mission_start"
+                | "mission_next"
+                | "mission_verify"
+                | "mission_close"
                 | "savings"
                 | "report"
         ) {
@@ -2076,6 +2182,26 @@ fn dispatch_core_tool(
             let input: DoctorInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             tools::handle_doctor(state, input)
+        }
+        "mission_start" => {
+            let input: layers::MissionStartInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            mission_handlers::handle_mission_start(state, input)
+        }
+        "mission_next" => {
+            let input: layers::MissionNextInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            mission_handlers::handle_mission_next(state, input)
+        }
+        "mission_verify" => {
+            let input: layers::MissionVerifyInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            mission_handlers::handle_mission_verify(state, input)
+        }
+        "mission_close" => {
+            let input: layers::MissionCloseInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            mission_handlers::handle_mission_close(state, input)
         }
         // L2-L7: Superpowers layer tools
         "seek" => {
@@ -2471,6 +2597,10 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
             | "session_handshake"
             | "trust_selftest"
             | "recovery_playbook"
+            | "mission_start"
+            | "mission_next"
+            | "mission_verify"
+            | "mission_close"
     )
 }
 
@@ -3335,6 +3465,10 @@ mod tests {
             "daemon_tick",
             "alerts_list",
             "alerts_ack",
+            "mission_start",
+            "mission_next",
+            "mission_verify",
+            "mission_close",
         ] {
             assert!(
                 names.iter().any(|name| name == expected),
@@ -3355,6 +3489,10 @@ mod tests {
             "session_handshake",
             "trust_selftest",
             "recovery_playbook",
+            "mission_start",
+            "mission_next",
+            "mission_verify",
+            "mission_close",
         ] {
             assert!(
                 !should_autotick_daemon(skipped),
@@ -3363,6 +3501,111 @@ mod tests {
         }
         assert!(should_autotick_daemon("search"));
         assert!(should_autotick_daemon("apply"));
+    }
+
+    #[test]
+    fn mission_control_records_guardrails_and_proof_packet() {
+        let (_temp, mut state) = build_state();
+
+        let start = super::dispatch_tool(
+            &mut state,
+            "mission_start",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "repo": "/tmp/project",
+                "task": "audit auth/session boundary",
+                "mode": "review",
+                "budget": "short",
+                "risk": "medium"
+            }),
+        )
+        .expect("mission_start");
+        assert_eq!(start["schema"], "m1nd-mission-start-v0");
+        let mission_id = start["mission_id"]
+            .as_str()
+            .expect("mission id")
+            .to_string();
+        assert!(
+            state
+                .runtime_root
+                .join("mission-control")
+                .join(format!("{mission_id}.json"))
+                .exists(),
+            "mission_start should persist mission state under runtime_root"
+        );
+
+        let next = super::dispatch_tool(
+            &mut state,
+            "mission_next",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "mission_id": mission_id,
+                "last_event": {
+                    "event": "graph_query",
+                    "tool": "seek",
+                    "outcome": "inconclusive"
+                }
+            }),
+        )
+        .expect("mission_next");
+        assert_eq!(next["schema"], "m1nd-mission-next-v0");
+        assert_eq!(next["move"]["type"], "read_file");
+        assert!(next["do_not"]
+            .as_array()
+            .expect("do_not")
+            .iter()
+            .any(|value| value == "seek"));
+
+        let graph_only = super::dispatch_tool(
+            &mut state,
+            "mission_verify",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "mission_id": mission_id,
+                "claim": "logout clears session",
+                "evidence_refs": ["seek:auth flow"]
+            }),
+        )
+        .expect("mission_verify graph-only");
+        assert_eq!(graph_only["verdict"], "insufficient_evidence");
+        assert_eq!(graph_only["evidence_grade"], "graph_only");
+
+        let direct = super::dispatch_tool(
+            &mut state,
+            "mission_verify",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "mission_id": mission_id,
+                "claim": "logout route clears the session cookie",
+                "evidence_refs": ["file_read:src/auth.rs:42"]
+            }),
+        )
+        .expect("mission_verify direct");
+        assert_eq!(direct["verdict"], "verified_for_mission");
+        assert_eq!(direct["evidence_grade"], "direct");
+
+        let close = super::dispatch_tool(
+            &mut state,
+            "mission_close",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "mission_id": mission_id,
+                "summary": "checked the auth/session boundary",
+                "gaps": ["did not run browser smoke"]
+            }),
+        )
+        .expect("mission_close");
+        assert_eq!(close["schema"], "m1nd-mission-proof-packet-v0");
+        assert_eq!(close["verified_claims"].as_array().unwrap().len(), 1);
+        assert_eq!(close["rejected_claims"].as_array().unwrap().len(), 1);
+        assert!(close["non_claims"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value
+                .as_str()
+                .unwrap_or("")
+                .contains("does not prove graph contents")));
     }
 
     #[test]

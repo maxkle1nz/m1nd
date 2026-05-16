@@ -64,6 +64,27 @@ this loop by default:
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
 
+## Mission Control v0
+
+If the live runtime exposes `mission_start`, use Mission Control for broad
+reviews, bug hunts, risky refactors, releases, or any task where the agent may
+loop, drift phases, or over-trust graph evidence.
+
+Minimal loop:
+
+1. Call `mission_start` with `agent_id`, `repo`, `task`, `mode`, `budget`, and
+   `risk`.
+2. Use the starter move, then call `mission_next` with the last meaningful
+   event.
+3. Treat `do_not` as a guardrail. If you disagree, record a dissent event.
+4. Before final output, call `mission_verify` for each material claim.
+5. Close with `mission_close`, including gaps and non-claims.
+
+Mission Control is not a replacement for source reads, tests,
+compiler/runtime output, recovery tools, or host rebind. Its key value is
+forcing the switch from graph orientation to direct proof when the graph has
+done enough.
+
 ## Short-Audit Route
 
 For tiny repos, localized bug hunts, or narrow reviews, use m1nd as a bounded
@@ -120,6 +141,8 @@ situation.
   `surgical_context_v2`
 - Docs/specs -> `ingest` with `adapter="universal"` or `adapter="light"`, then
   document binding/drift tools
+- Mission loop -> `mission_start`, then `mission_next`, `mission_verify`,
+  `mission_close`
 
 ## Recovery Rules
 

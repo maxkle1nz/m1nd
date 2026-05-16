@@ -191,6 +191,10 @@ Instruction modes:
 - `m1nd-trained`: the agent receives the default trained-agent loop from the
   m1nd pack: trust check, recovery before absence, scoped orientation,
   retrieval-envelope reading, direct proof, and evidence logging.
+- `m1nd-mission-control`: the agent uses the trained loop through
+  `mission_start`, `mission_next`, `mission_verify`, and `mission_close`. This
+  measures whether runtime mission state, `do_not` guardrails, graph-to-direct
+  proof switching, and proof packets improve evidence quality or reduce loops.
 - `m1nd-basic`: the agent knows m1nd is available but does not receive the full
   operating loop.
 - `direct`: the agent does not use m1nd and relies on direct repo tools.

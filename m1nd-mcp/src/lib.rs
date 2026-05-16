@@ -17,6 +17,7 @@ pub mod engine_ops;
 pub mod instance_registry;
 pub mod layer_handlers;
 pub mod lock_handlers;
+pub mod mission_handlers;
 pub mod persist_handlers;
 pub mod perspective;
 pub mod perspective_handlers;

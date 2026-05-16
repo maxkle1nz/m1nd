@@ -47,6 +47,30 @@ measured high-signal pattern is:
 Internal bug-hunt rounds call this `m1nd-trained`: graph plus operating
 doctrine. A visible MCP surface without this loop is only `m1nd-basic`.
 
+## Mission Control v0
+
+Use Mission Control when the task needs an agent operating loop rather than
+another retrieval call: broad reviews, bug hunts, refactors, release checks, or
+long investigations where agents may repeat searches, drift phases, or turn
+graph hints into premature conclusions.
+
+The v0 loop is deliberately small:
+
+1. `mission_start` creates the repo-scoped mission, route, budget envelope,
+   starter moves, and non-claims.
+2. `mission_next` appends the last event and returns one recommended move plus
+   `do_not` guardrails.
+3. `mission_verify` treats a conclusion as a candidate claim. Graph-only or
+   inferred evidence is not enough; source reads, tests, compiler/runtime
+   output, or focused probes are required.
+4. `mission_close` emits the proof packet: verified claims, rejected claims,
+   tools observed, budget consumed, gaps, and non-claims.
+
+Operational rule: when `mission_next` says to switch to direct proof, stop
+spending graph budget unless you record a dissent event. Mission Control is not
+a host repair tool, graph correctness proof, or autonomous multi-agent
+orchestrator.
+
 ## Short-Audit Route
 
 Use `m1nd-short-audit` when the task is a small or localized bug hunt, a narrow

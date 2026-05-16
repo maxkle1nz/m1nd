@@ -62,6 +62,21 @@ Rules:
 - `trail_*` is for full investigative continuity.
 - `boot_memory` is for tiny durable facts, not full reasoning trails.
 
+## Mission Control And Proof Packets
+
+- `mission_start`: create a repo-scoped mission with route, budget envelope,
+  starter moves, and non-claims.
+- `mission_next`: append the last event and get exactly one next move plus
+  `do_not` guardrails.
+- `mission_verify`: reject claims that only have graph/inferred evidence and
+  require direct source, test, compiler/runtime, or probe evidence.
+- `mission_close`: emit a proof packet with verified claims, rejected claims,
+  tools observed, gaps, budget consumption, and non-claims.
+
+Use this family when the problem is not "which file?" but "how should the
+agent stay on mission and know when to stop using the graph?" It does not
+repair host bindings, refresh cached MCP tool lists, or prove graph contents.
+
 ## Stateful Navigation
 
 - `perspective_start`: create a navigable route surface from a query.
@@ -151,7 +166,9 @@ Use these when basic retrieval and blast-radius work are no longer enough.
 
 ## Current Live Surface On This Machine
 
-As validated on 2026-04-20 through the installed local binary, `tools/list` returned 92 canonical tool names:
+The live surface changes with each beta. Prefer `tools/list` or
+`python3 skills/m1nd-operator/scripts/probe_m1nd.py tools` for exact counts.
+Recent source builds include these canonical families:
 
 - `activate`, `impact`, `missing`, `why`, `warmup`, `counterfactual`, `predict`, `fingerprint`, `drift`, `learn`
 - `ingest`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`
@@ -166,3 +183,4 @@ As validated on 2026-04-20 through the installed local binary, `tools/list` retu
 - `search`, `glob`, `scan_all`, `cross_verify`, `coverage_session`, `external_references`, `federate_auto`, `help`, `report`, `audit`
 - `daemon_start`, `daemon_stop`, `daemon_status`, `daemon_tick`, `alerts_list`, `alerts_ack`
 - `panoramic`, `savings`, `persist`, `boot_memory`, `metrics`, `type_trace`, `diagram`
+- `mission_start`, `mission_next`, `mission_verify`, `mission_close`

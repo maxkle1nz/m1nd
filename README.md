@@ -160,6 +160,7 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 | Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
 | Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
 | Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
+| Mission control and proof discipline | keep an audit/review/refactor on a bounded route, switch from graph orientation to direct proof, and close with explicit gaps | `mission_start`, `mission_next`, `mission_verify`, `mission_close` |
 | Change planning and proof | reason about impact, co-change, missing steps, failure paths, and structural claims | `impact`, `predict`, `validate_plan`, `missing`, `hypothesize`, `counterfactual`, `differential` |
 | Quality, security, and architecture | detect patterns, taint paths, trust boundaries, duplication, layer violations, type flows, simulations, and refactor targets | `scan`, `scan_all`, `heuristics_surface`, `antibody_*`, `taint_trace`, `type_trace`, `trust`, `layers`, `layer_inspect`, `twins`, `fingerprint`, `flow_simulate`, `epidemic`, `tremor`, `refactor_plan` |
 | Time, runtime, and multi-repo work | inspect git history, drift, hidden co-change edges, runtime overlays, and cross-repo references | `timeline`, `diverge`, `ghost_edges`, `runtime_overlay`, `external_references`, `federate`, `federate_auto` |
@@ -377,6 +378,14 @@ The trained loop that ships in the pack is:
 7. use `impact`, `validate_plan`, and `surgical_context_v2` before risky edits or reviews
 8. record tool calls, recovery paths, files inspected, commands run, and fallback reasons
 
+When the live runtime exposes Mission Control v0, broad reviews, bug hunts, and
+risky refactors can wrap that same loop in a mission contract:
+`mission_start` creates route and budget, `mission_next` emits one next move
+plus `do_not` guardrails, `mission_verify` rejects graph-only claims, and
+`mission_close` writes a proof packet with gaps and non-claims. MC0 is a
+bounded operating loop, not a claim that m1nd fixed graph correctness or
+refreshed the active host.
+
 This loop is included in `m1nd-first`, `m1nd-operator`, and the universal
 agent pack for non-Codex hosts.
 
@@ -439,6 +448,7 @@ runtime error or trace    -> `trace`
 risky change              -> `impact`, `predict`, `validate_plan`, then usually `surgical_context_v2`
 docs or specs             -> `ingest` with `universal` or `light`, then `document_*`
 long-lived investigation  -> `perspective_*`, `trail_*`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`
+bounded audit/review loop  -> `mission_start`, then `mission_next`, `mission_verify`, `mission_close`
 unsure what to call       -> `help(stage=..., intent=...)` or `help(error_text="...")`
 ```
 

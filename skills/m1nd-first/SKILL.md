@@ -50,6 +50,27 @@ this loop by default:
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.
 
+## Mission Control v0
+
+When the live runtime exposes `mission_start`, use Mission Control for broad
+reviews, bug hunts, risky refactors, or any task where agents tend to loop,
+over-trust graph evidence, or lose phase discipline.
+
+Minimal mission loop:
+
+1. `mission_start` with the intended repo, task, mode, budget, and risk.
+2. Take the starter move or ask `mission_next` for exactly one next move.
+3. Feed each meaningful action back as `last_event`.
+4. Obey `do_not` unless you record a dissent event with a concrete reason.
+5. Use `mission_verify` before turning a conclusion into final output.
+6. Use `mission_close` to produce a proof packet with verified claims, rejected
+   claims, gaps, budget use, and non-claims.
+
+Mission Control does not replace source reads, tests, compiler/runtime output,
+or host recovery. Its most important behavior is
+`switch_to_direct_proof`: after graph orientation, it can tell you to stop
+calling `seek`/`activate` and prove the claim directly.
+
 ## Short-Audit Route
 
 Use the short-audit route when the repo or suspected surface is small,
