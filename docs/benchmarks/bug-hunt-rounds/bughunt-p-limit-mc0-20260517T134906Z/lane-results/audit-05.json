@@ -1,0 +1,151 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc0-20260517T134906Z",
+  "lane_id": "audit-05",
+  "instruction_mode": "m1nd-trained",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-17T13:50:58Z",
+  "finished_at": "2026-05-17T13:57:34Z",
+  "findings": [
+    {
+      "title": "Options object flips the documented clearQueue rejection default",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit options / rejectOnClear",
+      "cause": "The options destructuring uses `rejectOnClear = true` when callers pass an object, while the public docs and types state the default is false. `clearQueue()` then rejects every pending item whenever that unintended truthy default is active.",
+      "impact": "Code that upgrades to the options form, for example `pLimit({concurrency: 1})`, gets AbortError rejections from pending tasks on `clearQueue()` even though the documented default should only discard the queue. This can turn teardown paths into unexpected rejections or failed Promise.all calls.",
+      "evidence": "`index.js:4-8` initializes `rejectOnClear` to false but changes the object default to true; `index.js:77-88` rejects queued promises when it is truthy. `index.d.ts:99-106` and `readme.md:46-52` document `Default: false`.",
+      "reproduction_or_test": "`node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit({concurrency:1}); const p1=limit(()=>new Promise(()=>{})); const p2=limit(()=>Promise.resolve('never')); await Promise.resolve(); limit.clearQueue(); const outcome=await Promise.race([p2.then(()=> 'resolved', error => error?.name || 'rejected'), Promise.resolve().then(()=>Promise.resolve()).then(()=> 'pending')]); if (outcome !== 'pending') throw new Error('default clearQueue should leave pending promise pending, got '+outcome); void p1;\"` fails with `got AbortError`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass validation",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit options / rejectOnClear validation",
+      "cause": "The type guard is conditional on the value being truthy: `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`. Falsy non-booleans such as `0`, `''`, or `null` are accepted.",
+      "impact": "The API claims `rejectOnClear` is boolean-only, but callers can pass invalid values and get silent false-like behavior. That makes input validation inconsistent and can hide configuration bugs.",
+      "evidence": "`index.js:12-14` only throws for truthy non-booleans. `index.d.ts:99-106` and `readme.md:46-52` define the option as boolean.",
+      "reproduction_or_test": "`node --input-type=module -e \"import pLimit from './index.js'; try { pLimit({concurrency:1, rejectOnClear:0}); } catch { process.exit(0); } throw new Error('non-boolean rejectOnClear=0 was accepted');\"` fails because the invalid value is accepted.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map drops mapper indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "generator.map",
+      "cause": "The implementation passes `iterableIsArray ? index : undefined` to the mapper, even though `Array.from` supplies a stable index for every iterable it consumes.",
+      "impact": "Mappers over Sets, generators, and iterator objects receive `undefined` instead of the documented numeric index. This breaks callers that depend on ordering or pair each item with its position.",
+      "evidence": "`index.js:106-115` computes `iterableIsArray` and suppresses indexes for non-arrays. `index.d.ts:29-43` and `readme.md:78-84` state that the mapper receives the item value and its index and that the method is equivalent to `Array.from(iterable, (item, index) => limit(mapperFunction, item, index))`.",
+      "reproduction_or_test": "`node --input-type=module -e \"import pLimit from './index.js'; const seen=[]; await pLimit(1).map(new Set(['a','b']), (value,index)=>seen.push([value,index])); const expected=JSON.stringify([['a',0],['b',1]]); const actual=JSON.stringify(seen); if(actual!==expected) throw new Error('bad map indexes: '+actual);\"` fails with `bad map indexes: [[\"a\",null],[\"b\",null]]` (`undefined` stringifies as null in arrays).",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction ignores arguments passed to the returned wrapper",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The wrapper returned by `limitFunction` is `() => limit(() => function_())`, so it discards every argument supplied by the caller.",
+      "impact": "The named helper only works for zero-argument functions. Any typed or documented use where the limited function accepts parameters receives `undefined` values and can return wrong results or fail at runtime.",
+      "evidence": "`index.js:121-125` returns a zero-argument wrapper. `index.d.ts:133-136` declares the return type as `(...arguments_: Arguments) => Promise<ReturnType>` and the main limiter contract at `index.d.ts:45-56` says arguments are passed through to `fn`.",
+      "reproduction_or_test": "`node --input-type=module -e \"import {limitFunction} from './index.js'; const lf=limitFunction((a,b)=>a+b,{concurrency:1}); const value=await lf(2,3); if(value!==5) throw new Error('limitFunction did not pass arguments; got '+value);\"` fails with `got NaN`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Positive Infinity concurrency is rejected after an edge-case regression",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "The validator now requires `Number.isInteger(concurrency) && concurrency > 0`, removing the previous allowance for `concurrency === Number.POSITIVE_INFINITY`.",
+      "impact": "Callers using `pLimit(Number.POSITIVE_INFINITY)` as an unlimited/no-op limiter now get a TypeError. That is a behavior regression for an edge case that the prior validator explicitly supported.",
+      "evidence": "`index.js:127-130` rejects all non-integers, including `Infinity`. `git diff -- index.js` shows the previous validator accepted `(Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0`.",
+      "reproduction_or_test": "`node --input-type=module -e \"import pLimit from './index.js'; pLimit(Number.POSITIVE_INFINITY);\"` throws `TypeError: Expected \\`concurrency\\` to be a number from 1 and up`.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,220p' /Users/kle1nz/.codex/skills/m1nd-first/SKILL.md",
+    "sed -n '1,240p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-prompts/audit-05.md",
+    "sed -n '1,220p' /Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-result-template.json",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-05/p-limit short-audit --agent-id audit-05 --repo /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-05/p-limit --query \"p-limit package concurrency queue behavior audit\" --tool audit",
+    "git status --short",
+    "rg --files",
+    "sed -n '1,260p' index.js",
+    "sed -n '1,280p' test.js",
+    "sed -n '280,620p' test.js",
+    "sed -n '1,220p' package.json",
+    "git diff -- index.js",
+    "sed -n '1,260p' index.d.ts",
+    "sed -n '1,240p' readme.md",
+    "npm test (before dependency install; failed because xo was not installed)",
+    "npm install --ignore-scripts --no-package-lock",
+    "npm test (after dependency install; failed at xo indentation errors in index.js lines 105-115)",
+    "node --input-type=module -e \"import {limitFunction} from './index.js'; const lf=limitFunction((a,b)=>a+b,{concurrency:1}); const value=await lf(2,3); if(value!==5) throw new Error('limitFunction did not pass arguments; got '+value);\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; const seen=[]; await pLimit(1).map(new Set(['a','b']), (value,index)=>seen.push([value,index])); const expected=JSON.stringify([['a',0],['b',1]]); const actual=JSON.stringify(seen); if(actual!==expected) throw new Error('bad map indexes: '+actual);\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; const limit=pLimit({concurrency:1}); const p1=limit(()=>new Promise(()=>{})); const p2=limit(()=>Promise.resolve('never')); await Promise.resolve(); limit.clearQueue(); const outcome=await Promise.race([p2.then(()=> 'resolved', error => error?.name || 'rejected'), Promise.resolve().then(()=>Promise.resolve()).then(()=> 'pending')]); if (outcome !== 'pending') throw new Error('default clearQueue should leave pending promise pending, got '+outcome); void p1;\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; pLimit(Number.POSITIVE_INFINITY);\"",
+    "node --input-type=module -e \"import pLimit from './index.js'; try { pLimit({concurrency:1, rejectOnClear:0}); } catch { process.exit(0); } throw new Error('non-boolean rejectOnClear=0 was accepted');\"",
+    "nl -ba index.js | sed -n '1,150p'",
+    "nl -ba index.d.ts | sed -n '1,180p'",
+    "nl -ba readme.md | sed -n '20,140p'",
+    "git status --short --ignored",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-05/p-limit tools",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts --workspace-root /Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-05/p-limit run '[{\"name\":\"trust_selftest\",\"arguments\":{\"agent_id\":\"audit-05\"}},{\"name\":\"ingest\",\"arguments\":{\"agent_id\":\"audit-05\",\"path\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-05/p-limit\"}},{\"name\":\"session_handshake\",\"arguments\":{\"agent_id\":\"audit-05\",\"scope\":\"/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-05/p-limit\"}},{\"name\":\"impact\",\"arguments\":{\"agent_id\":\"audit-05\",\"node_id\":\"file::index.js\"}}]'"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-prompts/audit-05.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-result-template.json",
+    "/Users/kle1nz/.codex/skills/m1nd-first/SKILL.md",
+    "/Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+    "/Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py",
+    "package.json",
+    "index.js",
+    "test.js",
+    "index.d.ts",
+    "readme.md"
+  ],
+  "m1nd_usage": [
+    {
+      "mode": "host_tool_discovery",
+      "summary": "Searched the active deferred tool surface for m1nd trust/audit tools. Direct m1nd MCP tools were not injected into the chat surface, so I used the local m1nd-operator probe helper as the prompt allowed."
+    },
+    {
+      "mode": "recovery_overhead",
+      "summary": "Ran probe_m1nd.py short-audit with --no-worktree-artifacts scoped to the isolated p-limit workspace. trust_selftest reported needs_ingest, ingest ran on the same binding, session_handshake reported 82 nodes and 94 edges with the requested workspace, audit identified index.js and queue/concurrency functions as the relevant surface, and the helper recommended switch_to_direct_proof.",
+      "recovery_path": "needs_ingest -> ingest -> session_handshake full_trust -> direct proof"
+    },
+    {
+      "mode": "tool_surface_check",
+      "summary": "probe_m1nd.py tools listed 96 tools including impact/validate_plan/surgical_context_v2 but no mission_start, so Mission Control was unavailable in this helper surface."
+    },
+    {
+      "mode": "impact",
+      "summary": "Ran trust_selftest, ingest, session_handshake, and impact for node_id file::index.js in one helper process. Impact blast radius covered resumeNext, next, run, result, enqueue, generator, limitFunction, and validateConcurrency."
+    }
+  ],
+  "mission_control_usage": {
+    "mission_id": "",
+    "mission_route": "",
+    "mission_control_unavailable": true,
+    "mission_start_called": false,
+    "mission_next_count": 0,
+    "mission_verify_count": 0,
+    "mission_close_called": false,
+    "do_not_guardrails_observed": [],
+    "verified_claims": [],
+    "rejected_or_insufficient_claims": [],
+    "direct_proof_switches": [
+      "probe_m1nd.py short-audit recommended switch_to_direct_proof after bounded orientation"
+    ],
+    "proof_packet_summary": "Mission Control tools were not present in the helper tool list. Findings were verified through source reads, docs/types comparison, git diff, npm test, and focused Node probes."
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "I did not read operator-only artifacts. I did not patch source files or commit/push. I installed dependencies in the isolated repo workspace with npm install --ignore-scripts --no-package-lock so runtime probes could import the package.",
+  "notes": "npm test failed at xo before AVA/tsd because index.js lines 105-115 are misindented; the focused probes then directly demonstrated the behavioral regressions. The repo worktree already had index.js modified when inspected; node_modules/ was created as an ignored local probe artifact.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

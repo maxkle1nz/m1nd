@@ -1,0 +1,130 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc0-20260517T134906Z",
+  "lane_id": "audit-08",
+  "instruction_mode": "direct",
+  "repo": "p-limit",
+  "model": "GPT-5 Codex",
+  "started_at": "2026-05-17T13:58:31Z",
+  "finished_at": "2026-05-17T14:01:28Z",
+  "findings": [
+    {
+      "title": "Options-object default makes clearQueue reject pending work",
+      "severity": "high",
+      "file": "index.js:6",
+      "symbol": "pLimit / clearQueue",
+      "cause": "When the constructor receives an options object, destructuring now defaults rejectOnClear to true. The documented and baseline default is false, so pLimit({concurrency: 1}) silently opts into rejection on clearQueue().",
+      "impact": "Any caller using the options-object form without explicitly setting rejectOnClear now gets AbortError rejections for pending tasks during clearQueue(). This breaks the public default and shutdown recipes that rely on discarded pending promises remaining unsettled unless rejection is explicitly enabled.",
+      "evidence": "readme.md:46-52 and index.d.ts:86-95 document rejectOnClear as boolean with Default: false. git show HEAD:index.js had ({concurrency, rejectOnClear = false}); current index.js:6-13 has ({concurrency, rejectOnClear = true}). Focused runtime probe printed {\"probe\":\"default rejectOnClear\",\"pendingCount\":0,\"outcome\":{\"state\":\"rejected\",\"name\":\"AbortError\",\"message\":\"This operation was aborted\"}} for pLimit({concurrency: 1}), while the numeric pLimit(1) control remained {\"state\":\"still-pending\"}.",
+      "reproduction_or_test": "node --input-type=module probe: create limit = pLimit({concurrency: 1}), enqueue one running and one pending task, await one microtask, call limit.clearQueue(), then Promise.race the pending promise against a short delay. The pending promise rejects with AbortError instead of staying pending by default.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass runtime validation",
+      "severity": "medium",
+      "file": "index.js:12",
+      "symbol": "pLimit options validation",
+      "cause": "The validation guard changed from checking typeof rejectOnClear unconditionally to checking only when rejectOnClear is truthy, so values like 0 and null are accepted even though they are not booleans.",
+      "impact": "Runtime JavaScript callers can pass invalid configuration that TypeScript and the README reject. This masks caller bugs and produces behavior based on JavaScript truthiness rather than the advertised boolean contract.",
+      "evidence": "readme.md:46-49 and index.d.ts:86-95 define rejectOnClear as boolean. Baseline index.js checked typeof rejectOnClear !== 'boolean'; current index.js:12 checks rejectOnClear && typeof rejectOnClear !== 'boolean'. Focused probe output accepted 0 and null but threw for 1 and \"yes\": {\"rejectOnClear\":0,\"outcome\":\"accepted\"} and {\"rejectOnClear\":null,\"outcome\":\"accepted\"}.",
+      "reproduction_or_test": "node --input-type=module probe: call pLimit({concurrency: 1, rejectOnClear: 0}) and pLimit({concurrency: 1, rejectOnClear: null}); both return a limiter instead of throwing TypeError.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map drops mapper index for non-array iterables",
+      "severity": "high",
+      "file": "index.js:106",
+      "symbol": "limit.map",
+      "cause": "The mapper wrapper now passes the index only when Array.isArray(iterable) is true, even though Array.from supplies a numeric index for every iterable it consumes.",
+      "impact": "Set, generator, and iterator callers receive undefined for the mapper index despite the public contract saying the mapper receives the item value and its index. Any batching logic that uses the index for non-array iterables will compute wrong results.",
+      "evidence": "readme.md:78-84 says the mapper receives value and index and is equivalent to Array.from(iterable, (item, index) => limit(mapperFunction, item, index)). index.d.ts:29-38 types mapperFunction as (input, index: number). Current index.js:108-112 passes iterableIsArray ? index : undefined. Focused probe output was {\"probe\":\"map iterable index\",\"setResult\":[\"a:undefined\",\"b:undefined\"],\"iteratorResult\":[\"x:undefined\",\"y:undefined\"]}.",
+      "reproduction_or_test": "node --input-type=module probe: await pLimit(2).map(new Set(['a', 'b']), (value, index) => `${value}:${index}`); expected ['a:0', 'b:1'] by contract, actual ['a:undefined', 'b:undefined'].",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction no longer forwards caller arguments",
+      "severity": "high",
+      "file": "index.js:121",
+      "symbol": "limitFunction",
+      "cause": "The returned limited wrapper was changed from (...arguments_) => limit(() => function_(...arguments_)) to () => limit(() => function_()), dropping every argument provided by the caller.",
+      "impact": "The named export becomes unusable for parameterized functions such as fetchUrl(url), despite the README recipe and TypeScript signature advertising that the returned function accepts the original function's arguments.",
+      "evidence": "recipes.md:151-163 shows const limitedFetchUrl = limitFunction(fetchUrl, {concurrency: 3}); then urls.map(url => limitedFetchUrl(url)). index.d.ts:101-104 returns (...arguments_: Arguments) => Promise<ReturnType>. Current index.js:124 ignores arguments. Focused probe output was {\"probe\":\"limitFunction args\",\"result\":\"undefinedundefined\"} for limitedEcho('url', '-ok').",
+      "reproduction_or_test": "node --input-type=module probe: const limitedEcho = limitFunction(async (value, suffix) => `${value}${suffix}`, {concurrency: 1}); await limitedEcho('url', '-ok') returns 'undefinedundefined' instead of 'url-ok'.",
+      "confidence": "high"
+    },
+    {
+      "title": "Positive Infinity concurrency regressed to a TypeError",
+      "severity": "medium",
+      "file": "index.js:127",
+      "symbol": "validateConcurrency",
+      "cause": "The concurrency validator removed the explicit Number.POSITIVE_INFINITY allowance and now requires Number.isInteger(concurrency), which excludes Infinity.",
+      "impact": "Callers using Infinity as the established no-limit value now fail at construction with TypeError. This is an edge-case compatibility regression from the baseline implementation.",
+      "evidence": "git show HEAD:index.js:124 accepted Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY. Current index.js:128 only accepts Number.isInteger(concurrency). Focused probe output was {\"probe\":\"infinity concurrency\",\"outcome\":\"threw\",\"name\":\"TypeError\",\"message\":\"Expected `concurrency` to be a number from 1 and up\"}.",
+      "reproduction_or_test": "node --input-type=module probe: pLimit(Number.POSITIVE_INFINITY) throws TypeError in the audited tree, whereas the baseline validator explicitly allowed Number.POSITIVE_INFINITY.",
+      "confidence": "medium-high"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,260p' lane-prompts/audit-08.md",
+    "sed -n '1,240p' lane-result-template.json",
+    "rg --files",
+    "git status --short",
+    "sed -n '1,260p' index.js",
+    "sed -n '1,320p' test.js",
+    "sed -n '1,240p' package.json",
+    "git diff -- index.js test.js index.d.ts package.json",
+    "nl -ba index.js | sed -n '1,180p'",
+    "nl -ba readme.md | sed -n '33,160p'",
+    "nl -ba recipes.md | sed -n '72,170p'",
+    "nl -ba index.test-d.ts | sed -n '1,120p'",
+    "npm install --package-lock=false --ignore-scripts",
+    "npm test",
+    "npx ava",
+    "npx tsd",
+    "node --input-type=module focused probe for options-object clearQueue default",
+    "node --input-type=module focused probe for rejectOnClear runtime validation",
+    "node --input-type=module focused probe for limitFunction argument forwarding",
+    "node --input-type=module focused probe for limit.map iterable index",
+    "node --input-type=module focused probe for Infinity concurrency",
+    "git show HEAD:index.js | nl -ba | sed -n '1,150p'",
+    "git diff --unified=3 -- index.js"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-prompts/audit-08.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-result-template.json",
+    "index.js",
+    "test.js",
+    "index.d.ts",
+    "index.test-d.ts",
+    "readme.md",
+    "recipes.md",
+    "package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "mode": "not_used",
+      "reason": "The lane prompt Direct Mode explicitly said not to use m1nd tools or m1nd helper scripts for this audit."
+    }
+  ],
+  "mission_control_usage": {
+    "mission_id": "",
+    "mission_route": "",
+    "mission_control_unavailable": false,
+    "mission_start_called": false,
+    "mission_next_count": 0,
+    "mission_verify_count": 0,
+    "mission_close_called": false,
+    "do_not_guardrails_observed": [],
+    "verified_claims": [],
+    "rejected_or_insufficient_claims": [],
+    "direct_proof_switches": [],
+    "proof_packet_summary": ""
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "I followed the lane's direct-mode instruction and did not inspect operator-only artifacts. I did not patch source files. I used local file reads, git diff, npm/AVA/TSD, and focused Node runtime probes against the audited workspace.",
+  "notes": "Existing npm test does not complete because xo fails first: index.js:105-115 indentation errors plus a warning in scripts/benchmarker.js. Running npx ava directly passed 21 tests, and npx tsd passed, which shows the current test set misses the behavioral regressions above. npm install was run with --package-lock=false and --ignore-scripts to install ignored node_modules for local probes.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

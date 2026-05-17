@@ -1,0 +1,127 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc0-20260517T134906Z",
+  "lane_id": "audit-07",
+  "instruction_mode": "direct",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-17T13:58:26Z",
+  "finished_at": "2026-05-17T14:02:10Z",
+  "findings": [
+    {
+      "title": "limitFunction drops all caller arguments",
+      "severity": "high",
+      "file": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.js",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper is `() => limit(() => function_())`, so it ignores the arguments passed to the limited function instead of forwarding `...arguments_`.",
+      "impact": "Any wrapped function that depends on parameters receives no arguments at runtime, while the TypeScript declaration still advertises `(...arguments_: Arguments) => Promise<ReturnType>`.",
+      "evidence": "index.js:121-124 returns a zero-argument wrapper. index.d.ts:133-136 declares that the returned function accepts and forwards the original argument tuple.",
+      "reproduction_or_test": "Focused probe: `const f = limitFunction(async (...args) => args, {concurrency: 1}); await f('alpha', 'beta')` printed `[]`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits indexes for non-array iterables",
+      "severity": "medium",
+      "file": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.js",
+      "symbol": "limit.map",
+      "cause": "The implementation passes `index` only when `Array.isArray(iterable)` is true and passes `undefined` for Sets, iterators, strings, Maps, and other iterable inputs.",
+      "impact": "The documented iterable contract is broken for non-array iterables: mappers that use the index receive `undefined` despite the public API promising an item index.",
+      "evidence": "index.js:107-112 gates the index on `Array.isArray`. readme.md:78-84 and index.d.ts:30-43 say the mapper receives the item value and its index and is equivalent to `Array.from(iterable, (item, index) => limit(mapperFunction, item, index))`.",
+      "reproduction_or_test": "Focused probe: `await limit.map(new Set(['a', 'b']), (value, index) => ({value, indexType: typeof index}))` printed `indexType:\"undefined\"` for both entries.",
+      "confidence": "high"
+    },
+    {
+      "title": "Options-object clearQueue rejects pending promises by default",
+      "severity": "medium",
+      "file": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.js",
+      "symbol": "pLimit options rejectOnClear",
+      "cause": "When the options-object form is used, destructuring defaults `rejectOnClear` to `true` instead of the documented default `false`.",
+      "impact": "Existing callers using `pLimit({concurrency: 1})` can get unexpected `AbortError` rejections from pending tasks when `clearQueue()` is called, including unexpected `Promise.all` rejection paths.",
+      "evidence": "index.js:6-8 defaults `rejectOnClear = true`. readme.md:46-52 and index.d.ts:99-106 document `rejectOnClear` as optional with default `false`.",
+      "reproduction_or_test": "Focused probe queued one running task and one pending task with `pLimit({concurrency: 1})`, called `clearQueue()`, and the pending promise status printed `rejected:AbortError` instead of remaining pending/discarded.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsey non-boolean rejectOnClear values bypass validation",
+      "severity": "low",
+      "file": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.js",
+      "symbol": "pLimit options rejectOnClear validation",
+      "cause": "The runtime type check is guarded by `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`, so invalid falsey values skip validation.",
+      "impact": "Invalid option values such as `0`, an empty string, `null`, or `NaN` are silently accepted even though the public option type is boolean.",
+      "evidence": "index.js:12-14 only rejects truthy non-boolean values. readme.md:46-49 and index.d.ts:99-106 define `rejectOnClear` as a boolean option.",
+      "reproduction_or_test": "Focused probe tried `pLimit({concurrency: 1, rejectOnClear: 0})`, `''`, and `null`; all were accepted without throwing.",
+      "confidence": "high"
+    },
+    {
+      "title": "Infinity concurrency is rejected",
+      "severity": "medium",
+      "file": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.js",
+      "symbol": "validateConcurrency",
+      "cause": "The concurrency validator now requires `Number.isInteger(concurrency)`, removing the existing `Number.POSITIVE_INFINITY` allowance.",
+      "impact": "Callers that use `Infinity` as an explicit unbounded concurrency limit now get a `TypeError`, even though the previous implementation accepted it and the public type is a number with only a minimum bound.",
+      "evidence": "index.js:127-130 rejects non-integers. `git show HEAD:index.js` showed the prior validator accepted `Number.POSITIVE_INFINITY`; readme.md:37-44 and index.d.ts:91-97 state a number minimum of 1 with no upper bound.",
+      "reproduction_or_test": "Focused probe: `pLimit(Number.POSITIVE_INFINITY)` printed `infinity rejected: TypeError Expected \\`concurrency\\` to be a number from 1 and up`.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-prompts/audit-07.md",
+    "sed -n '1,220p' /Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+    "sed -n '1,220p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-result-template.json",
+    "git status --short",
+    "rg --files",
+    "sed -n '1,220p' package.json",
+    "sed -n '1,260p' index.js",
+    "sed -n '1,260p' index.d.ts",
+    "sed -n '1,700p' test.js",
+    "sed -n '1,320p' readme.md",
+    "git diff -- index.js",
+    "sed -n '1,260p' index.test-d.ts",
+    "git show HEAD:index.js | sed -n '1,180p'",
+    "git log --oneline -5",
+    "npm install --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false",
+    "node --input-type=module [focused public API probe]",
+    "nl -ba index.js | sed -n '1,150p'",
+    "nl -ba readme.md | sed -n '20,130p'",
+    "nl -ba index.d.ts | sed -n '1,190p'",
+    "rm -rf node_modules"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-prompts/audit-07.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-20260517T134906Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/package.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-20260517T134906Z/audit-07/p-limit/readme.md",
+    "git:HEAD:index.js"
+  ],
+  "m1nd_usage": [
+    {
+      "mode": "not_used",
+      "reason": "The lane prompt specified Direct Mode and explicitly prohibited m1nd tools or m1nd helper scripts for this audit."
+    }
+  ],
+  "mission_control_usage": {
+    "mission_id": "",
+    "mission_route": "",
+    "mission_control_unavailable": false,
+    "mission_start_called": false,
+    "mission_next_count": 0,
+    "mission_verify_count": 0,
+    "mission_close_called": false,
+    "do_not_guardrails_observed": [],
+    "verified_claims": [],
+    "rejected_or_insufficient_claims": [],
+    "direct_proof_switches": [],
+    "proof_packet_summary": "Not used because the lane prompt required Direct Mode without m1nd tools or helper scripts."
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "I did not inspect operator-only artifacts and did not patch source files. The only persistent writes were the required lane result JSON and lane event stream JSONL. I temporarily installed production dependencies to run focused Node probes, then removed node_modules.",
+  "notes": "The working tree already had a modified index.js before this audit. Full package test dependencies were not installed; focused runtime probes directly exercised the public API regressions identified from source and docs.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}
