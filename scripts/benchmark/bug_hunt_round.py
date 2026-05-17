@@ -789,63 +789,85 @@ def count_value(value):
     return 0
 
 
-def summarize_mission_control(result, agent_events):
-    structured = result.get("mission_control_usage")
-    structured = structured if isinstance(structured, dict) else {}
+def summarize_mission_control(result, agent_events, instruction_mode):
+    if instruction_mode != "m1nd-mission-control":
+        return {
+            "applicable": False,
+            "unavailable": None,
+            "loop_complete": None,
+            "direct_proof_switch_count": None,
+            "do_not_guardrail_count": None,
+            "verified_claim_signal_count": None,
+            "rejected_claim_signal_count": None,
+            "mission_start_count": None,
+            "mission_next_count": None,
+            "mission_verify_count": None,
+            "mission_close_count": None,
+            "required_step_count": None,
+            "completed_step_count": None,
+            "adherence_rate": None,
+        }
+
+    structured_payload = result.get("mission_control_usage")
+    has_structured_payload = isinstance(structured_payload, dict)
+    structured = structured_payload if has_structured_payload else {}
     raw_mission_payload = {
         "m1nd_usage": result.get("m1nd_usage"),
         "notes": result.get("notes"),
         "agent_testimony": result.get("agent_testimony") or result.get("testimony"),
         "events": agent_events,
     }
+    unavailable = truthy(structured.get("mission_control_unavailable"))
+    if not has_structured_payload:
+        unavailable = unavailable or token_count(raw_mission_payload, "mission_control_unavailable") > 0
+
     summary = {
-        "unavailable": truthy(structured.get("mission_control_unavailable"))
-        or token_count(raw_mission_payload, "mission_control_unavailable") > 0,
+        "applicable": True,
+        "unavailable": unavailable,
         "loop_complete": False,
-        "direct_proof_switch_count": max(
-            count_value(structured.get("direct_proof_switches")),
-            token_count(raw_mission_payload, "switch_to_direct_proof")
-            + token_count(raw_mission_payload, "direct-proof switch")
-            + token_count(raw_mission_payload, "direct proof switch"),
+        "direct_proof_switch_count": count_value(structured.get("direct_proof_switches")),
+        "do_not_guardrail_count": count_value(structured.get("do_not_guardrails_observed")),
+        "verified_claim_signal_count": count_value(structured.get("verified_claims")),
+        "rejected_claim_signal_count": count_value(
+            structured.get("rejected_or_insufficient_claims")
         ),
-        "do_not_guardrail_count": max(
-            count_value(structured.get("do_not_guardrails_observed")),
-            token_count(raw_mission_payload, "do_not")
-            + token_count(raw_mission_payload, "do not guardrail"),
-        ),
-        "verified_claim_signal_count": max(
-            count_value(structured.get("verified_claims")),
+    }
+    if has_structured_payload:
+        summary["mission_start_count"] = count_value(structured.get("mission_start_called"))
+        summary["mission_next_count"] = count_value(structured.get("mission_next_count"))
+        summary["mission_verify_count"] = count_value(structured.get("mission_verify_count"))
+        summary["mission_close_count"] = count_value(structured.get("mission_close_called"))
+    else:
+        for token in MISSION_CONTROL_TOKENS:
+            summary[f"{token}_count"] = token_count(raw_mission_payload, token)
+        summary["direct_proof_switch_count"] = token_count(
+            raw_mission_payload, "switch_to_direct_proof"
+        ) + token_count(raw_mission_payload, "direct-proof switch") + token_count(
+            raw_mission_payload, "direct proof switch"
+        )
+        summary["do_not_guardrail_count"] = token_count(
+            raw_mission_payload, "do_not"
+        ) + token_count(raw_mission_payload, "do not guardrail")
+        summary["verified_claim_signal_count"] = (
             token_count(raw_mission_payload, "verified_claim")
             + token_count(raw_mission_payload, "claim_verified")
             + token_count(raw_mission_payload, "verdict=verified")
-            + token_count(raw_mission_payload, '"verdict": "verified"'),
-        ),
-        "rejected_claim_signal_count": max(
-            count_value(structured.get("rejected_or_insufficient_claims")),
+            + token_count(raw_mission_payload, '"verdict": "verified"')
+        )
+        summary["rejected_claim_signal_count"] = (
             token_count(raw_mission_payload, "rejected_claim")
             + token_count(raw_mission_payload, "claim_rejected")
             + token_count(raw_mission_payload, "insufficient_evidence")
-            + token_count(raw_mission_payload, '"verdict": "rejected"'),
-        ),
-    }
-    for token in MISSION_CONTROL_TOKENS:
-        summary[f"{token}_count"] = token_count(raw_mission_payload, token)
-    summary["mission_start_count"] = max(
-        summary["mission_start_count"], count_value(structured.get("mission_start_called"))
-    )
-    summary["mission_next_count"] = max(
-        summary["mission_next_count"], count_value(structured.get("mission_next_count"))
-    )
-    summary["mission_verify_count"] = max(
-        summary["mission_verify_count"], count_value(structured.get("mission_verify_count"))
-    )
-    summary["mission_close_count"] = max(
-        summary["mission_close_count"], count_value(structured.get("mission_close_called"))
-    )
+            + token_count(raw_mission_payload, '"verdict": "rejected"')
+        )
+
     summary["required_step_count"] = MISSION_CONTROL_REQUIRED_STEP_COUNT
-    summary["completed_step_count"] = sum(
-        1 for token in MISSION_CONTROL_TOKENS if summary[f"{token}_count"] > 0
-    )
+    if summary["unavailable"]:
+        summary["completed_step_count"] = 0
+    else:
+        summary["completed_step_count"] = sum(
+            1 for token in MISSION_CONTROL_TOKENS if summary[f"{token}_count"] > 0
+        )
     summary["adherence_rate"] = safe_rate(
         summary["completed_step_count"],
         summary["required_step_count"],
@@ -955,7 +977,7 @@ def summarize_lane(round_dir: Path, lane, answer_bug_ids, answer_bug_payloads):
     ]
     m1nd_usage = result.get("m1nd_usage")
     event_timing = summarize_event_timing(events, agent_events, answer_bug_payloads)
-    mission_control = summarize_mission_control(result, agent_events)
+    mission_control = summarize_mission_control(result, agent_events, lane["instruction_mode"])
 
     return {
         "lane_id": lane["lane_id"],
@@ -988,6 +1010,11 @@ def group_arms(lanes, seeded_bug_count):
     arms = {}
     for arm, arm_lanes in sorted(grouped.items()):
         completed = [lane for lane in arm_lanes if lane.get("completed")]
+        mission_completed = [
+            lane
+            for lane in completed
+            if lane.get("mission_control", {}).get("applicable")
+        ]
         recall_counts = [lane["seeded_recall_count"] for lane in completed]
         possible = seeded_bug_count * len(completed)
         matched_total = sum(recall_counts)
@@ -1016,22 +1043,26 @@ def group_arms(lanes, seeded_bug_count):
                 lane["extra_unadjudicated_findings_count"] for lane in completed
             ),
             "mission_control_loop_complete_lanes": sum(
-                1 for lane in completed if lane.get("mission_control", {}).get("loop_complete")
+                1
+                for lane in mission_completed
+                if lane.get("mission_control", {}).get("loop_complete")
             ),
             "mission_control_unavailable_lanes": sum(
-                1 for lane in completed if lane.get("mission_control", {}).get("unavailable")
+                1
+                for lane in mission_completed
+                if lane.get("mission_control", {}).get("unavailable")
             ),
             "median_mission_next_count": median(
                 lane.get("mission_control", {}).get("mission_next_count")
-                for lane in completed
+                for lane in mission_completed
             ),
             "median_direct_proof_switch_count": median(
                 lane.get("mission_control", {}).get("direct_proof_switch_count")
-                for lane in completed
+                for lane in mission_completed
             ),
             "median_mission_control_adherence_rate": median(
                 lane.get("mission_control", {}).get("adherence_rate")
-                for lane in completed
+                for lane in mission_completed
             ),
             "lanes": [lane["lane_id"] for lane in arm_lanes],
         }
@@ -1199,6 +1230,10 @@ def write_notes(path: Path, report):
                 f"- Missing result lanes: `{mission_validity['missing_result_lane_ids']}`.",
             ]
         )
+        if not mission_validity["all_completed_lanes_evaluable"]:
+            lines.append(
+                "- MC0 recall is fallback evidence only until completed Mission Control lanes are evaluable."
+            )
 
     lines.extend(
         [
@@ -1219,6 +1254,7 @@ def write_notes(path: Path, report):
             "",
             "## Next Product Actions",
             "",
+            "- Fix worker-host Mission Control exposure before rerunning MC0 comparisons.",
             "- Keep improving the compact trained-agent loop as a default universal agent pack behavior.",
             "- Add cleaner state placement so m1nd benchmark/probe flows do not write sidecar metadata into target repos.",
             "- Track first-good-finding time and tool-call counts in the event stream.",

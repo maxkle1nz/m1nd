@@ -36,8 +36,11 @@ class BugHuntMissionControlTests(unittest.TestCase):
             }
         }
 
-        summary = self.bug_hunt.summarize_mission_control(result, [])
+        summary = self.bug_hunt.summarize_mission_control(
+            result, [], "m1nd-mission-control"
+        )
 
+        self.assertTrue(summary["applicable"])
         self.assertTrue(summary["loop_complete"])
         self.assertFalse(summary["unavailable"])
         self.assertEqual(summary["mission_start_count"], 1)
@@ -56,8 +59,11 @@ class BugHuntMissionControlTests(unittest.TestCase):
         lane = {"lane_id": "audit-01", "instruction_mode": "m1nd-mission-control"}
         result = self.bug_hunt.result_template(round_payload, lane)
 
-        summary = self.bug_hunt.summarize_mission_control(result, [])
+        summary = self.bug_hunt.summarize_mission_control(
+            result, [], "m1nd-mission-control"
+        )
 
+        self.assertTrue(summary["applicable"])
         self.assertFalse(summary["unavailable"])
         self.assertFalse(summary["loop_complete"])
         self.assertEqual(summary["mission_start_count"], 0)
@@ -66,6 +72,48 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertEqual(summary["mission_close_count"], 0)
         self.assertEqual(summary["completed_step_count"], 0)
         self.assertEqual(summary["required_step_count"], 4)
+        self.assertEqual(summary["adherence_rate"], 0.0)
+
+    def test_non_mission_control_lane_does_not_emit_mission_metrics(self):
+        result = {
+            "notes": "mission_start mission_next mission_verify mission_close",
+            "mission_control_usage": {
+                "mission_control_unavailable": True,
+                "mission_start_called": True,
+                "mission_next_count": 1,
+                "mission_verify_count": 1,
+                "mission_close_called": True,
+            },
+        }
+
+        summary = self.bug_hunt.summarize_mission_control(result, [], "m1nd-trained")
+
+        self.assertFalse(summary["applicable"])
+        self.assertIsNone(summary["unavailable"])
+        self.assertIsNone(summary["loop_complete"])
+        self.assertIsNone(summary["mission_next_count"])
+        self.assertIsNone(summary["adherence_rate"])
+
+    def test_structured_unavailable_mission_control_does_not_count_text_tokens(self):
+        result = {
+            "notes": "mission_start mission_next mission_verify mission_close",
+            "mission_control_usage": {
+                "mission_control_unavailable": True,
+                "mission_start_called": True,
+                "mission_next_count": 1,
+                "mission_verify_count": 1,
+                "mission_close_called": True,
+            },
+        }
+
+        summary = self.bug_hunt.summarize_mission_control(
+            result, [], "m1nd-mission-control"
+        )
+
+        self.assertTrue(summary["applicable"])
+        self.assertTrue(summary["unavailable"])
+        self.assertFalse(summary["loop_complete"])
+        self.assertEqual(summary["completed_step_count"], 0)
         self.assertEqual(summary["adherence_rate"], 0.0)
 
     def test_mission_control_validity_marks_partial_lanes_not_evaluable(self):
