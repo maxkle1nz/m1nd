@@ -98,7 +98,8 @@ closure. It must be reported separately from `m1nd-trained` until repeated
 rounds prove whether MC0 improves recall, speed, variance, or evidence quality.
 The scorer treats Mission Control usage as evidence too: loop completion,
 unavailable tools, `mission_next` counts, and direct-proof switches are reported
-beside seeded recall. Agents should fill the structured
+beside seeded recall, with a four-step adherence rate for
+start/next/verify/close. Agents should fill the structured
 `mission_control_usage` object in the lane result; free-text notes are fallback
 evidence only.
 

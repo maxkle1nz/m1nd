@@ -34,6 +34,7 @@ MISSION_CONTROL_TOKENS = (
     "mission_verify",
     "mission_close",
 )
+MISSION_CONTROL_REQUIRED_STEP_COUNT = len(MISSION_CONTROL_TOKENS)
 
 NON_CLAIMS = [
     "one bug-hunt round is not a public performance claim",
@@ -695,6 +696,14 @@ def summarize_mission_control(result, agent_events):
     summary["mission_close_count"] = max(
         summary["mission_close_count"], count_value(structured.get("mission_close_called"))
     )
+    summary["required_step_count"] = MISSION_CONTROL_REQUIRED_STEP_COUNT
+    summary["completed_step_count"] = sum(
+        1 for token in MISSION_CONTROL_TOKENS if summary[f"{token}_count"] > 0
+    )
+    summary["adherence_rate"] = safe_rate(
+        summary["completed_step_count"],
+        summary["required_step_count"],
+    )
     summary["loop_complete"] = (
         not summary["unavailable"]
         and all(summary[f"{token}_count"] > 0 for token in MISSION_CONTROL_TOKENS)
@@ -874,6 +883,10 @@ def group_arms(lanes, seeded_bug_count):
                 lane.get("mission_control", {}).get("direct_proof_switch_count")
                 for lane in completed
             ),
+            "median_mission_control_adherence_rate": median(
+                lane.get("mission_control", {}).get("adherence_rate")
+                for lane in completed
+            ),
             "lanes": [lane["lane_id"] for lane in arm_lanes],
         }
     return arms
@@ -976,7 +989,8 @@ def write_notes(path: Path, report):
                 f"  Mission Control: loop-complete lanes `{payload['mission_control_loop_complete_lanes']}/{payload['completed_lane_count']}`, "
                 f"unavailable lanes `{payload['mission_control_unavailable_lanes']}`, "
                 f"median `mission_next` count `{payload['median_mission_next_count']}`, "
-                f"median direct-proof switches `{payload['median_direct_proof_switch_count']}`."
+                f"median direct-proof switches `{payload['median_direct_proof_switch_count']}`, "
+                f"median adherence `{payload['median_mission_control_adherence_rate']}`."
             )
 
     lines.extend(

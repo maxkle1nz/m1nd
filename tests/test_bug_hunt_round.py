@@ -42,6 +42,9 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertEqual(summary["mission_next_count"], 3)
         self.assertEqual(summary["mission_verify_count"], 1)
         self.assertEqual(summary["mission_close_count"], 1)
+        self.assertEqual(summary["completed_step_count"], 4)
+        self.assertEqual(summary["required_step_count"], 4)
+        self.assertEqual(summary["adherence_rate"], 1.0)
         self.assertEqual(summary["do_not_guardrail_count"], 1)
         self.assertEqual(summary["verified_claim_signal_count"], 1)
         self.assertEqual(summary["direct_proof_switch_count"], 1)
@@ -59,6 +62,9 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertEqual(summary["mission_next_count"], 0)
         self.assertEqual(summary["mission_verify_count"], 0)
         self.assertEqual(summary["mission_close_count"], 0)
+        self.assertEqual(summary["completed_step_count"], 0)
+        self.assertEqual(summary["required_step_count"], 4)
+        self.assertEqual(summary["adherence_rate"], 0.0)
 
 
 if __name__ == "__main__":
