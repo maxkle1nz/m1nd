@@ -125,6 +125,9 @@ def lane_plan(
 
 
 def lane_prompt(round_payload, lane):
+    mission_runtime_dir = str(
+        Path(lane["events"]).parent.parent / "m1nd-runtime" / lane["lane_id"]
+    )
     common = [
         f"# Bug-Hunt Audit Lane: {lane['lane_id']}",
         "",
@@ -272,7 +275,7 @@ def lane_prompt(round_payload, lane):
             "Required operating loop:",
             "",
             "1. Establish trust with `trust_selftest`, or `session_handshake` scoped to this repo.",
-            "2. If native mission tools are not visible in this host, probe the selected runtime with local `probe_m1nd.py tools`. If that helper surface includes `mission_start`, `mission_next`, `mission_verify`, and `mission_close`, use `probe_m1nd.py call <tool> <json>` as the Mission Control transport and record `mission_transport=\"probe_helper_stdio\"`.",
+            f"2. If native mission tools are not visible in this host, probe the selected runtime with local `probe_m1nd.py tools`. If that helper surface includes `mission_start`, `mission_next`, `mission_verify`, and `mission_close`, use `probe_m1nd.py --runtime-dir {mission_runtime_dir} --workspace-root <repo> call <tool> <json>` for every Mission Control call, so mission state survives across calls. Record `mission_transport=\"probe_helper_stdio\"`.",
             "3. Record `mission_control_unavailable=true` only when neither the native host surface nor the helper surface can call Mission Control. Then fall back to the `m1nd-trained` loop and do not fake mission calls.",
             "4. Start a repo-scoped mission with `mission_start`: `agent_id=<lane_id>`, `repo=<workspace>`, `task=\"bug-hunt audit for behavioral defects\"`, `mode=\"bug_hunt\"`, `budget=\"normal\"`, and `risk=\"medium\"`.",
             "5. Take the starter move, then call `mission_next` after each meaningful action with a concise `last_event` summary.",

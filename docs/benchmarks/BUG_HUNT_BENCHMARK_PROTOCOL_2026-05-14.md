@@ -179,9 +179,12 @@ present. This is still a binary surface check, not proof that already-open
 worker hosts have refreshed their cached MCP tool lists.
 
 Mission Control lanes may use native MCP tools when the host exposes them, or
-the local `probe_m1nd.py call <tool> <json>` transport when the selected binary
-passes live preflight but the agent host has not injected those tools. Mark
-`mission_control_unavailable=true` only when both paths are unavailable.
+the local `probe_m1nd.py --runtime-dir <lane-runtime-dir> call <tool> <json>`
+transport when the selected binary passes live preflight but the agent host has
+not injected those tools. Use the same runtime directory for every helper call
+in a lane so `mission_next`, `mission_verify`, and `mission_close` can load the
+state created by `mission_start`. Mark `mission_control_unavailable=true` only
+when both paths are unavailable.
 
 ## Score A Round
 
