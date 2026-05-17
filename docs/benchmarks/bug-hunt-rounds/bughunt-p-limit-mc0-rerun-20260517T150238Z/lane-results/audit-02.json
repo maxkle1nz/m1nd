@@ -1,0 +1,187 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc0-rerun-20260517T150238Z",
+  "lane_id": "audit-02",
+  "instruction_mode": "m1nd-mission-control",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-17T15:03:58Z",
+  "finished_at": "2026-05-17T15:09:14Z",
+  "findings": [
+    {
+      "title": "Options-object default makes clearQueue reject pending work by default",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit / clearQueue",
+      "cause": "The options destructuring now defaults rejectOnClear to true at index.js:7, while clearQueue rejects every queued item whenever rejectOnClear is true.",
+      "impact": "Callers using the documented pLimit({concurrency: 1}) form get AbortError rejections from clearQueue even though the public default is false. This can break teardown code and produce unexpected or unhandled rejections.",
+      "evidence": "readme.md:48-49 documents rejectOnClear as boolean default false. index.js:7 sets the default to true. index.js:84-88 rejects queued promises when enabled. The focused runtime probe returned defaultClearQueue: rejected:AbortError for pLimit({concurrency: 1}).",
+      "reproduction_or_test": "Create pLimit({concurrency: 1}), enqueue one running task and one pending task, await one tick, call clearQueue(), then race the pending promise with a timer. Expected default behavior is still-pending; current behavior rejects with AbortError.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsey non-boolean rejectOnClear options bypass runtime validation",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit option validation",
+      "cause": "The runtime type check at index.js:12 only runs when rejectOnClear is truthy, so values such as 0, null, or an empty string are accepted.",
+      "impact": "Invalid caller configuration is silently accepted despite the boolean-only runtime contract, creating inconsistent behavior between types, docs, and runtime validation.",
+      "evidence": "readme.md:48 says rejectOnClear has type boolean. index.test-d.ts:29 expects a non-boolean rejectOnClear to be rejected at the type level. The focused runtime probe returned rejectOnClearZero: accepted for pLimit({concurrency: 1, rejectOnClear: 0}).",
+      "reproduction_or_test": "Assert that pLimit({concurrency: 1, rejectOnClear: 0}) throws TypeError. Current code accepts it because 0 is falsey.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map drops the index for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "limit.map",
+      "cause": "index.js:108 checks Array.isArray(iterable) and index.js:111 passes undefined instead of the Array.from index for Set, generator, and iterator inputs.",
+      "impact": "Mappers that depend on the documented index argument work for arrays but break for other supported iterables, even though limit.map explicitly accepts any iterable.",
+      "evidence": "readme.md:82-84 says the mapper receives item value and index and is equivalent to Array.from(iterable, (item, index) => limit(mapperFunction, item, index)). index.d.ts:32-33 covers Set and iterator inputs. The focused runtime probe returned mapSetIndexes: [\"a:undefined\", \"b:undefined\"].",
+      "reproduction_or_test": "await pLimit(1).map(new Set(['a', 'b']), (value, index) => `${value}:${String(index)}`) should produce [\"a:0\", \"b:1\"], but currently produces [\"a:undefined\", \"b:undefined\"].",
+      "confidence": "high"
+    },
+    {
+      "title": "limitFunction ignores caller arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "index.js:124 returns a zero-argument wrapper and calls function_() without forwarding the wrapper's arguments.",
+      "impact": "The named helper is unusable for functions that require inputs. Documented patterns such as limitedFetchUrl(url) call the wrapped function with undefined instead of the provided URL.",
+      "evidence": "index.d.ts:25-26 types the returned limited function as accepting the original function's arguments. recipes.md:161-163 demonstrates limitedFetchUrl(url). The focused runtime probe returned limitFunctionArgs: undefined:undefined for a wrapper called as limited('x', 'y').",
+      "reproduction_or_test": "const limited = limitFunction((a, b) => `${a}:${b}`, {concurrency: 1}); await limited('x', 'y') should resolve to x:y, but currently resolves to undefined:undefined.",
+      "confidence": "high"
+    },
+    {
+      "title": "Number.POSITIVE_INFINITY concurrency is rejected",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "index.js:128 now requires Number.isInteger(concurrency), removing the previous explicit allowance for concurrency === Number.POSITIVE_INFINITY.",
+      "impact": "Consumers using Infinity as an unbounded concurrency mode get a TypeError, which is a backward-incompatible runtime regression from the committed implementation.",
+      "evidence": "git diff -- index.js shows the removed Number.POSITIVE_INFINITY branch in validateConcurrency. The focused runtime probe returned infinityConcurrency: rejected:Expected `concurrency` to be a number from 1 and up.",
+      "reproduction_or_test": "pLimit(Number.POSITIVE_INFINITY) should construct a limiter as in the committed implementation, but currently throws TypeError.",
+      "confidence": "medium-high"
+    }
+  ],
+  "commands_run": [
+    {
+      "command": "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py ... tools",
+      "outcome": "helper surface available with 100 tools including mission_start, mission_next, mission_verify, and mission_close"
+    },
+    {
+      "command": "probe_m1nd.py call trust_selftest / ingest / session_handshake",
+      "outcome": "initial verdict needs_ingest; ingest parsed 10 files into 82 nodes and 94 edges; post-ingest trust_mode full_trust"
+    },
+    {
+      "command": "probe_m1nd.py call mission_start / mission_next / mission_verify / mission_close",
+      "outcome": "Mission Control route trained_audit; verified direct-evidence claim; proof packet closed with no gaps"
+    },
+    {
+      "command": "probe_m1nd.py call search / recovery_playbook / doctor / audit",
+      "outcome": "broad search had zero candidates; recovery/doctor warned about suspicious retrieval; audit oriented to index.js/enqueue but also included unrelated cargo noise"
+    },
+    {
+      "command": "git status --short",
+      "outcome": "index.js is the only modified source file"
+    },
+    {
+      "command": "rg --files",
+      "outcome": "confirmed small p-limit workspace file set"
+    },
+    {
+      "command": "sed and nl reads of index.js, test.js, readme.md, recipes.md, index.d.ts, and index.test-d.ts",
+      "outcome": "inspected implementation, contracts, and existing coverage"
+    },
+    {
+      "command": "git diff -- index.js",
+      "outcome": "identified changed defaults, map index handling, limitFunction argument forwarding, and Infinity validation"
+    },
+    {
+      "command": "node --check index.js",
+      "outcome": "syntax check passed"
+    },
+    {
+      "command": "node --input-type=module -e \"import './index.js'\" probes",
+      "outcome": "direct import probes failed because yocto-queue was not installed in the lane workspace"
+    },
+    {
+      "command": "node --input-type=module with in-memory yocto-queue equivalent",
+      "outcome": "focused no-write runtime probe reproduced all five behavioral regressions"
+    }
+  ],
+  "files_inspected": [
+    "docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-rerun-20260517T150238Z/lane-prompts/audit-02.md",
+    "docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-rerun-20260517T150238Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-rerun-20260517T150238Z/audit-02/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-rerun-20260517T150238Z/audit-02/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-rerun-20260517T150238Z/audit-02/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-rerun-20260517T150238Z/audit-02/p-limit/recipes.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-rerun-20260517T150238Z/audit-02/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-rerun-20260517T150238Z/audit-02/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-rerun-20260517T150238Z/audit-02/p-limit/package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "probe_helper.tools",
+      "summary": "Native Mission Control tools were not injected; local helper exposed 100 tools including all Mission Control calls."
+    },
+    {
+      "tool": "trust_selftest",
+      "summary": "Returned needs_ingest for the lane workspace."
+    },
+    {
+      "tool": "ingest",
+      "summary": "Parsed 10 files; created 82 nodes and 94 edges."
+    },
+    {
+      "tool": "session_handshake",
+      "summary": "Returned full_trust with workspace bound to the audit-02 p-limit checkout."
+    },
+    {
+      "tool": "search",
+      "summary": "Broad bug-hunt query returned zero candidates and requested recovery."
+    },
+    {
+      "tool": "recovery_playbook and doctor",
+      "summary": "Classified the zero-candidate search as suspicious despite populated graph; recommended direct file truth while unresolved."
+    },
+    {
+      "tool": "audit",
+      "summary": "Oriented to index.js and enqueue/concurrency as the relevant local risk surface; unrelated cargo findings were ignored as graph noise."
+    }
+  ],
+  "mission_control_usage": {
+    "mission_id": "msn_1779030275314_audit02bughuntaudi",
+    "mission_route": "trained_audit",
+    "mission_transport": "probe_helper_stdio",
+    "mission_tool_surface_count": 100,
+    "mission_control_unavailable": false,
+    "mission_start_called": true,
+    "mission_next_count": 3,
+    "mission_verify_count": 1,
+    "mission_close_called": true,
+    "do_not_guardrails_observed": [],
+    "verified_claims": [
+      {
+        "claim_id": "clm_1_1779030462693",
+        "claim": "index.js has five direct-proof behavioral regressions: options object defaults rejectOnClear to true, falsey non-boolean rejectOnClear values are accepted, map omits the index for non-array iterables, limitFunction drops caller arguments, and Number.POSITIVE_INFINITY is no longer accepted as concurrency",
+        "evidence_grade": "direct"
+      }
+    ],
+    "rejected_or_insufficient_claims": [],
+    "direct_proof_switches": [
+      "Mission Control repeatedly recommended another graph audit after the first audit; audit-02 recorded a dissent and switched to direct source/runtime proof because the graph audit had already exposed the target and contained unrelated cargo noise."
+    ],
+    "proof_packet_summary": "Verified five direct-proof p-limit behavioral regressions in index.js with source, contract docs/types, and focused runtime probes; no source patches were made."
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "I treated m1nd as orientation only after the helper search/recovery path showed noisy retrieval, then grounded every finding in index.js, public docs/types, git diff, and a no-write runtime probe. I did not patch source files.",
+  "notes": "Full npm/AVA tests were not run because dependencies were absent and installing node_modules would write outside the lane-owned output files. The focused runtime probe replaced only yocto-queue with an in-memory equivalent so index.js behavior could be exercised without dependency installation.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them",
+    "no source files were patched",
+    "native Mission Control tools were not injected in this host"
+  ]
+}
