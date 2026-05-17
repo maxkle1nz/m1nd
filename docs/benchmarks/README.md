@@ -244,12 +244,21 @@ python3 scripts/benchmark/bug_hunt_round.py preflight \
   --round-file docs/benchmarks/bug-hunt-rounds/round-001/round.json \
   --require-mode m1nd-mission-control \
   --require-mode direct \
+  --require-live-mission-control \
   --json
 ```
 
 The preflight checks scaffold shape only: lanes, modes, prompts, event streams,
-result templates, and Mission Control fields. It does not run agents or prove
-future MCP host health.
+result templates, and Mission Control fields. With
+`--require-live-mission-control`, it also probes the selected `m1nd-mcp` binary
+and blocks Mission Control rounds unless `mission_start`, `mission_next`,
+`mission_verify`, and `mission_close` are present. That binary probe does not
+prove already-open worker hosts have refreshed their cached MCP tool lists.
+
+Mission Control lanes may use native MCP tools when the host exposes them, or
+the local `probe_m1nd.py call <tool> <json>` transport when the selected binary
+passes live preflight but the agent host has not injected those tools. Mark
+`mission_control_unavailable=true` only when both paths are unavailable.
 
 Score a completed round:
 

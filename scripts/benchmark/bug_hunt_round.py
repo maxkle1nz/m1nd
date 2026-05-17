@@ -8,7 +8,10 @@ from the operator-only answer key are adjudicated by this scorer.
 
 import argparse
 import json
+import os
+import shutil
 import statistics
+import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -269,16 +272,17 @@ def lane_prompt(round_payload, lane):
             "Required operating loop:",
             "",
             "1. Establish trust with `trust_selftest`, or `session_handshake` scoped to this repo.",
-            "2. If mission tools are not visible in this host, record `mission_control_unavailable=true`, fall back to the `m1nd-trained` loop, and do not fake mission calls.",
-            "3. Start a repo-scoped mission with `mission_start`: `agent_id=<lane_id>`, `repo=<workspace>`, `task=\"bug-hunt audit for behavioral defects\"`, `mode=\"bug_hunt\"`, `budget=\"normal\"`, and `risk=\"medium\"`.",
-            "4. Take the starter move, then call `mission_next` after each meaningful action with a concise `last_event` summary.",
-            "5. Treat `do_not` entries from `mission_next` as guardrails. If you disagree, record a dissent event explaining the chosen tool and required evidence.",
-            "6. When `mission_next` switches to direct proof, stop graph exploration and use direct source reads, rg, tests, compiler output, or focused runtime probes.",
-            "7. Call `mission_verify` before finalizing material findings. If a claim is rejected or needs evidence, gather that evidence or lower the confidence.",
-            "8. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, and proof-packet summary.",
-            "9. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
-            "10. Fill `mission_control_usage` in the lane result with `mission_id`, route, call counts, unavailable state, `do_not` guardrails, verified/rejected claims, direct-proof switches, and proof-packet summary.",
-            "11. Also preserve raw m1nd calls in `m1nd_usage` when useful for auditability.",
+            "2. If native mission tools are not visible in this host, probe the selected runtime with local `probe_m1nd.py tools`. If that helper surface includes `mission_start`, `mission_next`, `mission_verify`, and `mission_close`, use `probe_m1nd.py call <tool> <json>` as the Mission Control transport and record `mission_transport=\"probe_helper_stdio\"`.",
+            "3. Record `mission_control_unavailable=true` only when neither the native host surface nor the helper surface can call Mission Control. Then fall back to the `m1nd-trained` loop and do not fake mission calls.",
+            "4. Start a repo-scoped mission with `mission_start`: `agent_id=<lane_id>`, `repo=<workspace>`, `task=\"bug-hunt audit for behavioral defects\"`, `mode=\"bug_hunt\"`, `budget=\"normal\"`, and `risk=\"medium\"`.",
+            "5. Take the starter move, then call `mission_next` after each meaningful action with a concise `last_event` summary.",
+            "6. Treat `do_not` entries from `mission_next` as guardrails. If you disagree, record a dissent event explaining the chosen tool and required evidence.",
+            "7. When `mission_next` switches to direct proof, stop graph exploration and use direct source reads, rg, tests, compiler output, or focused runtime probes.",
+            "8. Call `mission_verify` before finalizing material findings. If a claim is rejected or needs evidence, gather that evidence or lower the confidence.",
+            "9. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, and proof-packet summary.",
+            "10. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
+            "11. Fill `mission_control_usage` in the lane result with `mission_id`, route, transport, call counts, unavailable state, `do_not` guardrails, verified/rejected claims, direct-proof switches, and proof-packet summary.",
+            "12. Also preserve raw m1nd calls in `m1nd_usage` when useful for auditability.",
             "",
         ]
     elif lane["instruction_mode"] == "m1nd-trained":
@@ -350,6 +354,8 @@ def result_template(round_payload, lane):
         "mission_control_usage": {
             "mission_id": "",
             "mission_route": "",
+            "mission_transport": "",
+            "mission_tool_surface_count": None,
             "mission_control_unavailable": False,
             "mission_start_called": False,
             "mission_next_count": 0,
@@ -466,7 +472,97 @@ def resolve_round_artifact(round_dir: Path, value):
     return round_dir / path
 
 
-def preflight_round(round_file: Path, required_modes=None):
+def default_m1nd_binary():
+    env_binary = os.environ.get("M1ND_MCP_BINARY") or os.environ.get("M1ND_MCP_BIN")
+    if env_binary:
+        return env_binary
+    binary_name = "m1nd-mcp.exe" if os.name == "nt" else "m1nd-mcp"
+    managed_binary = Path.home() / ".m1nd" / "bin" / binary_name
+    if managed_binary.exists() and os.access(managed_binary, os.X_OK):
+        return str(managed_binary)
+    return shutil.which(binary_name)
+
+
+def rpc_request(process, payload):
+    process.stdin.write(json.dumps(payload) + "\n")
+    process.stdin.flush()
+    line = process.stdout.readline()
+    if not line:
+        stderr = process.stderr.read().strip() if process.stderr else ""
+        raise RuntimeError(f"no response from m1nd-mcp; stderr={stderr}")
+    return json.loads(line)
+
+
+def probe_m1nd_tool_surface(binary=None):
+    required_tools = list(MISSION_CONTROL_TOKENS)
+    selected_binary = binary or default_m1nd_binary()
+    if not selected_binary:
+        return {
+            "status": "missing_binary",
+            "binary": None,
+            "tool_count": 0,
+            "required_tools": required_tools,
+            "missing_required_tools": required_tools,
+            "mission_control_available": False,
+        }
+
+    process = None
+    try:
+        process = subprocess.Popen(
+            [selected_binary, "--stdio", "--no-gui"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        rpc_request(process, {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}})
+        tools_response = rpc_request(
+            process, {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        )
+        tools = tools_response.get("result", {}).get("tools", [])
+        names = sorted(
+            tool.get("name")
+            for tool in tools
+            if isinstance(tool, dict) and isinstance(tool.get("name"), str)
+        )
+        missing = [tool for tool in required_tools if tool not in names]
+        return {
+            "status": "ok" if not missing else "missing_required_tools",
+            "binary": selected_binary,
+            "tool_count": len(names),
+            "required_tools": required_tools,
+            "missing_required_tools": missing,
+            "mission_control_available": not missing,
+        }
+    except Exception as error:  # noqa: BLE001 - preflight reports tool surface failures.
+        return {
+            "status": "probe_failed",
+            "binary": selected_binary,
+            "tool_count": 0,
+            "required_tools": required_tools,
+            "missing_required_tools": required_tools,
+            "mission_control_available": False,
+            "error": str(error),
+        }
+    finally:
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        if process:
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream:
+                    stream.close()
+
+
+def preflight_round(
+    round_file: Path,
+    required_modes=None,
+    require_live_mission_control=False,
+    m1nd_binary=None,
+):
     round_file = round_file.resolve()
     round_dir = round_file.parent
     required_modes = required_modes or []
@@ -495,6 +591,15 @@ def preflight_round(round_file: Path, required_modes=None):
         blockers.append(f"invalid instruction modes: {invalid_modes}")
     if missing_required_modes:
         blockers.append(f"missing required instruction modes: {missing_required_modes}")
+
+    mission_control_surface = None
+    if require_live_mission_control and "m1nd-mission-control" in modes:
+        mission_control_surface = probe_m1nd_tool_surface(binary=m1nd_binary)
+        if not mission_control_surface["mission_control_available"]:
+            blockers.append(
+                "live Mission Control tools unavailable: "
+                f"{mission_control_surface['missing_required_tools']}"
+            )
 
     lane_reports = []
     for lane in lanes:
@@ -596,10 +701,11 @@ def preflight_round(round_file: Path, required_modes=None):
         "blockers": blockers,
         "warnings": warnings,
         "lanes": lane_reports,
+        "mission_control_surface": mission_control_surface,
         "non_claims": [
             "preflight checks scaffold shape only; it does not run agents",
             "preflight does not prove seeded bug quality or benchmark outcome",
-            "preflight does not prove live MCP host health for future agents",
+            "live Mission Control preflight probes only the selected binary; it does not prove already-open worker host cached tool lists",
         ],
     }
 
@@ -1306,6 +1412,15 @@ def main():
         choices=VALID_INSTRUCTION_MODES,
         default=[],
     )
+    preflight_parser.add_argument(
+        "--require-live-mission-control",
+        action="store_true",
+        help="Probe the selected m1nd-mcp binary and require mission_start/next/verify/close.",
+    )
+    preflight_parser.add_argument(
+        "--m1nd-binary",
+        help="m1nd-mcp binary to probe when --require-live-mission-control is set.",
+    )
     preflight_parser.add_argument("--json", action="store_true")
 
     args = parser.parse_args()
@@ -1331,7 +1446,12 @@ def main():
         if args.json:
             print(json.dumps({"ok": True, "report": str(args.output)}, indent=2))
     elif args.command == "preflight":
-        preflight = preflight_round(args.round_file, required_modes=args.require_mode)
+        preflight = preflight_round(
+            args.round_file,
+            required_modes=args.require_mode,
+            require_live_mission_control=args.require_live_mission_control,
+            m1nd_binary=args.m1nd_binary,
+        )
         if args.json:
             print(json.dumps(preflight, indent=2))
         if not preflight["ok"]:

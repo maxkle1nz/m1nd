@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import tempfile
 import unittest
@@ -185,6 +186,94 @@ class BugHuntMissionControlTests(unittest.TestCase):
             self.assertEqual(preflight["arm_lane_counts"]["m1nd-mission-control"], 1)
             self.assertEqual(preflight["arm_lane_counts"]["direct"], 1)
 
+    def test_preflight_requires_live_mission_control_tools(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = pathlib.Path(temp_dir)
+            args = SimpleNamespace(
+                out_dir=out_dir,
+                round_id="round",
+                repo="repo",
+                source_repo=None,
+                seeded_repo=None,
+                workspace_root=None,
+                source_commit=None,
+                seeded_bug_count=1,
+                lanes_full_spec=0,
+                lanes_temponizer_full=0,
+                lanes_temponizer_compact=0,
+                lanes_temponizer=0,
+                lanes_short_audit=0,
+                lanes_mission_control=1,
+                lanes_trained=0,
+                lanes_basic=0,
+                lanes_direct=0,
+            )
+            self.bug_hunt.init_round(args)
+            fake_mcp = self.write_fake_mcp(out_dir, ["trust_selftest", "seek"])
+
+            preflight = self.bug_hunt.preflight_round(
+                out_dir / "round.json",
+                required_modes=["m1nd-mission-control"],
+                require_live_mission_control=True,
+                m1nd_binary=str(fake_mcp),
+            )
+
+            self.assertFalse(preflight["ok"])
+            self.assertEqual(preflight["mission_control_surface"]["tool_count"], 2)
+            self.assertTrue(
+                any(
+                    "live Mission Control tools unavailable" in item
+                    for item in preflight["blockers"]
+                )
+            )
+
+    def test_preflight_accepts_live_mission_control_tools(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = pathlib.Path(temp_dir)
+            args = SimpleNamespace(
+                out_dir=out_dir,
+                round_id="round",
+                repo="repo",
+                source_repo=None,
+                seeded_repo=None,
+                workspace_root=None,
+                source_commit=None,
+                seeded_bug_count=1,
+                lanes_full_spec=0,
+                lanes_temponizer_full=0,
+                lanes_temponizer_compact=0,
+                lanes_temponizer=0,
+                lanes_short_audit=0,
+                lanes_mission_control=1,
+                lanes_trained=0,
+                lanes_basic=0,
+                lanes_direct=0,
+            )
+            self.bug_hunt.init_round(args)
+            fake_mcp = self.write_fake_mcp(
+                out_dir,
+                [
+                    "mission_start",
+                    "mission_next",
+                    "mission_verify",
+                    "mission_close",
+                    "trust_selftest",
+                ],
+            )
+
+            preflight = self.bug_hunt.preflight_round(
+                out_dir / "round.json",
+                required_modes=["m1nd-mission-control"],
+                require_live_mission_control=True,
+                m1nd_binary=str(fake_mcp),
+            )
+
+            self.assertTrue(preflight["ok"])
+            self.assertEqual(preflight["blockers"], [])
+            self.assertTrue(
+                preflight["mission_control_surface"]["mission_control_available"]
+            )
+
     def test_preflight_rejects_broken_mission_control_prompt(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             out_dir = pathlib.Path(temp_dir)
@@ -223,6 +312,30 @@ class BugHuntMissionControlTests(unittest.TestCase):
                     for item in preflight["blockers"]
                 )
             )
+
+    def write_fake_mcp(self, out_dir, tool_names):
+        fake_mcp = pathlib.Path(out_dir) / "fake-m1nd-mcp.py"
+        script = f"""#!/usr/bin/env python3
+import json
+import sys
+
+TOOLS = {json.dumps(tool_names)}
+
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request.get("method")
+    response = {{"jsonrpc": "2.0", "id": request.get("id")}}
+    if method == "initialize":
+        response["result"] = {{"serverInfo": {{"name": "fake-m1nd-mcp"}}}}
+    elif method == "tools/list":
+        response["result"] = {{"tools": [{{"name": name}} for name in TOOLS]}}
+    else:
+        response["error"] = {{"code": -32601, "message": "not found"}}
+    print(json.dumps(response), flush=True)
+"""
+        fake_mcp.write_text(script, encoding="utf-8")
+        fake_mcp.chmod(0o755)
+        return fake_mcp
 
 
 if __name__ == "__main__":
