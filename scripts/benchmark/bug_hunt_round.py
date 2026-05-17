@@ -1301,6 +1301,29 @@ def build_report(round_file: Path, answer_key_file: Path, lane_results_dir: Path
     }
 
 
+def next_product_actions(report):
+    mission_validity = report["comparability"]["mission_control_validity"]
+    actions = []
+    if mission_validity["present"]:
+        if mission_validity["all_completed_lanes_evaluable"]:
+            actions.append(
+                "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules."
+            )
+        else:
+            actions.append(
+                "Fix worker-host Mission Control exposure before rerunning MC0 comparisons."
+            )
+    actions.extend(
+        [
+            "Keep improving the compact trained-agent loop as a default universal agent pack behavior.",
+            "Add cleaner state placement so m1nd benchmark/probe flows do not write sidecar metadata into target repos.",
+            "Track first-good-finding time and tool-call counts in the event stream.",
+            "Add a judge pass for extra findings so future reports can separate true extras from noise.",
+        ]
+    )
+    return actions
+
+
 def write_notes(path: Path, report):
     lines = [
         f"# Bug Hunt Round Notes: {report['round_id']}",
@@ -1344,6 +1367,7 @@ def write_notes(path: Path, report):
                 "- MC0 recall is fallback evidence only until completed Mission Control lanes are evaluable."
             )
 
+    next_actions = next_product_actions(report)
     lines.extend(
         [
             "",
@@ -1363,11 +1387,7 @@ def write_notes(path: Path, report):
             "",
             "## Next Product Actions",
             "",
-            "- Fix worker-host Mission Control exposure before rerunning MC0 comparisons.",
-            "- Keep improving the compact trained-agent loop as a default universal agent pack behavior.",
-            "- Add cleaner state placement so m1nd benchmark/probe flows do not write sidecar metadata into target repos.",
-            "- Track first-good-finding time and tool-call counts in the event stream.",
-            "- Add a judge pass for extra findings so future reports can separate true extras from noise.",
+            *[f"- {action}" for action in next_actions],
             "",
         ]
     )

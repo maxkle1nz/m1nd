@@ -152,6 +152,48 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertEqual(validity["partial_or_unavailable_lane_ids"], ["audit-02"])
         self.assertEqual(validity["missing_result_lane_ids"], ["audit-03"])
 
+    def test_next_actions_keep_exposure_fix_for_unevaluable_mission_control(self):
+        report = {
+            "comparability": {
+                "mission_control_validity": {
+                    "present": True,
+                    "all_completed_lanes_evaluable": False,
+                }
+            }
+        }
+
+        actions = self.bug_hunt.next_product_actions(report)
+
+        self.assertIn(
+            "Fix worker-host Mission Control exposure before rerunning MC0 comparisons.",
+            actions,
+        )
+        self.assertNotIn(
+            "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules.",
+            actions,
+        )
+
+    def test_next_actions_tune_mission_control_when_evaluable(self):
+        report = {
+            "comparability": {
+                "mission_control_validity": {
+                    "present": True,
+                    "all_completed_lanes_evaluable": True,
+                }
+            }
+        }
+
+        actions = self.bug_hunt.next_product_actions(report)
+
+        self.assertIn(
+            "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules.",
+            actions,
+        )
+        self.assertNotIn(
+            "Fix worker-host Mission Control exposure before rerunning MC0 comparisons.",
+            actions,
+        )
+
     def test_preflight_accepts_mission_control_round_scaffold(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             out_dir = pathlib.Path(temp_dir)
