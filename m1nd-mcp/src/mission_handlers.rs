@@ -168,7 +168,13 @@ pub fn handle_mission_verify(
         missing.push("direct_source_read_or_runtime_probe".to_string());
         "insufficient_evidence"
     };
-    let next_required_move = if verdict == "verified_for_mission" {
+    let next_required_move = if verdict == "verified_for_mission" && mission.mode == "bug_hunt" {
+        json!({
+            "type": "mission_next",
+            "why": "bug_hunt claims are verified individually; ask mission_next whether another direct sweep is required before close",
+            "evidence_required": "coverage_sweep_or_next_claim"
+        })
+    } else if verdict == "verified_for_mission" {
         json!({
             "type": "claim_or_close",
             "why": "claim has at least one direct evidence reference; either verify the next claim or close with explicit gaps"
@@ -547,6 +553,7 @@ struct EventAnalysis {
     graph_events: usize,
     direct_events: usize,
     verify_events: usize,
+    coverage_sweep_events: usize,
     repeated_graph_queries: bool,
 }
 
@@ -566,6 +573,9 @@ fn analyze_events(mission: &MissionState) -> EventAnalysis {
         }
         if kind.contains("verify") || kind.contains("test") {
             analysis.verify_events += 1;
+        }
+        if is_coverage_sweep_kind(&kind) {
+            analysis.coverage_sweep_events += 1;
         }
         if graph_query_streak >= 2 {
             analysis.repeated_graph_queries = true;
@@ -620,6 +630,26 @@ fn next_move(
         .iter()
         .any(|claim| claim.verdict == "verified_for_mission")
     {
+        if mission.mode == "bug_hunt" && analysis.coverage_sweep_events == 0 {
+            return (
+                "verify".into(),
+                json!({
+                    "type": "direct_sweep",
+                    "target": mission.repo,
+                    "why": "bug_hunt missions must do one negative-space sweep after verified findings before closing",
+                    "evidence_required": "boundary_or_contract_sweep",
+                    "suggested_focus": [
+                        "public contracts and docs",
+                        "boundary values",
+                        "error paths",
+                        "async or concurrency semantics",
+                        "helper/exported APIs not covered by current claims"
+                    ]
+                }),
+                vec!["activate", "seek"],
+                Some("verified findings exist, but bug_hunt mode needs a final direct coverage sweep before close".into()),
+            );
+        }
         return (
             "report".into(),
             json!({
@@ -696,6 +726,15 @@ fn is_direct_kind(kind: &str) -> bool {
         || kind.contains("grep")
 }
 
+fn is_coverage_sweep_kind(kind: &str) -> bool {
+    kind.contains("coverage_sweep")
+        || kind.contains("boundary_sweep")
+        || kind.contains("edge_case_sweep")
+        || kind.contains("negative_space_sweep")
+        || kind.contains("public_contract_sweep")
+        || kind.contains("followup_sweep")
+}
+
 fn budget_consumed(mission: &MissionState) -> f64 {
     let max_tool_calls = mission
         .budget_envelope
@@ -758,5 +797,103 @@ mod tests {
             parent_mission_id: None,
         };
         assert!(validate_mission_start_input(&input).is_err());
+    }
+
+    #[test]
+    fn bug_hunt_requires_coverage_sweep_after_verified_claim() {
+        let mut mission = test_mission("bug_hunt");
+        mission
+            .events
+            .push(json!({"event": "file_read", "path": "index.js"}));
+        mission.claims.push(verified_claim());
+
+        let analysis = analyze_events(&mission);
+        let (phase, move_value, do_not, warning) = next_move(&mission, &analysis);
+
+        assert_eq!(phase, "verify");
+        assert_eq!(move_value["type"], "direct_sweep");
+        assert!(move_value["suggested_focus"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "boundary values"));
+        assert!(do_not.contains(&"seek"));
+        assert!(warning
+            .unwrap()
+            .contains("final direct coverage sweep before close"));
+    }
+
+    #[test]
+    fn bug_hunt_can_close_after_coverage_sweep() {
+        let mut mission = test_mission("bug_hunt");
+        mission
+            .events
+            .push(json!({"event": "file_read", "path": "index.js"}));
+        mission.events.push(json!({
+            "event": "boundary_sweep",
+            "outcome": "checked public docs, boundary values, and helper APIs"
+        }));
+        mission.claims.push(verified_claim());
+
+        let analysis = analyze_events(&mission);
+        let (phase, move_value, do_not, warning) = next_move(&mission, &analysis);
+
+        assert_eq!(phase, "report");
+        assert_eq!(move_value["type"], "close");
+        assert!(do_not.contains(&"activate"));
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn review_can_close_after_verified_claim_without_extra_sweep() {
+        let mut mission = test_mission("review");
+        mission
+            .events
+            .push(json!({"event": "file_read", "path": "src/auth.rs"}));
+        mission.claims.push(verified_claim());
+
+        let analysis = analyze_events(&mission);
+        let (phase, move_value, _, _) = next_move(&mission, &analysis);
+
+        assert_eq!(phase, "report");
+        assert_eq!(move_value["type"], "close");
+    }
+
+    fn test_mission(mode: &str) -> MissionState {
+        MissionState {
+            schema: STATE_SCHEMA.into(),
+            mission_id: "msn_123_jimi".into(),
+            agent_id: "jimi".into(),
+            repo: "/tmp/project".into(),
+            task: "audit behavioral defects".into(),
+            mode: mode.into(),
+            budget: "normal".into(),
+            risk: "medium".into(),
+            parent_mission_id: None,
+            route: route_for(mode, "normal", "medium"),
+            phase: "verify".into(),
+            status: "active".into(),
+            created_at_ms: 1,
+            updated_at_ms: 1,
+            next_step_id: 1,
+            budget_envelope: budget_envelope("normal"),
+            graph_state_at_start: json!({}),
+            events: Vec::new(),
+            claims: Vec::new(),
+            non_claims: Vec::new(),
+        }
+    }
+
+    fn verified_claim() -> MissionClaimState {
+        MissionClaimState {
+            claim_id: "clm_1".into(),
+            claim: "verified finding".into(),
+            evidence_refs: vec!["file_read:index.js:1".into()],
+            evidence_grade: "direct".into(),
+            verdict: "verified_for_mission".into(),
+            missing: Vec::new(),
+            confidence: Some(0.9),
+            created_at_ms: 1,
+        }
     }
 }

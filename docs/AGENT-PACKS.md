@@ -87,6 +87,10 @@ move plus `do_not` guardrails; `mission_verify` rejects graph-only claims; and
 gaps, and non-claims. This is an operating-loop contract, not proof that the
 host was rebound, the graph was repaired, or retrieval became correct.
 
+For `bug_hunt`, follow any `direct_sweep` move before closing. It is a direct
+negative-space pass over public contracts/docs, boundary values, error paths,
+async/concurrency behavior, and helper/exported APIs.
+
 For tiny repos, narrow reviews, or localized bug hunts, agents should use the
 short-audit route instead of turning m1nd into a long investigation. Establish
 trust, run one bounded recovery/ingest pass if needed, make one or two cheap

@@ -65,6 +65,14 @@ classes such as:
 It rejects graph-only or inferred evidence such as `seek`, `activate`,
 `audit`, or a plain claim with no direct source/runtime/test reference.
 
+For `bug_hunt` missions, a verified claim is not enough to close by default.
+After one or more verified findings, `mission_next` requires one direct
+negative-space sweep before `mission_close`: public contracts/docs, boundary
+values, error paths, async or concurrency semantics, and helper/exported APIs
+not covered by current claims. Record that action as `coverage_sweep`,
+`boundary_sweep`, `edge_case_sweep`, `negative_space_sweep`,
+`public_contract_sweep`, or `followup_sweep`.
+
 ## Non-Claims
 
 Mission Control v0 does not claim:
@@ -90,7 +98,8 @@ The intended loop:
 3. `mission_next` with the last event
 4. direct proof when `do_not` blocks more graph calls
 5. `mission_verify`
-6. `mission_close`
+6. for `bug_hunt`, one final direct coverage sweep when `mission_next` asks
+7. `mission_close`
 
 ## Next Proof
 

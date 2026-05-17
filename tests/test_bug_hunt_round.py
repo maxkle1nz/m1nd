@@ -34,6 +34,7 @@ class BugHuntMissionControlTests(unittest.TestCase):
                 "do_not_guardrails_observed": ["call activate"],
                 "verified_claims": ["claim-1"],
                 "direct_proof_switches": ["step-2"],
+                "coverage_sweeps": ["boundary sweep"],
             }
         }
 
@@ -54,6 +55,7 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertEqual(summary["do_not_guardrail_count"], 1)
         self.assertEqual(summary["verified_claim_signal_count"], 1)
         self.assertEqual(summary["direct_proof_switch_count"], 1)
+        self.assertEqual(summary["coverage_sweep_count"], 1)
 
     def test_default_template_does_not_create_false_unavailable_or_loop(self):
         round_payload = {"round_id": "round", "repo": "repo"}
@@ -94,6 +96,7 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertIsNone(summary["loop_complete"])
         self.assertIsNone(summary["mission_next_count"])
         self.assertIsNone(summary["adherence_rate"])
+        self.assertIsNone(summary["coverage_sweep_count"])
 
     def test_structured_unavailable_mission_control_does_not_count_text_tokens(self):
         result = {
@@ -180,7 +183,8 @@ class BugHuntMissionControlTests(unittest.TestCase):
                     "present": True,
                     "all_completed_lanes_evaluable": True,
                 }
-            }
+            },
+            "arms": {"m1nd-mission-control": {"seeded_recall_rate": 0.9}},
         }
 
         actions = self.bug_hunt.next_product_actions(report)
@@ -191,6 +195,33 @@ class BugHuntMissionControlTests(unittest.TestCase):
         )
         self.assertNotIn(
             "Fix worker-host Mission Control exposure before rerunning MC0 comparisons.",
+            actions,
+        )
+
+    def test_next_actions_repeat_when_coverage_sweep_round_succeeds(self):
+        report = {
+            "comparability": {
+                "mission_control_validity": {
+                    "present": True,
+                    "all_completed_lanes_evaluable": True,
+                }
+            },
+            "arms": {
+                "m1nd-mission-control": {
+                    "seeded_recall_rate": 1.0,
+                    "median_coverage_sweep_count": 1.0,
+                }
+            },
+        }
+
+        actions = self.bug_hunt.next_product_actions(report)
+
+        self.assertIn(
+            "Repeat the MC0 direct-sweep calibration on another fixture before treating it as a generalized improvement.",
+            actions,
+        )
+        self.assertNotIn(
+            "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules.",
             actions,
         )
 
@@ -227,6 +258,44 @@ class BugHuntMissionControlTests(unittest.TestCase):
             self.assertEqual(preflight["blockers"], [])
             self.assertEqual(preflight["arm_lane_counts"]["m1nd-mission-control"], 1)
             self.assertEqual(preflight["arm_lane_counts"]["direct"], 1)
+
+    def test_init_materializes_seeded_lane_workspaces(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            seeded = root / "seeded"
+            seeded.mkdir()
+            (seeded / "index.js").write_text("export default 1;\n", encoding="utf-8")
+            out_dir = root / "round"
+            workspace_root = root / "workspaces"
+            args = SimpleNamespace(
+                out_dir=out_dir,
+                round_id="round",
+                repo="repo",
+                source_repo=None,
+                seeded_repo=seeded,
+                workspace_root=workspace_root,
+                source_commit=None,
+                seeded_bug_count=1,
+                lanes_full_spec=0,
+                lanes_temponizer_full=0,
+                lanes_temponizer_compact=0,
+                lanes_temponizer=0,
+                lanes_short_audit=0,
+                lanes_mission_control=1,
+                lanes_trained=0,
+                lanes_basic=0,
+                lanes_direct=0,
+                no_materialize_workspaces=False,
+            )
+
+            round_payload = self.bug_hunt.init_round(args)
+
+            repo_path = pathlib.Path(round_payload["lanes"][0]["repo_path"])
+            self.assertTrue((repo_path / "index.js").exists())
+            self.assertEqual(round_payload["materialized_workspaces"][0]["status"], "created")
+            self.assertTrue(
+                any("copied the seeded repo" in item for item in round_payload["non_claims"])
+            )
 
     def test_preflight_requires_live_mission_control_tools(self):
         with tempfile.TemporaryDirectory() as temp_dir:

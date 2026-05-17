@@ -96,6 +96,9 @@ condition tests the runtime operating layer: budget envelope, one-next-move
 routing, `do_not` guardrails, graph-to-direct-proof switching, and proof packet
 closure. It must be reported separately from `m1nd-trained` until repeated
 rounds prove whether MC0 improves recall, speed, variance, or evidence quality.
+In `bug_hunt` mode, MC0 may require a final direct `direct_sweep` after verified
+findings before close; agents should record that negative-space pass as
+`coverage_sweep`, `boundary_sweep`, or `edge_case_sweep`.
 The scorer treats Mission Control usage as evidence too: loop completion,
 unavailable tools, `mission_next` counts, and direct-proof switches are reported
 beside seeded recall, with a four-step adherence rate for
@@ -157,8 +160,10 @@ The command writes:
 - `lane-results/*.json`
 - `lane-result-template.json`
 
-It does not plant bugs, clone repos, or prepare workspaces. The operator must
-prepare the seeded repo and answer key before dispatching agents.
+When `--seeded-repo` is provided, init copies that seeded repo into each
+isolated lane workspace. Use `--no-materialize-workspaces` only for scaffold-only
+round setup. Init does not plant bugs or validate seeded bug quality; the
+operator must still provide the answer key.
 
 Preflight the scaffold before dispatch:
 

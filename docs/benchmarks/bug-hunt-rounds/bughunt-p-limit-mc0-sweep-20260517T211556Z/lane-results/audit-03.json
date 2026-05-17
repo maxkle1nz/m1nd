@@ -1,0 +1,156 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc0-sweep-20260517T211556Z",
+  "lane_id": "audit-03",
+  "instruction_mode": "m1nd-trained",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-17T21:16:00Z",
+  "finished_at": "2026-05-17T21:28:18Z",
+  "findings": [
+    {
+      "title": "limitFunction drops all caller arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper is zero-argument and calls function_() instead of forwarding ...arguments_ through the limiter.",
+      "impact": "Any limited function that depends on its parameters receives undefined values at runtime, despite the TypeScript contract returning (...arguments_: Arguments) => Promise<ReturnType>.",
+      "evidence": "index.js:121-124 returns () => limit(() => function_()). index.d.ts:133-136 declares the returned function accepts the original Arguments tuple.",
+      "reproduction_or_test": "Focused node probe loaded index.js with an in-memory Queue stub and ran: const limited = limitFunction(async value => value, {concurrency: 1}); assert.equal(await limited('expected'), 'expected'); It failed with actual undefined.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits mapper indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "map",
+      "cause": "The implementation conditionally passes index only when Array.isArray(iterable) is true, replacing the documented Array.from(iterable, (item, index) => ...) behavior for Set, iterator, and other iterable inputs.",
+      "impact": "Users mapping Set, generator, or iterator inputs receive undefined for the mapper index even though the README and type definition promise a numeric index for every iterable item.",
+      "evidence": "index.js:107-112 passes iterableIsArray ? index : undefined. readme.md:78-84 and index.d.ts:30-43 say the mapper receives item value and index for Iterable<Input>.",
+      "reproduction_or_test": "Focused node probe loaded index.js with an in-memory Queue stub and ran: const indexes = await pLimit(2).map(new Set(['a', 'b', 'c']), (_value, index) => index); assert.deepEqual(indexes, [0, 1, 2]); It failed with [undefined, undefined, undefined].",
+      "confidence": "high"
+    },
+    {
+      "title": "Options object silently flips rejectOnClear default to true",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "Destructuring uses rejectOnClear = true when the concurrency argument is an object, contradicting the documented and typed default of false.",
+      "impact": "Calling pLimit({concurrency: 1}) now rejects queued promises on clearQueue(), so code relying on the default discard-without-reject behavior can start failing Promise.all chains with AbortError.",
+      "evidence": "index.js:6-8 defaults rejectOnClear to true for object options. readme.md:46-52 and index.d.ts:99-106 document Default: false.",
+      "reproduction_or_test": "Focused node probe loaded index.js with an in-memory Queue stub, queued one running task and one pending task with pLimit({concurrency: 1}), called clearQueue(), then raced the pending promise against a short timeout. Expected pending; actual was rejected:AbortError.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "Validation checks rejectOnClear && typeof rejectOnClear !== 'boolean', so values like 0, null, and '' are accepted instead of rejected as non-boolean options.",
+      "impact": "The runtime accepts invalid JavaScript option objects that the public API and TypeScript declarations reject, making behavior depend on truthiness rather than the boolean contract.",
+      "evidence": "index.js:12 validates only truthy non-booleans. index.d.ts:99-106 declares rejectOnClear?: boolean, and index.test-d.ts expects rejectOnClear: 'nope' to be invalid.",
+      "reproduction_or_test": "Focused node probe loaded index.js with an in-memory Queue stub and ran: assert.throws(() => pLimit({concurrency: 1, rejectOnClear: 0}), TypeError); It failed with Missing expected exception.",
+      "confidence": "medium"
+    },
+    {
+      "title": "Number.POSITIVE_INFINITY concurrency support was removed",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "validateConcurrency now requires Number.isInteger(concurrency), removing the explicit Number.POSITIVE_INFINITY allowance from the baseline implementation.",
+      "impact": "Consumers that use Infinity as an unbounded limiter now get a TypeError even though this code path previously accepted it and Infinity is a positive numeric concurrency value.",
+      "evidence": "git diff for index.js shows the predicate changed from (Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0 to Number.isInteger(concurrency) && concurrency > 0 at index.js:127-129.",
+      "reproduction_or_test": "Focused node probe loaded index.js with an in-memory Queue stub and ran: assert.doesNotThrow(() => pLimit(Number.POSITIVE_INFINITY)); It failed with TypeError: Expected `concurrency` to be a number from 1 and up.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /Users/kle1nz/m1nd/target/release/m1nd-mcp --workspace-root <audit-03-repo> --no-worktree-artifacts tools",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /Users/kle1nz/m1nd/target/release/m1nd-mcp --workspace-root <audit-03-repo> --no-worktree-artifacts run '[trust_selftest, ingest, session_handshake, audit]'",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /Users/kle1nz/m1nd/target/release/m1nd-mcp --workspace-root <audit-03-repo> --no-worktree-artifacts run '[ingest, search, search, search, impact]'",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --binary /Users/kle1nz/m1nd/target/release/m1nd-mcp --workspace-root <audit-03-repo> --no-worktree-artifacts run '[ingest, recovery_playbook, seek, impact, impact]'",
+    "git status --short",
+    "git diff -- index.js",
+    "sed -n / nl -ba reads of index.js, test.js, package.json, readme.md, index.d.ts, index.test-d.ts",
+    "test -d node_modules && printf 'node_modules present' || printf 'node_modules missing'",
+    "node --input-type=module focused probes loading index.js from disk with an in-memory Queue stub for limitFunction, map, rejectOnClear default, rejectOnClear validation, and Infinity concurrency"
+  ],
+  "files_inspected": [
+    "index.js",
+    "test.js",
+    "package.json",
+    "readme.md",
+    "index.d.ts",
+    "index.test-d.ts",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-result-template.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "tools",
+      "outcome": "live surface available with 100 tools via /Users/kle1nz/m1nd/target/release/m1nd-mcp"
+    },
+    {
+      "tool": "trust_selftest",
+      "outcome": "initial verdict needs_ingest for the isolated audit-03 binding; recovery playbook instructed ingest"
+    },
+    {
+      "tool": "ingest",
+      "outcome": "ingested assigned p-limit workspace only; 10 files scanned, 82 nodes, 94 edges"
+    },
+    {
+      "tool": "session_handshake",
+      "outcome": "full_trust after ingest with workspace_root bound to the audit-03 repo"
+    },
+    {
+      "tool": "audit",
+      "outcome": "oriented to index.js as highest-risk module; git state showed only index.js modified"
+    },
+    {
+      "tool": "search",
+      "outcome": "literal searches returned zero candidates and emitted retrieval_needs_recovery; followed with recovery_playbook"
+    },
+    {
+      "tool": "recovery_playbook",
+      "outcome": "classified the zero-candidate search as stale_binding_suspected for search; seek remained usable and direct file truth was used for proof"
+    },
+    {
+      "tool": "seek",
+      "outcome": "returned index.d.ts, test mapper, and index.js as relevant surfaces for API contract review"
+    },
+    {
+      "tool": "impact",
+      "outcome": "called for limitFunction and validateConcurrency; no forward blast radius returned, so direct source and runtime probes carried proof"
+    }
+  ],
+  "mission_control_usage": {
+    "mission_id": "",
+    "mission_route": "",
+    "mission_transport": "",
+    "mission_tool_surface_count": null,
+    "mission_control_unavailable": false,
+    "mission_start_called": false,
+    "mission_next_count": 0,
+    "mission_verify_count": 0,
+    "mission_close_called": false,
+    "do_not_guardrails_observed": [],
+    "verified_claims": [],
+    "rejected_or_insufficient_claims": [],
+    "direct_proof_switches": [
+      "Switched to direct source reads after m1nd audit identified index.js and after m1nd search returned zero candidates with recovery guidance.",
+      "Used focused node probes with an in-memory Queue stub because node_modules was missing and the lane prompt allowed only result/event writes."
+    ],
+    "coverage_sweeps": [
+      "Compared runtime index.js changes against README and index.d.ts contracts.",
+      "Covered public APIs pLimit options, limit.map, limitFunction, and validateConcurrency."
+    ],
+    "proof_packet_summary": "Five findings are backed by current source lines plus focused runtime probes. Full npm test was not run because dependencies were absent and installing node_modules would violate the lane write restriction."
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "I did not read operator-only artifacts or patch source files. I worked only in the assigned audit-03 p-limit workspace for reads/probes and wrote only the assigned result JSON plus event JSONL outputs. The first helper path from the skill documentation was absent, so I used the benchmark-local m1nd operator helper at /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py with the requested --binary and --workspace-root flags.",
+  "notes": "node_modules was missing, so direct import of index.js failed with ERR_MODULE_NOT_FOUND for yocto-queue. To avoid writing dependencies into the lane workspace, focused runtime probes loaded index.js from disk and replaced only the yocto-queue import with an equivalent minimal in-memory Queue class.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them",
+    "full npm test was not run because dependencies were not installed and the lane write restriction prevented npm install"
+  ]
+}

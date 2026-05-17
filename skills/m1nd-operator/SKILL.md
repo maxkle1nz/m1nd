@@ -71,6 +71,12 @@ spending graph budget unless you record a dissent event. Mission Control is not
 a host repair tool, graph correctness proof, or autonomous multi-agent
 orchestrator.
 
+Bug-hunt rule: do not close only because one finding is verified. When
+`mission_next` returns `direct_sweep`, perform one negative-space sweep over
+public contracts/docs, boundary values, error paths, async/concurrency behavior,
+and helper/exported APIs. Feed it back as `coverage_sweep`, `boundary_sweep`, or
+`edge_case_sweep` before closing.
+
 ## Short-Audit Route
 
 Use `m1nd-short-audit` when the task is a small or localized bug hunt, a narrow

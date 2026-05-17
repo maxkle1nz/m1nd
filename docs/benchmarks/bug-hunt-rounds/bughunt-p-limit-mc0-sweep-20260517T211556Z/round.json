@@ -1,0 +1,93 @@
+{
+  "created_at": "2026-05-17T21:15:56.208038+00:00",
+  "invalidated_attempts": [
+    {
+      "disposition": "rerun_completed",
+      "lane_id": "audit-01",
+      "reason": "lane started before seeded workspace was materialized"
+    },
+    {
+      "disposition": "rerun_completed",
+      "lane_id": "audit-03",
+      "reason": "lane started before seeded workspace was materialized"
+    },
+    {
+      "disposition": "rerun_completed",
+      "lane_id": "audit-04",
+      "reason": "lane started before seeded workspace was materialized"
+    },
+    {
+      "disposition": "rerun_completed",
+      "lane_id": "audit-05",
+      "reason": "lane started before seeded workspace was materialized"
+    },
+    {
+      "disposition": "rerun_completed",
+      "lane_id": "audit-06",
+      "reason": "lane started before seeded workspace was materialized"
+    }
+  ],
+  "lanes": [
+    {
+      "events": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/event-streams/audit-01.jsonl",
+      "instruction_mode": "m1nd-mission-control",
+      "lane_id": "audit-01",
+      "prompt": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-prompts/audit-01.md",
+      "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-sweep-20260517T211556Z/audit-01/p-limit",
+      "result": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-results/audit-01.json"
+    },
+    {
+      "events": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/event-streams/audit-02.jsonl",
+      "instruction_mode": "m1nd-mission-control",
+      "lane_id": "audit-02",
+      "prompt": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-prompts/audit-02.md",
+      "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-sweep-20260517T211556Z/audit-02/p-limit",
+      "result": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-results/audit-02.json"
+    },
+    {
+      "events": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/event-streams/audit-03.jsonl",
+      "instruction_mode": "m1nd-trained",
+      "lane_id": "audit-03",
+      "prompt": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-prompts/audit-03.md",
+      "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-sweep-20260517T211556Z/audit-03/p-limit",
+      "result": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-results/audit-03.json"
+    },
+    {
+      "events": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/event-streams/audit-04.jsonl",
+      "instruction_mode": "m1nd-trained",
+      "lane_id": "audit-04",
+      "prompt": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-prompts/audit-04.md",
+      "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-sweep-20260517T211556Z/audit-04/p-limit",
+      "result": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-results/audit-04.json"
+    },
+    {
+      "events": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/event-streams/audit-05.jsonl",
+      "instruction_mode": "direct",
+      "lane_id": "audit-05",
+      "prompt": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-prompts/audit-05.md",
+      "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-sweep-20260517T211556Z/audit-05/p-limit",
+      "result": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-results/audit-05.json"
+    },
+    {
+      "events": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/event-streams/audit-06.jsonl",
+      "instruction_mode": "direct",
+      "lane_id": "audit-06",
+      "prompt": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-prompts/audit-06.md",
+      "repo_path": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-sweep-20260517T211556Z/audit-06/p-limit",
+      "result": "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc0-sweep-20260517T211556Z/lane-results/audit-06.json"
+    }
+  ],
+  "non_claims": [
+    "Primary auditors are not told bug count or comparison arm.",
+    "This is an internal field simulation, not public benchmark evidence.",
+    "The init command creates scaffolding only; the operator must prepare seeded workspaces and answer key."
+  ],
+  "repo": "p-limit",
+  "round_id": "bughunt-p-limit-mc0-sweep-20260517T211556Z",
+  "schema": "m1nd-bug-hunt-round-v0",
+  "seeded_bug_count": 5,
+  "seeded_repo": "/Users/kle1nz/m1nd/.m1nd-benchmark-fixtures/bug-hunt/bughunt-p-limit-tempo-20260514T145029Z/p-limit-seeded",
+  "source_commit": "9f52583119f0cb0d85c6fec600c94a21fd89d060",
+  "source_repo": "/Users/kle1nz/m1nd/.m1nd-benchmark-fixtures/real-world/p-limit-node",
+  "workspace_root": "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc0-sweep-20260517T211556Z"
+}

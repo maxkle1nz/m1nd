@@ -71,6 +71,12 @@ or host recovery. Its most important behavior is
 `switch_to_direct_proof`: after graph orientation, it can tell you to stop
 calling `seek`/`activate` and prove the claim directly.
 
+Bug-hunt calibration: a verified finding does not mean the hunt is done. If
+`mission_next` asks for a `direct_sweep`, do one negative-space sweep over
+public contracts/docs, boundary values, error paths, async/concurrency behavior,
+and helper/exported APIs, then record the event as `coverage_sweep`,
+`boundary_sweep`, or `edge_case_sweep` before closing.
+
 ## Short-Audit Route
 
 Use the short-audit route when the repo or suspected surface is small,

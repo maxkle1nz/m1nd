@@ -386,6 +386,11 @@ plus `do_not` guardrails, `mission_verify` rejects graph-only claims, and
 bounded operating loop, not a claim that m1nd fixed graph correctness or
 refreshed the active host.
 
+In `bug_hunt` mode, MC0 now requires a final direct `direct_sweep` after
+verified findings before close, so agents check negative space: public
+contracts/docs, boundary values, error paths, async/concurrency behavior, and
+helper/exported APIs.
+
 This loop is included in `m1nd-first`, `m1nd-operator`, and the universal
 agent pack for non-Codex hosts.
 

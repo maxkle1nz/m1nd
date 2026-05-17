@@ -282,10 +282,11 @@ def lane_prompt(round_payload, lane):
             "6. Treat `do_not` entries from `mission_next` as guardrails. If you disagree, record a dissent event explaining the chosen tool and required evidence.",
             "7. When `mission_next` switches to direct proof, stop graph exploration and use direct source reads, rg, tests, compiler output, or focused runtime probes.",
             "8. Call `mission_verify` before finalizing material findings. If a claim is rejected or needs evidence, gather that evidence or lower the confidence.",
-            "9. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, and proof-packet summary.",
-            "10. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
-            "11. Fill `mission_control_usage` in the lane result with `mission_id`, route, transport, call counts, unavailable state, `do_not` guardrails, verified/rejected claims, direct-proof switches, and proof-packet summary.",
-            "12. Also preserve raw m1nd calls in `m1nd_usage` when useful for auditability.",
+            "9. In `bug_hunt`, if `mission_next` returns `move.type=\"direct_sweep\"`, do the requested negative-space sweep before closing: public contracts/docs, boundary values, error paths, async/concurrency behavior, and helper/exported APIs. Record it as `coverage_sweep`, `boundary_sweep`, or `edge_case_sweep`.",
+            "10. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, and proof-packet summary.",
+            "11. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
+            "12. Fill `mission_control_usage` in the lane result with `mission_id`, route, transport, call counts, unavailable state, `do_not` guardrails, verified/rejected claims, direct-proof switches, coverage sweeps, and proof-packet summary.",
+            "13. Also preserve raw m1nd calls in `m1nd_usage` when useful for auditability.",
             "",
         ]
     elif lane["instruction_mode"] == "m1nd-trained":
@@ -368,6 +369,7 @@ def result_template(round_payload, lane):
             "verified_claims": [],
             "rejected_or_insufficient_claims": [],
             "direct_proof_switches": [],
+            "coverage_sweeps": [],
             "proof_packet_summary": "",
         },
         "temponizer_usage": [],
@@ -400,6 +402,23 @@ def write_text(path: Path, content: str):
     path.write_text(content, encoding="utf-8")
 
 
+def materialize_lane_workspaces(lanes, seeded_repo: Path | None, enabled: bool):
+    if not enabled or seeded_repo is None:
+        return []
+    if not seeded_repo.exists() or not seeded_repo.is_dir():
+        raise FileNotFoundError(f"seeded repo not found: {seeded_repo}")
+    materialized = []
+    for lane in lanes:
+        repo_path = Path(lane["repo_path"])
+        repo_path.parent.mkdir(parents=True, exist_ok=True)
+        if repo_path.exists():
+            materialized.append({"lane_id": lane["lane_id"], "repo_path": str(repo_path), "status": "existing"})
+            continue
+        shutil.copytree(seeded_repo, repo_path)
+        materialized.append({"lane_id": lane["lane_id"], "repo_path": str(repo_path), "status": "created"})
+    return materialized
+
+
 def init_round(args):
     out_dir = args.out_dir.resolve()
     workspace_root = args.workspace_root.resolve() if args.workspace_root else None
@@ -429,6 +448,24 @@ def init_round(args):
         )
         lanes.append(lane)
 
+    materialized_workspaces = materialize_lane_workspaces(
+        lanes,
+        args.seeded_repo.resolve() if args.seeded_repo else None,
+        not getattr(args, "no_materialize_workspaces", False),
+    )
+    non_claims = [
+        "Primary auditors are not told bug count or comparison arm.",
+        "This is an internal field simulation, not public benchmark evidence.",
+    ]
+    if materialized_workspaces:
+        non_claims.append(
+            "The init command copied the seeded repo into lane workspaces; it does not validate seeded bug quality."
+        )
+    else:
+        non_claims.append(
+            "The init command created scaffolding only; the operator must prepare seeded workspaces and answer key."
+        )
+
     round_payload = {
         "schema": ROUND_SCHEMA,
         "round_id": args.round_id,
@@ -440,12 +477,9 @@ def init_round(args):
         "source_commit": args.source_commit,
         "seeded_bug_count": args.seeded_bug_count,
         "lanes": lanes,
+        "materialized_workspaces": materialized_workspaces,
         "invalidated_attempts": [],
-        "non_claims": [
-            "Primary auditors are not told bug count or comparison arm.",
-            "This is an internal field simulation, not public benchmark evidence.",
-            "The init command creates scaffolding only; the operator must prepare seeded workspaces and answer key.",
-        ],
+        "non_claims": non_claims,
     }
 
     dump_json(out_dir / "round.json", round_payload)
@@ -637,6 +671,7 @@ def preflight_round(
                 "mission_next",
                 "mission_verify",
                 "mission_close",
+                "direct_sweep",
                 "do not fake mission calls",
             ]
             missing_prompt_tokens = [
@@ -666,6 +701,7 @@ def preflight_round(
                     "verified_claims",
                     "rejected_or_insufficient_claims",
                     "direct_proof_switches",
+                    "coverage_sweeps",
                     "proof_packet_summary",
                 ]
                 missing_fields = [field for field in expected_fields if field not in usage]
@@ -905,6 +941,7 @@ def summarize_mission_control(result, agent_events, instruction_mode):
             "unavailable": None,
             "loop_complete": None,
             "direct_proof_switch_count": None,
+            "coverage_sweep_count": None,
             "do_not_guardrail_count": None,
             "verified_claim_signal_count": None,
             "rejected_claim_signal_count": None,
@@ -935,6 +972,7 @@ def summarize_mission_control(result, agent_events, instruction_mode):
         "unavailable": unavailable,
         "loop_complete": False,
         "direct_proof_switch_count": count_value(structured.get("direct_proof_switches")),
+        "coverage_sweep_count": count_value(structured.get("coverage_sweeps")),
         "do_not_guardrail_count": count_value(structured.get("do_not_guardrails_observed")),
         "verified_claim_signal_count": count_value(structured.get("verified_claims")),
         "rejected_claim_signal_count": count_value(
@@ -953,6 +991,13 @@ def summarize_mission_control(result, agent_events, instruction_mode):
             raw_mission_payload, "switch_to_direct_proof"
         ) + token_count(raw_mission_payload, "direct-proof switch") + token_count(
             raw_mission_payload, "direct proof switch"
+        )
+        summary["coverage_sweep_count"] = (
+            token_count(raw_mission_payload, "direct_sweep")
+            + token_count(raw_mission_payload, "coverage_sweep")
+            + token_count(raw_mission_payload, "boundary_sweep")
+            + token_count(raw_mission_payload, "edge_case_sweep")
+            + token_count(raw_mission_payload, "negative-space sweep")
         )
         summary["do_not_guardrail_count"] = token_count(
             raw_mission_payload, "do_not"
@@ -1169,6 +1214,10 @@ def group_arms(lanes, seeded_bug_count):
                 lane.get("mission_control", {}).get("direct_proof_switch_count")
                 for lane in mission_completed
             ),
+            "median_coverage_sweep_count": median(
+                lane.get("mission_control", {}).get("coverage_sweep_count")
+                for lane in mission_completed
+            ),
             "median_mission_control_adherence_rate": median(
                 lane.get("mission_control", {}).get("adherence_rate")
                 for lane in mission_completed
@@ -1306,9 +1355,18 @@ def next_product_actions(report):
     actions = []
     if mission_validity["present"]:
         if mission_validity["all_completed_lanes_evaluable"]:
-            actions.append(
-                "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules."
-            )
+            mission_control_arm = report.get("arms", {}).get("m1nd-mission-control", {})
+            if (
+                mission_control_arm.get("seeded_recall_rate") == 1.0
+                and (mission_control_arm.get("median_coverage_sweep_count") or 0) > 0
+            ):
+                actions.append(
+                    "Repeat the MC0 direct-sweep calibration on another fixture before treating it as a generalized improvement."
+                )
+            else:
+                actions.append(
+                    "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules."
+                )
         else:
             actions.append(
                 "Fix worker-host Mission Control exposure before rerunning MC0 comparisons."
@@ -1347,6 +1405,7 @@ def write_notes(path: Path, report):
                 f"unavailable lanes `{payload['mission_control_unavailable_lanes']}`, "
                 f"median `mission_next` count `{payload['median_mission_next_count']}`, "
                 f"median direct-proof switches `{payload['median_direct_proof_switch_count']}`, "
+                f"median coverage sweeps `{payload['median_coverage_sweep_count']}`, "
                 f"median adherence `{payload['median_mission_control_adherence_rate']}`."
             )
 
@@ -1417,6 +1476,11 @@ def main():
     init_parser.add_argument("--lanes-trained", type=int, default=3)
     init_parser.add_argument("--lanes-basic", type=int, default=3)
     init_parser.add_argument("--lanes-direct", type=int, default=3)
+    init_parser.add_argument(
+        "--no-materialize-workspaces",
+        action="store_true",
+        help="Create prompts/templates only; do not copy --seeded-repo into per-lane workspaces.",
+    )
     init_parser.add_argument("--json", action="store_true")
 
     score_parser = subparsers.add_parser("score")

@@ -1,0 +1,185 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc0-sweep-20260517T211556Z",
+  "lane_id": "audit-02",
+  "instruction_mode": "m1nd-mission-control",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-17T21:15:56Z",
+  "finished_at": "2026-05-17T21:21:38Z",
+  "findings": [
+    {
+      "title": "Options-object construction silently enables rejectOnClear by default",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "When pLimit receives an options object, destructuring now defaults rejectOnClear to true instead of false.",
+      "impact": "Code that follows the documented default pLimit({concurrency: 1}) behavior will have clearQueue() reject queued promises with AbortError instead of only discarding the queue, which can surface unexpected rejections in Promise.all or teardown flows.",
+      "evidence": "index.js:6-8 sets ({concurrency, rejectOnClear = true}); readme.md:46-52 and index.d.ts:99-106 document rejectOnClear default false; the focused runtime probe reported optionsDefaultClearOutcome=\"AbortError\" for pLimit({concurrency: 1}).",
+      "reproduction_or_test": "Create pLimit({concurrency: 1}), enqueue one long task and one pending task, await one microtask, call clearQueue(), then race the pending promise against a short timer. Observed AbortError instead of remaining pending under the documented default.",
+      "confidence": 0.95
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass validation",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "pLimit option validation",
+      "cause": "The type check is guarded by rejectOnClear truthiness, so values like 0, null, or an empty string skip the typeof rejectOnClear !== 'boolean' branch.",
+      "impact": "Invalid option types are accepted at runtime even though the public type contract says rejectOnClear is boolean and invalid values should fail fast.",
+      "evidence": "index.js:12 checks if (rejectOnClear && typeof rejectOnClear !== 'boolean'); index.test-d.ts:29 expects a non-boolean rejectOnClear to be invalid; the focused runtime probe reported rejectOnClearZeroThrows=false while rejectOnClearStringThrows=true.",
+      "reproduction_or_test": "Call pLimit({concurrency: 1, rejectOnClear: 0}); it returns a limiter instead of throwing TypeError.",
+      "confidence": 0.9
+    },
+    {
+      "title": "limit.map drops mapper indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "limit.map",
+      "cause": "The mapper wrapper only forwards the Array.from index when the original iterable is an Array; Set and iterator inputs receive undefined.",
+      "impact": "The documented limit.map contract is broken for supported non-array iterables, so mappers that depend on the item index produce wrong results while the existing Set/iterator tests miss it because they ignore the index.",
+      "evidence": "index.js:107-112 passes iterableIsArray ? index : undefined; readme.md:78-85 and index.d.ts:30-43 say the mapper receives the item value and its index for an iterable; the focused runtime probe reported mapSetIndexes=[\"a:undefined\",\"b:undefined\"] and coverage_sweep mapIterable indexes serialized as null.",
+      "reproduction_or_test": "await pLimit(2).map(new Set(['a', 'b']), (value, index) => `${value}:${index}`) returns ['a:undefined', 'b:undefined'] instead of ['a:0', 'b:1'].",
+      "confidence": 0.94
+    },
+    {
+      "title": "limitFunction no longer forwards call arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "limitFunction now returns a zero-argument wrapper and calls function_() without spreading the wrapper's arguments.",
+      "impact": "The exported helper breaks any limited function that expects parameters, despite the TypeScript declaration and type tests promising (...arguments_) forwarding.",
+      "evidence": "index.js:121-124 returns () => limit(() => function_()); index.d.ts:133-136 declares (...arguments_: Arguments) => Promise<ReturnType>; index.test-d.ts:25-26 expects lf('input') to type-check; the focused runtime probe reported limitFunctionArgResult=\"<undefined>\" for an async identity function called with 'sentinel'.",
+      "reproduction_or_test": "const limited = limitFunction(async value => value, {concurrency: 1}); await limited('sentinel') resolves undefined instead of 'sentinel'.",
+      "confidence": 0.96
+    },
+    {
+      "title": "Infinity is rejected as a concurrency limit",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "validateConcurrency now requires Number.isInteger(concurrency), removing the previous explicit allowance for Number.POSITIVE_INFINITY.",
+      "impact": "Consumers can no longer opt into an unlimited limiter with Infinity, which was supported by the existing implementation contract and still satisfies the public numeric minimum wording.",
+      "evidence": "index.js:127-129 rejects non-integers; git show HEAD:index.js:123-125 allowed Number.POSITIVE_INFINITY; readme.md:37-44 documents concurrency as a number with minimum 1; the focused runtime probe reported infinityAccepted=false.",
+      "reproduction_or_test": "Call pLimit(Number.POSITIVE_INFINITY); it throws TypeError: Expected `concurrency` to be a number from 1 and up.",
+      "confidence": 0.82
+    }
+  ],
+  "commands_run": [
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py --no-worktree-artifacts --binary /Users/kle1nz/m1nd/target/release/m1nd-mcp --runtime-dir .../m1nd-runtime/audit-02 --workspace-root .../audit-02/p-limit tools",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py ... call session_handshake",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py ... call mission_start",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py ... call ingest",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py ... call audit",
+    "git status --short && git diff --stat && git diff -- index.js test.js index.d.ts package.json",
+    "nl -ba index.js | sed -n '1,180p'",
+    "nl -ba test.js | sed -n '1,420p'",
+    "cat package.json",
+    "nl -ba index.d.ts | sed -n '1,220p'",
+    "nl -ba index.test-d.ts | sed -n '1,80p'",
+    "nl -ba readme.md | sed -n '33,155p'",
+    "git show HEAD:index.js | nl -ba | sed -n '1,160p'",
+    "node --input-type=module <focused runtime probe with in-memory Queue shim>",
+    "node --input-type=module <direct_sweep runtime probe with in-memory Queue shim>",
+    "npm test",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py ... call mission_verify",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py ... call mission_next",
+    "python3 /Users/kle1nz/m1nd/skills/m1nd-operator/scripts/probe_m1nd.py ... call mission_close"
+  ],
+  "files_inspected": [
+    "index.js",
+    "test.js",
+    "index.d.ts",
+    "index.test-d.ts",
+    "readme.md",
+    "package.json",
+    "lane-prompts/audit-02.md",
+    "lane-result-template.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "tools",
+      "transport": "probe_helper_stdio",
+      "result": "helper surface exposed 100 tools including mission_start, mission_next, mission_verify, mission_close"
+    },
+    {
+      "tool": "session_handshake",
+      "transport": "probe_helper_stdio",
+      "result": "initial trust_mode wrong_workspace_binding because the lane workspace was not present at first and helper binding saw the Codex cwd"
+    },
+    {
+      "tool": "mission_start",
+      "transport": "probe_helper_stdio",
+      "result": "mission_id msn_1779052731371_audit02bughuntaudi, route trained_audit, starter move ingest"
+    },
+    {
+      "tool": "ingest",
+      "transport": "probe_helper_stdio",
+      "result": "82 nodes and 94 edges after the lane workspace appeared"
+    },
+    {
+      "tool": "audit",
+      "transport": "probe_helper_stdio",
+      "result": "orientation identified index.js as primary risk surface; final claims were verified with direct reads and probes"
+    }
+  ],
+  "mission_control_usage": {
+    "mission_id": "msn_1779052731371_audit02bughuntaudi",
+    "mission_route": "trained_audit",
+    "mission_transport": "probe_helper_stdio",
+    "mission_tool_surface_count": 100,
+    "mission_control_unavailable": false,
+    "mission_start_called": true,
+    "mission_next_count": 5,
+    "mission_verify_count": 2,
+    "mission_close_called": true,
+    "do_not_guardrails_observed": [
+      "activate",
+      "seek"
+    ],
+    "verified_claims": [
+      {
+        "claim_id": "clm_2_1779052862504",
+        "claim": "index.js has behavioral regressions in rejectOnClear default/validation, map index handling for non-array iterables, limitFunction argument forwarding, and Infinity concurrency support.",
+        "evidence_grade": "direct"
+      }
+    ],
+    "rejected_or_insufficient_claims": [
+      {
+        "claim_id": "clm_1_1779052847944",
+        "claim": "index.js has concrete behavioral regressions in rejectOnClear default/validation, map index handling for non-array iterables, limitFunction argument forwarding, and Infinity concurrency support.",
+        "verdict": "insufficient_evidence",
+        "missing": [
+          "direct_source_read_or_runtime_probe"
+        ]
+      }
+    ],
+    "direct_proof_switches": [
+      "After audit orientation, direct source reads, git diff, package docs/types, and focused runtime probes were used for all findings.",
+      "mission_next returned move.type=direct_sweep with boundary_or_contract_sweep evidence requirement after the verified claim."
+    ],
+    "coverage_sweeps": [
+      {
+        "type": "coverage_sweep",
+        "observed_move": "direct_sweep",
+        "covered": [
+          "public contracts and docs",
+          "boundary values",
+          "error paths",
+          "async or concurrency semantics",
+          "helper/exported APIs"
+        ],
+        "result": "confirmed five findings; no additional source-backed findings beyond the public package surface"
+      }
+    ],
+    "proof_packet_summary": "Mission close reported one verified direct claim covering the five findings, one earlier insufficient claim, direct_sweep observed, coverage_sweep performed, and gaps for missing dev dependencies plus repeated direct_sweep acknowledgement."
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "I stayed in audit-02, did not read operator-only artifacts, did not patch source files, used the required /Users/kle1nz/m1nd/target/release/m1nd-mcp binary through probe_m1nd.py, and wrote only the assigned result JSON plus event JSONL. The lane workspace was briefly absent at the start, but appeared before direct proof; npm test could not run because dev dependencies were absent.",
+  "notes": "Direct runtime probes used a no-write in-memory Queue shim because node_modules were not installed. npm test failed immediately with xo: command not found. The worktree was dirty only in index.js before audit work began.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them",
+    "no source files were patched",
+    "full npm test suite did not run because dependencies were not installed"
+  ]
+}

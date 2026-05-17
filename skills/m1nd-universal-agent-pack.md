@@ -85,6 +85,11 @@ compiler/runtime output, recovery tools, or host rebind. Its key value is
 forcing the switch from graph orientation to direct proof when the graph has
 done enough.
 
+Bug-hunt calibration: if `mission_next` returns `direct_sweep`, do one
+negative-space sweep over public contracts/docs, boundary values, error paths,
+async/concurrency behavior, and helper/exported APIs. Record it as
+`coverage_sweep`, `boundary_sweep`, or `edge_case_sweep` before closing.
+
 ## Short-Audit Route
 
 For tiny repos, localized bug hunts, or narrow reviews, use m1nd as a bounded

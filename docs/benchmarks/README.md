@@ -195,6 +195,9 @@ Instruction modes:
   `mission_start`, `mission_next`, `mission_verify`, and `mission_close`. This
   measures whether runtime mission state, `do_not` guardrails, graph-to-direct
   proof switching, and proof packets improve evidence quality or reduce loops.
+  In `bug_hunt` mode, MC0 may require a final direct `direct_sweep` after
+  verified findings; record that pass as `coverage_sweep`, `boundary_sweep`, or
+  `edge_case_sweep`.
   The scorer also reports whether the lane produced a complete mission loop,
   whether mission tools were unavailable, median `mission_next` count, and
   direct-proof switch signals, plus a four-step adherence rate for
@@ -234,8 +237,10 @@ python3 scripts/benchmark/bug_hunt_round.py init \
 ```
 
 The init command writes lane prompts, lane result templates, event streams,
-`round.json`, and an operator-only answer-key template. It does not plant bugs
-or prepare workspaces; the operator must do that before dispatching agents.
+`round.json`, and an operator-only answer-key template. When `--seeded-repo` is
+provided, it also copies that seeded repo into each isolated lane workspace. Use
+`--no-materialize-workspaces` for scaffold-only setup. Init does not plant bugs
+or validate seeded bug quality; the operator still owns the answer key.
 
 Preflight a round before dispatch:
 
