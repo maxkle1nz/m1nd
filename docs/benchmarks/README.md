@@ -197,7 +197,9 @@ Instruction modes:
   proof switching, and proof packets improve evidence quality or reduce loops.
   The scorer also reports whether the lane produced a complete mission loop,
   whether mission tools were unavailable, median `mission_next` count, and
-  direct-proof switch signals.
+  direct-proof switch signals. New lanes should fill the structured
+  `mission_control_usage` object in `lane-result-template.json`; free-text notes
+  are treated only as fallback evidence.
 - `m1nd-basic`: the agent knows m1nd is available but does not receive the full
   operating loop.
 - `direct`: the agent does not use m1nd and relies on direct repo tools.

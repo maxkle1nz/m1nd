@@ -275,7 +275,8 @@ def lane_prompt(round_payload, lane):
             "7. Call `mission_verify` before finalizing material findings. If a claim is rejected or needs evidence, gather that evidence or lower the confidence.",
             "8. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, and proof-packet summary.",
             "9. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
-            "10. Record `mission_id`, mission route, `mission_next` decisions, `do_not` guardrails, verified/rejected claims, direct-proof switches, files inspected, commands run, and proof-packet summary in `m1nd_usage` or notes.",
+            "10. Fill `mission_control_usage` in the lane result with `mission_id`, route, call counts, unavailable state, `do_not` guardrails, verified/rejected claims, direct-proof switches, and proof-packet summary.",
+            "11. Also preserve raw m1nd calls in `m1nd_usage` when useful for auditability.",
             "",
         ]
     elif lane["instruction_mode"] == "m1nd-trained":
@@ -344,6 +345,20 @@ def result_template(round_payload, lane):
         "commands_run": [],
         "files_inspected": [],
         "m1nd_usage": [],
+        "mission_control_usage": {
+            "mission_id": "",
+            "mission_route": "",
+            "mission_control_unavailable": False,
+            "mission_start_called": False,
+            "mission_next_count": 0,
+            "mission_verify_count": 0,
+            "mission_close_called": False,
+            "do_not_guardrails_observed": [],
+            "verified_claims": [],
+            "rejected_or_insufficient_claims": [],
+            "direct_proof_switches": [],
+            "proof_packet_summary": "",
+        },
         "temponizer_usage": [],
         "agent_testimony": "",
         "notes": "",
@@ -605,33 +620,81 @@ def token_count(payload, token):
     return text.lower().count(token)
 
 
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
+
+
+def count_value(value):
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, (list, tuple, set)):
+        return len(value)
+    if isinstance(value, dict):
+        return len(value)
+    if isinstance(value, str):
+        return 1 if value.strip() else 0
+    return 0
+
+
 def summarize_mission_control(result, agent_events):
-    mission_payload = {
+    structured = result.get("mission_control_usage")
+    structured = structured if isinstance(structured, dict) else {}
+    raw_mission_payload = {
         "m1nd_usage": result.get("m1nd_usage"),
-        "mission_control_usage": result.get("mission_control_usage"),
         "notes": result.get("notes"),
         "agent_testimony": result.get("agent_testimony") or result.get("testimony"),
         "events": agent_events,
     }
     summary = {
-        "unavailable": token_count(mission_payload, "mission_control_unavailable") > 0,
+        "unavailable": truthy(structured.get("mission_control_unavailable"))
+        or token_count(raw_mission_payload, "mission_control_unavailable") > 0,
         "loop_complete": False,
-        "direct_proof_switch_count": token_count(mission_payload, "switch_to_direct_proof")
-        + token_count(mission_payload, "direct-proof switch")
-        + token_count(mission_payload, "direct proof switch"),
-        "do_not_guardrail_count": token_count(mission_payload, "do_not")
-        + token_count(mission_payload, "do not guardrail"),
-        "verified_claim_signal_count": token_count(mission_payload, "verified_claim")
-        + token_count(mission_payload, "claim_verified")
-        + token_count(mission_payload, "verdict=verified")
-        + token_count(mission_payload, '"verdict": "verified"'),
-        "rejected_claim_signal_count": token_count(mission_payload, "rejected_claim")
-        + token_count(mission_payload, "claim_rejected")
-        + token_count(mission_payload, "insufficient_evidence")
-        + token_count(mission_payload, '"verdict": "rejected"'),
+        "direct_proof_switch_count": max(
+            count_value(structured.get("direct_proof_switches")),
+            token_count(raw_mission_payload, "switch_to_direct_proof")
+            + token_count(raw_mission_payload, "direct-proof switch")
+            + token_count(raw_mission_payload, "direct proof switch"),
+        ),
+        "do_not_guardrail_count": max(
+            count_value(structured.get("do_not_guardrails_observed")),
+            token_count(raw_mission_payload, "do_not")
+            + token_count(raw_mission_payload, "do not guardrail"),
+        ),
+        "verified_claim_signal_count": max(
+            count_value(structured.get("verified_claims")),
+            token_count(raw_mission_payload, "verified_claim")
+            + token_count(raw_mission_payload, "claim_verified")
+            + token_count(raw_mission_payload, "verdict=verified")
+            + token_count(raw_mission_payload, '"verdict": "verified"'),
+        ),
+        "rejected_claim_signal_count": max(
+            count_value(structured.get("rejected_or_insufficient_claims")),
+            token_count(raw_mission_payload, "rejected_claim")
+            + token_count(raw_mission_payload, "claim_rejected")
+            + token_count(raw_mission_payload, "insufficient_evidence")
+            + token_count(raw_mission_payload, '"verdict": "rejected"'),
+        ),
     }
     for token in MISSION_CONTROL_TOKENS:
-        summary[f"{token}_count"] = token_count(mission_payload, token)
+        summary[f"{token}_count"] = token_count(raw_mission_payload, token)
+    summary["mission_start_count"] = max(
+        summary["mission_start_count"], count_value(structured.get("mission_start_called"))
+    )
+    summary["mission_next_count"] = max(
+        summary["mission_next_count"], count_value(structured.get("mission_next_count"))
+    )
+    summary["mission_verify_count"] = max(
+        summary["mission_verify_count"], count_value(structured.get("mission_verify_count"))
+    )
+    summary["mission_close_count"] = max(
+        summary["mission_close_count"], count_value(structured.get("mission_close_called"))
+    )
     summary["loop_complete"] = (
         not summary["unavailable"]
         and all(summary[f"{token}_count"] > 0 for token in MISSION_CONTROL_TOKENS)
