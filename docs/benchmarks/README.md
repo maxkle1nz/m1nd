@@ -195,6 +195,9 @@ Instruction modes:
   `mission_start`, `mission_next`, `mission_verify`, and `mission_close`. This
   measures whether runtime mission state, `do_not` guardrails, graph-to-direct
   proof switching, and proof packets improve evidence quality or reduce loops.
+  The scorer also reports whether the lane produced a complete mission loop,
+  whether mission tools were unavailable, median `mission_next` count, and
+  direct-proof switch signals.
 - `m1nd-basic`: the agent knows m1nd is available but does not receive the full
   operating loop.
 - `direct`: the agent does not use m1nd and relies on direct repo tools.

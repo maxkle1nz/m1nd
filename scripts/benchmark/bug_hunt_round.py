@@ -28,6 +28,12 @@ FINDING_EVENT_TYPES = {
     "focused_probes",
     "probe_result",
 }
+MISSION_CONTROL_TOKENS = (
+    "mission_start",
+    "mission_next",
+    "mission_verify",
+    "mission_close",
+)
 
 NON_CLAIMS = [
     "one bug-hunt round is not a public performance claim",
@@ -591,6 +597,48 @@ def event_payload_text(event):
     return " ".join(parts)
 
 
+def token_count(payload, token):
+    try:
+        text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    except TypeError:
+        text = text_of(payload)
+    return text.lower().count(token)
+
+
+def summarize_mission_control(result, agent_events):
+    mission_payload = {
+        "m1nd_usage": result.get("m1nd_usage"),
+        "mission_control_usage": result.get("mission_control_usage"),
+        "notes": result.get("notes"),
+        "agent_testimony": result.get("agent_testimony") or result.get("testimony"),
+        "events": agent_events,
+    }
+    summary = {
+        "unavailable": token_count(mission_payload, "mission_control_unavailable") > 0,
+        "loop_complete": False,
+        "direct_proof_switch_count": token_count(mission_payload, "switch_to_direct_proof")
+        + token_count(mission_payload, "direct-proof switch")
+        + token_count(mission_payload, "direct proof switch"),
+        "do_not_guardrail_count": token_count(mission_payload, "do_not")
+        + token_count(mission_payload, "do not guardrail"),
+        "verified_claim_signal_count": token_count(mission_payload, "verified_claim")
+        + token_count(mission_payload, "claim_verified")
+        + token_count(mission_payload, "verdict=verified")
+        + token_count(mission_payload, '"verdict": "verified"'),
+        "rejected_claim_signal_count": token_count(mission_payload, "rejected_claim")
+        + token_count(mission_payload, "claim_rejected")
+        + token_count(mission_payload, "insufficient_evidence")
+        + token_count(mission_payload, '"verdict": "rejected"'),
+    }
+    for token in MISSION_CONTROL_TOKENS:
+        summary[f"{token}_count"] = token_count(mission_payload, token)
+    summary["loop_complete"] = (
+        not summary["unavailable"]
+        and all(summary[f"{token}_count"] > 0 for token in MISSION_CONTROL_TOKENS)
+    )
+    return summary
+
+
 def event_matches_seeded_bug(event, answer_bug_payloads):
     return match_seeded_bug({"title": event_payload_text(event)}, answer_bug_payloads)
 
@@ -689,6 +737,7 @@ def summarize_lane(round_dir: Path, lane, answer_bug_ids, answer_bug_payloads):
     ]
     m1nd_usage = result.get("m1nd_usage")
     event_timing = summarize_event_timing(events, agent_events, answer_bug_payloads)
+    mission_control = summarize_mission_control(result, agent_events)
 
     return {
         "lane_id": lane["lane_id"],
@@ -708,6 +757,7 @@ def summarize_lane(round_dir: Path, lane, answer_bug_ids, answer_bug_payloads):
         "agent_event_count": len(agent_events),
         **event_timing,
         "m1nd_usage_count": len(m1nd_usage) if isinstance(m1nd_usage, list) else None,
+        "mission_control": mission_control,
         "agent_testimony": result.get("agent_testimony") or result.get("testimony") or "",
     }
 
@@ -746,6 +796,20 @@ def group_arms(lanes, seeded_bug_count):
             "total_findings": sum(lane["findings_count"] for lane in completed),
             "extra_unadjudicated_findings_total": sum(
                 lane["extra_unadjudicated_findings_count"] for lane in completed
+            ),
+            "mission_control_loop_complete_lanes": sum(
+                1 for lane in completed if lane.get("mission_control", {}).get("loop_complete")
+            ),
+            "mission_control_unavailable_lanes": sum(
+                1 for lane in completed if lane.get("mission_control", {}).get("unavailable")
+            ),
+            "median_mission_next_count": median(
+                lane.get("mission_control", {}).get("mission_next_count")
+                for lane in completed
+            ),
+            "median_direct_proof_switch_count": median(
+                lane.get("mission_control", {}).get("direct_proof_switch_count")
+                for lane in completed
             ),
             "lanes": [lane["lane_id"] for lane in arm_lanes],
         }
@@ -844,6 +908,13 @@ def write_notes(path: Path, report):
             f"- `{arm}`: {payload['seeded_recall_total']}/{payload['seeded_possible_total']} seeded bugs found ({rate_text}); "
             f"per-lane counts `{payload['per_lane_seeded_recall_counts']}`."
         )
+        if arm == "m1nd-mission-control" or payload["mission_control_loop_complete_lanes"]:
+            lines.append(
+                f"  Mission Control: loop-complete lanes `{payload['mission_control_loop_complete_lanes']}/{payload['completed_lane_count']}`, "
+                f"unavailable lanes `{payload['mission_control_unavailable_lanes']}`, "
+                f"median `mission_next` count `{payload['median_mission_next_count']}`, "
+                f"median direct-proof switches `{payload['median_direct_proof_switch_count']}`."
+            )
 
     lines.extend(
         [
