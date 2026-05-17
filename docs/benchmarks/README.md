@@ -200,7 +200,9 @@ Instruction modes:
   direct-proof switch signals, plus a four-step adherence rate for
   start/next/verify/close. New lanes should fill the structured
   `mission_control_usage` object in `lane-result-template.json`; free-text
-  notes are treated only as fallback evidence.
+  notes are treated only as fallback evidence. Reports mark the MC0 arm as not
+  fully evaluable when any Mission Control lane is missing, unavailable, or
+  fails the start/next/verify/close loop.
 - `m1nd-basic`: the agent knows m1nd is available but does not receive the full
   operating loop.
 - `direct`: the agent does not use m1nd and relies on direct repo tools.

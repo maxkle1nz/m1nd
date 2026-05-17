@@ -66,6 +66,41 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertEqual(summary["required_step_count"], 4)
         self.assertEqual(summary["adherence_rate"], 0.0)
 
+    def test_mission_control_validity_marks_partial_lanes_not_evaluable(self):
+        lanes = [
+            {
+                "lane_id": "audit-01",
+                "instruction_mode": "m1nd-mission-control",
+                "completed": True,
+                "mission_control": {"loop_complete": True, "unavailable": False},
+            },
+            {
+                "lane_id": "audit-02",
+                "instruction_mode": "m1nd-mission-control",
+                "completed": True,
+                "mission_control": {"loop_complete": False, "unavailable": False},
+            },
+            {
+                "lane_id": "audit-03",
+                "instruction_mode": "m1nd-mission-control",
+                "completed": False,
+            },
+            {
+                "lane_id": "audit-04",
+                "instruction_mode": "direct",
+                "completed": True,
+            },
+        ]
+
+        validity = self.bug_hunt.mission_control_validity(lanes)
+
+        self.assertTrue(validity["present"])
+        self.assertFalse(validity["all_completed_lanes_evaluable"])
+        self.assertEqual(validity["lane_count"], 3)
+        self.assertEqual(validity["evaluable_lane_ids"], ["audit-01"])
+        self.assertEqual(validity["partial_or_unavailable_lane_ids"], ["audit-02"])
+        self.assertEqual(validity["missing_result_lane_ids"], ["audit-03"])
+
 
 if __name__ == "__main__":
     unittest.main()

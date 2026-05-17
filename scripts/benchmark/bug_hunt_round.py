@@ -892,6 +892,45 @@ def group_arms(lanes, seeded_bug_count):
     return arms
 
 
+def mission_control_validity(lanes):
+    mission_lanes = [
+        lane for lane in lanes if lane.get("instruction_mode") == "m1nd-mission-control"
+    ]
+    completed = [lane for lane in mission_lanes if lane.get("completed")]
+    evaluable = [
+        lane
+        for lane in completed
+        if lane.get("mission_control", {}).get("loop_complete")
+        and not lane.get("mission_control", {}).get("unavailable")
+    ]
+    partial_or_unavailable = [
+        lane
+        for lane in completed
+        if lane.get("mission_control", {}).get("unavailable")
+        or not lane.get("mission_control", {}).get("loop_complete")
+    ]
+    missing = [lane for lane in mission_lanes if not lane.get("completed")]
+    all_completed_lanes_evaluable = None
+    if mission_lanes:
+        all_completed_lanes_evaluable = (
+            len(completed) == len(mission_lanes)
+            and len(evaluable) == len(completed)
+        )
+    return {
+        "present": bool(mission_lanes),
+        "lane_count": len(mission_lanes),
+        "completed_lane_count": len(completed),
+        "evaluable_lane_count": len(evaluable),
+        "partial_or_unavailable_lane_count": len(partial_or_unavailable),
+        "missing_result_lane_count": len(missing),
+        "all_completed_lanes_evaluable": all_completed_lanes_evaluable,
+        "evaluable_lane_ids": [lane["lane_id"] for lane in evaluable],
+        "partial_or_unavailable_lane_ids": [lane["lane_id"] for lane in partial_or_unavailable],
+        "missing_result_lane_ids": [lane["lane_id"] for lane in missing],
+        "non_claim": "Mission Control recall is not attributable to MC0 unless the lane is evaluable.",
+    }
+
+
 def build_report(round_file: Path, answer_key_file: Path, lane_results_dir: Path):
     round_file = round_file.resolve()
     answer_key_file = answer_key_file.resolve()
@@ -917,6 +956,7 @@ def build_report(round_file: Path, answer_key_file: Path, lane_results_dir: Path
     arms = group_arms(lanes, len(answer_bug_ids))
     completed_lanes = [lane for lane in lanes if lane.get("completed")]
     arm_lane_counts = {arm: payload["completed_lane_count"] for arm, payload in arms.items()}
+    mission_validity = mission_control_validity(lanes)
     public_claim_blockers = [
         "single internal round",
         "one fixture repo",
@@ -925,6 +965,13 @@ def build_report(round_file: Path, answer_key_file: Path, lane_results_dir: Path
     if len(set(arm_lane_counts.values())) != 1:
         public_claim_blockers.append(
             "instruction-mode lane counts are not balanced; compare rates rather than raw totals"
+        )
+    if (
+        mission_validity["present"]
+        and not mission_validity["all_completed_lanes_evaluable"]
+    ):
+        public_claim_blockers.append(
+            "Mission Control arm is not fully evaluable; at least one lane is missing, unavailable, or did not complete start/next/verify/close"
         )
 
     return {
@@ -942,6 +989,7 @@ def build_report(round_file: Path, answer_key_file: Path, lane_results_dir: Path
         "comparability": {
             "all_lane_results_present": len(completed_lanes) == len(round_payload["lanes"]),
             "primary_arm_lane_counts": arm_lane_counts,
+            "mission_control_validity": mission_validity,
             "rate_comparison_available": all(
                 payload["completed_lane_count"] > 0 for payload in arms.values()
             ),
@@ -992,6 +1040,19 @@ def write_notes(path: Path, report):
                 f"median direct-proof switches `{payload['median_direct_proof_switch_count']}`, "
                 f"median adherence `{payload['median_mission_control_adherence_rate']}`."
             )
+
+    mission_validity = report["comparability"]["mission_control_validity"]
+    if mission_validity["present"]:
+        lines.extend(
+            [
+                "",
+                "## Mission Control Validity",
+                "",
+                f"- Evaluable lanes: `{mission_validity['evaluable_lane_count']}/{mission_validity['lane_count']}`.",
+                f"- Partial or unavailable lanes: `{mission_validity['partial_or_unavailable_lane_ids']}`.",
+                f"- Missing result lanes: `{mission_validity['missing_result_lane_ids']}`.",
+            ]
+        )
 
     lines.extend(
         [

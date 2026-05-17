@@ -101,7 +101,8 @@ unavailable tools, `mission_next` counts, and direct-proof switches are reported
 beside seeded recall, with a four-step adherence rate for
 start/next/verify/close. Agents should fill the structured
 `mission_control_usage` object in the lane result; free-text notes are fallback
-evidence only.
+evidence only. The MC0 arm is not fully evaluable when any Mission Control lane
+is missing, unavailable, or fails the start/next/verify/close loop.
 
 `m1nd-trained` means the agent receives the shipped trained-agent loop:
 
