@@ -18,6 +18,7 @@ ROUND_SCHEMA = "m1nd-bug-hunt-round-v0"
 LANE_SCHEMA = "m1nd-bug-hunt-audit-result-v0"
 ANSWER_KEY_SCHEMA = "m1nd-bug-hunt-answer-key-v0"
 REPORT_SCHEMA = "m1nd-bug-hunt-report-v0"
+PREFLIGHT_SCHEMA = "m1nd-bug-hunt-round-preflight-v0"
 FINDING_EVENT_TYPES = {
     "finding",
     "finding_recorded",
@@ -456,6 +457,151 @@ def init_round(args):
         write_text(Path(lane["events"]), json.dumps(event, ensure_ascii=False) + "\n")
 
     return round_payload
+
+
+def resolve_round_artifact(round_dir: Path, value):
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return round_dir / path
+
+
+def preflight_round(round_file: Path, required_modes=None):
+    round_file = round_file.resolve()
+    round_dir = round_file.parent
+    required_modes = required_modes or []
+    payload = load_json(round_file)
+
+    blockers = []
+    warnings = []
+    lanes = payload.get("lanes") or []
+    lane_ids = [lane.get("lane_id") for lane in lanes]
+    modes = [lane.get("instruction_mode") for lane in lanes]
+    duplicate_lane_ids = sorted(
+        lane_id for lane_id in set(lane_ids) if lane_ids.count(lane_id) > 1
+    )
+    invalid_modes = sorted(set(mode for mode in modes if mode not in VALID_INSTRUCTION_MODES))
+    missing_required_modes = [
+        mode for mode in required_modes if mode not in set(modes)
+    ]
+
+    if payload.get("schema") != ROUND_SCHEMA:
+        blockers.append(f"unexpected round schema: {payload.get('schema')}")
+    if not lanes:
+        blockers.append("round has no lanes")
+    if duplicate_lane_ids:
+        blockers.append(f"duplicate lane ids: {duplicate_lane_ids}")
+    if invalid_modes:
+        blockers.append(f"invalid instruction modes: {invalid_modes}")
+    if missing_required_modes:
+        blockers.append(f"missing required instruction modes: {missing_required_modes}")
+
+    lane_reports = []
+    for lane in lanes:
+        lane_id = lane.get("lane_id")
+        mode = lane.get("instruction_mode")
+        prompt_path = resolve_round_artifact(round_dir, lane.get("prompt", ""))
+        result_path = resolve_round_artifact(round_dir, lane.get("result", ""))
+        events_path = resolve_round_artifact(round_dir, lane.get("events", ""))
+        lane_blockers = []
+        prompt_text = ""
+        result_payload = None
+
+        if not prompt_path.exists():
+            lane_blockers.append("missing prompt")
+        else:
+            prompt_text = prompt_path.read_text(encoding="utf-8")
+        if not result_path.exists():
+            lane_blockers.append("missing result template")
+        else:
+            result_payload = load_json(result_path)
+            if result_payload.get("schema") != LANE_SCHEMA:
+                lane_blockers.append("unexpected result schema")
+            if result_payload.get("instruction_mode") != mode:
+                lane_blockers.append("result instruction_mode does not match round lane")
+        if not events_path.exists():
+            lane_blockers.append("missing event stream")
+
+        if mode == "m1nd-mission-control":
+            required_prompt_tokens = [
+                "mission_control_usage",
+                "mission_start",
+                "mission_next",
+                "mission_verify",
+                "mission_close",
+                "do not fake mission calls",
+            ]
+            missing_prompt_tokens = [
+                token for token in required_prompt_tokens if token not in prompt_text
+            ]
+            if missing_prompt_tokens:
+                lane_blockers.append(
+                    f"mission-control prompt missing tokens: {missing_prompt_tokens}"
+                )
+            usage = (
+                result_payload.get("mission_control_usage")
+                if isinstance(result_payload, dict)
+                else None
+            )
+            if not isinstance(usage, dict):
+                lane_blockers.append("missing structured mission_control_usage")
+            else:
+                expected_fields = [
+                    "mission_id",
+                    "mission_route",
+                    "mission_control_unavailable",
+                    "mission_start_called",
+                    "mission_next_count",
+                    "mission_verify_count",
+                    "mission_close_called",
+                    "do_not_guardrails_observed",
+                    "verified_claims",
+                    "rejected_or_insufficient_claims",
+                    "direct_proof_switches",
+                    "proof_packet_summary",
+                ]
+                missing_fields = [field for field in expected_fields if field not in usage]
+                if missing_fields:
+                    lane_blockers.append(
+                        f"mission_control_usage missing fields: {missing_fields}"
+                    )
+        if lane_blockers:
+            blockers.extend(f"{lane_id}: {item}" for item in lane_blockers)
+        lane_reports.append(
+            {
+                "lane_id": lane_id,
+                "instruction_mode": mode,
+                "prompt_exists": prompt_path.exists(),
+                "result_exists": result_path.exists(),
+                "events_exists": events_path.exists(),
+                "blockers": lane_blockers,
+                "warnings": [],
+            }
+        )
+
+    arm_lane_counts = {
+        mode: modes.count(mode)
+        for mode in sorted(set(modes))
+        if mode in VALID_INSTRUCTION_MODES
+    }
+    return {
+        "schema": PREFLIGHT_SCHEMA,
+        "round_id": payload.get("round_id"),
+        "generated_at": now_iso(),
+        "ok": not blockers,
+        "round_file": str(round_file),
+        "lane_count": len(lanes),
+        "arm_lane_counts": arm_lane_counts,
+        "required_modes": required_modes,
+        "blockers": blockers,
+        "warnings": warnings,
+        "lanes": lane_reports,
+        "non_claims": [
+            "preflight checks scaffold shape only; it does not run agents",
+            "preflight does not prove seeded bug quality or benchmark outcome",
+            "preflight does not prove live MCP host health for future agents",
+        ],
+    }
 
 
 def average(values):
@@ -1116,6 +1262,16 @@ def main():
     score_parser.add_argument("--notes", type=Path)
     score_parser.add_argument("--json", action="store_true")
 
+    preflight_parser = subparsers.add_parser("preflight")
+    preflight_parser.add_argument("--round-file", required=True, type=Path)
+    preflight_parser.add_argument(
+        "--require-mode",
+        action="append",
+        choices=VALID_INSTRUCTION_MODES,
+        default=[],
+    )
+    preflight_parser.add_argument("--json", action="store_true")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -1138,6 +1294,12 @@ def main():
             write_notes(args.notes, report)
         if args.json:
             print(json.dumps({"ok": True, "report": str(args.output)}, indent=2))
+    elif args.command == "preflight":
+        preflight = preflight_round(args.round_file, required_modes=args.require_mode)
+        if args.json:
+            print(json.dumps(preflight, indent=2))
+        if not preflight["ok"]:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

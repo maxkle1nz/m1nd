@@ -237,6 +237,20 @@ The init command writes lane prompts, lane result templates, event streams,
 `round.json`, and an operator-only answer-key template. It does not plant bugs
 or prepare workspaces; the operator must do that before dispatching agents.
 
+Preflight a round before dispatch:
+
+```bash
+python3 scripts/benchmark/bug_hunt_round.py preflight \
+  --round-file docs/benchmarks/bug-hunt-rounds/round-001/round.json \
+  --require-mode m1nd-mission-control \
+  --require-mode direct \
+  --json
+```
+
+The preflight checks scaffold shape only: lanes, modes, prompts, event streams,
+result templates, and Mission Control fields. It does not run agents or prove
+future MCP host health.
+
 Score a completed round:
 
 ```bash

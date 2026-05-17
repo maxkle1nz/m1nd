@@ -1,6 +1,8 @@
 import importlib.util
 import pathlib
+import tempfile
 import unittest
+from types import SimpleNamespace
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -100,6 +102,79 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertEqual(validity["evaluable_lane_ids"], ["audit-01"])
         self.assertEqual(validity["partial_or_unavailable_lane_ids"], ["audit-02"])
         self.assertEqual(validity["missing_result_lane_ids"], ["audit-03"])
+
+    def test_preflight_accepts_mission_control_round_scaffold(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = pathlib.Path(temp_dir)
+            args = SimpleNamespace(
+                out_dir=out_dir,
+                round_id="round",
+                repo="repo",
+                source_repo=None,
+                seeded_repo=None,
+                workspace_root=None,
+                source_commit=None,
+                seeded_bug_count=1,
+                lanes_full_spec=0,
+                lanes_temponizer_full=0,
+                lanes_temponizer_compact=0,
+                lanes_temponizer=0,
+                lanes_short_audit=0,
+                lanes_mission_control=1,
+                lanes_trained=0,
+                lanes_basic=0,
+                lanes_direct=1,
+            )
+            self.bug_hunt.init_round(args)
+
+            preflight = self.bug_hunt.preflight_round(
+                out_dir / "round.json",
+                required_modes=["m1nd-mission-control", "direct"],
+            )
+
+            self.assertTrue(preflight["ok"])
+            self.assertEqual(preflight["blockers"], [])
+            self.assertEqual(preflight["arm_lane_counts"]["m1nd-mission-control"], 1)
+            self.assertEqual(preflight["arm_lane_counts"]["direct"], 1)
+
+    def test_preflight_rejects_broken_mission_control_prompt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = pathlib.Path(temp_dir)
+            args = SimpleNamespace(
+                out_dir=out_dir,
+                round_id="round",
+                repo="repo",
+                source_repo=None,
+                seeded_repo=None,
+                workspace_root=None,
+                source_commit=None,
+                seeded_bug_count=1,
+                lanes_full_spec=0,
+                lanes_temponizer_full=0,
+                lanes_temponizer_compact=0,
+                lanes_temponizer=0,
+                lanes_short_audit=0,
+                lanes_mission_control=1,
+                lanes_trained=0,
+                lanes_basic=0,
+                lanes_direct=0,
+            )
+            round_payload = self.bug_hunt.init_round(args)
+            prompt_path = pathlib.Path(round_payload["lanes"][0]["prompt"])
+            prompt_path.write_text("broken prompt", encoding="utf-8")
+
+            preflight = self.bug_hunt.preflight_round(
+                out_dir / "round.json",
+                required_modes=["m1nd-mission-control"],
+            )
+
+            self.assertFalse(preflight["ok"])
+            self.assertTrue(
+                any(
+                    "mission-control prompt missing tokens" in item
+                    for item in preflight["blockers"]
+                )
+            )
 
 
 if __name__ == "__main__":

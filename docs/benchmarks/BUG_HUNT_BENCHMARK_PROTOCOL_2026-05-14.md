@@ -160,6 +160,20 @@ The command writes:
 It does not plant bugs, clone repos, or prepare workspaces. The operator must
 prepare the seeded repo and answer key before dispatching agents.
 
+Preflight the scaffold before dispatch:
+
+```bash
+python3 scripts/benchmark/bug_hunt_round.py preflight \
+  --round-file docs/benchmarks/bug-hunt-rounds/round-001/round.json \
+  --require-mode m1nd-mission-control \
+  --require-mode direct \
+  --json
+```
+
+Preflight validates the round shape, prompt/result/event-stream presence, and
+Mission Control scaffold fields. It does not run agents or prove future MCP
+host health.
+
 ## Score A Round
 
 ```bash
