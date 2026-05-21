@@ -379,10 +379,37 @@ function compactContextPayload(payload, maxChars) {
 
 function queryLooksLikePath(repo, query) {
   if (!query) return null;
-  const resolved = path.isAbsolute(query) ? query : path.resolve(repo, query);
-  if (!pathContains(repo, resolved)) return null;
-  if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+  for (const candidate of pathCandidatesFromQuery(query)) {
+    const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(repo, candidate);
+    if (!pathContains(repo, resolved)) continue;
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+  }
   return null;
+}
+
+function pathCandidatesFromQuery(query) {
+  const text = String(query || "").trim();
+  if (!text) return [];
+  const candidates = [text];
+  for (const raw of text.split(/\s+/)) {
+    const stripped = raw
+      .replace(/^[`"'([{<]+/, "")
+      .replace(/[`"',;)\]}>]+$/, "")
+      .replace(/:\d+(?::\d+)?$/, "");
+    if (stripped && stripped !== text) candidates.push(stripped);
+  }
+  return [...new Set(candidates)];
+}
+
+function identifierCandidatesFromQuery(query) {
+  const text = String(query || "");
+  const candidates = [];
+  for (const match of text.matchAll(/[$A-Za-z_][$\w]*(?:(?:\.|::|#)[$A-Za-z_][$\w]*)*/g)) {
+    const term = match[0];
+    if (term.length < 3) continue;
+    if (queryLooksLikeExactIdentifier(term)) candidates.push(term);
+  }
+  return [...new Set(candidates)].filter((term) => term !== text.trim());
 }
 
 function defaultAutoMode(query, requestedMode) {
@@ -817,10 +844,24 @@ async function agentContext(args, deps, repo, agentId) {
     const sequence = await runTrustSequence(client, repo, agentId, !args["skip-ingest"]);
     let selectedFile = directFile;
     let discovery = null;
+    const discoveryCalls = [];
     if (!selectedFile) {
-      discovery = await callToolSafely(client, "search", { agent_id: agentId, query, scope: repo, top_k: 3 });
-      const first = extractResultList(payloadDict(discovery)).map(extractFileFromEntry).find(Boolean);
-      if (first) selectedFile = ensureWithinRepo(repo, first);
+      const discoveryQueries = [query, ...identifierCandidatesFromQuery(query)];
+      for (const searchQuery of discoveryQueries) {
+        discovery = await callToolSafely(client, "search", { agent_id: agentId, query: searchQuery, scope: repo, top_k: 3 });
+        discoveryCalls.push(["search", discovery]);
+        const first = extractResultList(payloadDict(discovery)).map(extractFileFromEntry).find(Boolean);
+        if (first) {
+          selectedFile = ensureWithinRepo(repo, first);
+          break;
+        }
+      }
+      if (!selectedFile) {
+        discovery = await callToolSafely(client, "seek", { agent_id: agentId, query, scope: repo, top_k: 3 });
+        discoveryCalls.push(["seek", discovery]);
+        const first = extractResultList(payloadDict(discovery)).map(extractFileFromEntry).find(Boolean);
+        if (first) selectedFile = ensureWithinRepo(repo, first);
+      }
     }
     const envelope = baseAgentEnvelope({
       command: "context",
@@ -835,7 +876,7 @@ async function agentContext(args, deps, repo, agentId) {
     envelope.query = query;
     envelope.max_output_chars = maxOutputChars;
     envelope.calls = [...sequence.calls];
-    if (discovery) envelope.calls.push(callSummary("search", discovery));
+    for (const [tool, result] of discoveryCalls) envelope.calls.push(callSummary(tool, result));
     if (!selectedFile) {
       envelope.ok = false;
       envelope.switch_to_direct_proof = true;

@@ -204,6 +204,10 @@ rl.on("line", (line) => {
   if (name === "ingest") return write(req.id, tool({ schema: "m1nd-ingest-v0", ok: true, graph_state: graph(), path: args.path }));
   if (name === "session_handshake") return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "full_trust", graph_state: graph(), scope: args.scope }));
   if (name === "search") {
+    const emptyQueries = new Set(String(process.env.M1ND_FAKE_EMPTY_SEARCH_QUERIES || "").split("|").filter(Boolean));
+    if (emptyQueries.has(args.query)) {
+      return write(req.id, tool({ proof_state: "blocked", results: [], total_matches: 0, graph_state: graph() }));
+    }
     if (orientBlocked) {
       return write(req.id, tool({ proof_state: "blocked", results: [], total_matches: 0, graph_state: graph() }));
     }
@@ -1039,6 +1043,36 @@ const agentContextJson = JSON.parse(agentContext.stdout);
 assert.strictEqual(agentContextJson.command, "context");
 assert(agentContextJson.selected_file.endsWith(path.join("src", "session.js")));
 assert(agentContextJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
+
+const directContextFile = path.join(agentOrientRepo, "src", "session.js");
+fs.mkdirSync(path.dirname(directContextFile), { recursive: true });
+fs.writeFileSync(directContextFile, "// direct context anchor\n");
+const agentContextPathPhrase = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "src/session.js session boundary", "--tokens", "800", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentContextPathPhrase.status, 0, agentContextPathPhrase.stderr);
+const agentContextPathPhraseJson = JSON.parse(agentContextPathPhrase.stdout);
+assert.strictEqual(agentContextPathPhraseJson.selected_file, directContextFile);
+assert(!agentContextPathPhraseJson.calls.some((entry) => entry.tool === "search"));
+
+const agentContextIdentifierFallback = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "packRoutingCheck agent pack routing", "--tokens", "800", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_EMPTY_SEARCH_QUERIES: "packRoutingCheck agent pack routing",
+      M1ND_FAKE_SEARCH_FILE: "npm/lib/cli.js",
+    },
+  }
+);
+assert.strictEqual(agentContextIdentifierFallback.status, 0, agentContextIdentifierFallback.stderr);
+const agentContextIdentifierFallbackJson = JSON.parse(agentContextIdentifierFallback.stdout);
+assert(agentContextIdentifierFallbackJson.selected_file.endsWith(path.join("npm", "lib", "cli.js")));
+assert(agentContextIdentifierFallbackJson.calls.filter((entry) => entry.tool === "search").length >= 2);
 
 const agentContextBudget = spawnSync(
   process.execPath,
