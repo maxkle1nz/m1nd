@@ -858,12 +858,12 @@ mod tests {
             layers::DaemonStartInput {
                 agent_id: "test".into(),
                 watch_paths: vec!["/tmp/watch".into()],
-                poll_interval_ms: 750,
+                poll_interval_ms: 60_000,
             },
         )
         .expect("daemon start");
         assert_eq!(started["active"], true);
-        assert_eq!(started["poll_interval_ms"], 750);
+        assert_eq!(started["poll_interval_ms"], 60_000);
 
         let seeded = make_daemon_alert(DaemonAlertSeed {
             severity: "warning".into(),
