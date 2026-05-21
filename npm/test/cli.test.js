@@ -7,6 +7,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const {
+  agentCommand,
   commandLooksLikeRuntime,
   defaultRuntimePath,
   hostApply,
@@ -14,10 +15,12 @@ const {
   hostStatus,
   installSkills,
   mcpConfig,
+  packRoutingCheck,
   restart,
   runtimeBinaryName,
   selfUpdate,
 } = require("../lib/cli");
+const { classifyScopeBinding } = require("../lib/agent-cli");
 
 const cli = path.resolve(__dirname, "../bin/m1nd.js");
 
@@ -71,10 +74,44 @@ assert(help.stdout.includes("m1nd update status"));
 assert(help.stdout.includes("m1nd hosts status"));
 assert(help.stdout.includes("m1nd hosts plan"));
 assert(help.stdout.includes("m1nd hosts apply"));
+assert(help.stdout.includes("m1nd agent scope"));
+assert(help.stdout.includes("m1nd agent orient"));
+assert(help.stdout.includes("m1nd agent auto"));
+assert(help.stdout.includes("m1nd agent next"));
+assert(help.stdout.includes("m1nd pack-routing-check"));
 
 const packCheck = spawnSync(process.execPath, [cli, "pack-check", "--json"], { encoding: "utf8" });
 assert.strictEqual(packCheck.status, 0, packCheck.stderr);
 assert.strictEqual(JSON.parse(packCheck.stdout).schema, "m1nd-agent-pack-check-v0");
+
+const packRouting = spawnSync(process.execPath, [cli, "pack-routing-check", "--json"], { encoding: "utf8" });
+assert.strictEqual(packRouting.status, 0, packRouting.stderr);
+const packRoutingJson = JSON.parse(packRouting.stdout);
+assert.strictEqual(packRoutingJson.schema, "m1nd-agent-pack-routing-check-v0");
+assert.strictEqual(packRoutingJson.ok, true);
+assert(packRoutingJson.contract_checks.some((check) => check.id === "direct-proof-is-final-truth" && check.ok));
+assert(packRoutingJson.files.some((file) => file.id === "m1nd-universal-agent-pack" && file.ok));
+
+const brokenRoutingFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "m1nd-routing-broken-")), "pack.md");
+fs.writeFileSync(brokenRoutingFile, "session companion continuity only\n");
+const brokenRouting = packRoutingCheck({
+  files: [
+    {
+      id: "broken",
+      path: brokenRoutingFile,
+      checks: [
+        { id: "missing-agent-next", needles: ["m1nd agent next"] },
+      ],
+    },
+  ],
+  contractChecks: [
+    { id: "missing-direct-proof", needles: ["direct proof"] },
+  ],
+});
+assert.strictEqual(brokenRouting.schema, "m1nd-agent-pack-routing-check-v0");
+assert.strictEqual(brokenRouting.ok, false);
+assert(brokenRouting.missing.some((entry) => entry.check === "missing-agent-next"));
+assert(brokenRouting.missing.some((entry) => entry.check === "missing-direct-proof"));
 
 const restartPlan = restart({
   source: path.resolve(__dirname, "..", ".."),
@@ -119,6 +156,88 @@ function mkTmpDir() {
 function writeFakeBinary(file, content = "fake runtime\n") {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
+  if (process.platform !== "win32") fs.chmodSync(file, 0o755);
+}
+
+function writeFakeMcpRuntime(file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `#!/usr/bin/env node
+if (process.argv.includes("--version")) {
+  console.log("m1nd-mcp 0.9.0-beta.5");
+  process.exit(0);
+}
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin });
+function write(id, result) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n");
+}
+function graph() {
+  return {
+    node_count: Number(process.env.M1ND_FAKE_NODE_COUNT || 12),
+    edge_count: Number(process.env.M1ND_FAKE_EDGE_COUNT || 21),
+    finalized: true,
+    graph_generation: 1,
+    ingest_root_count: 1,
+    workspace_root: process.env.M1ND_WORKSPACE_ROOT,
+    runtime_root: process.env.M1ND_RUNTIME_BASE || null
+  };
+}
+function tool(payload) {
+  return { content: [{ type: "text", text: JSON.stringify(payload) }], isError: false };
+}
+rl.on("line", (line) => {
+  const req = JSON.parse(line);
+  if (req.method === "initialize") return write(req.id, { protocolVersion: "2025-06-18", capabilities: {} });
+  if (req.method === "tools/list") return write(req.id, { tools: ["trust_selftest", "session_handshake", "ingest", "search", "seek", "activate", "audit", "glob", "surgical_context_v2"].map((name) => ({ name })) });
+  if (req.method !== "tools/call") return write(req.id, {});
+  const name = req.params.name;
+  const args = req.params.arguments || {};
+  const orientBlocked = process.env.M1ND_FAKE_ORIENT_BLOCKED === "1" || process.env.M1ND_FAKE_SEARCH_BLOCKED === "1";
+  if (name === "trust_selftest") {
+    if (process.env.M1ND_FAKE_TRUST === "needs_ingest") {
+      return write(req.id, tool({ schema: "m1nd-trust-selftest-v0", verdict: "needs_ingest", checks: { needs_ingest: true }, graph_state: { ...graph(), node_count: 0, edge_count: 0, finalized: false, ingest_root_count: 0 } }));
+    }
+    return write(req.id, tool({ schema: "m1nd-trust-selftest-v0", verdict: "full_trust", checks: { needs_ingest: false }, graph_state: graph() }));
+  }
+  if (name === "ingest") return write(req.id, tool({ schema: "m1nd-ingest-v0", ok: true, graph_state: graph(), path: args.path }));
+  if (name === "session_handshake") return write(req.id, tool({ schema: "m1nd-session-handshake-v0", trust_mode: "full_trust", graph_state: graph(), scope: args.scope }));
+  if (name === "search") {
+    if (orientBlocked) {
+      return write(req.id, tool({ proof_state: "blocked", results: [], total_matches: 0, graph_state: graph() }));
+    }
+    return write(req.id, tool({ proof_state: "proving", results: [{ file_path: process.env.M1ND_FAKE_SEARCH_FILE || "src/session.js" }], total_matches: 1, graph_state: graph() }));
+  }
+  if (name === "seek") {
+    if (orientBlocked) {
+      return write(req.id, tool({ proof_state: "blocked", results: [], total_matches: 0, graph_state: graph() }));
+    }
+    return write(req.id, tool({ proof_state: "proving", results: [{ file_path: process.env.M1ND_FAKE_SEEK_FILE || "src/session.js" }], total_matches: 1, graph_state: graph() }));
+  }
+  if (name === "glob") {
+    if (orientBlocked) {
+      return write(req.id, tool({ proof_state: "blocked", results: [], total_matches: 0, graph_state: graph() }));
+    }
+    return write(req.id, tool({ proof_state: "proving", results: [{ file_path: process.env.M1ND_FAKE_GLOB_FILE || "src/session.js" }], total_matches: 1, graph_state: graph() }));
+  }
+  if (name === "activate") {
+    if (orientBlocked) {
+      return write(req.id, tool({ proof_state: "blocked", activated_count: 0, graph_state: graph() }));
+    }
+    return write(req.id, tool({ proof_state: "proving", activated_count: Number(process.env.M1ND_FAKE_ACTIVATED_COUNT || 2), graph_state: graph() }));
+  }
+  if (name === "audit") {
+    if (orientBlocked) {
+      return write(req.id, tool({ proof_state: "blocked", results: [], total_matches: 0, graph_state: graph() }));
+    }
+    return write(req.id, tool({ proof_state: "proving", results: [{ file_path: process.env.M1ND_FAKE_AUDIT_FILE || "src/architecture.js" }], total_matches: 1, graph_state: graph() }));
+  }
+  if (name === "surgical_context_v2") return write(req.id, tool({ schema: "m1nd-surgical-context-v2", file_path: args.file_path, graph_state: graph(), context: process.env.M1ND_FAKE_BIG_CONTEXT === "1" ? "x".repeat(5000) : "fake context" }));
+  return write(req.id, tool({ schema: "unknown-tool", name, graph_state: graph() }));
+});
+`
+  );
   if (process.platform !== "win32") fs.chmodSync(file, 0o755);
 }
 
@@ -682,5 +801,285 @@ assert.strictEqual(hostApplyCliJson.dry_run, false);
 assert.strictEqual(hostApplyCliJson.requires_host_rebind, true);
 assert(fs.existsSync(path.join(hostApplyCliProject, "mcp_config.json")));
 assert(fs.existsSync(path.join(hostApplyCliProject, ".m1nd", "agent-pack", "AGENTS.md")));
+
+const scopeRepo = mkTmpDir();
+const nestedScope = path.join(scopeRepo, "src");
+fs.mkdirSync(nestedScope);
+const fileScope = path.join(scopeRepo, "PRD.md");
+fs.writeFileSync(fileScope, "# prd\n");
+assert.strictEqual(classifyScopeBinding(scopeRepo, scopeRepo).binding_kind, "full_repo_binding");
+assert.strictEqual(classifyScopeBinding(scopeRepo, nestedScope).binding_kind, "nested_workspace_binding");
+assert.strictEqual(classifyScopeBinding(scopeRepo, fileScope).binding_kind, "file_level_binding");
+assert.strictEqual(classifyScopeBinding(scopeRepo, mkTmpDir()).binding_kind, "wrong_workspace_binding");
+assert.strictEqual(classifyScopeBinding(scopeRepo, null).binding_kind, "ambiguous_scope");
+
+const fakeMcp = path.join(mkTmpDir(), runtimeBinaryName());
+writeFakeMcpRuntime(fakeMcp);
+const agentEnv = {
+  ...process.env,
+  ...fakeEnvBase,
+  M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.5",
+};
+const agentScopeRepo = mkTmpDir();
+const agentScope = spawnSync(
+  process.execPath,
+  [cli, "agent", "scope", "--repo", agentScopeRepo, "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_WORKSPACE_ROOT: mkTmpDir(),
+    },
+  }
+);
+assert.strictEqual(agentScope.status, 0, agentScope.stderr);
+const agentScopeJson = JSON.parse(agentScope.stdout);
+assert.strictEqual(agentScopeJson.schema, "m1nd-agent-cli-v0");
+assert.strictEqual(agentScopeJson.command, "scope");
+assert.strictEqual(agentScopeJson.scope_alignment.binding_kind, "full_repo_binding");
+assert.strictEqual(agentScopeJson.scope_alignment.ambient_binding_kind, "wrong_workspace_binding");
+
+const agentTrust = spawnSync(
+  process.execPath,
+  [cli, "agent", "trust", "--repo", agentScopeRepo, "--binary", fakeMcp, "--ensure-ingest", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_TRUST: "needs_ingest",
+    },
+  }
+);
+assert.strictEqual(agentTrust.status, 0, agentTrust.stderr);
+const agentTrustJson = JSON.parse(agentTrust.stdout);
+assert.strictEqual(agentTrustJson.schema, "m1nd-agent-cli-v0");
+assert.strictEqual(agentTrustJson.command, "trust");
+assert(agentTrustJson.calls.some((entry) => entry.tool === "ingest"));
+assert.strictEqual(agentTrustJson.trust.verdict, "full_trust");
+
+const agentOrientRepo = mkTmpDir();
+const agentOrient = spawnSync(
+  process.execPath,
+  [cli, "agent", "orient", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--mode", "short", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentOrient.status, 0, agentOrient.stderr);
+const agentOrientJson = JSON.parse(agentOrient.stdout);
+assert.strictEqual(agentOrientJson.schema, "m1nd-agent-cli-v0");
+assert.strictEqual(agentOrientJson.command, "orient");
+assert.strictEqual(agentOrientJson.switch_to_direct_proof, true);
+assert(agentOrientJson.calls.some((entry) => entry.tool === "seek"));
+assert.strictEqual(agentOrientJson.action.schema, "m1nd-agent-action-envelope-v0");
+assert.strictEqual(agentOrientJson.action.route.kind, "direct_proof");
+assert.strictEqual(fs.existsSync(path.join(agentOrientRepo, "graph_snapshot.json")), false);
+assert.strictEqual(fs.existsSync(path.join(agentOrientRepo, "plasticity_state.json")), false);
+
+const agentBlocked = spawnSync(
+  process.execPath,
+  [cli, "agent", "orient", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--mode", "short", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_SEARCH_BLOCKED: "1",
+    },
+  }
+);
+assert.strictEqual(agentBlocked.status, 0, agentBlocked.stderr);
+const agentBlockedJson = JSON.parse(agentBlocked.stdout);
+assert.strictEqual(agentBlockedJson.m1nd_usage_mode, "recovery_overhead");
+assert(agentBlockedJson.next_actions.some((entry) => entry.includes("recover")));
+
+const agentRecover = spawnSync(
+  process.execPath,
+  [cli, "agent", "recover", "--repo", agentOrientRepo, "--binary", fakeMcp, "--from", "Transport closed", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentRecover.status, 0, agentRecover.stderr);
+const agentRecoverJson = JSON.parse(agentRecover.stdout);
+assert.strictEqual(agentRecoverJson.command, "recover");
+assert.strictEqual(agentRecoverJson.recovery_type, "transport_closed");
+assert(agentRecoverJson.recovery_plan.some((step) => String(step.command).includes("agent doctor")));
+assert(agentRecoverJson.recovery_plan.some((step) => String(step.command).includes(`--binary ${fakeMcp}`)));
+
+const agentAuto = spawnSync(
+  process.execPath,
+  [cli, "agent", "auto", "--repo", agentOrientRepo, "--query", "session boundary", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentAuto.status, 0, agentAuto.stderr);
+const agentAutoJson = JSON.parse(agentAuto.stdout);
+assert.strictEqual(agentAutoJson.command, "auto");
+assert.strictEqual(agentAutoJson.action.schema, "m1nd-agent-action-envelope-v0");
+assert.strictEqual(agentAutoJson.action.route.kind, "orient");
+assert.strictEqual(agentAutoJson.action.route.tool, "seek");
+assert.strictEqual(agentAutoJson.action.trigger.kind, "natural_language");
+assert(agentAutoJson.action.action.command.includes(`--binary ${fakeMcp}`));
+assert(agentAutoJson.next_actions[0].includes(`--binary ${fakeMcp}`));
+
+const agentAutoSymbol = spawnSync(
+  process.execPath,
+  [cli, "agent", "auto", "--repo", agentOrientRepo, "--query", "chooseOrientationTool", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentAutoSymbol.status, 0, agentAutoSymbol.stderr);
+const agentAutoSymbolJson = JSON.parse(agentAutoSymbol.stdout);
+assert.strictEqual(agentAutoSymbolJson.action.route.tool, "search");
+assert.strictEqual(agentAutoSymbolJson.action.trigger.kind, "exact_identifier");
+
+const agentAutoPackage = spawnSync(
+  process.execPath,
+  [cli, "agent", "auto", "--repo", agentOrientRepo, "--query", "@maxkle1nz/m1nd", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentAutoPackage.status, 0, agentAutoPackage.stderr);
+const agentAutoPackageJson = JSON.parse(agentAutoPackage.stdout);
+assert.strictEqual(agentAutoPackageJson.action.route.kind, "orient");
+assert.strictEqual(agentAutoPackageJson.action.route.tool, "seek");
+
+const agentAutoUrl = spawnSync(
+  process.execPath,
+  [cli, "agent", "auto", "--repo", agentOrientRepo, "--query", "https://github.com/maxkle1nz/m1nd", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentAutoUrl.status, 0, agentAutoUrl.stderr);
+const agentAutoUrlJson = JSON.parse(agentAutoUrl.stdout);
+assert.strictEqual(agentAutoUrlJson.action.route.kind, "orient");
+assert.strictEqual(agentAutoUrlJson.action.route.tool, "seek");
+
+const agentAutoOverride = spawnSync(
+  process.execPath,
+  [cli, "agent", "auto", "--repo", agentOrientRepo, "--query", "session boundary", "--tool", "search", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentAutoOverride.status, 0, agentAutoOverride.stderr);
+const agentAutoOverrideJson = JSON.parse(agentAutoOverride.stdout);
+assert.strictEqual(agentAutoOverrideJson.action.route.tool, "search");
+assert.strictEqual(agentAutoOverrideJson.action.trigger.kind, "explicit_tool_override");
+
+const agentAutoTransportClosed = spawnSync(
+  process.execPath,
+  [cli, "agent", "next", "--repo", agentOrientRepo, "--from", "Transport closed", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentAutoTransportClosed.status, 0, agentAutoTransportClosed.stderr);
+const agentAutoTransportClosedJson = JSON.parse(agentAutoTransportClosed.stdout);
+assert.strictEqual(agentAutoTransportClosedJson.command, "next");
+assert.strictEqual(agentAutoTransportClosedJson.resolved_command, "auto");
+assert.strictEqual(agentAutoTransportClosedJson.action.route.kind, "recover");
+assert.strictEqual(agentAutoTransportClosedJson.action.route.recovery_type, "transport_closed");
+assert(agentAutoTransportClosedJson.action.action.command.includes(`--binary ${fakeMcp}`));
+assert(agentAutoTransportClosedJson.next_actions[0].includes(`--binary ${fakeMcp}`));
+
+const agentNextContextFile = path.join(agentOrientRepo, "agent-cli.js");
+fs.writeFileSync(agentNextContextFile, "// route me\n");
+const agentNextContext = spawnSync(
+  process.execPath,
+  [cli, "agent", "next", "--repo", agentOrientRepo, "--query", "agent-cli.js", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentNextContext.status, 0, agentNextContext.stderr);
+const agentNextContextJson = JSON.parse(agentNextContext.stdout);
+assert.strictEqual(agentNextContextJson.command, "next");
+assert.strictEqual(agentNextContextJson.resolved_command, "auto");
+assert.strictEqual(agentNextContextJson.action.route.kind, "context");
+assert(agentNextContextJson.action.action.command.includes(`--binary ${fakeMcp}`));
+assert(agentNextContextJson.next_actions[0].includes(`--binary ${fakeMcp}`));
+
+const agentAutoBlocked = spawnSync(
+  process.execPath,
+  [cli, "agent", "auto", "--repo", agentOrientRepo, "--from", "stdin", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    input: agentBlocked.stdout,
+    env: agentEnv,
+  }
+);
+assert.strictEqual(agentAutoBlocked.status, 0, agentAutoBlocked.stderr);
+const agentAutoBlockedJson = JSON.parse(agentAutoBlocked.stdout);
+assert.strictEqual(agentAutoBlockedJson.action.route.kind, "recover");
+assert.strictEqual(agentAutoBlockedJson.action.route.recovery_type, "blocked_retrieval");
+
+const agentAutoWrongWorkspace = spawnSync(
+  process.execPath,
+  [cli, "agent", "auto", "--repo", agentOrientRepo, "--from", "stdin", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    input: JSON.stringify({
+      proof_state: "blocked",
+      context_guard: { wrong_workspace_binding: true },
+      recovery: { binding_issue: "wrong_workspace_binding" },
+    }),
+    env: agentEnv,
+  }
+);
+assert.strictEqual(agentAutoWrongWorkspace.status, 0, agentAutoWrongWorkspace.stderr);
+const agentAutoWrongWorkspaceJson = JSON.parse(agentAutoWrongWorkspace.stdout);
+assert.strictEqual(agentAutoWrongWorkspaceJson.action.route.kind, "recover");
+assert.strictEqual(agentAutoWrongWorkspaceJson.action.route.recovery_type, "wrong_workspace_binding");
+
+const agentActivate = spawnSync(
+  process.execPath,
+  [cli, "agent", "orient", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "review the session orchestration and dependency flow", "--mode", "deep", "--tool", "activate", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentActivate.status, 0, agentActivate.stderr);
+const agentActivateJson = JSON.parse(agentActivate.stdout);
+assert(agentActivateJson.calls.some((entry) => entry.tool === "activate"));
+assert.strictEqual(agentActivateJson.m1nd_usage_mode, "short_audit_orientation");
+assert.strictEqual(agentActivateJson.switch_to_direct_proof, false);
+
+const agentContext = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--tokens", "800", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentContext.status, 0, agentContext.stderr);
+const agentContextJson = JSON.parse(agentContext.stdout);
+assert.strictEqual(agentContextJson.command, "context");
+assert(agentContextJson.selected_file.endsWith(path.join("src", "session.js")));
+assert(agentContextJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
+
+const agentContextBudget = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--tokens", "10", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_BIG_CONTEXT: "1",
+    },
+  }
+);
+assert.strictEqual(agentContextBudget.status, 0, agentContextBudget.stderr);
+const agentContextBudgetJson = JSON.parse(agentContextBudget.stdout);
+assert(agentContextBudgetJson.results[0].context.includes("truncated by m1nd agent context"));
+assert(agentContextBudgetJson.results[0].context.length < 1200);
+
+const agentContextEscape = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_SEARCH_FILE: "../escape.js",
+    },
+  }
+);
+assert.notStrictEqual(agentContextEscape.status, 0);
+assert(agentContextEscape.stderr.includes("path escapes repo"));
+
+const agentDoctor = spawnSync(
+  process.execPath,
+  [cli, "agent", "doctor", "--repo", agentOrientRepo, "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentDoctor.status, 0, agentDoctor.stderr);
+const agentDoctorJson = JSON.parse(agentDoctor.stdout);
+assert.strictEqual(agentDoctorJson.command, "doctor");
+assert(agentDoctorJson.package_doctor);
+assert(agentDoctorJson.hosts);
+assert(agentDoctorJson.update);
 
 console.log("npm cli tests ok");

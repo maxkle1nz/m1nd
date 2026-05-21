@@ -66,12 +66,16 @@ Rules:
 
 - `mission_start`: create a repo-scoped mission with route, budget envelope,
   starter moves, and non-claims.
+- `mission_event`: record one observed action with event id, evidence class,
+  budget update, and event digest.
 - `mission_next`: append the last event and get exactly one next move plus
   `do_not` guardrails.
 - `mission_verify`: reject claims that only have graph/inferred evidence and
   require direct source, test, compiler/runtime, or probe evidence.
+- `mission_handoff`: serialize resumable context, verified claims, open
+  hypotheses, dead paths, graph anchors, and next move.
 - `mission_close`: emit a proof packet with verified claims, rejected claims,
-  tools observed, gaps, budget consumption, and non-claims.
+  tools observed, event digest, gaps, budget consumption, and non-claims.
 
 Use this family when the problem is not "which file?" but "how should the
 agent stay on mission and know when to stop using the graph?" It does not
@@ -183,4 +187,5 @@ Recent source builds include these canonical families:
 - `search`, `glob`, `scan_all`, `cross_verify`, `coverage_session`, `external_references`, `federate_auto`, `help`, `report`, `audit`
 - `daemon_start`, `daemon_stop`, `daemon_status`, `daemon_tick`, `alerts_list`, `alerts_ack`
 - `panoramic`, `savings`, `persist`, `boot_memory`, `metrics`, `type_trace`, `diagram`
-- `mission_start`, `mission_next`, `mission_verify`, `mission_close`
+- `mission_start`, `mission_event`, `mission_next`, `mission_verify`,
+  `mission_handoff`, `mission_close`

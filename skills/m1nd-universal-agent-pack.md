@@ -33,10 +33,33 @@ or `validate_plan`. If the response reports
 `wrong_workspace_binding`, the host is bound to a different workspace than the
 one you asked about. Rebind with `M1ND_WORKSPACE_ROOT`, intentionally ingest the
 requested workspace on the same binding, or use explicit federation for real
-cross-repo work. Do not call this graph staleness.
+cross-repo work. If the open host cannot be rebound now, use a fresh isolated
+probe/runtime bound to the requested workspace before falling back to raw file
+search. Record this as
+`m1nd_usage_mode=isolated_probe_after_wrong_workspace_binding`, not as "m1nd
+unavailable". Do not call this graph staleness.
 
 `trust_selftest` and `recovery_playbook` are diagnostic. They do not ingest,
 repair, refresh the host, or mutate the graph.
+
+## Scope Binding Taxonomy
+
+Before using graph results as task truth, classify the binding:
+
+- `full_repo_binding`: active workspace/ingest root is the repo under work, or
+  the requested scope is inside that root. Use m1nd normally, then prove with
+  source/tests.
+- `wrong_workspace_binding`: active workspace is another repo. Rebind with
+  `M1ND_WORKSPACE_ROOT`, intentionally ingest the target repo, use isolated
+  probe, or federate only for true cross-repo work.
+- `nested_workspace_binding`: active workspace/root is a subdirectory of the
+  requested repo. Treat results as partial subtree truth only.
+- `file_level_binding`: ingest roots are docs, PRDs, L1GHT files, or generated
+  handoffs. Treat results as document context only, not implementation coverage.
+
+Do not loop on retrieval against nested/file-level bindings for repo-wide tasks.
+Upgrade the binding to repo root or record
+`m1nd_usage_mode=partial_scope_orientation` and prove with direct files/tests.
 
 ## Default Trained Investigation Loop
 
@@ -74,11 +97,16 @@ Minimal loop:
 
 1. Call `mission_start` with `agent_id`, `repo`, `task`, `mode`, `budget`, and
    `risk`.
-2. Use the starter move, then call `mission_next` with the last meaningful
-   event.
+2. Record meaningful actions with `mission_event` when available; otherwise
+   call `mission_next` with the last meaningful event.
 3. Treat `do_not` as a guardrail. If you disagree, record a dissent event.
 4. Before final output, call `mission_verify` for each material claim.
-5. Close with `mission_close`, including gaps and non-claims.
+5. Use `mission_handoff` when another agent or later session may resume.
+6. Close with `mission_close`, including gaps, event digest, and non-claims.
+
+Evidence rule: direct proof must be referenced by the claim, for example
+`event:evt_1`, `file_read:path:line`, `test_run:name`, or `runtime_probe:id`.
+Do not let an unrelated direct event validate a graph-only claim.
 
 Mission Control is not a replacement for source reads, tests,
 compiler/runtime output, recovery tools, or host rebind. Its key value is
@@ -104,23 +132,62 @@ orientation pass instead of a long graph investigation:
 5. Record `short_audit_orientation` if this helped, or `recovery_overhead` if
    m1nd state repair consumed meaningful time.
 
-With `probe_m1nd.py`, prefer the dedicated same-process short-audit helper:
+Prefer the host-neutral agent CLI for this route:
 
 ```bash
-python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
-  --no-worktree-artifacts \
-  --workspace-root /path/to/repo \
-  short-audit \
-  --agent-id lane-short-audit \
+m1nd agent next \
   --repo /path/to/repo \
   --query "focused subsystem or bug surface" \
-  --tool search
+  --json
+
+m1nd agent orient \
+  --repo /path/to/repo \
+  --query "focused subsystem or bug surface" \
+  --mode short \
+  --json
 ```
 
-It returns `schema=m1nd-short-audit-helper-v0`, records
+`agent next` emits an `m1nd-agent-action-envelope-v0` with the first safe move.
+Use it when choosing between scope, trust, orient, context, recover, or direct
+proof. `agent orient` returns `schema=m1nd-agent-cli-v0`, records
 `short_audit_orientation` or `recovery_overhead`, and always tells the agent to
-switch to direct proof. Use raw `probe_m1nd.py run` only when a custom
-multi-tool sequence is needed.
+switch to direct proof. Use `probe_m1nd.py short-audit` only as a compatibility
+fallback when the npm CLI is unavailable, and raw `probe_m1nd.py run` only when
+a custom multi-tool sequence is needed.
+
+## Session Companions
+
+If your host has a session-memory companion such as DEXT3R, use it for
+continuity, not code truth. Good uses are:
+
+- recovering the session north star
+- recalling prior decisions, open loops, and handoff context
+- attaching a scoped `m1nd flash` to the current session
+- spotting that the current conversation has drifted across projects
+
+Bad uses are:
+
+- treating global memory search as repo truth
+- replacing `m1nd agent next` or the m1nd MCP trust loop
+- claiming code behavior without direct source/test/runtime proof
+- trusting a flash when the companion reports missing scope, wrong project, or
+  unavailable m1nd context
+
+The universal route is:
+
+```text
+session companion -> continuity and prior decisions
+m1nd agent next    -> first safe repo move
+m1nd MCP tools     -> structural graph/docs/impact/mission context
+direct proof       -> final truth
+```
+
+When companion scope is missing or global-only, record
+`m1nd_usage_mode=companion_orientation_only`, then run:
+
+```bash
+m1nd agent next --repo /path/to/project --query "current task" --json
+```
 
 ## Full-Spec Escalation
 
@@ -146,8 +213,8 @@ situation.
   `surgical_context_v2`
 - Docs/specs -> `ingest` with `adapter="universal"` or `adapter="light"`, then
   document binding/drift tools
-- Mission loop -> `mission_start`, then `mission_next`, `mission_verify`,
-  `mission_close`
+- Mission loop -> `mission_start`, `mission_event`, `mission_next`,
+  `mission_verify`, `mission_handoff`, `mission_close`
 
 ## Recovery Rules
 
@@ -157,14 +224,13 @@ fresh MCP transport must be launched first.
 
 If a local helper/probe fails before initialization with
 `runtime_root ... is already owned by instance`, treat it as a runtime sidecar
-lock collision, not stale graph truth. Use an isolated `--runtime-dir`, use the
-current `probe_m1nd.py` helper, or group dependent checks into one
-`probe_m1nd.py run` process before falling back to files.
-In benchmark lanes or strict write scopes, prefer `probe_m1nd.py
---no-worktree-artifacts ...` so runtime metadata stays in the isolated runtime
-dir while the caller directory becomes the declared `M1ND_WORKSPACE_ROOT`.
-If the command is launched from outside the inspected repo, add
-`--workspace-root /path/to/repo`.
+lock collision, not stale graph truth. Prefer `m1nd agent scope/trust/orient`,
+which isolates runtime state by default. If the npm CLI is unavailable, use an
+isolated `--runtime-dir`, use the current `probe_m1nd.py` helper, or group
+dependent checks into one `probe_m1nd.py run` process before falling back to
+files. In benchmark lanes or strict write scopes, prefer
+`m1nd agent ... --repo /path/to/repo --json` so runtime metadata stays in the
+isolated runtime dir while the requested repo becomes `M1ND_WORKSPACE_ROOT`.
 The helper prefers `~/.m1nd/bin/m1nd-mcp` before a stale `m1nd-mcp` on `PATH`.
 
 If the host appears to be launching an old or stale native runtime, and a local
@@ -234,8 +300,8 @@ or project root. Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS Code,
 and generic shells can expose their own workspace hints too, but
 `M1ND_WORKSPACE_ROOT` is the portable contract.
 
-When the host binding looks wrong, run the read-only CLI cockpit before
-mutating anything:
+When the host binding looks wrong, run the read-only status/plan cockpit before
+mutating anything. Apply is a separate opt-in mutation step:
 
 ```bash
 m1nd hosts status --host all --project /path/to/project --json

@@ -107,10 +107,12 @@ The helper script is intentionally generic so future sessions can refresh the en
 Examples:
 
 ```bash
+m1nd agent scope --repo /path/to/repo --json
+m1nd agent trust --repo /path/to/repo --ensure-ingest --json
+m1nd agent orient --repo /path/to/repo --query "focused subsystem or bug surface" --mode short --json
 python3 scripts/probe_m1nd.py tools
 python3 scripts/probe_m1nd.py call help '{"agent_id":"codex-m1nd","tool_name":"validate_plan"}'
 python3 scripts/probe_m1nd.py call ingest '{"agent_id":"codex-m1nd","path":"/path/to/repo"}'
-python3 scripts/probe_m1nd.py --no-worktree-artifacts --workspace-root /path/to/repo short-audit --agent-id codex-m1nd --repo /path/to/repo --query "focused subsystem or bug surface" --tool search
 python3 scripts/probe_m1nd.py run '[{"name":"ingest","arguments":{"agent_id":"codex-m1nd","path":"/path/to/repo"}},{"name":"activate","arguments":{"agent_id":"codex-m1nd","query":"session management","top_k":5}}]'
 ```
 

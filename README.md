@@ -160,7 +160,7 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 | Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
 | Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
 | Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
-| Mission control and proof discipline | keep an audit/review/refactor on a bounded route, switch from graph orientation to direct proof, and close with explicit gaps | `mission_start`, `mission_next`, `mission_verify`, `mission_close` |
+| Mission control and proof discipline | keep an audit/review/refactor on a bounded route, record events, switch from graph orientation to direct proof, hand off work, and close with explicit gaps | `mission_start`, `mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, `mission_close` |
 | Change planning and proof | reason about impact, co-change, missing steps, failure paths, and structural claims | `impact`, `predict`, `validate_plan`, `missing`, `hypothesize`, `counterfactual`, `differential` |
 | Quality, security, and architecture | detect patterns, taint paths, trust boundaries, duplication, layer violations, type flows, simulations, and refactor targets | `scan`, `scan_all`, `heuristics_surface`, `antibody_*`, `taint_trace`, `type_trace`, `trust`, `layers`, `layer_inspect`, `twins`, `fingerprint`, `flow_simulate`, `epidemic`, `tremor`, `refactor_plan` |
 | Time, runtime, and multi-repo work | inspect git history, drift, hidden co-change edges, runtime overlays, and cross-repo references | `timeline`, `diverge`, `ghost_edges`, `runtime_overlay`, `external_references`, `federate`, `federate_auto` |
@@ -195,6 +195,29 @@ cargo build --release
 Then connect it to your client using the [integration matrix](docs/IDE-INTEGRATIONS.md).
 
 The canonical live tool names are the bare names returned by `tools/list`, such as `ingest`, `activate`, and `audit`.
+
+### Agent CLI Fast Path
+
+When the host MCP session is stale, bound to the wrong repo, or not loaded yet,
+use the host-neutral CLI. It launches an isolated runtime, binds it to the repo,
+and returns one machine-readable envelope:
+
+```bash
+m1nd agent next --repo /your/project --query "auth session boundary" --json
+m1nd agent scope --repo /your/project --json
+m1nd agent trust --repo /your/project --ensure-ingest --json
+m1nd agent orient --repo /your/project --query "auth session boundary" --mode short --json
+```
+
+`m1nd agent next` is the deterministic route picker. It returns an
+`m1nd-agent-action-envelope-v0` that says whether the agent should scope, trust,
+orient, recover, collect context, or switch to direct proof. It does not execute
+the next step for you and does not claim the host MCP cache refreshed.
+
+`m1nd agent orient --mode short` is the preferred sidecar entrypoint for small
+audits and bug hunts: it establishes trust, performs one bounded orientation
+call, and explicitly hands the agent back to source reads, tests, compiler
+output, or runtime probes for final proof.
 
 Then start with this trust loop:
 
@@ -249,6 +272,7 @@ Install the beta agent pack:
 npm install -g @maxkle1nz/m1nd@beta
 m1nd doctor
 m1nd pack-check
+m1nd pack-routing-check
 m1nd update check --channel beta
 m1nd update status --channel beta
 m1nd hosts status --host all --project /your/project
@@ -281,6 +305,7 @@ m1nd hosts status --host all --project /your/project --json
 m1nd hosts plan --host all --project /your/project --json
 m1nd hosts apply --host all --project /your/project --yes --json
 m1nd pack-check
+m1nd pack-routing-check
 ```
 
 `m1nd update` is the agent-safe self-update surface. `check`, `status`, and
@@ -292,6 +317,11 @@ prefers a GitHub Release runtime binary when one exists, falls back to Cargo
 when needed, writes a local runtime backup before replacement, and still reports
 that every active MCP host must restart or rebind before it can see the new
 binary or tool list.
+
+`m1nd pack-routing-check` is the doctrine gate for agent-pack behavior. It
+fails if the packaged skills/docs stop teaching the routing split:
+session companion for continuity, `m1nd agent next` for the first safe repo
+move, m1nd MCP tools for structural context, and direct proof for final truth.
 
 `m1nd hosts status` is the read-only universality-loop cockpit. It checks the
 supported host surfaces (`codex`, `claude`, `gemini`, `antigravity`,
@@ -336,6 +366,11 @@ subtree as `scope` to `session_handshake`, `trust_selftest`,
 call targets another. That is not graph staleness. Rebind the host with
 `M1ND_WORKSPACE_ROOT` set to the requested workspace, ingest that workspace on
 the same binding, or use explicit federation if the task truly spans repos.
+If the active binding is only a subdirectory, doc, PRD, L1GHT file, or generated
+handoff inside the requested repo, treat it as partial scope orientation rather
+than a failed graph: it can guide that subtree/document, but it cannot support
+repo-wide implementation claims until the agent rebinds or ingests the repo
+root.
 
 See [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) for the full install map.
 
@@ -362,10 +397,11 @@ A later p-limit confirmation round showed the complementary boundary: on tiny,
 localized audit fixtures, direct source reads and focused runtime probes can
 beat a heavier graph pass. The agent pack now teaches a short-audit route for
 that case: establish trust, make one bounded orientation pass, then move
-quickly to direct proof. The bundled operator helper now exposes this as
-`probe_m1nd.py short-audit`, returning
-`schema=m1nd-short-audit-helper-v0` with `short_audit_orientation` or
-`recovery_overhead` and an explicit `switch_to_direct_proof` handoff.
+quickly to direct proof. The first-class CLI exposes this as
+`m1nd agent orient --mode short`, returning `schema=m1nd-agent-cli-v0` with
+`short_audit_orientation` or `recovery_overhead` and an explicit
+`switch_to_direct_proof` handoff. The older `probe_m1nd.py short-audit` helper
+remains available for compatibility.
 
 The trained loop that ships in the pack is:
 
@@ -381,8 +417,10 @@ The trained loop that ships in the pack is:
 When the live runtime exposes Mission Control v0, broad reviews, bug hunts, and
 risky refactors can wrap that same loop in a mission contract:
 `mission_start` creates route and budget, `mission_next` emits one next move
-plus `do_not` guardrails, `mission_verify` rejects graph-only claims, and
-`mission_close` writes a proof packet with gaps and non-claims. MC0 is a
+plus `do_not` guardrails, `mission_event` records direct or graph evidence,
+`mission_verify` rejects graph-only claims, `mission_handoff` serializes
+resume context, and `mission_close` writes a proof packet with gaps and
+non-claims. MC0 is a
 bounded operating loop, not a claim that m1nd fixed graph correctness or
 refreshed the active host.
 
@@ -432,7 +470,11 @@ run `trust_selftest` or `session_handshake` before relying on retrieval.
 If a response includes
 `context_guard.wrong_workspace_binding=true`, stop before shell fallback. The
 current graph may be healthy but bound to the wrong repo. Follow the embedded
-`recovery_playbook` payload and rebind or federate intentionally.
+`recovery_playbook` payload and rebind or federate intentionally. If the open
+host cannot be rebound immediately, use an isolated local probe with
+`m1nd agent orient --repo /path/to/repo --mode short --json` before falling
+back to raw file search; this keeps m1nd useful without mutating the stale host
+binding.
 
 Retrieval and orientation tools such as `activate`, `seek`, `search`, and
 `panoramic` also expose `agent_runtime_contract` when the runtime supports it.
@@ -453,7 +495,7 @@ runtime error or trace    -> `trace`
 risky change              -> `impact`, `predict`, `validate_plan`, then usually `surgical_context_v2`
 docs or specs             -> `ingest` with `universal` or `light`, then `document_*`
 long-lived investigation  -> `perspective_*`, `trail_*`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`
-bounded audit/review loop  -> `mission_start`, then `mission_next`, `mission_verify`, `mission_close`
+bounded audit/review loop  -> `mission_start`, then `mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, `mission_close`
 unsure what to call       -> `help(stage=..., intent=...)` or `help(error_text="...")`
 ```
 

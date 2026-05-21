@@ -16,7 +16,8 @@
     "m1nd": "npm/bin/m1nd.js"
   },
   "files": [
-    "npm/",
+    "npm/bin/",
+    "npm/lib/",
     "skills/README.md",
     "skills/m1nd-universal-agent-pack.md",
     "skills/m1nd-first/SKILL.md",
@@ -35,6 +36,7 @@
     "test": "node --test npm/test/cli.test.js",
     "m1nd:doctor": "node npm/bin/m1nd.js doctor",
     "m1nd:pack-check": "node npm/bin/m1nd.js pack-check",
+    "m1nd:pack-routing-check": "node npm/bin/m1nd.js pack-routing-check",
     "m1nd:install-generic": "node npm/bin/m1nd.js install-skills generic --project .",
     "test:npm": "node --test npm/test/cli.test.js"
   },

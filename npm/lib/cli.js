@@ -4,6 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { agentCommand, AGENT_CLI_SCHEMA } = require("./agent-cli");
 
 const PACKAGE_ROOT = path.resolve(__dirname, "..", "..");
 const SKILLS_ROOT = path.join(PACKAGE_ROOT, "skills");
@@ -13,6 +14,7 @@ const SELF_UPDATE_SCHEMA = "m1nd-self-update-v0";
 const HOST_READINESS_SCHEMA = "m1nd-host-readiness-v0";
 const HOST_REBIND_PLAN_SCHEMA = "m1nd-host-rebind-plan-v0";
 const HOST_APPLY_SCHEMA = "m1nd-host-apply-v0";
+const PACK_ROUTING_CHECK_SCHEMA = "m1nd-agent-pack-routing-check-v0";
 
 const HOST_LIST = ["codex", "claude", "gemini", "antigravity", "generic"];
 const HOSTS = new Set([...HOST_LIST, "all"]);
@@ -35,9 +37,19 @@ Usage:
   m1nd update apply [--channel beta|latest] [--yes] [--no-npm] [--no-runtime] [--no-skills] [--no-kill] [--json]
   m1nd update verify [--repo <dir>] [--transport stdio|http] [--json]
   m1nd update rollback [--json]
+  m1nd agent scope --repo <dir> [--json]
+  m1nd agent trust --repo <dir> [--ensure-ingest] [--json]
+  m1nd agent orient --repo <dir> --query <text> [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
+  m1nd agent auto --repo <dir> [--query <text> | --from <error|payload|stdin>] [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
+  m1nd agent next --repo <dir> [--query <text> | --from <error|payload|stdin>] [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
+  m1nd agent recover --repo <dir> --from <error|payload|stdin> [--json]
+  m1nd agent context --repo <dir> --query <text> [--tokens <n>] [--json]
+  m1nd agent handoff --repo <dir> [--from last-run|mission] [--json]
+  m1nd agent doctor --repo <dir> [--json]
   m1nd demo [--repo <dir>] [--transport stdio|http] [--json]
   m1nd smoke [--repo <dir>] [--transport stdio|http] [--json]
   m1nd pack-check [--json]
+  m1nd pack-routing-check [--json]
 
 This npm package installs the universal agent doctrine and host adapters. The
 native runtime is still m1nd-mcp; doctor tells you whether it is visible.
@@ -60,7 +72,14 @@ workspace, rebind, and verification recipes without editing any host files.
 
 hosts apply is the opt-in local mutation step. Without --yes it is a dry-run.
 With --yes it installs local agent packs and writes canonical MCP config files
-for known hosts, but active clients still need restart/rebind.`;
+for known hosts, but active clients still need restart/rebind.
+
+agent is the host-neutral operating layer for coding agents. It launches an
+isolated m1nd-mcp runtime bound to --repo, emits deterministic JSON outside any
+stale MCP host, and tells the agent when to switch back to direct proof.
+
+agent auto/next is the deterministic route picker. It does not claim proof; it
+chooses the next bounded agent step or hands control back to direct proof.`;
 }
 
 function parseArgs(args) {
@@ -77,6 +96,7 @@ function parseArgs(args) {
         "build",
         "help",
         "install",
+        "ensure-ingest",
         "json",
         "kill",
         "no-build",
@@ -86,6 +106,8 @@ function parseArgs(args) {
         "no-npm",
         "no-runtime",
         "no-skills",
+        "shared-runtime",
+        "skip-ingest",
         "yes",
       ].includes(key)
     ) {
@@ -180,6 +202,158 @@ function assertPackShape() {
   ];
   const missing = required.filter((file) => !fs.existsSync(file));
   return { ok: missing.length === 0, missing, required };
+}
+
+const DEFAULT_PACK_ROUTING_FILES = [
+  {
+    id: "m1nd-first",
+    relative_path: "skills/m1nd-first/SKILL.md",
+    checks: [
+      { id: "session-companion-section", needles: ["Session Companion Bridge"] },
+      { id: "dext3r-continuity-only", needles: ["DEXT3R", "continuity"] },
+      { id: "m1nd-agent-next-route", needles: ["m1nd agent next", "current task"] },
+      { id: "no-companion-code-truth", needles: ["code truth"] },
+      { id: "direct-proof-final-truth", needles: ["direct proof", "decides what is true"] },
+    ],
+  },
+  {
+    id: "m1nd-operator",
+    relative_path: "skills/m1nd-operator/SKILL.md",
+    checks: [
+      { id: "session-companion-routing", needles: ["Session Companion Routing"] },
+      { id: "dext3r-continuity", needles: ["DEXT3R", "conversation continuity"] },
+      { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
+      { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
+      { id: "m1nd-mcp-structural-role", needles: ["m1nd MCP tools", "structural context"] },
+      { id: "direct-proof-role", needles: ["Direct proof", "focused probes"] },
+      { id: "global-search-warning", needles: ["Global companion search", "candidate discovery only"] },
+    ],
+  },
+  {
+    id: "m1nd-universal-agent-pack",
+    relative_path: "skills/m1nd-universal-agent-pack.md",
+    checks: [
+      { id: "session-companions-section", needles: ["Session Companions"] },
+      { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
+      { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
+      { id: "m1nd-mcp-structural-role", needles: ["m1nd MCP tools", "structural"] },
+      { id: "direct-proof-final-truth", needles: ["direct proof", "final truth"] },
+    ],
+  },
+  {
+    id: "agent-packs-doc",
+    relative_path: "docs/AGENT-PACKS.md",
+    checks: [
+      { id: "session-memory-companions-section", needles: ["Session Memory Companions"] },
+      { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
+      { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
+      { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
+      { id: "m1nd-mcp-structural-role", needles: ["m1nd MCP tools", "structural"] },
+      { id: "direct-proof-final-truth", needles: ["direct proof", "source, tests"] },
+    ],
+  },
+];
+
+const DEFAULT_PACK_ROUTING_CONTRACT = [
+  {
+    id: "session-companion-is-continuity",
+    description: "session companions are for continuity and prior decisions",
+    needles: ["session companion", "continuity", "prior decisions"],
+  },
+  {
+    id: "m1nd-agent-next-is-first-repo-move",
+    description: "m1nd agent next is the first safe repo move",
+    needles: ["m1nd agent next", "first safe repo move"],
+  },
+  {
+    id: "m1nd-mcp-is-structural-context",
+    description: "m1nd MCP tools provide graph/docs/impact/mission context",
+    needles: ["m1nd MCP tools", "structural"],
+  },
+  {
+    id: "direct-proof-is-final-truth",
+    description: "direct proof remains final truth for code behavior",
+    needles: ["direct proof", "final truth"],
+  },
+  {
+    id: "companion-search-is-not-code-truth",
+    description: "global companion search is not code truth",
+    needles: ["global memory search", "code truth"],
+  },
+];
+
+function needleMatches(text, needle) {
+  if (needle instanceof RegExp) return needle.test(text);
+  const haystack = text.toLowerCase().replace(/\s+/g, " ");
+  const target = String(needle).toLowerCase().replace(/\s+/g, " ");
+  return haystack.includes(target);
+}
+
+function needleLabel(needle) {
+  return needle instanceof RegExp ? needle.toString() : String(needle);
+}
+
+function evaluateNeedles(text, check) {
+  const missing = (check.needles || []).filter((needle) => !needleMatches(text, needle));
+  return {
+    id: check.id,
+    ok: missing.length === 0,
+    description: check.description || null,
+    required: (check.needles || []).map(needleLabel),
+    missing: missing.map(needleLabel),
+  };
+}
+
+function packRoutingCheck(options = {}) {
+  const fileSpecs = options.files || DEFAULT_PACK_ROUTING_FILES;
+  const contractSpecs = options.contractChecks || DEFAULT_PACK_ROUTING_CONTRACT;
+  const files = fileSpecs.map((spec) => {
+    const filePath = spec.path || path.join(PACKAGE_ROOT, spec.relative_path);
+    const exists = fs.existsSync(filePath);
+    const text = exists ? fs.readFileSync(filePath, "utf8") : "";
+    const checks = (spec.checks || []).map((check) => evaluateNeedles(text, check));
+    return {
+      id: spec.id,
+      path: filePath,
+      relative_path: spec.relative_path || path.relative(PACKAGE_ROOT, filePath),
+      exists,
+      ok: exists && checks.every((check) => check.ok),
+      checks,
+      _text: text,
+    };
+  });
+  const aggregateText = files.map((file) => file._text).join("\n\n");
+  const contract_checks = contractSpecs.map((check) => evaluateNeedles(aggregateText, check));
+  const missing = [];
+  for (const file of files) {
+    if (!file.exists) {
+      missing.push({ file: file.relative_path, check: "file-exists" });
+    }
+    for (const check of file.checks) {
+      for (const needle of check.missing) {
+        missing.push({ file: file.relative_path, check: check.id, missing: needle });
+      }
+    }
+  }
+  for (const check of contract_checks) {
+    for (const needle of check.missing) {
+      missing.push({ file: "*", check: check.id, missing: needle });
+    }
+  }
+  return {
+    schema: PACK_ROUTING_CHECK_SCHEMA,
+    ok: missing.length === 0,
+    files: files.map(({ _text, ...file }) => file),
+    contract_checks,
+    missing,
+    non_claims: [
+      "pack-routing-check verifies packaged doctrine text, not live host behavior.",
+      "pack-routing-check does not prove a session companion such as DEXT3R is installed.",
+      "pack-routing-check does not prove m1nd retrieval correctness or code behavior.",
+      "pack-routing-check does not refresh MCP host bindings or cached tool lists.",
+    ],
+  };
 }
 
 function installCodex() {
@@ -2134,6 +2308,26 @@ function print(value, asJson) {
     }
     return;
   }
+  if (value.schema === AGENT_CLI_SCHEMA) {
+    console.log(`m1nd agent ${value.command}`);
+    console.log(`repo: ${value.repo}`);
+    console.log(`scope: ${value.scope_alignment.binding_kind}`);
+    console.log(`runtime: ${value.runtime.binary || "not found"}${value.runtime.version ? ` (${value.runtime.version})` : ""}`);
+    if (value.trust) console.log(`trust: ${value.trust.verdict || "unknown"}`);
+    if (value.action && value.action.route) {
+      const routeTool = value.action.route.tool ? `/${value.action.route.tool}` : "";
+      console.log(`route: ${value.action.route.kind}${routeTool}`);
+    }
+    if (value.switch_to_direct_proof) console.log("switch to direct proof: yes");
+    if (value.action && value.action.action && value.action.action.command) {
+      console.log(`action: ${value.action.action.command}`);
+    }
+    if (value.next_actions.length > 0) {
+      console.log("next:");
+      for (const actionText of value.next_actions) console.log(`  - ${actionText}`);
+    }
+    return;
+  }
   console.log(String(value));
 }
 
@@ -2191,12 +2385,44 @@ async function main(rawArgs) {
     return;
   }
 
+  if (command === "agent") {
+    const result = await agentCommand(args, {
+      assertPackShape,
+      defaultRuntimePath,
+      doctor,
+      findRuntimeBinary,
+      hostStatus,
+      readPackageVersion,
+      runtimeVersion,
+      selfUpdate,
+    });
+    print(result, args.json || !process.stdout.isTTY);
+    return;
+  }
+
   if (command === "pack-check") {
     const result = assertPackShape();
     if (args.json) {
       console.log(JSON.stringify({ schema: "m1nd-agent-pack-check-v0", ...result }, null, 2));
     } else {
       console.log(result.ok ? "m1nd agent pack ok" : `m1nd agent pack missing: ${result.missing.join(", ")}`);
+    }
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === "pack-routing-check") {
+    const result = packRoutingCheck();
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(
+        result.ok
+          ? "m1nd agent pack routing ok"
+          : `m1nd agent pack routing missing: ${result.missing
+              .map((entry) => `${entry.file}:${entry.check}${entry.missing ? `:${entry.missing}` : ""}`)
+              .join(", ")}`
+      );
     }
     if (!result.ok) process.exitCode = 1;
     return;
@@ -2220,8 +2446,10 @@ module.exports = {
   hostApply,
   hostStatus,
   installSkills,
+  packRoutingCheck,
   restart,
   selfUpdate,
+  agentCommand,
   mcpConfig,
   runtimeBinaryName,
   commandLooksLikeRuntime,

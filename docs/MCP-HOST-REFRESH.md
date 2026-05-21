@@ -113,6 +113,23 @@ Recommended order:
 If the error is `Transport closed`, the old binding is already gone. Skip graph
 recovery calls in that session and relaunch the host binding first.
 
+If you need to keep working before the host is rebound, bypass the stale host
+with the agent CLI:
+
+```bash
+m1nd agent doctor --repo /path/to/project --json
+m1nd agent next --repo /path/to/project --query "focused task" --json
+m1nd agent recover --repo /path/to/project --from "Transport closed" --json
+m1nd agent trust --repo /path/to/project --ensure-ingest --json
+m1nd agent orient --repo /path/to/project --query "focused task" --mode short --json
+```
+
+These commands launch a fresh local runtime outside the client cache and bind it
+to `M1ND_WORKSPACE_ROOT=/path/to/project`. They do not refresh the open host;
+they give the agent a deterministic bypass and the exact rebind/recovery path.
+`agent next`/`agent auto` only chooses the next safe command; it does not claim
+the live host has reloaded tools or repaired graph truth.
+
 For agent-driven repair, use the self-update surface first:
 
 ```bash
@@ -220,7 +237,16 @@ For a wrong workspace binding, include the suspicious target scope:
 If the result includes `context_guard.wrong_workspace_binding=true`, rebind the
 host with `M1ND_WORKSPACE_ROOT=/path/to/intended/repo`, ingest that workspace on
 the same binding, or choose `federate_auto`/`federate` for intentional cross-repo
-reasoning. Do not keep retrying retrieval against the old workspace.
+reasoning. If the open host cannot be rebound now, run an isolated local probe
+with `m1nd agent orient --repo /path/to/intended/repo --mode short --json` and
+use that bounded m1nd orientation before raw `rg`/manual reads. Do not keep
+retrying retrieval against the old workspace.
+
+If the active binding is inside the requested repo rather than unrelated, treat
+it as partial scope: `nested_workspace_binding` for subdirectories and
+`file_level_binding` for docs, PRDs, L1GHT files, or generated handoffs. These
+bindings can be useful for local context, but they do not prove repo-wide code
+coverage or implementation truth.
 
 ## Limits
 

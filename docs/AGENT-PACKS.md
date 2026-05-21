@@ -64,28 +64,35 @@ portable pack therefore teaches every host this default sequence:
    intended repo.
 2. Follow `recovery_playbook` before interpreting blocked or empty retrieval.
 3. Treat `wrong_workspace_binding` as a binding/scope problem, not as stale
-   graph truth.
-4. Orient with `audit`, then use `search`, `seek`, or `activate` for focused
+   graph truth. If the host cannot be rebound immediately, use an isolated
+   `m1nd agent orient --repo /path/to/intended/repo --mode short --json` before
+   raw shell search.
+4. Classify partial bindings: `nested_workspace_binding` means subtree-only
+   truth, and `file_level_binding` means docs/PRD/L1GHT truth only.
+5. Orient with `audit`, then use `search`, `seek`, or `activate` for focused
    discovery.
-5. Read runtime envelopes before trusting empty results.
-6. Verify final truth with source files, tests, compiler/runtime output, and
+6. Read runtime envelopes before trusting empty results.
+7. Verify final truth with source files, tests, compiler/runtime output, and
    focused probes.
-7. Use `impact`, `validate_plan`, and `surgical_context_v2` before risky edits
+8. Use `impact`, `validate_plan`, and `surgical_context_v2` before risky edits
    or reviews.
-8. Record tool calls, recovery paths, files inspected, commands run, and
+9. Record tool calls, recovery paths, files inspected, commands run, and
    fallback reasons.
 
 That loop is what `m1nd-trained` means in benchmark artifacts. It is part of
 the agent pack contract.
 
-When the live runtime exposes Mission Control v0, broad reviews, bug hunts, and
-risky refactors can make the trained loop explicit with four tools:
-`mission_start`, `mission_next`, `mission_verify`, and `mission_close`.
-`mission_start` creates a repo-scoped route and budget; `mission_next` gives one
-move plus `do_not` guardrails; `mission_verify` rejects graph-only claims; and
-`mission_close` emits a proof packet with verified claims, rejected claims,
-gaps, and non-claims. This is an operating-loop contract, not proof that the
-host was rebound, the graph was repaired, or retrieval became correct.
+When the live runtime exposes Mission Control, broad reviews, bug hunts, and
+risky refactors can make the trained loop explicit with mission tools:
+`mission_start`, `mission_event`, `mission_next`, `mission_verify`,
+`mission_handoff`, and `mission_close`. `mission_start` creates a repo-scoped
+route and budget; `mission_event` records direct or graph evidence with an event
+id; `mission_next` gives one move plus `do_not` guardrails; `mission_verify`
+rejects graph-only claims unless a claim references direct evidence; and
+`mission_handoff`/`mission_close` emit resumable packets with verified claims,
+rejected claims, gaps, event digests, and non-claims. This is an operating-loop
+contract, not proof that the host was rebound, the graph was repaired, or
+retrieval became correct.
 
 For `bug_hunt`, follow any `direct_sweep` move before closing. It is a direct
 negative-space pass over public contracts/docs, boundary values, error paths,
@@ -98,24 +105,79 @@ orientation calls, then switch to direct source reads, git diff, focused
 runtime probes, tests, or compiler output. Record whether m1nd acted as
 `short_audit_orientation` or whether it became `recovery_overhead`.
 
-For local helper use, run the dedicated short-audit command so trust,
-ingest-if-needed, one orientation query, and the direct-proof handoff stay in
-one MCP process:
+For local helper use, prefer the first-class agent CLI. It starts an isolated
+runtime, binds `M1ND_WORKSPACE_ROOT` to the repo, keeps worktree artifacts out
+of the inspected project, and returns a single JSON envelope:
 
 ```bash
-python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
-  --no-worktree-artifacts \
-  --workspace-root /path/to/project \
-  short-audit \
-  --agent-id lane-short-audit \
+m1nd agent next \
   --repo /path/to/project \
   --query "focused subsystem or bug surface" \
-  --tool search
+  --json
+
+m1nd agent orient \
+  --repo /path/to/project \
+  --query "focused subsystem or bug surface" \
+  --mode short \
+  --json
 ```
 
-The JSON schema is `m1nd-short-audit-helper-v0`. It is intentionally not a
+The outer JSON schema is `m1nd-agent-cli-v0`. `agent next`/`agent auto` emits an
+inner `m1nd-agent-action-envelope-v0` so an agent can choose the first safe move
+without memorizing the full tool matrix. `agent orient` is intentionally not a
 final proof surface; it is a bounded orientation envelope that tells the agent
-to switch to direct source/runtime proof.
+to switch to direct source/runtime proof. The older
+`skills/m1nd-operator/scripts/probe_m1nd.py short-audit` route remains available
+for compatibility when a host has not installed the npm CLI.
+
+Use the adjacent agent commands for common recovery flows:
+
+```bash
+m1nd agent scope --repo /path/to/project --json
+m1nd agent trust --repo /path/to/project --ensure-ingest --json
+m1nd agent auto --repo /path/to/project --from "Transport closed" --json
+m1nd agent recover --repo /path/to/project --from wrong_workspace_binding --json
+m1nd agent doctor --repo /path/to/project --json
+```
+
+Validate the packaged routing doctrine with:
+
+```bash
+m1nd pack-routing-check --json
+```
+
+This gate checks that the distributed skills and docs still teach the intended
+split between session companions, `m1nd agent next`, m1nd MCP tools, and direct
+proof. It is text-contract validation, not proof that any live host or companion
+is installed.
+
+## Session Memory Companions
+
+Some agent hosts may also expose a session-memory companion such as DEXT3R.
+That layer is useful for continuity, not for final code truth.
+
+Use a companion to recover the session north star, prior decisions, open loops,
+handoff context, or a scoped `m1nd flash` attached to the active project. Before
+using it, confirm that the companion session is bound to the same repo or
+project root as the task.
+
+Do not treat companion global search, session summaries, or flash output as
+proof that code behavior is correct. If the companion reports missing scope,
+wrong project, unavailable flash, or global-only candidates, record it as
+`companion_orientation_only` and continue with the m1nd agent CLI:
+
+```bash
+m1nd agent next --repo /path/to/project --query "current task" --json
+```
+
+The intended split is:
+
+```text
+session companion -> continuity and prior decisions
+m1nd agent next    -> first safe repo move
+m1nd MCP tools     -> structural graph/docs/impact/mission context
+direct proof       -> source, tests, compiler/runtime output, logs, CI, smoke
+```
 
 For broader or harder work, escalate from the compact loop to the full-spec
 operating layer at
@@ -183,22 +245,18 @@ m1nd update apply --channel beta --yes --no-kill
 `m1nd restart --source /path/to/m1nd --yes` remains available as the lower-level
 source-checkout repair helper for development builds.
 
-For benchmark lanes or narrow write scopes, use the operator helper with
-`--no-worktree-artifacts`:
+For benchmark lanes or narrow write scopes, prefer the agent CLI:
 
 ```bash
-python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
-  --no-worktree-artifacts \
-  --workspace-root /path/to/project \
-  run '[{"name":"ingest","arguments":{"agent_id":"lane","path":"/path/to/project"}}]'
+m1nd agent trust --repo /path/to/project --ensure-ingest --json
 ```
 
-This keeps probe runtime state in the isolated runtime directory while
-setting `M1ND_WORKSPACE_ROOT` to the inspected repo. If `--workspace-root` is
-omitted, the helper uses the caller directory. It avoids accidental
+This keeps runtime state in the isolated runtime directory while setting
+`M1ND_WORKSPACE_ROOT` to the inspected repo. If `--repo` is omitted, the CLI
+uses the caller directory. It avoids accidental
 `graph_snapshot.json`, `ingest_roots.json`, or `plasticity_state.json` files in
-the audited repo. The helper prefers the managed runtime at
-`~/.m1nd/bin/m1nd-mcp` before a potentially stale `m1nd-mcp` on `PATH`.
+the audited repo. The CLI prefers the managed runtime at `~/.m1nd/bin/m1nd-mcp`
+before a potentially stale `m1nd-mcp` on `PATH`.
 
 ## MCP Config Snippets
 
