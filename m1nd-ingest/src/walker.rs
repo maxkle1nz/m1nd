@@ -1,5 +1,6 @@
 // === crates/m1nd-ingest/src/walker.rs ===
 
+use crate::path_policy::{is_noise_dir_name, is_noise_path};
 use m1nd_core::error::{M1ndError, M1ndResult};
 use std::path::{Path, PathBuf};
 
@@ -152,6 +153,9 @@ impl DirectoryWalker {
                 if e.file_type().is_dir() {
                     let name = e.file_name().to_string_lossy();
                     let rel_path = Self::normalize_rel_path(e.path(), &root_canonical);
+                    if is_noise_dir_name(&name) {
+                        return false;
+                    }
                     // Skip hidden dirs and configured skip dirs
                     if name.starts_with('.') && name != "." && !self.allow_hidden_path(&rel_path) {
                         return false;
@@ -171,6 +175,10 @@ impl DirectoryWalker {
             }
 
             let file_name = entry.file_name().to_string_lossy();
+
+            if is_noise_path(entry.path()) {
+                continue;
+            }
 
             // Skip configured file patterns
             if self.skip_files.iter().any(|s| file_name == s.as_str()) {

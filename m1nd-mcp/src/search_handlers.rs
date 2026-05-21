@@ -16,6 +16,7 @@ use crate::protocol::layers::{
 use crate::scope::{normalize_path_text, normalize_scope_path};
 use crate::session::SessionState;
 use m1nd_core::error::{M1ndError, M1ndResult};
+use m1nd_ingest::path_policy;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -29,6 +30,8 @@ type GuidedRuntimeTuple = (
     Option<String>,
     Option<String>,
 );
+
+const SEARCH_SNIPPET_MAX_CHARS: usize = 500;
 
 fn search_contract(results: &[SearchResultEntry]) -> GuidedRuntimeTuple {
     if let Some(result) = results.first() {
@@ -113,6 +116,16 @@ fn truncate_search_results(
     }
 
     (kept, false, None)
+}
+
+fn compact_search_text(value: &str) -> String {
+    let total_chars = value.chars().count();
+    if total_chars <= SEARCH_SNIPPET_MAX_CHARS {
+        return value.to_string();
+    }
+
+    let prefix: String = value.chars().take(SEARCH_SNIPPET_MAX_CHARS).collect();
+    format!("{prefix}...[truncated chars={total_chars}]")
 }
 
 // ---------------------------------------------------------------------------
@@ -371,7 +384,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                                 score: None,
                                 file_path,
                                 line_number,
-                                matched_line: ext_id.to_string(),
+                                matched_line: compact_search_text(ext_id),
                                 context_before: ctx_before,
                                 context_after: ctx_after,
                                 graph_linked: true,
@@ -446,7 +459,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                                 score: None,
                                 file_path,
                                 line_number,
-                                matched_line: ext_id.to_string(),
+                                matched_line: compact_search_text(ext_id),
                                 context_before: ctx_before,
                                 context_after: ctx_after,
                                 graph_linked: true,
@@ -516,8 +529,8 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                     .and_then(|excerpt| excerpt.lines().next())
                     .map(str::trim)
                     .filter(|line| !line.is_empty())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| item.intent_summary.clone());
+                    .map(compact_search_text)
+                    .unwrap_or_else(|| compact_search_text(&item.intent_summary));
                 results.push(SearchResultEntry {
                     file_path: item
                         .file_path
@@ -908,7 +921,7 @@ fn search_file_contents(
                             score: None,
                             file_path: fp,
                             line_number: ln,
-                            matched_line: line.to_string(),
+                            matched_line: compact_search_text(line),
                             context_before: ctx_before,
                             context_after: ctx_after,
                             graph_linked: candidate.graph_linked,
@@ -974,7 +987,7 @@ fn search_file_contents_multiline(
                                 score: None,
                                 file_path: fp,
                                 line_number: ln,
-                                matched_line: line.to_string(),
+                                matched_line: compact_search_text(line),
                                 context_before: ctx_before,
                                 context_after: ctx_after,
                                 graph_linked: candidate.graph_linked,
@@ -992,13 +1005,7 @@ fn search_file_contents_multiline(
                         let start_byte = mat.start();
                         let line_number =
                             content[..start_byte].chars().filter(|&c| c == '\n').count() as u32 + 1;
-                        let matched_text = mat.as_str().to_string();
-                        // Truncate very long multiline matches to 500 chars
-                        let display_text = if matched_text.len() > 500 {
-                            format!("{}...[truncated]", &matched_text[..500])
-                        } else {
-                            matched_text
-                        };
+                        let display_text = compact_search_text(mat.as_str());
                         let fp = candidate.full_path.to_string_lossy().to_string();
                         let (ctx_before, ctx_after) =
                             get_context_lines(&fp, line_number, context_lines);
@@ -1060,7 +1067,10 @@ fn collect_graph_files(
         if ext_id.starts_with("file::") {
             let path = ext_id.strip_prefix("file::").unwrap_or(ext_id);
             // Only take file-level nodes (no ::fn:: or ::class:: sub-nodes)
-            if !path.contains("::") && seen_set.insert(path.to_string()) {
+            if !path.contains("::")
+                && !path_policy::is_noise_path(Path::new(path))
+                && seen_set.insert(path.to_string())
+            {
                 // Apply scope filter
                 if !scope_matches_path(path, scope, &state.ingest_roots) {
                     continue;
@@ -1158,7 +1168,7 @@ fn collect_disk_fallback_files_recursive(
         };
 
         if file_type.is_dir() {
-            if should_skip_disk_dir(&path) {
+            if path_policy::is_noise_dir_path(&path) {
                 continue;
             }
             collect_disk_fallback_files_recursive(
@@ -1199,6 +1209,10 @@ fn build_disk_fallback_candidate(
     filename_glob: Option<&glob::Pattern>,
 ) -> Option<SearchFileCandidate> {
     if !path_within_roots(state, full_path) {
+        return None;
+    }
+
+    if path_policy::is_noise_path(full_path) {
         return None;
     }
 
@@ -1260,21 +1274,6 @@ fn path_within_roots(state: &SessionState, full_path: &Path) -> bool {
         .iter()
         .map(Path::new)
         .any(|root| full_path.starts_with(root))
-}
-
-fn should_skip_disk_dir(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some(".git")
-            | Some(".hg")
-            | Some(".svn")
-            | Some("node_modules")
-            | Some("target")
-            | Some("dist")
-            | Some("build")
-            | Some(".vault")
-            | Some(".roomanizer")
-    )
 }
 
 fn rank_search_results(query: &str, mode: SearchRankingMode, results: &mut Vec<SearchResultEntry>) {
@@ -1473,14 +1472,14 @@ fn get_context_lines(
     let before_start = line_idx.saturating_sub(context_lines as usize);
     let before: Vec<String> = lines[before_start..line_idx]
         .iter()
-        .map(|s| s.to_string())
+        .map(|s| compact_search_text(s))
         .collect();
 
     let after_end = (line_idx + 1 + context_lines as usize).min(lines.len());
     let after: Vec<String> = if line_idx + 1 < lines.len() {
         lines[line_idx + 1..after_end]
             .iter()
-            .map(|s| s.to_string())
+            .map(|s| compact_search_text(s))
             .collect()
     } else {
         vec![]
@@ -1916,6 +1915,108 @@ mod tests {
     }
 
     #[test]
+    fn search_compacts_long_matched_lines_and_context() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let src_dir = root.join("src");
+        std::fs::create_dir_all(&src_dir).expect("src dir");
+        let file_path = src_dir.join("minified.js");
+        let huge_context = format!("const CONTEXT = \"{}\";", "a".repeat(4_000));
+        let huge_match = format!("const SEARCH_TOKEN = \"{}\";", "b".repeat(4_000));
+        std::fs::write(&file_path, format!("{huge_context}\n{huge_match}\n")).expect("write file");
+
+        let mut state = build_state(root);
+        let output = handle_search(
+            &mut state,
+            SearchInput {
+                agent_id: "jimi-codex".into(),
+                query: "SEARCH_TOKEN".into(),
+                mode: SearchMode::Literal,
+                scope: Some("src".into()),
+                top_k: 10,
+                case_sensitive: true,
+                context_lines: 1,
+                invert: false,
+                count_only: false,
+                multiline: false,
+                auto_ingest: false,
+                filename_pattern: Some("*.js".into()),
+                max_output_chars: None,
+            },
+        )
+        .expect("search output");
+
+        assert_eq!(output.total_matches, 1);
+        assert_eq!(output.results.len(), 1);
+        assert!(output.results[0].matched_line.contains("SEARCH_TOKEN"));
+        assert!(output.results[0].matched_line.contains("[truncated chars="));
+        assert!(output.results[0].matched_line.chars().count() < huge_match.chars().count());
+        assert_eq!(output.results[0].context_before.len(), 1);
+        assert!(output.results[0].context_before[0].contains("[truncated chars="));
+        assert!(output.results[0].context_before[0].chars().count() < huge_context.chars().count());
+    }
+
+    #[test]
+    fn search_disk_fallback_skips_generated_and_virtualenv_noise() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        let src_dir = root.join("src");
+        let venv_dir = root.join(".venv").join("lib");
+        let field_workspace_dir = root
+            .join(".m1nd-field-workspaces")
+            .join("round")
+            .join("repo");
+        std::fs::create_dir_all(&src_dir).expect("src dir");
+        std::fs::create_dir_all(&venv_dir).expect("venv dir");
+        std::fs::create_dir_all(&field_workspace_dir).expect("field workspace dir");
+
+        std::fs::write(
+            src_dir.join("real.rs"),
+            "pub const REAL_TOKEN: &str = \"agent-first\";\n",
+        )
+        .expect("write real file");
+        std::fs::write(
+            venv_dir.join("noise.py"),
+            "REAL_TOKEN = 'virtualenv-noise'\n",
+        )
+        .expect("write venv noise");
+        std::fs::write(
+            field_workspace_dir.join("noise.py"),
+            "REAL_TOKEN = 'benchmark-noise'\n",
+        )
+        .expect("write field workspace noise");
+
+        let mut state = build_state(root);
+        let output = handle_search(
+            &mut state,
+            SearchInput {
+                agent_id: "jimi-codex".into(),
+                query: "REAL_TOKEN".into(),
+                mode: SearchMode::Literal,
+                scope: None,
+                top_k: 10,
+                case_sensitive: true,
+                context_lines: 0,
+                invert: false,
+                count_only: false,
+                multiline: false,
+                auto_ingest: false,
+                filename_pattern: None,
+                max_output_chars: None,
+            },
+        )
+        .expect("search output");
+
+        assert_eq!(output.total_matches, 1);
+        assert_eq!(output.results.len(), 1);
+        assert_eq!(output.results[0].label, "src/real.rs");
+        assert!(!output.results[0].file_path.contains(".venv"));
+        assert!(!output.results[0]
+            .file_path
+            .contains(".m1nd-field-workspaces"));
+    }
+
+    #[test]
     fn search_blocked_response_points_to_recovery_playbook_with_graph_state() {
         let temp = tempdir().expect("tempdir");
         let root = temp.path();
@@ -1958,6 +2059,20 @@ mod tests {
             output
                 .recovery
                 .as_ref()
+                .and_then(|recovery| recovery["auto_action"]["schema"].as_str()),
+            Some("m1nd-auto-action-v0")
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery["auto_action"]["tool"].as_str()),
+            Some("recovery_playbook")
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
                 .and_then(|recovery| recovery.pointer("/arguments/observed_tool"))
                 .and_then(|value| value.as_str()),
             Some("search")
@@ -1975,6 +2090,13 @@ mod tests {
                 .as_ref()
                 .and_then(|contract| contract["schema"].as_str()),
             Some("m1nd-agent-runtime-contract-v0")
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["auto_action"]["tool"].as_str()),
+            Some("recovery_playbook")
         );
         assert_eq!(
             output

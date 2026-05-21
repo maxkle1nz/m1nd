@@ -9,6 +9,7 @@ use crate::universal_docs;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_ingest::document_router::{DocumentFormat, DocumentRouter};
 use m1nd_ingest::merge::{collect_source_claims, prune_source_claims, SourceClaims};
+use m1nd_ingest::path_policy;
 use m1nd_ingest::{
     BibTexAdapter, CrossRefAdapter, IngestAdapter, JatsArticleAdapter, L1ghtIngestAdapter,
     PatentIngestAdapter, RfcAdapter, UniversalIngestAdapter,
@@ -272,16 +273,7 @@ impl AutoIngestState {
     }
 
     fn is_noise_path(path: &Path) -> bool {
-        let name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("");
-        name.ends_with('~')
-            || name.ends_with(".swp")
-            || name.ends_with(".tmp")
-            || name == ".DS_Store"
-            || name.starts_with(".#")
-            || name.starts_with("4913")
+        path_policy::is_noise_path(path)
     }
 
     fn canonicalize_path(path: &Path) -> Option<PathBuf> {
@@ -1038,6 +1030,12 @@ mod tests {
             "/tmp/file.md.swp"
         )));
         assert!(AutoIngestState::is_noise_path(Path::new("/tmp/.DS_Store")));
+        assert!(AutoIngestState::is_noise_path(Path::new(
+            "/tmp/project/.venv/lib/site.py"
+        )));
+        assert!(AutoIngestState::is_noise_path(Path::new(
+            "/tmp/project/graph_snapshot.json"
+        )));
         assert!(!AutoIngestState::is_noise_path(Path::new("/tmp/notes.md")));
     }
 

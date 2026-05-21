@@ -21,6 +21,7 @@ pub mod l1ght_adapter;
 pub mod memory_adapter;
 pub mod merge;
 pub mod patent_adapter;
+pub mod path_policy;
 pub mod resolve;
 pub mod rfc_adapter;
 pub mod universal_adapter;
@@ -111,17 +112,7 @@ impl Default for IngestConfig {
             root: PathBuf::from("."),
             timeout: Duration::from_secs(300),
             max_nodes: 500_000,
-            skip_dirs: vec![
-                ".git".into(),
-                "node_modules".into(),
-                "__pycache__".into(),
-                ".venv".into(),
-                "target".into(),
-                "dist".into(),
-                "build".into(),
-                ".next".into(),
-                "vendor".into(),
-            ],
+            skip_dirs: path_policy::default_skip_dirs(),
             skip_files: vec![
                 "package-lock.json".into(),
                 "yarn.lock".into(),
