@@ -2,6 +2,11 @@
 // Handlers for the 12 perspective MCP tools.
 // Split from server.rs dispatch (Theme 8).
 
+use crate::perspective::confidence::{
+    build_affinity_candidate, normalize_ghost_edge, normalize_provenance_overlap,
+    normalize_resonant_amplitude, normalize_route_path_neighborhood, normalize_semantic_overlap,
+    normalize_structural_hole,
+};
 use crate::perspective::keys::route_content_id;
 use crate::perspective::state::*;
 use crate::perspective::validation::*;
@@ -174,6 +179,94 @@ fn perspective_affinity_contract(
             )),
         )
     }
+}
+
+fn route_provenance_overlap(route: &Route, candidate: &Route) -> Option<f32> {
+    let route_provenance = route.provenance.as_ref()?;
+    let candidate_provenance = candidate.provenance.as_ref()?;
+    let route_path = route_provenance.source_path.as_ref()?;
+    let candidate_path = candidate_provenance.source_path.as_ref()?;
+    let line_distance = route_provenance
+        .line_start
+        .zip(candidate_provenance.line_start)
+        .map(|(a, b)| a.abs_diff(b));
+
+    let overlap = normalize_provenance_overlap(route_path == candidate_path, line_distance);
+    (overlap > 0.0).then_some(overlap)
+}
+
+fn route_affinity_kind(route: &Route, candidate: &Route) -> AffinityCandidateKind {
+    if candidate.family == RouteFamily::Ghost {
+        AffinityCandidateKind::HypothesizedLatentEdge
+    } else if candidate.family == route.family || candidate.family == RouteFamily::Resonant {
+        AffinityCandidateKind::ResonantNeighbor
+    } else {
+        AffinityCandidateKind::MissingBridge
+    }
+}
+
+fn synthesize_route_affinity_candidates(
+    route: &Route,
+    routes: &[Route],
+    limit: usize,
+) -> Vec<AffinityCandidate> {
+    let sibling_routes: Vec<&Route> = routes
+        .iter()
+        .filter(|candidate| candidate.route_id != route.route_id)
+        .filter(|candidate| candidate.target_node != route.target_node)
+        .collect();
+
+    if sibling_routes.is_empty() {
+        return Vec::new();
+    }
+
+    let min_score = sibling_routes
+        .iter()
+        .map(|candidate| candidate.score)
+        .fold(1.0_f32, f32::min);
+    let max_score = routes
+        .iter()
+        .map(|candidate| candidate.score)
+        .fold(0.0_f32, f32::max);
+
+    let mut candidates: Vec<AffinityCandidate> = sibling_routes
+        .into_iter()
+        .filter_map(|candidate| {
+            let structural = normalize_structural_hole(candidate.score, min_score);
+            let resonance = normalize_resonant_amplitude(candidate.score, max_score);
+            let semantic = if candidate.family == route.family {
+                0.70
+            } else {
+                0.45
+            };
+
+            let breakdown = ConfidenceBreakdown {
+                ghost_edge_strength: (candidate.family == RouteFamily::Ghost)
+                    .then_some(normalize_ghost_edge(candidate.score)),
+                structural_hole_pressure: (structural > 0.0).then_some(structural),
+                resonant_amplitude: (resonance > 0.0).then_some(resonance),
+                semantic_overlap: Some(normalize_semantic_overlap(semantic)),
+                provenance_overlap: route_provenance_overlap(route, candidate),
+                route_path_neighborhood: Some(normalize_route_path_neighborhood(2)),
+            };
+
+            build_affinity_candidate(
+                candidate.target_node.clone(),
+                candidate.target_label.clone(),
+                route_affinity_kind(route, candidate),
+                breakdown,
+            )
+        })
+        .collect();
+
+    candidates.sort_by(|a, b| {
+        b.confidence
+            .total_cmp(&a.confidence)
+            .then_with(|| a.candidate_label.cmp(&b.candidate_label))
+            .then_with(|| a.candidate_node.cmp(&b.candidate_node))
+    });
+    candidates.truncate(limit);
+    candidates
 }
 
 fn perspective_list_contract(
@@ -1318,22 +1411,29 @@ pub fn handle_perspective_affinity(
         )
     })?;
 
-    // V1: affinity uses simplified computation
-    // TODO: Full implementation uses confidence.rs normalization + geometric mean
-    let candidates: Vec<AffinityCandidate> = vec![]; // V1: empty until engine_ops ready
+    let candidates = synthesize_route_affinity_candidates(
+        route,
+        &cached.routes,
+        state.perspective_limits.max_affinity_candidates,
+    );
     let (proof_state, next_suggested_tool, next_suggested_target, next_step_hint) =
         perspective_affinity_contract(&input.perspective_id, route, &candidates);
+    let diagnostic = if candidates.is_empty() {
+        Some(empty_diagnostic(
+            state,
+            "under_indexed",
+            "Affinity requires more graph data for meaningful results",
+        ))
+    } else {
+        None
+    };
 
     let output = PerspectiveAffinityOutput {
         route_id: route.route_id.clone(),
         target_node: route.target_node.clone(),
         notice: "Probable connections, not verified edges.".into(),
         candidates,
-        diagnostic: Some(empty_diagnostic(
-            state,
-            "under_indexed",
-            "Affinity requires more graph data for meaningful results",
-        )),
+        diagnostic,
         proof_state,
         next_suggested_tool,
         next_suggested_target,

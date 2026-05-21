@@ -14,11 +14,17 @@
 //                        epistemic guards, candidate kind variants,
 //                        builder helper roundtrip, schema parity.
 
+use m1nd_core::domain::DomainConfig;
+use m1nd_core::graph::Graph;
 use m1nd_mcp::perspective::confidence::*;
 use m1nd_mcp::perspective::keys::*;
 use m1nd_mcp::perspective::state::*;
 use m1nd_mcp::perspective::validation::*;
+use m1nd_mcp::perspective_handlers::handle_perspective_affinity;
 use m1nd_mcp::protocol::perspective::*;
+use m1nd_mcp::server::McpConfig;
+use m1nd_mcp::session::SessionState;
+use std::path::Path;
 
 // ===========================================================================
 // Shared test infrastructure
@@ -161,6 +167,17 @@ fn build_dead_end_perspective(agent_id: &str, perspective_id: &str) -> Perspecti
         last_accessed_ms: 1710000000000,
         branches: vec![],
     }
+}
+
+fn make_session_state(root: &Path) -> SessionState {
+    let config = McpConfig {
+        graph_source: root.join("graph_snapshot.json"),
+        plasticity_state: root.join("plasticity_state.json"),
+        ..McpConfig::default()
+    };
+
+    SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+        .expect("SessionState::initialize")
 }
 
 // ===========================================================================
@@ -404,7 +421,7 @@ fn suggest_07_based_on_reflects_history_depth() {
 
 #[test]
 fn affinity_01_isolated_node_empty_candidates() {
-    // V1 implementation returns empty candidates with diagnostic
+    // Isolated route neighborhoods still return empty candidates with diagnostic.
     let output = PerspectiveAffinityOutput {
         route_id: "R_abc123".into(),
         target_node: "isolated.rs".into(),
@@ -431,6 +448,53 @@ fn affinity_01_isolated_node_empty_candidates() {
     assert!(output.diagnostic.is_some());
     assert_eq!(output.diagnostic.as_ref().unwrap().reason, "under_indexed");
     assert_eq!(output.notice, "Probable connections, not verified edges.");
+}
+
+// ---------------------------------------------------------------------------
+// Affinity Test 1b: Handler returns route-backed candidates when siblings exist
+// ---------------------------------------------------------------------------
+
+#[test]
+fn affinity_01b_handler_generates_route_backed_candidates() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = make_session_state(temp.path());
+    let persp = build_perspective_with_routes("agent_a", "persp_live", "main.rs", 5, &[]);
+    let selected_route = persp.route_cache.as_ref().unwrap().routes[0].clone();
+
+    state
+        .perspectives
+        .insert(("agent_a".into(), "persp_live".into()), persp);
+
+    let output = handle_perspective_affinity(
+        &mut state,
+        PerspectiveAffinityInput {
+            agent_id: "agent_a".into(),
+            perspective_id: "persp_live".into(),
+            route_id: Some(selected_route.route_id.clone()),
+            route_index: None,
+            route_set_version: 100,
+        },
+    )
+    .expect("affinity handler should succeed");
+
+    assert_eq!(output["route_id"], selected_route.route_id);
+    assert_eq!(output["proof_state"], "proving");
+    assert!(output.get("diagnostic").is_none());
+
+    let candidates = output["candidates"].as_array().unwrap();
+    assert!(!candidates.is_empty());
+    assert!(candidates.len() <= state.perspective_limits.max_affinity_candidates);
+    assert!(candidates
+        .iter()
+        .all(|candidate| candidate["is_hypothetical"] == true));
+    assert!(candidates
+        .iter()
+        .all(|candidate| candidate["proposed_relation"].is_null()));
+    assert!(candidates.iter().all(|candidate| {
+        candidate["candidate_node"] != selected_route.target_node
+            && candidate["confidence"].as_f64().unwrap() <= MAX_CONFIDENCE as f64
+            && candidate["confidence"].as_f64().unwrap() >= MIN_CONFIDENCE_THRESHOLD as f64
+    }));
 }
 
 // ---------------------------------------------------------------------------
