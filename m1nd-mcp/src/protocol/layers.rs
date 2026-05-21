@@ -2791,6 +2791,20 @@ pub struct MissionStartInput {
     pub parent_mission_id: Option<String>,
 }
 
+/// Input for mission_event — record one observed mission action.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MissionEventInput {
+    pub agent_id: String,
+    pub mission_id: String,
+    pub event: Value,
+    #[serde(default)]
+    pub payload: Option<Value>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub agent_confidence: Option<f32>,
+}
+
 /// Input for mission_next — append the last observed event and return one next move.
 #[derive(Clone, Debug, Deserialize)]
 pub struct MissionNextInput {
@@ -2823,6 +2837,19 @@ pub struct MissionCloseInput {
     pub non_claims: Vec<String>,
     #[serde(default)]
     pub gaps: Vec<String>,
+}
+
+/// Input for mission_handoff — serialize a resumable mission packet.
+#[derive(Clone, Debug, Deserialize)]
+pub struct MissionHandoffInput {
+    pub agent_id: String,
+    pub mission_id: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub recipient_agent_id: Option<String>,
+    #[serde(default)]
+    pub include_events: bool,
 }
 
 // =========================================================================
@@ -3101,5 +3128,23 @@ mod tests {
         let input: MissionNextInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.mission_id, "msn_123_jimi");
         assert!(input.last_event.is_some());
+    }
+
+    #[test]
+    fn mission_event_input_accepts_split_payload_fields() {
+        let json = r#"{
+            "agent_id": "jimi",
+            "mission_id": "msn_123_jimi",
+            "event": "file_read",
+            "payload": {"path": "src/auth.rs", "lines": [42, 55]},
+            "outcome": "hypothesis_supported",
+            "agent_confidence": 0.72
+        }"#;
+        let input: MissionEventInput = serde_json::from_str(json).unwrap();
+
+        assert_eq!(input.event, serde_json::json!("file_read"));
+        assert_eq!(input.payload.unwrap()["path"], "src/auth.rs");
+        assert_eq!(input.outcome.as_deref(), Some("hypothesis_supported"));
+        assert!((input.agent_confidence.unwrap() - 0.72).abs() < f32::EPSILON);
     }
 }

@@ -71,10 +71,7 @@ pub fn handle_seek(
 ) -> M1ndResult<layers::SeekOutput> {
     let start = Instant::now();
     let query_tokens = l2_seek_tokenize(&input.query);
-    let normalized_scope = input
-        .scope
-        .as_deref()
-        .map(|scope| l7_normalize_path_hint(scope, &state.ingest_roots));
+    let normalized_scope = normalize_scope_path(input.scope.as_deref(), &state.ingest_roots);
 
     // Split query tokens further via identifier splitting for better matching
     let mut all_tokens: Vec<String> = query_tokens.clone();
@@ -466,7 +463,7 @@ pub fn handle_seek(
 
     let (next_suggested_tool, next_suggested_target, next_step_hint) = l2_seek_next_step(&results);
     let proof_state = l2_seek_proof_state(&results);
-    let failed_retrieval = proof_state == "blocked" || candidates_scanned == 0;
+    let failed_retrieval = proof_state == "blocked";
     let (graph_state, recovery) = state.retrieval_failure_context(
         &input.agent_id,
         "seek",
@@ -10076,6 +10073,32 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
     }
 
     #[test]
+    fn seek_repo_root_absolute_scope_behaves_like_unscoped_seek() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        let unscoped = run_seek(&mut state, None);
+        let root_scoped = run_seek(&mut state, Some(root.to_string_lossy().to_string()));
+
+        assert_eq!(root_scoped.results.len(), unscoped.results.len());
+        assert_eq!(
+            root_scoped.total_candidates_scanned,
+            unscoped.total_candidates_scanned
+        );
+        assert_eq!(root_scoped.results[0].node_id, unscoped.results[0].node_id);
+        assert!(root_scoped.graph_state.is_none());
+        assert!(root_scoped.recovery.is_none());
+        assert_eq!(
+            root_scoped
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["trust_mode"].as_str()),
+            Some("full_trust")
+        );
+    }
+
+    #[test]
     fn seek_blocked_response_points_to_recovery_playbook_with_graph_state() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path();
@@ -10118,6 +10141,20 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             output
                 .recovery
                 .as_ref()
+                .and_then(|recovery| recovery["auto_action"]["schema"].as_str()),
+            Some("m1nd-auto-action-v0")
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
+                .and_then(|recovery| recovery["auto_action"]["tool"].as_str()),
+            Some("recovery_playbook")
+        );
+        assert_eq!(
+            output
+                .recovery
+                .as_ref()
                 .and_then(|recovery| recovery.pointer("/arguments/observed_tool"))
                 .and_then(|value| value.as_str()),
             Some("seek")
@@ -10128,6 +10165,13 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .as_ref()
                 .and_then(|contract| contract["schema"].as_str()),
             Some("m1nd-agent-runtime-contract-v0")
+        );
+        assert_eq!(
+            output
+                .agent_runtime_contract
+                .as_ref()
+                .and_then(|contract| contract["auto_action"]["tool"].as_str()),
+            Some("recovery_playbook")
         );
         assert_eq!(
             output

@@ -18,7 +18,7 @@ The core product lesson from benchmark work is:
 
 ## Contract
 
-The v0 MCP surface is four tools:
+The original v0 MCP surface was four tools:
 
 - `mission_start`: create a repo-scoped mission with route, budget envelope,
   starter moves, and non-claims.
@@ -28,6 +28,14 @@ The v0 MCP surface is four tools:
   evidence is present.
 - `mission_close`: emit a proof packet with verified claims, rejected claims,
   event count, tools observed, gaps, budget consumption, and non-claims.
+
+The v1 boundary adds two agent-first surfaces while preserving the same loop:
+
+- `mission_event`: record one observed action with an event id, evidence class,
+  budget update, and event digest.
+- `mission_handoff`: serialize verified claims, rejected claims, open
+  hypotheses, dead paths, files read, graph anchors, next move, and event digest
+  for another agent or future session.
 
 Mission state is persisted under:
 
@@ -44,7 +52,14 @@ m1nd-mission-control-state-v0
 The proof packet schema is:
 
 ```text
-m1nd-mission-proof-packet-v0
+m1nd-mission-proof-packet-v1
+```
+
+The event and handoff schemas are:
+
+```text
+m1nd-mission-event-v1
+m1nd-mission-handoff-v1
 ```
 
 ## Evidence Rules
@@ -64,6 +79,12 @@ classes such as:
 
 It rejects graph-only or inferred evidence such as `seek`, `activate`,
 `audit`, or a plain claim with no direct source/runtime/test reference.
+
+A direct event does not prove every claim in the mission. `mission_verify`
+accepts a prior direct event only when `evidence_refs` references that event,
+for example `event:evt_1`, or when the claim provides an explicit direct proof
+reference such as `file_read:path:line`, `test_run:name`, or
+`runtime_probe:id`.
 
 For `bug_hunt` missions, a verified claim is not enough to close by default.
 After one or more verified findings, `mission_next` requires one direct
@@ -95,11 +116,13 @@ The intended loop:
 
 1. `mission_start`
 2. one starter move
-3. `mission_next` with the last event
+3. `mission_event` for meaningful actions, or `mission_next` with the last
+   event when `mission_event` is unavailable
 4. direct proof when `do_not` blocks more graph calls
 5. `mission_verify`
-6. for `bug_hunt`, one final direct coverage sweep when `mission_next` asks
-7. `mission_close`
+6. `mission_handoff` when work may resume elsewhere
+7. for `bug_hunt`, one final direct coverage sweep when `mission_next` asks
+8. `mission_close`
 
 ## Next Proof
 

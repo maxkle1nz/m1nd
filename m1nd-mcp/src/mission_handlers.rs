@@ -1,19 +1,23 @@
 use crate::protocol::layers::{
-    MissionCloseInput, MissionNextInput, MissionStartInput, MissionVerifyInput,
+    MissionCloseInput, MissionEventInput, MissionHandoffInput, MissionNextInput, MissionStartInput,
+    MissionVerifyInput,
 };
 use crate::session::SessionState;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const STATE_SCHEMA: &str = "m1nd-mission-control-state-v0";
+const STATE_SCHEMA: &str = "m1nd-mission-control-state-v1";
 const START_SCHEMA: &str = "m1nd-mission-start-v0";
+const EVENT_SCHEMA: &str = "m1nd-mission-event-v1";
 const NEXT_SCHEMA: &str = "m1nd-mission-next-v0";
 const VERIFY_SCHEMA: &str = "m1nd-mission-verify-v0";
-const CLOSE_SCHEMA: &str = "m1nd-mission-proof-packet-v0";
+const HANDOFF_SCHEMA: &str = "m1nd-mission-handoff-v1";
+const CLOSE_SCHEMA: &str = "m1nd-mission-proof-packet-v1";
 
 const DEFAULT_NON_CLAIMS: &[&str] = &[
     "mission control does not prove graph contents are correct",
@@ -42,10 +46,13 @@ struct MissionState {
     next_step_id: u64,
     budget_envelope: Value,
     graph_state_at_start: Value,
+    context_guard_at_start: Value,
     #[serde(default)]
     events: Vec<Value>,
     #[serde(default)]
     claims: Vec<MissionClaimState>,
+    #[serde(default)]
+    handoffs: Vec<Value>,
     non_claims: Vec<String>,
 }
 
@@ -71,6 +78,7 @@ pub fn handle_mission_start(
     let route = route_for(&input.mode, &input.budget, &input.risk);
     let budget_envelope = budget_envelope(&input.budget);
     let graph_state = graph_state(state);
+    let context_guard = context_guard_projection(&graph_state, &input.repo);
     let non_claims = DEFAULT_NON_CLAIMS
         .iter()
         .map(|claim| (*claim).to_string())
@@ -94,8 +102,10 @@ pub fn handle_mission_start(
         next_step_id: 1,
         budget_envelope: budget_envelope.clone(),
         graph_state_at_start: graph_state.clone(),
+        context_guard_at_start: context_guard.clone(),
         events: Vec::new(),
         claims: Vec::new(),
+        handoffs: Vec::new(),
         non_claims: non_claims.clone(),
     };
 
@@ -110,11 +120,45 @@ pub fn handle_mission_start(
         "mode": input.mode,
         "route": route,
         "trust": trust_projection(&graph_state, &input.repo),
+        "context_guard": context_guard,
         "expected_phases": expected_phases(&mission.mode),
         "budget_envelope": budget_envelope,
         "starter_moves": starter_moves(&mission, &graph_state),
         "non_goals": non_goals_for(&mission.mode),
         "non_claims": non_claims,
+    }))
+}
+
+pub fn handle_mission_event(
+    state: &mut SessionState,
+    input: MissionEventInput,
+) -> M1ndResult<Value> {
+    let MissionEventInput {
+        agent_id,
+        mission_id,
+        event,
+        payload,
+        outcome,
+        agent_confidence,
+    } = input;
+    let mut mission = load_mission(state, &mission_id)?;
+    ensure_agent(&mission, &agent_id)?;
+
+    let event_value = normalize_mission_event_value(event, payload, outcome, agent_confidence);
+    let event_id = append_event(&mut mission, event_value, "mission_event");
+    mission.updated_at_ms = now_ms();
+    save_mission(state, &mission)?;
+
+    let event = mission.events.last().cloned().unwrap_or_else(|| json!({}));
+    Ok(json!({
+        "schema": EVENT_SCHEMA,
+        "mission_id": mission.mission_id,
+        "event_id": event_id,
+        "event": event,
+        "event_count": mission.events.len(),
+        "budget_consumed": budget_consumed(&mission),
+        "event_digest": event_digest(&mission.events),
+        "non_claims": mission.non_claims,
     }))
 }
 
@@ -215,6 +259,53 @@ pub fn handle_mission_verify(
     }))
 }
 
+pub fn handle_mission_handoff(
+    state: &mut SessionState,
+    input: MissionHandoffInput,
+) -> M1ndResult<Value> {
+    let mut mission = load_mission(state, &input.mission_id)?;
+    ensure_agent(&mission, &input.agent_id)?;
+
+    let handoff_id = format!("hnd_{}_{}", mission.handoffs.len() + 1, now_ms());
+    let analysis = analyze_events(&mission);
+    let (phase, next_move, do_not, soft_warning) = next_move(&mission, &analysis);
+    let handoff = json!({
+        "schema": HANDOFF_SCHEMA,
+        "handoff_id": handoff_id,
+        "mission_id": mission.mission_id,
+        "parent_mission_id": mission.parent_mission_id,
+        "agent_id": mission.agent_id,
+        "recipient_agent_id": input.recipient_agent_id,
+        "repo": mission.repo,
+        "task": mission.task,
+        "mode": mission.mode,
+        "route": mission.route,
+        "phase": phase,
+        "summary": input.summary,
+        "verified_claims": verified_claims_json(&mission),
+        "rejected_claims": rejected_claims_json(&mission),
+        "open_hypotheses": open_hypotheses(&mission),
+        "dead_paths": dead_paths(&mission),
+        "files_read": files_read(&mission),
+        "tools_observed": tools_observed(&mission),
+        "graph_anchors": graph_anchors(&mission),
+        "next_required_move": {
+            "move": next_move,
+            "do_not": do_not,
+            "soft_warning": soft_warning,
+        },
+        "resume_hint": format!("phase={phase}; call mission_next or mission_verify before final output"),
+        "event_digest": event_digest(&mission.events),
+        "events": if input.include_events { Value::Array(mission.events.clone()) } else { Value::Null },
+        "non_claims": mission.non_claims,
+    });
+    mission.handoffs.push(handoff.clone());
+    mission.updated_at_ms = now_ms();
+    save_mission(state, &mission)?;
+
+    Ok(handoff)
+}
+
 pub fn handle_mission_close(
     state: &mut SessionState,
     input: MissionCloseInput,
@@ -227,32 +318,8 @@ pub fn handle_mission_close(
     mission.updated_at_ms = now_ms();
     save_mission(state, &mission)?;
 
-    let verified_claims = mission
-        .claims
-        .iter()
-        .filter(|claim| claim.verdict == "verified_for_mission")
-        .map(|claim| {
-            json!({
-                "claim_id": claim.claim_id.clone(),
-                "claim": claim.claim.clone(),
-                "evidence_refs": claim.evidence_refs.clone(),
-                "evidence_grade": claim.evidence_grade.clone(),
-            })
-        })
-        .collect::<Vec<_>>();
-    let rejected_claims = mission
-        .claims
-        .iter()
-        .filter(|claim| claim.verdict != "verified_for_mission")
-        .map(|claim| {
-            json!({
-                "claim_id": claim.claim_id.clone(),
-                "claim": claim.claim.clone(),
-                "verdict": claim.verdict.clone(),
-                "missing": claim.missing.clone(),
-            })
-        })
-        .collect::<Vec<_>>();
+    let verified_claims = verified_claims_json(&mission);
+    let rejected_claims = rejected_claims_json(&mission);
     let mut non_claims = mission.non_claims.clone();
     non_claims.extend(input.non_claims);
     non_claims.sort();
@@ -272,6 +339,9 @@ pub fn handle_mission_close(
         "tools_observed": tools_observed(&mission),
         "budget_consumed": budget_consumed(&mission),
         "graph_state_at_start": mission.graph_state_at_start,
+        "context_guard_at_start": mission.context_guard_at_start,
+        "event_digest": event_digest(&mission.events),
+        "handoff_count": mission.handoffs.len(),
         "gaps": input.gaps,
         "non_claims": non_claims,
     }))
@@ -440,6 +510,43 @@ fn trust_projection(graph_state: &Value, requested_repo: &str) -> Value {
     })
 }
 
+fn context_guard_projection(graph_state: &Value, requested_repo: &str) -> Value {
+    let workspace_root = graph_state
+        .get("workspace_root")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let workspace_match = !workspace_root.is_empty()
+        && (requested_repo.starts_with(workspace_root)
+            || workspace_root.starts_with(requested_repo));
+    json!({
+        "schema": "m1nd-mission-context-guard-v1",
+        "workspace_match": workspace_match,
+        "requested_repo": requested_repo,
+        "workspace_root": workspace_root,
+        "workspace_root_source": graph_state
+            .get("workspace_root_source")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "runtime_root": graph_state
+            .get("runtime_root")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "graph_generation": graph_state
+            .get("graph_generation")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "binary": {
+            "name": "m1nd-mcp",
+            "version": env!("CARGO_PKG_VERSION")
+        },
+        "non_claims": [
+            "mission context guard does not rebind the MCP host",
+            "mission context guard does not ingest or mutate graph contents",
+            "mission context guard does not prove the requested repo is the correct task target"
+        ]
+    })
+}
+
 fn route_for(mode: &str, budget: &str, risk: &str) -> String {
     match (mode, budget, risk) {
         ("refactor", _, "high") | ("refactor", "deep", _) => "risk_first".into(),
@@ -527,7 +634,7 @@ fn non_goals_for(mode: &str) -> Vec<&'static str> {
     }
 }
 
-fn append_event(mission: &mut MissionState, event: Value, source: &str) {
+fn append_event(mission: &mut MissionState, event: Value, source: &str) -> String {
     let mut object = match event {
         Value::Object(map) => map,
         other => {
@@ -536,16 +643,68 @@ fn append_event(mission: &mut MissionState, event: Value, source: &str) {
             map
         }
     };
+    let generated_id = format!("evt_{}", mission.events.len() + 1);
+    let event_id = object
+        .get("event_id")
+        .and_then(Value::as_str)
+        .filter(|value| is_safe_record_id(value))
+        .map(str::to_string)
+        .unwrap_or(generated_id);
+    object.insert("event_id".into(), Value::String(event_id.clone()));
     object
-        .entry("event_id")
-        .or_insert_with(|| Value::String(format!("evt_{}", mission.events.len() + 1)));
+        .entry("schema")
+        .or_insert_with(|| Value::String(EVENT_SCHEMA.to_string()));
     object
         .entry("source")
         .or_insert_with(|| Value::String(source.to_string()));
     object
         .entry("observed_at_ms")
         .or_insert_with(|| Value::Number(now_ms().into()));
+    let kind = object
+        .get("event")
+        .and_then(Value::as_str)
+        .or_else(|| object.get("type").and_then(Value::as_str))
+        .or_else(|| object.get("tool").and_then(Value::as_str))
+        .unwrap_or("unknown")
+        .to_ascii_lowercase();
+    object
+        .entry("evidence_class")
+        .or_insert_with(|| Value::String(evidence_class_for_kind(&kind).to_string()));
     mission.events.push(Value::Object(object));
+    event_id
+}
+
+fn normalize_mission_event_value(
+    event: Value,
+    payload: Option<Value>,
+    outcome: Option<String>,
+    agent_confidence: Option<f32>,
+) -> Value {
+    let mut object = match event {
+        Value::Object(map) => map,
+        Value::String(kind) => {
+            let mut map = Map::new();
+            map.insert("event".into(), Value::String(kind));
+            map
+        }
+        other => {
+            let mut map = Map::new();
+            map.insert("payload".into(), other);
+            map
+        }
+    };
+    if let Some(payload) = payload {
+        object.entry("payload").or_insert(payload);
+    }
+    if let Some(outcome) = outcome {
+        object.entry("outcome").or_insert(Value::String(outcome));
+    }
+    if let Some(confidence) = agent_confidence {
+        object
+            .entry("agent_confidence")
+            .or_insert_with(|| json!(confidence));
+    }
+    Value::Object(object)
 }
 
 #[derive(Default)]
@@ -689,14 +848,35 @@ fn next_move(
 }
 
 fn classify_evidence(evidence_refs: &[String], events: &[Value]) -> String {
+    let refs_lower = evidence_refs
+        .iter()
+        .map(|reference| reference.to_ascii_lowercase())
+        .collect::<Vec<_>>();
     if evidence_refs
         .iter()
         .any(|reference| is_direct_kind(&reference.to_ascii_lowercase()))
-        || events
-            .iter()
-            .any(|event| is_direct_kind(&event_kind(event).to_ascii_lowercase()))
     {
         return "direct".into();
+    }
+    for event in events {
+        if !event_is_referenced(event, &refs_lower) {
+            continue;
+        }
+        let kind = event_kind(event).to_ascii_lowercase();
+        let evidence_class = event
+            .get("evidence_class")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if is_direct_kind(&kind)
+            || evidence_class == "direct"
+            || evidence_class == "direct_coverage_sweep"
+        {
+            return "direct".into();
+        }
+        if is_graph_kind(&kind) || evidence_class == "graph_orientation" {
+            return "graph_only".into();
+        }
     }
     if evidence_refs
         .iter()
@@ -705,6 +885,16 @@ fn classify_evidence(evidence_refs: &[String], events: &[Value]) -> String {
         return "graph_only".into();
     }
     "inferred".into()
+}
+
+fn event_is_referenced(event: &Value, refs_lower: &[String]) -> bool {
+    let Some(event_id) = event.get("event_id").and_then(Value::as_str) else {
+        return false;
+    };
+    let event_id = event_id.to_ascii_lowercase();
+    refs_lower
+        .iter()
+        .any(|reference| reference == &event_id || reference.contains(&format!("event:{event_id}")))
 }
 
 fn is_graph_kind(kind: &str) -> bool {
@@ -735,6 +925,18 @@ fn is_coverage_sweep_kind(kind: &str) -> bool {
         || kind.contains("followup_sweep")
 }
 
+fn evidence_class_for_kind(kind: &str) -> &'static str {
+    if is_direct_kind(kind) {
+        "direct"
+    } else if is_coverage_sweep_kind(kind) {
+        "direct_coverage_sweep"
+    } else if is_graph_kind(kind) {
+        "graph_orientation"
+    } else {
+        "inferred_or_unclassified"
+    }
+}
+
 fn budget_consumed(mission: &MissionState) -> f64 {
     let max_tool_calls = mission
         .budget_envelope
@@ -762,6 +964,117 @@ fn tools_observed(mission: &MissionState) -> Vec<String> {
     tools
 }
 
+fn verified_claims_json(mission: &MissionState) -> Vec<Value> {
+    mission
+        .claims
+        .iter()
+        .filter(|claim| claim.verdict == "verified_for_mission")
+        .map(|claim| {
+            json!({
+                "claim_id": claim.claim_id.clone(),
+                "claim": claim.claim.clone(),
+                "evidence_refs": claim.evidence_refs.clone(),
+                "evidence_grade": claim.evidence_grade.clone(),
+            })
+        })
+        .collect()
+}
+
+fn rejected_claims_json(mission: &MissionState) -> Vec<Value> {
+    mission
+        .claims
+        .iter()
+        .filter(|claim| claim.verdict != "verified_for_mission")
+        .map(|claim| {
+            json!({
+                "claim_id": claim.claim_id.clone(),
+                "claim": claim.claim.clone(),
+                "verdict": claim.verdict.clone(),
+                "missing": claim.missing.clone(),
+            })
+        })
+        .collect()
+}
+
+fn open_hypotheses(mission: &MissionState) -> Vec<Value> {
+    mission
+        .claims
+        .iter()
+        .filter(|claim| claim.verdict != "verified_for_mission")
+        .map(|claim| {
+            json!({
+                "claim_id": claim.claim_id.clone(),
+                "claim": claim.claim.clone(),
+                "missing": claim.missing.clone(),
+            })
+        })
+        .collect()
+}
+
+fn dead_paths(mission: &MissionState) -> Vec<Value> {
+    mission
+        .events
+        .iter()
+        .filter(|event| {
+            let text = event.to_string().to_ascii_lowercase();
+            text.contains("dead_path") || text.contains("dead path") || text.contains("ruled_out")
+        })
+        .cloned()
+        .collect()
+}
+
+fn files_read(mission: &MissionState) -> Vec<String> {
+    unique_event_strings(mission, &["path", "file", "target"], |kind| {
+        is_direct_kind(kind)
+    })
+}
+
+fn graph_anchors(mission: &MissionState) -> Vec<String> {
+    unique_event_strings(mission, &["target", "query", "node_id", "tool"], |kind| {
+        is_graph_kind(kind)
+    })
+}
+
+fn unique_event_strings<F>(mission: &MissionState, keys: &[&str], predicate: F) -> Vec<String>
+where
+    F: Fn(&str) -> bool,
+{
+    let mut values = mission
+        .events
+        .iter()
+        .filter(|event| predicate(&event_kind(event).to_ascii_lowercase()))
+        .filter_map(|event| {
+            keys.iter()
+                .find_map(|key| event_string_value(event, key))
+                .map(str::to_string)
+        })
+        .collect::<Vec<_>>();
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn event_string_value<'a>(event: &'a Value, key: &str) -> Option<&'a str> {
+    event
+        .get(key)
+        .and_then(Value::as_str)
+        .or_else(|| event.get("payload")?.get(key)?.as_str())
+}
+
+fn event_digest(events: &[Value]) -> String {
+    let body = serde_json::to_string(events).unwrap_or_default();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    body.hash(&mut hasher);
+    format!("hash64:{:016x}", hasher.finish())
+}
+
+fn is_safe_record_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -783,6 +1096,113 @@ mod tests {
     fn direct_evidence_wins() {
         let grade = classify_evidence(&["file_read:src/auth.rs:42".to_string()], &[]);
         assert_eq!(grade, "direct");
+    }
+
+    #[test]
+    fn unrelated_direct_event_does_not_prove_claim() {
+        let events = vec![json!({
+            "event_id": "evt_1",
+            "event": "file_read",
+            "path": "src/auth.rs",
+            "evidence_class": "direct"
+        })];
+
+        let grade = classify_evidence(&["seek:auth flow".to_string()], &events);
+
+        assert_eq!(grade, "graph_only");
+    }
+
+    #[test]
+    fn referenced_direct_event_proves_claim() {
+        let events = vec![json!({
+            "event_id": "evt_1",
+            "event": "file_read",
+            "path": "src/auth.rs",
+            "evidence_class": "direct"
+        })];
+
+        let grade = classify_evidence(&["event:evt_1".to_string()], &events);
+
+        assert_eq!(grade, "direct");
+    }
+
+    #[test]
+    fn append_event_adds_schema_and_evidence_class() {
+        let mut mission = test_mission("review");
+        let event_id = append_event(
+            &mut mission,
+            json!({"event": "file_read", "path": "src/auth.rs"}),
+            "mission_event",
+        );
+
+        assert_eq!(event_id, "evt_1");
+        assert_eq!(mission.events[0]["schema"], EVENT_SCHEMA);
+        assert_eq!(mission.events[0]["evidence_class"], "direct");
+    }
+
+    #[test]
+    fn mission_event_normalizes_split_payload_fields() {
+        let event = normalize_mission_event_value(
+            json!("file_read"),
+            Some(json!({"path": "src/auth.rs", "lines": [42, 55]})),
+            Some("hypothesis_supported".into()),
+            Some(0.72),
+        );
+        let mut mission = test_mission("review");
+        append_event(&mut mission, event, "mission_event");
+
+        assert_eq!(mission.events[0]["event"], "file_read");
+        assert_eq!(mission.events[0]["payload"]["path"], "src/auth.rs");
+        assert_eq!(mission.events[0]["outcome"], "hypothesis_supported");
+        assert_eq!(mission.events[0]["agent_confidence"], json!(0.72f32));
+        assert_eq!(mission.events[0]["evidence_class"], "direct");
+    }
+
+    #[test]
+    fn mission_event_split_fields_do_not_override_object_event_fields() {
+        let event = normalize_mission_event_value(
+            json!({
+                "event": "test_run",
+                "payload": {"command": "cargo test"},
+                "outcome": "failed"
+            }),
+            Some(json!({"path": "ignored.rs"})),
+            Some("hypothesis_supported".into()),
+            Some(0.9),
+        );
+
+        assert_eq!(event["event"], "test_run");
+        assert_eq!(event["payload"]["command"], "cargo test");
+        assert_eq!(event["outcome"], "failed");
+        assert_eq!(event["agent_confidence"], json!(0.9f32));
+    }
+
+    #[test]
+    fn unique_event_strings_reads_nested_payload_fields() {
+        let mut mission = test_mission("review");
+        append_event(
+            &mut mission,
+            normalize_mission_event_value(
+                json!("file_read"),
+                Some(json!({"path": "src/auth.rs"})),
+                Some("read direct source".into()),
+                None,
+            ),
+            "mission_event",
+        );
+
+        let files = files_read(&mission);
+
+        assert_eq!(files, vec!["src/auth.rs".to_string()]);
+    }
+
+    #[test]
+    fn event_digest_changes_with_events() {
+        let empty = event_digest(&[]);
+        let one = event_digest(&[json!({"event": "file_read"})]);
+
+        assert_ne!(empty, one);
+        assert!(one.starts_with("hash64:"));
     }
 
     #[test]
@@ -878,8 +1298,10 @@ mod tests {
             next_step_id: 1,
             budget_envelope: budget_envelope("normal"),
             graph_state_at_start: json!({}),
+            context_guard_at_start: json!({}),
             events: Vec::new(),
             claims: Vec::new(),
+            handoffs: Vec::new(),
             non_claims: Vec::new(),
         }
     }

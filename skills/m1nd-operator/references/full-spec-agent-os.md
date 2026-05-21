@@ -61,18 +61,16 @@ Use one stable `agent_id` for one investigation.
 For local helper use:
 
 ```bash
-python3 /path/to/skills/m1nd-operator/scripts/probe_m1nd.py \
-  --no-worktree-artifacts \
-  --workspace-root /path/to/repo \
-  short-audit \
-  --agent-id agent \
+m1nd agent orient \
   --repo /path/to/repo \
   --query "focused subsystem or bug surface" \
-  --tool search
+  --mode short \
+  --json
 ```
 
-Use `--workspace-root` whenever the process is launched from a director repo but
-the inspected repo is somewhere else.
+Use `--repo` whenever the process is launched from a director repo but the
+inspected repo is somewhere else. The older `probe_m1nd.py` helper remains
+available for custom multi-tool sequences.
 
 ## Tool Families At A Glance
 
@@ -103,7 +101,8 @@ Memory and learning:
 
 Mission control:
 
-- `mission_start`, `mission_next`, `mission_verify`, `mission_close`
+- `mission_start`, `mission_event`, `mission_next`, `mission_verify`,
+  `mission_handoff`, `mission_close`
 
 Stateful navigation:
 
@@ -155,13 +154,21 @@ Broad review, bug hunt, refactor, or proof-sensitive investigation:
 
 - start with `mission_start` so repo, task, mode, budget, risk, and non-claims
   are explicit
+- record meaningful actions with `mission_event` when available, especially
+  direct reads, tests, runtime probes, coverage sweeps, and dissent
 - use `mission_next` after meaningful events so the runtime can stop loops and
   issue `do_not` guardrails
 - when `mission_next` switches to direct proof, stop graph calls unless a
   dissent event justifies the deviation
 - call `mission_verify` before finalizing any material claim
+- call `mission_handoff` before pausing, delegating, or switching agents
 - close with `mission_close` so the result carries verified claims, rejected
-  claims, gaps, and non-claims
+  claims, gaps, event digest, and non-claims
+
+Evidence rule: claims must reference their direct proof explicitly. A prior
+`mission_event` only proves a claim when the claim cites that `event_id`, for
+example `event:evt_1`, or gives a direct `file_read`, `test_run`, compiler, or
+runtime probe ref.
 
 Exact text:
 

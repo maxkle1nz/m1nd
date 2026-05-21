@@ -91,21 +91,27 @@ output. This mode exists because the p-limit confirmation round showed that
 tiny localized tasks can be hurt by m1nd recovery/orientation overhead.
 
 `m1nd-mission-control` means the agent uses the trained loop through
-`mission_start`, `mission_next`, `mission_verify`, and `mission_close`. This
+`mission_start`, `mission_event`, `mission_next`, `mission_verify`,
+`mission_handoff`, and `mission_close`. This
 condition tests the runtime operating layer: budget envelope, one-next-move
 routing, `do_not` guardrails, graph-to-direct-proof switching, and proof packet
 closure. It must be reported separately from `m1nd-trained` until repeated
-rounds prove whether MC0 improves recall, speed, variance, or evidence quality.
-In `bug_hunt` mode, MC0 may require a final direct `direct_sweep` after verified
+rounds prove whether Mission Control improves recall, speed, variance, or
+evidence quality. In `bug_hunt` mode, Mission Control may require a final
+direct `direct_sweep` after verified
 findings before close; agents should record that negative-space pass as
 `coverage_sweep`, `boundary_sweep`, or `edge_case_sweep`.
 The scorer treats Mission Control usage as evidence too: loop completion,
 unavailable tools, `mission_next` counts, and direct-proof switches are reported
-beside seeded recall, with a four-step adherence rate for
-start/next/verify/close. Agents should fill the structured
+beside seeded recall, with an adherence rate for
+start/event/next/verify/handoff/close. Agents should fill the structured
 `mission_control_usage` object in the lane result; free-text notes are fallback
-evidence only. The MC0 arm is not fully evaluable when any Mission Control lane
-is missing, unavailable, or fails the start/next/verify/close loop.
+evidence only. The Mission Control arm is not fully evaluable when any Mission
+Control lane is missing, unavailable, or fails the
+start/event/next/verify/handoff/close loop.
+The scorer also reports objective evidence-packet completeness:
+`event_digest`, handoff summary, proof-packet summary, mission event count,
+mission verify count, and rejected/insufficient claim count.
 
 `m1nd-trained` means the agent receives the shipped trained-agent loop:
 
@@ -145,6 +151,7 @@ python3 scripts/benchmark/bug_hunt_round.py init \
   --source-repo .m1nd-benchmark-fixtures/bug-hunt/your-fixture-source \
   --seeded-repo .m1nd-benchmark-fixtures/bug-hunt/round-001/your-fixture-seeded \
   --seeded-bug-count 5 \
+  --mission-control-binary /absolute/path/to/m1nd-mcp \
   --lanes-mission-control 2 \
   --lanes-trained 2 \
   --lanes-direct 2 \
@@ -179,17 +186,26 @@ python3 scripts/benchmark/bug_hunt_round.py preflight \
 Preflight validates the round shape, prompt/result/event-stream presence, and
 Mission Control scaffold fields. With `--require-live-mission-control`, it also
 probes the selected `m1nd-mcp` binary and blocks Mission Control rounds unless
-`mission_start`, `mission_next`, `mission_verify`, and `mission_close` are
-present. This is still a binary surface check, not proof that already-open
+`mission_start`, `mission_event`, `mission_next`, `mission_verify`,
+`mission_handoff`, and `mission_close` are present. This is still a binary
+surface check, not proof that already-open
 worker hosts have refreshed their cached MCP tool lists.
 
-Mission Control lanes may use native MCP tools when the host exposes them, or
-the local `probe_m1nd.py --runtime-dir <lane-runtime-dir> call <tool> <json>`
-transport when the selected binary passes live preflight but the agent host has
-not injected those tools. Use the same runtime directory for every helper call
-in a lane so `mission_next`, `mission_verify`, and `mission_close` can load the
-state created by `mission_start`. Mark `mission_control_unavailable=true` only
-when both paths are unavailable.
+Mission Control lanes should prefer the isolated helper runtime:
+
+```text
+probe_m1nd.py --binary <selected-m1nd-mcp> --no-worktree-artifacts \
+  --runtime-dir <lane-runtime-dir> --workspace-root <lane-repo> \
+  call <tool> <json>
+```
+
+Use the same runtime directory for every helper call in a lane so
+`mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, and
+`mission_close` can load the state created by `mission_start`. Native MCP tools
+are acceptable only when `trust_selftest` or `session_handshake` proves the
+active workspace binding is exactly the lane workspace and the host exposes all
+six mission tools. Mark `mission_control_unavailable=true` only when both paths
+are unavailable.
 
 ## Score A Round
 

@@ -650,7 +650,7 @@ pub fn handle_activate(
         .as_ref()
         .map(|projection| projection.proof_state.clone())
         .unwrap_or_else(|| default_activate_proof_state.into());
-    let failed_retrieval = proof_state == "blocked" || activated_count == 0;
+    let failed_retrieval = proof_state == "blocked";
     let (graph_state, recovery) = state.retrieval_failure_context(
         &input.agent_id,
         "activate",
@@ -2504,8 +2504,7 @@ pub fn handle_trust_selftest(
 ) -> M1ndResult<serde_json::Value> {
     let agent_id = input.agent_id.clone();
     let observed_blocked = input.observed_proof_state.as_deref() == Some("blocked");
-    let observed_zero_candidates = input.observed_candidates == Some(0);
-    let suspicious_retrieval = observed_blocked || observed_zero_candidates;
+    let suspicious_retrieval = observed_blocked;
 
     let handshake = handle_session_handshake(
         state,
@@ -2646,8 +2645,7 @@ pub fn handle_recovery_playbook(
     drop(graph);
 
     let observed_blocked = input.observed_proof_state.as_deref() == Some("blocked");
-    let observed_zero_candidates = input.observed_candidates == Some(0);
-    let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
+    let stale_binding_suspected = graph_has_nodes && observed_blocked;
     let workspace_binding_mismatch = state.workspace_binding_mismatch(input.scope.as_deref());
     let wrong_workspace_binding = workspace_binding_mismatch.is_some();
 
@@ -2871,7 +2869,7 @@ pub fn handle_recovery_playbook(
             vec![
                 playbook_step(
                     "call_doctor",
-                    "Call doctor with the blocked or zero-candidate observation.",
+                    "Call doctor with the blocked retrieval observation.",
                     "Doctor will correlate the suspicious retrieval result with graph state, session continuity, and transport clues.",
                     Some("doctor"),
                     stale_doctor_arguments,
@@ -2986,7 +2984,6 @@ pub fn handle_doctor(
     missing_tools.dedup();
     let degraded_host_tool_surface = !missing_tools.is_empty();
     let observed_blocked = observed_proof_state.as_deref() == Some("blocked");
-    let observed_zero_candidates = observed_candidates == Some(0);
     let graph_has_nodes = node_count > 0;
     let has_ingest_roots = !state.ingest_roots.is_empty();
     let workspace_root_known = state.workspace_root.is_some();
@@ -3008,9 +3005,9 @@ pub fn handle_doctor(
             .push("call doctor again and confirm node_count is greater than zero".to_string());
     }
 
-    if graph_has_nodes && (observed_blocked || observed_zero_candidates) {
+    if graph_has_nodes && observed_blocked {
         warnings.push(format!(
-            "{} reported blocked/zero-candidate retrieval while the active graph is populated",
+            "{} reported blocked retrieval while the active graph is populated",
             observed_tool
         ));
         probable_causes.push(
@@ -3123,7 +3120,7 @@ pub fn handle_doctor(
     next_actions.sort();
     next_actions.dedup();
 
-    let stale_binding_suspected = graph_has_nodes && (observed_blocked || observed_zero_candidates);
+    let stale_binding_suspected = graph_has_nodes && observed_blocked;
     let status = if !graph_has_nodes || wrong_workspace_binding {
         "blocked"
     } else if degraded_host_tool_surface || !warnings.is_empty() {
@@ -3214,5 +3211,169 @@ pub fn handle_doctor(
         "warnings": warnings,
         "probable_causes": probable_causes,
         "next_actions": next_actions,
+        "non_claims": [
+            "doctor does not repair or refresh the host MCP binding.",
+            "doctor does not ingest, mutate, or repair graph contents.",
+            "doctor does not prove semantic retrieval correctness.",
+            "doctor does not replace compiler, test, log, or direct file truth."
+        ],
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        handle_doctor, handle_recovery_playbook, handle_trust_selftest, AGENT_TRUST_REQUIRED_TOOLS,
+        HOST_BINDING_REQUIRED_TOOLS,
+    };
+    use crate::protocol::{DoctorInput, RecoveryPlaybookInput, TrustSelftestInput};
+    use crate::server::McpConfig;
+    use crate::session::SessionState;
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::Graph;
+    use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+
+    fn build_runtime_state(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let a = graph
+            .add_node("file::src/lib.rs", "lib.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add lib node");
+        let b = graph
+            .add_node(
+                "file::src/core.rs",
+                "core.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add core node");
+        graph
+            .add_edge(
+                a,
+                b,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add edge");
+        graph.finalize().expect("finalize graph");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    #[test]
+    fn trust_selftest_keeps_zero_candidates_without_blocked_proof_in_full_trust() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+
+        let output = handle_trust_selftest(
+            &mut state,
+            TrustSelftestInput {
+                agent_id: "jimi".into(),
+                observed_tool_count: Some(HOST_BINDING_REQUIRED_TOOLS.len() as u64),
+                available_tools: HOST_BINDING_REQUIRED_TOOLS
+                    .iter()
+                    .map(|tool| (*tool).to_string())
+                    .collect(),
+                missing_tools: vec![],
+                observed_tool: Some("seek".into()),
+                observed_proof_state: Some("triaging".into()),
+                observed_candidates: Some(0),
+                scope: None,
+                error_text: None,
+            },
+        )
+        .expect("trust selftest output");
+
+        assert_eq!(output["verdict"], "full_trust");
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["checks"]["suspicious_retrieval_evidence"], false);
+        assert_eq!(output["checks"]["recovery_playbook_attached"], false);
+        assert_eq!(output["recovery_playbook"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn recovery_playbook_keeps_zero_candidates_without_blocked_proof_in_full_trust() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+
+        let output = handle_recovery_playbook(
+            &mut state,
+            RecoveryPlaybookInput {
+                agent_id: "jimi".into(),
+                trust_mode: Some("full_trust".into()),
+                observed_tool: Some("seek".into()),
+                observed_proof_state: Some("triaging".into()),
+                observed_candidates: Some(0),
+                observed_tool_count: Some(AGENT_TRUST_REQUIRED_TOOLS.len() as u64),
+                available_tools: HOST_BINDING_REQUIRED_TOOLS
+                    .iter()
+                    .map(|tool| (*tool).to_string())
+                    .collect(),
+                missing_tools: vec![],
+                scope: None,
+                error_text: None,
+            },
+        )
+        .expect("recovery playbook output");
+
+        assert_eq!(output["trust_mode"], "full_trust");
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["next_action"], "proceed_with_m1nd_first");
+        assert_eq!(output["steps"][0]["id"], "proceed_with_m1nd_first");
+    }
+
+    #[test]
+    fn doctor_keeps_zero_candidates_without_blocked_proof_out_of_stale_bucket() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+        state.track_agent("jimi");
+
+        let output = handle_doctor(
+            &mut state,
+            DoctorInput {
+                agent_id: "jimi".into(),
+                observed_tool: Some("seek".into()),
+                observed_proof_state: Some("triaging".into()),
+                observed_candidates: Some(0),
+                observed_tool_count: Some(HOST_BINDING_REQUIRED_TOOLS.len() as u64),
+                available_tools: HOST_BINDING_REQUIRED_TOOLS
+                    .iter()
+                    .map(|tool| (*tool).to_string())
+                    .collect(),
+                missing_tools: vec![],
+                scope: None,
+                error_text: None,
+            },
+        )
+        .expect("doctor output");
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(
+            output["diagnostics"]["stale_binding_suspected"],
+            serde_json::Value::Bool(false)
+        );
+        assert_eq!(output["warnings"], serde_json::json!([]));
+        assert!(output["next_actions"][0]
+            .as_str()
+            .expect("next action")
+            .contains("continue with m1nd-first retrieval"));
+    }
 }

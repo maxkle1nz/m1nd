@@ -1,0 +1,42 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc1-smoke-20260518T000000Z",
+  "lane_id": "audit-01",
+  "instruction_mode": "m1nd-mission-control",
+  "repo": "p-limit",
+  "model": "",
+  "started_at": "",
+  "finished_at": "",
+  "findings": [],
+  "commands_run": [],
+  "files_inspected": [],
+  "m1nd_usage": [],
+  "mission_control_usage": {
+    "mission_id": "",
+    "mission_route": "",
+    "mission_transport": "",
+    "mission_tool_surface_count": null,
+    "mission_control_unavailable": false,
+    "mission_start_called": false,
+    "mission_event_count": 0,
+    "mission_next_count": 0,
+    "mission_verify_count": 0,
+    "mission_handoff_called": false,
+    "mission_close_called": false,
+    "do_not_guardrails_observed": [],
+    "verified_claims": [],
+    "rejected_or_insufficient_claims": [],
+    "direct_proof_switches": [],
+    "coverage_sweeps": [],
+    "event_digest": "",
+    "handoff_summary": "",
+    "proof_packet_summary": ""
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "",
+  "notes": "",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ]
+}

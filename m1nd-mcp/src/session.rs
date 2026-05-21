@@ -56,6 +56,17 @@ pub struct EditPreviewState {
     pub created_at_ms: u64,
 }
 
+struct RecoveryAutoActionContext<'a> {
+    agent_id: &'a str,
+    observed_tool: &'a str,
+    observed_proof_state: &'a str,
+    observed_candidates: Option<u64>,
+    scope: Option<&'a str>,
+    reason: &'a str,
+    source_kind: &'a str,
+    arguments: &'a Value,
+}
+
 // ---------------------------------------------------------------------------
 // SavingsTracker — tracks estimated token savings from m1nd usage
 // ---------------------------------------------------------------------------
@@ -497,6 +508,29 @@ impl SessionState {
         }
 
         let requested_workspace_hint = Self::scope_workspace_hint(&scope_path);
+        let binding_kind = Self::scope_binding_kind_for_mismatch(
+            &scope_path,
+            &requested_workspace_hint,
+            &known_roots,
+        );
+        let partial_scope = binding_kind != "wrong_workspace_binding";
+        let (scope_reliability, recommended_usage_mode, message) = match binding_kind {
+            "nested_workspace_binding" => (
+                "partial_subtree_truth",
+                "partial_scope_orientation",
+                "The active m1nd binding is inside the requested repository, so it can guide only that subtree until the repo root is bound.",
+            ),
+            "file_level_binding" => (
+                "document_context_only",
+                "partial_scope_orientation",
+                "The active m1nd binding points at a file-level artifact inside the requested repository, so it is document context rather than codebase coverage.",
+            ),
+            _ => (
+                "wrong_workspace",
+                "isolated_probe_after_wrong_workspace_binding",
+                "The requested absolute scope is outside the active m1nd workspace and ingest roots.",
+            ),
+        };
         let requested_context_id = requested_workspace_hint
             .file_name()
             .and_then(|name| name.to_str())
@@ -516,6 +550,10 @@ impl SessionState {
         Some(serde_json::json!({
             "schema": "m1nd-workspace-binding-mismatch-v0",
             "code": "wrong_workspace_binding",
+            "binding_kind": binding_kind,
+            "partial_scope": partial_scope,
+            "scope_reliability": scope_reliability,
+            "recommended_usage_mode": recommended_usage_mode,
             "requested_scope": scope.unwrap_or_default(),
             "requested_scope_path": scope_path.to_string_lossy(),
             "requested_workspace_hint": requested_workspace_hint.to_string_lossy(),
@@ -525,7 +563,7 @@ impl SessionState {
             "active_ingest_roots": self.ingest_roots,
             "known_roots_checked": known_root_values,
             "runtime_root": self.runtime_root.to_string_lossy(),
-            "message": "The requested absolute scope is outside the active m1nd workspace and ingest roots.",
+            "message": message,
             "suggested_fix": {
                 "preferred": "start or rebind the MCP host with M1ND_WORKSPACE_ROOT set to requested_workspace_hint",
                 "env": {
@@ -540,6 +578,48 @@ impl SessionState {
                 "Context Guard does not prove the requested workspace is the correct task target."
             ],
         }))
+    }
+
+    fn scope_binding_kind_for_mismatch(
+        scope_path: &std::path::Path,
+        requested_workspace_hint: &std::path::Path,
+        known_roots: &[(&str, PathBuf)],
+    ) -> &'static str {
+        let partial_root = known_roots.iter().map(|(_, root)| root).find(|root| {
+            Self::path_starts_with_loosely(root, requested_workspace_hint)
+                || Self::path_starts_with_loosely(root, scope_path)
+        });
+
+        match partial_root {
+            Some(root) if Self::is_file_level_binding_root(root) => "file_level_binding",
+            Some(_) => "nested_workspace_binding",
+            None => "wrong_workspace_binding",
+        }
+    }
+
+    fn is_file_level_binding_root(root: &std::path::Path) -> bool {
+        if root.is_file() {
+            return true;
+        }
+
+        matches!(
+            root.extension().and_then(|extension| extension.to_str()),
+            Some(
+                "bib"
+                    | "doc"
+                    | "docx"
+                    | "html"
+                    | "json"
+                    | "l1ght"
+                    | "light"
+                    | "md"
+                    | "pdf"
+                    | "prd"
+                    | "rst"
+                    | "txt"
+                    | "xml"
+            )
+        )
     }
 
     fn absolute_scope_path(scope: &str) -> Option<std::path::PathBuf> {
@@ -602,7 +682,7 @@ impl SessionState {
         start.to_path_buf()
     }
 
-    pub fn doctor_recovery_payload(
+    fn recovery_call_arguments(
         &self,
         agent_id: &str,
         observed_tool: &str,
@@ -610,7 +690,7 @@ impl SessionState {
         observed_candidates: Option<u64>,
         scope: Option<&str>,
         error_text: Option<&str>,
-    ) -> serde_json::Value {
+    ) -> (serde_json::Value, Option<serde_json::Value>) {
         let mut arguments = serde_json::json!({
             "agent_id": agent_id,
             "observed_tool": observed_tool,
@@ -625,10 +705,77 @@ impl SessionState {
         if let Some(error_text) = error_text.filter(|value| !value.trim().is_empty()) {
             arguments["error_text"] = serde_json::json!(error_text);
         }
+
         let workspace_binding_mismatch = self.workspace_binding_mismatch(scope);
         if let Some(mismatch) = workspace_binding_mismatch.clone() {
             arguments["workspace_binding_mismatch"] = mismatch;
         }
+
+        (arguments, workspace_binding_mismatch)
+    }
+
+    fn recovery_auto_action_payload(
+        &self,
+        context: RecoveryAutoActionContext<'_>,
+    ) -> serde_json::Value {
+        let scope_key = if context
+            .scope
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        {
+            "scoped"
+        } else {
+            "unscoped"
+        };
+        let candidate_key = context
+            .observed_candidates
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string());
+
+        serde_json::json!({
+            "schema": "m1nd-auto-action-v0",
+            "status": "ready",
+            "action_type": "tool_call",
+            "tool": "recovery_playbook",
+            "arguments": context.arguments,
+            "source": {
+                "kind": context.source_kind,
+                "surface": "recovery_payload",
+                "agent_id": context.agent_id,
+                "observed_tool": context.observed_tool,
+                "observed_proof_state": context.observed_proof_state,
+            },
+            "reason": context.reason,
+            "expected_output_schema": "m1nd-recovery-playbook-v0",
+            "safety": {
+                "mutation": "read_only",
+                "requires_confirmation": false,
+                "side_effects": "none",
+            },
+            "idempotency_key": format!(
+                "recovery_playbook:{}:{}:{}:{}:{}",
+                context.agent_id, context.observed_tool, context.observed_proof_state, candidate_key, scope_key
+            ),
+        })
+    }
+
+    pub fn doctor_recovery_payload(
+        &self,
+        agent_id: &str,
+        observed_tool: &str,
+        observed_proof_state: &str,
+        observed_candidates: Option<u64>,
+        scope: Option<&str>,
+        error_text: Option<&str>,
+    ) -> serde_json::Value {
+        let (arguments, workspace_binding_mismatch) = self.recovery_call_arguments(
+            agent_id,
+            observed_tool,
+            observed_proof_state,
+            observed_candidates,
+            scope,
+            error_text,
+        );
 
         let reason = if workspace_binding_mismatch.is_some() {
             "wrong workspace binding detected; doctor can confirm the active runtime root, workspace root, ingest roots, and requested absolute scope"
@@ -657,36 +804,42 @@ impl SessionState {
         scope: Option<&str>,
         error_text: Option<&str>,
     ) -> serde_json::Value {
-        let mut arguments = serde_json::json!({
-            "agent_id": agent_id,
-            "observed_tool": observed_tool,
-            "observed_proof_state": observed_proof_state,
-        });
-        if let Some(candidates) = observed_candidates {
-            arguments["observed_candidates"] = serde_json::json!(candidates);
-        }
-        if let Some(scope) = scope.filter(|value| !value.trim().is_empty()) {
-            arguments["scope"] = serde_json::json!(scope);
-        }
-        if let Some(error_text) = error_text.filter(|value| !value.trim().is_empty()) {
-            arguments["error_text"] = serde_json::json!(error_text);
-        }
-        let workspace_binding_mismatch = self.workspace_binding_mismatch(scope);
-        if let Some(mismatch) = workspace_binding_mismatch.clone() {
-            arguments["workspace_binding_mismatch"] = mismatch;
-        }
+        let (arguments, workspace_binding_mismatch) = self.recovery_call_arguments(
+            agent_id,
+            observed_tool,
+            observed_proof_state,
+            observed_candidates,
+            scope,
+            error_text,
+        );
 
         let reason = if workspace_binding_mismatch.is_some() {
             "wrong workspace binding detected; recovery_playbook returns the ordered context selection path before shell fallback"
         } else {
-            "retrieval returned blocked or zero actionable candidates; recovery_playbook returns the ordered agent recovery path before deeper diagnosis"
+            "retrieval blocked or the active graph is not yet trusted for this query; recovery_playbook returns the ordered agent recovery path before deeper diagnosis"
         };
+        let source_kind = if workspace_binding_mismatch.is_some() {
+            "wrong_workspace_binding"
+        } else {
+            "retrieval_needs_recovery"
+        };
+        let auto_action = self.recovery_auto_action_payload(RecoveryAutoActionContext {
+            agent_id,
+            observed_tool,
+            observed_proof_state,
+            observed_candidates,
+            scope,
+            reason,
+            source_kind,
+            arguments: &arguments,
+        });
 
         let mut payload = serde_json::json!({
             "suggested_tool": "recovery_playbook",
             "reason": reason,
             "arguments": arguments,
             "fallback_tool": "doctor",
+            "auto_action": auto_action,
         });
         if let Some(mismatch) = workspace_binding_mismatch {
             payload["binding_issue"] = serde_json::json!("wrong_workspace_binding");
@@ -704,8 +857,12 @@ impl SessionState {
         scope: Option<&str>,
         error_text: Option<&str>,
     ) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
+        let graph_populated = {
+            let graph = self.graph.read();
+            graph.num_nodes() > 0
+        };
         let needs_recovery = observed_proof_state == "blocked"
-            || observed_candidates == Some(0)
+            || !graph_populated
             || self.workspace_binding_mismatch(scope).is_some();
         if !needs_recovery {
             return (None, None);
@@ -741,17 +898,14 @@ impl SessionState {
         drop(graph);
 
         let graph_populated = node_count > 0;
-        let observed_zero_candidates = observed_candidates == Some(0);
         let observed_blocked = observed_proof_state == "blocked";
-        let needs_recovery = workspace_binding_mismatch.is_some()
-            || !graph_populated
-            || observed_blocked
-            || observed_zero_candidates;
+        let needs_recovery =
+            workspace_binding_mismatch.is_some() || !graph_populated || observed_blocked;
         let trust_mode = if workspace_binding_mismatch.is_some() {
             "wrong_workspace_binding"
         } else if !graph_populated {
             "needs_ingest"
-        } else if observed_blocked || observed_zero_candidates {
+        } else if observed_blocked {
             "retrieval_needs_recovery"
         } else {
             "full_trust"
@@ -773,6 +927,11 @@ impl SessionState {
         } else {
             None
         };
+        let auto_action = recovery
+            .as_ref()
+            .and_then(|payload| payload.get("auto_action"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         let workspace_match = workspace_binding_mismatch.is_none();
 
         serde_json::json!({
@@ -821,6 +980,7 @@ impl SessionState {
             } else {
                 serde_json::Value::Null
             },
+            "auto_action": auto_action,
             "recovery": recovery.unwrap_or(serde_json::Value::Null),
             "non_claims": [
                 "agent_runtime_contract does not repair the MCP host binding.",
@@ -1884,6 +2044,72 @@ mod tests {
     }
 
     #[test]
+    fn workspace_binding_mismatch_classifies_nested_workspace_binding() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path().join("repo");
+        let nested = repo.join("docs").join("prds");
+        std::fs::create_dir_all(&nested).expect("nested workspace");
+        std::fs::write(repo.join("package.json"), "{\"name\":\"repo\"}\n").expect("manifest");
+
+        let config = McpConfig {
+            graph_source: temp.path().join("runtime").join("graph_snapshot.json"),
+            plasticity_state: temp.path().join("runtime").join("plasticity_state.json"),
+            runtime_dir: Some(temp.path().join("runtime")),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.workspace_root = Some(nested.to_string_lossy().to_string());
+
+        let repo_scope = repo.to_string_lossy().to_string();
+        let mismatch = state
+            .workspace_binding_mismatch(Some(&repo_scope))
+            .expect("nested workspace should be partial binding");
+
+        assert_eq!(mismatch["code"], "wrong_workspace_binding");
+        assert_eq!(mismatch["binding_kind"], "nested_workspace_binding");
+        assert_eq!(mismatch["partial_scope"], true);
+        assert_eq!(
+            mismatch["recommended_usage_mode"],
+            "partial_scope_orientation"
+        );
+    }
+
+    #[test]
+    fn workspace_binding_mismatch_classifies_file_level_binding() {
+        let _guard = env_lock().lock().expect("env lock");
+        let _env = EnvGuard::clear_workspace_hints();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path().join("repo");
+        let doc = repo.join("docs").join("PRD.md");
+        std::fs::create_dir_all(doc.parent().expect("doc parent")).expect("docs");
+        std::fs::write(repo.join("package.json"), "{\"name\":\"repo\"}\n").expect("manifest");
+        std::fs::write(&doc, "# PRD\n").expect("doc");
+
+        let config = McpConfig {
+            graph_source: temp.path().join("runtime").join("graph_snapshot.json"),
+            plasticity_state: temp.path().join("runtime").join("plasticity_state.json"),
+            runtime_dir: Some(temp.path().join("runtime")),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.workspace_root = None;
+        state.ingest_roots = vec![doc.to_string_lossy().to_string()];
+
+        let repo_scope = repo.to_string_lossy().to_string();
+        let mismatch = state
+            .workspace_binding_mismatch(Some(&repo_scope))
+            .expect("file-level ingest root should be partial binding");
+
+        assert_eq!(mismatch["code"], "wrong_workspace_binding");
+        assert_eq!(mismatch["binding_kind"], "file_level_binding");
+        assert_eq!(mismatch["partial_scope"], true);
+        assert_eq!(mismatch["scope_reliability"], "document_context_only");
+    }
+
+    #[test]
     fn agent_runtime_contract_surfaces_wrong_workspace_recovery() {
         let temp = tempfile::tempdir().expect("tempdir");
         let workspace = temp.path().join("workspace");
@@ -1925,10 +2151,47 @@ mod tests {
             "wrong_workspace_binding"
         );
         assert_eq!(contract["recovery"]["suggested_tool"], "recovery_playbook");
+        assert_eq!(contract["auto_action"]["schema"], "m1nd-auto-action-v0");
+        assert_eq!(contract["auto_action"]["status"], "ready");
+        assert_eq!(contract["auto_action"]["tool"], "recovery_playbook");
+        assert_eq!(
+            contract["recovery"]["auto_action"]["safety"]["requires_confirmation"],
+            false
+        );
         assert_eq!(
             contract["session_identity"]["binary"]["version"],
             env!("CARGO_PKG_VERSION")
         );
+    }
+
+    #[test]
+    fn agent_runtime_contract_keeps_zero_candidates_without_blocked_proof_in_full_trust() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir_all(workspace.join("src")).expect("workspace src");
+
+        let mut graph = Graph::new();
+        graph
+            .add_node("file::src/lib.rs", "lib.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add file node");
+        graph.finalize().expect("finalize graph");
+        let config = McpConfig {
+            graph_source: workspace.join("graph_snapshot.json"),
+            plasticity_state: workspace.join("plasticity_state.json"),
+            runtime_dir: Some(workspace.clone()),
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("initialize session");
+
+        let contract =
+            state.agent_runtime_contract("jimi", "seek", "triaging", Some(0), None, None);
+
+        assert_eq!(contract["trust_mode"], "full_trust");
+        assert_eq!(contract["status"], "ok");
+        assert_eq!(contract["auto_action"], serde_json::Value::Null);
+        assert_eq!(contract["recovery"], serde_json::Value::Null);
+        assert_eq!(contract["next_suggested_tool"], serde_json::Value::Null);
     }
 
     #[test]

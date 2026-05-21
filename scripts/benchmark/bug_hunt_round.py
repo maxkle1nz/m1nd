@@ -34,11 +34,22 @@ FINDING_EVENT_TYPES = {
 }
 MISSION_CONTROL_TOKENS = (
     "mission_start",
+    "mission_event",
     "mission_next",
     "mission_verify",
+    "mission_handoff",
     "mission_close",
 )
 MISSION_CONTROL_REQUIRED_STEP_COUNT = len(MISSION_CONTROL_TOKENS)
+TOOL_USAGE_COUNT_FIELDS = (
+    "shell_command_count",
+    "file_read_count",
+    "test_or_probe_count",
+    "runtime_probe_count",
+    "m1nd_call_count",
+    "mission_control_call_count",
+    "total_observed_action_count",
+)
 
 NON_CLAIMS = [
     "one bug-hunt round is not a public performance claim",
@@ -128,6 +139,8 @@ def lane_prompt(round_payload, lane):
     mission_runtime_dir = str(
         Path(lane["events"]).parent.parent / "m1nd-runtime" / lane["lane_id"]
     )
+    mission_binary = round_payload.get("mission_control_binary")
+    mission_binary_arg = f" --binary {mission_binary}" if mission_binary else ""
     common = [
         f"# Bug-Hunt Audit Lane: {lane['lane_id']}",
         "",
@@ -269,24 +282,25 @@ def lane_prompt(round_payload, lane):
         mode = [
             "## m1nd Mission Control Mode",
             "",
-            "Use Mission Control v0 as the operating loop for this audit.",
+            "Use Mission Control v1 as the operating loop for this audit.",
             "Mission Control is not a replacement for source reads, tests, compiler output, or runtime proof.",
             "",
             "Required operating loop:",
             "",
             "1. Establish trust with `trust_selftest`, or `session_handshake` scoped to this repo.",
-            f"2. If native mission tools are not visible in this host, probe the selected runtime with local `probe_m1nd.py tools`. If that helper surface includes `mission_start`, `mission_next`, `mission_verify`, and `mission_close`, use `probe_m1nd.py --runtime-dir {mission_runtime_dir} --workspace-root <repo> call <tool> <json>` for every Mission Control call, so mission state survives across calls. Record `mission_transport=\"probe_helper_stdio\"`.",
-            "3. Record `mission_control_unavailable=true` only when neither the native host surface nor the helper surface can call Mission Control. Then fall back to the `m1nd-trained` loop and do not fake mission calls.",
-            "4. Start a repo-scoped mission with `mission_start`: `agent_id=<lane_id>`, `repo=<workspace>`, `task=\"bug-hunt audit for behavioral defects\"`, `mode=\"bug_hunt\"`, `budget=\"normal\"`, and `risk=\"medium\"`.",
-            "5. Take the starter move, then call `mission_next` after each meaningful action with a concise `last_event` summary.",
-            "6. Treat `do_not` entries from `mission_next` as guardrails. If you disagree, record a dissent event explaining the chosen tool and required evidence.",
-            "7. When `mission_next` switches to direct proof, stop graph exploration and use direct source reads, rg, tests, compiler output, or focused runtime probes.",
-            "8. Call `mission_verify` before finalizing material findings. If a claim is rejected or needs evidence, gather that evidence or lower the confidence.",
-            "9. In `bug_hunt`, if `mission_next` returns `move.type=\"direct_sweep\"`, do the requested negative-space sweep before closing: public contracts/docs, boundary values, error paths, async/concurrency behavior, and helper/exported APIs. Record it as `coverage_sweep`, `boundary_sweep`, or `edge_case_sweep`.",
-            "10. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, and proof-packet summary.",
-            "11. If using local `probe_m1nd.py` in this benchmark workspace, pass `--no-worktree-artifacts --workspace-root <repo>` unless intentionally debugging runtime sidecar state.",
-            "12. Fill `mission_control_usage` in the lane result with `mission_id`, route, transport, call counts, unavailable state, `do_not` guardrails, verified/rejected claims, direct-proof switches, coverage sweeps, and proof-packet summary.",
-            "13. Also preserve raw m1nd calls in `m1nd_usage` when useful for auditability.",
+            f"2. Prefer the isolated helper runtime for Mission Control benchmark calls, even when native host tools are visible: `probe_m1nd.py{mission_binary_arg} --no-worktree-artifacts --runtime-dir {mission_runtime_dir} --workspace-root <repo> call <tool> <json>`. This keeps mission state scoped to this lane and avoids a host graph that may contain benchmark operator-only artifacts.",
+            "3. Use the native host MCP surface only if `trust_selftest` or `session_handshake` proves the active workspace binding is exactly this lane workspace and the host exposes `mission_start`, `mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, and `mission_close`. Record `mission_transport=\"native_host_mcp\"` when you do.",
+            "4. Record `mission_control_unavailable=true` only when neither the native host surface nor the helper surface can call Mission Control. Then fall back to the `m1nd-trained` loop and do not fake mission calls.",
+            "5. Start a repo-scoped mission with `mission_start`: `agent_id=<lane_id>`, `repo=<workspace>`, `task=\"bug-hunt audit for behavioral defects\"`, `mode=\"bug_hunt\"`, `budget=\"normal\"`, and `risk=\"medium\"`.",
+            "6. Take the starter move, record meaningful actions with `mission_event`, then call `mission_next` after meaningful events.",
+            "7. Treat `do_not` entries from `mission_next` as guardrails. If you disagree, record a dissent event explaining the chosen tool and required evidence.",
+            "8. When `mission_next` switches to direct proof, stop graph exploration and use direct source reads, rg, tests, compiler output, or focused runtime probes.",
+            "9. Call `mission_verify` before finalizing material findings. Reference direct evidence explicitly, such as `event:evt_1`, `file_read:path:line`, `test_run:name`, or `runtime_probe:id`; an unrelated direct event must not validate a graph-only claim.",
+            "10. In `bug_hunt`, if `mission_next` returns `move.type=\"direct_sweep\"`, do the requested negative-space sweep before closing: public contracts/docs, boundary values, error paths, async/concurrency behavior, and helper/exported APIs. Record it as `coverage_sweep`, `boundary_sweep`, or `edge_case_sweep`.",
+            "11. Call `mission_handoff` before final result writing so the lane has a resumable packet.",
+            "12. Call `mission_close` before writing the final lane JSON; preserve gaps, non-claims, event digest, and proof-packet summary.",
+            "13. Fill `mission_control_usage` in the lane result with `mission_id`, route, transport, call counts, unavailable state, `do_not` guardrails, verified/rejected claims, direct-proof switches, coverage sweeps, event digest, handoff summary, and proof-packet summary.",
+            "14. Also preserve raw m1nd calls in `m1nd_usage` when useful for auditability.",
             "",
         ]
     elif lane["instruction_mode"] == "m1nd-trained":
@@ -333,6 +347,7 @@ def lane_prompt(round_payload, lane):
         "Record at least `audit_started`, one first-discovery event such as `findings_identified`, `focused_probes`, or `runtime_probe`, and `result_written`.",
         "Use ISO timestamps; do not use `ts` or `event` as substitutes in new rounds.",
         "Use the schema in `lane-result-template.json`.",
+        "Fill `tool_usage_summary` with approximate actual action counts: shell commands, file reads, tests/probes, runtime probes, m1nd calls, Mission Control calls, total observed actions, and notes about any uncertainty.",
         "",
         "Findings should include title, severity, file, symbol, cause, impact, evidence, reproduction_or_test, and confidence.",
         "Extra findings are welcome, but they must be concrete and source-backed.",
@@ -354,6 +369,16 @@ def result_template(round_payload, lane):
         "findings": [],
         "commands_run": [],
         "files_inspected": [],
+        "tool_usage_summary": {
+            "shell_command_count": 0,
+            "file_read_count": 0,
+            "test_or_probe_count": 0,
+            "runtime_probe_count": 0,
+            "m1nd_call_count": 0,
+            "mission_control_call_count": 0,
+            "total_observed_action_count": 0,
+            "notes": "",
+        },
         "m1nd_usage": [],
         "mission_control_usage": {
             "mission_id": "",
@@ -362,14 +387,18 @@ def result_template(round_payload, lane):
             "mission_tool_surface_count": None,
             "mission_control_unavailable": False,
             "mission_start_called": False,
+            "mission_event_count": 0,
             "mission_next_count": 0,
             "mission_verify_count": 0,
+            "mission_handoff_called": False,
             "mission_close_called": False,
             "do_not_guardrails_observed": [],
             "verified_claims": [],
             "rejected_or_insufficient_claims": [],
             "direct_proof_switches": [],
             "coverage_sweeps": [],
+            "event_digest": "",
+            "handoff_summary": "",
             "proof_packet_summary": "",
         },
         "temponizer_usage": [],
@@ -476,6 +505,11 @@ def init_round(args):
         "workspace_root": str(workspace_root),
         "source_commit": args.source_commit,
         "seeded_bug_count": args.seeded_bug_count,
+        "mission_control_binary": (
+            str(Path(args.mission_control_binary).resolve())
+            if getattr(args, "mission_control_binary", None)
+            else None
+        ),
         "lanes": lanes,
         "materialized_workspaces": materialized_workspaces,
         "invalidated_attempts": [],
@@ -629,6 +663,24 @@ def preflight_round(
     if missing_required_modes:
         blockers.append(f"missing required instruction modes: {missing_required_modes}")
 
+    answer_key_path = round_dir / "operator-only" / "answer-key.json"
+    if not answer_key_path.exists():
+        blockers.append("missing operator-only answer key")
+    else:
+        answer_key = load_json(answer_key_path)
+        answer_bugs = answer_key.get("bugs")
+        if answer_key.get("schema") != ANSWER_KEY_SCHEMA:
+            blockers.append(
+                f"unexpected answer-key schema: {answer_key.get('schema')}"
+            )
+        if not isinstance(answer_bugs, list) or not answer_bugs:
+            blockers.append("operator-only answer key has no bugs")
+        elif len(answer_bugs) != payload.get("seeded_bug_count"):
+            blockers.append(
+                "answer-key bug count does not match seeded_bug_count: "
+                f"{len(answer_bugs)} != {payload.get('seeded_bug_count')}"
+            )
+
     mission_control_surface = None
     if require_live_mission_control and "m1nd-mission-control" in modes:
         mission_control_surface = probe_m1nd_tool_surface(binary=m1nd_binary)
@@ -668,8 +720,10 @@ def preflight_round(
             required_prompt_tokens = [
                 "mission_control_usage",
                 "mission_start",
+                "mission_event",
                 "mission_next",
                 "mission_verify",
+                "mission_handoff",
                 "mission_close",
                 "direct_sweep",
                 "do not fake mission calls",
@@ -694,14 +748,18 @@ def preflight_round(
                     "mission_route",
                     "mission_control_unavailable",
                     "mission_start_called",
+                    "mission_event_count",
                     "mission_next_count",
                     "mission_verify_count",
+                    "mission_handoff_called",
                     "mission_close_called",
                     "do_not_guardrails_observed",
                     "verified_claims",
                     "rejected_or_insufficient_claims",
                     "direct_proof_switches",
                     "coverage_sweeps",
+                    "event_digest",
+                    "handoff_summary",
                     "proof_packet_summary",
                 ]
                 missing_fields = [field for field in expected_fields if field not in usage]
@@ -934,6 +992,111 @@ def count_value(value):
     return 0
 
 
+def nonnegative_count(value):
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)) and value >= 0:
+        return int(value)
+    if isinstance(value, str):
+        try:
+            parsed = float(value.strip())
+        except ValueError:
+            return None
+        if parsed >= 0:
+            return int(parsed)
+    return None
+
+
+def count_commands_matching(commands, needles):
+    if not isinstance(commands, list):
+        return 0
+    count = 0
+    for command in commands:
+        text = text_of(command).lower()
+        if any(needle in text for needle in needles):
+            count += 1
+    return count
+
+
+def finding_is_source_backed(finding):
+    if not isinstance(finding, dict):
+        return False
+    return all(
+        bool(text_of(finding.get(field)).strip())
+        for field in ("file", "evidence", "reproduction_or_test")
+    )
+
+
+def summarize_tool_usage(result, agent_events, mission_control, event_timing):
+    structured = result.get("tool_usage_summary")
+    has_structured = isinstance(structured, dict)
+    structured = structured if has_structured else {}
+
+    commands = result.get("commands_run")
+    files = result.get("files_inspected")
+    m1nd_usage = result.get("m1nd_usage")
+
+    command_count = len(commands) if isinstance(commands, list) else 0
+    file_count = len(files) if isinstance(files, list) else 0
+    m1nd_count = len(m1nd_usage) if isinstance(m1nd_usage, list) else 0
+    mission_count = 0
+    if mission_control.get("applicable"):
+        mission_count = sum(
+            mission_control.get(f"{token}_count") or 0
+            for token in MISSION_CONTROL_TOKENS
+        )
+
+    event_runtime_probe_count = sum(
+        1
+        for event in agent_events
+        if event_kind(event)
+        in {"runtime_probe", "runtime_probes_completed", "focused_probes", "probe_result"}
+    )
+    command_probe_count = count_commands_matching(
+        commands,
+        (
+            "pytest",
+            "unittest",
+            "python3",
+            "python -",
+            "cargo test",
+            "npm test",
+            "runtime probe",
+            "focused probe",
+        ),
+    )
+
+    fallbacks = {
+        "shell_command_count": command_count,
+        "file_read_count": file_count,
+        "test_or_probe_count": max(command_probe_count, event_runtime_probe_count),
+        "runtime_probe_count": event_runtime_probe_count,
+        "m1nd_call_count": m1nd_count,
+        "mission_control_call_count": mission_count,
+    }
+    summary = {}
+    for field, fallback in fallbacks.items():
+        declared = nonnegative_count(structured.get(field))
+        if declared is not None and (declared > 0 or fallback == 0):
+            summary[field] = declared
+        else:
+            summary[field] = fallback
+
+    total = nonnegative_count(structured.get("total_observed_action_count"))
+    fallback_total = sum(summary[field] for field in fallbacks)
+    if total is None or (total == 0 and fallback_total > 0):
+        total = fallback_total
+    summary["total_observed_action_count"] = total
+    summary["first_good_finding_seconds"] = (
+        event_timing.get("first_seeded_finding_event_elapsed_seconds")
+        if event_timing.get("first_seeded_finding_event_elapsed_seconds") is not None
+        else event_timing.get("first_finding_event_elapsed_seconds")
+    )
+    summary["structured_declared"] = has_structured
+    summary["notes"] = text_of(structured.get("notes")).strip()
+    return summary
+
+
 def summarize_mission_control(result, agent_events, instruction_mode):
     if instruction_mode != "m1nd-mission-control":
         return {
@@ -946,9 +1109,15 @@ def summarize_mission_control(result, agent_events, instruction_mode):
             "verified_claim_signal_count": None,
             "rejected_claim_signal_count": None,
             "mission_start_count": None,
+            "mission_event_count": None,
             "mission_next_count": None,
             "mission_verify_count": None,
+            "mission_handoff_count": None,
             "mission_close_count": None,
+            "event_digest_present": None,
+            "handoff_summary_present": None,
+            "proof_packet_summary_present": None,
+            "evidence_packet_complete": None,
             "required_step_count": None,
             "completed_step_count": None,
             "adherence_rate": None,
@@ -981,9 +1150,22 @@ def summarize_mission_control(result, agent_events, instruction_mode):
     }
     if has_structured_payload:
         summary["mission_start_count"] = count_value(structured.get("mission_start_called"))
+        summary["mission_event_count"] = count_value(structured.get("mission_event_count"))
         summary["mission_next_count"] = count_value(structured.get("mission_next_count"))
         summary["mission_verify_count"] = count_value(structured.get("mission_verify_count"))
+        summary["mission_handoff_count"] = count_value(
+            structured.get("mission_handoff_called")
+        )
         summary["mission_close_count"] = count_value(structured.get("mission_close_called"))
+        summary["event_digest_present"] = bool(
+            text_of(structured.get("event_digest")).strip()
+        )
+        summary["handoff_summary_present"] = bool(
+            text_of(structured.get("handoff_summary")).strip()
+        )
+        summary["proof_packet_summary_present"] = bool(
+            text_of(structured.get("proof_packet_summary")).strip()
+        )
     else:
         for token in MISSION_CONTROL_TOKENS:
             summary[f"{token}_count"] = token_count(raw_mission_payload, token)
@@ -1014,6 +1196,15 @@ def summarize_mission_control(result, agent_events, instruction_mode):
             + token_count(raw_mission_payload, "insufficient_evidence")
             + token_count(raw_mission_payload, '"verdict": "rejected"')
         )
+        summary["event_digest_present"] = token_count(
+            raw_mission_payload, "event_digest"
+        ) > 0
+        summary["handoff_summary_present"] = token_count(
+            raw_mission_payload, "handoff"
+        ) > 0
+        summary["proof_packet_summary_present"] = token_count(
+            raw_mission_payload, "proof_packet"
+        ) > 0
 
     summary["required_step_count"] = MISSION_CONTROL_REQUIRED_STEP_COUNT
     if summary["unavailable"]:
@@ -1029,6 +1220,12 @@ def summarize_mission_control(result, agent_events, instruction_mode):
     summary["loop_complete"] = (
         not summary["unavailable"]
         and all(summary[f"{token}_count"] > 0 for token in MISSION_CONTROL_TOKENS)
+    )
+    summary["evidence_packet_complete"] = (
+        summary["loop_complete"]
+        and summary["event_digest_present"]
+        and summary["handoff_summary_present"]
+        and summary["proof_packet_summary_present"]
     )
     return summary
 
@@ -1132,6 +1329,8 @@ def summarize_lane(round_dir: Path, lane, answer_bug_ids, answer_bug_payloads):
     m1nd_usage = result.get("m1nd_usage")
     event_timing = summarize_event_timing(events, agent_events, answer_bug_payloads)
     mission_control = summarize_mission_control(result, agent_events, lane["instruction_mode"])
+    tool_usage = summarize_tool_usage(result, agent_events, mission_control, event_timing)
+    source_backed_finding_count = sum(1 for finding in findings if finding_is_source_backed(finding))
 
     return {
         "lane_id": lane["lane_id"],
@@ -1151,6 +1350,8 @@ def summarize_lane(round_dir: Path, lane, answer_bug_ids, answer_bug_payloads):
         "agent_event_count": len(agent_events),
         **event_timing,
         "m1nd_usage_count": len(m1nd_usage) if isinstance(m1nd_usage, list) else None,
+        "tool_usage": tool_usage,
+        "source_backed_finding_count": source_backed_finding_count,
         "mission_control": mission_control,
         "agent_testimony": result.get("agent_testimony") or result.get("testimony") or "",
     }
@@ -1192,6 +1393,41 @@ def group_arms(lanes, seeded_bug_count):
                 lane.get("first_seeded_finding_event_elapsed_seconds")
                 for lane in completed
             ),
+            "median_first_good_finding_seconds": median(
+                lane.get("tool_usage", {}).get("first_good_finding_seconds")
+                for lane in completed
+            ),
+            "median_total_observed_action_count": median(
+                lane.get("tool_usage", {}).get("total_observed_action_count")
+                for lane in completed
+            ),
+            "median_shell_command_count": median(
+                lane.get("tool_usage", {}).get("shell_command_count")
+                for lane in completed
+            ),
+            "median_file_read_count": median(
+                lane.get("tool_usage", {}).get("file_read_count")
+                for lane in completed
+            ),
+            "median_test_or_probe_count": median(
+                lane.get("tool_usage", {}).get("test_or_probe_count")
+                for lane in completed
+            ),
+            "median_runtime_probe_count": median(
+                lane.get("tool_usage", {}).get("runtime_probe_count")
+                for lane in completed
+            ),
+            "median_m1nd_call_count": median(
+                lane.get("tool_usage", {}).get("m1nd_call_count")
+                for lane in completed
+            ),
+            "median_mission_control_call_count": median(
+                lane.get("tool_usage", {}).get("mission_control_call_count")
+                for lane in completed
+            ),
+            "median_source_backed_finding_count": median(
+                lane.get("source_backed_finding_count") for lane in completed
+            ),
             "total_findings": sum(lane["findings_count"] for lane in completed),
             "extra_unadjudicated_findings_total": sum(
                 lane["extra_unadjudicated_findings_count"] for lane in completed
@@ -1206,8 +1442,25 @@ def group_arms(lanes, seeded_bug_count):
                 for lane in mission_completed
                 if lane.get("mission_control", {}).get("unavailable")
             ),
+            "mission_control_evidence_packet_complete_lanes": sum(
+                1
+                for lane in mission_completed
+                if lane.get("mission_control", {}).get("evidence_packet_complete")
+            ),
+            "median_mission_event_count": median(
+                lane.get("mission_control", {}).get("mission_event_count")
+                for lane in mission_completed
+            ),
             "median_mission_next_count": median(
                 lane.get("mission_control", {}).get("mission_next_count")
+                for lane in mission_completed
+            ),
+            "median_mission_verify_count": median(
+                lane.get("mission_control", {}).get("mission_verify_count")
+                for lane in mission_completed
+            ),
+            "median_rejected_claim_signal_count": median(
+                lane.get("mission_control", {}).get("rejected_claim_signal_count")
                 for lane in mission_completed
             ),
             "median_direct_proof_switch_count": median(
@@ -1262,7 +1515,7 @@ def mission_control_validity(lanes):
         "evaluable_lane_ids": [lane["lane_id"] for lane in evaluable],
         "partial_or_unavailable_lane_ids": [lane["lane_id"] for lane in partial_or_unavailable],
         "missing_result_lane_ids": [lane["lane_id"] for lane in missing],
-        "non_claim": "Mission Control recall is not attributable to MC0 unless the lane is evaluable.",
+        "non_claim": "Mission Control recall should be interpreted only for lanes that completed the mission loop.",
     }
 
 
@@ -1306,7 +1559,7 @@ def build_report(round_file: Path, answer_key_file: Path, lane_results_dir: Path
         and not mission_validity["all_completed_lanes_evaluable"]
     ):
         public_claim_blockers.append(
-            "Mission Control arm is not fully evaluable; at least one lane is missing, unavailable, or did not complete start/next/verify/close"
+            "Mission Control arm is not fully evaluable; at least one lane is missing, unavailable, or did not complete start/event/next/verify/handoff/close"
         )
 
     return {
@@ -1340,6 +1593,15 @@ def build_report(round_file: Path, answer_key_file: Path, lane_results_dir: Path
                 "seeded_recall_total": payload["seeded_recall_total"],
                 "seeded_possible_total": payload["seeded_possible_total"],
                 "median_seeded_recall_count": payload["median_seeded_recall_count"],
+                "median_first_good_finding_seconds": payload[
+                    "median_first_good_finding_seconds"
+                ],
+                "median_total_observed_action_count": payload[
+                    "median_total_observed_action_count"
+                ],
+                "median_source_backed_finding_count": payload[
+                    "median_source_backed_finding_count"
+                ],
             }
             for arm, payload in arms.items()
         },
@@ -1361,21 +1623,21 @@ def next_product_actions(report):
                 and (mission_control_arm.get("median_coverage_sweep_count") or 0) > 0
             ):
                 actions.append(
-                    "Repeat the MC0 direct-sweep calibration on another fixture before treating it as a generalized improvement."
+                    "Repeat the Mission Control direct-sweep calibration on another fixture before treating it as a generalized improvement."
                 )
             else:
                 actions.append(
-                    "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules."
+                    "Analyze conservative Mission Control misses and tune mission_next/mission_verify stopping rules."
                 )
         else:
             actions.append(
-                "Fix worker-host Mission Control exposure before rerunning MC0 comparisons."
+                "Fix worker-host Mission Control exposure before rerunning Mission Control comparisons."
             )
     actions.extend(
         [
             "Keep improving the compact trained-agent loop as a default universal agent pack behavior.",
             "Add cleaner state placement so m1nd benchmark/probe flows do not write sidecar metadata into target repos.",
-            "Track first-good-finding time and tool-call counts in the event stream.",
+            "Use first-good-finding time, observed action counts, and source-backed finding counts as standard internal benchmark dimensions.",
             "Add a judge pass for extra findings so future reports can separate true extras from noise.",
         ]
     )
@@ -1398,6 +1660,13 @@ def write_notes(path: Path, report):
         lines.append(
             f"- `{arm}`: {payload['seeded_recall_total']}/{payload['seeded_possible_total']} seeded bugs found ({rate_text}); "
             f"per-lane counts `{payload['per_lane_seeded_recall_counts']}`."
+        )
+        lines.append(
+            f"  Timing/actions: median first-good finding `{payload['median_first_good_finding_seconds']}`s, "
+            f"median observed actions `{payload['median_total_observed_action_count']}`, "
+            f"median shell commands `{payload['median_shell_command_count']}`, "
+            f"median file reads `{payload['median_file_read_count']}`, "
+            f"median tests/probes `{payload['median_test_or_probe_count']}`."
         )
         if arm == "m1nd-mission-control" or payload["mission_control_loop_complete_lanes"]:
             lines.append(
@@ -1423,7 +1692,7 @@ def write_notes(path: Path, report):
         )
         if not mission_validity["all_completed_lanes_evaluable"]:
             lines.append(
-                "- MC0 recall is fallback evidence only until completed Mission Control lanes are evaluable."
+                "- Mission Control recall is fallback evidence only until completed Mission Control lanes are evaluable."
             )
 
     next_actions = next_product_actions(report)
@@ -1477,6 +1746,10 @@ def main():
     init_parser.add_argument("--lanes-basic", type=int, default=3)
     init_parser.add_argument("--lanes-direct", type=int, default=3)
     init_parser.add_argument(
+        "--mission-control-binary",
+        help="Optional m1nd-mcp binary path to embed in Mission Control lane prompts.",
+    )
+    init_parser.add_argument(
         "--no-materialize-workspaces",
         action="store_true",
         help="Create prompts/templates only; do not copy --seeded-repo into per-lane workspaces.",
@@ -1502,7 +1775,7 @@ def main():
     preflight_parser.add_argument(
         "--require-live-mission-control",
         action="store_true",
-        help="Probe the selected m1nd-mcp binary and require mission_start/next/verify/close.",
+        help="Probe the selected m1nd-mcp binary and require mission_start/event/next/verify/handoff/close.",
     )
     preflight_parser.add_argument(
         "--m1nd-binary",

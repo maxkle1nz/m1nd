@@ -23,18 +23,48 @@ class BugHuntMissionControlTests(unittest.TestCase):
     def setUpClass(cls):
         cls.bug_hunt = load_bug_hunt_module()
 
+    def fill_answer_key(self, out_dir, bug_count=1):
+        bugs = []
+        for index in range(bug_count):
+            bugs.append(
+                {
+                    "id": f"seeded-{index + 1}",
+                    "severity": "medium",
+                    "file": "index.js",
+                    "symbol": "demo",
+                    "expected": "demo seeded bug",
+                    "match_terms": [["demo"]],
+                }
+            )
+        payload = {
+            "schema": self.bug_hunt.ANSWER_KEY_SCHEMA,
+            "round_id": "round",
+            "repo": "repo",
+            "source_commit": None,
+            "seeded_bug_count": bug_count,
+            "bugs": bugs,
+            "non_claims": [],
+        }
+        answer_key = pathlib.Path(out_dir) / "operator-only" / "answer-key.json"
+        answer_key.write_text(json.dumps(payload), encoding="utf-8")
+
     def test_structured_mission_control_usage_completes_loop(self):
         result = {
             "mission_control_usage": {
                 "mission_control_unavailable": False,
                 "mission_start_called": True,
+                "mission_event_count": 2,
                 "mission_next_count": 3,
                 "mission_verify_count": 1,
+                "mission_handoff_called": True,
                 "mission_close_called": True,
                 "do_not_guardrails_observed": ["call activate"],
                 "verified_claims": ["claim-1"],
                 "direct_proof_switches": ["step-2"],
                 "coverage_sweeps": ["boundary sweep"],
+                "event_digest": "hash64:abc",
+                "handoff_summary": "resume at close",
+                "proof_packet_summary": "closed with proof",
             }
         }
 
@@ -46,21 +76,30 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertTrue(summary["loop_complete"])
         self.assertFalse(summary["unavailable"])
         self.assertEqual(summary["mission_start_count"], 1)
+        self.assertEqual(summary["mission_event_count"], 2)
         self.assertEqual(summary["mission_next_count"], 3)
         self.assertEqual(summary["mission_verify_count"], 1)
+        self.assertEqual(summary["mission_handoff_count"], 1)
         self.assertEqual(summary["mission_close_count"], 1)
-        self.assertEqual(summary["completed_step_count"], 4)
-        self.assertEqual(summary["required_step_count"], 4)
+        self.assertEqual(summary["completed_step_count"], 6)
+        self.assertEqual(summary["required_step_count"], 6)
         self.assertEqual(summary["adherence_rate"], 1.0)
         self.assertEqual(summary["do_not_guardrail_count"], 1)
         self.assertEqual(summary["verified_claim_signal_count"], 1)
         self.assertEqual(summary["direct_proof_switch_count"], 1)
         self.assertEqual(summary["coverage_sweep_count"], 1)
+        self.assertTrue(summary["event_digest_present"])
+        self.assertTrue(summary["handoff_summary_present"])
+        self.assertTrue(summary["proof_packet_summary_present"])
+        self.assertTrue(summary["evidence_packet_complete"])
 
     def test_default_template_does_not_create_false_unavailable_or_loop(self):
         round_payload = {"round_id": "round", "repo": "repo"}
         lane = {"lane_id": "audit-01", "instruction_mode": "m1nd-mission-control"}
         result = self.bug_hunt.result_template(round_payload, lane)
+
+        self.assertIn("tool_usage_summary", result)
+        self.assertEqual(result["tool_usage_summary"]["total_observed_action_count"], 0)
 
         summary = self.bug_hunt.summarize_mission_control(
             result, [], "m1nd-mission-control"
@@ -70,12 +109,102 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertFalse(summary["unavailable"])
         self.assertFalse(summary["loop_complete"])
         self.assertEqual(summary["mission_start_count"], 0)
+        self.assertEqual(summary["mission_event_count"], 0)
         self.assertEqual(summary["mission_next_count"], 0)
         self.assertEqual(summary["mission_verify_count"], 0)
+        self.assertEqual(summary["mission_handoff_count"], 0)
         self.assertEqual(summary["mission_close_count"], 0)
         self.assertEqual(summary["completed_step_count"], 0)
-        self.assertEqual(summary["required_step_count"], 4)
+        self.assertEqual(summary["required_step_count"], 6)
         self.assertEqual(summary["adherence_rate"], 0.0)
+        self.assertFalse(summary["evidence_packet_complete"])
+
+    def test_tool_usage_summary_falls_back_from_template_zeros(self):
+        result = {
+            "commands_run": ["rg bug", "PYTHONPATH=src python3 - <<'PY'"],
+            "files_inspected": ["src/app.py", "tests/test_app.py"],
+            "m1nd_usage": [{"tool": "search"}],
+            "tool_usage_summary": {
+                "shell_command_count": 0,
+                "file_read_count": 0,
+                "test_or_probe_count": 0,
+                "runtime_probe_count": 0,
+                "m1nd_call_count": 0,
+                "mission_control_call_count": 0,
+                "total_observed_action_count": 0,
+            },
+        }
+        mission_control = {
+            "applicable": True,
+            "mission_start_count": 1,
+            "mission_event_count": 2,
+            "mission_next_count": 1,
+            "mission_verify_count": 1,
+            "mission_handoff_count": 1,
+            "mission_close_count": 1,
+        }
+        events = [
+            {"event_type": "runtime_probe", "event_source": "agent"},
+        ]
+        timing = {
+            "first_finding_event_elapsed_seconds": 12.5,
+            "first_seeded_finding_event_elapsed_seconds": None,
+        }
+
+        usage = self.bug_hunt.summarize_tool_usage(
+            result, events, mission_control, timing
+        )
+
+        self.assertEqual(usage["shell_command_count"], 2)
+        self.assertEqual(usage["file_read_count"], 2)
+        self.assertEqual(usage["test_or_probe_count"], 1)
+        self.assertEqual(usage["runtime_probe_count"], 1)
+        self.assertEqual(usage["m1nd_call_count"], 1)
+        self.assertEqual(usage["mission_control_call_count"], 7)
+        self.assertEqual(usage["total_observed_action_count"], 14)
+        self.assertEqual(usage["first_good_finding_seconds"], 12.5)
+
+    def test_tool_usage_does_not_count_m1nd_helper_probe_as_runtime_probe(self):
+        result = {
+            "commands_run": [
+                "probe_m1nd.py call mission_start",
+                "probe_m1nd.py call mission_next",
+                "PYTHONPATH=src python3 focused runtime probe",
+            ],
+            "files_inspected": [],
+            "m1nd_usage": [{"tool": "mission_start"}, {"tool": "mission_next"}],
+        }
+        mission_control = {"applicable": False}
+        timing = {
+            "first_finding_event_elapsed_seconds": None,
+            "first_seeded_finding_event_elapsed_seconds": None,
+        }
+
+        usage = self.bug_hunt.summarize_tool_usage(result, [], mission_control, timing)
+
+        self.assertEqual(usage["shell_command_count"], 3)
+        self.assertEqual(usage["test_or_probe_count"], 1)
+        self.assertEqual(usage["runtime_probe_count"], 0)
+        self.assertEqual(usage["m1nd_call_count"], 2)
+
+    def test_source_backed_finding_requires_file_evidence_and_repro(self):
+        self.assertTrue(
+            self.bug_hunt.finding_is_source_backed(
+                {
+                    "file": "src/app.py",
+                    "evidence": ["src/app.py:10"],
+                    "reproduction_or_test": "pytest tests/test_app.py",
+                }
+            )
+        )
+        self.assertFalse(
+            self.bug_hunt.finding_is_source_backed(
+                {
+                    "file": "src/app.py",
+                    "evidence": "src/app.py:10",
+                }
+            )
+        )
 
     def test_non_mission_control_lane_does_not_emit_mission_metrics(self):
         result = {
@@ -97,6 +226,7 @@ class BugHuntMissionControlTests(unittest.TestCase):
         self.assertIsNone(summary["mission_next_count"])
         self.assertIsNone(summary["adherence_rate"])
         self.assertIsNone(summary["coverage_sweep_count"])
+        self.assertIsNone(summary["evidence_packet_complete"])
 
     def test_structured_unavailable_mission_control_does_not_count_text_tokens(self):
         result = {
@@ -168,11 +298,11 @@ class BugHuntMissionControlTests(unittest.TestCase):
         actions = self.bug_hunt.next_product_actions(report)
 
         self.assertIn(
-            "Fix worker-host Mission Control exposure before rerunning MC0 comparisons.",
+            "Fix worker-host Mission Control exposure before rerunning Mission Control comparisons.",
             actions,
         )
         self.assertNotIn(
-            "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules.",
+            "Analyze conservative Mission Control misses and tune mission_next/mission_verify stopping rules.",
             actions,
         )
 
@@ -190,11 +320,11 @@ class BugHuntMissionControlTests(unittest.TestCase):
         actions = self.bug_hunt.next_product_actions(report)
 
         self.assertIn(
-            "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules.",
+            "Analyze conservative Mission Control misses and tune mission_next/mission_verify stopping rules.",
             actions,
         )
         self.assertNotIn(
-            "Fix worker-host Mission Control exposure before rerunning MC0 comparisons.",
+            "Fix worker-host Mission Control exposure before rerunning Mission Control comparisons.",
             actions,
         )
 
@@ -217,11 +347,11 @@ class BugHuntMissionControlTests(unittest.TestCase):
         actions = self.bug_hunt.next_product_actions(report)
 
         self.assertIn(
-            "Repeat the MC0 direct-sweep calibration on another fixture before treating it as a generalized improvement.",
+            "Repeat the Mission Control direct-sweep calibration on another fixture before treating it as a generalized improvement.",
             actions,
         )
         self.assertNotIn(
-            "Analyze conservative MC0 misses and tune mission_next/mission_verify stopping rules.",
+            "Analyze conservative Mission Control misses and tune mission_next/mission_verify stopping rules.",
             actions,
         )
 
@@ -248,6 +378,7 @@ class BugHuntMissionControlTests(unittest.TestCase):
                 lanes_direct=1,
             )
             self.bug_hunt.init_round(args)
+            self.fill_answer_key(out_dir)
 
             preflight = self.bug_hunt.preflight_round(
                 out_dir / "round.json",
@@ -320,6 +451,7 @@ class BugHuntMissionControlTests(unittest.TestCase):
                 lanes_direct=0,
             )
             self.bug_hunt.init_round(args)
+            self.fill_answer_key(out_dir)
             fake_mcp = self.write_fake_mcp(out_dir, ["trust_selftest", "seek"])
 
             preflight = self.bug_hunt.preflight_round(
@@ -361,12 +493,15 @@ class BugHuntMissionControlTests(unittest.TestCase):
                 lanes_direct=0,
             )
             self.bug_hunt.init_round(args)
+            self.fill_answer_key(out_dir)
             fake_mcp = self.write_fake_mcp(
                 out_dir,
                 [
                     "mission_start",
+                    "mission_event",
                     "mission_next",
                     "mission_verify",
+                    "mission_handoff",
                     "mission_close",
                     "trust_selftest",
                 ],
@@ -408,6 +543,7 @@ class BugHuntMissionControlTests(unittest.TestCase):
                 lanes_direct=0,
             )
             round_payload = self.bug_hunt.init_round(args)
+            self.fill_answer_key(out_dir)
             prompt_path = pathlib.Path(round_payload["lanes"][0]["prompt"])
             prompt_path.write_text("broken prompt", encoding="utf-8")
 
@@ -422,6 +558,40 @@ class BugHuntMissionControlTests(unittest.TestCase):
                     "mission-control prompt missing tokens" in item
                     for item in preflight["blockers"]
                 )
+            )
+
+    def test_preflight_rejects_empty_answer_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = pathlib.Path(temp_dir)
+            args = SimpleNamespace(
+                out_dir=out_dir,
+                round_id="round",
+                repo="repo",
+                source_repo=None,
+                seeded_repo=None,
+                workspace_root=None,
+                source_commit=None,
+                seeded_bug_count=1,
+                lanes_full_spec=0,
+                lanes_temponizer_full=0,
+                lanes_temponizer_compact=0,
+                lanes_temponizer=0,
+                lanes_short_audit=0,
+                lanes_mission_control=1,
+                lanes_trained=0,
+                lanes_basic=0,
+                lanes_direct=0,
+            )
+            self.bug_hunt.init_round(args)
+
+            preflight = self.bug_hunt.preflight_round(
+                out_dir / "round.json",
+                required_modes=["m1nd-mission-control"],
+            )
+
+            self.assertFalse(preflight["ok"])
+            self.assertTrue(
+                any("answer key has no bugs" in item for item in preflight["blockers"])
             )
 
     def write_fake_mcp(self, out_dir, tool_names):

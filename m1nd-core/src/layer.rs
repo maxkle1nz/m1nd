@@ -565,6 +565,9 @@ impl LayerDetector {
                         let target = graph.csr.targets[j];
                         if target == other {
                             let rel = graph.strings.resolve(graph.csr.relations[j]).to_string();
+                            if !layer_cycle_relation_candidate(&rel) {
+                                continue;
+                            }
                             let w = graph.csr.read_weight(EdgeIdx::new(j as u32)).get();
                             let src_label = graph
                                 .strings
@@ -610,6 +613,10 @@ impl LayerDetector {
 
             let range = graph.csr.out_range(node);
             for j in range {
+                let rel = graph.strings.resolve(graph.csr.relations[j]).to_string();
+                if !layer_cycle_relation_candidate(&rel) {
+                    continue;
+                }
                 let target = graph.csr.targets[j];
                 if utility_set.contains(&target) {
                     continue;
@@ -629,7 +636,6 @@ impl LayerDetector {
 
                 // Upward violation: source in deeper layer, target in shallower layer
                 if src_layer > tgt_layer {
-                    let rel = graph.strings.resolve(graph.csr.relations[j]).to_string();
                     let w = graph.csr.read_weight(EdgeIdx::new(j as u32)).get();
                     let gap = src_layer - tgt_layer;
 
@@ -852,6 +858,10 @@ fn tarjan_scc(graph: &Graph, nodes: &[NodeId]) -> Vec<Vec<NodeId>> {
                     let range = graph.csr.out_range(node);
                     let neighbors: Vec<usize> = range
                         .filter_map(|j| {
+                            let relation = graph.strings.resolve(graph.csr.relations[j]);
+                            if !layer_cycle_relation_candidate(relation) {
+                                return None;
+                            }
                             let target = graph.csr.targets[j];
                             if node_set.contains(&target) {
                                 node_to_idx.get(&target).copied()
@@ -1262,6 +1272,34 @@ fn layer_name_for_level(level: u8, layers: &[ArchLayer]) -> String {
         .unwrap_or_else(|| format!("layer_{}", level))
 }
 
+fn layer_cycle_relation_candidate(relation: &str) -> bool {
+    let rel = relation.to_ascii_lowercase();
+    if matches!(
+        rel.as_str(),
+        "contains"
+            | "declares_module"
+            | "declares"
+            | "defined_in"
+            | "member_of"
+            | "parent"
+            | "child"
+            | "has_symbol"
+            | "has_file"
+            | "same_file"
+    ) {
+        return false;
+    }
+
+    rel.contains("import")
+        || rel.contains("depend")
+        || rel == "uses"
+        || rel.contains("calls")
+        || rel.contains("requires")
+        || rel.contains("references")
+        || rel.contains("extends")
+        || rel.contains("implements")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1328,6 +1366,84 @@ mod tests {
             .filter(|v| v.violation_type == ViolationType::CircularDependency)
             .count();
         assert!(circular > 0, "Expected CircularDependency violations");
+    }
+
+    #[test]
+    fn containment_edges_do_not_count_as_dependency_cycles() {
+        let mut b = GraphBuilder::new();
+        let krate = b
+            .add_node(
+                "cargo::crate::m1nd-mcp/Cargo.toml::m1nd-mcp",
+                "m1nd-mcp",
+                NodeType::Module,
+                &[],
+            )
+            .unwrap();
+        let file = b
+            .add_node(
+                "file::m1nd-mcp/src/server.rs",
+                "m1nd-mcp/src/server.rs",
+                NodeType::File,
+                &[],
+            )
+            .unwrap();
+        b.add_edge(krate, file, "contains", 0.8).unwrap();
+        b.add_edge(file, krate, "declares_module", 0.8).unwrap();
+        let graph = b.finalize().unwrap();
+
+        let detector = LayerDetector::new(8, 1);
+        let result = detector.detect(&graph, None, &[], false, "auto").unwrap();
+        assert!(
+            !result.has_cycles,
+            "containment metadata must not look like architectural dependency cycles"
+        );
+        assert!(
+            result
+                .violations
+                .iter()
+                .all(|v| v.violation_type != ViolationType::CircularDependency),
+            "contains/declares_module edges should not produce circular dependency violations"
+        );
+    }
+
+    #[test]
+    fn symbol_ownership_edges_do_not_count_as_layer_violations() {
+        let mut b = GraphBuilder::new();
+        let method = b
+            .add_node(
+                "file::src/domain.rs::fn::code",
+                "code",
+                NodeType::Function,
+                &[],
+            )
+            .unwrap();
+        let impl_block = b
+            .add_node(
+                "file::src/domain.rs::impl::DomainConfig::line::22",
+                "impl DomainConfig",
+                NodeType::Module,
+                &[],
+            )
+            .unwrap();
+        let ty = b
+            .add_node(
+                "file::src/domain.rs::struct::DomainConfig",
+                "DomainConfig",
+                NodeType::Struct,
+                &[],
+            )
+            .unwrap();
+        b.add_edge(method, impl_block, "owned_by_impl", 0.8)
+            .unwrap();
+        b.add_edge(method, ty, "belongs_to_type", 0.8).unwrap();
+        let graph = b.finalize().unwrap();
+
+        let detector = LayerDetector::new(8, 1);
+        let result = detector.detect(&graph, None, &[], false, "auto").unwrap();
+        assert!(
+            result.violations.is_empty(),
+            "symbol ownership metadata should not be reported as architectural layer debt"
+        );
     }
 
     // 4. utility_nodes: orphan node (no edges) is classified as Orphan

@@ -9,6 +9,7 @@ This folder holds working notes, design explorations, hardening reports, visual 
 - Surgical hardening and contract notes
 - maintainer workflow docs
 - self-update and host-refresh proof boundaries
+- agent operating layer PRDs and L1GHT strategy nodes
 - other maintainer-facing build/design artifacts
 
 ## Public docs that stay outside this folder

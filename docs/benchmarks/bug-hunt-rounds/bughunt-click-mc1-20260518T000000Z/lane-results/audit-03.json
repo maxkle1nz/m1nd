@@ -1,0 +1,111 @@
+{
+  "agent_testimony": "Performed a direct-mode source and runtime audit without m1nd tools, helper scripts, operator-only artifacts, or repository patches. A targeted pytest command could not run because the active python3 lacks pytest; local Python reproduction probes were run with PYTHONDONTWRITEBYTECODE=1 and -B.",
+  "commands_run": [
+    "sed -n '1,240p' lane-prompts/audit-03.md",
+    "sed -n '1,240p' lane-result-template.json",
+    "ls -la",
+    "git status --short",
+    "rg --files",
+    "git log --oneline -5",
+    "git diff -- src tests pyproject.toml",
+    "rg -n \"m1nd|seed|TODO|FIXME|XXX|HACK|bug|regression|callable|typing|ParamType|type\\(\" src tests",
+    "sed -n '1,240p' tests/test_m1nd_seeded_callable_type.py",
+    "sed -n '1,260p' src/click/types.py",
+    "sed -n '1160,1270p' src/click/types.py",
+    "sed -n '1,140p' tests/test_types.py",
+    "sed -n '80,120p' tests/test_info_dict.py",
+    "PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 python3 -B - <<'PY' ... callable instance reproduction ... PY",
+    "git show --stat --oneline --decorate HEAD",
+    "git show --format=fuller --no-patch HEAD",
+    "git branch -a --verbose",
+    "git tag --list | tail -40",
+    "sed -n '2130,2425p' src/click/core.py",
+    "sed -n '2740,2995p' src/click/core.py",
+    "sed -n '2230,2475p' tests/test_options.py",
+    "sed -n '300,380p' tests/test_defaults.py",
+    "rg -n \"callable|function|type=.*lambda|FuncParamType|parameter type|custom type|Convert\" docs src/click tests/test_types.py tests/test_options.py",
+    "sed -n '1,240p' docs/parameter-types.md",
+    "sed -n '1990,2060p' tests/test_options.py",
+    "rg -n \"def test_.*callable|callable.*type|type=.*lambda|FuncParamType\" tests",
+    "PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -B -m pytest -q -p no:cacheprovider tests/test_m1nd_seeded_callable_type.py tests/test_types.py::test_func_param_type_uses_value_error_message",
+    "nl -ba src/click/types.py | sed -n '181,205p'",
+    "nl -ba src/click/types.py | sed -n '1218,1261p'",
+    "nl -ba docs/parameter-types.md | sed -n '154,164p'",
+    "nl -ba tests/test_m1nd_seeded_callable_type.py | sed -n '1,30p'",
+    "PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 python3 -B - <<'PY' ... functools.partial reproduction ... PY"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-click-mc1-20260518T000000Z/lane-prompts/audit-03.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-click-mc1-20260518T000000Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/src/click/types.py",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/src/click/core.py",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/docs/parameter-types.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/tests/test_types.py",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/tests/test_info_dict.py",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/tests/test_options.py",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/tests/test_defaults.py",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-click-mc1-20260518T000000Z/audit-03/click-python-cli/tests/test_m1nd_seeded_callable_type.py"
+  ],
+  "findings": [
+    {
+      "cause": "FuncParamType stores the display name with `self.name = func.__name__` even though convert_type accepts arbitrary explicit callables and FuncParamType is typed as accepting `Callable[[Any], T]`. Callable instances and functools.partial objects are valid Python callables but usually do not define `__name__`, so wrapping them raises AttributeError before the CLI can run.",
+      "confidence": "high",
+      "evidence": "`src/click/types.py:185-188` initializes FuncParamType from a callable and unconditionally reads `func.__name__`. `src/click/types.py:1218-1259` routes explicit non-built-in `type=` values to FuncParamType. Runtime probe with `@click.option(\"--value\", type=UpperCase())` raised `AttributeError: 'UpperCase' object has no attribute '__name__'`; runtime probe with `click.types.convert_type(functools.partial(int, base=16))` raised `AttributeError: 'functools.partial' object has no attribute '__name__'`.",
+      "file": "src/click/types.py",
+      "impact": "Applications cannot use common callable converter objects as Click option or argument types. A command decorated with `@click.option(..., type=UpperCase())` or `type=functools.partial(int, base=16)` fails at import/command construction time instead of converting user input or reporting a Click BadParameter. This turns a supported simple-converter path into a startup crash for real CLIs.",
+      "reproduction_or_test": "Run from the repo root with local source on PYTHONPATH: `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 python3 -B - <<'PY'\nimport click\nfrom click.testing import CliRunner\nclass UpperCase:\n    def __call__(self, value): return value.upper()\n@click.command()\n@click.option(\"--value\", type=UpperCase())\ndef cli(value): click.echo(value)\nprint(CliRunner().invoke(cli, [\"--value\", \"hello\"]).output)\nPY`. Expected `HELLO\\n`; actual command construction raises AttributeError before invocation.",
+      "severity": "medium",
+      "symbol": "FuncParamType.__init__",
+      "title": "Callable parameter type objects without __name__ crash during command construction"
+    }
+  ],
+  "finished_at": "2026-05-17T23:44:42.724891Z",
+  "instruction_mode": "direct",
+  "lane_id": "audit-03",
+  "m1nd_usage": [],
+  "mission_control_usage": {
+    "coverage_sweeps": [
+      "Focused sweep of parameter type conversion and callable/default handling in src/click/types.py and src/click/core.py"
+    ],
+    "direct_proof_switches": [],
+    "do_not_guardrails_observed": [
+      "direct mode: did not use m1nd tools",
+      "did not use m1nd helper scripts",
+      "did not read operator-only artifacts",
+      "did not patch Click repo",
+      "writes confined to audit-03 lane result and event stream"
+    ],
+    "event_digest": "audit_started and findings_identified events appended by agent; result_written appended after result file creation",
+    "handoff_summary": "One high-confidence finding in FuncParamType.__init__; no code changes made.",
+    "mission_close_called": false,
+    "mission_control_unavailable": false,
+    "mission_event_count": 0,
+    "mission_handoff_called": false,
+    "mission_id": "",
+    "mission_next_count": 0,
+    "mission_route": "",
+    "mission_start_called": false,
+    "mission_tool_surface_count": null,
+    "mission_transport": "",
+    "mission_verify_count": 0,
+    "proof_packet_summary": "Source lines plus two local python runtime probes reproduce the crash.",
+    "rejected_or_insufficient_claims": [],
+    "verified_claims": [
+      "FuncParamType.__init__ unconditionally reads func.__name__",
+      "convert_type routes explicit non-built-in callables into FuncParamType",
+      "callable instance option type raises AttributeError during command construction",
+      "functools.partial converter raises AttributeError during convert_type"
+    ]
+  },
+  "model": "gpt-5-codex",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them"
+  ],
+  "notes": "`git status --short` showed one pre-existing untracked file, tests/test_m1nd_seeded_callable_type.py; it was read but not modified. No tracked files were changed.",
+  "repo": "click-python-cli",
+  "round_id": "bughunt-click-mc1-20260518T000000Z",
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "started_at": "2026-05-17T23:42:07.108542Z",
+  "temponizer_usage": []
+}

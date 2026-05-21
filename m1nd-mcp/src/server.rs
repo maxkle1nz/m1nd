@@ -1676,6 +1676,33 @@ pub fn tool_schemas() -> serde_json::Value {
                 }
             },
             {
+                "name": "mission_event",
+                "description": "Record one observed mission action with evidence class, event id, and local digest.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "mission_id": { "type": "string", "description": "Mission id returned by mission_start" },
+                        "event": {
+                            "type": ["object", "string"],
+                            "description": "Observed action, such as file_read, test_run, graph_query, dissent, or coverage_sweep"
+                        },
+                        "payload": {
+                            "description": "Optional structured evidence payload for string-style events"
+                        },
+                        "outcome": {
+                            "type": "string",
+                            "description": "Optional observed outcome, such as hypothesis_supported or inconclusive"
+                        },
+                        "agent_confidence": {
+                            "type": "number",
+                            "description": "Optional caller confidence captured as telemetry, not proof"
+                        }
+                    },
+                    "required": ["agent_id", "mission_id", "event"]
+                }
+            },
+            {
                 "name": "mission_verify",
                 "description": "Verify whether a mission claim has enough direct evidence; graph-only evidence is rejected.",
                 "inputSchema": {
@@ -1693,6 +1720,21 @@ pub fn tool_schemas() -> serde_json::Value {
                         "confidence": { "type": "number", "description": "Optional agent confidence before verification" }
                     },
                     "required": ["agent_id", "mission_id", "claim"]
+                }
+            },
+            {
+                "name": "mission_handoff",
+                "description": "Serialize a resumable mission handoff with verified claims, open hypotheses, dead paths, graph anchors, and next move.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "mission_id": { "type": "string", "description": "Mission id returned by mission_start" },
+                        "summary": { "type": "string", "description": "Optional handoff summary" },
+                        "recipient_agent_id": { "type": "string", "description": "Optional recipient agent id" },
+                        "include_events": { "type": "boolean", "default": false, "description": "Include full event stream in the handoff packet" }
+                    },
+                    "required": ["agent_id", "mission_id"]
                 }
             },
             {
@@ -1976,8 +2018,10 @@ pub fn dispatch_tool(
         "recovery_playbook"
             | "trust_selftest"
             | "mission_start"
+            | "mission_event"
             | "mission_next"
             | "mission_verify"
+            | "mission_handoff"
             | "mission_close"
     ) {
         auto_ingest::maybe_tick_auto_ingest(state, &normalized)?;
@@ -2025,8 +2069,10 @@ pub fn dispatch_tool(
                 | "doctor"
                 | "help"
                 | "mission_start"
+                | "mission_event"
                 | "mission_next"
                 | "mission_verify"
+                | "mission_handoff"
                 | "mission_close"
                 | "savings"
                 | "report"
@@ -2188,6 +2234,11 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             mission_handlers::handle_mission_start(state, input)
         }
+        "mission_event" => {
+            let input: layers::MissionEventInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            mission_handlers::handle_mission_event(state, input)
+        }
         "mission_next" => {
             let input: layers::MissionNextInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -2197,6 +2248,11 @@ fn dispatch_core_tool(
             let input: layers::MissionVerifyInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             mission_handlers::handle_mission_verify(state, input)
+        }
+        "mission_handoff" => {
+            let input: layers::MissionHandoffInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            mission_handlers::handle_mission_handoff(state, input)
         }
         "mission_close" => {
             let input: layers::MissionCloseInput =
@@ -2598,8 +2654,10 @@ fn should_autotick_daemon(tool_name: &str) -> bool {
             | "trust_selftest"
             | "recovery_playbook"
             | "mission_start"
+            | "mission_event"
             | "mission_next"
             | "mission_verify"
+            | "mission_handoff"
             | "mission_close"
     )
 }
@@ -3466,8 +3524,10 @@ mod tests {
             "alerts_list",
             "alerts_ack",
             "mission_start",
+            "mission_event",
             "mission_next",
             "mission_verify",
+            "mission_handoff",
             "mission_close",
         ] {
             assert!(
@@ -3490,8 +3550,10 @@ mod tests {
             "trust_selftest",
             "recovery_playbook",
             "mission_start",
+            "mission_event",
             "mission_next",
             "mission_verify",
+            "mission_handoff",
             "mission_close",
         ] {
             assert!(
@@ -3556,6 +3618,32 @@ mod tests {
             .iter()
             .any(|value| value == "seek"));
 
+        let event = super::dispatch_tool(
+            &mut state,
+            "mission_event",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "mission_id": mission_id,
+                "event": "file_read",
+                "payload": {
+                    "path": "src/auth.rs",
+                    "lines": [42, 55]
+                },
+                "outcome": "read direct source",
+                "agent_confidence": 0.82
+            }),
+        )
+        .expect("mission_event");
+        assert_eq!(event["schema"], "m1nd-mission-event-v1");
+        assert_eq!(event["event"]["event"], "file_read");
+        assert_eq!(event["event"]["payload"]["path"], "src/auth.rs");
+        assert_eq!(event["event"]["outcome"], "read direct source");
+        assert_eq!(event["event"]["evidence_class"], "direct");
+        assert!(event["event_digest"]
+            .as_str()
+            .expect("event digest")
+            .starts_with("hash64:"));
+
         let graph_only = super::dispatch_tool(
             &mut state,
             "mission_verify",
@@ -3584,6 +3672,25 @@ mod tests {
         assert_eq!(direct["verdict"], "verified_for_mission");
         assert_eq!(direct["evidence_grade"], "direct");
 
+        let handoff = super::dispatch_tool(
+            &mut state,
+            "mission_handoff",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "mission_id": mission_id,
+                "summary": "handoff after direct source proof",
+                "recipient_agent_id": "reviewer"
+            }),
+        )
+        .expect("mission_handoff");
+        assert_eq!(handoff["schema"], "m1nd-mission-handoff-v1");
+        assert_eq!(handoff["verified_claims"].as_array().unwrap().len(), 1);
+        assert!(handoff["files_read"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "src/auth.rs"));
+
         let close = super::dispatch_tool(
             &mut state,
             "mission_close",
@@ -3595,9 +3702,18 @@ mod tests {
             }),
         )
         .expect("mission_close");
-        assert_eq!(close["schema"], "m1nd-mission-proof-packet-v0");
+        assert_eq!(close["schema"], "m1nd-mission-proof-packet-v1");
         assert_eq!(close["verified_claims"].as_array().unwrap().len(), 1);
         assert_eq!(close["rejected_claims"].as_array().unwrap().len(), 1);
+        assert_eq!(close["handoff_count"], 1);
+        assert_eq!(
+            close["context_guard_at_start"]["schema"],
+            "m1nd-mission-context-guard-v1"
+        );
+        assert!(close["event_digest"]
+            .as_str()
+            .expect("event digest")
+            .starts_with("hash64:"));
         assert!(close["non_claims"]
             .as_array()
             .unwrap()
@@ -4431,7 +4547,7 @@ mod tests {
 
         assert_eq!(output["proof_state"], "blocked");
         assert_eq!(output["next_suggested_tool"], "recovery_playbook");
-        assert_eq!(output["graph_state"]["node_count"].as_u64().is_some(), true);
+        assert!(output["graph_state"]["node_count"].as_u64().is_some());
         assert_eq!(
             output["recovery"]["suggested_tool"].as_str(),
             Some("recovery_playbook")
@@ -4440,6 +4556,47 @@ mod tests {
             output["recovery"]["arguments"]["observed_tool"].as_str(),
             Some("activate")
         );
+    }
+
+    #[test]
+    fn activate_zero_results_without_blocked_proof_does_not_suggest_recovery() {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        std::fs::write(repo.join("src/core.py"), "def core():\n    return 1\n")
+            .expect("write file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "jimi".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest");
+
+        let output = super::dispatch_tool(
+            &mut state,
+            "activate",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "query": "core",
+                "top_k": 0
+            }),
+        )
+        .expect("activate output");
+
+        assert_eq!(output["proof_state"], "triaging");
+        assert_eq!(output["activated"].as_array().expect("activated").len(), 0);
+        assert_ne!(output["next_suggested_tool"], "recovery_playbook");
+        assert_eq!(output["recovery"], serde_json::Value::Null);
+        assert_eq!(output["agent_runtime_contract"]["trust_mode"], "full_trust");
     }
 
     #[test]

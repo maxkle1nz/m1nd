@@ -1,0 +1,237 @@
+{
+  "schema": "m1nd-bug-hunt-audit-result-v0",
+  "round_id": "bughunt-p-limit-mc1-smoke-20260518T000000Z",
+  "lane_id": "audit-01",
+  "instruction_mode": "m1nd-mission-control",
+  "repo": "p-limit",
+  "model": "gpt-5-codex",
+  "started_at": "2026-05-17T23:18:04Z",
+  "finished_at": "2026-05-17T23:24:28Z",
+  "findings": [
+    {
+      "title": "limitFunction drops all caller arguments",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "limitFunction",
+      "cause": "The returned wrapper is declared as a zero-argument function and calls `function_()` instead of forwarding `...arguments_`.",
+      "impact": "The named export no longer matches its public TypeScript signature. Any limited function that depends on its parameters receives `undefined` values and can return wrong results or fail at runtime.",
+      "evidence": [
+        "index.js:121-124 returns `() => limit(() => function_())`.",
+        "index.d.ts:133-136 declares that the returned limited function accepts and forwards `Arguments`.",
+        "index.test-d.ts:25-26 type-checks `lf('input')`, but runtime tests only call a zero-argument `limitFunction` path.",
+        "Focused runtime probe returned `limitFunction_args=NaN` for `limitFunction((a, b) => a + b, {concurrency: 1})(2, 3)`."
+      ],
+      "reproduction_or_test": "Run the in-memory probe used by this lane: transform only the `yocto-queue` import into a minimal Queue stub, import `index.js`, then evaluate `await limitFunction((a, b) => a + b, {concurrency: 1})(2, 3)`. Actual: `NaN`; expected: `5`.",
+      "confidence": "high"
+    },
+    {
+      "title": "limit.map omits indexes for non-array iterables",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "limit.map",
+      "cause": "The mapper receives `index` only when `Array.isArray(iterable)` is true; Set and iterator inputs get `undefined`.",
+      "impact": "The public contract says `limit.map` accepts iterables and passes both item and index. Callers using Set, Map values, generator, or iterator inputs get incorrect mapper arguments.",
+      "evidence": [
+        "index.js:106-112 passes `iterableIsArray ? index : undefined`.",
+        "readme.md:78-84 says the mapper receives item value and index and is equivalent to `Array.from(iterable, (item, index) => limit(...))`.",
+        "index.d.ts:40-43 types the mapper index as `number` for any `Iterable<Input>`.",
+        "Focused runtime probe returned `set_map=[[\"a\",null],[\"b\",null]]` while `array_map=[[\"a\",0],[\"b\",1]]`."
+      ],
+      "reproduction_or_test": "With the same in-memory Queue stub probe, run `await pLimit(2).map(new Set(['a', 'b']), (value, index) => [value, index])`. Actual serialized result: `[[\"a\",null],[\"b\",null]]`; expected indexes: `0` and `1`.",
+      "confidence": "high"
+    },
+    {
+      "title": "Options-object clearQueue rejects pending promises by default",
+      "severity": "high",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "Options destructuring changed the `rejectOnClear` default to `true` for `pLimit({concurrency})`.",
+      "impact": "`pLimit(1)` and `pLimit({concurrency: 1})` now have different clearQueue semantics. Pending promises are rejected with `AbortError` even though public docs and types say `rejectOnClear` defaults to `false`, which can unexpectedly fail `Promise.all` call sites.",
+      "evidence": [
+        "index.js:4 initializes `rejectOnClear` to false, but index.js:7 destructures options with `rejectOnClear = true`.",
+        "readme.md:46-52 and index.d.ts:99-106 document `rejectOnClear` default as `false`.",
+        "index.js:77-89 rejects queued promises whenever `rejectOnClear` is true.",
+        "Focused runtime probe returned `clearQueue_default_options=rejected:AbortError` for `pLimit({concurrency: 1})` with no `rejectOnClear` option."
+      ],
+      "reproduction_or_test": "Create `const limit = pLimit({concurrency: 1})`, enqueue one long-running task and one pending task, call `limit.clearQueue()`, then race the pending promise against a short timeout. Actual: rejected with `AbortError`; expected by docs: remains pending/discarded unless `rejectOnClear: true` is explicitly set.",
+      "confidence": "high"
+    },
+    {
+      "title": "Falsy non-boolean rejectOnClear values bypass validation",
+      "severity": "low",
+      "file": "index.js",
+      "symbol": "pLimit",
+      "cause": "Validation now checks `typeof rejectOnClear` only when the value is truthy.",
+      "impact": "Invalid options such as `{rejectOnClear: 0}` or `{rejectOnClear: ''}` are accepted silently despite the boolean-only API, hiding configuration mistakes and making runtime behavior depend on JavaScript truthiness.",
+      "evidence": [
+        "index.js:12 checks `if (rejectOnClear && typeof rejectOnClear !== 'boolean')`.",
+        "index.d.ts:106 declares `rejectOnClear?: boolean` and index.test-d.ts:29 expects an error for a string value.",
+        "Focused runtime probe returned `rejectOnClear_zero=accepted` for `pLimit({concurrency: 1, rejectOnClear: 0})`."
+      ],
+      "reproduction_or_test": "Run `pLimit({concurrency: 1, rejectOnClear: 0})`. Actual: accepted; expected: TypeError matching the existing boolean validation message.",
+      "confidence": "high"
+    },
+    {
+      "title": "Infinity concurrency support regressed",
+      "severity": "medium",
+      "file": "index.js",
+      "symbol": "validateConcurrency",
+      "cause": "The validator now requires `Number.isInteger(concurrency)` and removed the previous `concurrency === Number.POSITIVE_INFINITY` allowance.",
+      "impact": "Existing callers using `pLimit(Infinity)` as a pass-through limiter now get a TypeError. This is a behavioral regression from the repository baseline and is not covered by the current test suite.",
+      "evidence": [
+        "git diff shows `validateConcurrency` changed from allowing `Number.POSITIVE_INFINITY` to requiring only positive integers.",
+        "index.js:127-130 currently rejects all non-integer values.",
+        "Focused runtime probe returned `infinity=TypeError:Expected `concurrency` to be a number from 1 and up`.",
+        "`rg -n Infinity test.js index.test-d.ts readme.md index.d.ts` found no coverage."
+      ],
+      "reproduction_or_test": "Run `pLimit(Infinity)`. Actual: TypeError; expected baseline behavior: accepted as unlimited concurrency.",
+      "confidence": "medium"
+    }
+  ],
+  "commands_run": [
+    "sed -n '1,240p' /Users/kle1nz/.codex/skills/m1nd-operator/SKILL.md",
+    "sed -n '1,260p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc1-smoke-20260518T000000Z/lane-prompts/audit-01.md",
+    "python3 /Users/kle1nz/.codex/skills/m1nd-operator/scripts/probe_m1nd.py --help",
+    "sed -n '1,260p' /Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc1-smoke-20260518T000000Z/lane-result-template.json",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... tools",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call trust_selftest",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call ingest",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call session_handshake",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call mission_start",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call search",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call recovery_playbook",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call doctor",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... call audit",
+    "probe_m1nd.py --binary /Users/kle1nz/m1nd/target/debug/m1nd-mcp ... mission_event/mission_next/mission_verify/mission_handoff/mission_close",
+    "git status --short",
+    "rg --files -g '!operator-only/**'",
+    "nl -ba index.js | sed -n '1,240p'",
+    "nl -ba test.js | sed -n '1,560p'",
+    "nl -ba index.d.ts | sed -n '1,240p'",
+    "nl -ba readme.md | sed -n '1,260p'",
+    "nl -ba package.json | sed -n '1,220p'",
+    "nl -ba index.test-d.ts | sed -n '1,220p'",
+    "git diff -- index.js",
+    "npm test",
+    "node --input-type=module <<'EOF' ... in-memory Queue contract probes ... EOF",
+    "rg -n \"Infinity|rejectOnClear|limitFunction|limit\\.map|map accepts|map passes|clearQueue\" test.js index.test-d.ts readme.md index.d.ts",
+    "git diff --stat && git diff --check"
+  ],
+  "files_inspected": [
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc1-smoke-20260518T000000Z/lane-prompts/audit-01.md",
+    "/Users/kle1nz/m1nd/docs/benchmarks/bug-hunt-rounds/bughunt-p-limit-mc1-smoke-20260518T000000Z/lane-result-template.json",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc1-smoke-20260518T000000Z/audit-01/p-limit/index.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc1-smoke-20260518T000000Z/audit-01/p-limit/test.js",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc1-smoke-20260518T000000Z/audit-01/p-limit/index.d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc1-smoke-20260518T000000Z/audit-01/p-limit/index.test-d.ts",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc1-smoke-20260518T000000Z/audit-01/p-limit/readme.md",
+    "/Users/kle1nz/m1nd/.m1nd-field-workspaces/bughunt-p-limit-mc1-smoke-20260518T000000Z/audit-01/p-limit/package.json"
+  ],
+  "m1nd_usage": [
+    {
+      "tool": "tools",
+      "transport": "isolated_helper_runtime",
+      "outcome": "102 tools exposed, including Mission Control v1 tools"
+    },
+    {
+      "tool": "trust_selftest",
+      "transport": "isolated_helper_runtime",
+      "outcome": "workspace binding matched lane repo; verdict needs_ingest"
+    },
+    {
+      "tool": "ingest",
+      "transport": "isolated_helper_runtime",
+      "outcome": "code ingest created 82 nodes and 94 edges"
+    },
+    {
+      "tool": "session_handshake",
+      "transport": "isolated_helper_runtime",
+      "outcome": "full_trust for lane workspace"
+    },
+    {
+      "tool": "search",
+      "transport": "isolated_helper_runtime",
+      "outcome": "zero candidates; recovery_playbook requested"
+    },
+    {
+      "tool": "recovery_playbook",
+      "transport": "isolated_helper_runtime",
+      "outcome": "warned stale_binding_suspected for zero-candidate search despite populated graph"
+    },
+    {
+      "tool": "doctor",
+      "transport": "isolated_helper_runtime",
+      "outcome": "confirmed graph populated and suggested direct file truth while retrieval remained suspicious"
+    },
+    {
+      "tool": "audit",
+      "transport": "isolated_helper_runtime",
+      "outcome": "identified index.js queue/concurrency surface; emitted unrelated cargo graph noise treated as non-claim"
+    }
+  ],
+  "mission_control_usage": {
+    "mission_id": "msn_1779060027379_audit01bughuntaudi",
+    "mission_route": "trained_audit",
+    "mission_transport": "isolated_helper_runtime",
+    "mission_tool_surface_count": 102,
+    "mission_control_unavailable": false,
+    "mission_start_called": true,
+    "mission_event_count": 5,
+    "mission_next_count": 4,
+    "mission_verify_count": 2,
+    "mission_handoff_called": true,
+    "mission_close_called": true,
+    "do_not_guardrails_observed": [
+      "mission_next step 4: do_not activate",
+      "mission_next step 4: do_not seek"
+    ],
+    "verified_claims": [
+      {
+        "claim_id": "clm_2_1779060241580",
+        "claim": "index.js has four material behavioral regressions: options-object clearQueue defaults to rejecting pending promises, map omits indexes for non-array iterables, limitFunction drops forwarded arguments, and Infinity concurrency is rejected.",
+        "evidence_grade": "direct",
+        "evidence_refs": [
+          "event:evt_6",
+          "event:evt_7",
+          "file_read:index.js:4",
+          "file_read:index.js:106",
+          "file_read:index.js:121",
+          "file_read:index.js:127",
+          "runtime_probe:p-limit-contracts",
+          "test_run:npm_test_missing_xo"
+        ]
+      }
+    ],
+    "rejected_or_insufficient_claims": [
+      {
+        "claim_id": "clm_1_1779060230690",
+        "claim": "index.js has four material behavioral regressions: options-object clearQueue defaults to reject pending promises, map omits indexes for non-array iterables, limitFunction drops forwarded arguments, and Infinity concurrency is rejected despite previous/public number contract.",
+        "verdict": "insufficient_evidence",
+        "missing": [
+          "direct_source_read_or_runtime_probe"
+        ],
+        "note": "First verify attempt used incorrectly formatted evidence refs; replacement claim clm_2 used explicit event/file/runtime refs and was verified."
+      }
+    ],
+    "direct_proof_switches": [
+      "evt_5 dissent: skipped a duplicate audit graph query after graph noise and switched to direct source reads plus runtime probes",
+      "mission_next step 3: direct evidence existed and Mission Control requested mission_verify"
+    ],
+    "coverage_sweeps": [
+      "evt_7 swept public contracts/docs, boundary values, error paths, async/concurrency behavior, and helper/exported APIs"
+    ],
+    "event_digest": "hash64:5fe8f81534161ed8",
+    "handoff_summary": "handoff hnd_1_1779060253336: phase=report, next move mission_close, verified clm_2, do_not activate/seek",
+    "proof_packet_summary": "Mission closed with verified direct claim clm_2, one insufficient earlier verify attempt, gaps for missing npm dependencies, and non-claims that operator-only artifacts and source files were not touched."
+  },
+  "temponizer_usage": [],
+  "agent_testimony": "I treated the m1nd graph as orientation only after zero-candidate search recovery and unrelated cargo noise. The material findings are based on direct source reads, public contract reads, git diff, and focused runtime probes that avoided installing dependencies or modifying source.",
+  "notes": "Full npm test did not run because the isolated workspace lacks installed dev dependencies (`xo: command not found`) and direct Node import lacked `yocto-queue`. The runtime contract probe avoided writes by loading `index.js` as text and replacing only the external queue import with an in-memory minimal Queue implementing enqueue/dequeue/clear/size.",
+  "non_claims": [
+    "auditor did not see the operator-only answer key",
+    "extra findings are unadjudicated until a judge validates them",
+    "source files were not patched",
+    "operator-only artifacts were not read",
+    "m1nd graph audit findings about cargo crates were treated as out-of-scope noise"
+  ]
+}
