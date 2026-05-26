@@ -133,11 +133,32 @@ function copyFile(source, target) {
   fs.copyFileSync(source, target);
 }
 
+const GENERATED_SKILL_ARTIFACTS = new Set([
+  "graph_snapshot.json",
+  "plasticity_state.json",
+  "query_memory.json",
+]);
+
+function isGeneratedSkillArtifact(entryName) {
+  return GENERATED_SKILL_ARTIFACTS.has(entryName);
+}
+
+function cleanGeneratedSkillArtifacts(target) {
+  for (const entryName of GENERATED_SKILL_ARTIFACTS) {
+    fs.rmSync(path.join(target, entryName), { force: true, recursive: true });
+  }
+}
+
 function copyDir(source, target) {
   ensureDir(target);
+  cleanGeneratedSkillArtifacts(target);
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
     const sourcePath = path.join(source, entry.name);
     const targetPath = path.join(target, entry.name);
+    if (isGeneratedSkillArtifact(entry.name)) {
+      fs.rmSync(targetPath, { force: true, recursive: true });
+      continue;
+    }
     if (entry.isDirectory()) {
       copyDir(sourcePath, targetPath);
     } else if (entry.isFile()) {

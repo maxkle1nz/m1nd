@@ -175,6 +175,14 @@ binding. The safe routing split is:
 - Direct proof: source files, tests, compiler/runtime output, logs, browser
   smoke, and focused probes.
 
+If the host exposes only the companion wrapper and no direct `m1nd` MCP tools,
+classify the session as `missing_m1nd_host_tool_surface`, not as graph failure.
+Try the host-neutral CLI before abandoning m1nd for raw local search:
+
+```bash
+m1nd agent next --repo /path/to/repo --query "current task" --json
+```
+
 Before trusting companion output, confirm the companion session is bound to the
 same repo/project root as the task. If it reports missing scope, wrong project,
 global-only candidates, unavailable flash, or stale memory, classify it as

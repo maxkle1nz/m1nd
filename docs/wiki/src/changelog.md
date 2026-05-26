@@ -10,6 +10,27 @@ No unreleased changes.
 
 ---
 
+## [0.9.0-beta.6] — 2026-05-26
+
+### Changed
+
+- Updated the agent doctrine so hosts that expose only a session companion
+  wrapper are classified as `missing_m1nd_host_tool_surface`, not as graph
+  failure.
+- Refined DEXT3R/session-companion routing so agents use companion memory for
+  continuity, `m1nd agent next` for the first repo move, and direct proof for
+  final claims.
+
+### Fixed
+
+- Clean generated graph/runtime artifacts out of installed agent-pack
+  directories when refreshing skills.
+- Rebuilt and aligned the managed and PATH-visible `m1nd-mcp` runtimes so
+  repo-root scoped retrieval no longer reports a stale blocked state from an
+  older local binary.
+
+---
+
 ## [0.9.0-beta.5] — 2026-05-16
 
 ### Added

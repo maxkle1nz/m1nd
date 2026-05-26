@@ -169,9 +169,15 @@ Bad uses are:
 
 - treating global memory search as repo truth
 - replacing `m1nd agent next` or the m1nd MCP trust loop
+- treating a host that exposes only the companion wrapper as proof that the
+  m1nd graph is unhealthy
 - claiming code behavior without direct source/test/runtime proof
 - trusting a flash when the companion reports missing scope, wrong project, or
   unavailable m1nd context
+
+If direct `m1nd` MCP tools are missing but a companion wrapper exists, record
+`m1nd_usage_mode=missing_m1nd_host_tool_surface` and try the host-neutral CLI
+before falling back to raw local search.
 
 The universal route is:
 

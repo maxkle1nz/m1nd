@@ -150,6 +150,12 @@ If the host also exposes a session-memory companion such as DEXT3R, use it only
 for continuity: north star, prior decisions, open loops, handoff context, and a
 scoped `m1nd flash` summary when available.
 
+If the host exposes only the companion wrapper and no direct `m1nd` MCP tools,
+classify the situation as `missing_m1nd_host_tool_surface`, not as unhealthy
+graph truth. First try the host-neutral CLI path below; fall back to raw
+`rg`/file reads only if the CLI path is unavailable or its recovery output says
+to use direct local truth.
+
 Do not use a companion digest or global memory search as code truth. Before
 using companion output, verify that the session is bound to the intended repo or
 project root. If the companion reports missing scope, wrong project, unavailable
