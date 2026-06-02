@@ -2335,12 +2335,21 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
     let last_persist = state
         .last_persist_time
         .map(|t| format!("{:.0}s ago", t.elapsed().as_secs_f64()));
-    let tool_schema = crate::server::tool_schemas();
-    let registry_tool_count = tool_schema
+    // Use the full registry count for the contract (all handlers exist regardless of tier).
+    // The advertised count reflects only what tools/list currently exposes.
+    let tool_schema_full = crate::server::all_tool_schemas();
+    let full_registry_tool_count = tool_schema_full
         .get("tools")
         .and_then(|tools| tools.as_array())
         .map(|tools| tools.len() as u64)
         .unwrap_or(0);
+    let tool_schema_advertised = crate::server::tool_schemas();
+    let advertised_tool_count = tool_schema_advertised
+        .get("tools")
+        .and_then(|tools| tools.as_array())
+        .map(|tools| tools.len() as u64)
+        .unwrap_or(0);
+    let tool_tier = crate::server::active_tool_tier();
 
     Ok(HealthOutput {
         status: "ok".into(),
@@ -2356,10 +2365,19 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
         binding_fingerprint: state.binding_fingerprint(),
         tool_surface_contract: serde_json::json!({
             "schema": "m1nd-tool-surface-contract-v0",
-            "registry_tool_count": registry_tool_count,
+            // full_registry_tool_count: all handlers that exist in the binary
+            "full_registry_tool_count": full_registry_tool_count,
+            // advertised_tool_count: what tools/list currently exposes (tier-dependent)
+            "advertised_tool_count": advertised_tool_count,
+            // tool_tier: "essential" (default, ~25 tools) or "full" (all tools).
+            // Set M1ND_TOOL_TIER=full to expose all 102 tools in tools/list.
+            // Hidden tools remain callable via tools/call dispatch at all times.
+            "tool_tier": tool_tier,
             "required_agent_trust_tools": AGENT_TRUST_REQUIRED_TOOLS,
             "required_host_visible_tools": HOST_BINDING_REQUIRED_TOOLS,
-            "minimum_safe_tool_count": registry_tool_count,
+            // minimum_safe_tool_count is now based on required tools, not total count,
+            // so tiering does not falsely trigger "degraded" state.
+            "minimum_safe_tool_count": HOST_BINDING_REQUIRED_TOOLS.len() as u64,
             "degraded_if_missing_any": HOST_BINDING_REQUIRED_TOOLS,
             "recovery_tool": "recovery_playbook",
             "diagnostic_tool": "doctor",

@@ -353,6 +353,11 @@ does not claim to refresh an already-open host, repair graph contents, correct
 ingest roots, or fix semantic retrieval by itself. It updates the local
 installation, then gives the agent the next recovery step.
 
+By default `tools/list` exposes a curated essential set (~25 tools) to reduce
+tool-selection cost for agents. To expose the full 102-tool surface, set
+`M1ND_TOOL_TIER=full` in the MCP server environment. Hidden tools remain fully
+callable via `tools/call` at all times — only the advertised list is filtered.
+
 For every host that supports environment variables, prefer setting
 `M1ND_WORKSPACE_ROOT` to the real repository/workspace. It is the portable
 signal used across Codex, Claude Code, Antigravity, Gemini, Cursor, Windsurf,

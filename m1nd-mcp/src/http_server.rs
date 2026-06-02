@@ -26,7 +26,7 @@ use crate::http_types::SubgraphQuery;
 use crate::instance_registry::{
     delete_instance_state, list_instances, spawn_heartbeat, InstanceRegistryEntry,
 };
-use crate::server::{dispatch_tool, tool_schemas, McpConfig};
+use crate::server::{all_tool_schemas, dispatch_tool, tool_schemas, McpConfig};
 use crate::session::{ApplyBatchProgressSink, SessionState};
 
 // ---------------------------------------------------------------------------
@@ -745,13 +745,20 @@ async fn handle_health(State(state): State<Arc<AppState>>) -> impl IntoResponse 
             "binding_fingerprint": session.binding_fingerprint(),
             "tool_surface_contract": {
                 "schema": "m1nd-tool-surface-contract-v0",
-                "registry_tool_count": crate::server::tool_schemas()
+                "full_registry_tool_count": crate::server::all_tool_schemas()
                     .get("tools")
                     .and_then(|tools| tools.as_array())
                     .map(|tools| tools.len())
                     .unwrap_or(0),
+                "advertised_tool_count": crate::server::tool_schemas()
+                    .get("tools")
+                    .and_then(|tools| tools.as_array())
+                    .map(|tools| tools.len())
+                    .unwrap_or(0),
+                "tool_tier": crate::server::active_tool_tier(),
                 "required_agent_trust_tools": crate::tools::AGENT_TRUST_REQUIRED_TOOLS,
                 "required_host_visible_tools": crate::tools::HOST_BINDING_REQUIRED_TOOLS,
+                "minimum_safe_tool_count": crate::tools::HOST_BINDING_REQUIRED_TOOLS.len(),
                 "recovery_tool": "recovery_playbook",
                 "diagnostic_tool": "doctor"
             },

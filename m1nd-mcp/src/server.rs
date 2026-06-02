@@ -254,9 +254,106 @@ struct DaemonRuntimeControl {
     watcher: Option<LiveDaemonWatcher>,
 }
 
-/// List of all registered MCP tool schemas with full inputSchema per MCP spec.
-/// Public so the HTTP server can cache and serve it.
+// ---------------------------------------------------------------------------
+// Tool tier gate
+// ---------------------------------------------------------------------------
+
+/// The curated ESSENTIAL tool set (~25 tools) advertised by default.
+///
+/// These are the high-frequency tools agents need for orientation, trust, and
+/// everyday graph queries. All other tools are "advanced" and are hidden from
+/// `tools/list` unless `M1ND_TOOL_TIER=full` is set — they remain fully
+/// callable via `tools/call` dispatch at all times.
+///
+/// To expose everything, set `M1ND_TOOL_TIER=full` in the MCP environment.
+pub const ESSENTIAL_TOOLS: &[&str] = &[
+    "trust_selftest",
+    "session_handshake",
+    "recovery_playbook",
+    "health",
+    "doctor",
+    "help",
+    "ingest",
+    "audit",
+    "search",
+    "seek",
+    "activate",
+    "glob",
+    "view",
+    "batch_view",
+    "impact",
+    "why",
+    "trace",
+    "predict",
+    "validate_plan",
+    "surgical_context_v2",
+    "cross_verify",
+    "mission_start",
+    "mission_next",
+    "mission_close",
+    "persist",
+];
+
+/// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
+///
+/// - Unset or `essential` (case-insensitive) → `"essential"` (curated ~25)
+/// - `full` (case-insensitive) → `"full"` (all 102 tools)
+/// - Any unrecognized value → defaults to `"essential"`
+pub fn active_tool_tier() -> &'static str {
+    match std::env::var("M1ND_TOOL_TIER")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "full" => "full",
+        _ => "essential",
+    }
+}
+
+/// Returns ALL registered MCP tool schemas regardless of tier.
+/// Use this when you always need the full 102-tool registry (e.g., health
+/// contract counts, internal tests that verify advanced tool registration).
+pub fn all_tool_schemas() -> serde_json::Value {
+    all_tool_schemas_inner()
+}
+
+/// Returns the tier-gated tool list for `tools/list` advertisement.
+///
+/// With `M1ND_TOOL_TIER=full` → returns all tools.
+/// Otherwise → returns only the ESSENTIAL_TOOLS curated set.
+/// Hidden tools remain callable via `tools/call` dispatch (handlers untouched).
 pub fn tool_schemas() -> serde_json::Value {
+    tool_schemas_for_tier(active_tool_tier())
+}
+
+/// Returns the tool list for the given tier string.
+/// Used internally and by tests to avoid env-var races.
+/// `tier`: "full" → all tools; anything else → essential set only.
+pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
+    let all = all_tool_schemas_inner();
+    if tier.eq_ignore_ascii_case("full") {
+        return all;
+    }
+    // Filter to essential set only
+    let essential_set: std::collections::HashSet<&str> =
+        ESSENTIAL_TOOLS.iter().copied().collect();
+    let filtered: Vec<serde_json::Value> = all["tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|tool| {
+            tool.get("name")
+                .and_then(|n| n.as_str())
+                .map(|name| essential_set.contains(name))
+                .unwrap_or(false)
+        })
+        .collect();
+    serde_json::json!({ "tools": filtered })
+}
+
+/// Internal: the complete static tool registry (all 102 tools). Never filtered.
+fn all_tool_schemas_inner() -> serde_json::Value {
     serde_json::json!({
         "tools": [
             {
@@ -3451,8 +3548,9 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::{
-        background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick, should_autotick_daemon,
-        tool_schemas, DaemonRuntimeControl, McpServer,
+        all_tool_schemas, background_tick_if_due, daemon_wait_duration_ms, run_daemon_tick,
+        should_autotick_daemon, tool_schemas, tool_schemas_for_tier, DaemonRuntimeControl,
+        McpServer, ESSENTIAL_TOOLS,
     };
     use crate::server::McpConfig;
     use crate::session::SessionState;
@@ -3491,7 +3589,10 @@ mod tests {
 
     #[test]
     fn tool_schemas_expose_new_audit_surface_and_retrobuilder_tools() {
-        let schema = tool_schemas();
+        // Use all_tool_schemas() — the full registry regardless of tier — to verify
+        // that all advanced tool handlers are registered in the binary.
+        // The tier gate only affects tools/list advertisement, not handler existence.
+        let schema = all_tool_schemas();
         let names: Vec<String> = schema["tools"]
             .as_array()
             .expect("tools array")
@@ -3532,7 +3633,7 @@ mod tests {
         ] {
             assert!(
                 names.iter().any(|name| name == expected),
-                "tool_schemas should expose {expected}"
+                "all_tool_schemas should expose {expected} (handler registered in binary)"
             );
         }
     }
@@ -4757,5 +4858,176 @@ mod tests {
 
         let wait_ms = daemon_wait_duration_ms(&state);
         assert_eq!(wait_ms, 1000);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tier gate tests (Step 4)
+    // These tests use tool_schemas_for_tier() directly to avoid env-var races
+    // in parallel test execution. The runtime path (tool_schemas() reading
+    // M1ND_TOOL_TIER) is also validated where safe to do so.
+    // -------------------------------------------------------------------------
+
+    /// The "essential" tier must advertise exactly the ESSENTIAL_TOOLS set:
+    /// all required trust tools present, advanced tools absent.
+    #[test]
+    fn tier_gate_essential_advertises_only_essential_tools() {
+        let schema = tool_schemas_for_tier("essential");
+        let names: Vec<&str> = schema["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+            .collect();
+
+        // Size must equal ESSENTIAL_TOOLS
+        assert_eq!(
+            names.len(),
+            ESSENTIAL_TOOLS.len(),
+            "essential tier should advertise exactly {} tools, got {}: {:?}",
+            ESSENTIAL_TOOLS.len(),
+            names.len(),
+            names
+        );
+
+        // All required trust tools must be present in the essential set
+        for required in crate::tools::HOST_BINDING_REQUIRED_TOOLS {
+            assert!(
+                names.contains(&required),
+                "essential tier must include required trust tool '{}'",
+                required
+            );
+        }
+
+        // Advanced tools that are NOT in ESSENTIAL_TOOLS must be absent
+        assert!(
+            !names.contains(&"resonate"),
+            "advanced tool 'resonate' must be absent from essential tier"
+        );
+        assert!(
+            !names.contains(&"ghost_edges"),
+            "advanced tool 'ghost_edges' must be absent from essential tier"
+        );
+        assert!(
+            !names.contains(&"twins"),
+            "advanced tool 'twins' must be absent from essential tier"
+        );
+    }
+
+    /// The "full" tier must advertise all registered tools (same as all_tool_schemas).
+    #[test]
+    fn tier_gate_full_advertises_all_tools() {
+        let full_schema = all_tool_schemas();
+        let gated_schema = tool_schemas_for_tier("full");
+
+        let full_count = full_schema["tools"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let gated_count = gated_schema["tools"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+
+        assert_eq!(
+            full_count, gated_count,
+            "full tier must advertise all {} tools, got {}",
+            full_count, gated_count
+        );
+
+        // Advanced tools must be present in the full tier
+        let gated_names: Vec<&str> = gated_schema["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+            .collect();
+        assert!(
+            gated_names.contains(&"resonate"),
+            "advanced tool 'resonate' must be present in full tier"
+        );
+        assert!(
+            gated_names.contains(&"ghost_edges"),
+            "advanced tool 'ghost_edges' must be present in full tier"
+        );
+    }
+
+    /// Explicit "essential" string matches what an empty/unset tier produces.
+    #[test]
+    fn tier_gate_essential_explicit_matches_unset() {
+        // "essential" and "" (unset/default) must yield same count
+        let essential_count = tool_schemas_for_tier("essential")["tools"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let unset_count = tool_schemas_for_tier("")["tools"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+
+        assert_eq!(
+            essential_count, unset_count,
+            "tier=essential must equal tier='' (unset)"
+        );
+        assert_eq!(
+            essential_count,
+            ESSENTIAL_TOOLS.len(),
+            "essential count must match ESSENTIAL_TOOLS const"
+        );
+    }
+
+    /// Unrecognized tier values must fall back to essential (not full).
+    #[test]
+    fn tier_gate_unrecognized_value_falls_back_to_essential() {
+        let count = tool_schemas_for_tier("bogus_value_xyz")["tools"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+
+        assert_eq!(
+            count,
+            ESSENTIAL_TOOLS.len(),
+            "unrecognized tier value must fall back to essential ({} tools), got {}",
+            ESSENTIAL_TOOLS.len(),
+            count
+        );
+    }
+
+    /// all_tool_schemas() must always return the full registry regardless of tier,
+    /// and the essential set must be a strict subset. This proves that hidden tools
+    /// remain registered (their handlers exist) even when tier=essential.
+    #[test]
+    fn all_tool_schemas_always_contains_all_tools_regardless_of_tier() {
+        let full = all_tool_schemas();
+        let full_count = full["tools"].as_array().map(|a| a.len()).unwrap_or(0);
+        let essential = tool_schemas_for_tier("essential");
+        let essential_count = essential["tools"].as_array().map(|a| a.len()).unwrap_or(0);
+
+        // Full registry is strictly larger than the essential set
+        assert!(
+            full_count > essential_count,
+            "full registry ({}) must be larger than essential set ({})",
+            full_count,
+            essential_count
+        );
+
+        // A known advanced tool exists in the full registry (handler registered)
+        let full_names: Vec<&str> = full["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+            .collect();
+        assert!(
+            full_names.contains(&"resonate"),
+            "'resonate' handler must remain registered even when tier=essential"
+        );
+        assert!(
+            full_names.contains(&"ghost_edges"),
+            "'ghost_edges' handler must remain registered even when tier=essential"
+        );
+        assert!(
+            full_names.contains(&"daemon_start"),
+            "'daemon_start' handler must remain registered even when tier=essential"
+        );
     }
 }
