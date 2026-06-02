@@ -1844,6 +1844,19 @@ fn overview_cards(input: &HelpInput) -> Vec<OverviewCard> {
             reject_reason: "Batch execution is too early until the change stops proving and becomes safe to execute.",
         },
         OverviewCard {
+            title: "Need deep architecture or risk lens",
+            why: "Use RETROBUILDER tools for hidden co-change, taint, duplication, refactor seams, or runtime heat before direct proof.",
+            tool: "ghost_edges",
+            arguments: json!({
+                "agent_id": "jimi",
+                "depth": "30d",
+                "scope": "src",
+                "top_k": 10
+            }),
+            reject_tool: "search",
+            reject_reason: "Raw text search cannot surface hidden git co-change, taint paths, structural twins, refactor communities, or runtime overlays.",
+        },
+        OverviewCard {
             title: "Need continuity or handoff",
             why: "Persist or resume investigation state explicitly.",
             tool: "trail_save",

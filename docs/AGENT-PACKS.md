@@ -110,6 +110,11 @@ runtime, binds `M1ND_WORKSPACE_ROOT` to the repo, keeps worktree artifacts out
 of the inspected project, and returns a single JSON envelope:
 
 ```bash
+m1nd agent first-minute \
+  --repo /path/to/project \
+  --query "understand this system" \
+  --json
+
 m1nd agent next \
   --repo /path/to/project \
   --query "focused subsystem or bug surface" \
@@ -122,11 +127,16 @@ m1nd agent orient \
   --json
 ```
 
-The outer JSON schema is `m1nd-agent-cli-v0`. `agent next`/`agent auto` emits an
+The outer JSON schema is `m1nd-agent-cli-v0`. `agent first-minute` is the safe
+first contact for broad "understand/audit/map this repo" tasks: it scopes,
+trusts, ingests when needed, returns anchors, and emits `do_not` guardrails
+before handing the agent to direct proof. `agent next`/`agent auto` emits an
 inner `m1nd-agent-action-envelope-v0` so an agent can choose the first safe move
-without memorizing the full tool matrix. `agent orient` is intentionally not a
-final proof surface; it is a bounded orientation envelope that tells the agent
-to switch to direct source/runtime proof. The older
+without memorizing the full tool matrix. `agent context` is anchor-first; use it
+after a concrete file, path, or identifier is known, not as the first narrative
+question. `agent orient` is intentionally not a final proof surface; it is a
+bounded orientation envelope that tells the agent to switch to direct
+source/runtime proof. The older
 `skills/m1nd-operator/scripts/probe_m1nd.py short-audit` route remains available
 for compatibility when a host has not installed the npm CLI.
 
@@ -185,6 +195,16 @@ operating layer at
 for the whole m1nd/L1GHT surface: architecture maps, bug hunts, docs drift,
 multi-repo federation, perspectives/trails, locks, monitoring, and deep risk
 tools. Agents should treat it as a decision router, not as mandatory paperwork.
+
+For deep architecture/risk work, the compact packs should surface the
+RETROBUILDER family directly instead of relying on the agent to remember the
+full reference: `ghost_edges` for hidden historical co-change, `taint_trace` for
+trust-boundary or sensitive flow, `twins` for structural duplication,
+`refactor_plan` for extraction communities, and `runtime_overlay` for span/log
+heat mapped onto graph nodes. `m1nd agent first-minute`, `next`, `orient`, and
+`context` may emit these as `capability_suggestions`. They are graph
+orientation and hypothesis tools; direct source reads, tests, compiler/runtime
+output, logs, or focused probes remain final truth.
 
 If the host is stale because it is still launching an older native binary, use
 the self-update surface first:

@@ -135,6 +135,11 @@ orientation pass instead of a long graph investigation:
 Prefer the host-neutral agent CLI for this route:
 
 ```bash
+m1nd agent first-minute \
+  --repo /path/to/repo \
+  --query "understand this system" \
+  --json
+
 m1nd agent next \
   --repo /path/to/repo \
   --query "focused subsystem or bug surface" \
@@ -147,6 +152,11 @@ m1nd agent orient \
   --json
 ```
 
+Use `agent first-minute` for first contact, broad architecture/audit requests,
+or when the host has not loaded this pack yet. It scopes, trusts, ingests when
+needed, runs one bounded orientation pass, returns anchors, and hands control
+back to direct proof.
+
 `agent next` emits an `m1nd-agent-action-envelope-v0` with the first safe move.
 Use it when choosing between scope, trust, orient, context, recover, or direct
 proof. `agent orient` returns `schema=m1nd-agent-cli-v0`, records
@@ -154,6 +164,11 @@ proof. `agent orient` returns `schema=m1nd-agent-cli-v0`, records
 switch to direct proof. Use `probe_m1nd.py short-audit` only as a compatibility
 fallback when the npm CLI is unavailable, and raw `probe_m1nd.py run` only when
 a custom multi-tool sequence is needed.
+
+`agent context` is anchor-first. Use it with a concrete path, identifier, or
+`--anchor <file>` after orientation. Do not use it as the first broad narrative
+question unless `--allow-discovery` is intentionally chosen and the result is
+treated as orientation only.
 
 ## Session Companions
 
@@ -217,6 +232,12 @@ situation.
 - Stacktrace or runtime error text -> `trace`
 - Risky change -> `impact`, `predict`, `validate_plan`, then usually
   `surgical_context_v2`
+- Deep architecture/risk -> RETROBUILDER. Use `ghost_edges` for hidden
+  historical co-change, `taint_trace` for trust-boundary or sensitive flow,
+  `twins` for structural duplication, `refactor_plan` for extraction
+  communities, and `runtime_overlay` for span/log heat on graph nodes. These
+  tools produce anchors and hypotheses; direct source/test/runtime proof is
+  still final truth.
 - Docs/specs -> `ingest` with `adapter="universal"` or `adapter="light"`, then
   document binding/drift tools
 - Mission loop -> `mission_start`, `mission_event`, `mission_next`,
