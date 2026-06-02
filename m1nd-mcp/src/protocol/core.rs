@@ -115,6 +115,11 @@ pub struct PredictInput {
     pub top_k: usize,
     #[serde(default = "default_true")]
     pub include_velocity: bool,
+    /// Minimum co-change observation count to include git-derived co-change
+    /// entries from the orchestrator matrix. Default: 2. Set to 1 to include
+    /// all entries including singletons.
+    #[serde(default)]
+    pub min_co_change_count: Option<u32>,
 }
 
 /// Input for m1nd.fingerprint (03-MCP Section 2.8).

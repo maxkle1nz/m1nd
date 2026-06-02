@@ -3480,10 +3480,18 @@ pub fn handle_hypothesize(
 
     // Bayesian confidence
     let confidence = l5_bayesian_confidence(&supporting, &contradicting);
+    // Guard: if any supporting evidence contains a real graph path (path_found),
+    // the verdict must NOT be "likely_false" — spurious no_path contradicting
+    // entries between unrelated node pairs must not override a confirmed path.
+    let has_real_supporting_path = supporting
+        .iter()
+        .any(|e| e.evidence_type == "path_found");
     let verdict = if confidence > 0.8 {
         "likely_true"
-    } else if confidence < 0.2 {
+    } else if confidence < 0.2 && !has_real_supporting_path {
         "likely_false"
+    } else if has_real_supporting_path && confidence <= 0.8 {
+        "plausible"
     } else {
         "inconclusive"
     };
@@ -3767,7 +3775,7 @@ pub fn handle_trace(
     let mut unmapped: Vec<layers::TraceUnmappedFrame> = Vec::new();
 
     for frame in &raw_frames {
-        match l6_resolve_frame(&graph, frame, n) {
+        match l6_resolve_frame(&graph, frame, n, &state.ingest_roots) {
             Some(node_id) => {
                 mapped.push(L6MappedFrame {
                     node_id,
@@ -3781,7 +3789,7 @@ pub fn handle_trace(
                     file: frame.file.clone(),
                     line: frame.line,
                     function: frame.function.clone(),
-                    reason: l6_classify_unmapped(&graph, &frame.file),
+                    reason: l6_classify_unmapped(&graph, &frame.file, &state.ingest_roots),
                 });
             }
         }
@@ -4755,12 +4763,23 @@ fn l6_normalize_path(path: &str) -> String {
 }
 
 /// Resolve a parsed frame to its best-matching graph node via provenance.
+/// Accepts `ingest_roots` so that absolute paths in runtime stacktraces can be
+/// stripped to repo-relative form before graph lookup (Fix 1).
 fn l6_resolve_frame(
     graph: &m1nd_core::graph::Graph,
     frame: &L6RawFrame,
     n: usize,
+    ingest_roots: &[String],
 ) -> Option<NodeId> {
-    let frame_path = l6_normalize_path(&frame.file);
+    // Normalize: strip absolute prefix via ingest_roots first, then fallback
+    // to the heuristic l6_normalize_path so repo-relative paths still work.
+    let frame_path = if let Some(rel) =
+        crate::scope::normalize_scope_path(Some(&frame.file), ingest_roots)
+    {
+        rel
+    } else {
+        l6_normalize_path(&frame.file)
+    };
 
     // Strategy 1: direct external_id lookup
     let ext_id = format!("file::{}", frame_path);
@@ -4834,7 +4853,11 @@ fn l6_find_specific_node(
 }
 
 /// Classify why a frame couldn't be mapped.
-fn l6_classify_unmapped(graph: &m1nd_core::graph::Graph, file: &str) -> String {
+fn l6_classify_unmapped(
+    graph: &m1nd_core::graph::Graph,
+    file: &str,
+    ingest_roots: &[String],
+) -> String {
     if file.contains("site-packages/")
         || file.contains("node_modules/")
         || file.contains("/lib/python")
@@ -4844,7 +4867,14 @@ fn l6_classify_unmapped(graph: &m1nd_core::graph::Graph, file: &str) -> String {
     {
         return "stdlib/third-party".into();
     }
-    let norm = l6_normalize_path(file);
+    // Strip absolute prefix via ingest_roots so the ext_id lookup matches.
+    let norm = if let Some(rel) =
+        crate::scope::normalize_scope_path(Some(file), ingest_roots)
+    {
+        rel
+    } else {
+        l6_normalize_path(file)
+    };
     let ext_id = format!("file::{}", norm);
     if graph.resolve_id(&ext_id).is_some() {
         return "line outside any node range".into();
@@ -10638,6 +10668,171 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 .iter()
                 .all(|item| item.file_path != "Cargo.toml"),
             "suggested additions should not reintroduce suppressed manifest noise"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Fix 1: trace maps frames with ABSOLUTE paths (runtime stacktrace case)
+    // -------------------------------------------------------------------------
+    #[test]
+    fn trace_maps_absolute_path_frame_to_graph_node() {
+        use super::handle_trace;
+        use crate::protocol::layers::TraceInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        // The graph has "file::src/core.rs". Build an absolute path by
+        // prepending the ingest_root, as a real runtime stacktrace would.
+        let abs_path = format!("{}/src/core.rs", root.to_string_lossy());
+
+        // Craft a minimal Node.js-style stacktrace with the absolute path.
+        let error_text = format!(
+            "Error: something went wrong\n    at Object.<anonymous> ({abs_path}:10:5)\n"
+        );
+
+        let output = handle_trace(
+            &mut state,
+            TraceInput {
+                agent_id: "test".into(),
+                error_text,
+                language: Some("javascript".into()),
+                window_hours: 24.0,
+                top_k: 10,
+            },
+        )
+        .expect("handle_trace should not fail");
+
+        assert!(
+            output.frames_parsed >= 1,
+            "expected at least one frame parsed, got {}",
+            output.frames_parsed
+        );
+        assert!(
+            output.frames_mapped >= 1,
+            "expected frames_mapped >= 1 for absolute path frame, got {} (unmapped: {:?})",
+            output.frames_mapped,
+            output.unmapped_frames
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Fix 2: hypothesize returns a verdict != "likely_false" when a real
+    // supporting path exists
+    // -------------------------------------------------------------------------
+    #[test]
+    fn hypothesize_does_not_return_likely_false_when_supporting_path_exists() {
+        use super::handle_hypothesize;
+        use crate::protocol::layers::HypothesizeInput;
+
+        // Build a graph with a real edge: core.rs → ui.rs
+        // (build_layer_state already does this via the imports edge)
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let mut state = build_layer_state(root);
+
+        // "core.rs imports ui.rs" — there IS an edge, so supporting evidence
+        // must be found and verdict must NOT be "likely_false".
+        let output = handle_hypothesize(
+            &mut state,
+            HypothesizeInput {
+                agent_id: "test".into(),
+                claim: "core.rs imports ui.rs".into(),
+                max_hops: 3,
+                include_ghost_edges: false,
+                include_partial_flow: false,
+                path_budget: 50,
+            },
+        )
+        .expect("handle_hypothesize should not fail");
+
+        assert_ne!(
+            output.verdict, "likely_false",
+            "verdict must not be likely_false when supporting_evidence is non-empty: {:?}",
+            output.supporting_evidence
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Fix 3: predict consults orchestrator.temporal.co_change when
+    // state.temporal.co_change has no entry for the node
+    // -------------------------------------------------------------------------
+    #[test]
+    fn predict_falls_back_to_git_co_change_matrix() {
+        use crate::server::McpConfig;
+        use crate::session::SessionState;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = m1nd_core::graph::Graph::new();
+        let a = graph
+            .add_node("file::src/a.rs", "a.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add a");
+        let b = graph
+            .add_node("file::src/b.rs", "b.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add b");
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+
+        // Directly inject a co-change entry into the orchestrator's temporal matrix
+        // (this is what ghost_edges does after parsing git history).
+        let _ = state
+            .orchestrator
+            .temporal
+            .co_change
+            .record_co_change(a, b, 0.0);
+        let _ = state
+            .orchestrator
+            .temporal
+            .co_change
+            .record_co_change(b, a, 0.0);
+
+        // state.temporal.co_change (bootstrap) should be empty for a.
+        // After Fix 3 the predict handler should fall back to orchestrator matrix.
+        let output = crate::tools::handle_predict(
+            &mut state,
+            crate::protocol::core::PredictInput {
+                agent_id: "test".into(),
+                changed_node: "file::src/a.rs".into(),
+                top_k: 5,
+                include_velocity: false,
+                min_co_change_count: Some(1),
+            },
+        )
+        .expect("handle_predict should not fail");
+
+        let predictions = output
+            .get("predictions")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let has_b = predictions.iter().any(|p| {
+            p.get("node_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("b.rs"))
+                .unwrap_or(false)
+        });
+
+        assert!(
+            has_b,
+            "predict should surface b.rs as a co-change partner via the orchestrator matrix; got: {:?}",
+            predictions
         );
     }
 }

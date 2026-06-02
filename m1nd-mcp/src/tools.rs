@@ -1279,6 +1279,44 @@ pub fn handle_predict(
     }
 
     let co_change_predictions = state.temporal.co_change.predict(node, input.top_k);
+
+    // --- Git-derived co-change fallback (Fix 3) ---
+    // ghost_edges writes real git co-change into state.orchestrator.temporal.co_change.
+    // If the bootstrap matrix has no entry for this node, merge git-derived entries.
+    // Apply min_co_change_count filter (default 2, ~strength >= 0.2) to suppress
+    // one-off coincidental pairs.
+    let min_strength = {
+        let count = input.min_co_change_count.unwrap_or(2).max(1);
+        // Each co-change observation adds 0.1 to strength starting from 0.1,
+        // so N observations ≈ strength 0.1 * N (capped at 1.0).
+        (count as f32 * 0.1).min(1.0)
+    };
+    let git_co_change_predictions: Vec<m1nd_core::temporal::CoChangeEntry> = {
+        let git_preds = state
+            .orchestrator
+            .temporal
+            .co_change
+            .predict(node, input.top_k);
+        git_preds
+            .into_iter()
+            .filter(|e| e.strength.get() >= min_strength)
+            .collect()
+    };
+
+    // Merge: bootstrap predictions take precedence (higher credibility).
+    // Git-derived entries fill in missing slots.
+    let co_change_predictions: Vec<m1nd_core::temporal::CoChangeEntry> = {
+        let mut merged = co_change_predictions;
+        let already_seen: HashSet<NodeId> = merged.iter().map(|e| e.target).collect();
+        for entry in git_co_change_predictions {
+            if !already_seen.contains(&entry.target) {
+                merged.push(entry);
+            }
+        }
+        merged.sort_by_key(|e| std::cmp::Reverse(e.strength));
+        merged.truncate(input.top_k);
+        merged
+    };
     let co_change_count = co_change_predictions.len();
 
     // --- Structural fallback (Issue 3) ---
