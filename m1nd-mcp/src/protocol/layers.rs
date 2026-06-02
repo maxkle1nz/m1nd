@@ -1588,6 +1588,10 @@ pub struct LayersInput {
     /// Maximum violations to return (default 100).
     #[serde(default = "default_violation_limit")]
     pub violation_limit: usize,
+    /// Maximum nodes to emit per layer. Default: 40.
+    /// Set to a larger value (or omit) to get more nodes per layer.
+    #[serde(default)]
+    pub max_nodes_per_layer: Option<usize>,
 }
 
 fn default_max_layers() -> u8 {

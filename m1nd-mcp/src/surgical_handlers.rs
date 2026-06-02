@@ -2599,6 +2599,24 @@ pub fn handle_surgical_context_v2(
         }
     }
 
+    // Cap the primary file's contents if needed
+    let max_primary_lines = input.max_primary_file_lines.unwrap_or(400);
+    let (primary_file_contents, primary_truncated) = {
+        let all_lines: Vec<&str> = primary.file_contents.lines().collect();
+        if all_lines.len() > max_primary_lines {
+            let truncated_lines = all_lines.len() - max_primary_lines;
+            let mut capped = all_lines[..max_primary_lines].join("\n");
+            capped.push_str(&format!(
+                "\n// ... [truncated {} of {} lines]",
+                truncated_lines,
+                all_lines.len()
+            ));
+            (capped, true)
+        } else {
+            (primary.file_contents.clone(), false)
+        }
+    };
+
     let (next_suggested_tool, next_suggested_target, next_step_hint) = surgical_v2_next_step(
         &primary.file_path,
         primary.heuristic_summary.as_ref(),
@@ -2606,7 +2624,7 @@ pub fn handle_surgical_context_v2(
         input.proof_focused,
     );
     let proof_state = surgical_v2_proof_state(
-        &primary.file_contents,
+        &primary_file_contents,
         primary.heuristic_summary.as_ref(),
         &connected_files,
         next_suggested_tool.as_deref(),
@@ -2641,7 +2659,7 @@ pub fn handle_surgical_context_v2(
 
     Ok(surgical::SurgicalContextV2Output {
         file_path: primary.file_path,
-        file_contents: primary.file_contents,
+        file_contents: primary_file_contents,
         line_count: primary.line_count,
         node_id: primary.node_id,
         symbols: primary.symbols,
@@ -2654,6 +2672,7 @@ pub fn handle_surgical_context_v2(
         proof_state,
         total_lines,
         elapsed_ms,
+        primary_truncated,
     })
 }
 
@@ -5048,6 +5067,7 @@ mod tests {
                 max_connected_files: 5,
                 max_lines_per_file: 60,
                 proof_focused: false,
+                max_primary_file_lines: None,
             },
         )
         .expect("surgical context v2");
@@ -5090,6 +5110,7 @@ mod tests {
                 max_connected_files: 1,
                 max_lines_per_file: 60,
                 proof_focused: false,
+                max_primary_file_lines: None,
             },
         )
         .expect("surgical context v2");
@@ -5274,6 +5295,7 @@ mod tests {
                 max_connected_files: 8,
                 max_lines_per_file: 60,
                 proof_focused: true,
+                max_primary_file_lines: None,
             },
         )
         .expect("surgical context v2");

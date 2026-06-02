@@ -2515,6 +2515,7 @@ pub fn handle_audit(
                 naming_strategy: "auto".into(),
                 exclude_tests: false,
                 violation_limit: 100,
+                max_nodes_per_layer: None,
             },
         )?
     };

@@ -64,6 +64,7 @@ fn build_v2_output(
         proof_state: "ready_to_edit".into(),
         total_lines,
         elapsed_ms: 3.0,
+        primary_truncated: false,
     }
 }
 

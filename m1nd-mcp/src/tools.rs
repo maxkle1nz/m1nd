@@ -765,6 +765,8 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
                 next_suggested_tool: projection.next_suggested_tool,
                 next_suggested_target: projection.next_suggested_target,
                 next_step_hint: projection.next_step_hint,
+                total_blast_nodes: 0,
+                truncated: false,
             });
         }
     };
@@ -796,9 +798,21 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         }
     };
 
-    let blast_radius: Vec<BlastRadiusEntry> = impact
-        .blast_radius
+    let max_nodes_cap = input.max_nodes.unwrap_or(150);
+    let total_blast_nodes = impact.blast_radius.len();
+
+    // Sort by signal_strength descending before capping
+    let mut sorted_blast = impact.blast_radius.clone();
+    sorted_blast.sort_by(|a, b| {
+        b.signal_strength
+            .get()
+            .partial_cmp(&a.signal_strength.get())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let blast_radius: Vec<BlastRadiusEntry> = sorted_blast
         .iter()
+        .take(max_nodes_cap)
         .map(|e| {
             let idx = e.node.as_usize();
             let (label, node_type) = if idx < graph.num_nodes() as usize {
@@ -818,6 +832,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             }
         })
         .collect();
+    let truncated = total_blast_nodes > max_nodes_cap;
 
     let causal_chains: Vec<CausalChainOutput> = chains
         .iter()
@@ -862,8 +877,7 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         next_suggested_tool: impact_projection
             .as_ref()
             .and_then(|projection| projection.next_suggested_tool.clone()),
-        next_suggested_target: impact
-            .blast_radius
+        next_suggested_target: sorted_blast
             .first()
             .map(|entry| {
                 let idx = entry.node.as_usize();
@@ -881,6 +895,8 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
         next_step_hint: impact_projection
             .as_ref()
             .and_then(|projection| projection.next_step_hint.clone()),
+        total_blast_nodes,
+        truncated,
     })
 }
 
@@ -3375,5 +3391,90 @@ mod tests {
             .as_str()
             .expect("next action")
             .contains("continue with m1nd-first retrieval"));
+    }
+
+    /// Build a star graph where `hub` has N outgoing edges to leaf nodes.
+    /// Returns (state, hub_id_string).
+    fn build_star_graph(root: &std::path::Path, leaf_count: usize) -> (SessionState, String) {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let hub = graph
+            .add_node("file::hub.rs", "hub.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add hub");
+
+        for i in 0..leaf_count {
+            let leaf_id = format!("file::leaf_{}.rs", i);
+            let leaf_label = format!("leaf_{}.rs", i);
+            let leaf = graph
+                .add_node(&leaf_id, &leaf_label, NodeType::File, &[], 0.0, 0.0)
+                .expect("add leaf");
+            graph
+                .add_edge(
+                    hub,
+                    leaf,
+                    "imports",
+                    FiniteF32::new(1.0),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.5),
+                )
+                .expect("add edge");
+        }
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        (state, "file::hub.rs".to_string())
+    }
+
+    #[test]
+    fn impact_max_nodes_cap_is_honored() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (mut state, hub_id) = build_star_graph(temp.path(), 20);
+
+        let output = super::handle_impact(
+            &mut state,
+            crate::protocol::core::ImpactInput {
+                node_id: hub_id,
+                agent_id: "test".into(),
+                direction: "forward".into(),
+                include_causal_chains: false,
+                max_nodes: Some(5),
+            },
+        )
+        .expect("impact should succeed");
+
+        // blast_radius must be capped
+        assert!(
+            output.blast_radius.len() <= 5,
+            "blast_radius capped to max_nodes=5, got {}",
+            output.blast_radius.len()
+        );
+        // total_blast_nodes reflects pre-cap count
+        assert!(
+            output.total_blast_nodes >= output.blast_radius.len(),
+            "total_blast_nodes ({}) >= blast_radius.len() ({})",
+            output.total_blast_nodes,
+            output.blast_radius.len()
+        );
+        // truncated flag must be set when cap was applied
+        if output.total_blast_nodes > 5 {
+            assert!(
+                output.truncated,
+                "truncated must be true when total_blast_nodes ({}) > max_nodes (5)",
+                output.total_blast_nodes
+            );
+        }
     }
 }

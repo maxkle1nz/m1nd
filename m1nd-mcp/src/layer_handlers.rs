@@ -7829,15 +7829,24 @@ pub fn handle_layers(
         }
     }
 
+    let max_nodes_per_layer_cap = input.max_nodes_per_layer.unwrap_or(40);
+    let mut any_layer_truncated = false;
+
     // Convert to protocol output
     let layer_entries: Vec<serde_json::Value> = result
         .layers
         .iter()
         .map(|layer| {
+            let total_layer_nodes = layer.nodes.len();
+            let layer_truncated = total_layer_nodes > max_nodes_per_layer_cap;
+            if layer_truncated {
+                any_layer_truncated = true;
+            }
             let nodes: Vec<serde_json::Value> = layer
                 .nodes
                 .iter()
                 .enumerate()
+                .take(max_nodes_per_layer_cap)
                 .map(|(i, &nid)| {
                     let idx = nid.as_usize();
                     let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
@@ -7861,7 +7870,9 @@ pub fn handle_layers(
                 "level": layer.level,
                 "name": layer.name,
                 "description": layer.description,
-                "node_count": layer.nodes.len(),
+                "node_count": total_layer_nodes,
+                "nodes_returned": nodes.len(),
+                "nodes_truncated": layer_truncated,
                 "nodes": nodes,
                 "avg_pagerank": layer.avg_pagerank,
                 "avg_out_degree": layer.avg_out_degree
@@ -7958,6 +7969,7 @@ pub fn handle_layers(
             "layer_separation_score": result.layer_separation_score,
             "has_cycles": result.has_cycles
         },
+        "truncated": any_layer_truncated,
         "elapsed_ms": elapsed
     });
 
@@ -10354,6 +10366,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             naming_strategy: "auto".into(),
             exclude_tests: false,
             violation_limit: 10,
+            max_nodes_per_layer: None,
         };
 
         let output = handle_layers(&mut state, input).expect("layers should succeed");

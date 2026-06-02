@@ -313,6 +313,10 @@ pub struct SurgicalContextV2Input {
     /// When true, prefer a smaller proof set over a wider neighborhood.
     #[serde(default)]
     pub proof_focused: bool,
+    /// Maximum lines to return for the primary file. Default: 400.
+    /// Lines beyond this limit are replaced with a truncation marker.
+    #[serde(default)]
+    pub max_primary_file_lines: Option<usize>,
 }
 
 fn default_max_connected_files() -> usize {
@@ -383,6 +387,8 @@ pub struct SurgicalContextV2Output {
     pub total_lines: usize,
     /// Elapsed milliseconds.
     pub elapsed_ms: f64,
+    /// True when the primary file_contents was capped by max_primary_file_lines.
+    pub primary_truncated: bool,
 }
 
 // ---------------------------------------------------------------------------

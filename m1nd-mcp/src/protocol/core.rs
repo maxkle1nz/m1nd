@@ -63,6 +63,10 @@ pub struct ImpactInput {
     pub direction: String,
     #[serde(default = "default_true")]
     pub include_causal_chains: bool,
+    /// Maximum blast-radius nodes to return. Default: 150.
+    /// Set higher (or None/omit) to get the full set.
+    #[serde(default)]
+    pub max_nodes: Option<usize>,
 }
 
 /// Input for m1nd.missing (03-MCP Section 2.3).
@@ -440,6 +444,10 @@ pub struct ImpactOutput {
     pub next_suggested_target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_step_hint: Option<String>,
+    /// Total blast-radius nodes before any cap was applied.
+    pub total_blast_nodes: usize,
+    /// True when blast_radius was capped by max_nodes.
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
