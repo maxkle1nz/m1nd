@@ -165,6 +165,146 @@ impl PythonModuleIndex {
 }
 
 // ---------------------------------------------------------------------------
+// JsModuleIndex — maps JS/TS relative specifiers to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps JS/TS import specifiers (relative paths) to file external IDs.
+///
+/// Built from discovered file nodes tagged "typescript" or having a JS/TS
+/// extension. Only resolves RELATIVE specifiers (starting with "./" or "../").
+/// Bare/scoped specifiers (node_modules) are intentionally skipped.
+///
+/// Probes these suffixes in order: .ts .tsx .js .jsx .mjs .cjs
+/// Also probes index files: /index.ts /index.tsx /index.js /index.jsx
+struct JsModuleIndex {
+    /// Canonical path (no extension, relative to project root) -> file external ID
+    /// e.g. "src/utils" -> "file::src/utils.ts"
+    path_to_file: HashMap<String, String>,
+}
+
+const JS_TS_EXTENSIONS: &[&str] = &["ts", "tsx", "js", "jsx", "mjs", "cjs"];
+
+impl JsModuleIndex {
+    /// Build the JS/TS module index from all file external IDs in the graph.
+    ///
+    /// Scans file nodes whose IDs end in a JS/TS extension and registers them
+    /// under their path without extension, enabling specifier -> file resolution.
+    fn build(graph: &Graph) -> Self {
+        let mut path_to_file: HashMap<String, String> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) => p,
+                None => continue,
+            };
+
+            // Only handle JS/TS files
+            let is_js_ts = JS_TS_EXTENSIONS
+                .iter()
+                .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+            if !is_js_ts {
+                continue;
+            }
+
+            // Strip extension to get canonical path key
+            // e.g. "src/utils.ts" -> "src/utils"
+            let without_ext = JS_TS_EXTENSIONS
+                .iter()
+                .find_map(|ext| rel_path.strip_suffix(&format!(".{}", ext)))
+                .unwrap_or(rel_path);
+
+            // Register under canonical path; first registration wins to avoid
+            // e.g. both utils.ts and utils.js registering as "utils"
+            path_to_file
+                .entry(without_ext.to_string())
+                .or_insert_with(|| ext_id.clone());
+        }
+
+        Self { path_to_file }
+    }
+
+    /// Resolve a JS/TS import specifier to a file external ID.
+    ///
+    /// `specifier`: the raw import specifier (e.g. "./utils", "../lib/helper").
+    /// `source_dir`: the directory of the importing file (e.g. "src/components").
+    ///
+    /// Only resolves RELATIVE specifiers (starts with "./" or "../").
+    /// Returns None for bare specifiers (node_modules / built-ins).
+    fn resolve(&self, specifier: &str, source_dir: &str) -> Option<&str> {
+        // Only handle relative imports
+        if !specifier.starts_with("./") && !specifier.starts_with("../") {
+            return None;
+        }
+
+        // Resolve the specifier against the source directory to get a canonical path
+        let joined = join_path(source_dir, specifier);
+
+        // If the specifier already has an extension, try exact match first
+        let has_ext = JS_TS_EXTENSIONS
+            .iter()
+            .any(|ext| joined.ends_with(&format!(".{}", ext)));
+
+        if has_ext {
+            // Try the exact path (strip extension to look up in index)
+            if let Some(without_ext) = JS_TS_EXTENSIONS
+                .iter()
+                .find_map(|ext| joined.strip_suffix(&format!(".{}", ext)))
+            {
+                if let Some(file_id) = self.path_to_file.get(without_ext) {
+                    return Some(file_id.as_str());
+                }
+            }
+        }
+
+        // No extension in specifier — probe suffixes in priority order
+        if let Some(file_id) = self.path_to_file.get(joined.as_str()) {
+            return Some(file_id.as_str());
+        }
+
+        // Probe /index.{ext} variants
+        let index_path = format!("{}/index", joined);
+        if let Some(file_id) = self.path_to_file.get(index_path.as_str()) {
+            return Some(file_id.as_str());
+        }
+
+        None
+    }
+}
+
+/// Join a base directory path with a relative specifier, normalizing `..` and `.`.
+/// Both paths use forward slashes. Returns a normalized relative path.
+fn join_path(base_dir: &str, relative: &str) -> String {
+    // Build the initial path by concatenating base_dir and relative
+    let combined = if base_dir.is_empty() {
+        relative.to_string()
+    } else {
+        format!("{}/{}", base_dir, relative)
+    };
+
+    // Normalize: split on '/', resolve '.' and '..'
+    let mut parts: Vec<&str> = Vec::new();
+    for segment in combined.split('/') {
+        match segment {
+            "" | "." => {} // skip empty and self-ref segments
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    parts.join("/")
+}
+
+// ---------------------------------------------------------------------------
 // resolve_cross_file_edges — main entry point
 // ---------------------------------------------------------------------------
 
@@ -183,7 +323,7 @@ impl PythonModuleIndex {
 pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<CrossFileStats> {
     let mut stats = CrossFileStats::default();
 
-    // Step 1: Build the module index from file nodes already in the graph.
+    // Step 1: Build the Python module index from file nodes already in the graph.
     let module_index = PythonModuleIndex::build(graph);
     stats.files_indexed = module_index.module_to_file.len() as u64;
 
@@ -220,6 +360,18 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     for (main_file_id, route_file_id) in &register_edges {
         if add_cross_file_edge(graph, main_file_id, route_file_id, "registers", &mut stats) {
             stats.register_edges_created += 1;
+        }
+    }
+
+    // Step 5: JS/TS cross-file import resolution via JsModuleIndex.
+    let js_index = JsModuleIndex::build(graph);
+    stats.files_indexed += js_index.path_to_file.len() as u64;
+    let js_import_edges = collect_js_import_edges_from_files(graph, root, &js_index);
+    for (source_file_id, target_file_id, relation) in &js_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
         }
     }
 
@@ -471,6 +623,108 @@ fn detect_route_registrations(
                             e.insert(true);
                             edges.push((ext_id.clone(), target_file_id.to_string()));
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
+// JS/TS import edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all JS/TS file nodes in the graph, read their source from disk,
+/// extract import statements (ES module `import ... from "..."` and
+/// `require("...")` CJS), and resolve relative specifiers to file-to-file edges.
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_js_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    js_index: &JsModuleIndex,
+) -> Vec<(String, String, String)> {
+    // ES module: import ... from "./specifier"
+    let re_esm_import =
+        Regex::new(r#"^\s*import\s+.*from\s+['"]([^'"]+)['"]"#).unwrap();
+    // CJS: require("./specifier") or require('./specifier')
+    let re_require = Regex::new(r#"\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Only process JS/TS files
+        let is_js_ts = JS_TS_EXTENSIONS
+            .iter()
+            .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+        if !is_js_ts {
+            continue;
+        }
+
+        // Compute the directory of the source file for relative resolution
+        let source_dir = match rel_path.rfind('/') {
+            Some(idx) => &rel_path[..idx],
+            None => "",
+        };
+
+        // Read the source file from disk
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("//") {
+                continue;
+            }
+
+            // Collect specifiers from this line
+            let mut specifiers: Vec<String> = Vec::new();
+            if let Some(caps) = re_esm_import.captures(trimmed) {
+                specifiers.push(caps.get(1).unwrap().as_str().to_string());
+            }
+            for caps in re_require.captures_iter(trimmed) {
+                specifiers.push(caps.get(1).unwrap().as_str().to_string());
+            }
+
+            for specifier in specifiers {
+                // Skip non-relative specifiers (bare / scoped / absolute)
+                if !specifier.starts_with("./") && !specifier.starts_with("../") {
+                    continue;
+                }
+
+                if let Some(target_file_id) = js_index.resolve(&specifier, source_dir) {
+                    // Skip self-imports
+                    if target_file_id == ext_id {
+                        continue;
+                    }
+                    let key = (ext_id.clone(), target_file_id.to_string());
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
+                        edges.push((
+                            ext_id.clone(),
+                            target_file_id.to_string(),
+                            "imports".to_string(),
+                        ));
                     }
                 }
             }

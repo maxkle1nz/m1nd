@@ -588,6 +588,74 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    // -----------------------------------------------------------------------
+    // TypeScript: calls edges + cross-file imports resolution (Step 1+2 gate)
+    // -----------------------------------------------------------------------
+
+    /// Fixture:
+    ///   b.ts: `export function foo() { return 1; }`
+    ///   a.ts: `import { foo } from "./b"; export function run() { return foo(); }`
+    ///
+    /// Asserts:
+    ///   (a) at least one `calls` edge exists originating in a.ts
+    ///   (b) a resolved cross-file `imports` edge exists from a.ts to b.ts
+    #[test]
+    fn typescript_emits_calls_and_cross_file_imports() {
+        let root = temp_ingest_dir("ts-calls-imports");
+        fs::create_dir_all(&root).unwrap();
+
+        fs::write(
+            root.join("b.ts"),
+            "export function foo() { return 1; }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("a.ts"),
+            "import { foo } from \"./b\";\nexport function run() { return foo(); }\n",
+        )
+        .unwrap();
+
+        let ingest = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..Default::default()
+        });
+
+        let (graph, _stats) = ingest.ingest().unwrap();
+
+        // --- (a) Assert a `calls` edge exists in the graph (from any node in a.ts) ---
+        let has_calls_edge = (0..graph.csr.pending_edges.len()).any(|idx| {
+            graph.strings.resolve(graph.csr.relations[idx]) == "calls"
+        });
+        // Also check in finalized CSR
+        let has_calls_csr = (0..graph.num_nodes() as usize).any(|i| {
+            let node_id = m1nd_core::types::NodeId::new(i as u32);
+            graph.csr.out_range(node_id).any(|idx| {
+                graph.strings.resolve(graph.csr.relations[idx]) == "calls"
+            })
+        });
+
+        assert!(
+            has_calls_edge || has_calls_csr,
+            "Expected at least one `calls` edge in the graph after ingesting TypeScript files with function calls"
+        );
+
+        // --- (b) Assert a cross-file `imports` edge from a.ts to b.ts ---
+        let a_ts = graph.resolve_id("file::a.ts").expect("file::a.ts node missing");
+        let b_ts = graph.resolve_id("file::b.ts").expect("file::b.ts node missing");
+
+        let has_import_edge = graph.csr.out_range(a_ts).any(|idx| {
+            graph.csr.targets[idx] == b_ts
+                && graph.strings.resolve(graph.csr.relations[idx]) == "imports"
+        });
+
+        assert!(
+            has_import_edge,
+            "Expected a cross-file `imports` edge from file::a.ts to file::b.ts"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn ingest_resolves_rust_impl_method_ownership_edges() {
         let root = temp_ingest_dir("rust-impl-ownership");

@@ -18,6 +18,8 @@ pub struct TypeScriptExtractor {
     re_arrow: Regex,
     re_import_names: Regex, // Extract named imports: import { A, B } from ...
     re_type_ref: Regex,     // TypeScript type references
+    re_method_call: Regex,  // receiver.method() calls (mirrors Python Task #7)
+    re_fn_call: Regex,      // plain function calls: foo(
 }
 
 impl TypeScriptExtractor {
@@ -30,6 +32,10 @@ impl TypeScriptExtractor {
             re_arrow: Regex::new(r"^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>").unwrap(),
             re_import_names: Regex::new(r#"import\s*\{([^}]+)\}"#).unwrap(),
             re_type_ref: Regex::new(r":\s*([A-Z]\w+)").unwrap(),
+            // Task: receiver.method() calls — mirrors Python re_method_call
+            re_method_call: Regex::new(r"(\w+)\.(\w+)\s*\(").unwrap(),
+            // Plain function calls: identifier( — used to detect bare calls like foo()
+            re_fn_call: Regex::new(r"\b([a-z_]\w*)\s*\(").unwrap(),
         }
     }
 }
@@ -198,6 +204,115 @@ impl Extractor for TypeScriptExtractor {
                             });
                             unresolved_refs.push(ref_id);
                         }
+                    }
+                }
+            }
+
+            // Call-site detection — mirrors Python Task #7 re_method_call
+            // Skip import lines and pure declaration-only lines (no body) to avoid
+            // false positives, but allow lines that contain call expressions in
+            // their body (e.g. `export function run() { return foo(); }`).
+            let trimmed = line.trim_start();
+            // A line is a "definition-only" line if it is a bare declaration without
+            // an opening brace that would contain a function body with calls.
+            let is_pure_decl = (trimmed.starts_with("function ")
+                || trimmed.starts_with("class ")
+                || trimmed.starts_with("interface ")
+                || trimmed.starts_with("abstract class ")
+                || trimmed.starts_with("export function ")
+                || trimmed.starts_with("export class ")
+                || trimmed.starts_with("export interface ")
+                || trimmed.starts_with("export abstract class "))
+                && !trimmed.contains('{');
+            if !is_pure_decl
+                && !trimmed.starts_with("import ")
+                && !trimmed.starts_with("//")
+            {
+                // receiver.method() — emit calls ref to the method name
+                for caps in self.re_method_call.captures_iter(line) {
+                    let receiver = caps.get(1).unwrap().as_str();
+                    let method = caps.get(2).unwrap().as_str();
+                    // Skip common non-call patterns
+                    if matches!(
+                        receiver,
+                        "this"
+                            | "super"
+                            | "window"
+                            | "document"
+                            | "console"
+                            | "Math"
+                            | "JSON"
+                            | "Object"
+                            | "Array"
+                            | "Promise"
+                            | "String"
+                            | "Number"
+                            | "Boolean"
+                    ) {
+                        continue;
+                    }
+                    // If receiver starts with uppercase it's likely a type; ref to receiver
+                    // Otherwise ref to the method name (mirrors Python pattern)
+                    let ref_target =
+                        if receiver.chars().next().is_some_and(|c| c.is_uppercase()) {
+                            format!("ref::{}", receiver)
+                        } else {
+                            format!("ref::{}", method)
+                        };
+                    if !unresolved_refs.contains(&ref_target) {
+                        edges.push(ExtractedEdge {
+                            source: file_id.to_string(),
+                            target: ref_target.clone(),
+                            relation: "calls".into(),
+                            weight: 0.4,
+                        });
+                        unresolved_refs.push(ref_target);
+                    }
+                }
+
+                // Plain function calls: foo() — emit calls ref to the function name
+                // Only lowercase-starting identifiers to avoid constructor calls (new Foo())
+                for caps in self.re_fn_call.captures_iter(line) {
+                    let fn_name = caps.get(1).unwrap().as_str();
+                    // Skip JS/TS keywords that look like function calls
+                    if matches!(
+                        fn_name,
+                        "if"
+                            | "for"
+                            | "while"
+                            | "switch"
+                            | "catch"
+                            | "function"
+                            | "return"
+                            | "typeof"
+                            | "instanceof"
+                            | "await"
+                            | "async"
+                            | "throw"
+                            | "new"
+                            | "delete"
+                            | "void"
+                            | "in"
+                            | "of"
+                            | "from"
+                            | "import"
+                            | "export"
+                            | "let"
+                            | "const"
+                            | "var"
+                            | "require"
+                    ) {
+                        continue;
+                    }
+                    let ref_target = format!("ref::{}", fn_name);
+                    if !unresolved_refs.contains(&ref_target) {
+                        edges.push(ExtractedEdge {
+                            source: file_id.to_string(),
+                            target: ref_target.clone(),
+                            relation: "calls".into(),
+                            weight: 0.4,
+                        });
+                        unresolved_refs.push(ref_target);
                     }
                 }
             }
