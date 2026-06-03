@@ -389,6 +389,9 @@ impl Ingestor {
 #[cfg(test)]
 mod tests {
     use super::{build_file_external_id, is_valid_external_id, IngestConfig, Ingestor};
+    use crate::L1ghtIngestAdapter;
+    use crate::IngestAdapter;
+    use m1nd_core::types::EdgeIdx;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -691,6 +694,94 @@ mod tests {
         assert!(stats.references_resolved >= 2);
         assert!(has_owner_edge);
         assert!(has_trait_edge);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    // -----------------------------------------------------------------------
+    // L1GHT adapter: epistemic markers produce structured graph edges
+    // -----------------------------------------------------------------------
+
+    /// Fixture L1GHT document with an entity claim followed by three epistemic
+    /// qualifiers: confidence, ambiguity, and evidence.
+    ///
+    /// Asserts:
+    ///   (a) `epistemic_confidence` edge exists and its weight is ~0.6
+    ///   (b) `epistemic_ambiguity` edge exists
+    ///   (c) `evidenced_by` edge exists
+    ///   (d) All three epistemic edges originate from the TokenValidator entity
+    ///       node (the preceding claim), not from the section node.
+    #[test]
+    fn l1ght_epistemic_markers_produce_structured_edges() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("m1nd-l1ght-epistemic-{nonce}"));
+        fs::create_dir_all(&root).unwrap();
+
+        let doc = "\
+---
+Protocol: L1GHT/1.0
+Node: AuthService
+---
+
+## Token Validation
+
+The [⍂ entity: TokenValidator] runs HMAC checks.
+[𝔻 confidence: 0.6]
+[𝔻 ambiguity: retry policy undecided]
+[𝔻 evidence: m1nd-core/src/auth.rs]
+";
+
+        fs::write(root.join("authservice.md"), doc).unwrap();
+
+        let adapter = L1ghtIngestAdapter::new(None);
+        let (graph, stats) = adapter.ingest(&root).unwrap();
+
+        assert!(stats.nodes_created > 0, "no nodes created");
+        assert!(stats.edges_created > 0, "no edges created");
+
+        // Find the TokenValidator entity node id: it is the target of the
+        // `declares_entity` edge.
+        let mut entity_node_id = None;
+        'outer: for i in 0..graph.num_nodes() as usize {
+            let nid = m1nd_core::types::NodeId::new(i as u32);
+            for idx in graph.csr.out_range(nid) {
+                if graph.strings.resolve(graph.csr.relations[idx]) == "declares_entity" {
+                    entity_node_id = Some(graph.csr.targets[idx]);
+                    break 'outer;
+                }
+            }
+        }
+        let entity_node_id = entity_node_id.expect("declares_entity edge not found");
+
+        // (a) epistemic_confidence edge from entity node, weight ~0.6
+        let mut conf_weight: Option<f32> = None;
+        for idx in graph.csr.out_range(entity_node_id) {
+            if graph.strings.resolve(graph.csr.relations[idx]) == "epistemic_confidence" {
+                let w = graph.csr.read_weight(EdgeIdx::new(idx as u32)).get();
+                conf_weight = Some(w);
+                break;
+            }
+        }
+        let conf_weight = conf_weight.expect("epistemic_confidence edge not found from entity node");
+        assert!(
+            (conf_weight - 0.6_f32).abs() < 1e-5,
+            "epistemic_confidence weight expected ~0.6, got {conf_weight}"
+        );
+
+        // (b) epistemic_ambiguity edge from entity node
+        let has_ambiguity = graph.csr.out_range(entity_node_id).any(|idx| {
+            graph.strings.resolve(graph.csr.relations[idx]) == "epistemic_ambiguity"
+        });
+        assert!(has_ambiguity, "epistemic_ambiguity edge not found from entity node");
+
+        // (c) evidenced_by edge from entity node
+        let has_evidence = graph.csr.out_range(entity_node_id).any(|idx| {
+            graph.strings.resolve(graph.csr.relations[idx]) == "evidenced_by"
+        });
+        assert!(has_evidence, "evidenced_by edge not found from entity node");
 
         let _ = fs::remove_dir_all(root);
     }

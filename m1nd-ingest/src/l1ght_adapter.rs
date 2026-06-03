@@ -304,6 +304,7 @@ impl L1ghtIngestAdapter {
         let tag_re = Regex::new(r"\[(?P<tag>[^\]]+)\]").unwrap();
 
         let mut current_parent = file_id.clone();
+        let mut last_claim_id: Option<String> = None;
         let mut section_counts: HashMap<String, usize> = HashMap::new();
 
         for (key, value) in [
@@ -490,31 +491,61 @@ impl L1ghtIngestAdapter {
 
             for caps in tag_re.captures_iter(trimmed) {
                 let raw = caps.name("tag").unwrap().as_str().trim();
-                let relation = if raw.starts_with('⍂') && raw.contains("entity:") {
-                    "declares_entity"
-                } else if raw.starts_with('⍐') && raw.contains("state:") {
-                    "declares_state"
-                } else if raw.starts_with('⍌') && raw.contains("event:") {
-                    "declares_event"
-                } else if raw.starts_with('⟁') && raw.contains("depends_on:") {
-                    "depends_on"
-                } else if raw.starts_with('⟁') && raw.contains("binds_to:") {
-                    "binds_to"
-                } else if raw.starts_with('⟁') && raw.contains("tests:") {
-                    "declares_test"
-                } else if raw.starts_with("RED blocker:") {
-                    "declares_blocker"
-                } else if raw.starts_with("AMBER warning:") {
-                    "declares_warning"
-                } else {
-                    "declares_metadata"
-                };
+
+                // Determine if this is an epistemic (𝔻) marker.
+                let is_epistemic = raw.starts_with('𝔻');
+
+                // Compute relation, edge weight, and causal strength.
+                let (relation, edge_weight, edge_causal): (&str, f32, f32) =
+                    if raw.starts_with('⍂') && raw.contains("entity:") {
+                        ("declares_entity", 0.9, 0.7)
+                    } else if raw.starts_with('⍐') && raw.contains("state:") {
+                        ("declares_state", 0.9, 0.7)
+                    } else if raw.starts_with('⍌') && raw.contains("event:") {
+                        ("declares_event", 0.9, 0.7)
+                    } else if raw.starts_with('⟁') && raw.contains("depends_on:") {
+                        ("depends_on", 0.9, 0.7)
+                    } else if raw.starts_with('⟁') && raw.contains("binds_to:") {
+                        ("binds_to", 0.9, 0.7)
+                    } else if raw.starts_with('⟁') && raw.contains("tests:") {
+                        ("declares_test", 0.9, 0.7)
+                    } else if raw.starts_with("RED blocker:") {
+                        ("declares_blocker", 0.9, 0.7)
+                    } else if raw.starts_with("AMBER warning:") {
+                        ("declares_warning", 0.9, 0.7)
+                    } else if is_epistemic {
+                        if raw.contains("confidence:") {
+                            // Parse the confidence value after "confidence:".
+                            let conf_val: f32 = raw
+                                .find("confidence:")
+                                .and_then(|pos| {
+                                    raw[pos + "confidence:".len()..].trim().parse::<f32>().ok()
+                                })
+                                .unwrap_or(0.5)
+                                .clamp(0.0, 1.0);
+                            ("epistemic_confidence", conf_val, conf_val)
+                        } else if raw.contains("ambiguity:") {
+                            ("epistemic_ambiguity", 0.5, 0.3)
+                        } else if raw.contains("evidence:") {
+                            ("evidenced_by", 0.8, 0.8)
+                        } else {
+                            ("declares_metadata", 0.9, 0.7)
+                        }
+                    } else {
+                        ("declares_metadata", 0.9, 0.7)
+                    };
 
                 let node_type = if relation == "declares_test" {
                     NodeType::Process
                 } else {
                     NodeType::Concept
                 };
+
+                // Build extra tags for epistemic confidence to encode value.
+                let mut node_tags = vec!["light".into(), format!("light:{}", relation)];
+                if relation == "epistemic_confidence" {
+                    node_tags.push(format!("light:confidence:{:.2}", edge_weight));
+                }
 
                 let tag_id = format!(
                     "light::{}::tag::{}::{}::{}",
@@ -530,7 +561,7 @@ impl L1ghtIngestAdapter {
                         id: tag_id.clone(),
                         label: raw.to_string(),
                         node_type,
-                        tags: vec!["light".into(), format!("light:{}", relation)],
+                        tags: node_tags,
                         last_modified: timestamp,
                         change_frequency: 0.45,
                         source_path: rel_path.clone(),
@@ -541,19 +572,33 @@ impl L1ghtIngestAdapter {
                         canonical: true,
                     },
                 );
+
+                // Epistemic markers attach to the preceding claim; others attach to
+                // the current section/file parent.
+                let edge_source = if is_epistemic {
+                    last_claim_id.clone().unwrap_or_else(|| current_parent.clone())
+                } else {
+                    current_parent.clone()
+                };
+
                 Self::push_edge(
                     edges,
                     edge_seen,
                     L1ghtEdgeRecord {
-                        source: current_parent.clone(),
-                        target: tag_id,
+                        source: edge_source,
+                        target: tag_id.clone(),
                         relation: relation.into(),
-                        weight: 0.9,
+                        weight: edge_weight,
                         direction: EdgeDirection::Forward,
                         inhibitory: false,
-                        causal_strength: 0.7,
+                        causal_strength: edge_causal,
                     },
                 );
+
+                // Update last_claim_id for non-epistemic markers only.
+                if !is_epistemic {
+                    last_claim_id = Some(tag_id);
+                }
             }
         }
 
