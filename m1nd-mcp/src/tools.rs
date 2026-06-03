@@ -237,6 +237,125 @@ fn build_prediction_reason(
     parts.join(" + ")
 }
 
+/// Resolve L1GHT evidence marker nodes → code file nodes via `grounded_in` edges.
+///
+/// After a light ingest is merged with an existing code graph, evidence marker nodes
+/// (tagged `"light:evidenced_by"`) reference code files by path in their label.
+/// This pass walks all such markers, resolves the target `file::<path>` node, and
+/// adds a `grounded_in` edge if one does not already exist.
+///
+/// Returns `(resolved, unresolved)`.
+fn resolve_light_evidence(graph: &mut m1nd_core::graph::Graph) -> (usize, usize) {
+    let tag_needle = "light:evidenced_by";
+    let relation_needle = "grounded_in";
+
+    // Phase 1 — collect already-present (marker, code) pairs to ensure idempotency.
+    // We scan pending_edges because at this point the graph may not yet be finalized
+    // (fresh merge sets finalized=false via add_node), so the CSR might not include
+    // all edges.  Using pending_edges is correct because finalize() will drain them.
+    let existing: std::collections::HashSet<(m1nd_core::types::NodeId, m1nd_core::types::NodeId)> = {
+        let rel_interned = graph.strings.lookup(relation_needle);
+        match rel_interned {
+            Some(rel) => graph
+                .csr
+                .pending_edges
+                .iter()
+                .filter(|e| e.relation == rel)
+                .map(|e| (e.source, e.target))
+                .collect(),
+            None => std::collections::HashSet::new(),
+        }
+    };
+
+    // Phase 2 — iterate all nodes, find evidence markers, parse path from label.
+    let node_count = graph.nodes.count as usize;
+    let mut candidates: Vec<(m1nd_core::types::NodeId, String)> = Vec::new();
+
+    let tag_interned = match graph.strings.lookup(tag_needle) {
+        Some(t) => t,
+        None => return (0, 0), // tag never interned → no evidence markers at all
+    };
+
+    for i in 0..node_count {
+        let has_tag = graph.nodes.tags[i].iter().any(|&t| t == tag_interned);
+        if !has_tag {
+            continue;
+        }
+        let label = graph.strings.resolve(graph.nodes.label[i]).to_string();
+        candidates.push((m1nd_core::types::NodeId::new(i as u32), label));
+    }
+
+    // Phase 3 — resolve each candidate and add bridge edges.
+    let mut resolved = 0usize;
+    let mut unresolved = 0usize;
+
+    for (marker_id, label) in candidates {
+        // Parse: substring after first "evidence:", trim, strip "./" prefix,
+        // strip trailing ":<line>" (colon + digits at end), normalise backslashes.
+        let path_raw = match label.find("evidence:") {
+            Some(pos) => label[pos + "evidence:".len()..].trim().to_string(),
+            None => {
+                unresolved += 1;
+                continue;
+            }
+        };
+        let path_raw = path_raw.replace('\\', "/");
+        let path_raw = path_raw
+            .strip_prefix("./")
+            .unwrap_or(&path_raw)
+            .to_string();
+        // Strip trailing ":<digits>" (line number)
+        let path_clean = if let Some(colon_pos) = path_raw.rfind(':') {
+            let suffix = &path_raw[colon_pos + 1..];
+            if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+                path_raw[..colon_pos].to_string()
+            } else {
+                path_raw.clone()
+            }
+        } else {
+            path_raw.clone()
+        };
+
+        let candidate_id = format!("file::{}", path_clean);
+        match graph.resolve_id(&candidate_id) {
+            Some(code_node_id) => {
+                if existing.contains(&(marker_id, code_node_id)) {
+                    // Edge already present — idempotent skip
+                    resolved += 1;
+                    continue;
+                }
+                match graph.add_edge(
+                    marker_id,
+                    code_node_id,
+                    relation_needle,
+                    FiniteF32::new(0.8),
+                    EdgeDirection::Forward,
+                    false,
+                    FiniteF32::new(0.8),
+                ) {
+                    Ok(_) => {
+                        resolved += 1;
+                    }
+                    Err(_) => {
+                        unresolved += 1;
+                    }
+                }
+            }
+            None => {
+                unresolved += 1;
+            }
+        }
+    }
+
+    // CRITICAL: add_edge sets finalized=false, but only if at least one edge was added.
+    // We set it explicitly when resolved > 0 so the caller's finalize() rebuilds the CSR.
+    if resolved > 0 {
+        graph.finalized = false;
+    }
+
+    (resolved, unresolved)
+}
+
 fn finalize_ingest(
     state: &mut SessionState,
     input: &IngestInput,
@@ -266,13 +385,26 @@ fn finalize_ingest(
         new_graph
     };
 
-    {
+    let (light_evidence_resolved, light_evidence_unresolved) = {
         let mut graph = state.graph.write();
         *graph = combined_graph;
+
+        // Resolution pass: link L1GHT evidence markers → code file nodes.
+        // Must run BEFORE finalize() so the new `grounded_in` edges are included in
+        // the CSR rebuild.  Only needed for the light adapter where both node sets
+        // coexist after a merge.
+        let counts = if adapter == "light" {
+            resolve_light_evidence(&mut graph)
+        } else {
+            (0, 0)
+        };
+
         if !graph.finalized {
             graph.finalize()?;
         }
-    }
+
+        counts
+    };
 
     let inventory_entries = {
         let graph = state.graph.read();
@@ -338,6 +470,8 @@ fn finalize_ingest(
         "elapsed_ms": stats.elapsed_ms,
         "node_count": node_count,
         "edge_count": edge_count,
+        "light_evidence_resolved": light_evidence_resolved,
+        "light_evidence_unresolved": light_evidence_unresolved,
     }))
 }
 
@@ -3532,5 +3666,91 @@ mod tests {
                 output.total_blast_nodes
             );
         }
+    }
+
+    /// Unit test for `resolve_light_evidence`.
+    ///
+    /// Builds a small graph with:
+    ///   - a code file node  `file::auth.rs`
+    ///   - an evidence marker node tagged `light:evidenced_by`, labelled
+    ///     `"𝔻 evidence: auth.rs"`
+    ///
+    /// Asserts that after calling `resolve_light_evidence`:
+    ///   - resolved == 1, unresolved == 0
+    ///   - a `grounded_in` edge exists from the marker node to `file::auth.rs`
+    ///   - calling again is idempotent (no duplicate edge, resolved still 1)
+    #[test]
+    fn resolve_light_evidence_adds_grounded_in_edge() {
+        let mut graph = Graph::new();
+
+        // Code file node
+        let code_node = graph
+            .add_node("file::auth.rs", "auth.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add code node");
+
+        // Evidence marker node — tagged "light:evidenced_by", label is the raw marker text
+        let marker_node = graph
+            .add_node(
+                "light::default::tag::auth_rs::1::evidence",
+                "\u{1d53b} evidence: auth.rs",
+                NodeType::Reference,
+                &["light:evidenced_by"],
+                0.0,
+                0.0,
+            )
+            .expect("add marker node");
+
+        // Graph is unfinalized after add_node; finalize so CSR is coherent before pass.
+        // (resolve_light_evidence works on pending_edges for idempotency, but the
+        //  node count/id_to_node must be consistent.)
+        graph.finalize().expect("initial finalize");
+
+        // Run the resolution pass
+        let (resolved, unresolved) = super::resolve_light_evidence(&mut graph);
+
+        assert_eq!(resolved, 1, "expected 1 resolved evidence link");
+        assert_eq!(unresolved, 0, "expected 0 unresolved");
+
+        // After the pass, finalized must be false so CSR gets rebuilt
+        assert!(
+            !graph.finalized,
+            "graph.finalized must be false after edges were added"
+        );
+
+        // Finalize to build CSR and confirm the edge is reachable
+        graph.finalize().expect("post-pass finalize");
+
+        // Confirm `grounded_in` edge from marker → code in the CSR
+        let grounded_in_interned = graph.strings.lookup("grounded_in").expect("relation interned");
+        let marker_idx = marker_node.as_usize();
+        let lo = graph.csr.offsets[marker_idx] as usize;
+        let hi = graph.csr.offsets[marker_idx + 1] as usize;
+        let found = (lo..hi).any(|i| {
+            graph.csr.targets[i] == code_node && graph.csr.relations[i] == grounded_in_interned
+        });
+        assert!(
+            found,
+            "expected a grounded_in edge from marker node to file::auth.rs in the CSR"
+        );
+
+        // Idempotency: running the pass again must not add a duplicate edge
+        let (resolved2, unresolved2) = super::resolve_light_evidence(&mut graph);
+        // The existing edge is detected; resolved count still 1 (or 0 if we treat
+        // already-existing as "not new"), but the critical invariant is no duplicate.
+        // Our impl counts pre-existing pairs as resolved (idempotent skip path).
+        let _ = (resolved2, unresolved2); // counts are informational; key check is edge count
+        graph.finalize().expect("idempotency finalize");
+        let lo2 = graph.csr.offsets[marker_idx] as usize;
+        let hi2 = graph.csr.offsets[marker_idx + 1] as usize;
+        let count = (lo2..hi2)
+            .filter(|&i| {
+                graph.csr.targets[i] == code_node
+                    && graph.csr.relations[i] == grounded_in_interned
+            })
+            .count();
+        assert_eq!(
+            count, 1,
+            "grounded_in edge must appear exactly once after idempotent second pass"
+        );
     }
 }

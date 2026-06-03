@@ -142,6 +142,10 @@ impl DomainConfig {
                 "declares_blocker".into(),
                 "declares_warning".into(),
                 "binds_to".into(),
+                "epistemic_confidence".into(),
+                "epistemic_ambiguity".into(),
+                "evidenced_by".into(),
+                "grounded_in".into(),
             ],
             git_co_change: false,
         }
