@@ -375,6 +375,10 @@ pub struct SessionState {
     pub auto_ingest: AutoIngestState,
     /// Universal document artifact/cache index.
     pub document_cache: DocumentCacheState,
+    /// Result of boot-time agent-memory auto-load, surfaced verbatim in
+    /// `session_handshake` (and thus `trust_selftest`). `None` = the auto-load
+    /// did not run (no agent-memory dir yet); never hidden.
+    pub agent_memory_boot: Option<serde_json::Value>,
 }
 
 const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
@@ -1239,6 +1243,7 @@ impl SessionState {
             coverage_sessions: HashMap::new(),
             auto_ingest: AutoIngestState::load(&runtime_root),
             document_cache: load_document_cache(&runtime_root),
+            agent_memory_boot: None,
         })
     }
 

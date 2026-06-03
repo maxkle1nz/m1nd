@@ -3239,11 +3239,93 @@ impl McpServer {
             }
         }
 
+        // Step 5: Auto-load agent-authored memory.
+        // On boot, ingest <runtime_root>/agent-memory/*.light.md (adapter=light,
+        // mode=merge) so knowledge the agent authored via `memorize` in prior
+        // sessions is loaded automatically. Gated by M1ND_AUTO_LOAD_AGENT_MEMORY
+        // (default ON; "0"/"false" disables). The result is stashed on the
+        // session and surfaced verbatim in session_handshake — never hidden.
+        state.agent_memory_boot = Self::auto_load_agent_memory(&mut state);
+
         Ok(Self {
             config,
             state,
             daemon_runtime: None,
         })
+    }
+
+    /// Boot-time ingest of `<runtime_root>/agent-memory/*.light.md`. Returns a
+    /// report object for the trust/handshake layer, or `None` when the directory
+    /// does not exist yet (no memory authored). Merge-idempotent: if the graph
+    /// snapshot already contains these nodes the ingest is a fast no-op; the
+    /// case that genuinely needs it is after a `mode=replace` code ingest wiped
+    /// the graph, or a `.light.md` added while the server was down.
+    fn auto_load_agent_memory(state: &mut SessionState) -> Option<serde_json::Value> {
+        let enabled = std::env::var("M1ND_AUTO_LOAD_AGENT_MEMORY")
+            .map(|v| v != "0" && v != "false")
+            .unwrap_or(true);
+        let dir = state.runtime_root.join("agent-memory");
+        if !enabled {
+            return Some(serde_json::json!({
+                "loaded": false,
+                "skipped": "disabled by M1ND_AUTO_LOAD_AGENT_MEMORY=0",
+            }));
+        }
+        if !dir.is_dir() {
+            return None;
+        }
+        let file_count = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().to_string_lossy().ends_with(".light.md"))
+            .count();
+        let dir_str = dir.to_string_lossy().to_string();
+        if file_count == 0 {
+            return Some(serde_json::json!({
+                "dir": dir_str,
+                "file_count": 0,
+                "loaded": false,
+                "skipped": "no .light.md files",
+            }));
+        }
+        let nodes_before = state.graph.read().num_nodes();
+        let ingest_input = crate::protocol::core::IngestInput {
+            path: dir_str.clone(),
+            agent_id: "boot".to_string(),
+            incremental: false,
+            adapter: "light".to_string(),
+            mode: "merge".to_string(),
+            namespace: Some("light".to_string()),
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+        match crate::tools::handle_ingest(state, ingest_input) {
+            Ok(result) => {
+                let nodes_added = state.graph.read().num_nodes().saturating_sub(nodes_before);
+                eprintln!(
+                    "[m1nd] Auto-loaded agent memory: {} file(s), +{} nodes from {}",
+                    file_count, nodes_added, dir_str,
+                );
+                Some(serde_json::json!({
+                    "dir": dir_str,
+                    "file_count": file_count,
+                    "loaded": true,
+                    "nodes_added": nodes_added,
+                    "light_evidence_resolved": result.get("light_evidence_resolved").cloned().unwrap_or(serde_json::Value::Null),
+                    "light_evidence_unresolved": result.get("light_evidence_unresolved").cloned().unwrap_or(serde_json::Value::Null),
+                }))
+            }
+            Err(e) => {
+                eprintln!("[m1nd] WARNING: agent-memory auto-load failed: {}", e);
+                Some(serde_json::json!({
+                    "dir": dir_str,
+                    "file_count": file_count,
+                    "loaded": false,
+                    "error": e.to_string(),
+                }))
+            }
+        }
     }
 
     /// Consume the McpServer and return the SessionState.
@@ -3629,6 +3711,46 @@ mod tests {
         };
         let server = McpServer::new(config).expect("server");
         (temp, server)
+    }
+
+    #[test]
+    fn boot_auto_loads_agent_memory_and_reports_it() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        let mem_dir = runtime_dir.join("agent-memory");
+        std::fs::create_dir_all(&mem_dir).expect("mem dir");
+        // A prior session's authored memory.
+        std::fs::write(
+            mem_dir.join("prior.light.md"),
+            "---\nProtocol: L1GHT/1.0\nNode: PriorKnowledge\n---\n\n## Recall\n\nThe [⍂ entity: PriorFinding] was learned last session.\n[𝔻 confidence: high]\n",
+        )
+        .expect("write light memory");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..McpConfig::default()
+        };
+        let server = McpServer::new(config).expect("server");
+
+        let report = server
+            .state
+            .agent_memory_boot
+            .as_ref()
+            .expect("agent_memory_boot should be Some when the dir exists with files");
+        assert_eq!(report["loaded"], true, "memory should auto-load: {:?}", report);
+        assert_eq!(report["file_count"], 1);
+        assert!(
+            report["nodes_added"].as_u64().unwrap_or(0) >= 1,
+            "expected nodes added from the .light.md, got {:?}",
+            report["nodes_added"]
+        );
+        // The prior knowledge must now be in the live graph.
+        assert!(
+            server.state.graph.read().num_nodes() >= 1,
+            "graph should contain the loaded memory nodes"
+        );
     }
 
     #[test]

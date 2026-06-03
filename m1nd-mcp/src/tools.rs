@@ -2695,6 +2695,7 @@ pub fn handle_session_handshake(
         "doctor_recovery": doctor_recovery,
         "used_probe": false,
         "probe": serde_json::Value::Null,
+        "agent_memory": state.agent_memory_boot.clone().unwrap_or(serde_json::Value::Null),
     }))
 }
 
