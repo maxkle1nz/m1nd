@@ -151,6 +151,24 @@ impl L1ghtIngestAdapter {
             })
     }
 
+    /// Parse a confidence value from an epistemic marker. Accepts a numeric
+    /// form (`0.6`, `0.85`) or a word-based form (`low`/`medium`/`high`/`certain`,
+    /// plus a few synonyms). Unrecognized text falls back to 0.5 (neutral).
+    fn parse_confidence(text: &str) -> f32 {
+        let t = text.trim().trim_end_matches(['.', ',', ';']);
+        if let Ok(v) = t.parse::<f32>() {
+            return v;
+        }
+        match t.to_ascii_lowercase().as_str() {
+            "certain" | "confirmed" | "verified" => 0.95,
+            "high" | "strong" | "likely" => 0.8,
+            "medium" | "moderate" | "partial" => 0.5,
+            "low" | "weak" | "tentative" => 0.3,
+            "speculative" | "guess" | "unverified" => 0.15,
+            _ => 0.5,
+        }
+    }
+
     fn excerpt(text: &str) -> Option<String> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
@@ -516,11 +534,12 @@ impl L1ghtIngestAdapter {
                     } else if is_epistemic {
                         if raw.contains("confidence:") {
                             // Parse the confidence value after "confidence:".
-                            let conf_val: f32 = raw
+                            // Accept both numeric (0.6) and word-based
+                            // (low/medium/high/certain) forms — the real corpus uses words.
+                            let conf_val = raw
                                 .find("confidence:")
-                                .and_then(|pos| {
-                                    raw[pos + "confidence:".len()..].trim().parse::<f32>().ok()
-                                })
+                                .map(|pos| raw[pos + "confidence:".len()..].trim())
+                                .map(Self::parse_confidence)
                                 .unwrap_or(0.5)
                                 .clamp(0.0, 1.0);
                             ("epistemic_confidence", conf_val, conf_val)
@@ -693,5 +712,29 @@ impl IngestAdapter for L1ghtIngestAdapter {
         }
         stats.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         Ok((graph, stats))
+    }
+}
+
+#[cfg(test)]
+mod confidence_tests {
+    use super::L1ghtIngestAdapter as A;
+
+    #[test]
+    fn parses_numeric_confidence() {
+        assert!((A::parse_confidence("0.6") - 0.6).abs() < 1e-6);
+        assert!((A::parse_confidence("  0.85 ") - 0.85).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parses_word_confidence() {
+        assert!((A::parse_confidence("high") - 0.8).abs() < 1e-6);
+        assert!((A::parse_confidence("MEDIUM") - 0.5).abs() < 1e-6);
+        assert!((A::parse_confidence("low.") - 0.3).abs() < 1e-6);
+        assert!((A::parse_confidence("certain") - 0.95).abs() < 1e-6);
+    }
+
+    #[test]
+    fn unknown_confidence_is_neutral() {
+        assert!((A::parse_confidence("banana") - 0.5).abs() < 1e-6);
     }
 }
