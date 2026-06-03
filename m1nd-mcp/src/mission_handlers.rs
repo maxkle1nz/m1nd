@@ -321,11 +321,11 @@ pub fn handle_mission_close(
     let verified_claims = verified_claims_json(&mission);
     let rejected_claims = rejected_claims_json(&mission);
     let mut non_claims = mission.non_claims.clone();
-    non_claims.extend(input.non_claims);
+    non_claims.extend(input.non_claims.clone());
     non_claims.sort();
     non_claims.dedup();
 
-    Ok(json!({
+    let mut packet = json!({
         "schema": CLOSE_SCHEMA,
         "mission_id": mission.mission_id,
         "agent_id": mission.agent_id,
@@ -344,7 +344,78 @@ pub fn handle_mission_close(
         "handoff_count": mission.handoffs.len(),
         "gaps": input.gaps,
         "non_claims": non_claims,
-    }))
+    });
+
+    // Optional: write verified claims as a .light.md and ingest.
+    // A failure here must NOT fail the close — attach error key instead.
+    if input.write_light_memory {
+        let light_result = try_write_light_memory(state, &mission);
+        if let Some(obj) = packet.as_object_mut() {
+            match light_result {
+                Ok(path) => {
+                    obj.insert("light_memory".into(), Value::String(path));
+                }
+                Err(e) => {
+                    obj.insert("light_memory_error".into(), Value::String(e.to_string()));
+                }
+            }
+        }
+    }
+
+    Ok(packet)
+}
+
+/// Build a `LightAuthorInput` from mission verified claims and call the author handler.
+/// Returns the path of the written file on success.
+fn try_write_light_memory(
+    state: &mut SessionState,
+    mission: &MissionState,
+) -> Result<String, Box<dyn std::error::Error>> {
+    use crate::light_author_handlers::{handle_light_author, LightAuthorInput, LightClaim};
+
+    let claims: Vec<LightClaim> = mission
+        .claims
+        .iter()
+        .filter(|c| c.verdict == "verified_for_mission")
+        .map(|c| {
+            // Derive a short label from the first few words of the claim text.
+            let label = c
+                .claim
+                .split_whitespace()
+                .take(6)
+                .collect::<Vec<_>>()
+                .join("-");
+            LightClaim {
+                label,
+                text: Some(c.claim.clone()),
+                kind: Some("entity".into()),
+                confidence: c.confidence.map(|f| format!("{:.2}", f)),
+                ambiguity: None,
+                evidence: c.evidence_refs.clone(),
+                depends_on: vec![],
+            }
+        })
+        .collect();
+
+    let light_input = LightAuthorInput {
+        agent_id: mission.agent_id.clone(),
+        node_label: mission.mission_id.clone(),
+        title: Some(mission.task.clone()),
+        state: Some("closed".into()),
+        claims,
+        output_path: None,
+        namespace: Some("light".into()),
+        ingest_after: true,
+        mode: "merge".into(),
+    };
+
+    let result = handle_light_author(state, light_input)
+        .map_err(|e| format!("light_author error: {}", e))?;
+
+    result["path"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "memorize returned no path".into())
 }
 
 fn mission_dir(state: &SessionState) -> PathBuf {

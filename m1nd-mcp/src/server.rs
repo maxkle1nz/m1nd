@@ -292,6 +292,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "mission_next",
     "mission_close",
     "persist",
+    "memorize",
 ];
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
@@ -2071,6 +2072,44 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id"]
                 }
+            },
+            // =================================================================
+            // v0.8.0: memorize — first L1GHT writer; agent durable memory
+            // =================================================================
+            {
+                "name": "memorize",
+                "description": "Write structured knowledge claims as a valid .light.md (L1GHT protocol) file, then ingest it so evidence markers bridge to real code nodes. Returns path + ingest counts. The first tool that generates L1GHT markdown rather than only parsing it.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "node_label": { "type": "string", "description": "Entity name — becomes the Node: frontmatter header and # title" },
+                        "title": { "type": "string", "description": "Section heading (## <title>); defaults to node_label" },
+                        "state": { "type": "string", "description": "State: frontmatter value (default 'authored')" },
+                        "claims": {
+                            "type": "array",
+                            "description": "Knowledge claims to encode as L1GHT markers",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": { "type": "string", "description": "Entity name for the marker" },
+                                    "text": { "type": "string", "description": "Prose line above the marker (defaults to label)" },
+                                    "kind": { "type": "string", "enum": ["entity", "state", "event"], "default": "entity", "description": "Claim kind — controls the glyph (⍂/⍐/⍌)" },
+                                    "confidence": { "type": "string", "description": "Confidence value or word, e.g. '0.7' or 'high'" },
+                                    "ambiguity": { "type": "string", "description": "Ambiguity descriptor" },
+                                    "evidence": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Repo-relative code paths (one [𝔻 evidence:] per path)" },
+                                    "depends_on": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Dependency labels (one [⟁ depends_on:] per entry)" }
+                                },
+                                "required": ["label"]
+                            }
+                        },
+                        "output_path": { "type": "string", "description": "Override output file path; default <runtime_root>/agent-memory/<slug>.light.md" },
+                        "namespace": { "type": "string", "description": "Graph namespace for ingest (default 'light')" },
+                        "ingest_after": { "type": "boolean", "default": true, "description": "Run ingest after writing (default true)" },
+                        "mode": { "type": "string", "default": "merge", "description": "Ingest merge mode: 'merge' (default) or 'replace'" }
+                    },
+                    "required": ["agent_id", "node_label", "claims"]
+                }
             }
         ]
     })
@@ -2703,6 +2742,11 @@ fn dispatch_core_tool(
             let input: crate::boot_memory_handlers::BootMemoryInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::boot_memory_handlers::handle_boot_memory(state, input)
+        }
+        "memorize" => {
+            let input: crate::light_author_handlers::LightAuthorInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::light_author_handlers::handle_light_author(state, input)
         }
         // -----------------------------------------------------------------
         // v0.7.0: Diagnostic tools

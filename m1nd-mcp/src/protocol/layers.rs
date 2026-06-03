@@ -2841,6 +2841,10 @@ pub struct MissionCloseInput {
     pub non_claims: Vec<String>,
     #[serde(default)]
     pub gaps: Vec<String>,
+    /// If true, serialize verified claims as a `.light.md` in agent-memory and
+    /// ingest it.  Defaults to false so existing behaviour is byte-identical.
+    #[serde(default)]
+    pub write_light_memory: bool,
 }
 
 /// Input for mission_handoff — serialize a resumable mission packet.
