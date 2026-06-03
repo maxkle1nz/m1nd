@@ -708,7 +708,7 @@ pub fn handle_cross_verify(
 ) -> M1ndResult<serde_json::Value> {
     let start = Instant::now();
     let checks: BTreeSet<String> = if input.check.is_empty() {
-        ["existence", "loc", "hash"]
+        ["existence", "loc", "hash", "evidence_freshness"]
             .into_iter()
             .map(|value| value.to_string())
             .collect()
@@ -831,6 +831,130 @@ pub fn handle_cross_verify(
         Vec::new()
     };
 
+    // ── evidence_freshness check ───────────────────────────────────────────────
+    // Walk every `grounded_in` edge in the finalized CSR (marker → code file).
+    // For each code file node, re-hash the disk file and compare to the stored
+    // sha256 in file_inventory.  Report any code file whose content has changed
+    // since ingest (or is missing on disk) as a stale evidence item.
+    let stale_evidence: Vec<serde_json::Value> = if checks.contains("evidence_freshness") {
+        let graph = state.graph.read();
+
+        // Build a reverse map: NodeId → external_id string (needed to look up
+        // the code node's file:: id from the edge target).
+        let mut nid_to_ext: HashMap<usize, String> = HashMap::with_capacity(graph.id_to_node.len());
+        for (interned, &nid) in &graph.id_to_node {
+            nid_to_ext.insert(nid.as_usize(), graph.strings.resolve(*interned).to_string());
+        }
+
+        // Look up the interned string for "grounded_in".  If it was never
+        // interned the CSR contains no such edges — result is empty.
+        let grounded_in_interned = graph.strings.lookup("grounded_in");
+
+        let mut items: Vec<serde_json::Value> = Vec::new();
+
+        if let Some(gi) = grounded_in_interned {
+            let node_count = graph.nodes.count as usize;
+            for src_idx in 0..node_count {
+                let src_nid = m1nd_core::types::NodeId::new(src_idx as u32);
+                let range = graph.csr.out_range(src_nid);
+                for edge_i in range {
+                    if graph.csr.relations[edge_i] != gi {
+                        continue;
+                    }
+                    let tgt_nid = graph.csr.targets[edge_i];
+                    let tgt_ext_id = match nid_to_ext.get(&tgt_nid.as_usize()) {
+                        Some(id) => id.clone(),
+                        None => continue,
+                    };
+                    if !tgt_ext_id.starts_with("file::") {
+                        continue;
+                    }
+                    let rel_path = &tgt_ext_id["file::".len()..];
+
+                    // Resolve absolute disk path via stored_inventory (which
+                    // records the absolute file_path at ingest time), falling
+                    // back to joining the first ingest root.
+                    let abs_path: PathBuf = if let Some(inv_entry) = stored_inventory.get(&tgt_ext_id) {
+                        PathBuf::from(&inv_entry.file_path)
+                    } else {
+                        // Try each ingest root until we find a plausible path.
+                        let candidate = state
+                            .ingest_roots
+                            .iter()
+                            .map(|r| PathBuf::from(r).join(rel_path))
+                            .find(|p| p.exists())
+                            .unwrap_or_else(|| {
+                                state
+                                    .ingest_roots
+                                    .first()
+                                    .map(|r| PathBuf::from(r).join(rel_path))
+                                    .unwrap_or_else(|| PathBuf::from(rel_path))
+                            });
+                        candidate
+                    };
+
+                    // Get the marker's external_id and label.
+                    let marker_ext_id = nid_to_ext
+                        .get(&src_idx)
+                        .cloned()
+                        .unwrap_or_default();
+                    let marker_label = graph
+                        .strings
+                        .resolve(graph.nodes.label[src_idx])
+                        .to_string();
+
+                    if !abs_path.exists() {
+                        items.push(json!({
+                            "marker": marker_ext_id,
+                            "claim": marker_label,
+                            "evidence_path": rel_path,
+                            "reason": "evidence_file_missing",
+                        }));
+                        continue;
+                    }
+
+                    // Recompute hash and compare to stored value.
+                    let current_hash = match simple_content_hash(&abs_path) {
+                        Some(h) => h,
+                        None => continue, // can't read file — skip
+                    };
+                    let known_hash = stored_inventory
+                        .get(&tgt_ext_id)
+                        .and_then(|e| e.sha256.clone());
+                    match known_hash {
+                        None => {
+                            // No recorded hash — can't judge; treat as unverifiable.
+                            items.push(json!({
+                                "marker": marker_ext_id,
+                                "claim": marker_label,
+                                "evidence_path": rel_path,
+                                "reason": "unverifiable",
+                            }));
+                        }
+                        Some(kh) if kh != current_hash => {
+                            items.push(json!({
+                                "marker": marker_ext_id,
+                                "claim": marker_label,
+                                "evidence_path": rel_path,
+                                "reason": "evidence_changed",
+                            }));
+                        }
+                        Some(_) => {
+                            // Hash matches — evidence is fresh, nothing to report.
+                        }
+                    }
+                }
+            }
+        }
+
+        drop(graph);
+        items
+    } else {
+        Vec::new()
+    };
+    let stale_evidence_count = stale_evidence.len();
+    // ──────────────────────────────────────────────────────────────────────────
+
     let drift_items = missing_from_graph.len()
         + missing_from_disk.len()
         + loc_drift.len()
@@ -847,6 +971,8 @@ pub fn handle_cross_verify(
             "loc_drift": loc_drift,
             "hash_mismatches": hash_mismatches,
         },
+        "stale_evidence": stale_evidence,
+        "stale_evidence_count": stale_evidence_count,
         "stale_confidence": stale_confidence,
         "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
     }))
@@ -3106,6 +3232,107 @@ mod tests {
             .is_some_and(|items| items
                 .iter()
                 .any(|item| item["external_id"] == "file::src/lib.rs")));
+    }
+
+    #[test]
+    fn cross_verify_evidence_freshness_detects_stale_evidence() {
+        use m1nd_core::types::{EdgeDirection, FiniteF32};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
+        // Write the code file to disk.
+        std::fs::write(root.join("auth.rs"), "pub fn validate() {}\n").expect("write auth.rs");
+
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = crate::server::McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        // Build a graph with a code file node and an evidence marker node connected
+        // by a `grounded_in` edge (marker → code).
+        let mut graph = Graph::new();
+        let code_node = graph
+            .add_node("file::auth.rs", "auth.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("code node");
+        let marker_node = graph
+            .add_node(
+                "light::default::tag::auth_rs::1::evidence",
+                "\u{1d53b} evidence: auth.rs",
+                NodeType::Reference,
+                &["light:evidenced_by"],
+                0.0,
+                0.0,
+            )
+            .expect("marker node");
+        graph
+            .add_edge(
+                marker_node,
+                code_node,
+                "grounded_in",
+                FiniteF32::new(0.8),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("grounded_in edge");
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+
+        // Record an inventory entry with a sha256 that does NOT match the current
+        // disk content — simulating that the file drifted since ingest.
+        let abs_path = root.join("auth.rs").to_string_lossy().to_string();
+        state.record_file_inventory([crate::session::FileInventoryEntry {
+            external_id: "file::auth.rs".into(),
+            file_path: abs_path,
+            size_bytes: 0,
+            last_modified_ms: 0,
+            language: "rust".into(),
+            commit_count: 0,
+            loc: None,
+            sha256: Some("000000000000dead".into()), // deliberately wrong hash
+        }]);
+
+        let output = handle_cross_verify(
+            &mut state,
+            layers::CrossVerifyInput {
+                agent_id: "test".into(),
+                scope: None,
+                check: vec!["evidence_freshness".into()],
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("cross_verify evidence_freshness");
+
+        let count = output["stale_evidence_count"]
+            .as_u64()
+            .expect("stale_evidence_count is integer");
+        assert!(
+            count >= 1,
+            "expected at least 1 stale evidence item, got {}",
+            count
+        );
+
+        let items = output["stale_evidence"]
+            .as_array()
+            .expect("stale_evidence is array");
+        let stale_item = items
+            .iter()
+            .find(|item| item["evidence_path"] == "auth.rs")
+            .expect("expected a stale_evidence item with evidence_path == auth.rs");
+        assert_eq!(
+            stale_item["reason"], "evidence_changed",
+            "expected reason = evidence_changed"
+        );
     }
 
     #[test]
