@@ -3753,4 +3753,103 @@ mod tests {
             "grounded_in edge must appear exactly once after idempotent second pass"
         );
     }
+
+    /// Full-pipeline test: ingest real code, then merge a real L1GHT doc whose
+    /// `[𝔻 evidence: auth.rs]` marker must resolve to the `file::auth.rs` code node
+    /// through `handle_ingest` -> adapter -> merge -> finalize_ingest -> resolve_light_evidence.
+    #[test]
+    fn light_evidence_resolves_to_code_node_through_full_ingest() {
+        use crate::protocol::core::IngestInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(&proj).expect("proj dir");
+
+        // Real code file -> code node id becomes `file::auth.rs` (root-relative to proj).
+        std::fs::write(
+            proj.join("auth.rs"),
+            "pub fn validate_token(t: &str) -> bool { !t.is_empty() }\n",
+        )
+        .expect("write auth.rs");
+
+        // Real L1GHT doc citing auth.rs as evidence for the TokenValidator claim.
+        std::fs::write(
+            proj.join("notes.md"),
+            "---\nProtocol: L1GHT/1.0\nNode: AuthNotes\n---\n\n## Auth\n\nThe [⍂ entity: TokenValidator] validates tokens.\n[𝔻 confidence: 0.7]\n[𝔻 evidence: auth.rs]\n",
+        )
+        .expect("write notes.md");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        let ingest_input = |path: String, adapter: &str, mode: &str| IngestInput {
+            path,
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: adapter.into(),
+            mode: mode.into(),
+            namespace: None,
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+
+        // 1) Code ingest (replace) -> builds `file::auth.rs`.
+        let code_out = super::handle_ingest(
+            &mut state,
+            ingest_input(proj.to_string_lossy().to_string(), "code", "replace"),
+        )
+        .expect("code ingest");
+        assert!(
+            code_out["node_count"].as_u64().unwrap_or(0) >= 1,
+            "code ingest produced nodes"
+        );
+
+        // 2) Light ingest (merge) -> evidence marker must resolve to the code node.
+        let light_out = super::handle_ingest(
+            &mut state,
+            ingest_input(
+                proj.join("notes.md").to_string_lossy().to_string(),
+                "light",
+                "merge",
+            ),
+        )
+        .expect("light ingest");
+
+        assert!(
+            light_out["light_evidence_resolved"].as_u64().unwrap_or(0) >= 1,
+            "expected >=1 resolved evidence link through the full pipeline, got {:?}",
+            light_out["light_evidence_resolved"]
+        );
+
+        // Confirm a grounded_in edge to file::auth.rs exists in the live graph.
+        let graph = state.graph.read();
+        let code_node = graph
+            .resolve_id("file::auth.rs")
+            .expect("file::auth.rs code node present after merge");
+        let grounded = graph.strings.lookup("grounded_in").expect("grounded_in interned");
+        let ci = code_node.as_usize();
+        let lo = graph.csr.offsets[ci] as usize;
+        let hi = graph.csr.offsets[ci + 1] as usize;
+        // grounded_in is forward marker->code; check reverse adjacency if present,
+        // otherwise scan all edges for one targeting the code node with that relation.
+        let found = graph
+            .csr
+            .targets
+            .iter()
+            .zip(graph.csr.relations.iter())
+            .any(|(&tgt, &rel)| tgt == code_node && rel == grounded);
+        let _ = (lo, hi);
+        assert!(
+            found,
+            "expected a grounded_in edge targeting file::auth.rs after full ingest"
+        );
+    }
 }
