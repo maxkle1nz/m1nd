@@ -348,11 +348,13 @@ pub fn handle_mission_close(
 
     // Optional: write verified claims as a .light.md and ingest.
     // A failure here must NOT fail the close — attach error key instead.
+    let mut light_memory_written = false;
     if input.write_light_memory {
         let light_result = try_write_light_memory(state, &mission);
         if let Some(obj) = packet.as_object_mut() {
             match light_result {
                 Ok(path) => {
+                    light_memory_written = true;
                     obj.insert("light_memory".into(), Value::String(path));
                 }
                 Err(e) => {
@@ -360,6 +362,20 @@ pub fn handle_mission_close(
                 }
             }
         }
+    }
+
+    // Host-agnostic habit nudge: every MCP host shows the model `next_action`.
+    // Steer the agent to persist verified knowledge so it compounds across sessions.
+    let has_verified = !verified_claims.is_empty();
+    let next_action = if light_memory_written {
+        "Verified knowledge persisted as L1GHT memory — it auto-loads next session and self-flags as stale via cross_verify(check:[\"evidence_freshness\"]) if the cited code changes.".to_string()
+    } else if has_verified {
+        "Persist the verified claims so they compound across sessions: re-run mission_close with write_light_memory:true, or call memorize(...) with evidence paths to the backing code.".to_string()
+    } else {
+        "No verified claims to persist. If you concluded anything durable, call memorize(...) with evidence paths so it anchors to code and auto-loads next session.".to_string()
+    };
+    if let Some(obj) = packet.as_object_mut() {
+        obj.insert("next_action".into(), Value::String(next_action));
     }
 
     Ok(packet)

@@ -55,6 +55,18 @@ Use `differential` to compare two subgraphs. Use `hypothesize` to test what-if s
 `fingerprint(nodes)` for duplicate/equivalence detection. `diverge(node)` for \
 exploring unexpected connections. `federate` to query across graph namespaces.
 
+**Memory (compounding, cross-session)**: when you conclude something durable — a \
+decision, a verified finding, an undecided design point, why code is the way it is — \
+persist it with `memorize`. Pass structured claims with `confidence` and, crucially, \
+`evidence` paths to the code that backs each claim. `memorize` writes a graph-native \
+`.light.md`, ingests it, and anchors every evidence path to the real code node, so the \
+knowledge lives in the same activation space as code and surfaces in `seek`/`activate`. \
+It auto-loads on every future session start (reported in `session_handshake.agent_memory`). \
+Later, `cross_verify(check:[\"evidence_freshness\"])` flags any claim whose cited code has \
+changed — so the memory tells you when it has gone stale instead of misleading you. \
+Closing a mission? Pass `write_light_memory:true` to `mission_close` to persist its \
+verified claims the same way in one step.
+
 ## PERSPECTIVE SYSTEM (stateful navigation)
 
 Perspectives are named, agent-scoped navigation sessions through the graph. \
@@ -95,6 +107,10 @@ and stay hot in runtime memory without polluting trails or transcripts.
 `observed_tool=\"tools/list\"`, `observed_tool_count`, `available_tools`, and \
 `missing_tools`. Treat the host surface as degraded until it is rebound; use direct \
 repo reads for final truth when m1nd cannot re-ingest from the current session.**
+10. **Persist durable conclusions with `memorize`** (or `mission_close write_light_memory:true`) \
+before ending work or a mission. Knowledge with `evidence` paths anchors to code, auto-loads \
+next session, and self-flags as stale via `cross_verify(check:[\"evidence_freshness\"])` when \
+that code changes. This is how findings compound across sessions instead of being lost.
 ";
 
 #[derive(Clone, Copy, Debug)]
@@ -3711,6 +3727,22 @@ mod tests {
         };
         let server = McpServer::new(config).expect("server");
         (temp, server)
+    }
+
+    #[test]
+    fn server_instructions_document_the_memory_habit() {
+        // Host-agnostic contract: every MCP host injects M1ND_INSTRUCTIONS, so the
+        // memory-authoring habit must be documented here (not in a host-specific skill).
+        let s = super::M1ND_INSTRUCTIONS;
+        assert!(s.contains("memorize"), "instructions must mention memorize");
+        assert!(
+            s.contains("evidence_freshness"),
+            "instructions must mention the staleness check"
+        );
+        assert!(
+            s.contains("write_light_memory"),
+            "instructions must mention the mission_close memory option"
+        );
     }
 
     #[test]
