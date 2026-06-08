@@ -339,6 +339,21 @@ source reads, tests, runtime probes, or CI evidence.
 - Need stateful navigation instead of stateless retrieval: use `perspective_*`.
 - Need session continuity or handoff: use `trail_save`, `trail_list`, `trail_resume`, `trail_merge`, and sometimes `boot_memory`.
 - Need background structural monitoring: use `daemon_start`, `daemon_status`, `daemon_tick`, `alerts_list`, and `alerts_ack`.
+- Need to persist a durable finding across sessions: use `memorize` with `evidence` paths pointing at the relevant code; ingest that code first so evidence anchors. Use `mission_close(write_light_memory:true)` for one-step mission + memory commit.
+- Need to check whether memorized claims still cite current code: use `cross_verify(check:["evidence_freshness"])`; returns `stale_evidence[]` + count.
+
+## Compounding Memory
+
+When you conclude something durable — a verified finding, a design decision, why code is shaped a certain way — persist it with `memorize` rather than leaving it only in the conversation. The workflow:
+
+1. Ingest the relevant code first (`ingest` with the target path), so evidence paths resolve to real code nodes.
+2. Call `memorize` with structured claims: `label`, `text`, `confidence` (low/medium/high/certain or 0.0–1.0), `ambiguity` (optional), and `evidence` (repo-relative paths).
+3. m1nd writes a `.light.md` under `<runtime_root>/agent-memory/`, ingests it, and creates `grounded_in` edges linking claim nodes to the actual code nodes.
+4. On the next session start, m1nd auto-loads all agent-memory files (reported in `session_handshake.agent_memory`). Past findings are in the graph immediately.
+5. After code changes, check freshness: `cross_verify(check:["evidence_freshness"])` names which memorized claims cite code that has since changed. The ingest result itself also includes `memory_freshness` after a merge re-ingest.
+6. For mission-driven work, `mission_close(write_light_memory:true)` persists verified claims as L1GHT memory in one step.
+
+Caveat: `ingest mode:replace` wipes light memory nodes. Prefer `mode:merge` when re-ingesting code to preserve agent memory.
 
 ## Read These References
 

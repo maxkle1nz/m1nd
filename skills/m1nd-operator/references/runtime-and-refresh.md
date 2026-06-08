@@ -84,6 +84,24 @@ Operational rule:
 - use the live runtime when counts or exact names matter
 - use the docs for intent, workflow, and semantics
 
+## Tool Tiering
+
+`tools/list` advertises a curated ESSENTIAL set (~27 tools) by default. Set the env var `M1ND_TOOL_TIER=full` to advertise the complete surface (100+ tools).
+
+Hidden tools remain callable by name at any tier — tiering only controls advertisement, not availability. If a tool you need is not in the default advertised list, you can still call it directly by name.
+
+Operational rule: when exact tool counts matter, always use the live `tools/list` result (or `python3 scripts/probe_m1nd.py tools`) rather than any count stated in prose docs.
+
+## Agent-Memory Boot Auto-Load
+
+On every session start, m1nd auto-ingests all `<runtime_root>/agent-memory/*.light.md` files. This behavior is gated by `M1ND_AUTO_LOAD_AGENT_MEMORY` (default ON).
+
+- Past agent findings written with `memorize` are available in the graph at the start of each new session without explicit re-ingest.
+- The result is reported in `session_handshake.agent_memory`: `{dir, file_count, loaded, nodes_added, ...}`.
+- `session_handshake` also includes `graph_intelligence`: `{top_pagerank, attention_anchors, memory: {light_nodes, grounded_in_edges}}`. Values are honest-zero when a signal is not yet computed.
+
+Caveat: `ingest mode: replace` wipes light memory nodes and `grounded_in` edges. Prefer `mode: merge` when re-ingesting code to preserve agent memory, or rely on boot auto-load to restore it at the next session start.
+
 ## What m1nd Is Best At
 
 - graph-grounded structural retrieval

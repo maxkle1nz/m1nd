@@ -171,6 +171,20 @@ output, logs, or focused probes. In short: session companions preserve why the
 work matters; `m1nd agent` chooses the next repo move; direct proof decides what
 is true.
 
+## Compounding Memory
+
+When you conclude something durable — a verified finding, a design decision, why code is the way it is — use `memorize` to persist it rather than leaving it in the conversation only.
+
+Quick pattern:
+
+1. Ingest the relevant code first so evidence paths resolve.
+2. Call `memorize` with `node_label`, `claims` (each with `label`, `text`, `confidence`, optional `evidence` as repo-relative paths).
+3. The result is a `.light.md` in `<runtime_root>/agent-memory/` that is ingested immediately and auto-loaded at every future session start (reported in `session_handshake.agent_memory`). Evidence paths become `grounded_in` edges to real code nodes.
+4. After code changes, `cross_verify(check:["evidence_freshness"])` tells you which memorized claims now cite stale code. A merge re-ingest also returns `memory_freshness` inline.
+5. `mission_close(write_light_memory:true)` combines closing a mission and persisting its verified claims in one step.
+
+Caveat: `ingest mode:replace` wipes agent memory nodes. Use `mode:merge` when re-ingesting code to keep agent memory intact.
+
 ## Skip Conditions
 
 Skip the `m1nd` first pass only when:

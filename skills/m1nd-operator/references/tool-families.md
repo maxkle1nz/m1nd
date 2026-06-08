@@ -15,8 +15,7 @@ This is the compact capability inventory for the current `m1nd` shape. Use the l
 - `coverage_session`: what this agent has already visited.
 - `cross_verify`: graph-vs-disk verification.
 - `external_references`: explicit paths outside ingest roots.
-- `report`: session summary and savings.
-- `savings`: token-economy report.
+- `report`: session summary.
 - `metrics`: structural metrics per file/function/module.
 - `type_trace`: follow a type across the graph.
 - `diagram`: generate Mermaid or DOT graph slices.
@@ -43,7 +42,7 @@ This is the compact capability inventory for the current `m1nd` shape. Use the l
 - `hypothesize`: test a structural claim.
 - `counterfactual`: simulate node or module removal.
 - `differential`: compare two graph snapshots.
-- `diverge`: compare current graph against a baseline.
+- `diverge`: detect structural drift vs a baseline (ISO date / git ref / last_session).
 
 ## Memory, Learning, And Continuity
 
@@ -61,6 +60,20 @@ Rules:
 - `learn` is how the graph adapts.
 - `trail_*` is for full investigative continuity.
 - `boot_memory` is for tiny durable facts, not full reasoning trails.
+
+## Agent Memory (Durable Cross-Session Knowledge)
+
+- `memorize`: author durable agent memory as a graph-native L1GHT `.light.md`. Accepts structured claims with `confidence`, `ambiguity`, and `evidence` (repo-relative code paths). Writes to `<runtime_root>/agent-memory/`, ingests immediately (adapter: light, mode: merge by default), and anchors each evidence path to the real code node via a `grounded_in` edge. Ingest target code BEFORE calling `memorize` so evidence resolves.
+- `cross_verify(check: ["evidence_freshness"])`: re-hashes each `grounded_in` code target vs the hash recorded at ingest; returns `stale_evidence[]` + `stale_evidence_count` naming which memorized claims cite changed code. (`check` is an array; other values: `existence`, `loc`, `hash`.)
+- `mission_close(write_light_memory: true)`: one-step path — closes the mission AND persists its verified claims as L1GHT memory; `light_memory` in the response gives the file path.
+- Boot auto-load: on session start, m1nd auto-ingests all `<runtime_root>/agent-memory/*.light.md` (gated by `M1ND_AUTO_LOAD_AGENT_MEMORY`, default ON). Past findings are available without explicit re-ingest. Reported in `session_handshake.agent_memory`.
+
+Rules:
+
+- `memorize` is for durable, cross-session findings — decisions, verified facts, design rationale.
+- `trail_*` is for full investigative continuity within and across sessions.
+- `boot_memory` is for tiny hot-state values, not structured reasoning.
+- Use `ingest mode: merge` (not `replace`) when re-ingesting code to preserve agent memory nodes and `grounded_in` edges.
 
 ## Mission Control And Proof Packets
 
@@ -186,6 +199,7 @@ Recent source builds include these canonical families:
 - `heuristics_surface`, `surgical_context`, `apply`, `view`, `batch_view`, `surgical_context_v2`, `apply_batch`, `edit_preview`, `edit_commit`
 - `search`, `glob`, `scan_all`, `cross_verify`, `coverage_session`, `external_references`, `federate_auto`, `help`, `report`, `audit`
 - `daemon_start`, `daemon_stop`, `daemon_status`, `daemon_tick`, `alerts_list`, `alerts_ack`
-- `panoramic`, `savings`, `persist`, `boot_memory`, `metrics`, `type_trace`, `diagram`
+- `panoramic`, `persist`, `boot_memory`, `metrics`, `type_trace`, `diagram`
 - `mission_start`, `mission_event`, `mission_next`, `mission_verify`,
   `mission_handoff`, `mission_close`
+- `memorize`

@@ -100,7 +100,12 @@ Current inline relation mapping includes:
 - `[⟁ tests: ...]` -> `declares_test`
 - `[RED blocker: ...]` -> `declares_blocker`
 - `[AMBER warning: ...]` -> `declares_warning`
+- `[𝔻 confidence: X]` -> `epistemic_confidence` edge; WEIGHT equals X (numeric 0.0–1.0 or word: low/medium/high/certain)
+- `[𝔻 ambiguity: ...]` -> `epistemic_ambiguity` edge
+- `[𝔻 evidence: path]` -> `evidenced_by` edge at ingest time; after merge with the ingested code graph, resolves to a `grounded_in` edge pointing to the actual code node
 - everything else falls back to `declares_metadata`
+
+The 𝔻 markers are fully parsed — they produce typed epistemic edges in the graph, not just heuristic recognition signals. Confidence and ambiguity sharpen activation scoring; evidence paths create cross-domain bridges between knowledge nodes and code nodes.
 
 This means `L1GHT` is not "markdown plus tags"; it is a semantic ingest format that turns authored knowledge into graph structure.
 
@@ -162,3 +167,60 @@ When a task involves docs, specs, or conceptual design artifacts:
 - `document_*` tools are most relevant for universal-document handling, canonical artifacts, and doc-to-code binding/drift workflows.
 
 So if the user says "spec" or "wiki", do not assume `universal` immediately. First check whether the material is already authored in `L1GHT`.
+
+## Authoring Agent Memory With `memorize` + The Freshness Lifecycle
+
+When an agent concludes something durable — a verified finding, a design decision, why code is structured a certain way — it can persist that knowledge with `memorize`. The result is a valid L1GHT `.light.md` that lives in the graph alongside code, survives sessions, and self-flags when the code it cites changes.
+
+### What `memorize` does
+
+Input fields:
+
+```
+agent_id        required
+node_label      required — the memory node name
+claims          required — array of claim objects:
+  label         required
+  text          optional — claim prose
+  kind          optional — entity | state | event (default: entity)
+  confidence    optional — low | medium | high | certain, or 0.0–1.0
+  ambiguity     optional — prose describing open questions
+  evidence      optional — array of repo-relative code paths
+  depends_on    optional — array of other claim labels this depends on
+title           optional
+state           optional
+output_path     optional
+namespace       optional
+ingest_after    optional — default true; set false to only write the file
+mode            optional — default merge
+```
+
+It writes a `.light.md` under `<runtime_root>/agent-memory/`, ingests it (adapter: light, mode: merge by default), and anchors each `evidence` path to the real `file::<path>` code node via a `grounded_in` edge. Returns `path`, `light_evidence_resolved`, `light_evidence_unresolved`, and a `next_action` hint.
+
+IMPORTANT: ingest the target code BEFORE calling `memorize` so evidence paths resolve to real code nodes. If evidence is unresolved, `next_action` will say so.
+
+### Boot auto-load
+
+On every session start, m1nd auto-ingests all `<runtime_root>/agent-memory/*.light.md` files. This is gated by `M1ND_AUTO_LOAD_AGENT_MEMORY` (default ON). Past findings are present in the graph at the start of the next session — no explicit re-ingest needed. The result is reported in `session_handshake.agent_memory` with `{dir, file_count, loaded, nodes_added, ...}`.
+
+### `session_handshake` now includes `graph_intelligence`
+
+The handshake response includes a `graph_intelligence` block:
+
+- `top_pagerank`: structural entry points ranked by PageRank — useful for knowing where to start in an unfamiliar repo
+- `attention_anchors`: top nodes by query-access frequency; empty with an explanatory note if no queries have run yet this session
+- `memory`: `{light_nodes, grounded_in_edges}` — how many agent-memory nodes are loaded and how many are anchored to code
+
+These are honest-zero when the signal is not yet computed.
+
+### Staleness detection
+
+`cross_verify(check: ["evidence_freshness"])` re-hashes each `grounded_in` code target against the hash recorded at ingest and returns `stale_evidence[]` + `stale_evidence_count` naming which memorized claims cite changed code. `check` is an array; other valid values: `existence`, `loc`, `hash`.
+
+After a CODE re-ingest (`mode: merge`), the ingest result itself includes `memory_freshness: {stale_evidence_count, stale_evidence[]}` — memory flags stale right at the moment code changes, without needing a separate cross_verify call.
+
+Caveat: `ingest mode: replace` wipes light memory nodes and `grounded_in` edges. Use `mode: merge` to preserve agent memory across code re-ingests, or rely on boot auto-load to restore it at the next session start.
+
+### One-step persistence from Mission Control
+
+`mission_close(write_light_memory: true)` persists the mission's verified claims as L1GHT memory in a single step. The returned `light_memory` field gives the path to the written file.
