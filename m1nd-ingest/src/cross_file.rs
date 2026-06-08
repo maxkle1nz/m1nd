@@ -414,6 +414,201 @@ impl GoModuleIndex {
     }
 }
 
+// ---------------------------------------------------------------------------
+// JavaPackageIndex — maps Java fully-qualified class names to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps Java import paths (fully-qualified class names) to file external IDs.
+///
+/// Java imports look like:
+///   `import com.example.foo.Bar;`         — specific class
+///   `import static com.example.foo.Bar;`  — static import (same format after stripping "static ")
+///   `import com.example.foo.*;`           — wildcard (all classes in package)
+///
+/// Convention: class `com.example.foo.Bar` lives at `.../com/example/foo/Bar.java`.
+///
+/// Resolution heuristic (honest/conservative — no classpath or build tool parsing):
+///   1. Extract the LAST segment of the import path:
+///      `com.example.foo.Bar` → `Bar`; wildcard `com.example.foo.*` → `*` (special).
+///   2. Walk all `.java` file nodes in the graph; for each file, extract its
+///      filename stem (e.g. `Bar` from `com/example/foo/Bar.java`).
+///   3. If the import's last segment matches the file's stem, that file is a candidate.
+///   4. Among candidates, prefer the one whose directory path has the longest suffix
+///      match against the package path of the import (mirrors GoModuleIndex heuristic).
+///
+/// Wildcard imports (`com.example.foo.*`): resolve to ALL `.java` files whose
+///   directory path matches the package prefix (`com/example/foo`).
+///
+/// Limitations (honest):
+///   • No pom.xml / build.gradle parsing — source roots unknown.
+///   • Ambiguous when two classes share the same name in different packages with
+///     equal suffix overlap; first entry wins.
+///   • External/stdlib classes (java.util.*, org.springframework.*) with no ingested
+///     files stay unresolved — never fabricate edges.
+struct JavaPackageIndex {
+    /// stem -> Vec<(file_external_id, dir_path_slash_separated)>
+    /// e.g. "Bar" -> [("file::com/example/foo/Bar.java", "com/example/foo"), ...]
+    stem_to_files: HashMap<String, Vec<(String, String)>>,
+    /// All java file entries for wildcard resolution:
+    /// dir_path -> Vec<file_external_id>
+    dir_to_files: HashMap<String, Vec<String>>,
+}
+
+const JAVA_EXTENSION: &str = "java";
+
+impl JavaPackageIndex {
+    fn build(graph: &Graph) -> Self {
+        let mut stem_to_files: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut dir_to_files: HashMap<String, Vec<String>> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) if p.ends_with(&format!(".{}", JAVA_EXTENSION)) => p,
+                _ => continue,
+            };
+
+            // Directory of this .java file (e.g. "com/example/foo" from "com/example/foo/Bar.java")
+            let dir = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[..idx],
+                None => "", // file is at repo root
+            };
+
+            // Stem: filename without extension ("Bar" from "Bar.java")
+            let stem = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[idx + 1..rel_path.len() - JAVA_EXTENSION.len() - 1],
+                None => &rel_path[..rel_path.len() - JAVA_EXTENSION.len() - 1],
+            };
+
+            if stem.is_empty() {
+                continue;
+            }
+
+            stem_to_files
+                .entry(stem.to_string())
+                .or_default()
+                .push((ext_id.clone(), dir.to_string()));
+
+            dir_to_files
+                .entry(dir.to_string())
+                .or_default()
+                .push(ext_id.clone());
+        }
+
+        Self {
+            stem_to_files,
+            dir_to_files,
+        }
+    }
+
+    /// Resolve a Java fully-qualified import path to file external ID(s).
+    ///
+    /// `import_path`: the raw path from the import statement, e.g.
+    ///   `com.example.foo.Bar` or `com.example.foo.*`.
+    ///
+    /// Returns a Vec (possibly empty). Empty when the class/package cannot be
+    /// matched to any ingested `.java` file (external dep, stdlib).
+    ///
+    /// Wildcard imports return ALL matching files in the resolved package directory.
+    fn resolve(&self, import_path: &str) -> Vec<&str> {
+        // Wildcard: com.example.foo.*
+        if import_path.ends_with(".*") {
+            let package = &import_path[..import_path.len() - 2]; // strip ".*"
+            // Convert dotted package to slash-separated dir
+            let dir_path = package.replace('.', "/");
+            // Find all .java files in that directory (exact match or suffix match)
+            let mut results: Vec<&str> = Vec::new();
+            // Try exact dir match first
+            if let Some(files) = self.dir_to_files.get(dir_path.as_str()) {
+                for f in files {
+                    results.push(f.as_str());
+                }
+            }
+            if results.is_empty() {
+                // Try suffix match: any dir whose last segments match dir_path
+                for (dir, files) in &self.dir_to_files {
+                    if dir.ends_with(dir_path.as_str())
+                        && (dir.len() == dir_path.len()
+                            || dir.as_bytes()[dir.len() - dir_path.len() - 1] == b'/')
+                    {
+                        for f in files {
+                            results.push(f.as_str());
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        // Specific class: com.example.foo.Bar
+        let last_seg = import_path.split('.').last().filter(|s| !s.is_empty());
+        let last_seg = match last_seg {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let candidates = match self.stem_to_files.get(last_seg) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
+        // Single candidate: accept it
+        if candidates.len() == 1 {
+            return vec![candidates[0].0.as_str()];
+        }
+
+        // Multiple candidates: pick the one with the longest suffix overlap
+        // between the import's package path and the file's directory path.
+        // e.g. import "com.example.foo.Bar" → dir "com/example/foo" > dir "foo"
+        let import_dir = if let Some(last_dot) = import_path.rfind('.') {
+            import_path[..last_dot].replace('.', "/")
+        } else {
+            String::new()
+        };
+        let import_dir_segs: Vec<&str> = import_dir.split('/').filter(|s| !s.is_empty()).collect();
+
+        let mut best: Option<&(String, String)> = None;
+        let mut best_overlap = 0usize;
+
+        for candidate in candidates {
+            let dir_segs: Vec<&str> = candidate
+                .1
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .collect();
+            let overlap = import_dir_segs
+                .iter()
+                .rev()
+                .zip(dir_segs.iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            if overlap > best_overlap
+                || (overlap == best_overlap && best.is_none())
+            {
+                best_overlap = overlap;
+                best = Some(candidate);
+            }
+        }
+
+        match best {
+            Some((id, _)) => vec![id.as_str()],
+            None => vec![candidates[0].0.as_str()],
+        }
+    }
+}
+
 /// Join a base directory path with a relative specifier, normalizing `..` and `.`.
 /// Both paths use forward slashes. Returns a normalized relative path.
 fn join_path(base_dir: &str, relative: &str) -> String {
@@ -514,6 +709,18 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     stats.files_indexed += go_index.segment_to_files.len() as u64;
     let go_import_edges = collect_go_import_edges_from_files(graph, root, &go_index);
     for (source_file_id, target_file_id, relation) in &go_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 7: Java cross-file import resolution via JavaPackageIndex.
+    let java_index = JavaPackageIndex::build(graph);
+    stats.files_indexed += java_index.stem_to_files.len() as u64;
+    let java_import_edges = collect_java_import_edges_from_files(graph, root, &java_index);
+    for (source_file_id, target_file_id, relation) in &java_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
         } else {
@@ -997,6 +1204,91 @@ fn collect_go_import_edges_from_files(
 }
 
 // ---------------------------------------------------------------------------
+// Java import edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all Java file nodes in the graph, read their source from disk,
+/// extract import statements, and resolve them to file-to-file edges via
+/// JavaPackageIndex.
+///
+/// Java import forms handled:
+///   Specific:  import com.example.foo.Bar;
+///   Static:    import static com.example.foo.Bar.method;
+///   Wildcard:  import com.example.foo.*;
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_java_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    java_index: &JavaPackageIndex,
+) -> Vec<(String, String, String)> {
+    // Matches: import [static] <path>;
+    // Group 1 captures the path (may end with .* for wildcards).
+    let re_import = Regex::new(r"^\s*import\s+(?:static\s+)?([\w.*]+)\s*;").unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) if p.ends_with(".java") => p,
+            _ => continue,
+        };
+
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with('*') {
+                continue;
+            }
+
+            // Only look at import lines
+            if !trimmed.starts_with("import ") {
+                continue;
+            }
+
+            if let Some(caps) = re_import.captures(trimmed) {
+                let import_path = caps.get(1).unwrap().as_str();
+
+                let targets = java_index.resolve(import_path);
+                for target_id in targets {
+                    // Skip self-imports (shouldn't happen but guard anyway)
+                    if target_id == ext_id {
+                        continue;
+                    }
+                    let key = (ext_id.clone(), target_id.to_string());
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
+                        edges.push((
+                            ext_id.clone(),
+                            target_id.to_string(),
+                            "imports".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -1313,5 +1605,150 @@ mod tests {
         );
         let reg_edge = &graph.csr.pending_edges[2];
         assert!((reg_edge.weight.get() - 0.7).abs() < f32::EPSILON);
+    }
+
+    // -----------------------------------------------------------------------
+    // JavaPackageIndex tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: add a Java file node to the graph.
+    fn add_java_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
+        let ext_id = format!("file::{}", rel_path);
+        let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        graph
+            .add_node(&ext_id, label, NodeType::File, &["java"], 0.0, 0.3)
+            .unwrap()
+    }
+
+    #[test]
+    fn java_package_index_resolves_fqcn() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_java_file_node(&mut graph, "com/example/foo/Bar.java");
+        add_java_file_node(&mut graph, "com/example/baz/Qux.java");
+
+        let index = JavaPackageIndex::build(&graph);
+
+        let resolved = index.resolve("com.example.foo.Bar");
+        assert_eq!(
+            resolved,
+            vec!["file::com/example/foo/Bar.java"],
+            "FQCN should resolve to file"
+        );
+
+        let resolved2 = index.resolve("com.example.baz.Qux");
+        assert_eq!(
+            resolved2,
+            vec!["file::com/example/baz/Qux.java"],
+        );
+    }
+
+    #[test]
+    fn java_package_index_suffix_match_disambiguates() {
+        // Two classes named "Bar" in different packages — longest suffix match wins.
+        let mut graph = Graph::with_capacity(6, 6);
+        add_java_file_node(&mut graph, "com/example/foo/Bar.java");
+        add_java_file_node(&mut graph, "org/other/Bar.java");
+
+        let index = JavaPackageIndex::build(&graph);
+
+        // Import "com.example.foo.Bar" should prefer com/example/foo/Bar.java
+        let resolved = index.resolve("com.example.foo.Bar");
+        assert_eq!(
+            resolved,
+            vec!["file::com/example/foo/Bar.java"],
+            "Suffix match should pick the deeper match. Got: {:?}",
+            resolved
+        );
+    }
+
+    #[test]
+    fn java_package_index_resolves_wildcard() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_java_file_node(&mut graph, "com/example/foo/Alpha.java");
+        add_java_file_node(&mut graph, "com/example/foo/Beta.java");
+        add_java_file_node(&mut graph, "com/example/bar/Gamma.java");
+
+        let index = JavaPackageIndex::build(&graph);
+
+        let mut resolved = index.resolve("com.example.foo.*");
+        resolved.sort();
+        assert_eq!(resolved.len(), 2, "Wildcard should resolve to both files in package. Got: {:?}", resolved);
+        assert!(resolved.contains(&"file::com/example/foo/Alpha.java"));
+        assert!(resolved.contains(&"file::com/example/foo/Beta.java"));
+
+        // Different package wildcard should not include foo files
+        let resolved_bar = index.resolve("com.example.bar.*");
+        assert_eq!(resolved_bar.len(), 1);
+        assert!(resolved_bar.contains(&"file::com/example/bar/Gamma.java"));
+    }
+
+    #[test]
+    fn java_package_index_returns_empty_for_external_dep() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_java_file_node(&mut graph, "com/example/Service.java");
+
+        let index = JavaPackageIndex::build(&graph);
+
+        // java.util.List is external — no ingested file
+        assert!(
+            index.resolve("java.util.List").is_empty(),
+            "External stdlib class should not resolve"
+        );
+        // org.springframework.* is external
+        assert!(
+            index.resolve("org.springframework.web.*").is_empty(),
+            "External wildcard should not resolve"
+        );
+    }
+
+    /// This is the cross-file parity test mirroring go_cross_file_import_resolves_to_file_node.
+    /// It verifies that JavaPackageIndex resolves an import from one Java file to
+    /// another ingested Java file, producing an imports edge in the graph.
+    #[test]
+    fn java_cross_file_import_resolves_to_file_node() {
+        // Two Java files: UserService imports UserRepository.
+        // We verify that JavaPackageIndex correctly resolves the import and that
+        // add_cross_file_edge produces an imports edge between the two file nodes.
+        let mut graph = Graph::with_capacity(8, 8);
+        add_java_file_node(&mut graph, "com/example/service/UserService.java");
+        add_java_file_node(&mut graph, "com/example/repo/UserRepository.java");
+
+        let index = JavaPackageIndex::build(&graph);
+
+        // Resolve the FQCN import
+        let resolved = index.resolve("com.example.repo.UserRepository");
+        assert_eq!(
+            resolved,
+            vec!["file::com/example/repo/UserRepository.java"],
+            "Should resolve import to UserRepository.java. Got: {:?}",
+            resolved
+        );
+
+        // Add the cross-file edge and verify it lands in the graph
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::com/example/service/UserService.java",
+            "file::com/example/repo/UserRepository.java",
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge should be successfully added");
+        assert_eq!(stats.total_edges_created, 1);
+
+        // The edge should be in pending_edges
+        let edge = graph.csr.pending_edges.iter().find(|e| {
+            let src = graph
+                .resolve_id("file::com/example/service/UserService.java")
+                .unwrap();
+            let tgt = graph
+                .resolve_id("file::com/example/repo/UserRepository.java")
+                .unwrap();
+            e.source == src && e.target == tgt
+        });
+        assert!(
+            edge.is_some(),
+            "imports edge from UserService → UserRepository must be in graph"
+        );
     }
 }
