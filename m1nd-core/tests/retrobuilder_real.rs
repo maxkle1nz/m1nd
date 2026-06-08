@@ -146,6 +146,7 @@ fn rb03_twins_real() {
         node_types: vec![],
         scope: None,
         use_edge_types: true,
+        name_overlap_min: 0.0,
     };
 
     eprintln!(

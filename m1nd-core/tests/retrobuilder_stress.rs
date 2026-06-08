@@ -261,6 +261,7 @@ fn stress_twins_all_identical() {
         node_types: vec![],
         scope: None,
         use_edge_types: true,
+        name_overlap_min: 0.0,
     };
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
@@ -290,6 +291,7 @@ fn stress_twins_large_chain() {
         node_types: vec![],
         scope: None,
         use_edge_types: true,
+        name_overlap_min: 0.0,
     };
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
@@ -316,6 +318,7 @@ fn stress_twins_real_functions_only() {
         node_types: vec![NodeType::Function],
         scope: None,
         use_edge_types: true,
+        name_overlap_min: 0.0,
     };
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
@@ -345,6 +348,7 @@ fn stress_twins_low_threshold() {
         node_types: vec![],
         scope: None,
         use_edge_types: true,
+        name_overlap_min: 0.0,
     };
     let t = Instant::now();
     let result = find_twins(&g, &config).unwrap();
@@ -648,6 +652,7 @@ fn stress_twins_then_otel() {
         node_types: vec![],
         scope: None,
         use_edge_types: true,
+        name_overlap_min: 0.0,
     };
     let twins = find_twins(&g, &twin_config).unwrap();
     eprintln!("[STRESS CROSS] Found {} twin pairs", twins.pairs.len());

@@ -8375,6 +8375,7 @@ pub fn handle_twins(
         scope: input.scope,
         node_types,
         use_edge_types: true,
+        ..Default::default()
     };
 
     let result = m1nd_core::twins::find_twins(&graph, &config)?;

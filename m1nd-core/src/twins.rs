@@ -36,6 +36,13 @@ pub struct TwinConfig {
     pub scope: Option<String>,
     /// Whether to include edge type distribution in signature.
     pub use_edge_types: bool,
+    /// Minimum identifier-token Jaccard overlap between the two labels for a
+    /// pair to count as twins. Pure topological signatures saturate at cosine
+    /// 1.0 for any two same-shaped nodes (e.g. two unrelated structs), which
+    /// floods results with false positives. Requiring some shared name tokens
+    /// keeps real near-duplicates (`parse_a` ~ `parse_b`) and drops shape-only
+    /// coincidences (`BridgeRequest` ~ `BootMemoryInput`). 0.0 disables the gate.
+    pub name_overlap_min: f32,
 }
 
 impl Default for TwinConfig {
@@ -46,6 +53,7 @@ impl Default for TwinConfig {
             node_types: vec![],
             scope: None,
             use_edge_types: true,
+            name_overlap_min: 0.15,
         }
     }
 }
@@ -67,6 +75,8 @@ pub struct TwinPair {
     pub node_b_label: String,
     /// Cosine similarity of structural signatures.
     pub similarity: f32,
+    /// Identifier-token Jaccard overlap of the two labels [0.0, 1.0].
+    pub name_overlap: f32,
     /// Shared structural properties.
     pub shared_properties: Vec<String>,
 }
@@ -224,6 +234,49 @@ fn compute_signature(
     features
 }
 
+/// Split an identifier label into lowercase tokens, breaking on camelCase
+/// boundaries, digits, and non-alphanumeric separators (`_`, `::`, `.`, etc.).
+/// e.g. `BridgeRequest` -> {bridge, request}; `parse_git_history` -> {parse, git, history}.
+fn tokenize_label(label: &str) -> std::collections::HashSet<String> {
+    let mut tokens = std::collections::HashSet::new();
+    let mut cur = String::new();
+    let mut prev_lower = false;
+    for ch in label.chars() {
+        if ch.is_ascii_alphanumeric() {
+            // camelCase boundary: lowercase/digit followed by uppercase.
+            if prev_lower && ch.is_ascii_uppercase() && !cur.is_empty() {
+                tokens.insert(std::mem::take(&mut cur).to_ascii_lowercase());
+            }
+            cur.push(ch);
+            prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        } else if !cur.is_empty() {
+            tokens.insert(std::mem::take(&mut cur).to_ascii_lowercase());
+            prev_lower = false;
+        }
+    }
+    if !cur.is_empty() {
+        tokens.insert(cur.to_ascii_lowercase());
+    }
+    tokens.remove("");
+    tokens
+}
+
+/// Jaccard overlap of the identifier tokens of two labels [0.0, 1.0].
+fn name_overlap(label_a: &str, label_b: &str) -> f32 {
+    let a = tokenize_label(label_a);
+    let b = tokenize_label(label_b);
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let inter = a.intersection(&b).count() as f32;
+    let union = a.union(&b).count() as f32;
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
+    }
+}
+
 /// Cosine similarity between two feature vectors.
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
@@ -346,19 +399,28 @@ pub fn find_twins(graph: &Graph, config: &TwinConfig) -> M1ndResult<TwinResult> 
             }
 
             let sim = cosine_similarity(&signatures[i].features, &signatures[j].features);
-            if sim >= config.similarity_threshold {
-                pairs.push(TwinPair {
-                    node_a_id: signatures[i].ext_id.clone(),
-                    node_a_label: signatures[i].label.clone(),
-                    node_b_id: signatures[j].ext_id.clone(),
-                    node_b_label: signatures[j].label.clone(),
-                    similarity: sim,
-                    shared_properties: describe_shared(
-                        &signatures[i].features,
-                        &signatures[j].features,
-                    ),
-                });
+            if sim < config.similarity_threshold {
+                continue;
             }
+            // Gate on identifier-token overlap: pure topological cosine saturates
+            // at 1.0 for any two same-shaped nodes, so require shared name tokens
+            // to drop shape-only coincidences while keeping real near-duplicates.
+            let overlap = name_overlap(&signatures[i].label, &signatures[j].label);
+            if overlap < config.name_overlap_min {
+                continue;
+            }
+            pairs.push(TwinPair {
+                node_a_id: signatures[i].ext_id.clone(),
+                node_a_label: signatures[i].label.clone(),
+                node_b_id: signatures[j].ext_id.clone(),
+                node_b_label: signatures[j].label.clone(),
+                similarity: sim,
+                name_overlap: overlap,
+                shared_properties: describe_shared(
+                    &signatures[i].features,
+                    &signatures[j].features,
+                ),
+            });
         }
     }
 
@@ -544,6 +606,27 @@ mod tests {
     fn cosine_sim_identical() {
         let a = vec![1.0, 2.0, 3.0];
         assert!((cosine_similarity(&a, &a) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn tokenize_splits_camel_and_snake() {
+        let t = tokenize_label("BridgeRequest");
+        assert!(t.contains("bridge") && t.contains("request"), "got {:?}", t);
+        let t2 = tokenize_label("parse_git_history");
+        assert!(t2.contains("parse") && t2.contains("git") && t2.contains("history"));
+    }
+
+    #[test]
+    fn name_overlap_discriminates_shape_coincidences() {
+        // The real-world false positives the gate must kill: same graph shape,
+        // unrelated names -> ~0 overlap.
+        assert!(name_overlap("BridgeRequest", "BootMemoryInput") < 0.15);
+        assert!(name_overlap("normalize_tool_name", "parse_git_history") < 0.15);
+        // Real near-duplicates the gate must keep: shared name tokens.
+        assert!(name_overlap("handler_a", "handler_b") >= 0.15);
+        assert!(name_overlap("parse_config", "parse_settings") >= 0.15);
+        // Identical names (true cross-file dup) -> 1.0.
+        assert!((name_overlap("validate", "validate") - 1.0).abs() < 0.001);
     }
 
     #[test]
