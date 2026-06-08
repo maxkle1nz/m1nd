@@ -2003,17 +2003,6 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
-                "name": "savings",
-                "description": "Estimated token and cost savings from using m1nd. Shows current session and global totals with Gaia counter.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "agent_id": { "type": "string", "description": "Calling agent identifier" }
-                    },
-                    "required": ["agent_id"]
-                }
-            },
-            {
                 "name": "persist",
                 "description": "Persist/load graph and plasticity state; supports binary snapshots",
                 "inputSchema": {

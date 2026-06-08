@@ -2582,7 +2582,124 @@ pub fn handle_session_handshake(
     let node_count = graph.num_nodes();
     let edge_count = graph.num_edges() as u64;
     let graph_finalized = graph.finalized;
+
+    // --- graph_intelligence: compute while holding the read lock (one pass) ---
+    //
+    // top_pagerank: top-5 nodes by PageRank (structural importance).
+    // attention_anchors: top-5 nodes by query-access frequency from plasticity ring-buffer.
+    // memory: counts of light:: nodes and grounded_in edges.
+    //
+    // Build NodeId → external_id reverse map once, reuse for all three signals.
+    let mut nid_to_ext: HashMap<usize, String> =
+        HashMap::with_capacity(graph.id_to_node.len());
+    for (interned, &nid) in &graph.id_to_node {
+        nid_to_ext.insert(nid.as_usize(), graph.strings.resolve(*interned).to_string());
+    }
+
+    // 1. top_pagerank --------------------------------------------------------
+    let top_pagerank: Vec<serde_json::Value> = if graph.pagerank_computed
+        && !graph.nodes.pagerank.is_empty()
+    {
+        let n = graph.nodes.count as usize;
+        // Collect (pagerank, node_idx) pairs; skip zero scores.
+        let mut ranked: Vec<(f32, usize)> = (0..n)
+            .filter_map(|i| {
+                let pr = graph.nodes.pagerank[i].get();
+                if pr > 0.0 { Some((pr, i)) } else { None }
+            })
+            .collect();
+        // Partial descending sort, keep top-5.
+        ranked.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        ranked.truncate(5);
+        ranked
+            .into_iter()
+            .map(|(pr, idx)| {
+                let ext_id = nid_to_ext.get(&idx).cloned().unwrap_or_default();
+                let label = graph
+                    .strings
+                    .try_resolve(graph.nodes.label[idx])
+                    .unwrap_or("")
+                    .to_string();
+                serde_json::json!({ "id": ext_id, "label": label, "pagerank": pr })
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    let pagerank_note: Option<&str> = if !graph.pagerank_computed || graph.nodes.pagerank.is_empty() {
+        Some("not_computed")
+    } else {
+        None
+    };
+
+    // 2. memory: light:: nodes + grounded_in edges ---------------------------
+    let grounded_in_interned = graph.strings.lookup("grounded_in");
+    let mut light_node_count: u64 = 0;
+    let mut grounded_in_edge_count: u64 = 0;
+    {
+        let n = graph.nodes.count as usize;
+        for idx in 0..n {
+            let ext_id = nid_to_ext.get(&idx).map(|s| s.as_str()).unwrap_or("");
+            if ext_id.starts_with("light::") {
+                light_node_count += 1;
+            }
+            if let Some(gi) = grounded_in_interned {
+                let range = graph.csr.out_range(m1nd_core::types::NodeId::new(idx as u32));
+                for edge_i in range {
+                    if graph.csr.relations[edge_i] == gi {
+                        grounded_in_edge_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
     drop(graph);
+    // --- end graph read lock ---
+
+    // 3. attention_anchors: top-5 by query-access frequency ------------------
+    // Uses PlasticityEngine::top_node_access_frequencies() — no seeds needed,
+    // O(num_nodes) pass over the ring-buffer's frequency array.
+    let raw_freqs = state.plasticity.top_node_access_frequencies(5);
+    let attention_anchors_empty = raw_freqs.is_empty();
+    let attention_anchors: Vec<serde_json::Value> = {
+        // Re-acquire a short read lock only to resolve labels for the few returned nodes.
+        let graph = state.graph.read();
+        raw_freqs
+            .into_iter()
+            .map(|(nid, freq)| {
+                let idx = nid.as_usize();
+                let ext_id = nid_to_ext.get(&idx).cloned().unwrap_or_default();
+                let label = graph
+                    .strings
+                    .try_resolve(graph.nodes.label[idx])
+                    .unwrap_or("")
+                    .to_string();
+                serde_json::json!({
+                    "id": ext_id,
+                    "label": label,
+                    "signal": freq,
+                    "kind": "node_access_frequency"
+                })
+            })
+            .collect()
+    };
+
+    let graph_intelligence = serde_json::json!({
+        "top_pagerank": top_pagerank,
+        "pagerank_note": pagerank_note,
+        "attention_anchors": attention_anchors,
+        "attention_anchors_note": if attention_anchors_empty {
+            Some("no_queries_recorded_yet")
+        } else {
+            None
+        },
+        "memory": {
+            "light_nodes": light_node_count,
+            "grounded_in_edges": grounded_in_edge_count,
+        }
+    });
+    // --- end graph_intelligence ---
 
     let (trust_mode, next_action) = if degraded_host_tool_surface {
         (
@@ -2696,6 +2813,7 @@ pub fn handle_session_handshake(
         "used_probe": false,
         "probe": serde_json::Value::Null,
         "agent_memory": state.agent_memory_boot.clone().unwrap_or(serde_json::Value::Null),
+        "graph_intelligence": graph_intelligence,
     }))
 }
 
@@ -3851,6 +3969,103 @@ mod tests {
         assert!(
             found,
             "expected a grounded_in edge targeting file::auth.rs after full ingest"
+        );
+    }
+
+    /// Test that session_handshake returns a well-formed `graph_intelligence` object.
+    ///
+    /// Builds a small finalized graph with two nodes (so PageRank is computed),
+    /// calls handle_session_handshake with all required tools present, then asserts:
+    ///   - `graph_intelligence.top_pagerank` is an array
+    ///   - `graph_intelligence.attention_anchors` is an array
+    ///   - `graph_intelligence.memory.light_nodes` is a number
+    ///   - `graph_intelligence.memory.grounded_in_edges` is a number
+    ///   - for a fresh graph with no light nodes both counts are 0
+    ///   - for a fresh graph with no prior queries attention_anchors is empty and
+    ///     `attention_anchors_note` explains why
+    #[test]
+    fn session_handshake_graph_intelligence_structure() {
+        use super::handle_session_handshake;
+        use crate::protocol::core::SessionHandshakeInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+
+        let output = handle_session_handshake(
+            &mut state,
+            SessionHandshakeInput {
+                agent_id: "test-agent".into(),
+                observed_tool_count: Some(HOST_BINDING_REQUIRED_TOOLS.len() as u64),
+                available_tools: HOST_BINDING_REQUIRED_TOOLS
+                    .iter()
+                    .map(|t| (*t).to_string())
+                    .collect(),
+                missing_tools: vec![],
+                scope: None,
+            },
+        )
+        .expect("session_handshake should succeed");
+
+        // `graph_intelligence` key must be present and be an object.
+        let gi = &output["graph_intelligence"];
+        assert!(gi.is_object(), "graph_intelligence must be a JSON object");
+
+        // top_pagerank must be an array (may be non-empty since graph is finalized
+        // and PageRank is computed on finalize).
+        let top_pr = &gi["top_pagerank"];
+        assert!(top_pr.is_array(), "top_pagerank must be an array");
+
+        // Each entry in top_pagerank must have id, label, pagerank.
+        for entry in top_pr.as_array().unwrap() {
+            assert!(entry["id"].is_string(), "top_pagerank entry must have id");
+            assert!(
+                entry["label"].is_string(),
+                "top_pagerank entry must have label"
+            );
+            assert!(
+                entry["pagerank"].is_number(),
+                "top_pagerank entry must have pagerank"
+            );
+        }
+
+        // attention_anchors must be an array (empty for a fresh graph with no queries).
+        let aa = &gi["attention_anchors"];
+        assert!(aa.is_array(), "attention_anchors must be an array");
+
+        // For a fresh graph no queries were processed → anchors must be empty and
+        // attention_anchors_note must explain this.
+        assert_eq!(
+            aa.as_array().unwrap().len(),
+            0,
+            "no queries recorded → attention_anchors should be empty"
+        );
+        assert_eq!(
+            gi["attention_anchors_note"],
+            serde_json::json!("no_queries_recorded_yet"),
+            "attention_anchors_note must be set when anchors are empty"
+        );
+
+        // memory object must be present with numeric fields.
+        let mem = &gi["memory"];
+        assert!(mem.is_object(), "memory must be a JSON object");
+        assert!(
+            mem["light_nodes"].is_number(),
+            "memory.light_nodes must be a number"
+        );
+        assert!(
+            mem["grounded_in_edges"].is_number(),
+            "memory.grounded_in_edges must be a number"
+        );
+        // Fresh graph built by build_runtime_state has no light:: nodes.
+        assert_eq!(
+            mem["light_nodes"],
+            serde_json::json!(0u64),
+            "fresh graph must have 0 light nodes"
+        );
+        assert_eq!(
+            mem["grounded_in_edges"],
+            serde_json::json!(0u64),
+            "fresh graph must have 0 grounded_in edges"
         );
     }
 }

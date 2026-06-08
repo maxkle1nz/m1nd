@@ -193,6 +193,26 @@ impl QueryMemory {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Return the top `n` nodes by accumulated query-access frequency.
+    ///
+    /// This is the cheapest "what has this agent been paying attention to" signal:
+    /// it reads directly from the in-memory ring-buffer frequency counter without
+    /// any graph traversal or seed requirement.  Returns `(NodeId, frequency)` pairs
+    /// sorted descending by frequency, capped at `n`.
+    pub fn top_node_frequencies(&self, n: usize) -> Vec<(NodeId, u32)> {
+        let mut indexed: Vec<(NodeId, u32)> = self
+            .node_frequency
+            .iter()
+            .enumerate()
+            .filter(|(_, &freq)| freq > 0)
+            .map(|(idx, &freq)| (NodeId::new(idx as u32), freq))
+            .collect();
+        // Partial sort: top-k by descending frequency
+        indexed.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        indexed.truncate(n);
+        indexed
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -730,6 +750,13 @@ impl PlasticityEngine {
         boost_strength: FiniteF32,
     ) -> Vec<(NodeId, FiniteF32)> {
         self.memory.get_priming_signal(seeds, boost_strength)
+    }
+
+    /// Return the top `n` nodes by accumulated query-access frequency from the
+    /// ring-buffer memory.  This is the cheapest global "attention" signal —
+    /// no seeds required, O(num_nodes) time with a single pass.
+    pub fn top_node_access_frequencies(&self, n: usize) -> Vec<(NodeId, u32)> {
+        self.memory.top_node_frequencies(n)
     }
 }
 
