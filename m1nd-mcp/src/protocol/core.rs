@@ -463,6 +463,16 @@ pub struct BlastRadiusEntry {
     pub node_type: String,
     pub signal_strength: f32,
     pub hop_distance: u8,
+    /// True when this node is a light:evidenced_by citation marker reached via a
+    /// `grounded_in` edge from the impact source (or is itself such a marker).
+    /// Tells the agent that this entry appeared because it is a memorized claim
+    /// that cites a file in the blast radius.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_knowledge_citation: Option<bool>,
+    /// The full label text of the evidence marker node (the memorized claim text).
+    /// Present only when `is_knowledge_citation` is `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claim: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

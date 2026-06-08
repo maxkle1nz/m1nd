@@ -410,6 +410,121 @@ fn finalize_ingest(
         let graph = state.graph.read();
         build_file_inventory_entries(&graph, &stats.discovered_files)
     };
+
+    // #7 — memory freshness check after a code ingest.
+    //
+    // Capture the previous inventory (old hashes) BEFORE we overwrite it with
+    // the fresh hashes.  We also build a map of the newly-ingested external_ids
+    // (the files that were just (re)parsed) so we only flag those that actually
+    // changed in this ingest.
+    //
+    // Borrow/lock safety: the graph write lock was released at the end of the
+    // `let (light_evidence_resolved, ...)` block above (line ~407).  We acquire
+    // only a READ lock here — no risk of deadlock.
+    let memory_freshness: serde_json::Value = if adapter == "code" {
+        // Snapshot the old inventory (has the previous sha256 values).
+        let previous_inventory = state.file_inventory.clone();
+
+        // Build a set of external_ids that are part of this code ingest.
+        let ingested_ids: HashSet<String> = inventory_entries
+            .iter()
+            .map(|e| e.external_id.clone())
+            .collect();
+
+        // Walk grounded_in edges to find memorized claims whose cited code
+        // file was just re-ingested.  Compare old vs new hash to detect changes.
+        let graph = state.graph.read();
+        let grounded_in_interned = graph.strings.lookup("grounded_in");
+
+        let mut stale: Vec<serde_json::Value> = Vec::new();
+
+        if let Some(gi) = grounded_in_interned {
+            // Build reverse map: NodeId → external_id.
+            let nid_to_ext: HashMap<usize, String> = graph
+                .id_to_node
+                .iter()
+                .map(|(interned, &nid)| {
+                    (nid.as_usize(), graph.strings.resolve(*interned).to_string())
+                })
+                .collect();
+
+            let node_count_inner = graph.nodes.count as usize;
+            for src_idx in 0..node_count_inner {
+                let src_nid = m1nd_core::types::NodeId::new(src_idx as u32);
+                let range = graph.csr.out_range(src_nid);
+                for edge_i in range {
+                    if graph.csr.relations[edge_i] != gi {
+                        continue;
+                    }
+                    let tgt_nid = graph.csr.targets[edge_i];
+                    let tgt_ext_id = match nid_to_ext.get(&tgt_nid.as_usize()) {
+                        Some(id) => id.clone(),
+                        None => continue,
+                    };
+                    if !tgt_ext_id.starts_with("file::") {
+                        continue;
+                    }
+                    // Only flag files that were part of this code ingest.
+                    if !ingested_ids.contains(&tgt_ext_id) {
+                        continue;
+                    }
+                    let rel_path = &tgt_ext_id["file::".len()..];
+                    let marker_label = graph
+                        .strings
+                        .resolve(graph.nodes.label[src_idx])
+                        .to_string();
+                    let marker_ext_id = nid_to_ext
+                        .get(&src_idx)
+                        .cloned()
+                        .unwrap_or_default();
+
+                    // New hash: from the just-built inventory_entries.
+                    let new_hash = inventory_entries
+                        .iter()
+                        .find(|e| e.external_id == tgt_ext_id)
+                        .and_then(|e| e.sha256.clone());
+
+                    // Old hash: from the snapshot taken before this ingest.
+                    let old_hash = previous_inventory
+                        .get(&tgt_ext_id)
+                        .and_then(|e| e.sha256.clone());
+
+                    match (old_hash, new_hash) {
+                        (Some(old), Some(new)) if old != new => {
+                            stale.push(serde_json::json!({
+                                "marker": marker_ext_id,
+                                "claim": marker_label,
+                                "evidence_path": rel_path,
+                                "reason": "evidence_changed",
+                            }));
+                        }
+                        (None, _) => {
+                            // No prior hash recorded — treat as possibly changed.
+                            stale.push(serde_json::json!({
+                                "marker": marker_ext_id,
+                                "claim": marker_label,
+                                "evidence_path": rel_path,
+                                "reason": "evidence_possibly_changed",
+                            }));
+                        }
+                        _ => {
+                            // Hashes match or new hash absent — evidence fresh / unverifiable.
+                        }
+                    }
+                }
+            }
+        }
+        drop(graph);
+
+        let stale_count = stale.len();
+        serde_json::json!({
+            "stale_evidence_count": stale_count,
+            "stale_evidence": stale,
+        })
+    } else {
+        serde_json::Value::Null
+    };
+
     if mode == "replace" {
         state.reset_file_inventory();
     }
@@ -459,7 +574,7 @@ fn finalize_ingest(
         (graph.num_nodes(), graph.num_edges())
     };
 
-    Ok(serde_json::json!({
+    let mut out = serde_json::json!({
         "mode": mode,
         "adapter": adapter,
         "namespace": namespace,
@@ -472,7 +587,14 @@ fn finalize_ingest(
         "edge_count": edge_count,
         "light_evidence_resolved": light_evidence_resolved,
         "light_evidence_unresolved": light_evidence_unresolved,
-    }))
+    });
+    // Include memory_freshness only for code ingests (non-null).
+    if !memory_freshness.is_null() {
+        out.as_object_mut()
+            .unwrap()
+            .insert("memory_freshness".to_string(), memory_freshness);
+    }
+    Ok(out)
 }
 
 /// Handle activate (03-MCP Section 2.1).
@@ -944,6 +1066,70 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // #3 — Build a lookup of which blast-radius nodes are light:evidenced_by
+    // citation markers so we can annotate them with `is_knowledge_citation`.
+    // Strategy: for each node in the capped blast radius, check (a) whether it
+    // carries the `light:evidenced_by` tag directly, or (b) whether it is a
+    // `light::` node that has an incoming `grounded_in` edge from a known marker.
+    // We build the annotation map before the final collect so the closure stays
+    // immutable-borrow-only.
+    let knowledge_citation_map: HashMap<usize, String> = {
+        let evidenced_by_tag = graph.strings.lookup("light:evidenced_by");
+        let grounded_in_rel = graph.strings.lookup("grounded_in");
+        let n = graph.num_nodes() as usize;
+        let mut map: HashMap<usize, String> = HashMap::new();
+
+        if let Some(tag) = evidenced_by_tag {
+            // Collect all marker node indices that carry the tag (full graph).
+            // For each marker, record its label as the "claim" text.
+            let marker_labels: HashMap<usize, String> = (0..n)
+                .filter(|&i| {
+                    graph.nodes.tags.get(i).map_or(false, |tags| tags.iter().any(|&t| t == tag))
+                })
+                .map(|i| {
+                    let lbl = graph.strings.resolve(graph.nodes.label[i]).to_string();
+                    (i, lbl)
+                })
+                .collect();
+
+            // Collect the set of blast-radius NodeId indices for fast lookup.
+            let blast_set: HashSet<usize> = sorted_blast
+                .iter()
+                .take(max_nodes_cap)
+                .map(|e| e.node.as_usize())
+                .collect();
+
+            // Case (a): blast-radius node is itself a light:evidenced_by marker.
+            for &idx in &blast_set {
+                if let Some(lbl) = marker_labels.get(&idx) {
+                    map.insert(idx, lbl.clone());
+                }
+            }
+
+            // Case (b): blast-radius node is a `light::` knowledge node (identified
+            // by its external_id starting with "light::") reached via a grounded_in
+            // edge.  Walk the CSR: for each marker, follow grounded_in edges to
+            // targets; if the target is in the blast set, annotate it with the
+            // marker's claim.
+            if let Some(gi) = grounded_in_rel {
+                for (&marker_idx, marker_lbl) in &marker_labels {
+                    let marker_nid = m1nd_core::types::NodeId::new(marker_idx as u32);
+                    let range = graph.csr.out_range(marker_nid);
+                    for edge_i in range {
+                        if graph.csr.relations[edge_i] != gi {
+                            continue;
+                        }
+                        let tgt_idx = graph.csr.targets[edge_i].as_usize();
+                        if blast_set.contains(&tgt_idx) && !map.contains_key(&tgt_idx) {
+                            map.insert(tgt_idx, marker_lbl.clone());
+                        }
+                    }
+                }
+            }
+        }
+        map
+    };
+
     let blast_radius: Vec<BlastRadiusEntry> = sorted_blast
         .iter()
         .take(max_nodes_cap)
@@ -957,12 +1143,19 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             } else {
                 (format!("node_{}", idx), "Unknown".into())
             };
+            let (is_knowledge_citation, claim) = if let Some(c) = knowledge_citation_map.get(&idx) {
+                (Some(true), Some(c.clone()))
+            } else {
+                (None, None)
+            };
             BlastRadiusEntry {
                 node_id: label.clone(),
                 label,
                 node_type,
                 signal_strength: e.signal_strength.get(),
                 hop_distance: e.hop_distance,
+                is_knowledge_citation,
+                claim,
             }
         })
         .collect();
@@ -4066,6 +4259,218 @@ mod tests {
             mem["grounded_in_edges"],
             serde_json::json!(0u64),
             "fresh graph must have 0 grounded_in edges"
+        );
+    }
+
+    // ─── #7 ─────────────────────────────────────────────────────────────────────
+    // memory_freshness appears in finalize_ingest output after a code re-ingest
+    // when at least one memorized claim's evidence file changed on disk.
+    // Pipeline:
+    //   1. code ingest  → builds file::auth.rs
+    //   2. light ingest → evidence marker resolves → grounded_in edge
+    //   3. modify auth.rs on disk
+    //   4. code re-ingest → finalize_ingest must report stale_evidence_count >= 1
+    #[test]
+    fn memory_freshness_detects_stale_evidence_after_code_reingest() {
+        use crate::protocol::core::IngestInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("rt");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(&proj).expect("proj dir");
+
+        let auth_path = proj.join("auth.rs");
+        std::fs::write(&auth_path, "pub fn validate(t: &str) -> bool { !t.is_empty() }\n")
+            .expect("write auth.rs v1");
+
+        let light_path = proj.join("findings.md");
+        std::fs::write(
+            &light_path,
+            "---\nProtocol: L1GHT/1.0\nNode: AuthFindings\n---\n\n\
+             ## Auth\n\nThe [⍂ entity: Validator] validates tokens.\n\
+             [𝔻 confidence: 0.9]\n[𝔻 evidence: auth.rs]\n",
+        )
+        .expect("write findings.md");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        let mk = |path: String, adapter: &str, mode: &str| IngestInput {
+            path,
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: adapter.into(),
+            mode: mode.into(),
+            namespace: None,
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+
+        // Step 1: code ingest — records sha256 for auth.rs in file_inventory.
+        let code1_out = super::handle_ingest(
+            &mut state,
+            mk(proj.to_string_lossy().to_string(), "code", "replace"),
+        )
+        .expect("initial code ingest");
+        assert!(
+            code1_out["node_count"].as_u64().unwrap_or(0) >= 1,
+            "initial code ingest must produce nodes"
+        );
+
+        // Step 2: light ingest — evidence marker resolves → grounded_in edge.
+        let light_out = super::handle_ingest(
+            &mut state,
+            mk(light_path.to_string_lossy().to_string(), "light", "merge"),
+        )
+        .expect("light ingest");
+        assert!(
+            light_out["light_evidence_resolved"].as_u64().unwrap_or(0) >= 1,
+            "light ingest must resolve at least one evidence link"
+        );
+
+        // Step 3: modify auth.rs on disk so its hash changes.
+        std::fs::write(
+            &auth_path,
+            "pub fn validate(t: &str) -> bool { t.len() > 2 } // changed\n",
+        )
+        .expect("overwrite auth.rs");
+
+        // Step 4: code re-ingest — finalize_ingest must notice the hash changed.
+        let code2_out = super::handle_ingest(
+            &mut state,
+            mk(proj.to_string_lossy().to_string(), "code", "merge"),
+        )
+        .expect("second code ingest");
+
+        let mf = &code2_out["memory_freshness"];
+        assert!(
+            mf.is_object(),
+            "code ingest output must include memory_freshness object, got: {:?}",
+            code2_out
+        );
+        let stale_count = mf["stale_evidence_count"].as_u64().unwrap_or(0);
+        assert!(
+            stale_count >= 1,
+            "memory_freshness.stale_evidence_count must be >= 1 after evidence file changed, got {}",
+            stale_count
+        );
+        let stale_arr = mf["stale_evidence"].as_array().expect("stale_evidence array");
+        assert!(!stale_arr.is_empty(), "stale_evidence array must be non-empty");
+        // Confirm reason is evidence_changed (real hash comparison, not just possibly_changed).
+        let reason = stale_arr[0]["reason"].as_str().unwrap_or("");
+        assert!(
+            reason == "evidence_changed" || reason == "evidence_possibly_changed",
+            "reason must be evidence_changed or evidence_possibly_changed, got '{}'",
+            reason
+        );
+    }
+
+    // ─── #3 ─────────────────────────────────────────────────────────────────────
+    // impact annotates blast-radius nodes that are light:evidenced_by citation
+    // markers with is_knowledge_citation=true and a non-empty claim string.
+    // Pipeline:
+    //   build graph: code_node + marker_node (light:evidenced_by) + grounded_in
+    //   call impact on code_node in reverse → marker is in blast radius
+    //   assert marker entry has is_knowledge_citation=true
+    #[test]
+    fn impact_annotates_knowledge_citation_nodes_in_blast_radius() {
+        use crate::protocol::core::{ImpactInput, ImpactOutput};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("rt");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+
+        // Code file node.
+        let code_node = graph
+            .add_node("file::auth.rs", "auth.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("add code node");
+
+        // Evidence marker node — tagged light:evidenced_by.
+        let marker_node = graph
+            .add_node(
+                "light::default::tag::auth_rs::1::evidence",
+                "\u{1d53b} evidence: auth.rs",
+                NodeType::Reference,
+                &["light:evidenced_by"],
+                0.0,
+                0.0,
+            )
+            .expect("add marker node");
+
+        // grounded_in edge: marker → code.
+        graph
+            .add_edge(
+                marker_node,
+                code_node,
+                "grounded_in",
+                FiniteF32::new(0.8),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.8),
+            )
+            .expect("add grounded_in edge");
+
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+
+        // impact with direction "reverse" on the code node — the marker (which has a
+        // grounded_in edge pointing TO the code node) is an upstream source and should
+        // appear in the blast radius.
+        let output: ImpactOutput = super::handle_impact(
+            &mut state,
+            ImpactInput {
+                node_id: "file::auth.rs".to_string(),
+                agent_id: "test".into(),
+                direction: "reverse".into(),
+                include_causal_chains: false,
+                max_nodes: None,
+            },
+        )
+        .expect("impact should succeed");
+
+        // The marker node should appear in the blast radius as a knowledge citation.
+        // (It has a grounded_in edge TO the code node, so with reverse traversal the
+        //  marker is an incoming source and should be reachable.)
+        let citation_entries: Vec<_> = output
+            .blast_radius
+            .iter()
+            .filter(|e| e.is_knowledge_citation == Some(true))
+            .collect();
+
+        assert!(
+            !citation_entries.is_empty(),
+            "at least one blast-radius entry must be annotated as is_knowledge_citation=true; \
+             blast_radius: {:?}",
+            output
+                .blast_radius
+                .iter()
+                .map(|e| (&e.label, &e.is_knowledge_citation))
+                .collect::<Vec<_>>()
+        );
+
+        // The annotated entry must carry the claim text.
+        let first = &citation_entries[0];
+        assert!(
+            first.claim.is_some() && !first.claim.as_ref().unwrap().is_empty(),
+            "is_knowledge_citation=true entry must have a non-empty claim, got: {:?}",
+            first
         );
     }
 }

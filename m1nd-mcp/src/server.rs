@@ -3320,6 +3320,56 @@ impl McpServer {
                     "[m1nd] Auto-loaded agent memory: {} file(s), +{} nodes from {}",
                     file_count, nodes_added, dir_str,
                 );
+
+                // #2 — best-effort evidence freshness check at boot.
+                //
+                // At boot the code graph comes from the loaded snapshot and
+                // state.file_inventory may be empty or partial (no code has been
+                // (re)ingested this process yet).  We run the same evidence_freshness
+                // logic that cross_verify uses and report whatever it finds honestly:
+                // - if inventory is empty, the hash lookup returns None → reason
+                //   "unverifiable" (not reported as stale, so stale_evidence_count=0)
+                // - freshness_note flags the state so the agent knows to re-ingest
+                //   code to get a real signal.
+                let (boot_stale_count, boot_stale_claims, freshness_note) = {
+                    let cross_verify_input = crate::protocol::layers::CrossVerifyInput {
+                        agent_id: "boot".to_string(),
+                        scope: None,
+                        check: vec!["evidence_freshness".to_string()],
+                        include_dotfiles: false,
+                        dotfile_patterns: vec![],
+                    };
+                    match crate::audit_handlers::handle_cross_verify(state, cross_verify_input) {
+                        Ok(cv_result) => {
+                            let count = cv_result["stale_evidence_count"]
+                                .as_u64()
+                                .unwrap_or(0) as usize;
+                            // Collect up to 5 stale claims for the boot report.
+                            let claims: Vec<serde_json::Value> = cv_result["stale_evidence"]
+                                .as_array()
+                                .map(|arr| arr.iter().take(5).cloned().collect())
+                                .unwrap_or_default();
+                            // If no file_inventory hashes are recorded yet all items
+                            // will have been filtered (reason="unverifiable" skipped by
+                            // cross_verify) or simply absent.  Note this honestly.
+                            let note = if state.file_inventory.is_empty()
+                                || state
+                                    .file_inventory
+                                    .values()
+                                    .all(|e| e.sha256.is_none())
+                            {
+                                "unverifiable_until_code_reingest"
+                            } else {
+                                "verified_against_stored_inventory"
+                            };
+                            (count, claims, note)
+                        }
+                        Err(_) => {
+                            (0, vec![], "unverifiable_until_code_reingest")
+                        }
+                    }
+                };
+
                 Some(serde_json::json!({
                     "dir": dir_str,
                     "file_count": file_count,
@@ -3327,6 +3377,9 @@ impl McpServer {
                     "nodes_added": nodes_added,
                     "light_evidence_resolved": result.get("light_evidence_resolved").cloned().unwrap_or(serde_json::Value::Null),
                     "light_evidence_unresolved": result.get("light_evidence_unresolved").cloned().unwrap_or(serde_json::Value::Null),
+                    "stale_evidence_count": boot_stale_count,
+                    "stale_claims": boot_stale_claims,
+                    "freshness_note": freshness_note,
                 }))
             }
             Err(e) => {
