@@ -36,6 +36,18 @@ pub struct LanguageConfig {
     pub module_kinds: &'static [&'static str],
     /// AST node kinds that represent import/require/use statements.
     pub import_kinds: &'static [&'static str],
+    /// AST node kinds that represent a call/invocation expression.
+    ///
+    /// When a node's kind matches one of these, `walk_ast` calls
+    /// `extract_callee` to get the function/method name being called, then
+    /// emits a `calls` edge from the enclosing definition (or file) to
+    /// `ref::<callee>`.  The existing resolver later binds `ref::` targets.
+    ///
+    /// **Only populate this for grammars where the node-kind string and
+    /// callee-child structure have been verified by AST inspection.**
+    /// Leave as `&[]` for all unverified grammars — they keep current
+    /// behaviour exactly (no false-positive edges).
+    pub call_kinds: &'static [&'static str],
     /// The field name used for the "name" of definitions (usually "name").
     pub name_field: &'static str,
     /// Alternative field names to try if `name_field` yields nothing.
@@ -309,6 +321,84 @@ impl TreeSitterExtractor {
         }
     }
 
+    /// Extract the callee name from a call/invocation expression node.
+    ///
+    /// Each grammar arranges the callee differently inside its call node.
+    /// This method handles the patterns verified for each piloted grammar:
+    ///
+    /// - **C** (`call_expression`):
+    ///   - first named child = `identifier`         → simple call `foo()`
+    ///   - first named child = `field_expression`   → member call `p->bar()` or `p.bar()`;
+    ///     the `field_identifier` child of `field_expression` is the method name.
+    ///
+    /// - **C#** (`invocation_expression`):
+    ///   - first named child = `identifier`              → simple call `Foo()`
+    ///   - first named child = `member_access_expression` → qualified call
+    ///     `Console.WriteLine()`; the *last* `identifier` child of the
+    ///     `member_access_expression` is the method name.
+    ///
+    /// - **Kotlin** (`call_expression`):
+    ///   - first named child = `identifier`          → simple call `foo(42)`
+    ///   - first named child = `navigation_expression` → chained call
+    ///     `obj.method()` — deferred (ambiguous callee), returns `None`.
+    ///
+    /// Returns `None` when the callee cannot be cleanly identified, which
+    /// causes `walk_ast` to silently skip the edge (safe, no false positives).
+    fn extract_callee<'a>(&self, node: Node<'a>, source: &'a [u8]) -> Option<String> {
+        let mut cursor = node.walk();
+        let first_child = node.named_children(&mut cursor).next()?;
+        let first_kind = first_child.kind();
+
+        // Pattern 1: simple identifier — covers all grammars
+        if first_kind == "identifier" || first_kind == "simple_identifier" {
+            let text = first_child.utf8_text(source).ok()?;
+            let text = text.trim();
+            if !text.is_empty() {
+                return Some(text.to_string());
+            }
+        }
+
+        // Pattern 2: C `field_expression` (e.g., `ptr->method` or `obj.method`)
+        // The rightmost child of field_expression with kind `field_identifier`
+        // is the method name being called.
+        if first_kind == "field_expression" {
+            let mut fc = first_child.walk();
+            for child in first_child.named_children(&mut fc) {
+                if child.kind() == "field_identifier" {
+                    let text = child.utf8_text(source).ok()?;
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        return Some(text.to_string());
+                    }
+                }
+            }
+        }
+
+        // Pattern 3: C# `member_access_expression` (e.g., `Console.WriteLine`)
+        // The *last* identifier child is the method name.
+        if first_kind == "member_access_expression" {
+            let mut fc = first_child.walk();
+            let mut last_ident: Option<String> = None;
+            for child in first_child.named_children(&mut fc) {
+                if child.kind() == "identifier" {
+                    if let Ok(text) = child.utf8_text(source) {
+                        let text = text.trim();
+                        if !text.is_empty() {
+                            last_ident = Some(text.to_string());
+                        }
+                    }
+                }
+            }
+            if last_ident.is_some() {
+                return last_ident;
+            }
+        }
+
+        // All other patterns (navigation_expression, subscript, etc.) → skip.
+        // Returning None causes walk_ast to emit no edge — safe default.
+        None
+    }
+
     /// Walk the AST and extract nodes + edges.
     fn walk_ast(
         &self,
@@ -359,6 +449,34 @@ impl TreeSitterExtractor {
                         unresolved_refs.push(ref_id);
                     }
                 }
+            }
+
+            // Handle call expressions — emit `calls` edges from the enclosing
+            // definition (or file if top-level) to `ref::<callee>`.
+            // We still recurse into children so that nested calls inside
+            // argument lists are also detected with the same enclosing caller.
+            if self.config.call_kinds.contains(&kind) {
+                if let Some(callee) = self.extract_callee(node, source) {
+                    let caller = parent_id.as_deref().unwrap_or(file_id);
+                    let ref_id = format!("ref::{}", callee);
+                    edges.push(ExtractedEdge {
+                        source: caller.to_string(),
+                        target: ref_id.clone(),
+                        relation: "calls".into(),
+                        weight: 0.8,
+                    });
+                    if !unresolved_refs.contains(&ref_id) {
+                        unresolved_refs.push(ref_id);
+                    }
+                }
+                // Always recurse into call children (argument lists may contain
+                // nested calls). The parent stays unchanged — nested calls are
+                // also attributed to the same enclosing definition.
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    stack.push((child, parent_id.clone()));
+                }
+                continue; // Skip default child traversal below
             }
 
             // Handle definitions
@@ -462,6 +580,11 @@ impl Extractor for TreeSitterExtractor {
 // ---------------------------------------------------------------------------
 
 /// C language config.
+///
+/// `call_kinds`: verified via AST dump — `call_expression` is the node kind for
+/// both bare function calls (`foo(42)`) and struct-member calls (`p->bar()`).
+/// `extract_callee` handles both: `identifier` first child for bare calls and
+/// `field_expression` → `field_identifier` for member calls.
 pub fn c_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "c",
@@ -473,6 +596,10 @@ pub fn c_config() -> LanguageConfig {
         type_kinds: &["type_definition"],
         module_kinds: &[],
         import_kinds: &["preproc_include"],
+        // Verified: tree-sitter-c uses `call_expression` for all calls.
+        // Callee is either a direct `identifier` child or a `field_expression`
+        // child (for pointer/struct member calls). Confirmed via AST dump.
+        call_kinds: &["call_expression"],
         name_field: "name",
         alt_name_fields: &["declarator"],
         name_from_first_child: true,
@@ -491,6 +618,10 @@ pub fn cpp_config() -> LanguageConfig {
         type_kinds: &["type_definition", "alias_declaration"],
         module_kinds: &["namespace_definition"],
         import_kinds: &["preproc_include", "using_declaration"],
+        // Deferred: C++ uses `call_expression` same as C, but template calls,
+        // constructor calls, and operator overloads create complex callee shapes
+        // that need deeper analysis to avoid false positives.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &["declarator"],
         name_from_first_child: true,
@@ -498,6 +629,12 @@ pub fn cpp_config() -> LanguageConfig {
 }
 
 /// C# language config.
+///
+/// `call_kinds`: verified via AST dump — tree-sitter-c-sharp uses
+/// `invocation_expression` for all method/function calls. The first named
+/// child is either a plain `identifier` (bare call) or a
+/// `member_access_expression` (qualified call like `Console.WriteLine`).
+/// `extract_callee` handles both patterns.
 pub fn csharp_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "csharp",
@@ -513,6 +650,10 @@ pub fn csharp_config() -> LanguageConfig {
         type_kinds: &["interface_declaration", "delegate_declaration"],
         module_kinds: &["namespace_declaration"],
         import_kinds: &["using_directive"],
+        // Verified: tree-sitter-c-sharp uses `invocation_expression` for calls.
+        // Handles bare calls (identifier first child) and qualified calls
+        // (member_access_expression → last identifier is the method name).
+        call_kinds: &["invocation_expression"],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -531,6 +672,11 @@ pub fn ruby_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &["module"],
         import_kinds: &["call"], // require/require_relative are method calls
+        // Deferred: Ruby uses `call` for ALL method calls, but `call` is also
+        // used in import_kinds (for require/require_relative). Mixing call-graph
+        // edges with the same node kind requires disambiguation logic (check
+        // the callee name) that adds complexity. Deferred to avoid false positives.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -549,6 +695,8 @@ pub fn php_config() -> LanguageConfig {
         type_kinds: &["interface_declaration", "trait_declaration"],
         module_kinds: &["namespace_definition"],
         import_kinds: &["namespace_use_declaration"],
+        // Deferred: PHP call AST not yet inspected.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -571,6 +719,10 @@ pub fn swift_config() -> LanguageConfig {
         type_kinds: &["protocol_declaration", "typealias_declaration"],
         module_kinds: &[],
         import_kinds: &["import_declaration"],
+        // Deferred: Swift AST verified (call_expression with simple_identifier)
+        // but Swift also wraps method calls in navigation_expression chains which
+        // requires careful disambiguation to avoid false positives. Deferred.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -578,6 +730,12 @@ pub fn swift_config() -> LanguageConfig {
 }
 
 /// Kotlin language config.
+///
+/// `call_kinds`: verified via AST dump — tree-sitter-kotlin-ng uses
+/// `call_expression` for all function/method calls. When the first named
+/// child is an `identifier`, that is the callee (e.g., `foo(42)`,
+/// `println(x)`). When the first named child is a `navigation_expression`
+/// (e.g., `obj.method()`), the call is skipped to avoid ambiguity.
 pub fn kotlin_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "kotlin",
@@ -589,6 +747,10 @@ pub fn kotlin_config() -> LanguageConfig {
         type_kinds: &["interface_declaration", "type_alias"],
         module_kinds: &["package_header"],
         import_kinds: &["import_header"],
+        // Verified: tree-sitter-kotlin-ng uses `call_expression` for calls.
+        // Simple calls (identifier first child) are extracted cleanly.
+        // Chained/navigation calls are skipped (navigation_expression first child).
+        call_kinds: &["call_expression"],
         name_field: "name",
         alt_name_fields: &["simple_identifier"],
         name_from_first_child: true,
@@ -607,6 +769,8 @@ pub fn scala_config() -> LanguageConfig {
         type_kinds: &["trait_definition", "type_definition"],
         module_kinds: &["object_definition", "package_clause"],
         import_kinds: &["import_declaration"],
+        // Deferred: Scala call AST not yet inspected.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -625,6 +789,9 @@ pub fn bash_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &["command"], // source/. commands are regular commands
+        // Deferred: Bash uses `command` for all invocations, same as import_kinds.
+        // Disambiguation needed. Deferred.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -643,6 +810,9 @@ pub fn lua_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &["function_call"], // require() calls
+        // Deferred: Lua uses `function_call` for all calls, same as import_kinds.
+        // Disambiguation (require vs other calls) needed. Deferred.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -664,6 +834,9 @@ pub fn r_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &["call"], // library() and require() are function calls
+        // Deferred: R uses `call` for all invocations, same as import_kinds.
+        // Disambiguation needed. Deferred.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -683,6 +856,8 @@ pub fn html_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &["script_element", "style_element"],
+        // N/A: HTML is structural; call graphs are handled by embedded JS extractor.
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: false,
@@ -701,6 +876,7 @@ pub fn css_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &["import_statement"],
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: false,
@@ -719,6 +895,7 @@ pub fn json_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &[],
+        call_kinds: &[],
         name_field: "key",
         alt_name_fields: &[],
         name_from_first_child: false,
@@ -818,6 +995,7 @@ pub fn javascript_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &["import_statement", "call_expression"],
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: false,
@@ -1085,6 +1263,7 @@ pub fn elixir_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &["call"],
         import_kinds: &["call"],
+        call_kinds: &[],
         name_field: "target",
         alt_name_fields: &["name"],
         name_from_first_child: true,
@@ -1105,6 +1284,7 @@ pub fn dart_config() -> LanguageConfig {
         type_kinds: &["mixin_declaration"],
         module_kinds: &[],
         import_kinds: &["import_or_export"],
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         // class_declaration > identifier (first named child after skipping type_identifier)
@@ -1125,6 +1305,7 @@ pub fn zig_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &["builtin_function"], // @import("...")
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -1144,6 +1325,7 @@ pub fn haskell_config() -> LanguageConfig {
         type_kinds: &["data_type", "newtype", "type_alias"],
         module_kinds: &["header"],
         import_kinds: &["import"],
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &["module"],
         name_from_first_child: true,
@@ -1165,6 +1347,7 @@ pub fn ocaml_config() -> LanguageConfig {
         type_kinds: &["type_definition"],
         module_kinds: &["module_definition"],
         import_kinds: &["open_module"],
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &["pattern"],
         // value_definition > let_binding > value_name — drill into children
@@ -1186,6 +1369,7 @@ pub fn toml_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &[],
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         // table's first named child is bare_key with the section name
@@ -1208,6 +1392,7 @@ pub fn yaml_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &[],
         import_kinds: &[],
+        call_kinds: &[],
         name_field: "key",
         alt_name_fields: &[],
         name_from_first_child: false,
@@ -1228,6 +1413,7 @@ pub fn sql_config() -> LanguageConfig {
         type_kinds: &[],
         module_kinds: &["create_schema"],
         import_kinds: &[],
+        call_kinds: &[],
         name_field: "name",
         alt_name_fields: &[],
         // create_table's named children include object_reference which has identifier
@@ -1671,6 +1857,317 @@ mod tests {
                 "{} extractor first node should be File, got {:?}",
                 lang,
                 result.nodes[0].node_type
+            );
+        }
+    }
+
+    // ===================================================================
+    // call_kinds pilot tests — C, C#, Kotlin
+    // ===================================================================
+    //
+    // For each piloted grammar we assert:
+    //   (a) expected `calls` edges appear with the correct callee names
+    //   (b) no bogus `calls` edges (keyword/control-flow identifiers are not
+    //       mistaken for callees; definitions are not emitted as calls)
+    //
+    // Node-kind verification method: AST dump via `dump_ast` helper (see above),
+    // output inspected manually during development of this pilot.
+
+    #[test]
+    fn c_calls_simple_function() {
+        // bar() calls foo() twice and baz() once.
+        // Neither "int", "return", nor any keyword should appear as a callee.
+        let src = b"int foo(int x) { return x; }\n\
+                    int baz(int x) { return x * 2; }\n\
+                    int bar(int a) { return foo(a) + baz(a); }";
+        let ext = c_extractor();
+        let result = ext.extract(src, "file::test.c").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) expected callees present
+        assert!(
+            call_edges.contains(&"foo"),
+            "Should have calls edge to foo. call edges: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"baz"),
+            "Should have calls edge to baz. call edges: {:?}",
+            call_edges
+        );
+
+        // (b) no bogus callees — keywords / types must not appear
+        let bogus = ["int", "return", "if", "while", "for"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear in calls edges. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn c_calls_struct_member() {
+        // Member call via `->`: callee should be `draw`, not `self` or `node`.
+        let src = b"struct Renderer { void (*draw)(void); };\n\
+                    void render(struct Renderer* r) { r->draw(); }";
+        let ext = c_extractor();
+        let result = ext.extract(src, "file::test.c").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) method name extracted, not the receiver
+        assert!(
+            call_edges.contains(&"draw"),
+            "Should have calls edge to 'draw' (field_identifier). Got: {:?}",
+            call_edges
+        );
+        // (b) receiver name must not appear as callee
+        assert!(
+            !call_edges.contains(&"r"),
+            "Receiver 'r' must not appear as callee. Got: {:?}",
+            call_edges
+        );
+    }
+
+    #[test]
+    fn c_no_calls_from_definitions() {
+        // A file with only definitions and no call sites must produce zero calls edges.
+        let src = b"int square(int x) { return x * x; }\nstruct Point { int x; int y; };";
+        let ext = c_extractor();
+        let result = ext.extract(src, "file::test.c").unwrap();
+
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+        assert!(
+            call_edges.is_empty(),
+            "No calls edges expected when no call sites present. Got: {:?}",
+            call_edges
+        );
+    }
+
+    #[test]
+    fn csharp_calls_bare_and_qualified() {
+        // Bar() calls Foo() (bare) and Console.WriteLine() (qualified).
+        let src = b"class MyClass {\n\
+                        void Foo() {}\n\
+                        void Bar() {\n\
+                            Foo();\n\
+                            Console.WriteLine(\"hi\");\n\
+                        }\n\
+                    }";
+        let ext = csharp_extractor();
+        let result = ext.extract(src, "file::test.cs").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) both callees present
+        assert!(
+            call_edges.contains(&"Foo"),
+            "Should have calls edge to Foo. Got: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"WriteLine"),
+            "Should have calls edge to WriteLine (last ident of member_access). Got: {:?}",
+            call_edges
+        );
+
+        // (b) no bogus callees — type names, keywords, receiver names
+        let bogus = ["void", "class", "string", "Console", "MyClass"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear in calls edges. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn csharp_no_calls_from_class_definition() {
+        // A class with only field declarations and no method bodies must produce zero calls edges.
+        let src = b"class Config {\n    public int MaxRetries { get; set; }\n    public string Name;\n}";
+        let ext = csharp_extractor();
+        let result = ext.extract(src, "file::test.cs").unwrap();
+
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+        assert!(
+            call_edges.is_empty(),
+            "No calls edges expected from pure definition. Got: {:?}",
+            call_edges
+        );
+    }
+
+    #[test]
+    fn kotlin_calls_simple_function() {
+        // bar() calls foo() and println(); these should be captured.
+        // The navigation_expression form (obj.method()) should NOT produce a callee
+        // of "obj" or "method" erroneously — it is simply skipped.
+        let src = b"fun foo(x: Int): Int = x\n\
+                    fun bar(): Int {\n\
+                        println(foo(42))\n\
+                        return foo(1)\n\
+                    }";
+        let ext = kotlin_extractor();
+        let result = ext.extract(src, "file::test.kt").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) simple calls must be extracted
+        assert!(
+            call_edges.contains(&"foo"),
+            "Should have calls edge to foo. Got: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"println"),
+            "Should have calls edge to println. Got: {:?}",
+            call_edges
+        );
+
+        // (b) no bogus callees
+        let bogus = ["fun", "return", "Int", "val", "var"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn kotlin_chained_calls_skipped_safely() {
+        // A chained call like listOf(1).map { it } should NOT produce a bogus
+        // callee of "listOf" attributed to "map" or vice versa in a confusing way.
+        // We only expect `listOf` to appear (the first identifier child of the
+        // outer navigation_expression's nested call_expression).
+        let src = b"fun bar() {\n\
+                        val x = listOf(1, 2, 3).map { it * 2 }\n\
+                    }";
+        let ext = kotlin_extractor();
+        let result = ext.extract(src, "file::test.kt").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // "it" and "map" must not appear as callees (not simple call nodes)
+        assert!(
+            !call_edges.contains(&"it"),
+            "'it' must not appear as a callee. Got: {:?}",
+            call_edges
+        );
+        // No bogus keyword callees
+        let bogus = ["fun", "val", "return"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn kotlin_no_calls_from_function_declaration() {
+        // A function with no call sites must produce zero calls edges.
+        let src = b"fun square(x: Int): Int = x * x";
+        let ext = kotlin_extractor();
+        let result = ext.extract(src, "file::test.kt").unwrap();
+
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+        assert!(
+            call_edges.is_empty(),
+            "No calls edges expected from pure definition. Got: {:?}",
+            call_edges
+        );
+    }
+
+    // Verify non-piloted languages (Ruby, Swift, PHP, etc.) still produce
+    // zero calls edges — they must be unchanged by this pilot.
+    #[test]
+    fn non_piloted_languages_emit_no_calls_edges() {
+        let cases: &[(&str, Box<dyn Extractor>, &[u8])] = &[
+            (
+                "ruby",
+                Box::new(ruby_extractor()),
+                b"def foo; end\ndef bar; foo; end" as &[u8],
+            ),
+            (
+                "php",
+                Box::new(php_extractor()),
+                b"<?php\nfunction foo() {}\nfunction bar() { foo(); }",
+            ),
+            (
+                "scala",
+                Box::new(scala_extractor()),
+                b"def foo(): Int = 1\ndef bar(): Int = foo()",
+            ),
+            (
+                "bash",
+                Box::new(bash_extractor()),
+                b"foo() { echo hi; }\nbar() { foo; }",
+            ),
+            (
+                "lua",
+                Box::new(lua_extractor()),
+                b"function foo() end\nfunction bar() foo() end",
+            ),
+        ];
+        for (lang, ext, src) in cases {
+            let result = ext.extract(src, &format!("file::test.{}", lang)).unwrap();
+            let call_edges: Vec<_> = result
+                .edges
+                .iter()
+                .filter(|e| e.relation == "calls")
+                .collect();
+            assert!(
+                call_edges.is_empty(),
+                "Non-piloted language '{}' must produce no calls edges. Got: {:?}",
+                lang,
+                call_edges
             );
         }
     }

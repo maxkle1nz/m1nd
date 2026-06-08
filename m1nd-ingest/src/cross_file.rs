@@ -280,6 +280,140 @@ impl JsModuleIndex {
     }
 }
 
+// ---------------------------------------------------------------------------
+// GoModuleIndex — maps Go import paths to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps Go import package paths to file external IDs.
+///
+/// Go import paths look like:
+///   `"github.com/org/repo/pkg/foo"` — remote module (external dep)
+///   `"mymodule/internal/bar"`        — local sub-package
+///
+/// Resolution heuristic (honest/simple — no go.mod parsing):
+///   1. Extract the LAST path segment of the import string (e.g. `"foo"` from
+///      `"github.com/org/repo/pkg/foo"`).
+///   2. Walk all `.go` file nodes in the graph; for each file, extract its
+///      containing directory name (the last segment of its relative dir path).
+///   3. If the import's last segment matches the file's parent directory name,
+///      that file is a candidate. Among candidates, prefer the one whose full
+///      relative path contains the most import-segment overlap (longest suffix
+///      match of the import against the file's directory path).
+///
+/// Limitations (honest):
+///   • No go.mod / go.sum parsing — module root is unknown.
+///   • Ambiguous when two packages share the same last-segment name.
+///   • External dependencies (stdlib, github.com with no local files) stay
+///     unresolved; this is correct — we never fabricate edges.
+///   • Alias imports (`myalias "pkg/foo"`) are not detected here; the extractor
+///     registers the raw path and we resolve against it.
+struct GoModuleIndex {
+    /// last_segment -> Vec<(file_external_id, dir_path_slash_separated)>
+    /// e.g. "foo" -> [("file::pkg/foo/bar.go", "pkg/foo"), ...]
+    segment_to_files: HashMap<String, Vec<(String, String)>>,
+}
+
+const GO_EXTENSION: &str = "go";
+
+impl GoModuleIndex {
+    fn build(graph: &Graph) -> Self {
+        let mut segment_to_files: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) if p.ends_with(&format!(".{}", GO_EXTENSION)) => p,
+                _ => continue,
+            };
+
+            // Directory of this .go file (e.g. "pkg/foo" from "pkg/foo/bar.go")
+            let dir = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[..idx],
+                None => "", // file is at repo root — dir is ""
+            };
+
+            // Last segment of the directory path is the package name by convention
+            let last_seg = match dir.rfind('/') {
+                Some(idx) => &dir[idx + 1..],
+                None if dir.is_empty() => "",
+                None => dir,
+            };
+
+            if last_seg.is_empty() {
+                continue;
+            }
+
+            segment_to_files
+                .entry(last_seg.to_string())
+                .or_default()
+                .push((ext_id.clone(), dir.to_string()));
+        }
+
+        Self { segment_to_files }
+    }
+
+    /// Resolve a Go import path to a file external ID.
+    ///
+    /// `import_path`: the raw string from the import statement, e.g.
+    ///   `"github.com/org/repo/pkg/foo"` or `"mymodule/bar"`.
+    ///
+    /// Returns None when the package cannot be matched to an ingested file
+    /// (external dep, stdlib, or ambiguous with no clear winner).
+    fn resolve(&self, import_path: &str) -> Option<&str> {
+        // Extract the last path segment of the import
+        let last_seg = import_path
+            .split('/')
+            .last()
+            .filter(|s| !s.is_empty())?;
+
+        let candidates = self.segment_to_files.get(last_seg)?;
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // Single candidate: accept it (common case for local sub-packages)
+        if candidates.len() == 1 {
+            return Some(candidates[0].0.as_str());
+        }
+
+        // Multiple candidates: pick the one whose directory path has the longest
+        // suffix match against the import path segments.
+        // e.g. import "mymodule/internal/bar" → dir "internal/bar" > dir "bar"
+        let import_segs: Vec<&str> = import_path.split('/').collect();
+        let mut best: Option<&(String, String)> = None;
+        let mut best_overlap = 0usize;
+
+        for candidate in candidates {
+            let dir_segs: Vec<&str> = candidate.1.split('/').collect();
+            // Count how many trailing segments of the import path match the
+            // trailing segments of the candidate dir path.
+            let overlap = import_segs
+                .iter()
+                .rev()
+                .zip(dir_segs.iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            if overlap > best_overlap {
+                best_overlap = overlap;
+                best = Some(candidate);
+            }
+        }
+
+        // Only return if there was at least one matching segment (the last_seg)
+        // — which is guaranteed since all candidates share the last_seg key.
+        best.map(|(id, _)| id.as_str())
+    }
+}
+
 /// Join a base directory path with a relative specifier, normalizing `..` and `.`.
 /// Both paths use forward slashes. Returns a normalized relative path.
 fn join_path(base_dir: &str, relative: &str) -> String {
@@ -368,6 +502,18 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     stats.files_indexed += js_index.path_to_file.len() as u64;
     let js_import_edges = collect_js_import_edges_from_files(graph, root, &js_index);
     for (source_file_id, target_file_id, relation) in &js_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 6: Go cross-file import resolution via GoModuleIndex.
+    let go_index = GoModuleIndex::build(graph);
+    stats.files_indexed += go_index.segment_to_files.len() as u64;
+    let go_import_edges = collect_go_import_edges_from_files(graph, root, &go_index);
+    for (source_file_id, target_file_id, relation) in &go_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
         } else {
@@ -725,6 +871,122 @@ fn collect_js_import_edges_from_files(
                             target_file_id.to_string(),
                             "imports".to_string(),
                         ));
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
+// Go import edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all Go file nodes in the graph, read their source from disk,
+/// extract import statements, and resolve them to file-to-file edges via
+/// GoModuleIndex.
+///
+/// Go import forms handled:
+///   Single:  import "pkg/path"
+///   Block:   import ( \n "pkg/path" \n alias "pkg/path2" \n )
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_go_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    go_index: &GoModuleIndex,
+) -> Vec<(String, String, String)> {
+    // Matches the quoted path inside an import statement or block line.
+    // Captures group 1: the raw import path string (without quotes).
+    // Handles optional alias prefix: `alias "pkg/path"` or just `"pkg/path"`.
+    let re_import_path = Regex::new(r#"(?:\w+\s+)?"([^"]+)""#).unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) if p.ends_with(".go") => p,
+            _ => continue,
+        };
+
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let mut in_import_block = false;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("//") {
+                continue;
+            }
+
+            // Block import start
+            if trimmed.starts_with("import (") {
+                in_import_block = true;
+                continue;
+            }
+
+            if in_import_block {
+                if trimmed == ")" {
+                    in_import_block = false;
+                    continue;
+                }
+                // Each line inside the block is: `"pkg/path"` or `alias "pkg/path"`
+                if let Some(caps) = re_import_path.captures(trimmed) {
+                    let import_path = caps.get(1).unwrap().as_str();
+                    if let Some(target_id) = go_index.resolve(import_path) {
+                        if target_id != ext_id {
+                            let key = (ext_id.clone(), target_id.to_string());
+                            if let std::collections::hash_map::Entry::Vacant(e) =
+                                seen.entry(key)
+                            {
+                                e.insert(true);
+                                edges.push((
+                                    ext_id.clone(),
+                                    target_id.to_string(),
+                                    "imports".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Single-line import: import "pkg/path"  or  import alias "pkg/path"
+            if trimmed.starts_with("import ") && !trimmed.contains('(') {
+                if let Some(caps) = re_import_path.captures(trimmed) {
+                    let import_path = caps.get(1).unwrap().as_str();
+                    if let Some(target_id) = go_index.resolve(import_path) {
+                        if target_id != ext_id {
+                            let key = (ext_id.clone(), target_id.to_string());
+                            if let std::collections::hash_map::Entry::Vacant(e) =
+                                seen.entry(key)
+                            {
+                                e.insert(true);
+                                edges.push((
+                                    ext_id.clone(),
+                                    target_id.to_string(),
+                                    "imports".to_string(),
+                                ));
+                            }
+                        }
                     }
                 }
             }
