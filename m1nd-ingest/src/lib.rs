@@ -263,7 +263,21 @@ impl Ingestor {
                 .collect()
         });
 
-        let mut all_nodes = Vec::new();
+        // Build per-file git data map: file_id -> (commit_count, last_modified).
+        // The walker already ran git log once and populated DiscoveredFile fields.
+        // We key by file_id (e.g. "file::src/lib.rs") so sub-file nodes can inherit
+        // their parent file's commit history via prefix lookup.
+        use std::collections::HashMap;
+        let file_git_data: HashMap<String, (u32, f64)> = walk_result
+            .files
+            .iter()
+            .filter_map(|f| {
+                build_file_external_id(&f.relative_path)
+                    .map(|fid| (fid, (f.commit_count, f.last_modified)))
+            })
+            .collect();
+
+        let mut all_nodes: Vec<(String, extract::ExtractedNode)> = Vec::new();
         let mut all_edges = Vec::new();
         for (file_id, result) in &extraction_results {
             if start.elapsed() > self.config.timeout {
@@ -272,13 +286,13 @@ impl Ingestor {
             }
 
             stats.files_parsed += 1;
-            all_nodes.extend_from_slice(&result.nodes);
+            all_nodes.extend(result.nodes.iter().cloned().map(|n| (file_id.clone(), n)));
             all_edges.extend_from_slice(&result.edges);
         }
 
         let mut graph = m1nd_core::graph::Graph::new();
         let mut skipped_invalid_nodes = 0u64;
-        for node in &all_nodes {
+        for (file_id, node) in &all_nodes {
             if !is_valid_external_id(&node.id) {
                 skipped_invalid_nodes += 1;
                 eprintln!(
@@ -288,9 +302,33 @@ impl Ingestor {
                 continue;
             }
 
+            // Look up git data for this file. Sub-file nodes (functions, structs, …)
+            // inherit from their containing file identified by file_id.
+            let (commit_count, last_modified) = file_git_data
+                .get(file_id)
+                .copied()
+                .unwrap_or((0, 0.0));
+
+            // change_frequency: monotonically maps commit_count -> [0, 1).
+            // 0 commits → 0.0 (neutral/unknown), 10 commits → ~0.5, 50+ → ~0.83.
+            // Higher value means "changes more often" — consistent with activation.rs
+            // (frequency boosts score) and temporal.rs VelocityScorer (z > 0 = Accelerating).
+            let change_frequency = if commit_count == 0 {
+                0.0f32
+            } else {
+                commit_count as f32 / (commit_count as f32 + 10.0)
+            };
+
             let tags: Vec<&str> = node.tags.iter().map(String::as_str).collect();
             if graph
-                .add_node(&node.id, &node.label, node.node_type, &tags, 0.0, 0.0)
+                .add_node(
+                    &node.id,
+                    &node.label,
+                    node.node_type,
+                    &tags,
+                    last_modified,
+                    change_frequency,
+                )
                 .is_ok()
             {
                 stats.nodes_created += 1;
@@ -782,6 +820,124 @@ The [⍂ entity: TokenValidator] runs HMAC checks.
             graph.strings.resolve(graph.csr.relations[idx]) == "evidenced_by"
         });
         assert!(has_evidence, "evidenced_by edge not found from entity node");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Test that ingest populates different change_frequency values for files with
+    /// different git commit histories. The frequently-committed file must have a
+    /// strictly higher change_frequency than the rarely-committed one.
+    #[test]
+    fn ingest_populates_change_frequency_from_git_history() {
+        use std::process::Command;
+
+        let root = temp_ingest_dir("git-change-freq");
+        fs::create_dir_all(&root).unwrap();
+
+        // Initialize a git repo
+        let git_ok = Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(&root)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !git_ok {
+            // git unavailable — skip rather than fail
+            let _ = fs::remove_dir_all(root);
+            return;
+        }
+
+        // Set minimal git identity so commits don't require global config
+        let _ = Command::new("git")
+            .args(["config", "user.email", "test@m1nd"])
+            .current_dir(&root)
+            .output();
+        let _ = Command::new("git")
+            .args(["config", "user.name", "m1nd-test"])
+            .current_dir(&root)
+            .output();
+
+        // Write two Rust files
+        fs::write(root.join("hot.rs"), "pub fn hot() {}\n").unwrap();
+        fs::write(root.join("cold.rs"), "pub fn cold() {}\n").unwrap();
+
+        // Initial commit — both files touched once
+        let _ = Command::new("git").args(["add", "."]).current_dir(&root).output();
+        let _ = Command::new("git")
+            .args(["commit", "-m", "init", "--no-gpg-sign"])
+            .current_dir(&root)
+            .output();
+
+        // Commit hot.rs four more times (total 5 commits)
+        for i in 1..=4 {
+            fs::write(root.join("hot.rs"), format!("pub fn hot() {{ /* v{i} */ }}\n")).unwrap();
+            let _ = Command::new("git").args(["add", "hot.rs"]).current_dir(&root).output();
+            let _ = Command::new("git")
+                .args(["commit", "-m", &format!("hot v{i}"), "--no-gpg-sign"])
+                .current_dir(&root)
+                .output();
+        }
+
+        let ingest = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..Default::default()
+        });
+
+        let (graph, _stats) = ingest.ingest().unwrap();
+
+        let hot_id = graph.resolve_id("file::hot.rs");
+        let cold_id = graph.resolve_id("file::cold.rs");
+
+        // Both file nodes must exist
+        assert!(hot_id.is_some(), "file::hot.rs node not found in graph");
+        assert!(cold_id.is_some(), "file::cold.rs node not found in graph");
+
+        let hot_freq = graph.nodes.change_frequency[hot_id.unwrap().as_usize()].get();
+        let cold_freq = graph.nodes.change_frequency[cold_id.unwrap().as_usize()].get();
+
+        // hot.rs was committed 5x, cold.rs 1x — hot must have strictly higher frequency
+        assert!(
+            hot_freq > cold_freq,
+            "expected hot_freq ({hot_freq:.4}) > cold_freq ({cold_freq:.4}): \
+             hot.rs had 5 commits, cold.rs had 1"
+        );
+
+        // Sanity: cold.rs has at least 1 commit so its frequency must be > 0
+        assert!(
+            cold_freq > 0.0,
+            "cold.rs had 1 commit so change_frequency should be > 0, got {cold_freq}"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Test that ingest succeeds with neutral defaults when the target directory
+    /// is not a git repository. No panic, no error; change_frequency stays 0.0.
+    #[test]
+    fn ingest_succeeds_with_neutral_defaults_in_non_git_dir() {
+        let root = temp_ingest_dir("no-git-neutral");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("lib.rs"), "pub fn f() {}\n").unwrap();
+
+        let ingest = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..Default::default()
+        });
+
+        // Must not panic
+        let result = ingest.ingest();
+        assert!(result.is_ok(), "ingest should succeed in non-git dir: {:?}", result.err());
+
+        let (graph, _stats) = result.unwrap();
+        let file_id = graph.resolve_id("file::lib.rs");
+        assert!(file_id.is_some(), "file::lib.rs should be in graph");
+
+        // Non-git file: change_frequency must be the neutral default (0.0)
+        let freq = graph.nodes.change_frequency[file_id.unwrap().as_usize()].get();
+        assert_eq!(
+            freq, 0.0,
+            "non-git file should have neutral change_frequency 0.0, got {freq}"
+        );
 
         let _ = fs::remove_dir_all(root);
     }
