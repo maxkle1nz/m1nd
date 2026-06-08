@@ -356,6 +356,116 @@ fn resolve_light_evidence(graph: &mut m1nd_core::graph::Graph) -> (usize, usize)
     (resolved, unresolved)
 }
 
+/// Ingest `<runtime_root>/agent-memory/*.light.md` (adapter=light, mode=merge) so
+/// agent-authored L1GHT memory is loaded into the live graph and its evidence
+/// re-anchors to the current code (`grounded_in`). Gated by env
+/// `M1ND_AUTO_LOAD_AGENT_MEMORY` (default ON). Returns a report for the
+/// trust/handshake layer (and for ingest responses after a `replace`), or `None`
+/// when there is no agent-memory directory yet. Called at boot AND after a
+/// `replace` ingest (which would otherwise wipe the memory). Honest: surfaces
+/// empty/zero with a note rather than fabricating.
+pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value> {
+    let enabled = std::env::var("M1ND_AUTO_LOAD_AGENT_MEMORY")
+        .map(|v| v != "0" && v != "false")
+        .unwrap_or(true);
+    let dir = state.runtime_root.join("agent-memory");
+    if !enabled {
+        return Some(serde_json::json!({
+            "loaded": false,
+            "skipped": "disabled by M1ND_AUTO_LOAD_AGENT_MEMORY=0",
+        }));
+    }
+    if !dir.is_dir() {
+        return None;
+    }
+    let file_count = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().to_string_lossy().ends_with(".light.md"))
+        .count();
+    let dir_str = dir.to_string_lossy().to_string();
+    if file_count == 0 {
+        return Some(serde_json::json!({
+            "dir": dir_str,
+            "file_count": 0,
+            "loaded": false,
+            "skipped": "no .light.md files",
+        }));
+    }
+    let nodes_before = state.graph.read().num_nodes();
+    let ingest_input = crate::protocol::core::IngestInput {
+        path: dir_str.clone(),
+        agent_id: "boot".to_string(),
+        incremental: false,
+        adapter: "light".to_string(),
+        mode: "merge".to_string(),
+        namespace: Some("light".to_string()),
+        include_dotfiles: false,
+        dotfile_patterns: vec![],
+    };
+    match handle_ingest(state, ingest_input) {
+        Ok(result) => {
+            let nodes_added = state.graph.read().num_nodes().saturating_sub(nodes_before);
+            eprintln!(
+                "[m1nd] Loaded agent memory: {} file(s), +{} nodes from {}",
+                file_count, nodes_added, dir_str,
+            );
+
+            // Best-effort evidence freshness: report whatever cross_verify finds,
+            // honestly noting when there is no recorded inventory to verify against.
+            let (stale_count, stale_claims, freshness_note) = {
+                let cross_verify_input = crate::protocol::layers::CrossVerifyInput {
+                    agent_id: "boot".to_string(),
+                    scope: None,
+                    check: vec!["evidence_freshness".to_string()],
+                    include_dotfiles: false,
+                    dotfile_patterns: vec![],
+                };
+                match crate::audit_handlers::handle_cross_verify(state, cross_verify_input) {
+                    Ok(cv) => {
+                        let count = cv["stale_evidence_count"].as_u64().unwrap_or(0) as usize;
+                        let claims: Vec<serde_json::Value> = cv["stale_evidence"]
+                            .as_array()
+                            .map(|arr| arr.iter().take(5).cloned().collect())
+                            .unwrap_or_default();
+                        let note = if state.file_inventory.is_empty()
+                            || state.file_inventory.values().all(|e| e.sha256.is_none())
+                        {
+                            "unverifiable_until_code_reingest"
+                        } else {
+                            "verified_against_stored_inventory"
+                        };
+                        (count, claims, note)
+                    }
+                    Err(_) => (0, vec![], "unverifiable_until_code_reingest"),
+                }
+            };
+
+            Some(serde_json::json!({
+                "dir": dir_str,
+                "file_count": file_count,
+                "loaded": true,
+                "nodes_added": nodes_added,
+                "light_evidence_resolved": result.get("light_evidence_resolved").cloned().unwrap_or(serde_json::Value::Null),
+                "light_evidence_unresolved": result.get("light_evidence_unresolved").cloned().unwrap_or(serde_json::Value::Null),
+                "stale_evidence_count": stale_count,
+                "stale_claims": stale_claims,
+                "freshness_note": freshness_note,
+            }))
+        }
+        Err(e) => {
+            eprintln!("[m1nd] WARNING: agent-memory load failed: {}", e);
+            Some(serde_json::json!({
+                "dir": dir_str,
+                "file_count": file_count,
+                "loaded": false,
+                "error": e.to_string(),
+            }))
+        }
+    }
+}
+
 fn finalize_ingest(
     state: &mut SessionState,
     input: &IngestInput,
@@ -569,6 +679,17 @@ fn finalize_ingest(
         eprintln!("[m1nd] auto-persist after ingest failed: {}", e);
     }
 
+    // A `replace` ingest wipes the whole graph — including agent-authored L1GHT
+    // memory and its grounded_in edges. Restore it by re-merging agent-memory,
+    // which also re-anchors evidence to the freshly-ingested code. (Skip for the
+    // light adapter: the caller is explicitly managing light content, and the
+    // re-merge runs as adapter=light/mode=merge so it never recurses here.)
+    let agent_memory_restored = if mode == "replace" && adapter != "light" {
+        reload_agent_memory(state)
+    } else {
+        None
+    };
+
     let (node_count, edge_count) = {
         let graph = state.graph.read();
         (graph.num_nodes(), graph.num_edges())
@@ -593,6 +714,13 @@ fn finalize_ingest(
         out.as_object_mut()
             .unwrap()
             .insert("memory_freshness".to_string(), memory_freshness);
+    }
+    // Surface agent-memory restoration after a replace so the agent knows its
+    // L1GHT memory survived the re-index (no silent loss).
+    if let Some(restored) = agent_memory_restored {
+        out.as_object_mut()
+            .unwrap()
+            .insert("agent_memory_restored".to_string(), restored);
     }
     Ok(out)
 }
@@ -4471,6 +4599,101 @@ mod tests {
             first.claim.is_some() && !first.claim.as_ref().unwrap().is_empty(),
             "is_knowledge_citation=true entry must have a non-empty claim, got: {:?}",
             first
+        );
+    }
+
+    /// A `replace` code ingest wipes the graph; agent-memory must be restored
+    /// automatically so the agent never silently loses its L1GHT memory.
+    #[test]
+    fn replace_ingest_restores_agent_memory() {
+        use crate::light_author_handlers::{handle_light_author, LightAuthorInput, LightClaim};
+        use crate::protocol::core::IngestInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(&proj).expect("proj dir");
+        std::fs::write(
+            proj.join("auth.rs"),
+            "pub fn validate_token(t: &str) -> bool { !t.is_empty() }\n",
+        )
+        .expect("write auth.rs");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        let code_ingest = |state: &mut SessionState, mode: &str| {
+            super::handle_ingest(
+                state,
+                IngestInput {
+                    path: proj.to_string_lossy().to_string(),
+                    agent_id: "test".into(),
+                    incremental: false,
+                    adapter: "code".into(),
+                    mode: mode.into(),
+                    namespace: None,
+                    include_dotfiles: false,
+                    dotfile_patterns: vec![],
+                },
+            )
+            .expect("code ingest")
+        };
+        let count_light = |state: &SessionState| -> usize {
+            let g = state.graph.read();
+            g.id_to_node
+                .keys()
+                .filter(|k| g.strings.resolve(**k).starts_with("light::"))
+                .count()
+        };
+
+        // 1) Code ingest, then memorize a claim citing auth.rs -> writes
+        //    runtime/agent-memory/*.light.md and creates light:: nodes.
+        code_ingest(&mut state, "replace");
+        handle_light_author(
+            &mut state,
+            LightAuthorInput {
+                agent_id: "test".into(),
+                node_label: "AuthMem".into(),
+                title: None,
+                state: None,
+                claims: vec![LightClaim {
+                    label: "TokenValidator".into(),
+                    text: Some("validates tokens".into()),
+                    kind: Some("entity".into()),
+                    confidence: Some("high".into()),
+                    ambiguity: None,
+                    evidence: vec!["auth.rs".into()],
+                    depends_on: vec![],
+                }],
+                output_path: None,
+                namespace: None,
+                ingest_after: true,
+                mode: "merge".into(),
+            },
+        )
+        .expect("memorize");
+        assert!(count_light(&state) > 0, "memorize should create light:: nodes");
+
+        // 2) A replace code ingest would wipe the graph — but agent-memory must
+        //    be auto-restored. The result must report it AND the light nodes
+        //    must be back in the live graph.
+        let out = code_ingest(&mut state, "replace");
+        let restored = &out["agent_memory_restored"];
+        assert_eq!(
+            restored["loaded"], true,
+            "replace must restore agent memory, got: {:?}",
+            restored
+        );
+        assert!(
+            count_light(&state) > 0,
+            "light:: memory nodes must survive a replace ingest (auto-restored)"
         );
     }
 }
