@@ -2981,7 +2981,14 @@ pub fn handle_session_handshake(
     // 3. attention_anchors: top-5 by query-access frequency ------------------
     // Uses PlasticityEngine::top_node_access_frequencies() — no seeds needed,
     // O(num_nodes) pass over the ring-buffer's frequency array.
-    let raw_freqs = state.plasticity.top_node_access_frequencies(5);
+    // IMPORTANT: read the ORCHESTRATOR's plasticity engine — that is the one
+    // `activate`/`query` actually updates (query.rs query()->plasticity.update).
+    // `state.plasticity` is a separate engine that queries never touch, so
+    // reading it here made attention_anchors permanently empty.
+    let raw_freqs = state
+        .orchestrator
+        .plasticity
+        .top_node_access_frequencies(5);
     let attention_anchors_empty = raw_freqs.is_empty();
     let attention_anchors: Vec<serde_json::Value> = {
         // Re-acquire a short read lock only to resolve labels for the few returned nodes.
@@ -4388,6 +4395,61 @@ mod tests {
             serde_json::json!(0u64),
             "fresh graph must have 0 grounded_in edges"
         );
+    }
+
+    /// Regression: attention_anchors must POPULATE after a query. It reads the
+    /// orchestrator's plasticity engine (the one `activate` updates), not the
+    /// separate `state.plasticity`. Reading the wrong engine kept it permanently
+    /// empty.
+    #[test]
+    fn session_handshake_attention_anchors_populate_after_query() {
+        use super::{handle_activate, handle_session_handshake};
+        use crate::protocol::core::{ActivateInput, SessionHandshakeInput};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+
+        // Run a query so the orchestrator records activated nodes (node_frequency).
+        let _ = handle_activate(
+            &mut state,
+            ActivateInput {
+                query: "lib core".into(),
+                agent_id: "test-agent".into(),
+                top_k: 5,
+                dimensions: vec!["structural".into(), "semantic".into()],
+                xlr: false,
+                include_ghost_edges: false,
+                include_structural_holes: false,
+            },
+        )
+        .expect("activate should succeed");
+
+        let output = handle_session_handshake(
+            &mut state,
+            SessionHandshakeInput {
+                agent_id: "test-agent".into(),
+                observed_tool_count: Some(HOST_BINDING_REQUIRED_TOOLS.len() as u64),
+                available_tools: HOST_BINDING_REQUIRED_TOOLS
+                    .iter()
+                    .map(|t| (*t).to_string())
+                    .collect(),
+                missing_tools: vec![],
+                scope: None,
+            },
+        )
+        .expect("session_handshake should succeed");
+
+        let aa = output["graph_intelligence"]["attention_anchors"]
+            .as_array()
+            .expect("attention_anchors must be an array");
+        assert!(
+            !aa.is_empty(),
+            "attention_anchors must populate after a query (reads orchestrator.plasticity); got empty"
+        );
+        // Each anchor carries id/label/signal/kind.
+        let first = &aa[0];
+        assert!(first["id"].is_string(), "anchor needs id");
+        assert!(first["signal"].is_number(), "anchor needs numeric signal");
     }
 
     // ─── #7 ─────────────────────────────────────────────────────────────────────
