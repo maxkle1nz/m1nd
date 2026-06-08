@@ -53,8 +53,9 @@ This gives you codebase-aware context.
 subgraphs. Use `hypothesize` to test what-if scenarios.
 
 **Deep Analysis**: `resonate(query)` for standing-wave harmonic patterns. \
-`fingerprint(nodes)` for duplicate/equivalence detection. `diverge(node)` for \
-exploring unexpected connections. `federate` to query across graph namespaces.
+`fingerprint(nodes)` for duplicate/equivalence detection. `diverge(baseline)` detects \
+structural drift between a baseline (ISO date, git ref, or last_session) and the current \
+graph. `federate` to query across graph namespaces.
 
 **Memory (compounding, cross-session)**: when you conclude something durable — a \
 decision, a verified finding, an undecided design point, why code is the way it is — \
@@ -295,6 +296,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "search",
     "seek",
     "activate",
+    "learn",
     "glob",
     "view",
     "batch_view",
@@ -1653,13 +1655,13 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "cross_verify",
-                "description": "Compare graph state against disk truth: missing files, LOC drift, and hash mismatches.",
+                "description": "Compare graph state against disk truth: missing files, LOC drift, hash mismatches, and evidence_freshness (flags memorized L1GHT claims whose cited code changed). Empty check = run all.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "scope": { "type": "string", "description": "File path prefix to limit scope" },
-                        "check": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Checks to run: existence, loc, hash" },
+                        "check": { "type": "array", "items": { "type": "string", "enum": ["existence", "loc", "hash", "evidence_freshness"] }, "default": [], "description": "Checks to run (empty = all): existence, loc, hash, evidence_freshness. evidence_freshness reports stale_evidence — memorize claims whose grounded_in code changed since ingest." },
                         "include_dotfiles": { "type": "boolean", "default": false, "description": "Include selected dotfiles while verifying disk state" },
                         "dotfile_patterns": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Allowed dotfile patterns when include_dotfiles=true" }
                     },
@@ -1872,6 +1874,11 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "items": { "type": "string" },
                             "default": [],
                             "description": "Known remaining gaps"
+                        },
+                        "write_light_memory": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "If true, persist the mission's verified claims as L1GHT memory (.light.md, anchored to code, auto-loads next session). Path returned under light_memory."
                         }
                     },
                     "required": ["agent_id", "mission_id"]
