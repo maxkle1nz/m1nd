@@ -122,6 +122,19 @@ pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) ->
         let resolved = ingest_result["light_evidence_resolved"].as_u64().unwrap_or(0);
         let unresolved = ingest_result["light_evidence_unresolved"].as_u64().unwrap_or(0);
 
+        // Only-when-relevant guidance: unresolved evidence usually means the cited
+        // code was not ingested, or the path is not repo-relative to the code root.
+        let next_action = if unresolved > 0 {
+            format!(
+                "{} evidence path(s) did not resolve to a code node — ingest the code first (ingest adapter=code) and ensure evidence paths are repo-relative to that root, then re-run memorize so the knowledge anchors and cross_verify(check:[\"evidence_freshness\"]) can track it.",
+                unresolved
+            )
+        } else if resolved > 0 {
+            "Memory anchored to code and will auto-load next session; cross_verify(check:[\"evidence_freshness\"]) flags it if the cited code changes.".to_string()
+        } else {
+            "Memory persisted and will auto-load next session. Add `evidence` paths to claims to anchor them to code and enable staleness detection.".to_string()
+        };
+
         return Ok(json!({
             "ok": true,
             "schema": "m1nd-memorize-v0",
@@ -133,6 +146,7 @@ pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) ->
             "edge_count": edge_count,
             "light_evidence_resolved": resolved,
             "light_evidence_unresolved": unresolved,
+            "next_action": next_action,
             "rendered": markdown,
         }));
     }

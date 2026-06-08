@@ -44,12 +44,13 @@ deeper diagnosis of a degraded host surface, empty graph, or stale-looking bindi
 This gives you codebase-aware context.
 
 **Research**: `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → \
-`learn(feedback)`. Use `seek` for keyword search, `scan` for broad discovery, \
-`trace` for dependency chains, `timeline` for temporal ordering.
+`learn(feedback)` → `memorize` any durable finding. Use `seek` for keyword search, \
+`scan` for broad discovery, `trace` for dependency chains, `timeline` for temporal ordering.
 
 **Code Change**: `impact(node)` (blast radius) → `predict(node)` (co-change likelihood) → \
-`counterfactual(nodes)` (simulate removal) → `warmup(task_description)` (prime graph). \
-Use `differential` to compare two subgraphs. Use `hypothesize` to test what-if scenarios.
+`counterfactual(nodes)` (simulate removal) → `warmup(task_description)` (prime graph) → \
+`memorize` the decision and why (with `evidence` paths). Use `differential` to compare two \
+subgraphs. Use `hypothesize` to test what-if scenarios.
 
 **Deep Analysis**: `resonate(query)` for standing-wave harmonic patterns. \
 `fingerprint(nodes)` for duplicate/equivalence detection. `diverge(node)` for \

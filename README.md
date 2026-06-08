@@ -501,10 +501,43 @@ risky change              -> `impact`, `predict`, `validate_plan`, then usually 
 docs or specs             -> `ingest` with `universal` or `light`, then `document_*`
 long-lived investigation  -> `perspective_*`, `trail_*`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`
 bounded audit/review loop  -> `mission_start`, then `mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, `mission_close`
+durable conclusion reached -> `memorize` (anchors to code, auto-loads next session)
 unsure what to call       -> `help(stage=..., intent=...)` or `help(error_text="...")`
 ```
 
 Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world/wiki/), the local [integration matrix](docs/IDE-INTEGRATIONS.md), and deeper examples in [EXAMPLES.md](EXAMPLES.md).
+
+## Compounding Memory (L1GHT)
+
+Most tools give an agent better *retrieval*. `m1nd` also lets an agent **author durable, machine-legible knowledge** that compounds across sessions and stays honest against the code.
+
+When you conclude something worth keeping — a decision, a verified finding, an undecided design point, why code is the way it is — call `memorize` with structured claims:
+
+```jsonc
+memorize({
+  "agent_id": "dev",
+  "node_label": "AuthTokenFlow",
+  "claims": [
+    { "label": "TokenValidator", "text": "validates JWTs via HMAC",
+      "confidence": "high", "evidence": ["src/auth/token.rs"] }
+  ]
+})
+```
+
+What happens, in one call:
+
+1. **Authored** — a graph-native `L1GHT` document (`.light.md`) is written under `<runtime>/agent-memory/`. (`memorize` is the first thing in `m1nd` that *writes* L1GHT, not just parses it.)
+2. **Anchored** — each `evidence` path resolves to the real code node via a `grounded_in` edge, so the knowledge lives in the same activation space as code and surfaces in `seek` / `activate` / `impact`. (Ingest the code first so the paths can resolve.)
+3. **Auto-loaded** — on every future session start, `m1nd` ingests `agent-memory/` automatically and reports it in `session_handshake.agent_memory`. Your past findings are just *there*.
+4. **Self-staleness-flagging** — `cross_verify(check: ["evidence_freshness"])` re-checks every cited file and lists any claim whose code has since changed, so memory tells you when it has gone stale instead of misleading you.
+
+Closing a bounded mission? Pass `write_light_memory: true` to `mission_close` to persist its verified claims the same way in one step. Set `M1ND_AUTO_LOAD_AGENT_MEMORY=0` to disable boot auto-load.
+
+This is host-agnostic: the habit is documented in the server `instructions` every MCP client receives at `initialize`, so any IDE, CLI, or agent that speaks MCP gets it — no client-specific plugin required.
+
+## Tool Surface And Tiers
+
+By default `tools/list` advertises a curated **essential** set (~26 tools: trust/recovery, ingest/audit, search/seek/activate, view/batch_view/glob, impact/why/trace/predict, surgical_context_v2, cross_verify, missions, memorize, persist). Set `M1ND_TOOL_TIER=full` to advertise the complete surface (100+ tools incl. RETROBUILDER, perspectives, locks, federation, daemon). Hidden tools remain fully callable by name regardless of tier — tiering only controls what `tools/list` surfaces so smaller-context agents are not overwhelmed.
 
 ## Evidence
 
@@ -526,6 +559,8 @@ Detailed client-by-client setup lives in the [canonical wiki](https://m1nd.world
 | Understand structural relationships | no | limited | yes |
 | Ask "what breaks if I change this?" | no | no | yes, through `impact` and `counterfactual` |
 | Resume investigation state | no | no | yes, through trails, perspectives, and boot memory |
+| Author memory that compounds across sessions | no | no | yes, through `memorize` (auto-loads on boot) |
+| Know when stored knowledge has gone stale | no | no | yes, `cross_verify` evidence_freshness vs live code |
 | Bind docs/specs to code | no | partial | yes, through document bindings and drift checks |
 | Detect hidden co-change coupling | no | no | yes, through ghost edges |
 | Recover from stale host bindings | no | no | yes, through trust and recovery surfaces |
