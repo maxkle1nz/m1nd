@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { agentCommand, AGENT_CLI_SCHEMA } = require("./agent-cli");
+const { agentCommand, agentKickstart, AGENT_CLI_SCHEMA, KICKSTART_SCHEMA } = require("./agent-cli");
 
 const PACKAGE_ROOT = path.resolve(__dirname, "..", "..");
 const SKILLS_ROOT = path.join(PACKAGE_ROOT, "skills");
@@ -39,13 +39,15 @@ Usage:
   m1nd update rollback [--json]
   m1nd agent scope --repo <dir> [--json]
   m1nd agent trust --repo <dir> [--ensure-ingest] [--json]
+  m1nd agent first-minute --repo <dir> --query <text> [--mode short|normal|deep] [--json]
   m1nd agent orient --repo <dir> --query <text> [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
   m1nd agent auto --repo <dir> [--query <text> | --from <error|payload|stdin>] [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
   m1nd agent next --repo <dir> [--query <text> | --from <error|payload|stdin>] [--mode short|normal|deep] [--tool auto|search|seek|activate|audit|glob] [--json]
   m1nd agent recover --repo <dir> --from <error|payload|stdin> [--json]
-  m1nd agent context --repo <dir> --query <text> [--tokens <n>] [--json]
+  m1nd agent context --repo <dir> --query <text> [--anchor <file>] [--allow-discovery] [--tokens <n>] [--json]
   m1nd agent handoff --repo <dir> [--from last-run|mission] [--json]
   m1nd agent doctor --repo <dir> [--json]
+  m1nd kickstart --repo <dir> [--audit-path <dir>] [--binary <path>] [--json]
   m1nd demo [--repo <dir>] [--transport stdio|http] [--json]
   m1nd smoke [--repo <dir>] [--transport stdio|http] [--json]
   m1nd pack-check [--json]
@@ -79,7 +81,18 @@ isolated m1nd-mcp runtime bound to --repo, emits deterministic JSON outside any
 stale MCP host, and tells the agent when to switch back to direct proof.
 
 agent auto/next is the deterministic route picker. It does not claim proof; it
-chooses the next bounded agent step or hands control back to direct proof.`;
+chooses the next bounded agent step or hands control back to direct proof. For
+deep architecture, hidden coupling, security/taint, duplication/refactor, or
+runtime-heat tasks, it emits RETROBUILDER capability_suggestions.
+
+agent first-minute is the safest first contact for a new repo. It scopes,
+trusts, ingests when needed, runs one bounded orientation pass, returns anchors,
+and then tells the agent to prove directly. It can also surface RETROBUILDER
+tools such as ghost_edges, taint_trace, twins, refactor_plan, and
+runtime_overlay when the query asks for those deeper lenses.
+
+agent context is anchor-first. Use --anchor or a concrete file path for capsules;
+use --allow-discovery only when you intentionally accept discovery overhead.`;
 }
 
 function parseArgs(args) {
@@ -94,6 +107,7 @@ function parseArgs(args) {
     if (
       [
         "build",
+        "allow-discovery",
         "help",
         "install",
         "ensure-ingest",
@@ -233,6 +247,8 @@ const DEFAULT_PACK_ROUTING_FILES = [
       { id: "session-companion-section", needles: ["Session Companion Bridge"] },
       { id: "dext3r-continuity-only", needles: ["DEXT3R", "continuity"] },
       { id: "m1nd-agent-next-route", needles: ["m1nd agent next", "current task"] },
+      { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
+      { id: "retrobuilder-routing", needles: ["RETROBUILDER", "ghost_edges", "runtime_overlay", "direct source"] },
       { id: "no-companion-code-truth", needles: ["code truth"] },
       { id: "direct-proof-final-truth", needles: ["direct proof", "decides what is true"] },
     ],
@@ -245,6 +261,9 @@ const DEFAULT_PACK_ROUTING_FILES = [
       { id: "dext3r-continuity", needles: ["DEXT3R", "conversation continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
+      { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
+      { id: "context-anchor-first", needles: ["agent context", "anchor"] },
+      { id: "retrobuilder-routing", needles: ["RETROBUILDER", "ghost_edges", "runtime_overlay", "direct source"] },
       { id: "m1nd-mcp-structural-role", needles: ["m1nd MCP tools", "structural context"] },
       { id: "direct-proof-role", needles: ["Direct proof", "focused probes"] },
       { id: "global-search-warning", needles: ["Global companion search", "candidate discovery only"] },
@@ -258,6 +277,9 @@ const DEFAULT_PACK_ROUTING_FILES = [
       { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
+      { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
+      { id: "context-anchor-first", needles: ["agent context", "anchor"] },
+      { id: "retrobuilder-routing", needles: ["RETROBUILDER", "ghost_edges", "runtime_overlay", "direct source"] },
       { id: "m1nd-mcp-structural-role", needles: ["m1nd MCP tools", "structural"] },
       { id: "direct-proof-final-truth", needles: ["direct proof", "final truth"] },
     ],
@@ -270,6 +292,9 @@ const DEFAULT_PACK_ROUTING_FILES = [
       { id: "dext3r-continuity", needles: ["DEXT3R", "continuity"] },
       { id: "companion-orientation-only", needles: ["companion_orientation_only"] },
       { id: "m1nd-agent-next-first-move", needles: ["m1nd agent next", "first safe repo move"] },
+      { id: "m1nd-agent-first-minute-route", needles: ["m1nd agent first-minute", "first contact"] },
+      { id: "context-anchor-first", needles: ["agent context", "anchor"] },
+      { id: "retrobuilder-routing", needles: ["RETROBUILDER", "ghost_edges", "runtime_overlay", "direct source"] },
       { id: "m1nd-mcp-structural-role", needles: ["m1nd MCP tools", "structural"] },
       { id: "direct-proof-final-truth", needles: ["direct proof", "source, tests"] },
     ],
@@ -288,6 +313,16 @@ const DEFAULT_PACK_ROUTING_CONTRACT = [
     needles: ["m1nd agent next", "first safe repo move"],
   },
   {
+    id: "m1nd-agent-first-minute-is-first-contact",
+    description: "m1nd agent first-minute is the safest first contact loop",
+    needles: ["m1nd agent first-minute", "first contact"],
+  },
+  {
+    id: "agent-context-is-anchor-first",
+    description: "agent context requires anchors before capsules",
+    needles: ["agent context", "anchor"],
+  },
+  {
     id: "m1nd-mcp-is-structural-context",
     description: "m1nd MCP tools provide graph/docs/impact/mission context",
     needles: ["m1nd MCP tools", "structural"],
@@ -296,6 +331,11 @@ const DEFAULT_PACK_ROUTING_CONTRACT = [
     id: "direct-proof-is-final-truth",
     description: "direct proof remains final truth for code behavior",
     needles: ["direct proof", "final truth"],
+  },
+  {
+    id: "retrobuilder-is-taught",
+    description: "RETROBUILDER deep graph tools are taught in distributed packs",
+    needles: ["RETROBUILDER", "ghost_edges", "taint_trace", "twins", "refactor_plan", "runtime_overlay"],
   },
   {
     id: "companion-search-is-not-code-truth",
@@ -611,7 +651,11 @@ function hostConfigCandidates(host, projectDir) {
     case "codex":
       return [path.join(homeDir(), ".codex", "config.toml")];
     case "claude":
-      return [path.join(projectDir, ".claude", "mcp.json"), path.join(projectDir, "claude_mcp.json")];
+      return [
+        path.join(projectDir, ".claude", "mcp.json"),
+        path.join(projectDir, "claude_mcp.json"),
+        path.join(homeDir(), ".claude.json"),
+      ];
     case "gemini":
       return [path.join(projectDir, ".gemini", "settings.json"), path.join(projectDir, "gemini_mcp.json")];
     case "antigravity":
@@ -646,7 +690,13 @@ function hostConfigStatus(host, projectDir, binary, packageVersion = readPackage
       runtime_bindings: runtimeBindingsFromText(scopedContent, binary, packageVersion),
     };
   });
+  const userScopePath = host === "claude" ? path.join(homeDir(), ".claude.json") : null;
   const configured = checked.some((candidate) => candidate.exists && candidate.mentions_m1nd);
+  const configuredUserScope =
+    userScopePath !== null &&
+    checked.some((candidate) => candidate.file === userScopePath && candidate.exists && candidate.mentions_m1nd);
+  const configuredProjectScope =
+    checked.some((candidate) => candidate.file !== userScopePath && candidate.exists && candidate.mentions_m1nd);
   const workspaceConfigured = checked.some(
     (candidate) =>
       candidate.exists &&
@@ -668,8 +718,15 @@ function hostConfigStatus(host, projectDir, binary, packageVersion = readPackage
       : currentRuntimeConfigured
         ? "current"
         : "stale_or_missing";
+  const configStatus = configured
+    ? configuredUserScope && !configuredProjectScope
+      ? "configured (user-scope)"
+      : "configured"
+    : anyPresent
+      ? "present_without_m1nd"
+      : "missing";
   return {
-    status: configured ? "configured" : anyPresent ? "present_without_m1nd" : "missing",
+    status: configStatus,
     workspace_configured: workspaceConfigured,
     candidates: checked,
     expected_command: binary || defaultRuntimePath(),
@@ -2329,6 +2386,17 @@ function print(value, asJson) {
     }
     return;
   }
+  if (value.schema === KICKSTART_SCHEMA) {
+    console.log(`m1nd kickstart ${value.ok ? "ok" : "NOT OK"}`);
+    console.log(`trust: ${value.trust_verdict}`);
+    console.log(`nodes: ${value.node_count}  edges: ${value.edge_count}`);
+    console.log(`ingest: ${value.ingest.performed ? `yes (${value.ingest.files_parsed} files)` : "skipped"}`);
+    console.log(`next_action: ${value.next_action}`);
+    if (value.audit_summary) console.log(`audit: ${value.audit_summary}`);
+    console.log(`timing: trust=${value.timing_ms.trust}ms ingest=${value.timing_ms.ingest}ms audit=${value.timing_ms.audit}ms total=${value.timing_ms.total}ms`);
+    if (value.error) console.log(`error: ${value.error}`);
+    return;
+  }
   if (value.schema === AGENT_CLI_SCHEMA) {
     console.log(`m1nd agent ${value.command}`);
     console.log(`repo: ${value.repo}`);
@@ -2406,6 +2474,17 @@ async function main(rawArgs) {
     return;
   }
 
+  if (command === "kickstart") {
+    if (!args.repo && !args.project) throw new Error("kickstart requires --repo <path>");
+    const result = await agentKickstart(args, {
+      defaultRuntimePath,
+      findRuntimeBinary,
+      runtimeVersion,
+    });
+    print(result, args.json || !process.stdout.isTTY);
+    return;
+  }
+
   if (command === "agent") {
     const result = await agentCommand(args, {
       assertPackShape,
@@ -2471,6 +2550,7 @@ module.exports = {
   restart,
   selfUpdate,
   agentCommand,
+  agentKickstart,
   mcpConfig,
   runtimeBinaryName,
   commandLooksLikeRuntime,

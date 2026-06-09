@@ -116,11 +116,20 @@ probes than by extended graph navigation.
 2. If you are unsure which m1nd move fits, ask the host-neutral router first:
 
    ```bash
+   m1nd agent first-minute \
+     --repo /path/to/repo \
+     --query "understand this system" \
+     --json
+
    m1nd agent next \
      --repo /path/to/repo \
      --query "focused subsystem or bug surface" \
      --json
    ```
+
+   Use `first-minute` for first contact with a brand-new repo or broad "understand/audit/map this"
+   request. It returns anchors, `do_not` guardrails, and the direct-proof
+   handoff without requiring the agent to read this skill first.
 
    It returns an `m1nd-agent-action-envelope-v0`; follow the emitted command or
    recovery path instead of spending calls guessing the tool family.
@@ -143,6 +152,35 @@ probes than by extended graph navigation.
 
 The short-audit route is still m1nd-first. It just caps graph/recovery spend so
 tiny localized tasks do not turn into tool-operation exercises.
+
+`m1nd agent context` is anchor-first. Do not call it on broad narrative queries
+such as "trace chat flow" or "understand this repo" unless you already have a
+concrete `--anchor <file>` or intentionally pass `--allow-discovery`. Context
+capsules support proof; they are not the first orientation move.
+
+## RETROBUILDER Escalation
+
+When a task asks for deep architecture quality, hidden coupling, taint/security
+paths, duplication, refactor seams, or runtime heat, check whether the agent CLI
+returned `capability_suggestions.family_id=retrobuilder`. If it did, use only
+the matching tools, then stop and prove directly:
+
+- hidden co-change or files that "move together" -> `ghost_edges`, then
+  `timeline` or `impact`
+- untrusted input, sensitive data, auth, privacy, or trust-boundary review ->
+  `taint_trace`, then `trust`, `type_trace`, or `validate_plan`
+- duplicate structures, near-equivalent modules, cleanup, extraction, or
+  spaghetti -> `twins`, then `refactor_plan`
+- runtime heat, OpenTelemetry spans, logs, latency, production failures, or hot
+  paths -> `runtime_overlay`, then `trace` or `impact`
+- broad architecture/risk audit -> `layers` plus the relevant RETROBUILDER
+  tools: `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`,
+  `runtime_overlay`
+
+RETROBUILDER output is graph orientation. It can identify strong hypotheses,
+hidden neighbors, and proof targets, but it does not prove bugs or runtime
+behavior without direct source reads, tests, compiler/runtime output, logs, or
+focused probes.
 
 ## Session Companion Bridge
 

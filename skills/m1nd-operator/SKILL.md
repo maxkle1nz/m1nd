@@ -130,6 +130,11 @@ The route is:
 For local helper use, prefer the first-class agent CLI:
 
 ```bash
+m1nd agent first-minute \
+  --repo /path/to/repo \
+  --query "understand this system" \
+  --json
+
 m1nd agent next \
   --repo /path/to/repo \
   --query "focused subsystem or bug surface" \
@@ -142,6 +147,11 @@ m1nd agent orient \
   --json
 ```
 
+Use `agent first-minute` for first contact, broad architecture/audit requests,
+or when an agent has not yet loaded the m1nd operating doctrine. It scopes the
+repo, establishes trust, ingests when needed, runs one bounded orientation pass,
+returns anchors, and emits `do_not` guardrails plus a direct-proof handoff.
+
 `agent next` emits an `m1nd-agent-action-envelope-v0` with the first safe move,
 so use it when you are choosing between scope, trust, orient, context, recover,
 or direct proof. `agent orient` returns `schema=m1nd-agent-cli-v0`, records
@@ -150,6 +160,11 @@ always tells the agent to switch to direct proof. Use `probe_m1nd.py
 short-audit` only as a compatibility fallback when the npm CLI is unavailable,
 and raw `probe_m1nd.py run` only when you need a custom sequence of multiple
 tools.
+
+`agent context` is anchor-first. Use it after `first-minute`, `next`, `orient`,
+or a direct source read identifies a concrete file. For broad narrative queries,
+let it refuse and route back to orientation rather than accepting a plausible but
+wrong capsule.
 
 For broad audits, hard bug hunts, multi-repo systems, docs/L1GHT work,
 long-running investigations, security/risk review, or explicit full-system
@@ -336,6 +351,13 @@ source reads, tests, runtime probes, or CI evidence.
 - Need plan completeness and missing tests before implementation or review: use `validate_plan`.
 - Need graph-native specs, design notes, or KB docs authored in `L1GHT`: ingest with `adapter: "light"` and usually `mode: "merge"`.
 - Need regular spec/wiki/PDF/doc alignment with code: ingest with `adapter: "universal"` or `auto`, then use `document_resolve`, `document_bindings`, and `document_drift`.
+- Need hidden coupling, deep architecture quality, taint/security paths,
+  duplication/refactor seams, or runtime heat: use the RETROBUILDER family.
+  `ghost_edges` finds historical co-change, `taint_trace` follows trust
+  boundary/sensitive flow, `twins` finds structural duplicates,
+  `refactor_plan` proposes extraction communities, and `runtime_overlay`
+  overlays span/log heat onto graph nodes. Treat these as hypotheses and
+  anchors until direct source/test/runtime proof confirms them.
 - Need stateful navigation instead of stateless retrieval: use `perspective_*`.
 - Need session continuity or handoff: use `trail_save`, `trail_list`, `trail_resume`, `trail_merge`, and sometimes `boot_memory`.
 - Need background structural monitoring: use `daemon_start`, `daemon_status`, `daemon_tick`, `alerts_list`, and `alerts_ack`.

@@ -164,8 +164,17 @@ The live MCP surface evolves with releases. Use `tools/list` for the exact tool 
 | Change planning and proof | reason about impact, co-change, missing steps, failure paths, and structural claims | `impact`, `predict`, `validate_plan`, `missing`, `hypothesize`, `counterfactual`, `differential` |
 | Quality, security, and architecture | detect patterns, taint paths, trust boundaries, duplication, layer violations, type flows, simulations, and refactor targets | `scan`, `scan_all`, `heuristics_surface`, `antibody_*`, `taint_trace`, `type_trace`, `trust`, `layers`, `layer_inspect`, `twins`, `fingerprint`, `flow_simulate`, `epidemic`, `tremor`, `refactor_plan` |
 | Time, runtime, and multi-repo work | inspect git history, drift, hidden co-change edges, runtime overlays, and cross-repo references | `timeline`, `diverge`, `ghost_edges`, `runtime_overlay`, `external_references`, `federate`, `federate_auto` |
+| RETROBUILDER deep graph lens | combine hidden co-change, taint/security paths, structural twins, refactor communities, and runtime heat before direct proof | `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, `runtime_overlay` |
 | Operations and monitoring | audit repo state, verify graph-vs-disk truth, run daemon watches, persist state, and surface durable alerts | `audit`, `cross_verify`, `daemon_*`, `alerts_*`, `panoramic`, `metrics`, `report`, `savings`, `persist`, `diagram`, `help` |
 | Surgical edit prep and execution | pull compact connected context, preview writes, and apply graph-aware edits | `surgical_context`, `surgical_context_v2`, `view`, `batch_view`, `edit_preview`, `edit_commit`, `apply`, `apply_batch` |
+
+RETROBUILDER is the deep graph lens for advanced agent work. Use it when a
+normal orientation pass is not enough: `ghost_edges` finds historical coupling,
+`taint_trace` follows untrusted or sensitive flows, `twins` finds structural
+duplicates, `refactor_plan` proposes extraction communities, and
+`runtime_overlay` maps live span/log heat back onto graph nodes. These tools
+produce hypotheses and anchors; final claims still need direct source reads,
+tests, compiler/runtime output, logs, or focused probes.
 
 ## Quick Start
 
@@ -203,16 +212,30 @@ use the host-neutral CLI. It launches an isolated runtime, binds it to the repo,
 and returns one machine-readable envelope:
 
 ```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
 m1nd agent next --repo /your/project --query "auth session boundary" --json
 m1nd agent scope --repo /your/project --json
 m1nd agent trust --repo /your/project --ensure-ingest --json
 m1nd agent orient --repo /your/project --query "auth session boundary" --mode short --json
 ```
 
+`m1nd agent first-minute` is the safest first contact for a new repo. It scopes
+the repo, establishes trust, ingests if needed, runs one bounded orientation
+pass, returns candidate anchors, and then tells the agent to prove directly from
+source, tests, compiler/runtime output, logs, or probes.
+
 `m1nd agent next` is the deterministic route picker. It returns an
 `m1nd-agent-action-envelope-v0` that says whether the agent should scope, trust,
 orient, recover, collect context, or switch to direct proof. It does not execute
 the next step for you and does not claim the host MCP cache refreshed.
+When a task looks like deep architecture, security/taint, duplication/refactor,
+hidden coupling, or runtime heat analysis, `first-minute`, `next`, `orient`, and
+`context` can also emit `capability_suggestions` for the RETROBUILDER family:
+`ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, and `runtime_overlay`.
+
+`m1nd agent context` is anchor-first. Use it after a concrete file/path/identifier
+is known, or pass `--anchor <file>`. Broad narrative questions should go through
+`first-minute`, `next`, or `orient` first.
 
 `m1nd agent orient --mode short` is the preferred sidecar entrypoint for small
 audits and bug hunts: it establishes trust, performs one bounded orientation
@@ -498,6 +521,7 @@ purpose or subsystem      -> `seek` or `activate`
 unfamiliar repo           -> `audit`
 runtime error or trace    -> `trace`
 risky change              -> `impact`, `predict`, `validate_plan`, then usually `surgical_context_v2`
+deep architecture/risk    -> `layers`, then RETROBUILDER: `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, `runtime_overlay`
 docs or specs             -> `ingest` with `universal` or `light`, then `document_*`
 long-lived investigation  -> `perspective_*`, `trail_*`, `coverage_session`, `daemon_*`, `alerts_*`, `persist`
 bounded audit/review loop  -> `mission_start`, then `mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, `mission_close`

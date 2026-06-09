@@ -25,3 +25,6 @@ docs/benchmarks/**/operator-only/seeded-diff.patch
 *.tsbuildinfo
 
 .m1nd-field-workspaces/
+
+# Locally installed agent pack (per-machine install artifact from `m1nd install-skills`)
+.m1nd/

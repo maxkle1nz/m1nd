@@ -76,9 +76,11 @@ assert(help.stdout.includes("m1nd hosts plan"));
 assert(help.stdout.includes("m1nd hosts apply"));
 assert(help.stdout.includes("m1nd agent scope"));
 assert(help.stdout.includes("m1nd agent orient"));
+assert(help.stdout.includes("m1nd agent first-minute"));
 assert(help.stdout.includes("m1nd agent auto"));
 assert(help.stdout.includes("m1nd agent next"));
 assert(help.stdout.includes("m1nd pack-routing-check"));
+assert(help.stdout.includes("RETROBUILDER capability_suggestions"));
 
 const packCheck = spawnSync(process.execPath, [cli, "pack-check", "--json"], { encoding: "utf8" });
 assert.strictEqual(packCheck.status, 0, packCheck.stderr);
@@ -449,6 +451,9 @@ withEnv(
   {
     ...fakeEnvBase,
     M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    // Use an isolated home dir so that a real ~/.claude.json does not affect
+    // the "missing" assertion below.
+    M1ND_TEST_HOME: mkTmpDir(),
   },
   () => {
     const tmp = mkTmpDir();
@@ -733,6 +738,39 @@ withEnv(
   }
 );
 
+// user-scope ~/.claude.json detection
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+  },
+  () => {
+    const testHome = mkTmpDir();
+    const project = mkTmpDir();
+    // Write a fake ~/.claude.json as produced by `claude mcp add -s user`
+    fs.writeFileSync(
+      path.join(testHome, ".claude.json"),
+      JSON.stringify({ mcpServers: { m1nd: { command: process.execPath, args: [], env: {} } } })
+    );
+    const status = withEnv(
+      { M1ND_TEST_HOME: testHome },
+      () =>
+        hostStatus({
+          _: ["hosts", "status"],
+          host: "claude",
+          project,
+          binary: process.execPath,
+        })
+    );
+    assert.strictEqual(status.hosts[0].host, "claude");
+    assert.notStrictEqual(status.hosts[0].config.status, "missing");
+    assert(
+      status.hosts[0].config.status.includes("user-scope"),
+      `Expected config.status to include "user-scope", got: ${status.hosts[0].config.status}`
+    );
+  }
+);
+
 const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json", "--binary", process.execPath], {
   encoding: "utf8",
   env: {
@@ -933,6 +971,51 @@ assert.strictEqual(agentAutoJson.action.trigger.kind, "natural_language");
 assert(agentAutoJson.action.action.command.includes(`--binary ${fakeMcp}`));
 assert(agentAutoJson.next_actions[0].includes(`--binary ${fakeMcp}`));
 
+const agentNextFirstMinute = spawnSync(
+  process.execPath,
+  [cli, "agent", "next", "--repo", agentOrientRepo, "--query", "use m1nd to understand this repo", "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentNextFirstMinute.status, 0, agentNextFirstMinute.stderr);
+const agentNextFirstMinuteJson = JSON.parse(agentNextFirstMinute.stdout);
+assert.strictEqual(agentNextFirstMinuteJson.action.route.kind, "first_minute");
+assert.strictEqual(agentNextFirstMinuteJson.action.route.reason, "first_contact_broad_task");
+assert(agentNextFirstMinuteJson.next_actions[0].includes("agent first-minute"));
+assert.strictEqual(agentNextFirstMinuteJson.task_profile.primary_intent, "deep_architecture");
+assert(agentNextFirstMinuteJson.capability_suggestions[0].tools.includes("ghost_edges"));
+assert(agentNextFirstMinuteJson.capability_suggestions[0].tools.includes("twins"));
+assert(agentNextFirstMinuteJson.action.capability_suggestions[0].family_id === "retrobuilder");
+
+const agentFirstMinute = spawnSync(
+  process.execPath,
+  [cli, "agent", "first-minute", "--repo", agentOrientRepo, "--query", "audit architecture hidden coupling runtime bottlenecks duplicate refactor taint paths", "--binary", fakeMcp, "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_TRUST: "needs_ingest",
+    },
+  }
+);
+assert.strictEqual(agentFirstMinute.status, 0, agentFirstMinute.stderr);
+const agentFirstMinuteJson = JSON.parse(agentFirstMinute.stdout);
+assert.strictEqual(agentFirstMinuteJson.command, "first-minute");
+assert(agentFirstMinuteJson.calls.some((entry) => entry.tool === "ingest"));
+assert(agentFirstMinuteJson.calls.some((entry) => entry.tool === "seek"));
+assert.strictEqual(agentFirstMinuteJson.switch_to_direct_proof, true);
+assert.strictEqual(agentFirstMinuteJson.m1nd_usage_mode, "first_minute_orientation");
+assert(agentFirstMinuteJson.operating_contract);
+assert(Array.isArray(agentFirstMinuteJson.anchors));
+assert(agentFirstMinuteJson.do_not.some((entry) => entry.includes("agent context")));
+assert.strictEqual(agentFirstMinuteJson.capability_suggestions[0].family_id, "retrobuilder");
+assert.deepStrictEqual(
+  ["ghost_edges", "taint_trace", "twins", "refactor_plan", "runtime_overlay"].every((tool) =>
+    agentFirstMinuteJson.capability_suggestions[0].tools.includes(tool)
+  ),
+  true
+);
+assert(agentFirstMinuteJson.playbook.steps.some((step) => step.includes("RETROBUILDER")));
+
 const agentAutoSymbol = spawnSync(
   process.execPath,
   [cli, "agent", "auto", "--repo", agentOrientRepo, "--query", "chooseOrientationTool", "--binary", fakeMcp, "--json"],
@@ -1047,18 +1130,49 @@ assert.strictEqual(agentActivateJson.switch_to_direct_proof, false);
 
 const agentContext = spawnSync(
   process.execPath,
-  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--tokens", "800", "--json"],
-  { encoding: "utf8", env: agentEnv }
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "trace chat flow", "--tokens", "800", "--json"],
+  {
+    encoding: "utf8",
+    env: {
+      ...agentEnv,
+      M1ND_FAKE_SEARCH_FILE: "apps/experimental/tools_webhook/tool_caller.py",
+    },
+  }
 );
 assert.strictEqual(agentContext.status, 0, agentContext.stderr);
 const agentContextJson = JSON.parse(agentContext.stdout);
 assert.strictEqual(agentContextJson.command, "context");
-assert(agentContextJson.selected_file.endsWith(path.join("src", "session.js")));
-assert(agentContextJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
+assert.strictEqual(agentContextJson.ok, false);
+assert.strictEqual(agentContextJson.needs_orientation_first, true);
+assert.strictEqual(agentContextJson.context_confidence, "needs_orientation_first");
+assert(!agentContextJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
+
+const agentContextAllowDiscovery = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--allow-discovery", "--tokens", "800", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentContextAllowDiscovery.status, 0, agentContextAllowDiscovery.stderr);
+const agentContextAllowDiscoveryJson = JSON.parse(agentContextAllowDiscovery.stdout);
+assert.strictEqual(agentContextAllowDiscoveryJson.command, "context");
+assert(agentContextAllowDiscoveryJson.selected_file.endsWith(path.join("src", "session.js")));
+assert.strictEqual(agentContextAllowDiscoveryJson.context_confidence, "discovery_allowed");
+assert(agentContextAllowDiscoveryJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
 
 const directContextFile = path.join(agentOrientRepo, "src", "session.js");
 fs.mkdirSync(path.dirname(directContextFile), { recursive: true });
 fs.writeFileSync(directContextFile, "// direct context anchor\n");
+const agentContextAnchor = spawnSync(
+  process.execPath,
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--anchor", "src/session.js", "--tokens", "800", "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentContextAnchor.status, 0, agentContextAnchor.stderr);
+const agentContextAnchorJson = JSON.parse(agentContextAnchor.stdout);
+assert.strictEqual(agentContextAnchorJson.selected_file, directContextFile);
+assert.strictEqual(agentContextAnchorJson.context_confidence, "direct_anchor");
+assert(agentContextAnchorJson.calls.some((entry) => entry.tool === "surgical_context_v2"));
+
 const agentContextPathPhrase = spawnSync(
   process.execPath,
   [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "src/session.js session boundary", "--tokens", "800", "--json"],
@@ -1088,7 +1202,7 @@ assert(agentContextIdentifierFallbackJson.calls.filter((entry) => entry.tool ===
 
 const agentContextBudget = spawnSync(
   process.execPath,
-  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--tokens", "10", "--json"],
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--allow-discovery", "--tokens", "10", "--json"],
   {
     encoding: "utf8",
     env: {
@@ -1104,7 +1218,7 @@ assert(agentContextBudgetJson.results[0].context.length < 1200);
 
 const agentContextEscape = spawnSync(
   process.execPath,
-  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--json"],
+  [cli, "agent", "context", "--repo", agentOrientRepo, "--binary", fakeMcp, "--query", "session boundary", "--allow-discovery", "--json"],
   {
     encoding: "utf8",
     env: {
@@ -1127,5 +1241,34 @@ assert.strictEqual(agentDoctorJson.command, "doctor");
 assert(agentDoctorJson.package_doctor);
 assert(agentDoctorJson.hosts);
 assert(agentDoctorJson.update);
+
+// --- kickstart ---
+// Smoke test for `m1nd kickstart` using the same fakeMcp/agentEnv pattern as
+// the agent tests above. Verifies the m1nd-kickstart-v0 envelope is returned
+// with required fields.
+const kickstartRepo = mkTmpDir();
+const agentKickstartRun = spawnSync(
+  process.execPath,
+  [cli, "kickstart", "--repo", kickstartRepo, "--binary", fakeMcp, "--json"],
+  { encoding: "utf8", env: agentEnv }
+);
+assert.strictEqual(agentKickstartRun.status, 0, agentKickstartRun.stderr);
+const kickstartJson = JSON.parse(agentKickstartRun.stdout);
+assert.strictEqual(kickstartJson.schema, "m1nd-kickstart-v0", "schema must be m1nd-kickstart-v0");
+assert.strictEqual(typeof kickstartJson.ok, "boolean", "ok must be boolean");
+assert.strictEqual(typeof kickstartJson.node_count, "number", "node_count must be number");
+assert.strictEqual(typeof kickstartJson.edge_count, "number", "edge_count must be number");
+assert.strictEqual(typeof kickstartJson.next_action, "string", "next_action must be string");
+assert(typeof kickstartJson.trust_verdict === "string", "trust_verdict must be string");
+assert(kickstartJson.ingest && typeof kickstartJson.ingest.performed === "boolean", "ingest.performed must be boolean");
+assert(typeof kickstartJson.audit_summary === "string", "audit_summary must be string");
+assert(Array.isArray(kickstartJson.non_claims) && kickstartJson.non_claims.length >= 3, "non_claims must have >= 3 entries");
+assert(kickstartJson.timing_ms && typeof kickstartJson.timing_ms.total === "number", "timing_ms.total must be number");
+// With a fresh repo (no real graph) the kickstart should still return a valid envelope
+// node_count comes from the fakeMcp which defaults to 12
+assert.strictEqual(kickstartJson.node_count, 12);
+assert.strictEqual(kickstartJson.edge_count, 21);
+assert.strictEqual(kickstartJson.ok, true);
+assert.strictEqual(kickstartJson.next_action, "ready_to_query");
 
 console.log("npm cli tests ok");

@@ -7,6 +7,13 @@ const { AGENT_CLI_SCHEMA, agentNonClaims, baseAgentEnvelope } = require("./agent
 
 const AGENT_ACTION_SCHEMA = "m1nd-agent-action-envelope-v0";
 const ORIENTATION_TOOLS = new Set(["auto", "search", "seek", "activate", "audit", "glob"]);
+const RETROBUILDER_TOOLS = [
+  "ghost_edges",
+  "taint_trace",
+  "twins",
+  "refactor_plan",
+  "runtime_overlay",
+];
 
 function safeJsonParse(text) {
   try {
@@ -57,6 +64,12 @@ function buildActionEnvelope({
 
 function proofRequirementsForRoute(routeKind) {
   switch (routeKind) {
+    case "first_minute":
+      return [
+        "Use the first-minute output as repo orientation, not final proof.",
+        "Read the listed anchors directly before behavior or architecture claims.",
+        "After one bounded graph pass, switch to source reads, tests, compiler/runtime output, or focused probes.",
+      ];
     case "recover":
       return [
         "Run the emitted recovery path before relying on retrieval again.",
@@ -79,6 +92,136 @@ function proofRequirementsForRoute(routeKind) {
         "Read source directly and run focused tests or probes before behavioral claims.",
       ];
   }
+}
+
+function uniqueList(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function capabilityGuidanceForQuery(query) {
+  const raw = String(query || "");
+  const text = raw.toLowerCase();
+  if (!text.trim()) return null;
+
+  const signals = [];
+  const tools = [];
+  const supportingTools = [];
+
+  const add = (signal, toolNames, support = []) => {
+    signals.push(signal);
+    tools.push(...toolNames);
+    supportingTools.push(...support);
+  };
+
+  if (/\b(retrobuilder|advanced graph|superpower|superpowers)\b/i.test(raw)) {
+    add("explicit_retrobuilder_request", RETROBUILDER_TOOLS, [
+      "layers",
+      "impact",
+      "validate_plan",
+    ]);
+  }
+  if (/\b(security|privacy|taint|trust boundary|trust-boundary|sink|source|user input|credential|secret|sanitize|sanitizer|auth)\b/i.test(raw)) {
+    add("taint_or_trust_boundary", ["taint_trace"], [
+      "trust",
+      "type_trace",
+      "validate_plan",
+    ]);
+  }
+  if (/\b(duplicate|duplication|clone|twins?|near-equivalent|equivalent|consolidat|extract|refactor|cleanup|spaghetti)\b/i.test(raw)) {
+    add("duplication_or_refactor_surface", ["twins", "refactor_plan"], [
+      "impact",
+      "validate_plan",
+      "surgical_context_v2",
+    ]);
+  }
+  if (/\b(runtime|production|prod|otel|opentelemetry|span|distributed trace|runtime trace|latency|error rate|hot path|perf|performance|logs?|deploy)\b/i.test(raw)) {
+    add("runtime_truth_overlay", ["runtime_overlay"], [
+      "trace",
+      "impact",
+      "panoramic",
+    ]);
+  }
+  if (/\b(co-?change|changed together|git history|hidden coupling|coupling|blast radius|temporal coupling|history)\b/i.test(raw)) {
+    add("hidden_temporal_coupling", ["ghost_edges"], [
+      "timeline",
+      "impact",
+    ]);
+  }
+  if (/\b(architecture|arquitetura|audit|map|overview|understand|entenda|entender|system|sistema|dependency|dependencies|boundary|quality|spaghetti)\b/i.test(raw)) {
+    add("deep_structure_or_architecture", ["ghost_edges", "twins", "refactor_plan"], [
+      "layers",
+      "layer_inspect",
+      "scan_all",
+      "heuristics_surface",
+    ]);
+  }
+
+  const selectedTools = uniqueList(tools);
+  if (selectedTools.length === 0) return null;
+
+  let primaryIntent = "deep_architecture";
+  if (signals.includes("taint_or_trust_boundary")) {
+    primaryIntent = "security_taint_audit";
+  } else if (signals.includes("runtime_truth_overlay")) {
+    primaryIntent = "runtime_overlay_audit";
+  } else if (signals.includes("duplication_or_refactor_surface")) {
+    primaryIntent = "duplication_refactor";
+  } else if (signals.includes("hidden_temporal_coupling")) {
+    primaryIntent = "hidden_coupling_audit";
+  }
+
+  const riskLevel = signals.some((signal) =>
+    ["taint_or_trust_boundary", "runtime_truth_overlay", "duplication_or_refactor_surface"].includes(signal)
+  ) ? "high" : "medium";
+
+  return {
+    task_profile: {
+      schema: "m1nd-agent-task-profile-v0",
+      primary_intent: primaryIntent,
+      risk_level: riskLevel,
+      signals: uniqueList(signals),
+      evidence_mode: "graph_orientation_then_direct_proof",
+    },
+    capability_suggestions: [{
+      schema: "m1nd-agent-capability-suggestion-v0",
+      family_id: "retrobuilder",
+      priority: riskLevel === "high" ? "high" : "medium",
+      tools: selectedTools,
+      supporting_tools: uniqueList(supportingTools),
+      use_when: "Use after scope/trust when the task asks for hidden coupling, taint/security paths, duplication, refactor seams, runtime heat, or deep architecture quality.",
+      stop_rule: "Stop once the tools return concrete files, node ids, paths, or hypotheses; final claims still need direct source reads, tests, compiler/runtime output, logs, or focused probes.",
+      non_claims: [
+        "RETROBUILDER output is structural orientation, not proof of a bug by itself.",
+        "runtime_overlay needs real span/log/runtime evidence to prove runtime behavior.",
+        "refactor_plan does not execute edits; validate and prove before applying changes.",
+      ],
+    }],
+    playbook: {
+      schema: "m1nd-agent-playbook-suggestion-v0",
+      id: "retrobuilder-deep-structure-v0",
+      steps: [
+        "Establish scope/trust or use m1nd agent first-minute for the repo.",
+        "Run only the RETROBUILDER tools whose signals match the task.",
+        "Convert returned nodes/files into a short direct-proof read/test list.",
+        "Use impact/validate_plan before edits or risky recommendations.",
+        "Report what was graph orientation versus what was directly proved.",
+      ],
+    },
+  };
+}
+
+function attachCapabilityGuidance(envelope, query) {
+  const guidance = capabilityGuidanceForQuery(query);
+  if (!guidance) return envelope;
+  envelope.task_profile = guidance.task_profile;
+  envelope.capability_suggestions = guidance.capability_suggestions;
+  envelope.playbook = guidance.playbook;
+  if (envelope.action && typeof envelope.action === "object") {
+    envelope.action.task_profile = guidance.task_profile;
+    envelope.action.capability_suggestions = guidance.capability_suggestions;
+    envelope.action.playbook = guidance.playbook;
+  }
+  return envelope;
 }
 
 function realPathOrResolved(target) {
@@ -303,8 +446,31 @@ function queryLooksBroadTask(query) {
   const text = String(query || "").trim();
   if (!text) return false;
   const wordCount = text.split(/\s+/).filter(Boolean).length;
-  if (wordCount < 4) return false;
+  if (wordCount < 3) return false;
   return /\b(audit|architecture|overview|map|review|investigate|debug|trace|refactor|explore|understand|system|subsystem|pipeline|dependency|dependencies|release|bug|issue)\b/i.test(text);
+}
+
+function queryLooksLikeFirstContact(query) {
+  const text = String(query || "").trim();
+  if (!text) return false;
+  if (queryHasPathSignal(text) || queryLooksLikeExactIdentifier(text)) return false;
+  return /\b(understand|entenda|entender|explain|explica|map|overview|audit|architecture|arquitetura|repo|codebase|system|sistema|own code|proprio codigo|próprio código)\b/i.test(text);
+}
+
+function strongIdentifierCandidatesFromQuery(query) {
+  const weak = new Set([
+    "audit", "trace", "flow", "chat", "repo", "code", "system", "review", "debug",
+    "understand", "entenda", "entender", "architecture", "arquitetura", "session",
+    "boundary", "behavior", "comportamento", "context", "m1nd", "mind",
+  ]);
+  return identifierCandidatesFromQuery(query).filter((term) => {
+    const lower = term.toLowerCase();
+    if (weak.has(lower)) return false;
+    if (/[.:#]/.test(term)) return true;
+    if (/[a-z][A-Z]/.test(term) || /[A-Z][a-z]/.test(term)) return true;
+    if (term.includes("_") || term.includes("$")) return true;
+    return false;
+  });
 }
 
 function chooseOrientationTool(tool, query, mode) {
@@ -527,6 +693,31 @@ function buildContextAction(repo, query, tokens, triggerKind, binary = null) {
   });
 }
 
+function buildFirstMinuteAction(repo, query, mode, triggerKind, binary = null, reason = "first_contact_broad_task") {
+  return buildActionEnvelope({
+    trigger: {
+      kind: triggerKind,
+      source: "query",
+      query,
+    },
+    route: {
+      kind: "first_minute",
+      mode,
+      reason,
+    },
+    action: {
+      kind: "run_command",
+      subcommand: "first-minute",
+      command: buildAgentCliCommand("first-minute", repo, [
+        ["query", query],
+        ["mode", mode],
+      ], binary),
+      summary: "Run the agent first-minute loop: scope, trust, one orientation pass, then direct proof.",
+    },
+    proofRequirements: proofRequirementsForRoute("first_minute"),
+  });
+}
+
 function buildDirectProofAction(reason) {
   return buildActionEnvelope({
     trigger: {
@@ -556,6 +747,9 @@ function autoActionForQuery(args, repo, binary = null) {
   if (requestedTool !== "auto") {
     return buildOrientAction(repo, query, mode, requestedTool, "explicit_tool_override", binary);
   }
+  if (queryLooksLikeFirstContact(query)) {
+    return buildFirstMinuteAction(repo, query, mode, "first_contact_broad_task", binary);
+  }
   if (queryLooksLikePath(repo, query)) {
     return buildContextAction(repo, query, args.tokens, "exact_path", binary);
   }
@@ -563,7 +757,7 @@ function autoActionForQuery(args, repo, binary = null) {
     return buildOrientAction(repo, query, mode, "glob", "glob_query", binary);
   }
   if (queryHasPathSignal(query)) {
-    return buildContextAction(repo, query, args.tokens, "path_query", binary);
+    return buildOrientAction(repo, query, mode, "glob", "needs_orientation_before_context", binary);
   }
   const tool = chooseOrientationTool("auto", query, mode);
   const triggerKind = queryLooksLikeExactIdentifier(query)
@@ -606,6 +800,74 @@ function ensureWithinRepo(repo, target) {
     throw new Error(`path escapes repo: ${target}`);
   }
   return resolved;
+}
+
+function anchorGroupForFile(filePath) {
+  const normalized = String(filePath || "").replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length >= 3) return `${parts[0]}/${parts[1]}`;
+  if (parts.length >= 2) return parts[0];
+  return path.dirname(normalized) === "." ? "root" : path.dirname(normalized);
+}
+
+function anchorsFromPayload(payload, repo, limit = 10) {
+  const seen = new Set();
+  const anchors = [];
+  for (const entry of extractResultList(payload)) {
+    const file = extractFileFromEntry(entry);
+    if (!file) continue;
+    let resolved;
+    try {
+      resolved = ensureWithinRepo(repo, file);
+    } catch (_) {
+      continue;
+    }
+    const relative = path.relative(repo, resolved) || path.basename(resolved);
+    if (seen.has(relative)) continue;
+    seen.add(relative);
+    anchors.push({
+      path: relative,
+      absolute_path: resolved,
+      group: anchorGroupForFile(relative),
+      source: "orientation_result",
+    });
+    if (anchors.length >= limit) break;
+  }
+  return anchors;
+}
+
+function groupAnchors(anchors) {
+  const groups = {};
+  for (const anchor of anchors) {
+    const group = anchor.group || "root";
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(anchor.path);
+  }
+  return groups;
+}
+
+function operatingContract(maxGraphCalls = 2) {
+  return {
+    schema: "m1nd-agent-operating-contract-v0",
+    role: "orientation_and_routing",
+    max_graph_calls_before_direct_proof: maxGraphCalls,
+    proven_by_m1nd: [
+      "repo scope and isolated runtime binding",
+      "trust/graph health envelope",
+      "candidate anchors from one bounded graph pass",
+    ],
+    requires_direct_proof: [
+      "behavioral claims",
+      "bug findings",
+      "architecture conclusions beyond listed anchors",
+      "runtime, compiler, browser, deploy, or production behavior",
+    ],
+    stop_conditions: [
+      "orientation returned concrete anchors",
+      "retrieval is blocked or empty unexpectedly",
+      "the task needs execution truth",
+    ],
+  };
 }
 
 async function withClient(args, deps, repo, fn) {
@@ -779,6 +1041,16 @@ async function agentOrient(args, deps, repo, agentId) {
     envelope.mode = mode;
     envelope.orientation_tool = tool;
     envelope.m1nd_usage_mode = useful ? "short_audit_orientation" : "recovery_overhead";
+    envelope.proof_boundary = {
+      m1nd_proved: useful
+        ? "m1nd found candidate orientation anchors for the requested scope"
+        : "m1nd proved only the trust/recovery state for this orientation attempt",
+      still_needs_direct_proof: [
+        "direct source reads",
+        "focused tests or compiler/runtime output",
+        "manual verification of any selected anchor before final claims",
+      ],
+    };
     envelope.switch_to_direct_proof = mode === "short" || !useful;
     envelope.calls = [...sequence.calls, callSummary(tool, orientation)];
     envelope.results = [orientationPayload];
@@ -807,7 +1079,75 @@ async function agentOrient(args, deps, repo, agentId) {
     if (!useful) {
       envelope.next_actions.push("If retrieval looked suspicious, run m1nd agent recover with the observed payload or error.");
     }
-    return envelope;
+    return attachCapabilityGuidance(envelope, query);
+  });
+}
+
+async function agentFirstMinute(args, deps, repo, agentId) {
+  const query = args.query || "understand this repo";
+  const mode = args.mode || "short";
+  const requestedTool = args.tool || "auto";
+  if (!ORIENTATION_TOOLS.has(requestedTool)) throw new Error(`unsupported agent first-minute tool '${requestedTool}'`);
+  const tool = chooseOrientationTool(requestedTool, query, mode === "short" ? "normal" : mode);
+  const topK = Number(args["top-k"] || args.topK || 8);
+  return withClient(args, deps, repo, async (client, binary) => {
+    const sequence = await runTrustSequence(client, repo, agentId, true);
+    const orientation = await callToolSafely(
+      client,
+      tool,
+      orientationArgs(tool, { agentId, repo, query, topK })
+    );
+    const orientationPayload = payloadDict(orientation);
+    const candidateTotal = candidateCount(orientationPayload);
+    const orientationBlocked = proofState(orientationPayload) === "blocked";
+    const useful = !orientation.isError && !orientationBlocked && candidateTotal > 0;
+    const anchors = useful ? anchorsFromPayload(orientationPayload, repo, 10) : [];
+    const graphState = extractGraphState(orientationPayload);
+    const envelope = baseAgentEnvelope({
+      command: "first-minute",
+      repo,
+      agentId,
+      runtime: { ...runtimeInfo(binary, deps), runtime_root: client.runtimeDir || null },
+      scopeAlignment: buildScopeAlignment(repo),
+      graphState,
+      trust: {
+        verdict: payloadDict(sequence.handshake).trust_mode || payloadDict(sequence.trustBefore).verdict || "unknown",
+      },
+    });
+    envelope.query = query;
+    envelope.mode = mode;
+    envelope.orientation_tool = tool;
+    envelope.operating_contract = operatingContract(mode === "deep" ? 3 : 2);
+    envelope.m1nd_usage_mode = useful ? "first_minute_orientation" : "recovery_overhead";
+    envelope.switch_to_direct_proof = true;
+    envelope.calls = [...sequence.calls, callSummary(tool, orientation)];
+    envelope.results = [orientationPayload];
+    envelope.anchors = anchors;
+    envelope.anchor_groups = groupAnchors(anchors);
+    envelope.do_not = [
+      "do not call agent context on a broad narrative query without a concrete anchor",
+      "do not treat graph candidates as final code truth",
+      "do not spend more graph calls before reading source if anchors are present",
+    ];
+    envelope.proof_boundary = {
+      m1nd_proved: useful
+        ? "scope/trust are established and one bounded orientation pass returned candidate anchors"
+        : "scope/trust were checked, but orientation did not produce useful anchors",
+      still_needs_direct_proof: [
+        "read the selected anchors directly",
+        "run focused tests, compiler/runtime checks, logs, browser smoke, or probes before final claims",
+      ],
+    };
+    envelope.action = buildDirectProofAction(useful ? "first_minute_handoff" : "first_minute_recovery_or_direct_proof");
+    if (anchors.length > 0) {
+      envelope.recommended_next_command = `Read one anchor directly, for example: ${anchors[0].path}`;
+      envelope.next_actions.push(envelope.recommended_next_command);
+    } else {
+      envelope.recommended_next_command = buildAgentCliCommand("recover", repo, [["from", "stdin"]], binary);
+      envelope.next_actions.push("If orientation looked suspicious, pipe this JSON to m1nd agent recover --from stdin.");
+    }
+    envelope.next_actions.push("After direct proof, report what was read/tested and what remains a non-claim.");
+    return attachCapabilityGuidance(envelope, query);
   });
 }
 
@@ -839,14 +1179,52 @@ async function agentContext(args, deps, repo, agentId) {
   const query = args.query;
   if (!query) throw new Error("agent context requires --query <text>");
   const maxOutputChars = Math.max(1000, Number(args.tokens || 4000) * 4);
-  const directFile = queryLooksLikePath(repo, query);
+  const anchor = args.anchor || null;
+  const directFile = anchor ? ensureWithinRepo(repo, anchor) : queryLooksLikePath(repo, query);
+  const allowDiscovery = Boolean(args["allow-discovery"]);
+  const strongIdentifiers = strongIdentifierCandidatesFromQuery(query);
+  const hasStrongIdentifier = queryLooksLikeExactIdentifier(query) || strongIdentifiers.length > 0;
   return withClient(args, deps, repo, async (client, binary) => {
     const sequence = await runTrustSequence(client, repo, agentId, !args["skip-ingest"]);
     let selectedFile = directFile;
     let discovery = null;
     const discoveryCalls = [];
+    const envelope = baseAgentEnvelope({
+      command: "context",
+      repo,
+      agentId,
+      runtime: { ...runtimeInfo(binary, deps), runtime_root: client.runtimeDir || null },
+      scopeAlignment: buildScopeAlignment(repo),
+      trust: {
+        verdict: payloadDict(sequence.handshake).trust_mode || payloadDict(sequence.trustBefore).verdict || "unknown",
+      },
+    });
+    envelope.query = query;
+    envelope.max_output_chars = maxOutputChars;
+    envelope.calls = [...sequence.calls];
+    if (!selectedFile && !allowDiscovery && !hasStrongIdentifier) {
+      envelope.ok = false;
+      envelope.needs_orientation_first = true;
+      envelope.context_confidence = "needs_orientation_first";
+      envelope.switch_to_direct_proof = false;
+      envelope.proof_boundary = {
+        m1nd_proved: "context refused a broad query without a concrete source anchor",
+        still_needs_direct_proof: [
+          "run first-minute or orient to identify anchors",
+          "then call context with --anchor <file> or read the anchor directly",
+        ],
+      };
+      envelope.action = queryLooksLikeFirstContact(query)
+        ? buildFirstMinuteAction(repo, query, args.mode || "short", "needs_orientation_before_context", binary, "needs_orientation_before_context")
+        : buildOrientAction(repo, query, args.mode || "short", chooseOrientationTool(args.tool || "auto", query, args.mode || "short"), "needs_orientation_before_context", binary);
+      if (envelope.action && envelope.action.action && envelope.action.action.command) {
+        envelope.next_actions.push(envelope.action.action.command);
+      }
+      envelope.next_actions.push("After orientation, use --anchor <file> or direct source reads before final claims.");
+      return attachCapabilityGuidance(envelope, query);
+    }
     if (!selectedFile) {
-      const discoveryQueries = [query, ...identifierCandidatesFromQuery(query)];
+      const discoveryQueries = [query, ...strongIdentifiers];
       for (const searchQuery of discoveryQueries) {
         discovery = await callToolSafely(client, "search", { agent_id: agentId, query: searchQuery, scope: repo, top_k: 3 });
         discoveryCalls.push(["search", discovery]);
@@ -863,25 +1241,13 @@ async function agentContext(args, deps, repo, agentId) {
         if (first) selectedFile = ensureWithinRepo(repo, first);
       }
     }
-    const envelope = baseAgentEnvelope({
-      command: "context",
-      repo,
-      agentId,
-      runtime: { ...runtimeInfo(binary, deps), runtime_root: client.runtimeDir || null },
-      scopeAlignment: buildScopeAlignment(repo),
-      trust: {
-        verdict: payloadDict(sequence.handshake).trust_mode || payloadDict(sequence.trustBefore).verdict || "unknown",
-      },
-    });
-    envelope.query = query;
-    envelope.max_output_chars = maxOutputChars;
-    envelope.calls = [...sequence.calls];
     for (const [tool, result] of discoveryCalls) envelope.calls.push(callSummary(tool, result));
     if (!selectedFile) {
       envelope.ok = false;
       envelope.switch_to_direct_proof = true;
+      envelope.context_confidence = allowDiscovery ? "discovery_allowed_no_anchor" : "identifier_anchor_not_found";
       envelope.next_actions.push("No source anchor was found; use search/glob/direct file reads to identify a concrete file first.");
-      return envelope;
+      return attachCapabilityGuidance(envelope, query);
     }
     const context = await callToolSafely(client, "surgical_context_v2", {
       agent_id: agentId,
@@ -892,11 +1258,23 @@ async function agentContext(args, deps, repo, agentId) {
       max_lines_per_file: Math.max(20, Math.floor(maxOutputChars / 600)),
     });
     envelope.selected_file = selectedFile;
+    envelope.context_confidence = anchor || directFile
+      ? "direct_anchor"
+      : allowDiscovery
+        ? "discovery_allowed"
+        : "identifier_anchor";
     envelope.calls.push(callSummary("surgical_context_v2", context));
     envelope.results = [compactContextPayload(payloadDict(context), maxOutputChars)];
     envelope.action = buildDirectProofAction("context_capsule_ready");
+    envelope.proof_boundary = {
+      m1nd_proved: "m1nd built a bounded context capsule for a concrete source anchor",
+      still_needs_direct_proof: [
+        "read the selected file directly",
+        "run focused tests or runtime probes before final claims",
+      ],
+    };
     envelope.next_actions.push("Use this context capsule for planning only; final claims still need direct proof.");
-    return envelope;
+    return attachCapabilityGuidance(envelope, query);
   });
 }
 
@@ -925,10 +1303,18 @@ async function agentAuto(args, deps, repo, agentId, requestedCommand = "auto") {
   if (envelope.action && envelope.action.action && envelope.action.action.command) {
     envelope.next_actions.push(envelope.action.action.command);
   }
+  if (envelope.action && envelope.action.route) {
+    envelope.route_reason = envelope.action.route.reason || envelope.action.trigger.kind || null;
+  }
   if (envelope.action && envelope.action.switch_to_direct_proof) {
     envelope.switch_to_direct_proof = true;
   }
-  return envelope;
+  envelope.operating_contract = {
+    first_move: "scope/trust before retrieval; one bounded orientation before direct proof",
+    context_rule: "agent context requires a concrete anchor unless --allow-discovery is explicit",
+    final_truth: "source reads, tests, compiler/runtime output, logs, browser smoke, or focused probes",
+  };
+  return attachCapabilityGuidance(envelope, args.query);
 }
 
 async function agentHandoff(args, deps, repo, agentId) {
@@ -1047,6 +1433,116 @@ function findGitRoot(repo) {
   }
 }
 
+const KICKSTART_SCHEMA = "m1nd-kickstart-v0";
+
+async function agentKickstart(args, deps) {
+  const repo = path.resolve(args.repo || args.project || process.cwd());
+  if (!args.repo && !args.project) throw new Error("agentKickstart requires --repo <path>");
+  const auditPath = args["audit-path"] ? path.resolve(args["audit-path"]) : repo;
+  const agentId = args["agent-id"] || "m1nd-kickstart";
+  const t0 = Date.now();
+  let trustMs = 0;
+  let ingestMs = 0;
+  let auditMs = 0;
+
+  try {
+    return await withClient(args, deps, repo, async (client) => {
+      const tTrust0 = Date.now();
+      const sequence = await runTrustSequence(client, repo, agentId, true);
+      trustMs = Date.now() - tTrust0;
+
+      const trustPayload = payloadDict(sequence.trustBefore);
+      const handshakePayload = payloadDict(sequence.handshake);
+      const trustVerdict = handshakePayload.trust_mode || trustPayload.verdict || "unknown";
+      const graphState = extractGraphState(handshakePayload) || extractGraphState(trustPayload) || {};
+      const nodeCount = Number(graphState.node_count || 0);
+      const edgeCount = Number(graphState.edge_count || 0);
+
+      let ingestPerformed = false;
+      let filesParsed = 0;
+      if (sequence.ingest) {
+        ingestMs = 0; // already baked into trust sequence; report 0 for separate timing
+        const ingestPayload = payloadDict(sequence.ingest);
+        ingestPerformed = true;
+        filesParsed = Number(ingestPayload.files_parsed || ingestPayload.files_indexed || ingestPayload.count || 0);
+      }
+
+      const tAudit0 = Date.now();
+      const auditResult = await callToolSafely(client, "audit", {
+        agent_id: agentId,
+        path: auditPath,
+        profile: "auto",
+      });
+      auditMs = Date.now() - tAudit0;
+
+      const auditPayload = payloadDict(auditResult);
+      const auditBlocked = proofState(auditPayload) === "blocked" || auditResult.isError;
+      const auditSummary = auditPayload.summary ||
+        (auditPayload.next_action ? `Audit completed. Next: ${auditPayload.next_action}` : null) ||
+        (auditBlocked ? "Audit was blocked or returned an error." : "Audit completed successfully.");
+
+      const trustOk = trustVerdict !== "irrecoverable" && trustVerdict !== "blocked";
+      const ok = trustOk && !auditBlocked;
+
+      let nextAction = "ready_to_query";
+      if (!trustOk) {
+        nextAction = "recovery_required";
+      } else if (!ingestPerformed && nodeCount === 0) {
+        nextAction = "needs_reingest";
+      } else if (auditBlocked) {
+        nextAction = "needs_reingest";
+      }
+
+      const totalMs = Date.now() - t0;
+      return {
+        schema: KICKSTART_SCHEMA,
+        ok,
+        trust_verdict: trustVerdict,
+        node_count: nodeCount,
+        edge_count: edgeCount,
+        ingest: {
+          performed: ingestPerformed,
+          files_parsed: filesParsed,
+        },
+        audit_summary: auditSummary,
+        next_action: nextAction,
+        non_claims: [
+          "does not prove runtime or production behavior",
+          "graph counts are orientation estimates, not code truth",
+          "kickstart does not replace direct source reads or focused tests",
+          "audit summary is derived from graph state, not static analysis output",
+        ],
+        timing_ms: {
+          trust: trustMs,
+          ingest: ingestMs,
+          audit: auditMs,
+          total: totalMs,
+        },
+      };
+    });
+  } catch (err) {
+    const totalMs = Date.now() - t0;
+    return {
+      schema: KICKSTART_SCHEMA,
+      ok: false,
+      trust_verdict: "error",
+      node_count: 0,
+      edge_count: 0,
+      ingest: { performed: false, files_parsed: 0 },
+      audit_summary: "Kickstart failed before audit could run.",
+      next_action: "recovery_required",
+      non_claims: [
+        "does not prove runtime or production behavior",
+        "graph counts are orientation estimates, not code truth",
+        "kickstart does not replace direct source reads or focused tests",
+        "audit summary is derived from graph state, not static analysis output",
+      ],
+      timing_ms: { trust: trustMs, ingest: ingestMs, audit: auditMs, total: totalMs },
+      error: err.message || String(err),
+    };
+  }
+}
+
 async function agentCommand(args, deps) {
   const subcommand = args._[1] || "scope";
   const repo = path.resolve(args.repo || args.project || process.cwd());
@@ -1060,6 +1556,8 @@ async function agentCommand(args, deps) {
     case "orient":
     case "short-audit":
       return agentOrient(args, deps, repo, agentId);
+    case "first-minute":
+      return agentFirstMinute(args, deps, repo, agentId);
     case "auto":
       return agentAuto(args, deps, repo, agentId, subcommand);
     case "recover":
@@ -1077,7 +1575,9 @@ async function agentCommand(args, deps) {
 
 module.exports = {
   AGENT_CLI_SCHEMA,
+  KICKSTART_SCHEMA,
   agentCommand,
+  agentKickstart,
   classifyScopeBinding,
   chooseOrientationTool,
   extractFileFromEntry,
