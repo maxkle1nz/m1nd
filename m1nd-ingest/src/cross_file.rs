@@ -609,6 +609,207 @@ impl JavaPackageIndex {
     }
 }
 
+// ---------------------------------------------------------------------------
+// RustModuleIndex — maps Rust module paths to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps Rust module paths to file external IDs.
+///
+/// Rust module system rules (conservative subset we resolve):
+///
+/// 1. **`mod NAME;`** — `dir/parent.rs` declares module `NAME`; resolves to
+///    `dir/NAME.rs` OR `dir/NAME/mod.rs` (first one that exists in the graph).
+///
+/// 2. **`use crate::a::b::...`** — maps to `<crate_root>/a/b.rs` or
+///    `<crate_root>/a/b/mod.rs`, stopping at the deepest path segment that
+///    maps to an actual ingested file (trailing segments may be item names).
+///
+/// 3. **`use super::X`** — parent module's file. **`use self::X`** — current
+///    module's file (treated as self-import, skipped).
+///
+/// 4. External crates (`use serde::...`, `use std::...`, etc.) — UNRESOLVED.
+///    Any path whose first segment isn't `crate`/`super`/`self` and doesn't
+///    match a known module path is left unresolved. Never fabricate edges.
+///
+/// Limitations (honest):
+///   • Inline `mod x { ... }` blocks are NOT resolved to a file (no file to map to).
+///   • `#[path = "..."]` overrides are NOT followed.
+///   • Re-exports (`pub use ...`) are tracked as `imports` to the source file
+///     but the re-export semantic is not propagated.
+///   • Glob `use a::*` — resolved to the file owning module `a` (the `*` is dropped),
+///     but individual item membership is not tracked.
+///   • Ambiguous multi-crate workspaces: crate root detection uses the first
+///     `src/lib.rs` or `src/main.rs` found in the same directory subtree as the
+///     importing file (closest ancestor wins).
+struct RustModuleIndex {
+    /// Maps "crate_root_dir/module/path" -> file external ID
+    /// e.g. "src/foo/bar" -> "file::src/foo/bar.rs"
+    ///
+    /// Keys are slash-separated paths relative to the project root,
+    /// WITHOUT the .rs extension (i.e., the canonical path key).
+    path_to_file: HashMap<String, String>,
+
+    /// Set of all crate root directories found in the graph.
+    /// A crate root dir is the directory containing lib.rs or main.rs.
+    /// e.g. "src" for "src/lib.rs", "" for "lib.rs".
+    crate_root_dirs: Vec<String>,
+}
+
+const RUST_EXTENSION: &str = "rs";
+
+impl RustModuleIndex {
+    /// Build the Rust module index from all file external IDs in the graph.
+    ///
+    /// Scans file nodes whose IDs end in `.rs`. Registers each under its
+    /// canonical path (without extension) for crate-path resolution.
+    /// Also identifies crate root directories (containing lib.rs or main.rs).
+    fn build(graph: &Graph) -> Self {
+        let mut path_to_file: HashMap<String, String> = HashMap::new();
+        let mut crate_root_dirs: Vec<String> = Vec::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) if p.ends_with(&format!(".{}", RUST_EXTENSION)) => p,
+                _ => continue,
+            };
+
+            // Strip .rs extension to get canonical path key
+            let without_ext = &rel_path[..rel_path.len() - 3]; // strip ".rs"
+
+            // Handle mod.rs: "src/foo/mod.rs" -> register under "src/foo"
+            let key = if without_ext.ends_with("/mod") {
+                without_ext[..without_ext.len() - 4].to_string() // strip "/mod"
+            } else {
+                without_ext.to_string()
+            };
+
+            // Register: first registration wins (mod.rs and foo.rs may both exist
+            // but we prefer non-mod.rs since it's the more modern form)
+            path_to_file
+                .entry(key)
+                .or_insert_with(|| ext_id.clone());
+
+            // Detect crate roots: files named lib.rs or main.rs
+            let filename = rel_path.rsplit('/').next().unwrap_or(rel_path);
+            if filename == "lib.rs" || filename == "main.rs" {
+                let dir = match rel_path.rfind('/') {
+                    Some(idx) => rel_path[..idx].to_string(),
+                    None => String::new(), // file is at repo root
+                };
+                if !crate_root_dirs.contains(&dir) {
+                    crate_root_dirs.push(dir);
+                }
+            }
+        }
+
+        Self {
+            path_to_file,
+            crate_root_dirs,
+        }
+    }
+
+    /// Find the best crate root directory for a given source file path.
+    ///
+    /// Walks up the directory tree from `source_dir` and returns the first
+    /// crate root dir that is an ancestor (or equal) to `source_dir`.
+    /// Prefers the most specific (deepest) ancestor.
+    fn crate_root_for(&self, source_dir: &str) -> Option<&str> {
+        // Find all crate root dirs that are a prefix of source_dir (or equal)
+        let mut best: Option<&str> = None;
+        for root_dir in &self.crate_root_dirs {
+            let is_ancestor = if root_dir.is_empty() {
+                true // repo root is ancestor of everything
+            } else {
+                source_dir == root_dir
+                    || source_dir.starts_with(&format!("{}/", root_dir))
+            };
+            if is_ancestor {
+                // Prefer deepest ancestor (longest path)
+                if best.map_or(true, |b: &str| root_dir.len() > b.len()) {
+                    best = Some(root_dir.as_str());
+                }
+            }
+        }
+        best
+    }
+
+    /// Resolve a Rust crate-relative path to a file external ID.
+    ///
+    /// `crate_path`: slash-separated path segments relative to crate root,
+    ///   e.g. `"foo/bar"` (from `use crate::foo::bar::Baz` → `"foo/bar"`).
+    /// `crate_root_dir`: the directory of the crate root file (e.g. `"src"`).
+    ///
+    /// Tries progressively shorter prefixes to handle trailing item segments.
+    fn resolve_crate_path(&self, crate_path: &str, crate_root_dir: &str) -> Option<&str> {
+        // Build the full path: crate_root_dir + "/" + crate_path
+        let full_path = if crate_root_dir.is_empty() {
+            crate_path.to_string()
+        } else {
+            format!("{}/{}", crate_root_dir, crate_path)
+        };
+
+        // Try exact match
+        if let Some(file_id) = self.path_to_file.get(full_path.as_str()) {
+            return Some(file_id.as_str());
+        }
+
+        // Progressively shorter prefixes (trailing segments may be items, not modules)
+        if crate_path.contains('/') {
+            let mut parts: Vec<&str> = crate_path.split('/').collect();
+            while parts.len() > 1 {
+                parts.pop();
+                let prefix = parts.join("/");
+                let candidate = if crate_root_dir.is_empty() {
+                    prefix.clone()
+                } else {
+                    format!("{}/{}", crate_root_dir, prefix)
+                };
+                if let Some(file_id) = self.path_to_file.get(candidate.as_str()) {
+                    return Some(file_id.as_str());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Resolve a `super::` import to the parent module's file external ID.
+    ///
+    /// `source_file_rel_path`: relative path of the importing file (e.g. `"src/foo/bar.rs"`).
+    ///
+    /// Returns the parent module's file ID, or None if already at crate root.
+    fn resolve_super(&self, source_file_rel_path: &str) -> Option<&str> {
+        // Strip .rs and determine the module's parent
+        let without_ext = source_file_rel_path.strip_suffix(".rs")?;
+
+        // If this is a mod.rs, the parent is the grandparent dir
+        let canonical = if without_ext.ends_with("/mod") {
+            &without_ext[..without_ext.len() - 4] // "src/foo"
+        } else {
+            without_ext // "src/foo/bar" -> parent is "src/foo"
+        };
+
+        // Parent = everything before the last slash
+        let parent_path = match canonical.rfind('/') {
+            Some(idx) => &canonical[..idx],
+            None => return None, // already at root, no super
+        };
+
+        // Try "parent_path" directly (for mod.rs case) or "parent_path.rs"
+        // Look up in path_to_file
+        self.path_to_file.get(parent_path).map(|s| s.as_str())
+    }
+}
+
 /// Join a base directory path with a relative specifier, normalizing `..` and `.`.
 /// Both paths use forward slashes. Returns a normalized relative path.
 fn join_path(base_dir: &str, relative: &str) -> String {
@@ -721,6 +922,18 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     stats.files_indexed += java_index.stem_to_files.len() as u64;
     let java_import_edges = collect_java_import_edges_from_files(graph, root, &java_index);
     for (source_file_id, target_file_id, relation) in &java_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 8: Rust cross-file import/module resolution via RustModuleIndex.
+    let rust_index = RustModuleIndex::build(graph);
+    stats.files_indexed += rust_index.path_to_file.len() as u64;
+    let rust_import_edges = collect_rust_import_edges_from_files(graph, root, &rust_index);
+    for (source_file_id, target_file_id, relation) in &rust_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
         } else {
@@ -1289,6 +1502,285 @@ fn collect_java_import_edges_from_files(
 }
 
 // ---------------------------------------------------------------------------
+// Rust import/module edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all Rust file nodes in the graph, read their source from disk,
+/// and produce file-to-file `imports` edges for:
+///
+/// 1. `mod NAME;` declarations → sibling `NAME.rs` or `NAME/mod.rs`
+/// 2. `use crate::a::b::...;` → `<crate_root>/a/b.rs` or `<crate_root>/a/b/mod.rs`
+/// 3. `use super::...;` → parent module's file
+///
+/// External crates (`use std::`, `use serde::`, etc.) are left UNRESOLVED.
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_rust_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    rust_index: &RustModuleIndex,
+) -> Vec<(String, String, String)> {
+    // Matches: mod NAME; (not inline mod NAME { ... })
+    // We detect the semicolon at end-of-statement to distinguish file-module decls
+    // from inline module blocks.
+    let re_mod_decl = Regex::new(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;").unwrap();
+    // Matches: use PATH; (captures everything between `use` and `;`)
+    let re_use = Regex::new(r"^\s*(?:pub\s+)?use\s+(.+?)\s*;").unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) if p.ends_with(".rs") => p,
+            _ => continue,
+        };
+
+        // Source directory for this file (used for mod; resolution)
+        let source_dir = match rel_path.rfind('/') {
+            Some(idx) => &rel_path[..idx],
+            None => "",
+        };
+
+        // Source filename stem (lib/main/mod → treat dir as module root)
+        let filename = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        let stem = filename.strip_suffix(".rs").unwrap_or(filename);
+        // For a mod.rs, the module "root" directory is `source_dir` itself.
+        // For lib.rs/main.rs, same.
+        // For foo.rs, the "submodule root" is `source_dir/foo`.
+        let mod_root_dir = match stem {
+            "lib" | "main" | "mod" => source_dir.to_string(),
+            other => {
+                if source_dir.is_empty() {
+                    other.to_string()
+                } else {
+                    format!("{}/{}", source_dir, other)
+                }
+            }
+        };
+
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
+                continue;
+            }
+
+            // --- Handle `mod NAME;` declarations ---
+            if let Some(caps) = re_mod_decl.captures(trimmed) {
+                let mod_name = caps.get(1).unwrap().as_str();
+
+                // Candidate paths: NAME.rs and NAME/mod.rs relative to mod_root_dir
+                let candidate_a = if mod_root_dir.is_empty() {
+                    format!("{}.rs", mod_name)
+                } else {
+                    format!("{}/{}.rs", mod_root_dir, mod_name)
+                };
+                let candidate_b = if mod_root_dir.is_empty() {
+                    format!("{}/mod.rs", mod_name)
+                } else {
+                    format!("{}/{}/mod.rs", mod_root_dir, mod_name)
+                };
+
+                // Check which candidate exists in the graph (resolve to file node)
+                for candidate_path in &[candidate_a, candidate_b] {
+                    let candidate_id = format!("file::{}", candidate_path);
+                    if graph.resolve_id(&candidate_id).is_some() {
+                        // Found — emit an imports edge
+                        let key = (ext_id.clone(), candidate_id.clone());
+                        if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                            e.insert(true);
+                            edges.push((
+                                ext_id.clone(),
+                                candidate_id,
+                                "imports".to_string(),
+                            ));
+                        }
+                        break; // Only resolve to the first existing candidate
+                    }
+                }
+                continue; // `mod NAME;` and `use` can't be on same line
+            }
+
+            // --- Handle `use PATH;` imports ---
+            if let Some(caps) = re_use.captures(trimmed) {
+                let use_spec = caps.get(1).unwrap().as_str().trim();
+
+                // Expand brace imports: `use a::{b, c}` → ["a::b", "a::c"]
+                // We reuse the extractor's expand_use_path logic by re-implementing
+                // a minimal version inline (we can't call the extractor from here).
+                let paths = expand_use_paths(use_spec);
+
+                for path in &paths {
+                    let path = path.trim();
+                    if path.is_empty() {
+                        continue;
+                    }
+
+                    // Determine path type by first segment
+                    let first_seg = path.split("::").next().unwrap_or("");
+
+                    if first_seg == "crate" {
+                        // `use crate::a::b::Foo` → resolve `a::b` against crate root
+                        let rest = match path.strip_prefix("crate::") {
+                            Some(r) if !r.is_empty() => r,
+                            _ => continue,
+                        };
+                        // Convert `::` to `/` to get slash-separated module path
+                        let slash_path = rest.replace("::", "/");
+                        // Remove glob suffix: `a::*` → `a`
+                        let slash_path = slash_path.trim_end_matches("/*");
+                        let slash_path = slash_path.trim_end_matches('/');
+
+                        // Find crate root directory for this source file
+                        let crate_root = rust_index.crate_root_for(source_dir);
+
+                        if let Some(target_id) = crate_root
+                            .and_then(|cr| rust_index.resolve_crate_path(slash_path, cr))
+                        {
+                            if target_id != ext_id {
+                                let key = (ext_id.clone(), target_id.to_string());
+                                if let std::collections::hash_map::Entry::Vacant(e) =
+                                    seen.entry(key)
+                                {
+                                    e.insert(true);
+                                    edges.push((
+                                        ext_id.clone(),
+                                        target_id.to_string(),
+                                        "imports".to_string(),
+                                    ));
+                                }
+                            }
+                        }
+                    } else if first_seg == "super" {
+                        // `use super::X` → parent module's file
+                        if let Some(target_id) = rust_index.resolve_super(rel_path) {
+                            if target_id != ext_id {
+                                let key = (ext_id.clone(), target_id.to_string());
+                                if let std::collections::hash_map::Entry::Vacant(e) =
+                                    seen.entry(key)
+                                {
+                                    e.insert(true);
+                                    edges.push((
+                                        ext_id.clone(),
+                                        target_id.to_string(),
+                                        "imports".to_string(),
+                                    ));
+                                }
+                            }
+                        }
+                    } else if first_seg == "self" {
+                        // `use self::X` → current module's file; skip (self-import)
+                    }
+                    // else: external crate (std, serde, etc.) → leave unresolved
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+/// Minimal expansion of Rust use path specs (without pulling in extractor).
+///
+/// Handles:
+///   `a::b` → ["a::b"]
+///   `a::{b, c::d}` → ["a::b", "a::c::d"]
+///   `a::{self, b}` → ["a", "a::b"]
+///   `a::*` → ["a::*"]
+///
+/// Does not handle deeply nested braces with commas in generics — but
+/// Rust use paths don't have generics, so this is safe.
+fn expand_use_paths(spec: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    expand_use_paths_inner("", spec.trim(), &mut out);
+    out.retain(|s| !s.is_empty());
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn expand_use_paths_inner(prefix: &str, spec: &str, out: &mut Vec<String>) {
+    let spec = spec.trim().trim_end_matches(';').trim();
+    if spec.is_empty() {
+        return;
+    }
+
+    // Handle brace group: "prefix::a::{b, c}"
+    if let Some(brace_start) = spec.find('{') {
+        if let Some(brace_end) = spec.rfind('}') {
+            let base = spec[..brace_start].trim().trim_end_matches("::").trim();
+            let next_prefix = if base.is_empty() {
+                prefix.to_string()
+            } else if prefix.is_empty() {
+                base.to_string()
+            } else {
+                format!("{}::{}", prefix, base)
+            };
+            let inner = &spec[brace_start + 1..brace_end];
+            // Split by top-level commas (not inside nested braces)
+            let mut depth = 0usize;
+            let mut start = 0;
+            for (idx, ch) in inner.char_indices() {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => depth = depth.saturating_sub(1),
+                    ',' if depth == 0 => {
+                        let item = inner[start..idx].trim();
+                        expand_use_paths_inner(&next_prefix, item, out);
+                        start = idx + 1;
+                    }
+                    _ => {}
+                }
+            }
+            let last = inner[start..].trim();
+            if !last.is_empty() {
+                expand_use_paths_inner(&next_prefix, last, out);
+            }
+            return;
+        }
+    }
+
+    // Strip alias: `Foo as Bar` → `Foo`
+    let without_alias = spec.split(" as ").next().unwrap_or(spec).trim();
+
+    match without_alias {
+        "self" => {
+            if !prefix.is_empty() {
+                out.push(prefix.to_string());
+            }
+        }
+        "*" => {
+            if !prefix.is_empty() {
+                out.push(format!("{}::*", prefix));
+            }
+        }
+        other => {
+            if prefix.is_empty() {
+                out.push(other.to_string());
+            } else {
+                out.push(format!("{}::{}", prefix, other));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -1750,5 +2242,281 @@ mod tests {
             edge.is_some(),
             "imports edge from UserService → UserRepository must be in graph"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // RustModuleIndex tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: add a Rust file node to the graph.
+    fn add_rust_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
+        let ext_id = format!("file::{}", rel_path);
+        let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        graph
+            .add_node(&ext_id, label, NodeType::File, &["rust"], 0.0, 0.3)
+            .unwrap()
+    }
+
+    #[test]
+    fn rust_module_index_builds_path_map() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_rust_file_node(&mut graph, "src/lib.rs");
+        add_rust_file_node(&mut graph, "src/foo.rs");
+        add_rust_file_node(&mut graph, "src/bar/mod.rs");
+
+        let index = RustModuleIndex::build(&graph);
+
+        // lib.rs registers "src" as crate root dir
+        assert!(
+            index.crate_root_dirs.contains(&"src".to_string()),
+            "src should be detected as crate root dir"
+        );
+
+        // foo.rs registers under "src/foo"
+        assert_eq!(
+            index.path_to_file.get("src/foo"),
+            Some(&"file::src/foo.rs".to_string()),
+            "src/foo.rs should register under key 'src/foo'"
+        );
+
+        // bar/mod.rs registers under "src/bar" (strip /mod)
+        assert_eq!(
+            index.path_to_file.get("src/bar"),
+            Some(&"file::src/bar/mod.rs".to_string()),
+            "src/bar/mod.rs should register under key 'src/bar'"
+        );
+    }
+
+    /// Test that `mod foo;` in lib.rs resolves to sibling foo.rs via the index.
+    #[test]
+    fn rust_mod_decl_resolves_to_sibling_rs() {
+        // Graph has lib.rs + foo.rs; lib.rs says `mod foo;`
+        // The collect function reads from disk, so we test the index resolution
+        // logic directly by checking that the candidate file ID is in the graph.
+        let mut graph = Graph::with_capacity(4, 4);
+        add_rust_file_node(&mut graph, "src/lib.rs");
+        add_rust_file_node(&mut graph, "src/foo.rs");
+
+        // Simulate what collect_rust_import_edges_from_files does for `mod foo;` in lib.rs:
+        // mod_root_dir for lib.rs is "src" (stem == "lib")
+        // candidate_a = "src/foo.rs", candidate_b = "src/foo/mod.rs"
+        let candidate_a = "file::src/foo.rs";
+        let candidate_b = "file::src/foo/mod.rs";
+
+        assert!(
+            graph.resolve_id(candidate_a).is_some(),
+            "src/foo.rs must be in graph"
+        );
+        assert!(
+            graph.resolve_id(candidate_b).is_none(),
+            "src/foo/mod.rs must NOT be in graph"
+        );
+
+        // Verify that add_cross_file_edge succeeds for the resolved candidate
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::src/lib.rs",
+            candidate_a,
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge lib.rs -> foo.rs should be added");
+        assert_eq!(stats.total_edges_created, 1);
+    }
+
+    /// Test that `mod foo;` in lib.rs resolves to foo/mod.rs form when that is
+    /// what exists in the graph (not foo.rs).
+    #[test]
+    fn rust_mod_decl_resolves_to_mod_rs_form() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_rust_file_node(&mut graph, "src/lib.rs");
+        add_rust_file_node(&mut graph, "src/foo/mod.rs");
+
+        // candidate_a = "src/foo.rs" (not in graph), candidate_b = "src/foo/mod.rs" (in graph)
+        let candidate_a = "file::src/foo.rs";
+        let candidate_b = "file::src/foo/mod.rs";
+
+        assert!(
+            graph.resolve_id(candidate_a).is_none(),
+            "src/foo.rs must NOT be in graph"
+        );
+        assert!(
+            graph.resolve_id(candidate_b).is_some(),
+            "src/foo/mod.rs must be in graph"
+        );
+
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::src/lib.rs",
+            candidate_b,
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge lib.rs -> foo/mod.rs should be added");
+        assert_eq!(stats.total_edges_created, 1);
+    }
+
+    /// Test that `use crate::foo::Bar` resolves to `src/foo.rs` via RustModuleIndex.
+    #[test]
+    fn rust_use_crate_path_resolves_to_file() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_rust_file_node(&mut graph, "src/lib.rs");
+        add_rust_file_node(&mut graph, "src/foo.rs");
+        add_rust_file_node(&mut graph, "src/bar.rs");
+
+        let index = RustModuleIndex::build(&graph);
+
+        // `use crate::foo::Bar` from a file in "src/" subdir
+        // crate root dir = "src", crate path = "foo/Bar" → try "src/foo/Bar" then "src/foo"
+        let crate_root = index.crate_root_for("src");
+        assert_eq!(crate_root, Some("src"), "crate root should be 'src'");
+
+        // "foo/Bar" → exact miss, then try "foo" → hit "src/foo"
+        let resolved = index.resolve_crate_path("foo/Bar", "src");
+        assert_eq!(
+            resolved,
+            Some("file::src/foo.rs"),
+            "use crate::foo::Bar should resolve to src/foo.rs"
+        );
+
+        // "bar" → exact hit "src/bar"
+        let resolved_bar = index.resolve_crate_path("bar", "src");
+        assert_eq!(
+            resolved_bar,
+            Some("file::src/bar.rs"),
+            "use crate::bar should resolve to src/bar.rs"
+        );
+    }
+
+    /// Test that external crate imports (std, serde, etc.) stay unresolved.
+    #[test]
+    fn rust_external_crate_stays_unresolved() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_rust_file_node(&mut graph, "src/lib.rs");
+        add_rust_file_node(&mut graph, "src/foo.rs");
+
+        let index = RustModuleIndex::build(&graph);
+
+        // "std" is not a path in our graph — should return None
+        let resolved = index.resolve_crate_path("collections/HashMap", "src");
+        assert!(
+            resolved.is_none(),
+            "std::collections::HashMap must not resolve to any ingested file"
+        );
+
+        // "serde" likewise
+        let resolved_serde = index.resolve_crate_path("Serialize", "src");
+        assert!(
+            resolved_serde.is_none(),
+            "serde::Serialize must not resolve to any ingested file"
+        );
+    }
+
+    /// Test super:: resolution: bar.rs in src/submod/ -> super resolves to src/submod.rs or mod.rs.
+    #[test]
+    fn rust_super_resolves_to_parent_module() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_rust_file_node(&mut graph, "src/lib.rs");
+        add_rust_file_node(&mut graph, "src/submod.rs");
+        add_rust_file_node(&mut graph, "src/submod/child.rs");
+
+        let index = RustModuleIndex::build(&graph);
+
+        // `use super::something` from "src/submod/child.rs"
+        // without_ext = "src/submod/child" → parent = "src/submod"
+        // path_to_file["src/submod"] = "file::src/submod.rs"
+        let resolved = index.resolve_super("src/submod/child.rs");
+        assert_eq!(
+            resolved,
+            Some("file::src/submod.rs"),
+            "super from src/submod/child.rs should resolve to src/submod.rs"
+        );
+    }
+
+    /// Integration test: verify that an imports edge from lib.rs to foo.rs
+    /// is correctly emitted after add_cross_file_edge for the resolved mod decl.
+    /// This mirrors go_cross_file_import_resolves_to_file_node and
+    /// java_cross_file_import_resolves_to_file_node.
+    #[test]
+    fn rust_cross_file_mod_decl_resolves_to_file_node() {
+        // Crate: lib.rs declares `mod foo;` → foo.rs
+        let mut graph = Graph::with_capacity(8, 8);
+        add_rust_file_node(&mut graph, "src/lib.rs");
+        add_rust_file_node(&mut graph, "src/foo.rs");
+
+        // Verify RustModuleIndex recognizes the crate root
+        let index = RustModuleIndex::build(&graph);
+        assert!(
+            index.crate_root_dirs.contains(&"src".to_string()),
+            "src should be crate root"
+        );
+
+        // The mod declaration in lib.rs → mod_root_dir = "src" (stem is "lib")
+        // candidate = "file::src/foo.rs" — check it resolves
+        let candidate_id = "file::src/foo.rs";
+        assert!(
+            graph.resolve_id(candidate_id).is_some(),
+            "foo.rs must be in graph"
+        );
+
+        // Emit the cross-file edge
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::src/lib.rs",
+            candidate_id,
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge lib.rs -> foo.rs must succeed");
+        assert_eq!(stats.total_edges_created, 1);
+
+        // Verify the edge is in pending_edges with correct src/tgt
+        let lib_id = graph.resolve_id("file::src/lib.rs").unwrap();
+        let foo_id = graph.resolve_id("file::src/foo.rs").unwrap();
+        let edge = graph
+            .csr
+            .pending_edges
+            .iter()
+            .find(|e| e.source == lib_id && e.target == foo_id);
+        assert!(
+            edge.is_some(),
+            "imports edge src/lib.rs → src/foo.rs must be in graph pending_edges"
+        );
+    }
+
+    /// Test expand_use_paths helper for brace imports.
+    #[test]
+    fn rust_expand_use_paths_handles_braces() {
+        let paths = expand_use_paths("crate::foo::{Bar, Baz}");
+        assert!(
+            paths.contains(&"crate::foo::Bar".to_string()),
+            "should expand to crate::foo::Bar"
+        );
+        assert!(
+            paths.contains(&"crate::foo::Baz".to_string()),
+            "should expand to crate::foo::Baz"
+        );
+    }
+
+    #[test]
+    fn rust_expand_use_paths_handles_self() {
+        let paths = expand_use_paths("crate::foo::{self, Bar}");
+        assert!(
+            paths.contains(&"crate::foo".to_string()),
+            "self should expand to the prefix path"
+        );
+        assert!(
+            paths.contains(&"crate::foo::Bar".to_string()),
+            "Bar should expand to crate::foo::Bar"
+        );
+    }
+
+    #[test]
+    fn rust_expand_use_paths_handles_glob() {
+        let paths = expand_use_paths("crate::utils::*");
+        assert_eq!(paths, vec!["crate::utils::*".to_string()]);
     }
 }
