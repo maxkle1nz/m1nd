@@ -767,6 +767,384 @@ impl CHeaderIndex {
 }
 
 // ---------------------------------------------------------------------------
+// PhpNamespaceIndex — maps PHP PSR-4 namespace paths to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps PHP `use` import paths (PSR-4 namespace paths) to file external IDs.
+///
+/// PHP imports look like:
+///   `use App\Models\User;`              — specific class
+///   `use Foo\Bar as Baz;`               — aliased (resolve `Foo\Bar`)
+///   `use App\Http\{Controller, Middleware};` — grouped (only if the extractor
+///                                              already splits them; otherwise
+///                                              a single grouped string is
+///                                              attempted as-is and will not
+///                                              resolve — noted as a limitation).
+///
+/// PSR-4 convention: namespace `App\Models\User` maps to a file whose path
+/// ends with `Models/User.php` (backslash → forward slash, last segment is
+/// the filename stem).
+///
+/// Resolution heuristic (honest/conservative — no composer.json parsing):
+///   1. Convert the backslash-separated namespace to a slash-separated path.
+///   2. Extract the LAST segment as the file stem (e.g. `User` from
+///      `App\Models\User` → stem `User`, path suffix `Models/User`).
+///   3. Walk all `.php` file nodes; match stem (`User` from `User.php`).
+///   4. Among candidates, prefer the one whose directory path has the longest
+///      suffix match against the namespace path
+///      (mirrors JavaPackageIndex / KotlinPackageIndex).
+///
+/// Limitations (honest):
+///   • No composer.json PSR-4 autoload mapping — vendor prefix → source root
+///     is unknown. A file at `src/Models/User.php` registered as
+///     `App\Models\User` will still resolve correctly because we match on the
+///     suffix of the path, but the `App` → `src` mapping is not verified.
+///   • Vendor/external namespaces (e.g. `Illuminate\Support\Facades\DB`) with
+///     no ingested `.php` file stay unresolved — correct behaviour.
+///   • Grouped `use Foo\{A, B};` — the tree-sitter extractor produces the
+///     whole group text as a single ref target; this index attempts to resolve
+///     it as-is (which will fail). The limitation is in the extractor, not here.
+struct PhpNamespaceIndex {
+    /// stem -> Vec<(file_external_id, dir_path_slash_separated)>
+    /// e.g. "User" -> [("file::app/Models/User.php", "app/Models"), ...]
+    stem_to_files: HashMap<String, Vec<(String, String)>>,
+}
+
+const PHP_EXTENSION: &str = "php";
+
+impl PhpNamespaceIndex {
+    fn build(graph: &Graph) -> Self {
+        let mut stem_to_files: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) if p.ends_with(&format!(".{}", PHP_EXTENSION)) => p,
+                _ => continue,
+            };
+
+            // Directory of this .php file
+            let dir = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[..idx],
+                None => "",
+            };
+
+            // Stem: filename without extension ("User" from "User.php")
+            let filename = rel_path.rsplit('/').next().unwrap_or(rel_path);
+            let stem = filename
+                .strip_suffix(&format!(".{}", PHP_EXTENSION))
+                .unwrap_or(filename);
+
+            if stem.is_empty() {
+                continue;
+            }
+
+            stem_to_files
+                .entry(stem.to_string())
+                .or_default()
+                .push((ext_id.clone(), dir.to_string()));
+        }
+
+        Self { stem_to_files }
+    }
+
+    /// Resolve a PHP PSR-4 namespace path to file external ID(s).
+    ///
+    /// `import_path`: the raw namespace string from the `use` statement,
+    ///   with backslash separators, e.g. `App\Models\User` or `Foo\Bar`.
+    ///
+    /// Returns a Vec (possibly empty). Empty when the class cannot be matched
+    /// to any ingested `.php` file (external dep, vendor namespace).
+    fn resolve(&self, import_path: &str) -> Vec<&str> {
+        // Strip leading/trailing backslashes and whitespace
+        let import_path = import_path.trim().trim_matches('\\');
+
+        // Convert backslash-separated namespace to slash-separated path
+        // e.g. "App\Models\User" -> "App/Models/User"
+        let slash_path = import_path.replace('\\', "/");
+
+        // Last segment is the file stem (PSR-4 convention)
+        let last_seg = slash_path.split('/').last().filter(|s| !s.is_empty());
+        let last_seg = match last_seg {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // Skip obvious non-class tokens (keywords, operators, braces)
+        if matches!(last_seg, "as" | "{" | "}" | "static" | "function" | "const") {
+            return Vec::new();
+        }
+
+        let candidates = match self.stem_to_files.get(last_seg) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
+        if candidates.len() == 1 {
+            return vec![candidates[0].0.as_str()];
+        }
+
+        // Multiple candidates: pick by longest suffix overlap of namespace path
+        // (as slash-separated) vs file directory path.
+        // e.g. "App/Models/User" → namespace dir "App/Models"
+        //   vs dir "app/Models" (case-insensitive prefix — not done here, conservative)
+        let ns_dir = if let Some(last_slash) = slash_path.rfind('/') {
+            &slash_path[..last_slash]
+        } else {
+            ""
+        };
+        let ns_dir_segs: Vec<&str> = ns_dir
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let mut best: Option<&(String, String)> = None;
+        let mut best_overlap = 0usize;
+
+        for candidate in candidates {
+            let dir_segs: Vec<&str> = candidate
+                .1
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .collect();
+            // Case-insensitive suffix overlap (PHP namespaces are case-insensitive
+            // in practice, but filesystem may differ — be liberal here)
+            let overlap = ns_dir_segs
+                .iter()
+                .rev()
+                .zip(dir_segs.iter().rev())
+                .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+                .count();
+            if overlap > best_overlap || (overlap == best_overlap && best.is_none()) {
+                best_overlap = overlap;
+                best = Some(candidate);
+            }
+        }
+
+        match best {
+            Some((id, _)) => vec![id.as_str()],
+            None => vec![candidates[0].0.as_str()],
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ScalaPackageIndex — maps Scala import paths to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps Scala import paths to file external IDs.
+///
+/// Scala imports look like:
+///   `import com.example.Foo`      — specific class
+///   `import com.example._`        — wildcard (Scala uses `_` not `*`)
+///   `import com.example.{A, B}`   — grouped (extractor produces individual
+///                                   items or the full group; both cases handled)
+///
+/// Convention mirrors Java/Kotlin: class `com.example.Foo` lives in a file
+/// whose stem is `Foo` inside a directory path matching `com/example/`.
+///
+/// Resolution heuristic (mirrors KotlinPackageIndex exactly):
+///   1. Extract the LAST segment of the import path:
+///      `com.example.Foo` → `Foo`; wildcard `com.example._` → `_` (special).
+///   2. Walk all `.scala` file nodes; match stem (e.g. `Foo` from `Foo.scala`).
+///   3. Among candidates, prefer the one with the longest suffix overlap
+///      between the import's package path and the file's directory path.
+///
+/// Wildcard imports (`com.example._`): resolve to ALL `.scala` files whose
+///   directory path matches the package prefix.
+///
+/// Limitations (honest):
+///   • No build.sbt / pom.xml parsing — source roots unknown.
+///   • Ambiguous same-stem class names resolved by suffix overlap; first wins.
+///   • External/stdlib classes (scala.collection.*, java.*, etc.) with no
+///     ingested files stay unresolved — never fabricate edges.
+///   • Multi-import `import com.example.{A, B}` — only resolved if the
+///     extractor splits them into individual paths; a grouped string will
+///     fail to match because `{A, B}` is not a valid file stem.
+struct ScalaPackageIndex {
+    /// stem -> Vec<(file_external_id, dir_path_slash_separated)>
+    /// e.g. "Foo" -> [("file::com/example/Foo.scala", "com/example"), ...]
+    stem_to_files: HashMap<String, Vec<(String, String)>>,
+    /// dir_path -> Vec<file_external_id> for wildcard resolution
+    dir_to_files: HashMap<String, Vec<String>>,
+}
+
+const SCALA_EXTENSIONS: &[&str] = &["scala", "sc"];
+
+impl ScalaPackageIndex {
+    fn build(graph: &Graph) -> Self {
+        let mut stem_to_files: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut dir_to_files: HashMap<String, Vec<String>> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) => p,
+                None => continue,
+            };
+
+            let is_scala = SCALA_EXTENSIONS
+                .iter()
+                .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+            if !is_scala {
+                continue;
+            }
+
+            // Directory of this .scala file
+            let dir = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[..idx],
+                None => "",
+            };
+
+            // Stem: filename without extension
+            let filename = rel_path.rsplit('/').next().unwrap_or(rel_path);
+            let stem = SCALA_EXTENSIONS
+                .iter()
+                .find_map(|ext| filename.strip_suffix(&format!(".{}", ext)))
+                .unwrap_or(filename);
+
+            if stem.is_empty() {
+                continue;
+            }
+
+            stem_to_files
+                .entry(stem.to_string())
+                .or_default()
+                .push((ext_id.clone(), dir.to_string()));
+
+            dir_to_files
+                .entry(dir.to_string())
+                .or_default()
+                .push(ext_id.clone());
+        }
+
+        Self {
+            stem_to_files,
+            dir_to_files,
+        }
+    }
+
+    /// Resolve a Scala fully-qualified import path to file external ID(s).
+    ///
+    /// `import_path`: e.g. `com.example.Foo` or `com.example._`.
+    ///
+    /// Returns a Vec (possibly empty). Empty when the class/package cannot be
+    /// matched to any ingested `.scala` file (external dep, stdlib).
+    fn resolve(&self, import_path: &str) -> Vec<&str> {
+        let import_path = import_path.trim();
+
+        // Scala wildcard: com.example._
+        if import_path.ends_with("._") {
+            let package = &import_path[..import_path.len() - 2]; // strip "._"
+            let dir_path = package.replace('.', "/");
+            let mut results: Vec<&str> = Vec::new();
+            // Exact dir match
+            if let Some(files) = self.dir_to_files.get(dir_path.as_str()) {
+                for f in files {
+                    results.push(f.as_str());
+                }
+            }
+            if results.is_empty() {
+                // Suffix match: any dir whose trailing segments match dir_path
+                for (dir, files) in &self.dir_to_files {
+                    if dir.ends_with(dir_path.as_str())
+                        && (dir.len() == dir_path.len()
+                            || dir.as_bytes()[dir.len() - dir_path.len() - 1] == b'/')
+                    {
+                        for f in files {
+                            results.push(f.as_str());
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        // Specific class: com.example.Foo
+        let last_seg = import_path.split('.').last().filter(|s| !s.is_empty());
+        let last_seg = match last_seg {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // Skip Scala keywords that can appear in import paths
+        if matches!(last_seg, "_" | "*" | "{" | "}") {
+            return Vec::new();
+        }
+
+        let candidates = match self.stem_to_files.get(last_seg) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
+        if candidates.len() == 1 {
+            return vec![candidates[0].0.as_str()];
+        }
+
+        // Multiple candidates: pick by longest suffix overlap of package path vs dir path
+        let import_dir = if let Some(last_dot) = import_path.rfind('.') {
+            import_path[..last_dot].replace('.', "/")
+        } else {
+            String::new()
+        };
+        let import_dir_segs: Vec<&str> = import_dir
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let mut best: Option<&(String, String)> = None;
+        let mut best_overlap = 0usize;
+
+        for candidate in candidates {
+            let dir_segs: Vec<&str> = candidate
+                .1
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .collect();
+            let overlap = import_dir_segs
+                .iter()
+                .rev()
+                .zip(dir_segs.iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            if overlap > best_overlap || (overlap == best_overlap && best.is_none()) {
+                best_overlap = overlap;
+                best = Some(candidate);
+            }
+        }
+
+        match best {
+            Some((id, _)) => vec![id.as_str()],
+            None => vec![candidates[0].0.as_str()],
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // KotlinPackageIndex — maps Kotlin import paths to file external IDs
 // ---------------------------------------------------------------------------
 
@@ -1323,6 +1701,50 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     stats.files_indexed += kotlin_index.stem_to_files.len() as u64;
     let kotlin_import_edges = collect_kotlin_import_edges_from_files(graph, root, &kotlin_index);
     for (source_file_id, target_file_id, relation) in &kotlin_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 11: PHP cross-file import resolution via PhpNamespaceIndex.
+    // PSR-4 convention: `use App\Models\User;` → last-segment stem match + namespace-path
+    // suffix overlap (backslash separator). Aliased imports (`use Foo\Bar as Baz`) resolve
+    // the original path. Grouped imports (`use Foo\{A, B}`) are a known limitation — the
+    // tree-sitter extractor emits the full group text which will not match any stem.
+    // External/vendor namespaces with no ingested .php file stay unresolved.
+    //
+    // NOTE: Ruby cross-file resolution is DEFERRED.
+    // Ruby's import_kinds uses `call` for require/require_relative, which is the same node
+    // kind as ALL method calls. The tree-sitter extractor therefore emits an `imports` ref::
+    // edge for every call that has a string argument (e.g. `File.read("model.rb")` would
+    // fabricate an edge to model.rb). We cannot safely disambiguate require from non-require
+    // calls without inspecting the callee name inside the cross-file resolver, but even then
+    // false positives from calls like `system("script.rb")` remain.
+    // Correct resolution requires a dedicated Ruby import scanner that reads the source line
+    // and checks for `require` / `require_relative` keywords explicitly — deferred to a
+    // future pass that does exactly that (like collect_js_import_edges_from_files does for
+    // JS require calls).
+    let php_index = PhpNamespaceIndex::build(graph);
+    stats.files_indexed += php_index.stem_to_files.len() as u64;
+    let php_import_edges = collect_php_import_edges_from_files(graph, root, &php_index);
+    for (source_file_id, target_file_id, relation) in &php_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 12: Scala cross-file import resolution via ScalaPackageIndex.
+    // Mirrors KotlinPackageIndex: last-segment stem match + package-path suffix overlap.
+    // Wildcard `import com.foo._` (Scala uses `_` not `*`) resolves to all `.scala` files
+    // in that package dir. External/stdlib imports (scala.*, java.*) stay unresolved.
+    let scala_index = ScalaPackageIndex::build(graph);
+    stats.files_indexed += scala_index.stem_to_files.len() as u64;
+    let scala_import_edges = collect_scala_import_edges_from_files(graph, root, &scala_index);
+    for (source_file_id, target_file_id, relation) in &scala_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
         } else {
@@ -2251,6 +2673,185 @@ fn collect_kotlin_import_edges_from_files(
                 let import_path = caps.get(1).unwrap().as_str();
 
                 let targets = kotlin_index.resolve(import_path);
+                for target_id in targets {
+                    if target_id == ext_id {
+                        continue;
+                    }
+                    let key = (ext_id.clone(), target_id.to_string());
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
+                        edges.push((
+                            ext_id.clone(),
+                            target_id.to_string(),
+                            "imports".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
+// PHP import edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all PHP file nodes in the graph, read their source from disk,
+/// extract `use` namespace statements, and resolve them to file-to-file edges
+/// via PhpNamespaceIndex (PSR-4 convention).
+///
+/// PHP use forms handled:
+///   Specific:  use App\Models\User;
+///   Aliased:   use Foo\Bar as Baz;          (alias stripped, path resolved)
+///   Grouped:   use Foo\{A, B};              (limitation: unresolved — see index doc)
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_php_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    php_index: &PhpNamespaceIndex,
+) -> Vec<(String, String, String)> {
+    // Matches: use <namespace_path>[as <alias>];
+    // Group 1 captures the namespace path (before optional `as` alias or semicolon).
+    // Backslashes are allowed in the path; the path ends at whitespace, `{`, or `;`.
+    let re_use = Regex::new(r"^\s*use\s+([\w\\]+)(?:\s+as\s+\w+)?\s*;").unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) if p.ends_with(".php") => p,
+            _ => continue,
+        };
+
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+                continue;
+            }
+
+            // Only look at `use` lines
+            if !trimmed.starts_with("use ") {
+                continue;
+            }
+
+            if let Some(caps) = re_use.captures(trimmed) {
+                let import_path = caps.get(1).unwrap().as_str();
+
+                let targets = php_index.resolve(import_path);
+                for target_id in targets {
+                    if target_id == ext_id {
+                        continue;
+                    }
+                    let key = (ext_id.clone(), target_id.to_string());
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
+                        edges.push((
+                            ext_id.clone(),
+                            target_id.to_string(),
+                            "imports".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
+// Scala import edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all Scala file nodes in the graph, read their source from disk,
+/// extract `import` statements, and resolve them to file-to-file edges via
+/// ScalaPackageIndex.
+///
+/// Scala import forms handled:
+///   Specific:  import com.example.Foo
+///   Wildcard:  import com.example._     (Scala uses `_` not `*`)
+///   Aliased:   import com.example.{Foo => Bar}  (alias stripped, path resolved)
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_scala_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    scala_index: &ScalaPackageIndex,
+) -> Vec<(String, String, String)> {
+    // Matches: import <dotted.path>[optional alias or braces]
+    // Group 1: the dotted import path (before optional whitespace, `{`, or end of line).
+    // We capture the leading dotted path; braces/aliases are not expanded here — grouped
+    // imports are a known limitation (the extractor emits the full text as-is).
+    let re_import = Regex::new(r"^\s*import\s+([\w.]+(?:\._)?)").unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Only process Scala files
+        let is_scala = SCALA_EXTENSIONS
+            .iter()
+            .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+        if !is_scala {
+            continue;
+        }
+
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+                continue;
+            }
+
+            // Only look at import lines
+            if !trimmed.starts_with("import ") {
+                continue;
+            }
+
+            if let Some(caps) = re_import.captures(trimmed) {
+                let import_path = caps.get(1).unwrap().as_str();
+
+                let targets = scala_index.resolve(import_path);
                 for target_id in targets {
                     if target_id == ext_id {
                         continue;
@@ -3336,6 +3937,241 @@ mod tests {
         assert_eq!(
             resolved,
             vec!["file::com/example/foo/Bar.kt"],
+            "Suffix match should pick the deeper match. Got: {:?}",
+            resolved
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // PhpNamespaceIndex tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: add a PHP file node to the graph.
+    fn add_php_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
+        let ext_id = format!("file::{}", rel_path);
+        let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        graph
+            .add_node(&ext_id, label, NodeType::File, &["php"], 0.0, 0.3)
+            .unwrap()
+    }
+
+    /// `use App\Models\User;` in `Service.php` + `app/Models/User.php` → resolved edge.
+    #[test]
+    fn php_cross_file_import_resolves_to_file_node() {
+        let mut graph = Graph::with_capacity(8, 8);
+        add_php_file_node(&mut graph, "app/Http/Service.php");
+        add_php_file_node(&mut graph, "app/Models/User.php");
+
+        let index = PhpNamespaceIndex::build(&graph);
+
+        // Resolve PSR-4 namespace path
+        let resolved = index.resolve("App\\Models\\User");
+        assert_eq!(
+            resolved,
+            vec!["file::app/Models/User.php"],
+            "use App\\Models\\User should resolve to app/Models/User.php. Got: {:?}",
+            resolved
+        );
+
+        // Add the cross-file edge and verify it lands in the graph
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::app/Http/Service.php",
+            "file::app/Models/User.php",
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge Service.php → User.php should be added");
+        assert_eq!(stats.total_edges_created, 1);
+
+        // Verify the edge is in pending_edges
+        let service_id = graph.resolve_id("file::app/Http/Service.php").unwrap();
+        let user_id = graph.resolve_id("file::app/Models/User.php").unwrap();
+        let edge = graph
+            .csr
+            .pending_edges
+            .iter()
+            .find(|e| e.source == service_id && e.target == user_id);
+        assert!(
+            edge.is_some(),
+            "imports edge Service.php → User.php must be in graph pending_edges"
+        );
+    }
+
+    /// External vendor namespace `use Vendor\Lib\Thing;` (no ingested file) → unresolved.
+    #[test]
+    fn php_external_vendor_namespace_stays_unresolved() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_php_file_node(&mut graph, "app/Http/Controller.php");
+        // NOTE: deliberately no "Vendor/Lib/Thing.php" in the graph
+
+        let index = PhpNamespaceIndex::build(&graph);
+
+        let resolved = index.resolve("Vendor\\Lib\\Thing");
+        assert!(
+            resolved.is_empty(),
+            "Vendor/external namespace must not resolve to any project file. Got: {:?}",
+            resolved
+        );
+    }
+
+    /// Aliased `use Foo\Bar as Baz;` → resolves `Foo\Bar` (alias stripped).
+    #[test]
+    fn php_aliased_import_resolves_original_path() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_php_file_node(&mut graph, "app/Services/Service.php");
+        add_php_file_node(&mut graph, "app/Repositories/Bar.php");
+
+        let index = PhpNamespaceIndex::build(&graph);
+
+        // Resolve "Foo\Bar" (as-is, alias part is stripped by the scanner regex)
+        let resolved = index.resolve("App\\Repositories\\Bar");
+        assert_eq!(
+            resolved,
+            vec!["file::app/Repositories/Bar.php"],
+            "Aliased import: original path should resolve. Got: {:?}",
+            resolved
+        );
+    }
+
+    /// Same stem in two namespaces — suffix overlap picks the right one.
+    #[test]
+    fn php_namespace_index_suffix_match_disambiguates() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_php_file_node(&mut graph, "app/Models/User.php");
+        add_php_file_node(&mut graph, "tests/Mocks/User.php");
+
+        let index = PhpNamespaceIndex::build(&graph);
+
+        // "App\Models\User" — namespace dir "App/Models" suffix-matches "app/Models"
+        let resolved = index.resolve("App\\Models\\User");
+        assert_eq!(
+            resolved,
+            vec!["file::app/Models/User.php"],
+            "Suffix match should pick app/Models/User.php. Got: {:?}",
+            resolved
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // ScalaPackageIndex tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: add a Scala file node to the graph.
+    fn add_scala_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
+        let ext_id = format!("file::{}", rel_path);
+        let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        graph
+            .add_node(&ext_id, label, NodeType::File, &["scala"], 0.0, 0.3)
+            .unwrap()
+    }
+
+    /// `import com.example.Callee` in `Caller.scala` + `com/example/Callee.scala` → resolved.
+    #[test]
+    fn scala_cross_file_import_resolves_to_file_node() {
+        let mut graph = Graph::with_capacity(8, 8);
+        add_scala_file_node(&mut graph, "Caller.scala");
+        add_scala_file_node(&mut graph, "com/example/Callee.scala");
+
+        let index = ScalaPackageIndex::build(&graph);
+
+        // Resolve the import
+        let resolved = index.resolve("com.example.Callee");
+        assert_eq!(
+            resolved,
+            vec!["file::com/example/Callee.scala"],
+            "import com.example.Callee should resolve to com/example/Callee.scala. Got: {:?}",
+            resolved
+        );
+
+        // Add the cross-file edge and verify it lands in the graph
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::Caller.scala",
+            "file::com/example/Callee.scala",
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge Caller.scala → Callee.scala should be added");
+        assert_eq!(stats.total_edges_created, 1);
+
+        // Verify the edge is in pending_edges
+        let caller_id = graph.resolve_id("file::Caller.scala").unwrap();
+        let callee_id = graph.resolve_id("file::com/example/Callee.scala").unwrap();
+        let edge = graph
+            .csr
+            .pending_edges
+            .iter()
+            .find(|e| e.source == caller_id && e.target == callee_id);
+        assert!(
+            edge.is_some(),
+            "imports edge Caller.scala → com/example/Callee.scala must be in graph pending_edges"
+        );
+    }
+
+    /// External Scala/Java stdlib imports stay unresolved.
+    #[test]
+    fn scala_external_import_stays_unresolved() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_scala_file_node(&mut graph, "com/example/Service.scala");
+
+        let index = ScalaPackageIndex::build(&graph);
+
+        // scala.collection.mutable.Map is external — no ingested file
+        assert!(
+            index.resolve("scala.collection.mutable.Map").is_empty(),
+            "scala stdlib must not resolve"
+        );
+        // java.io.File is external
+        assert!(
+            index.resolve("java.io.File").is_empty(),
+            "java stdlib must not resolve"
+        );
+    }
+
+    /// Wildcard `import com.example._` resolves to all `.scala` files in that package.
+    #[test]
+    fn scala_wildcard_import_resolves_to_all_package_files() {
+        let mut graph = Graph::with_capacity(8, 8);
+        add_scala_file_node(&mut graph, "com/example/Alpha.scala");
+        add_scala_file_node(&mut graph, "com/example/Beta.scala");
+        add_scala_file_node(&mut graph, "com/other/Gamma.scala");
+
+        let index = ScalaPackageIndex::build(&graph);
+
+        let mut resolved = index.resolve("com.example._");
+        resolved.sort();
+        assert_eq!(
+            resolved.len(),
+            2,
+            "Wildcard should resolve to both files in package. Got: {:?}",
+            resolved
+        );
+        assert!(resolved.contains(&"file::com/example/Alpha.scala"));
+        assert!(resolved.contains(&"file::com/example/Beta.scala"));
+
+        // Different package wildcard should not include com/example files
+        let resolved_other = index.resolve("com.other._");
+        assert_eq!(resolved_other.len(), 1);
+        assert!(resolved_other.contains(&"file::com/other/Gamma.scala"));
+    }
+
+    /// Suffix overlap disambiguates same-stem Scala classes in different packages.
+    #[test]
+    fn scala_package_index_suffix_match_disambiguates() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_scala_file_node(&mut graph, "com/example/foo/Bar.scala");
+        add_scala_file_node(&mut graph, "org/other/Bar.scala");
+
+        let index = ScalaPackageIndex::build(&graph);
+
+        // import "com.example.foo.Bar" should prefer com/example/foo/Bar.scala
+        let resolved = index.resolve("com.example.foo.Bar");
+        assert_eq!(
+            resolved,
+            vec!["file::com/example/foo/Bar.scala"],
             "Suffix match should pick the deeper match. Got: {:?}",
             resolved
         );
