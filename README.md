@@ -537,7 +537,28 @@ This is host-agnostic: the habit is documented in the server `instructions` ever
 
 ## Tool Surface And Tiers
 
-By default `tools/list` advertises a curated **essential** set (~26 tools: trust/recovery, ingest/audit, search/seek/activate, view/batch_view/glob, impact/why/trace/predict, surgical_context_v2, cross_verify, missions, memorize, persist). Set `M1ND_TOOL_TIER=full` to advertise the complete surface (100+ tools incl. RETROBUILDER, perspectives, locks, federation, daemon). Hidden tools remain fully callable by name regardless of tier — tiering only controls what `tools/list` surfaces so smaller-context agents are not overwhelmed.
+By default `tools/list` advertises a curated **essential** set (~27 tools: trust/recovery, ingest/audit, search/seek/activate/learn, view/batch_view/glob, impact/why/trace/predict, surgical_context_v2, cross_verify, missions, memorize, persist). Set `M1ND_TOOL_TIER=full` to advertise the complete surface (100+ tools incl. RETROBUILDER, perspectives, locks, federation, daemon). Hidden tools remain fully callable by name regardless of tier — tiering only controls what `tools/list` surfaces so smaller-context agents are not overwhelmed.
+
+## Language Coverage
+
+Graph reasoning (`impact`, `why`, `predict`, `trace`, `taint_trace`) is only as good as the extractor. m1nd resolves both **`calls` edges** (call graph) and **cross-file `imports`** (file→file dependency resolution) per language:
+
+| Language | `calls` | cross-file imports |
+|---|:---:|:---:|
+| Rust | ✅ | ✅ (`mod`/`use crate::`) |
+| Python | ✅ | ✅ |
+| JavaScript / TypeScript | ✅ | ✅ |
+| Go | ✅ | ✅ (package) |
+| Java | ✅ | ✅ (FQCN + wildcard) |
+| C / C++ | ✅ | ✅ (`#include "..."`) |
+| Kotlin | ✅ | ✅ (package) |
+| PHP | ✅ | ✅ (PSR-4) |
+| Scala | ✅ | ✅ (package) |
+| Ruby | ⏳ | ✅ (`require_relative`) |
+| C# | ✅ | — (namespaces don't map 1:1 to files) |
+| Swift | ✅ | — |
+
+All ✅ rows are verified end-to-end (a `caller`→`callee` import resolves and the caller emits call edges). Other languages fall back to the generic extractor (`contains` only). Unresolvable imports (external packages, gems, stdlib, system headers) are honestly left unresolved rather than guessed.
 
 ## Evidence
 
