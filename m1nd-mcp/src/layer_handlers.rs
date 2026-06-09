@@ -685,17 +685,25 @@ pub fn handle_scan(
             continue;
         }
 
+        // Derive file_path: prefer graph provenance source_path; fall back to
+        // stripping the "file::" prefix from the external id when absent.
+        let ext_id = if !node_to_ext[node_idx].is_empty() {
+            node_to_ext[node_idx].clone()
+        } else {
+            label.clone()
+        };
+        let file_path = prov
+            .source_path
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| node_to_file_path(&ext_id));
+
         findings.push(layers::ScanFinding {
             pattern: pattern_id.clone(),
             status: status.to_string(),
             severity,
-            node_id: if !node_to_ext[node_idx].is_empty() {
-                node_to_ext[node_idx].clone()
-            } else {
-                label.clone()
-            },
+            node_id: ext_id,
             label: label.clone(),
-            file_path: prov.source_path.unwrap_or_default(),
+            file_path,
             line: prov.line_start.unwrap_or(0),
             message: message_template.clone(),
             graph_context,
@@ -10854,6 +10862,128 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             has_b,
             "predict should surface b.rs as a co-change partner via the orchestrator matrix; got: {:?}",
             predictions
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Scan honesty: file_path must be non-empty, derived from provenance or
+    // from the "file::" external-id prefix when provenance is absent.
+    // -------------------------------------------------------------------------
+
+    /// Scan findings must carry a non-empty file_path when the node has
+    /// explicit source_path provenance set.
+    #[test]
+    fn scan_finding_file_path_populated_from_provenance() {
+        use m1nd_core::graph::NodeProvenanceInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        // Add a node whose label matches the "error_handling" pattern ("panic")
+        // and set explicit provenance so file_path + line are populated.
+        let nid = graph
+            .add_node(
+                "file::src/handler.rs::fn::panic_on_err",
+                "panic_on_err",
+                m1nd_core::types::NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add node");
+        graph.set_node_provenance(
+            nid,
+            NodeProvenanceInput {
+                source_path: Some("src/handler.rs"),
+                line_start: Some(42),
+                line_end: Some(55),
+                excerpt: None,
+                namespace: None,
+                canonical: false,
+            },
+        );
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+
+        let output = handle_scan(
+            &mut state,
+            ScanInput {
+                agent_id: "test".into(),
+                pattern: "error_handling".into(),
+                scope: None,
+                limit: 10,
+                severity_min: 0.0,
+                graph_validate: false,
+            },
+        )
+        .expect("scan should succeed");
+
+        assert_eq!(output.findings.len(), 1, "should find one panic node");
+        let finding = &output.findings[0];
+        assert!(
+            !finding.file_path.is_empty(),
+            "finding.file_path must be non-empty when provenance is set; got empty"
+        );
+        assert_eq!(
+            finding.file_path, "src/handler.rs",
+            "finding.file_path must match provenance source_path"
+        );
+        assert!(
+            finding.line > 0,
+            "finding.line must be > 0 when provenance line_start is set; got {}",
+            finding.line
+        );
+        assert_eq!(finding.line, 42, "finding.line must match provenance line_start");
+    }
+
+    /// Scan findings must derive a non-empty file_path from the "file::" external-id
+    /// prefix even when no explicit provenance is recorded for the node.
+    #[test]
+    fn scan_finding_file_path_derived_from_external_id_when_no_provenance() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        // Reuse build_layer_state: nodes have "file::src/core.rs" external IDs
+        // but no provenance source_path set.
+        let mut state = build_layer_state(root);
+
+        // "core" matches the label "core.rs" — use a custom pattern that hits it.
+        let output = handle_scan(
+            &mut state,
+            ScanInput {
+                agent_id: "test".into(),
+                pattern: "core".into(),
+                scope: None,
+                limit: 10,
+                severity_min: 0.0,
+                graph_validate: false,
+            },
+        )
+        .expect("scan should succeed");
+
+        assert_eq!(output.findings.len(), 1, "should find the core.rs node");
+        let finding = &output.findings[0];
+        assert!(
+            !finding.file_path.is_empty(),
+            "finding.file_path must be non-empty even when provenance is absent \
+             (derived from file:: external-id); got empty"
+        );
+        assert!(
+            finding.file_path.contains("core"),
+            "finding.file_path '{}' must contain 'core' (from 'file::src/core.rs')",
+            finding.file_path
         );
     }
 }

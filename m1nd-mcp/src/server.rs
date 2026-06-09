@@ -53,10 +53,9 @@ structural fallback) → `counterfactual(nodes)` (simulate removal) → \
 `warmup(task_description)` (prime graph) → `memorize` the decision and why (with \
 `evidence` paths). Use `differential` to compare two subgraphs. `hypothesize` to test what-ifs.
 
-**Deep Analysis**: `resonate(query)` for standing-wave harmonic patterns. \
-`fingerprint(nodes)` for duplicate/equivalence detection. `diverge(baseline)` detects \
-structural drift between a baseline (ISO date, git ref, or last_session) and the current \
-graph. `federate` to query across graph namespaces.
+**Deep Analysis**: `fingerprint(nodes)` for duplicate/equivalence detection. \
+`diverge(baseline)` detects structural drift between a baseline (ISO date, git ref, or \
+last_session) and the current graph. `federate` to query across graph namespaces.
 
 **Memory (compounding, cross-session)**: when you conclude something durable — a \
 decision, a verified finding, an undecided design point, why code is the way it is — \
@@ -689,20 +688,6 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
-                "name": "resonate",
-                "description": "Resonance analysis: harmonics, sympathetic pairs, and resonant frequencies",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Search query to find seed nodes for resonance analysis" },
-                        "node_id": { "type": "string", "description": "Specific node identifier to use as seed (alternative to query)" },
-                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
-                        "top_k": { "type": "integer", "default": 20, "description": "Number of top resonance results to return" }
-                    },
-                    "required": ["agent_id"]
-                }
-            },
-            {
                 "name": "health",
                 "description": "Server health and statistics",
                 "inputSchema": {
@@ -973,7 +958,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "scan",
-                "description": "Pattern-aware structural code analysis with graph-validated findings",
+                "description": "Keyword/label pattern scan over graph nodes with curated anti-pattern sets, severity, and optional graph-edge context (graph_validate populates graph_context when edges are present; commonly empty for sparse graphs)",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -5023,7 +5008,7 @@ mod tests {
         // Advanced tools that are NOT in ESSENTIAL_TOOLS must be absent
         assert!(
             !names.contains(&"resonate"),
-            "advanced tool 'resonate' must be absent from essential tier"
+            "advanced tool 'resonate' must be absent from essential tier (schema removed)"
         );
         assert!(
             !names.contains(&"ghost_edges"),
@@ -5063,9 +5048,10 @@ mod tests {
             .iter()
             .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
             .collect();
+        // resonate schema was removed from the advertised surface (handler kept for back-compat)
         assert!(
-            gated_names.contains(&"resonate"),
-            "advanced tool 'resonate' must be present in full tier"
+            !gated_names.contains(&"resonate"),
+            "resonate schema must be absent from full tier after surface removal"
         );
         assert!(
             gated_names.contains(&"ghost_edges"),
@@ -5139,9 +5125,10 @@ mod tests {
             .iter()
             .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
             .collect();
+        // resonate schema removed from advertised surface — handler remains but schema is gone
         assert!(
-            full_names.contains(&"resonate"),
-            "'resonate' handler must remain registered even when tier=essential"
+            !full_names.contains(&"resonate"),
+            "'resonate' schema must be absent from all_tool_schemas after surface removal"
         );
         assert!(
             full_names.contains(&"ghost_edges"),
@@ -5151,5 +5138,32 @@ mod tests {
             full_names.contains(&"daemon_start"),
             "'daemon_start' handler must remain registered even when tier=essential"
         );
+    }
+
+    /// resonate schema must be absent from ALL tiers and all_tool_schemas after surface removal.
+    /// The dispatch handler is kept for back-compat but is not advertised.
+    #[test]
+    fn resonate_schema_absent_from_all_tiers_after_surface_removal() {
+        let full = all_tool_schemas();
+        let essential = tool_schemas_for_tier("essential");
+        let full_gated = tool_schemas_for_tier("full");
+
+        for (label, schema) in [
+            ("all_tool_schemas", &full),
+            ("essential tier", &essential),
+            ("full tier", &full_gated),
+        ] {
+            let names: Vec<&str> = schema["tools"]
+                .as_array()
+                .expect("tools array")
+                .iter()
+                .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+                .collect();
+            assert!(
+                !names.contains(&"resonate"),
+                "'resonate' schema must be absent from {} (handler kept, schema removed)",
+                label
+            );
+        }
     }
 }
