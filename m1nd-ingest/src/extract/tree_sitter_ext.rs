@@ -326,7 +326,7 @@ impl TreeSitterExtractor {
     /// Each grammar arranges the callee differently inside its call node.
     /// This method handles the patterns verified for each piloted grammar:
     ///
-    /// - **C** (`call_expression`):
+    /// - **C / C++** (`call_expression`):
     ///   - first named child = `identifier`         → simple call `foo()`
     ///   - first named child = `field_expression`   → member call `p->bar()` or `p.bar()`;
     ///     the `field_identifier` child of `field_expression` is the method name.
@@ -337,19 +337,53 @@ impl TreeSitterExtractor {
     ///     `Console.WriteLine()`; the *last* `identifier` child of the
     ///     `member_access_expression` is the method name.
     ///
-    /// - **Kotlin** (`call_expression`):
+    /// - **Kotlin / Scala** (`call_expression`):
     ///   - first named child = `identifier`          → simple call `foo(42)`
     ///   - first named child = `navigation_expression` → chained call
-    ///     `obj.method()` — deferred (ambiguous callee), returns `None`.
+    ///     `obj.method()` — Kotlin skips (returns None). See Swift below.
+    ///
+    /// - **PHP** (`function_call_expression`):
+    ///   - first named child = `name`                → simple call `foo()`
+    ///
+    /// - **PHP** (`member_call_expression` / `scoped_call_expression`):
+    ///   - second named child = `name`               → method/static call `$obj->method()`
+    ///     or `Class::method()`; first child is receiver, second is callee `name`.
+    ///
+    /// - **Swift** (`call_expression`):
+    ///   - first named child = `simple_identifier`         → bare call `foo()`
+    ///   - first named child = `navigation_expression` →
+    ///     `navigation_suffix` child contains trailing `simple_identifier` = callee name.
     ///
     /// Returns `None` when the callee cannot be cleanly identified, which
     /// causes `walk_ast` to silently skip the edge (safe, no false positives).
     fn extract_callee<'a>(&self, node: Node<'a>, source: &'a [u8]) -> Option<String> {
+        // Pattern 0: PHP `member_call_expression` and `scoped_call_expression`.
+        // Verified: these nodes have children [receiver, name(callee), arguments].
+        // Must be checked BEFORE the generic `name` pattern (Pattern 2) because
+        // the first child of `scoped_call_expression` is also `name` kind (class).
+        // Second named child is the method/static callee `name`.
+        let node_kind = node.kind();
+        if node_kind == "member_call_expression" || node_kind == "scoped_call_expression" {
+            let mut nc = node.walk();
+            let mut named_children = node.named_children(&mut nc);
+            named_children.next(); // skip receiver (first child)
+            if let Some(second_child) = named_children.next() {
+                if second_child.kind() == "name" {
+                    let text = second_child.utf8_text(source).ok()?;
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        return Some(text.to_string());
+                    }
+                }
+            }
+            return None; // can't resolve cleanly
+        }
+
         let mut cursor = node.walk();
         let first_child = node.named_children(&mut cursor).next()?;
         let first_kind = first_child.kind();
 
-        // Pattern 1: simple identifier — covers all grammars
+        // Pattern 1: simple identifier — covers C, C++, Kotlin, Scala, and Swift bare calls.
         if first_kind == "identifier" || first_kind == "simple_identifier" {
             let text = first_child.utf8_text(source).ok()?;
             let text = text.trim();
@@ -358,7 +392,17 @@ impl TreeSitterExtractor {
             }
         }
 
-        // Pattern 2: C `field_expression` (e.g., `ptr->method` or `obj.method`)
+        // Pattern 2: PHP `name` as first child — for `function_call_expression`.
+        // Verified: PHP `function_call_expression` → first named child kind = "name".
+        if first_kind == "name" {
+            let text = first_child.utf8_text(source).ok()?;
+            let text = text.trim();
+            if !text.is_empty() {
+                return Some(text.to_string());
+            }
+        }
+
+        // Pattern 4: C `field_expression` (e.g., `ptr->method` or `obj.method`)
         // The rightmost child of field_expression with kind `field_identifier`
         // is the method name being called.
         if first_kind == "field_expression" {
@@ -374,7 +418,7 @@ impl TreeSitterExtractor {
             }
         }
 
-        // Pattern 3: C# `member_access_expression` (e.g., `Console.WriteLine`)
+        // Pattern 5: C# `member_access_expression` (e.g., `Console.WriteLine`)
         // The *last* identifier child is the method name.
         if first_kind == "member_access_expression" {
             let mut fc = first_child.walk();
@@ -394,7 +438,32 @@ impl TreeSitterExtractor {
             }
         }
 
-        // All other patterns (navigation_expression, subscript, etc.) → skip.
+        // Pattern 6: Swift `navigation_expression` (e.g., `obj.method` or `a.b.c`)
+        // Verified: navigation_expression has a `navigation_suffix` named child,
+        // which contains the terminal `simple_identifier` (the method being called).
+        // Works for both `obj.method()` (depth=1) and `a.b.c()` (nested navigation).
+        if first_kind == "navigation_expression" {
+            // Find the navigation_suffix child
+            let mut fc = first_child.walk();
+            for child in first_child.named_children(&mut fc) {
+                if child.kind() == "navigation_suffix" {
+                    // Inside navigation_suffix: find simple_identifier
+                    let mut sc = child.walk();
+                    for suffix_child in child.named_children(&mut sc) {
+                        if suffix_child.kind() == "simple_identifier" {
+                            let text = suffix_child.utf8_text(source).ok()?;
+                            let text = text.trim();
+                            if !text.is_empty() {
+                                return Some(text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            return None; // navigation_expression without clean suffix → skip
+        }
+
+        // All other patterns (subscript, etc.) → skip.
         // Returning None causes walk_ast to emit no edge — safe default.
         None
     }
@@ -607,6 +676,18 @@ pub fn c_config() -> LanguageConfig {
 }
 
 /// C++ language config.
+///
+/// `call_kinds`: verified via AST dump — tree-sitter-cpp uses `call_expression`
+/// for both bare function calls (`foo(42)`) and member calls (`obj.method()`).
+/// The callee structure is identical to C:
+///   - `identifier` first child → simple call
+///   - `field_expression` → `field_identifier` → member call
+///
+/// Constructor calls (e.g., `Foo()`) and template instantiations that look like
+/// calls resolve via `identifier` first child and are extracted cleanly.
+/// Operator overloads (`operator()`) and complex template-argument calls whose
+/// first child is neither `identifier` nor `field_expression` return `None`
+/// from extract_callee — no bogus edge is emitted.
 pub fn cpp_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "cpp",
@@ -618,10 +699,10 @@ pub fn cpp_config() -> LanguageConfig {
         type_kinds: &["type_definition", "alias_declaration"],
         module_kinds: &["namespace_definition"],
         import_kinds: &["preproc_include", "using_declaration"],
-        // Deferred: C++ uses `call_expression` same as C, but template calls,
-        // constructor calls, and operator overloads create complex callee shapes
-        // that need deeper analysis to avoid false positives.
-        call_kinds: &[],
+        // Verified: tree-sitter-cpp uses `call_expression` for all calls.
+        // Same callee extraction patterns as C (identifier + field_expression).
+        // Unresolvable shapes (template args, operators) return None safely.
+        call_kinds: &["call_expression"],
         name_field: "name",
         alt_name_fields: &["declarator"],
         name_from_first_child: true,
@@ -684,6 +765,18 @@ pub fn ruby_config() -> LanguageConfig {
 }
 
 /// PHP language config.
+///
+/// `call_kinds`: verified via AST dump — tree-sitter-php uses three distinct node kinds
+/// for different call shapes:
+///   - `function_call_expression`: `name`(callee) + `arguments`
+///     e.g., `foo()` → first named child = `name` "foo"
+///   - `member_call_expression`: `variable_name`(receiver) + `name`(callee) + `arguments`
+///     e.g., `$obj->method()` → second named child = `name` "method"
+///   - `scoped_call_expression`: `name`(class) + `name`(callee) + `arguments`
+///     e.g., `SomeClass::staticMethod()` → second named child = `name` "staticMethod"
+///
+/// None of these kinds appear in `import_kinds` (`namespace_use_declaration`).
+/// No dual-use conflict.
 pub fn php_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "php",
@@ -695,8 +788,14 @@ pub fn php_config() -> LanguageConfig {
         type_kinds: &["interface_declaration", "trait_declaration"],
         module_kinds: &["namespace_definition"],
         import_kinds: &["namespace_use_declaration"],
-        // Deferred: PHP call AST not yet inspected.
-        call_kinds: &[],
+        // Verified: tree-sitter-php uses three call node kinds (function_call_expression,
+        // member_call_expression, scoped_call_expression). extract_callee handles all three.
+        // No overlap with import_kinds.
+        call_kinds: &[
+            "function_call_expression",
+            "member_call_expression",
+            "scoped_call_expression",
+        ],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -704,10 +803,22 @@ pub fn php_config() -> LanguageConfig {
 }
 
 /// Swift language config.
+///
 /// Note: Swift's tree-sitter grammar maps both `class` and `struct` to
 /// `class_declaration` (struct has a `struct` keyword child). We map
 /// class_declaration to Class. This is semantically correct for the m1nd
 /// graph since both are type definitions with containment.
+///
+/// `call_kinds`: verified via AST dump — tree-sitter-swift uses `call_expression`
+/// for all call sites. Two callee patterns:
+///   - `simple_identifier` first child → bare call `foo()` — callee = that identifier
+///   - `navigation_expression` first child → method call `obj.method()` or `a.b.c()`.
+///     The navigation_expression always has a `navigation_suffix` named child which
+///     contains the terminal `simple_identifier` (the method name). Verified for both
+///     shallow (`obj.method`) and deep (`a.b.c`) chaining.
+///
+/// `call_expression` does NOT appear in `import_kinds` (`import_declaration`).
+/// No dual-use conflict.
 pub fn swift_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "swift",
@@ -719,10 +830,11 @@ pub fn swift_config() -> LanguageConfig {
         type_kinds: &["protocol_declaration", "typealias_declaration"],
         module_kinds: &[],
         import_kinds: &["import_declaration"],
-        // Deferred: Swift AST verified (call_expression with simple_identifier)
-        // but Swift also wraps method calls in navigation_expression chains which
-        // requires careful disambiguation to avoid false positives. Deferred.
-        call_kinds: &[],
+        // Verified: tree-sitter-swift uses `call_expression` for all calls.
+        // Bare calls (simple_identifier first child) and navigation calls
+        // (navigation_expression → navigation_suffix → simple_identifier) both handled.
+        // No overlap with import_kinds.
+        call_kinds: &["call_expression"],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -758,6 +870,14 @@ pub fn kotlin_config() -> LanguageConfig {
 }
 
 /// Scala language config.
+///
+/// `call_kinds`: verified via AST dump — tree-sitter-scala uses `call_expression`
+/// for function/method calls. The first named child is an `identifier` for simple
+/// calls (e.g., `foo()`, `baz(42)`). Chained calls (e.g., `list.map(f)`) would
+/// have a non-identifier first child and return `None` from extract_callee safely.
+///
+/// `call_expression` does NOT appear in `import_kinds` (`import_declaration`).
+/// No dual-use conflict.
 pub fn scala_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "scala",
@@ -769,8 +889,10 @@ pub fn scala_config() -> LanguageConfig {
         type_kinds: &["trait_definition", "type_definition"],
         module_kinds: &["object_definition", "package_clause"],
         import_kinds: &["import_declaration"],
-        // Deferred: Scala call AST not yet inspected.
-        call_kinds: &[],
+        // Verified: tree-sitter-scala uses `call_expression` for calls.
+        // First named child is `identifier` for simple calls; others return None.
+        // No overlap with import_kinds.
+        call_kinds: &["call_expression"],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -2125,8 +2247,326 @@ mod tests {
         );
     }
 
-    // Verify non-piloted languages (Ruby, Swift, PHP, etc.) still produce
-    // zero calls edges — they must be unchanged by this pilot.
+    // ===================================================================
+    // Temporary AST inspection tests — dump node kinds for verification.
+    // These are #[ignore] so they never run in CI, but can be activated
+    // with `cargo test -- --ignored` to inspect AST structure.
+    // ===================================================================
+
+    #[test]
+    #[ignore]
+    fn ast_dump_cpp_calls() {
+        let src = b"void foo(int x) {}\nvoid bar() { foo(42); obj.method(); }";
+        let dump = dump_ast(tree_sitter_cpp::LANGUAGE.into(), src);
+        println!("=== C++ AST ===\n{}", dump);
+    }
+
+    #[test]
+    #[ignore]
+    fn ast_dump_php_calls() {
+        let src = b"<?php\nfunction foo() {}\nfunction bar() { foo(); $obj->method(); SomeClass::staticMethod(); }";
+        let dump = dump_ast(tree_sitter_php::LANGUAGE_PHP.into(), src);
+        println!("=== PHP AST ===\n{}", dump);
+    }
+
+    #[test]
+    #[ignore]
+    fn ast_dump_scala_calls() {
+        let src = b"def foo(): Int = 1\ndef bar(): Int = { foo(); baz(42) }";
+        let dump = dump_ast(tree_sitter_scala::LANGUAGE.into(), src);
+        println!("=== Scala AST ===\n{}", dump);
+    }
+
+    #[test]
+    #[ignore]
+    fn ast_dump_swift_calls() {
+        let src = b"func foo() -> Int { return 1 }\nfunc bar() { foo(); obj.method() }";
+        let dump = dump_ast(tree_sitter_swift::LANGUAGE.into(), src);
+        println!("=== Swift AST ===\n{}", dump);
+    }
+
+    #[test]
+    #[ignore]
+    fn ast_dump_swift_navigation_detail() {
+        // Check detailed structure of navigation_expression for method extraction
+        let src = b"func bar() { obj.method(); a.b.c() }";
+        let dump = dump_ast(tree_sitter_swift::LANGUAGE.into(), src);
+        println!("=== Swift navigation detail ===\n{}", dump);
+    }
+
+    // ===================================================================
+    // call_kinds tests — C++, PHP, Scala, Swift (new pilots)
+    // ===================================================================
+
+    #[test]
+    fn cpp_calls_simple_function() {
+        // bar() calls foo() (simple) and obj.method() (member via field_expression).
+        let src = b"void foo(int x) {}\nvoid bar() { foo(42); obj.method(); }";
+        let ext = cpp_extractor();
+        let result = ext.extract(src, "file::test.cpp").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) expected callees present
+        assert!(
+            call_edges.contains(&"foo"),
+            "Should have calls edge to foo. call edges: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"method"),
+            "Should have calls edge to 'method' (field_expression → field_identifier). Got: {:?}",
+            call_edges
+        );
+
+        // (b) no bogus callees
+        let bogus = ["void", "int", "return", "if", "obj"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn cpp_no_calls_from_class_definition() {
+        // Class + method declarations only — no call sites.
+        let src = b"namespace myns {\nclass Widget {\npublic:\n    void draw();\n};\n}";
+        let ext = cpp_extractor();
+        let result = ext.extract(src, "file::test.cpp").unwrap();
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+        assert!(
+            call_edges.is_empty(),
+            "No calls edges expected from C++ class definition only. Got: {:?}",
+            call_edges
+        );
+    }
+
+    #[test]
+    fn php_calls_function_and_member() {
+        // bar() calls foo() (function_call_expression), $obj->method()
+        // (member_call_expression), and SomeClass::staticMethod()
+        // (scoped_call_expression).
+        let src = b"<?php\nfunction foo() {}\nfunction bar() { foo(); $obj->method(); SomeClass::staticMethod(); }";
+        let ext = php_extractor();
+        let result = ext.extract(src, "file::test.php").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) all three callee forms present
+        assert!(
+            call_edges.contains(&"foo"),
+            "Should have calls edge to foo (function_call_expression). Got: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"method"),
+            "Should have calls edge to 'method' (member_call_expression). Got: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"staticMethod"),
+            "Should have calls edge to 'staticMethod' (scoped_call_expression). Got: {:?}",
+            call_edges
+        );
+
+        // (b) receiver names and keywords must not appear
+        let bogus = ["SomeClass", "obj", "function", "php"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn php_no_calls_from_class_definition() {
+        // A PHP class with only property declarations — no call sites.
+        let src = b"<?php\nclass Config {\n    public int $maxRetries = 3;\n    public string $name = 'app';\n}";
+        let ext = php_extractor();
+        let result = ext.extract(src, "file::Config.php").unwrap();
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+        assert!(
+            call_edges.is_empty(),
+            "No calls edges expected from PHP class definition only. Got: {:?}",
+            call_edges
+        );
+    }
+
+    #[test]
+    fn scala_calls_simple_function() {
+        // bar() calls foo() and baz(42) — both are `call_expression` with
+        // `identifier` first child.
+        let src = b"def foo(): Int = 1\ndef baz(x: Int): Int = x\ndef bar(): Int = { foo(); baz(42) }";
+        let ext = scala_extractor();
+        let result = ext.extract(src, "file::test.scala").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) expected callees
+        assert!(
+            call_edges.contains(&"foo"),
+            "Should have calls edge to foo. Got: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"baz"),
+            "Should have calls edge to baz. Got: {:?}",
+            call_edges
+        );
+
+        // (b) no bogus callees
+        let bogus = ["def", "Int", "val", "return"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn scala_no_calls_from_function_definition() {
+        // A Scala function with only a literal body — no call sites.
+        let src = b"def square(x: Int): Int = x * x";
+        let ext = scala_extractor();
+        let result = ext.extract(src, "file::test.scala").unwrap();
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+        assert!(
+            call_edges.is_empty(),
+            "No calls edges expected from Scala pure definition. Got: {:?}",
+            call_edges
+        );
+    }
+
+    #[test]
+    fn swift_calls_bare_and_navigation() {
+        // bar() calls foo() (simple_identifier) and obj.method() (navigation_expression).
+        let src = b"func foo() -> Int { return 1 }\nfunc bar() { foo(); obj.method() }";
+        let ext = swift_extractor();
+        let result = ext.extract(src, "file::test.swift").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) bare call extracted
+        assert!(
+            call_edges.contains(&"foo"),
+            "Should have calls edge to foo. Got: {:?}",
+            call_edges
+        );
+        // (b) navigation call: trailing method name extracted
+        assert!(
+            call_edges.contains(&"method"),
+            "Should have calls edge to 'method' (navigation_expression → navigation_suffix). Got: {:?}",
+            call_edges
+        );
+
+        // (c) receiver and keywords must not appear
+        let bogus = ["obj", "func", "return", "Int", "let", "var"];
+        for bad in bogus {
+            assert!(
+                !call_edges.contains(&bad),
+                "Bogus callee '{}' must not appear. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn swift_calls_deep_chain() {
+        // `a.b.c()` — deep navigation chain. The terminal identifier `c` should
+        // be the callee, not `a` or `b`.
+        let src = b"func bar() { a.b.c() }";
+        let ext = swift_extractor();
+        let result = ext.extract(src, "file::test.swift").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        assert!(
+            call_edges.contains(&"c"),
+            "Deep chain a.b.c() should extract 'c' as callee. Got: {:?}",
+            call_edges
+        );
+        // Intermediate chain elements must not appear
+        assert!(
+            !call_edges.contains(&"a"),
+            "'a' must not appear as callee in chain. Got: {:?}",
+            call_edges
+        );
+        assert!(
+            !call_edges.contains(&"b"),
+            "'b' must not appear as callee in chain. Got: {:?}",
+            call_edges
+        );
+    }
+
+    #[test]
+    fn swift_no_calls_from_struct_definition() {
+        // A Swift struct/class with only stored properties — no call sites.
+        let src = b"struct Point {\n    var x: Int\n    var y: Int\n}";
+        let ext = swift_extractor();
+        let result = ext.extract(src, "file::test.swift").unwrap();
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+        assert!(
+            call_edges.is_empty(),
+            "No calls edges expected from Swift struct definition only. Got: {:?}",
+            call_edges
+        );
+    }
+
+    // Verify non-piloted languages (Ruby, Bash, Lua) still produce
+    // zero calls edges — they must be unchanged by this expansion.
+    // PHP, Scala, and Swift have been graduated to piloted status above.
     #[test]
     fn non_piloted_languages_emit_no_calls_edges() {
         let cases: &[(&str, Box<dyn Extractor>, &[u8])] = &[
@@ -2134,16 +2574,6 @@ mod tests {
                 "ruby",
                 Box::new(ruby_extractor()),
                 b"def foo; end\ndef bar; foo; end" as &[u8],
-            ),
-            (
-                "php",
-                Box::new(php_extractor()),
-                b"<?php\nfunction foo() {}\nfunction bar() { foo(); }",
-            ),
-            (
-                "scala",
-                Box::new(scala_extractor()),
-                b"def foo(): Int = 1\ndef bar(): Int = foo()",
             ),
             (
                 "bash",
