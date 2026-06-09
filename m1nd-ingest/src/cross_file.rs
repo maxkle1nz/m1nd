@@ -1715,17 +1715,7 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     // tree-sitter extractor emits the full group text which will not match any stem.
     // External/vendor namespaces with no ingested .php file stay unresolved.
     //
-    // NOTE: Ruby cross-file resolution is DEFERRED.
-    // Ruby's import_kinds uses `call` for require/require_relative, which is the same node
-    // kind as ALL method calls. The tree-sitter extractor therefore emits an `imports` ref::
-    // edge for every call that has a string argument (e.g. `File.read("model.rb")` would
-    // fabricate an edge to model.rb). We cannot safely disambiguate require from non-require
-    // calls without inspecting the callee name inside the cross-file resolver, but even then
-    // false positives from calls like `system("script.rb")` remain.
-    // Correct resolution requires a dedicated Ruby import scanner that reads the source line
-    // and checks for `require` / `require_relative` keywords explicitly — deferred to a
-    // future pass that does exactly that (like collect_js_import_edges_from_files does for
-    // JS require calls).
+    // Step 11 (continued): PHP cross-file import resolution (unchanged).
     let php_index = PhpNamespaceIndex::build(graph);
     stats.files_indexed += php_index.stem_to_files.len() as u64;
     let php_import_edges = collect_php_import_edges_from_files(graph, root, &php_index);
@@ -1745,6 +1735,41 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     stats.files_indexed += scala_index.stem_to_files.len() as u64;
     let scala_import_edges = collect_scala_import_edges_from_files(graph, root, &scala_index);
     for (source_file_id, target_file_id, relation) in &scala_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 13: Ruby cross-file import resolution via dedicated require scanner.
+    //
+    // Ruby's tree-sitter config previously used `import_kinds: &["call"]` to catch
+    // `require` / `require_relative` calls, but that mis-tagged ALL method calls as
+    // imports (e.g. `File.read("x.rb")`, `system("script.rb")`) — noisy and wrong.
+    // That config has been changed to `import_kinds: &[]` (see tree_sitter_ext.rs).
+    //
+    // This dedicated scanner reads each .rb file's source and recognises only:
+    //   - `require_relative "PATH"` / `require_relative 'PATH'` — always relative to
+    //     the current file's directory; resolves to an ingested .rb file node.
+    //   - `require "./PATH"` / `require '../PATH'` — relative require with an explicit
+    //     `./` or `../` prefix; same relative resolution.
+    //
+    // What stays UNRESOLVED (correct behaviour — never fabricate):
+    //   - Bare `require "json"` / `require "active_support"` — gem / stdlib on the
+    //     Ruby load path; no local file can be reliably identified.
+    //   - `require` whose argument is a variable or expression (not a string literal).
+    //
+    // Ruby calls (`calls` edges) are DEFERRED.
+    //   The Ruby `call` AST node encodes the callee in a named `method` field, which is
+    //   NOT handled by the generic `extract_callee` function (all other languages use the
+    //   first named child / positional fields). Adding Ruby call support requires a new
+    //   `extract_callee` pattern for the `method` field, verification via AST dump, and
+    //   a test pinning callee names + no-call-on-definition — deferred to a separate pass.
+    let ruby_index = RubyFileIndex::build(graph);
+    stats.files_indexed += ruby_index.path_to_file.len() as u64;
+    let ruby_import_edges = collect_ruby_import_edges_from_files(graph, root, &ruby_index);
+    for (source_file_id, target_file_id, relation) in &ruby_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
         } else {
@@ -2862,6 +2887,196 @@ fn collect_scala_import_edges_from_files(
                         edges.push((
                             ext_id.clone(),
                             target_id.to_string(),
+                            "imports".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
+// Ruby require index + dedicated scanner
+// ---------------------------------------------------------------------------
+
+/// Maps Ruby relative paths (without extension) to file external IDs.
+///
+/// Used exclusively by the dedicated Ruby require scanner (`collect_ruby_import_edges_from_files`)
+/// which only recognises `require_relative` and relative `require` calls — it does NOT
+/// resolve bare `require "json"` / `require "rails"` (stdlib/gem load-path entries).
+///
+/// Keys are stored without the `.rb` extension so that both `require_relative "callee"`
+/// (no extension) and `require_relative "callee.rb"` (explicit extension) can be resolved
+/// by a single lookup.
+struct RubyFileIndex {
+    /// Canonical relative path (no .rb extension, no leading ./) → file external ID
+    /// e.g. "app/models/user" → "file::app/models/user.rb"
+    path_to_file: HashMap<String, String>,
+}
+
+const RUBY_EXTENSION: &str = "rb";
+
+impl RubyFileIndex {
+    /// Build the index from all `.rb` file nodes in the graph.
+    fn build(graph: &Graph) -> Self {
+        let mut path_to_file: HashMap<String, String> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) if p.ends_with(&format!(".{}", RUBY_EXTENSION)) => p,
+                _ => continue,
+            };
+
+            // Strip .rb extension to get canonical key
+            // e.g. "app/models/user.rb" → "app/models/user"
+            let without_ext = &rel_path[..rel_path.len() - RUBY_EXTENSION.len() - 1];
+
+            // Register under canonical path; first registration wins
+            path_to_file
+                .entry(without_ext.to_string())
+                .or_insert_with(|| ext_id.clone());
+        }
+
+        Self { path_to_file }
+    }
+
+    /// Resolve a require-relative path to a file external ID.
+    ///
+    /// `path`: the raw string from the require argument, e.g. `"callee"`, `"./callee"`,
+    ///   `"../lib/helper"`, or `"callee.rb"`.
+    /// `source_dir`: the directory of the requiring file (e.g. `"app/controllers"`).
+    ///
+    /// Returns None when the path cannot be matched to any ingested `.rb` file.
+    fn resolve(&self, path: &str, source_dir: &str) -> Option<&str> {
+        // Normalise: strip .rb extension if present
+        let path = if path.ends_with(&format!(".{}", RUBY_EXTENSION)) {
+            &path[..path.len() - RUBY_EXTENSION.len() - 1]
+        } else {
+            path
+        };
+
+        // Resolve against source_dir via join_path (handles ./ and ../)
+        let joined = join_path(source_dir, path);
+
+        // Exact lookup in the index
+        self.path_to_file.get(joined.as_str()).map(|s| s.as_str())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ruby import edge collection
+// ---------------------------------------------------------------------------
+
+/// Dedicated Ruby require scanner.
+///
+/// Scans all `.rb` file nodes, reads their source from disk, and extracts
+/// ONLY genuine local-file requires:
+///
+/// 1. `require_relative "PATH"` / `require_relative 'PATH'`
+///    — always relative to the current file's directory; resolves to the
+///    ingested .rb file at that relative path.
+///
+/// 2. `require "./PATH"` / `require '../PATH'`
+///    — explicit relative require (leading `./` or `../`); same resolution.
+///
+/// What is intentionally NOT resolved:
+///   - `require "json"`, `require "rails"` — bare names without a leading
+///     `./` or `../` are gem/stdlib requires on the Ruby $LOAD_PATH; we
+///     have no load-path information and will not fabricate edges.
+///   - `require` whose argument is a variable or interpolated string.
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_ruby_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    ruby_index: &RubyFileIndex,
+) -> Vec<(String, String, String)> {
+    // Pattern 1: require_relative "PATH" or require_relative 'PATH'
+    // Captures the path string (without quotes).
+    let re_require_relative =
+        Regex::new(r#"^\s*require_relative\s+['"]([^'"]+)['"]"#).unwrap();
+
+    // Pattern 2: require "./PATH" or require '../PATH'  (explicitly relative)
+    // Only matches when the path starts with ./ or ../ (bare names are gems/stdlib).
+    let re_require_relative_explicit =
+        Regex::new(r#"^\s*require\s+['"](\.\.?/[^'"]+)['"]"#).unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) if p.ends_with(&format!(".{}", RUBY_EXTENSION)) => p,
+            _ => continue,
+        };
+
+        // Source directory for relative path resolution
+        let source_dir = match rel_path.rfind('/') {
+            Some(idx) => &rel_path[..idx],
+            None => "",
+        };
+
+        // Read the source file from disk
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            // Skip empty lines and comments
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            // Collect candidate paths from this line
+            let mut candidate_paths: Vec<String> = Vec::new();
+
+            // require_relative (always relative to source file)
+            if let Some(caps) = re_require_relative.captures(trimmed) {
+                candidate_paths.push(caps.get(1).unwrap().as_str().to_string());
+            }
+
+            // require with explicit ./ or ../ prefix
+            if let Some(caps) = re_require_relative_explicit.captures(trimmed) {
+                candidate_paths.push(caps.get(1).unwrap().as_str().to_string());
+            }
+
+            for path in candidate_paths {
+                if let Some(target_file_id) = ruby_index.resolve(&path, source_dir) {
+                    // Skip self-requires (edge from a file to itself)
+                    if target_file_id == ext_id {
+                        continue;
+                    }
+                    let key = (ext_id.clone(), target_file_id.to_string());
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
+                        edges.push((
+                            ext_id.clone(),
+                            target_file_id.to_string(),
                             "imports".to_string(),
                         ));
                     }
@@ -4173,6 +4388,150 @@ mod tests {
             resolved,
             vec!["file::com/example/foo/Bar.scala"],
             "Suffix match should pick the deeper match. Got: {:?}",
+            resolved
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // RubyFileIndex tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: add a Ruby file node to the graph.
+    fn add_ruby_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
+        let ext_id = format!("file::{}", rel_path);
+        let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        graph
+            .add_node(&ext_id, label, NodeType::File, &["ruby"], 0.0, 0.3)
+            .unwrap()
+    }
+
+    /// `require_relative "callee"` (sibling, no extension) → resolved imports edge.
+    ///
+    /// This is the primary integration test for Task A: a `caller.rb` using
+    /// `require_relative "callee"` with `callee.rb` as a sibling file resolves to a
+    /// file→file `imports` edge in the graph.
+    #[test]
+    fn ruby_cross_file_require_relative_resolves() {
+        let mut graph = Graph::with_capacity(8, 8);
+        add_ruby_file_node(&mut graph, "app/caller.rb");
+        add_ruby_file_node(&mut graph, "app/callee.rb");
+
+        let index = RubyFileIndex::build(&graph);
+
+        // `require_relative "callee"` from app/caller.rb → source_dir = "app"
+        // path = "callee" → join_path("app", "callee") = "app/callee"
+        // index lookup: "app/callee" → "file::app/callee.rb"
+        let resolved = index.resolve("callee", "app");
+        assert_eq!(
+            resolved,
+            Some("file::app/callee.rb"),
+            "require_relative \"callee\" should resolve to app/callee.rb. Got: {:?}",
+            resolved
+        );
+
+        // Also verify with explicit .rb extension: `require_relative "callee.rb"`
+        let resolved_ext = index.resolve("callee.rb", "app");
+        assert_eq!(
+            resolved_ext,
+            Some("file::app/callee.rb"),
+            "require_relative \"callee.rb\" should also resolve. Got: {:?}",
+            resolved_ext
+        );
+
+        // Add the cross-file edge and verify it lands in the graph
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::app/caller.rb",
+            "file::app/callee.rb",
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge caller.rb → callee.rb should be added");
+        assert_eq!(stats.total_edges_created, 1);
+
+        // Verify the edge is in pending_edges with correct src/tgt
+        let caller_id = graph.resolve_id("file::app/caller.rb").unwrap();
+        let callee_id = graph.resolve_id("file::app/callee.rb").unwrap();
+        let edge = graph
+            .csr
+            .pending_edges
+            .iter()
+            .find(|e| e.source == caller_id && e.target == callee_id);
+        assert!(
+            edge.is_some(),
+            "imports edge app/caller.rb → app/callee.rb must be in graph pending_edges"
+        );
+    }
+
+    /// `require "json"` (bare stdlib/gem require) → NO edge (stays unresolved).
+    ///
+    /// Bare requires without a leading `./` or `../` are gem/stdlib requires on the
+    /// Ruby $LOAD_PATH. We have no load-path information and must not fabricate edges.
+    #[test]
+    fn ruby_bare_require_stays_unresolved() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_ruby_file_node(&mut graph, "app/service.rb");
+        // NOTE: deliberately no "json.rb" or "rails.rb" file in the graph
+
+        let index = RubyFileIndex::build(&graph);
+
+        // `require "json"` — bare name, no ./ prefix → must not resolve
+        // source_dir = "app", but bare name "json" joined with "app" = "app/json"
+        // which is not in the index → correct None
+        let resolved = index.resolve("json", "app");
+        assert!(
+            resolved.is_none(),
+            "Bare require \"json\" must not resolve to any project file (stdlib). Got: {:?}",
+            resolved
+        );
+
+        // `require "active_record"` — gem require
+        let resolved_gem = index.resolve("active_record", "app");
+        assert!(
+            resolved_gem.is_none(),
+            "Bare require \"active_record\" must not resolve to any project file (gem). Got: {:?}",
+            resolved_gem
+        );
+    }
+
+    /// `require_relative "../lib/helper"` (parent-dir relative) → resolves correctly.
+    #[test]
+    fn ruby_require_relative_parent_dir_resolves() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_ruby_file_node(&mut graph, "app/controllers/orders.rb");
+        add_ruby_file_node(&mut graph, "app/lib/helper.rb");
+
+        let index = RubyFileIndex::build(&graph);
+
+        // `require_relative "../lib/helper"` from "app/controllers/" dir
+        // join_path("app/controllers", "../lib/helper") = "app/lib/helper"
+        // index lookup: "app/lib/helper" → "file::app/lib/helper.rb"
+        let resolved = index.resolve("../lib/helper", "app/controllers");
+        assert_eq!(
+            resolved,
+            Some("file::app/lib/helper.rb"),
+            "require_relative \"../lib/helper\" should resolve to app/lib/helper.rb. Got: {:?}",
+            resolved
+        );
+    }
+
+    /// `require "./PATH"` (explicit relative require with ./ prefix) → resolves.
+    #[test]
+    fn ruby_require_explicit_relative_resolves() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_ruby_file_node(&mut graph, "lib/core.rb");
+        add_ruby_file_node(&mut graph, "lib/util.rb");
+
+        let index = RubyFileIndex::build(&graph);
+
+        // `require "./util"` from "lib/" dir
+        // join_path("lib", "./util") = "lib/util"
+        let resolved = index.resolve("./util", "lib");
+        assert_eq!(
+            resolved,
+            Some("file::lib/util.rb"),
+            "require \"./util\" should resolve to lib/util.rb. Got: {:?}",
             resolved
         );
     }

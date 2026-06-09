@@ -752,7 +752,10 @@ pub fn ruby_config() -> LanguageConfig {
         enum_kinds: &[],
         type_kinds: &[],
         module_kinds: &["module"],
-        import_kinds: &["call"], // require/require_relative are method calls
+        // Ruby imports are handled by the dedicated require_relative scanner
+        // (collect_ruby_import_edges_from_files in cross_file.rs). Using "call"
+        // here mis-tagged EVERY method call as an import; removed to stop the noise.
+        import_kinds: &[],
         // Deferred: Ruby uses `call` for ALL method calls, but `call` is also
         // used in import_kinds (for require/require_relative). Mixing call-graph
         // edges with the same node kind requires disambiguation logic (check
