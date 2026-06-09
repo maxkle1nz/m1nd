@@ -1989,14 +1989,26 @@ pub fn handle_predict(
         })
         .collect();
 
-    Ok(serde_json::json!({
+    let mut predict_out = serde_json::json!({
         "changed_node": input.changed_node,
         "predictions": prediction_output,
         "co_change_count": co_change_count,
         "structural_fallback_count": structural_fallback_count,
         "heuristic_reranked": true,
         "velocity": velocity,
-    }))
+    });
+    // Honest empty-state guidance: co-change predictions need the git co-change
+    // matrix, which `ghost_edges` builds. Without it predict falls back to
+    // structural edges only; if both are empty, tell the agent how to populate.
+    if co_change_count == 0 && structural_fallback_count == 0 {
+        predict_out.as_object_mut().unwrap().insert(
+            "note".into(),
+            serde_json::json!(
+                "No co-change history loaded — run `ghost_edges` (parses git commit history into the co-change matrix) before `predict`, then re-run. Velocity is still computed from change_frequency."
+            ),
+        );
+    }
+    Ok(predict_out)
 }
 
 /// Handle m1nd.fingerprint (03-MCP Section 2.8).

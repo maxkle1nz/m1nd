@@ -47,10 +47,11 @@ This gives you codebase-aware context.
 `learn(feedback)` → `memorize` any durable finding. Use `seek` for keyword search, \
 `scan` for broad discovery, `trace` for dependency chains, `timeline` for temporal ordering.
 
-**Code Change**: `impact(node)` (blast radius) → `predict(node)` (co-change likelihood) → \
-`counterfactual(nodes)` (simulate removal) → `warmup(task_description)` (prime graph) → \
-`memorize` the decision and why (with `evidence` paths). Use `differential` to compare two \
-subgraphs. Use `hypothesize` to test what-if scenarios.
+**Code Change**: `impact(node)` (blast radius) → `predict(node)` (co-change likelihood; \
+run `ghost_edges` first to load the git co-change matrix, else predict has only \
+structural fallback) → `counterfactual(nodes)` (simulate removal) → \
+`warmup(task_description)` (prime graph) → `memorize` the decision and why (with \
+`evidence` paths). Use `differential` to compare two subgraphs. `hypothesize` to test what-ifs.
 
 **Deep Analysis**: `resonate(query)` for standing-wave harmonic patterns. \
 `fingerprint(nodes)` for duplicate/equivalence detection. `diverge(baseline)` detects \

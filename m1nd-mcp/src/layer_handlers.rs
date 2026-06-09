@@ -7745,14 +7745,24 @@ pub fn handle_tremor(
         })
         .collect();
 
-    Ok(serde_json::json!({
+    let mut tremor_out = serde_json::json!({
         "tremors": tremors_json,
         "window": result.window,
         "threshold": result.threshold,
         "total_nodes_analyzed": result.total_nodes_analyzed,
         "nodes_with_sufficient_data": result.nodes_with_sufficient_data,
         "elapsed_ms": result.elapsed_ms,
-    }))
+    });
+    // Honest empty-state guidance: tremor needs change-velocity observations.
+    if result.nodes_with_sufficient_data == 0 {
+        tremor_out.as_object_mut().unwrap().insert(
+            "note".into(),
+            serde_json::json!(
+                "No velocity observations yet — tremor measures the second derivative of change over time. Run `ghost_edges` (parses git commit history) to seed change velocity, then re-run; or accumulate observations via the daemon."
+            ),
+        );
+    }
+    Ok(tremor_out)
 }
 
 /// Handle m1nd.trust — per-module trust scores from defect history.
@@ -7802,7 +7812,7 @@ pub fn handle_trust(
         })
         .collect();
 
-    Ok(serde_json::json!({
+    let mut trust_out = serde_json::json!({
         "trust_scores": scores_json,
         "summary": {
             "total_nodes_with_history": result.summary.total_nodes_with_history,
@@ -7814,7 +7824,17 @@ pub fn handle_trust(
         },
         "scope": result.scope,
         "elapsed_ms": result.elapsed_ms,
-    }))
+    });
+    // Honest empty-state guidance: trust is a defect-history model, not churn.
+    if result.summary.total_nodes_with_history == 0 {
+        trust_out.as_object_mut().unwrap().insert(
+            "note".into(),
+            serde_json::json!(
+                "No defect history yet — trust is an actuarial model of CONFIRMED defects, populated by `learn` feedback (feedback='wrong'/'partial') and cross_verify findings, NOT by code churn. mean_trust 0.5 is the cold-start neutral prior, not a computed score."
+            ),
+        );
+    }
+    Ok(trust_out)
 }
 
 /// Handle m1nd.layers — auto-detect architectural layers.
