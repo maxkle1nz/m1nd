@@ -4,20 +4,15 @@
   <img src="../.github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">为代理优先设计，也欢迎人类使用。</h3>
+<h1 align="center">面向代码智能体的本地任务运行时</h1>
 
 <p align="center">
-  <strong>在你改代码前，先看清会坏什么。</strong><br/>
-  <strong>向代码库提问，得到的是地图，不是迷宫。</strong><br/><br/>
-  m1nd 会先把代码库摄入为图，再让代理直接询问结构、影响范围、关联上下文和下一步验证，而不是一轮轮回到 grep/read 漂移。<br/>
-  <em>本地执行。通过 stdio 提供 MCP；当前默认构建中还包含可选的 HTTP/UI 界面。</em>
+  <strong>你的代码智能体不再盲目启动。</strong><br/>
+  <em>本地优先。原生 MCP。为智能体宿主提供图记忆、信任机制和变更推理。</em>
 </p>
 
 <p align="center">
-  <strong>基于当前代码、测试和已发布工具表面的真实信息。</strong>
-</p>
-
-<p align="center">
+  <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
   <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
@@ -25,27 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="#身份">身份</a> &middot;
-  <a href="#m1nd-做什么">m1nd 做什么</a> &middot;
-  <a href="#为什么使用-m1nd">为什么使用 m1nd</a> &middot;
-  <a href="#快速开始">快速开始</a> &middot;
-  <a href="#使用场景">使用场景</a> &middot;
-  <a href="#何时不要使用-m1nd">何时不要使用 m1nd</a> &middot;
-  <a href="#选择合适的工具">选择合适的工具</a> &middot;
-  <a href="#配置你的代理">配置你的代理</a> &middot;
-  <a href="#结果与测量">结果与测量</a> &middot;
-  <a href="#m1nd-的位置">m1nd 的位置</a> &middot;
-  <a href="#它有何不同">它有何不同</a> &middot;
-  <a href="#代理操作流程">代理操作流程</a> &middot;
-  <a href="#工具表面">工具表面</a> &middot;
-  <a href="#贡献">贡献</a> &middot;
-  <a href="#许可证">许可证</a> &middot;
-  <a href="../EXAMPLES.md">示例</a>
-</p>
-
-<h4 align="center">适用于任何 MCP 客户端</h4>
-
-<p align="center">
+  <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/OpenAI_Codex-412991?logo=openai&logoColor=fff" alt="OpenAI Codex" /></a>
   <a href="https://claude.ai/download"><img src="https://img.shields.io/badge/Claude_Code-f0ebe3?logo=claude&logoColor=d97706" alt="Claude Code" /></a>
   <a href="https://cursor.sh"><img src="https://img.shields.io/badge/Cursor-000?logo=cursor&logoColor=fff" alt="Cursor" /></a>
   <a href="https://codeium.com/windsurf"><img src="https://img.shields.io/badge/Windsurf-0d1117?logo=windsurf&logoColor=3ec9a7" alt="Windsurf" /></a>
@@ -55,579 +30,226 @@
   <a href="https://roocode.com"><img src="https://img.shields.io/badge/Roo_Code-6d28d9?logoColor=fff" alt="Roo Code" /></a>
   <a href="https://github.com/continuedev/continue"><img src="https://img.shields.io/badge/Continue-000?logoColor=fff" alt="Continue" /></a>
   <a href="https://opencode.ai"><img src="https://img.shields.io/badge/OpenCode-18181b?logoColor=fff" alt="OpenCode" /></a>
+  <a href="https://aistudio.google.com"><img src="https://img.shields.io/badge/Gemini-4285F4?logo=google&logoColor=fff" alt="Gemini" /></a>
   <a href="https://aws.amazon.com/q/developer"><img src="https://img.shields.io/badge/Amazon_Q-232f3e?logo=amazonaws&logoColor=f90" alt="Amazon Q" /></a>
 </p>
 
-<p align="center">
-  <strong>在不到1秒内发现结构性漏洞</strong> &middot; 89% 假设准确率 &middot; 降低 84% 的 LLM 上下文成本
-</p>
-
-<p align="center">
-  <img src="../.github/m1nd-key-visual.png" alt="m1nd 结构智能" width="860" />
-</p>
-
 ---
 
-## 身份
+**m1nd 是面向代码智能体的本地任务运行时——它掌管的是操作循环，而不仅仅是检索。**
 
-m1nd 是面向代码智能体的结构智能。
+> `grep` 能找到文本。向量搜索能找到相似片段。`m1nd` 给智能体一张本地图，显示什么与什么相连、什么发生了变化、什么会崩溃、什么产生了漂移，以及从哪里恢复。
 
-先把代码库摄入一次，转成图，再让代理直接问结构问题。
-在编辑前，m1nd 帮代理看见爆炸半径、关联上下文、可能联动，以及下一步该验证什么。
+以下三点在任何其他工具中都不同时存在：
 
-> 别再每一轮都支付定位成本。
->
-> `grep` 找到你问的内容，`m1nd` 找到你漏掉的内容。
+- **因果代码图** — 编辑前调用 `impact` 可看清你没读到的爆炸半径；`ghost_edges` 会找出那些总是一起变动但没有任何 import 关系的文件。
+- **自我验证记忆** — `memorize` 将发现锚定到真实代码节点；当代码变更时，`cross_verify` 会将其标记为过期。
+- **信任与恢复层** — 每个结果都附带信任模式；`trust_selftest` 和 `recovery_playbook` 会告知智能体工作区绑定何时出错以及如何恢复。
 
-## 为什么使用 m1nd
-
-大多数代理循环都会浪费在同一个模式上：
-
-1. grep 一个符号或短语
-2. 打开一个文件
-3. grep 调用者或相关文件
-4. 打开更多文件
-5. 重复，直到子系统的形状终于清晰
-
-m1nd 适用于“导航成本本身就是瓶颈”的场景。
-
-与其每次都把仓库当作原始文本，不如先构建一次图，然后让代理直接询问：
-
-- 这个失败或子系统相关联的内容是什么
-- 真实的影响范围有哪些文件
-- 某条流、某个守卫或某个边界周围缺了什么
-- 在进行多文件编辑前，哪些关联文件真正重要
-- 为什么某个文件或节点会被排成高风险或重要
-
-实际收益很直接：
-
-- 在代理真正知道该看哪里之前，减少文件读取次数
-- 降低重建仓库上下文时的 token 消耗
-- 更快进行编辑前的影响分析
-- 因为可以一次性拉取调用者、被调用者、测试和热点，所以多文件修改更安全
-
-## m1nd 做什么
-
-m1nd 是一个本地 Rust 工作区，包含三个核心 crate 加一个辅助桥接 crate：
-
-- `m1nd-core`：图引擎、传播、排名、启发式和分析层
-- `m1nd-ingest`：代码和文档摄取、提取器、解析器、合并路径和图构建
-- `m1nd-mcp`：通过 stdio 提供的 MCP 服务器，以及当前默认构建中的 HTTP/UI 界面
-- `m1nd-openclaw`：面向 OpenClaw 集成表面的辅助桥接 crate
-
-当前优势：
-
-- 图驱动的仓库导航
-- 编辑所需的关联上下文
-- 影响范围和可达性分析
-- 堆栈追踪到嫌疑点的映射
-- 结构性检查，例如 `missing`、`hypothesize`、`counterfactual` 和 `layers`
-- 用于 `boot_memory`、`trust`、`tremor` 和 `antibody` 工作流的持久侧车
-
-当前范围：
-
-- 原生/手写提取器支持 Python、TypeScript/JavaScript、Rust、Go 和 Java
-- 在 Tier 1 和 Tier 2 中还支持另外 22 种基于 tree-sitter 的语言
-- 代码、`memory`、`json` 和 `light` 摄取适配器
-- 面向 Rust 仓库的 Cargo workspace 增强
-- 在 surgical 和 planning 路径上的启发式摘要
-- 通用文档 lane，可处理 markdown、HTML/wiki、office 文档和 PDF
-- 本地规范化产物，如 `source.<ext>`、`canonical.md`、`canonical.json`、`claims.json` 和 `metadata.json`
-- 文档侧 MCP 工作流，如 `document_resolve`、`document_bindings`、`document_drift`、`document_provider_health` 和 `auto_ingest_*`
-
-语言覆盖面很广，但深度仍会因语言而异。与许多基于 tree-sitter 的语言相比，Python 和 Rust 的处理更强。
-
-## m1nd 不是
-
-m1nd 不是：
-
-- 编译器
-- 调试器
-- 测试运行器替代品
-- 完整的语义编译器前端
-- 日志、堆栈追踪或运行时证据的替代品
-
-它位于纯文本搜索和重型静态分析之间。它最适合在代理需要比反复 grep/read 循环更快获得结构和关联上下文时使用。
+<p align="center">
+  <img src="../.github/m1nd-agent-first-map-v2.jpeg" alt="传统智能体循环 vs m1nd 接地循环" width="960" />
+</p>
 
 ## 快速开始
 
+最简快捷路径——从源码安装（始终最新）、检查健康状态、连接你的宿主：
+
 ```bash
-git clone https://github.com/maxkle1nz/m1nd.git
-cd m1nd
-cargo build --release --workspace
-./target/release/m1nd-mcp
+git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
+npm install -g .
+m1nd doctor
+m1nd install-skills codex          # 或: claude / gemini / antigravity / generic
+m1nd mcp-config codex --project /your/project
 ```
 
-这会给你一个可工作的本地源码服务器。当前 `main` 分支已经通过 `cargo build --release --workspace` 验证，并提供了可用的 MCP 服务器路径。
+或通过 npm 测试通道安装：`npm install -g @maxkle1nz/m1nd@beta`。
 
-最小 MCP 流程：
+完整安装指南、宿主包、原生运行时构建和更新标志：[docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) · 逐客户端配置：[集成矩阵](../docs/IDE-INTEGRATIONS.md)。
+
+### 智能体入口点
+
+智能体会解析此 README。当宿主 MCP 会话过期、绑定到错误仓库或尚未加载时，使用宿主中立的 CLI——它会启动一个隔离的运行时、将其绑定到仓库，并返回一个机器可读的信封：
+
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
+
+`m1nd agent first-minute` 是接触新仓库最安全的第一步。它会界定仓库范围、建立信任、按需摄入、运行一次有界的定向扫描、返回候选锚点，然后告知智能体直接从源码、测试、编译器/运行时输出、日志或探针来验证。
+
+在 MCP 会话内，教义是如下信任循环——在相信任何检索结果之前，先*建立信任*：
 
 ```jsonc
-// 1. Build the graph
+// 0. 一次调用即可信任绑定（检索前先得出裁决）
+{"method":"tools/call","params":{"name":"trust_selftest","arguments":{"agent_id":"dev"}}}
+
+// 1. 若裁决不是 full_trust，请求确定性恢复路径
+{"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
+
+// 2. 构建图真相
 {"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 
-// 2. Ask for connected structure
+// 3. 提问结构性问题——空结果会说明*原因*，而不只是"无结果"
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
-
-// 3. Inspect blast radius before changing a file
-{"method":"tools/call","params":{"name":"impact","arguments":{"node_id":"file::src/auth.rs","agent_id":"dev"}}}
 ```
 
-添加到 Claude Code（`~/.claude.json`）：
+**首次会话循环，四步完成：** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` 持久化发现，让下次会话提前起跑。
 
-```json
-{
-  "mcpServers": {
-    "m1nd": {
-      "command": "/path/to/m1nd-mcp",
-      "env": {
-        "M1ND_GRAPH_SOURCE": "/tmp/m1nd-graph.json",
-        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json"
-      }
-    }
-  }
-}
-```
+## m1nd 不是什么
 
-适用于任何能够连接 MCP 服务器的 MCP 客户端：Claude Code、Codex、Cursor、Windsurf、Zed，或者你自己的客户端。
+`m1nd` 不只是：
 
-对于更大的仓库和长期使用，请参阅 [Deployment & Production Setup](../docs/deployment.md)。
+- 一个索引更大的代码搜索工具
+- 一个只检索文件或片段的仓库 RAG 层
+- 一个把工作流决策留给客户端的图数据库
+- 一个替代编译器、测试或安全工具的静态分析工具
+- 一个无关工具的 MCP 捆绑包
 
-## 使用场景
+它是将这些界面转化为智能体可以推理和行动的操作系统的那一层。不适用于单文件查找、简单 grep 或编译器真相——那些情况请用普通工具。
 
-m1nd 的最佳 README 不是“它会做图相关的事情”，而是“这些循环能在什么地方真正省工”。
+## 为什么智能体需要它
 
-### 1. 堆栈追踪排查
+没有 m1nd，每次会话都从 grep 循环和手动重新定向开始；上周的发现已消失，空搜索结果与错误工作区绑定无从区分。有了 m1nd，会话以信任裁决开始，过去的发现已自动加载并锚定到支撑它们的代码，空结果会说明*原因*。
 
-当你有堆栈追踪或失败输出，并且需要真实的嫌疑点集合，而不是只看最上层那一帧时，就用 `trace`。
+在真实代码库上工作的智能体失败，不是因为无法搜索，而是因为没有操作模型。它们每次会话都从头重建上下文，在不知道爆炸半径的情况下编辑，无法区分"什么都没有"和"仓库绑定错误"这两种空结果。
 
-不用 m1nd 时：
+对于小型代码库，这还行得通。当项目有生成产物、规格文档、隐藏的共变更历史、多个智能体和漫长的交接时，就会崩溃。问题不仅在于智能体的推理——智能体根本没有代码库结构的持久模型。`m1nd` 给了它这个模型：一个跨结构、语义、时间和因果维度进行扩散激活的因果代码图，加上每个智能体跨会话复利的 Hebbian 可塑性。
 
-- grep 失败的符号
-- 打开一个文件
-- 找调用者
-- 打开更多文件
-- 猜真正的根因
+## 复利记忆（L1GHT）
 
-使用 m1nd 时：
+大多数工具给智能体更好的*检索*。`m1nd` 还让智能体能够**撰写持久的、机器可读的知识**，这些知识跨会话复利，并对代码保持诚实。L1GHT 将撰写的知识转化为图原生结构，当所引用代码发生变化时自动标记——高置信度的声明会传播更多激活。
 
-- 运行 `trace`
-- 检查排名后的嫌疑点
-- 用 `activate`、`why` 或 `perspective_*` 跟进关联上下文
+端到端循环：
 
-实际收益：
-
-- 更少盲目读文件
-- 更快从“崩溃点”走到“原因点”
-
-### 2. 找到缺失之处
-
-当问题是“缺失”时，就用 `missing`、`hypothesize` 和 `flow_simulate`：
-
-- 缺少校验
-- 缺少锁
-- 缺少清理
-- 缺少围绕生命周期的抽象
-
-不用 m1nd 时，这通常会变成一个漫长的 grep-and-read 循环，而且停止条件很弱。
-
-使用 m1nd 时，你可以直接请求结构性缺口，或者针对图路径测试一个命题。
-
-### 3. 安全的多文件编辑
-
-当你在编辑陌生或强关联代码时，就用 `validate_plan`、`surgical_context_v2`、`heuristics_surface` 和 `apply_batch`。
-
-不用 m1nd 时：
-
-- grep 调用者
-- grep 测试
-- 阅读邻近文件
-- 在脑中列依赖清单
-- 希望自己没有漏掉下游文件
-
-使用 m1nd 时：
-
-- 先验证计划
-- 一次性拉取主文件和关联文件
-- 查看启发式摘要
-- 在需要时用一个原子批次写入
-
-实际收益：
-
-- 更安全的编辑
-- 更少遗漏邻居
-- 更低的上下文加载成本
-
-## 何时不要使用 m1nd
-
-很多任务并不需要 m1nd，纯工具会更快。
-
-- 你已经明确知道目标文件时，只需要单文件编辑
-- 在整个仓库里做精确字符串替换
-- 统计或 grep 字面文本
-- 编译器事实、测试失败、运行时日志和调试器工作
-
-当需要的是执行层面的真实情况时，就使用 `rg`、编辑器、日志、`cargo test`、`go test`、`pytest` 或编译器。m1nd 是导航和结构上下文工具，不是运行时证据的替代品。
-
-## 选择合适的工具
-
-这是大多数 README 会跳过的部分。如果读者不知道该用哪个工具，整个界面就会显得比实际更大。
-
-| 需求 | 使用 |
-|------|-----|
-| 代码中的精确文本或正则 | `search` |
-| 文件名/路径模式 | `glob` |
-| 像“谁拥有 retry backoff？”这样的自然语言意图 | `seek` |
-| 某个主题周围的关联邻域 | `activate` |
-| 不读取文件就快速查看 | `view` |
-| 为什么某个结果被判定为高风险或重要 | `heuristics_surface` |
-| 修改前的影响范围 | `impact` |
-| 对高风险更改计划做预检 | `validate_plan` |
-| 为编辑收集文件 + 调用者 + 被调用者 + 测试 | `surgical_context` |
-| 一次性获取主文件和关联文件源码 | `surgical_context_v2` |
-| 保存小型持久状态 | `boot_memory` |
-| 保存或恢复调查轨迹 | `trail_save`, `trail_resume`, `trail_merge` |
-
-## 结果与测量
-
-这些数字来自当前仓库文档、基准和测试中的实际示例。把它们当作参考点，而不是对每个仓库都成立的保证。
-
-针对一个 Python/FastAPI 代码库做的案例审计：
-
-| 指标 | 结果 |
-|--------|--------|
-| 单次会话找到的 bug 数 | 39（28 个已确认修复 + 9 个高置信度） |
-| grep 无法发现的数量 | 28 个中的 8 个 |
-| 假设准确率 | 10 个现场命题中 89% |
-| 写入后验证样本 | 在记录的集合中 12/12 个场景被正确分类 |
-| 图引擎自身消耗的 LLM token | 0 |
-| 示例查询次数 vs grep-heavy 循环 | 46 次 vs 约 210 次 |
-| 记录会话中的估计总查询延迟 | 约 3.1 秒 |
-
-当前文档中记录的微基准：
-
-| 操作 | 时间 |
-|-----------|------|
-| `activate` 1K nodes | 1.36 &micro;s |
-| `impact` depth=3 | 543 ns |
-| `flow_simulate` 4 particles | 552 &micro;s |
-| `antibody_scan` 50 patterns | 2.68 ms |
-| `layers` 500 nodes | 862 &micro;s |
-| `resonate` 5 harmonics | 8.17 &micro;s |
-
-这些数字最重要的意义，还是与工作流收益结合起来看：更少在 grep/read 循环里来回折返，也更少把上下文载入模型。
-
-在当前记录的 warm-graph 聚合语料里，`warm` 从 `10518` 降到 `5182` proxy tokens（节省 `50.73%`），把 `false_starts` 从 `14` 降到 `0`，记录了 `31` 次 guided follow-through，以及 `12` 次成功跟随的 recovery loops。
-
-## 配置你的代理
-
-当你的代理把 m1nd 当成结构和关联上下文的第一站，而不是唯一可用的工具时，它的效果最好。
-
-### 要添加到代理 system prompt 的内容
-
-```text
-当任务依赖结构、影响范围、关联上下文或跨文件推理时，请先用 m1nd，而不是直接进入大范围 grep/glob/读文件循环。
-
-- 用 `search` 处理带图感知 scope 的精确文本或 regex
-- 用 `glob` 处理文件名/路径模式
-- 用 `seek` 处理自然语言意图
-- 用 `activate` 获取关联邻域
-- 在高风险编辑前先用 `impact`
-- 需要解释排名时用 `heuristics_surface`
-- 在大范围或强耦合修改前先用 `validate_plan`
-- 准备多文件编辑时用 `surgical_context_v2`
-- 用 `boot_memory` 保存小型持久操作状态
-- 当你不确定该用哪一个工具时，用 `help`
-
-如果任务只是单文件、精确文本，或依赖 runtime/build 真相，请用简单工具。
-```
-
-### Claude Code (`CLAUDE.md`)
-
-```markdown
-## Code Intelligence
-当任务依赖结构、影响范围、关联上下文或跨文件推理时，请先用 m1nd，而不是直接进入大范围 grep/glob/读文件循环。
-
-优先使用：
-- `search` 处理精确代码/文本
-- `glob` 处理文件名模式
-- `seek` 处理意图
-- `activate` 处理相关代码
-- 在编辑前先用 `impact`
-- 在高风险修改前先用 `validate_plan`
-- 用 `surgical_context_v2` 准备多文件编辑
-- 用 `heuristics_surface` 解释排名
-- 当你需要下一个最可能动作时，用 `trail_resume` 做连续性恢复
-- 当你不确定该用哪个工具或如何从错误调用里恢复时，用 `help`
-
-对于单文件编辑、精确文本任务、测试、编译错误和运行时日志，请用简单工具。
-```
-
-### Cursor (`.cursorrules`)
-
-```text
-Prefer m1nd for repo exploration when structure matters:
-- search for exact code/text
-- glob for filename/path patterns
-- seek for intent
-- activate for related code
-- impact before edits
-
-Prefer plain tools for single-file edits, exact string chores, and runtime/build truth.
-```
-
-### 为什么这很重要
-
-目标不是“永远使用 m1nd”，而是“当它能让模型不用从零重建仓库结构时，就用它”。
-
-这通常意味着：
-
-- 在高风险编辑之前
-- 在读取仓库大范围内容之前
-- 在排查失败路径时
-- 在检查架构影响时
-
-## m1nd 的位置
-
-当代理需要图驱动的仓库上下文，而普通文本搜索无法很好提供时，m1nd 最有用：
-
-- 持久化图状态，而不是一次性的搜索结果
-- 在编辑前进行影响和邻域查询
-- 跨会话保存调查轨迹
-- `hypothesize`、`counterfactual` 和 layer inspection 等结构检查
-- 通过 `memory`、`json` 和 `light` 适配器，把代码和文档放进同一个查询空间
-
-它不是 LSP、编译器或运行时可观测性的替代品。它提供的是结构地图，让探索更便宜、编辑更安全。
-
-## 它有何不同
-
-**它保留的是持久图，而不仅仅是搜索结果。** 可以通过 `learn` 强化已确认的路径，之后的查询就能复用这些结构，而不是每次从零开始。
-
-**它可以解释某个结果为什么被排到那个位置。** `heuristics_surface`、`validate_plan`、`predict` 和 surgical 流程都可以暴露启发式摘要和热点引用，而不仅仅是一个分数。
-
-**它可以把代码和文档合并到同一个查询空间。** 代码、markdown memory、结构化 JSON 和 L1GHT 文档都能摄入到同一个图里并一起查询。
-
-**它具备面向写入的工作流。** `surgical_context_v2`、`edit_preview`、`edit_commit` 和 `apply_batch` 更像是编辑准备和编辑验证工具，而不是通用搜索工具。
-
-## 工具表面
-
-请用 `tools/list` 获取你当前构建中的精确 live 数量。下面的类别比写死的数字更重要。
-
-导出的 MCP schema 里，规范工具名使用下划线，例如 `trail_save`、`perspective_start` 和 `apply_batch`。某些客户端可能会显示带传输前缀的别名，但 live registry 和 `tools/list` 返回的是不带前缀的名称。
-
-| Category | Highlights |
-|----------|------------|
-| Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
-| Document Intelligence | document_resolve, document_bindings, document_drift, document_provider_health, auto_ingest_start/status/tick/stop |
-| Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
-| Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
-| Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
-| Reporting & State | report, savings, persist, boot_memory |
-| Surgical | surgical_context, surgical_context_v2, heuristics_surface, apply, edit_preview, edit_commit, apply_batch |
-
-<details>
-<summary><strong>Foundation</strong></summary>
-
-| Tool | 作用 | 速度 |
-|------|-------------|-------|
-| `ingest` | 将一个代码库或语料解析进图中 | 910ms / 335 files |
-| `search` | 带图感知范围处理的精确文本或正则搜索 | varies |
-| `glob` | 文件/路径模式搜索 | varies |
-| `view` | 带行范围的快速文件读取 | varies |
-| `seek` | 通过自然语言意图寻找代码 | 10-15ms |
-| `activate` | 关联邻域检索 | 1.36 &micro;s (bench) |
-| `impact` | 代码变更的爆炸半径 | 543ns (bench) |
-| `why` | 两个节点之间的最短路径 | 5-6ms |
-| `learn` | 强化有用路径的反馈循环 | <1ms |
-| `drift` | 相对于基线发生了什么变化 | 23ms |
-| `health` | 服务器诊断 | <1ms |
-| `warmup` | 为即将开始的任务预热图 | 82-89ms |
-| `federate` | 将多个仓库统一到一张图中 | 1.3s / 2 repos |
-</details>
-
-<details>
-<summary><strong>Perspective Navigation</strong></summary>
-
-| Tool | Purpose |
-|------|---------|
-| `perspective_start` | 打开一个锚定到某个节点或查询的 perspective |
-| `perspective_routes` | 列出当前焦点的路线 |
-| `perspective_follow` | 将焦点移动到某条路线的目标 |
-| `perspective_back` | 向后导航 |
-| `perspective_peek` | 读取焦点节点处的源码 |
-| `perspective_inspect` | 更深的路线元数据和分数分解 |
-| `perspective_suggest` | 导航建议 |
-| `perspective_affinity` | 检查路线与当前调查的相关性 |
-| `perspective_branch` | 分叉出一个独立的 perspective 副本 |
-| `perspective_compare` | 比较两个 perspectives |
-| `perspective_list` | 列出当前活跃的 perspectives |
-| `perspective_close` | 释放 perspective 状态 |
-</details>
-
-<details>
-<summary><strong>Graph Analysis</strong></summary>
-
-| Tool | 作用 | 速度 |
-|------|-------------|-------|
-| `hypothesize` | 针对图测试一个结构性命题 | 28-58ms |
-| `counterfactual` | 模拟节点移除及其级联影响 | 3ms |
-| `missing` | 寻找结构性缺口 | 44-67ms |
-| `resonate` | 寻找结构枢纽和谐波 | 37-52ms |
-| `fingerprint` | 通过拓扑寻找结构上的“孪生体” | 1-107ms |
-| `trace` | 将堆栈追踪映射到可能的结构原因 | 3.5-5.8ms |
-| `validate_plan` | 用热点引用预检变更风险 | 0.5-10ms |
-| `predict` | 带排名依据的共变更预测 | <1ms |
-| `trail_save` | 持久化调查状态 | ~0ms |
-| `trail_resume` | 恢复已保存的调查并建议下一步动作 | 0.2ms |
-| `trail_merge` | 合并多代理调查 | 1.2ms |
-| `trail_list` | 浏览已保存的调查 | ~0ms |
-| `differential` | 图快照之间的结构差异 | varies |
-</details>
-
-<details>
-<summary><strong>Extended Analysis</strong></summary>
-
-| Tool | 作用 | 速度 |
-|------|-------------|-------|
-| `antibody_scan` | 针对已存 bug 模式扫描图 | 2.68ms |
-| `antibody_list` | 列出带匹配历史的已存抗体 | ~0ms |
-| `antibody_create` | 创建、禁用、启用或删除抗体 | ~0ms |
-| `flow_simulate` | 模拟并发执行流 | 552 &micro;s |
-| `epidemic` | SIR 风格的 bug 传播预测 | 110 &micro;s |
-| `tremor` | 变更频率加速度检测 | 236 &micro;s |
-| `trust` | 按模块缺陷历史计算信任分数 | 70 &micro;s |
-| `layers` | 自动检测架构层和违规 | 862 &micro;s |
-| `layer_inspect` | 检查某个特定层 | varies |
-</details>
-
-<details>
-<summary><strong>Surgical</strong></summary>
-
-| Tool | 作用 | 速度 |
-|------|-------------|-------|
-| `surgical_context` | 主文件加上调用者、被调用者、测试和启发式摘要 | varies |
-| `heuristics_surface` | 解释某个文件或节点为什么被判定为高风险或重要 | varies |
-| `surgical_context_v2` | 一次性获取主文件加上关联文件源码 | 1.3ms |
-| `edit_preview` | 预览写入而不触碰磁盘 | <1ms |
-| `edit_commit` | 带 freshness 检查提交预览写入 | <1ms + apply |
-| `apply` | 写入一个文件、重新摄入并更新图状态 | 3.5ms |
-| `apply_batch` | 原子方式写入多个文件并做一次重摄入 | 165ms |
-| `apply_batch(verify=true)` | 批量写入加上写后验证和基于热点的裁决 | 165ms + verify |
-</details>
-
-<details>
-<summary><strong>Reporting & State</strong></summary>
-
-| Tool | 作用 | 速度 |
-|------|-------------|-------|
-| `report` | 会话报告，包含最近查询、节省、图统计和启发式热点 | ~0ms |
-| `savings` | 会话/全局 token、CO2 和成本节省汇总 | ~0ms |
-| `persist` | 保存/加载图和可塑性快照 | varies |
-| `boot_memory` | 持久化小型规范性 doctrine 或操作状态，并将其保存在运行时内存中 | ~0ms |
-</details>
-
-[完整 API 参考与示例 ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
-
-## 写后验证
-
-`apply_batch` 配合 `verify=true` 会运行多个验证层，并返回一个单一的 SAFE / RISKY / BROKEN 风格裁决。
-
-当 `verification.high_impact_files` 包含启发式热点时，即使仅按爆炸半径计算原本会更低，报告也可能被提升为 `RISKY`。
-
-`apply_batch` 现在还会返回：
-
-- `status_message` 和 coarse progress 字段
-- `proof_state`，以及 `next_suggested_tool`、`next_suggested_target`、`next_step_hint`
-- `phases`，作为 `validate`、`write`、`reingest`、`verify`、`done` 的结构化时间线
-- `progress_events`，作为同一生命周期的 streaming-friendly 日志
-- 在 HTTP/UI 传输层，通过 SSE 发送实时 `apply_batch_progress`，并在 batch 结束时给出语义化 handoff
+1. **得出结论** — 智能体得到持久性结论（一个决策、一个经过验证的发现、代码为何如此设计），并用结构化声明和 `evidence` 路径调用 `memorize`。
 
 ```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "apply_batch",
-    "arguments": {
-      "agent_id": "my-agent",
-      "verify": true,
-      "edits": [
-        { "file_path": "/project/src/auth.py", "new_content": "..." },
-        { "file_path": "/project/src/session.py", "new_content": "..." }
-      ]
-    }
-  }
-}
+memorize({
+  "agent_id": "dev",
+  "node_label": "AuthTokenFlow",
+  "claims": [
+    { "label": "TokenValidator", "text": "validates JWTs via HMAC",
+      "confidence": "high", "evidence": ["src/auth/token.rs"] }
+  ]
+})
 ```
 
-分层包括：
+2. **锚定** — m1nd 在 `<runtime>/agent-memory/` 下写入图原生 `.light.md`，摄入它（`adapter=light mode=merge`），并通过 `grounded_in` 边将每条 `evidence` 路径解析到真实代码节点——让知识与代码处于同一激活空间，并在 `seek` / `activate` / `impact` 中浮现。
+3. **自动加载** — 在每次未来会话开始时，`m1nd` 自动摄入 `agent-memory/` 并在 `session_handshake.agent_memory` 中报告。过去的发现在 `mode=replace` 摄入后依然存在，随时可用。
+4. **自动标记过期** — `cross_verify(check: ["evidence_freshness"])` 对每个引用文件重新哈希，并指出哪些声明因代码变更而过期——让记忆在撒谎时告诉你，而不是误导你。
 
-- 结构差异检查
-- 反模式分析
-- 图 BFS 影响
-- 项目测试执行
-- 编译/构建检查
+这个循环已被端到端验证：`memorize` → `grounded_in` 边 → 编辑文件上的新鲜度标志 → 在 `mode=replace` 后存活 → 启动自动加载。关闭一个有界任务？向 `mission_close` 传入 `write_light_memory: true` 以同样方式持久化其经过验证的声明。该习惯记录在每个 MCP 客户端在 `initialize` 时收到的服务器 `instructions` 中——与宿主无关，无需特定客户端插件。
 
-重点不是“形式化证明”，而是在代理离开前捕捉明显破坏和风险扩散。
+## 信任与诚实层
 
-## 代理操作流程
+这是 m1nd 最无可替代的事情，没有竞争对手提供它。教义：**可信度来自诚实，而非永远正确。**
 
-m1nd 对代理的推荐节奏很明确：
+- **`trust_selftest`** 在任何检索*之前*返回裁决：`full_trust`、`needs_ingest`、`wrong_workspace_binding`、`stale_binding_suspected` 或 `degraded_host_tool_surface`。智能体知道是继续、摄入、重新绑定还是降级。
+- **`agent_runtime_contract`** 附在每个检索响应上，携带 `trust_mode`。空结果有明确区分——绑定到错误仓库还是真的什么都没有——而不是静默报告"无结果"。
+- **`non_claims` 数组** 附在每个任务工具上。m1nd 告诉智能体它*没有*证明什么。
+- **`mission_verify` 可以说不——并且在测试代码中确实如此。** 它拒绝纯图证据：声明在没有文件读取、测试运行或运行时探针的情况下无法关闭。该测试的名称字面上就是 `graph_only_evidence_is_not_enough`。
+- **`recovery_playbook`** 返回修复绑定的确定性、有序步骤列表。
 
-- 会话开始：`health -> drift -> ingest`
-- 研究：`ingest -> activate -> why -> missing -> learn`
-- 改代码：`impact -> predict -> counterfactual -> warmup -> surgical/apply`
-- 有状态导航：`perspective_*` 和 `trail_*`
-- 规范热状态：`boot_memory`
+对这一承诺的证明是为此牺牲的东西：`savings` 和 `resonate` 在 beta.7 中从公告的界面中移除，因为一个总声称获胜的工具不可信。没有竞争对手——不是 mem0、Zep、Letta、Sourcegraph，也不是任何代码图 MCP——提供一个告诉智能体*不该信任什么*以及如何恢复的层。
 
-这也是为什么 m1nd 不是只做搜索端点，而是一个有意见的图操作层。
+## 语言覆盖
 
-## 架构
+图推理（`impact`、`why`、`predict`、`trace`、`taint_trace`）取决于提取器的质量。m1nd 为每种语言解析 **`calls` 边**（调用图）和**跨文件 `imports`**（文件→文件依赖解析）。下表在单次多语言摄入中得到验证：
 
-三个 Rust crate。本地执行。核心服务器路径不需要 API keys。
+| 语言 | `calls` | 跨文件 imports |
+|---|:---:|:---:|
+| Rust | ✅ | ✅ (`mod`/`use crate::`) |
+| Python | ✅ | ✅ |
+| JavaScript / TypeScript | ✅ | ✅ |
+| Go | ✅ | ✅（包） |
+| Java | ✅ | ✅（FQCN + 通配符） |
+| C / C++ | ✅ | ✅ (`#include "..."`) |
+| Kotlin | ✅ | ✅（包） |
+| PHP | ✅ | ✅（PSR-4） |
+| Scala | ✅ | ✅（包） |
+| Ruby | ⏳ | ✅ (`require_relative`) |
+| C# | ✅ | —（命名空间不能 1:1 映射到文件） |
+| Swift | ✅ | — |
 
-```text
-m1nd-core/     Graph engine, propagation, heuristics, hypothesis engine,
-               antibody system, flow simulator, epidemic, tremor, trust, layers
-m1nd-ingest/   Language extractors, memory/json/light adapters,
-               git enrichment, cross-file resolver, incremental diff
-m1nd-mcp/      MCP server, JSON-RPC over stdio, plus HTTP/UI support in the current default build
-```
+所有 ✅ 行均经过端到端验证（`caller`→`callee` import 可解析且调用者生成 call 边）。其他语言回退到通用提取器（仅 `contains`）。无法解析的 import（外部包、gem、标准库、系统头文件）会如实留作未解析，而不是猜测。
 
-```mermaid
-graph LR
-    subgraph Ingest
-        A[Code and docs] --> R[Resolvers and adapters]
-        R --> G[Graph]
-    end
-    subgraph Core
-        G --> SA[Activation and ranking]
-        G --> HY[Hypothesis and impact]
-        G --> HS[Heuristics and memory]
-    end
-    subgraph MCP
-        SA --> T[Tool surface]
-        HY --> T
-        HS --> T
-        T --> IO[JSON-RPC stdio]
-        T --> HTTP[HTTP and UI]
-    end
-    IO --> C[MCP clients]
-    HTTP --> B[Browser on localhost]
-```
+## 能力图
 
-语言数量很广，但深度会因语言而异。适配器细节请见 wiki。
+Live MCP 界面随版本更新。使用 `tools/list` 获取当前构建中的确切工具数量和名称。
+
+| 领域 | 功能 | 代表性工具 |
+|---|---|---|
+| 图基础 | 摄入代码、维护图状态、诊断会话连续性、强化有用路径，以及检测跨会话权重漂移 | `trust_selftest`、`session_handshake`、`recovery_playbook`、`ingest`、`health`、`doctor`、`learn`、`warmup`、`drift` |
+| 检索与定向 | 在手动读取文件之前按文本、路径、意图、结构或关系搜索 | `audit`、`search`、`glob`、`seek`、`activate`、`why`、`trace` |
+| 文档与知识绑定 | 摄入通用文档或图原生 `L1GHT`，然后将概念链接回代码 | `ingest(adapter="universal"\|"light")`、`document_resolve`、`document_provider_health`、`document_bindings`、`document_drift`、`auto_ingest_*` |
+| 导航与连续性 | 跨会话维护有状态路由、交接、基线和调查记忆 | `perspective_*`、`trail_*`、`coverage_session`、`boot_memory`、`persist` |
+| Mission Control 与证明纪律 | 维护有界路由、记录事件、从图定向切换到直接证明、交接并带明确缺口关闭 | `mission_start`、`mission_event`、`mission_next`、`mission_verify`、`mission_handoff`、`mission_close` |
+| 变更规划与证明 | 推理影响、共变更、缺失步骤、失败路径和结构声明 | `impact`、`predict`、`validate_plan`、`missing`、`hypothesize`、`counterfactual`、`differential` |
+| 质量、安全与架构 | 检测模式、污点路径、信任边界、重复、层违规、类型流和重构目标 | `scan`、`scan_all`、`heuristics_surface`、`antibody_*`、`taint_trace`、`type_trace`、`trust`、`layers`、`layer_inspect`、`twins`、`fingerprint`、`flow_simulate`、`epidemic`、`tremor`、`refactor_plan` |
+| 时间、运行时与多仓库工作 | 检查 git 历史、漂移、隐藏共变更边、运行时叠加和跨仓库引用 | `timeline`、`diverge`、`ghost_edges`、`runtime_overlay`、`external_references`、`federate`、`federate_auto` |
+| 运维与监控 | 审计仓库状态、验证图与磁盘真相、运行守护进程监控、持久化状态和浮现持久告警 | `audit`、`cross_verify`、`daemon_*`、`alerts_*`、`panoramic`、`metrics`、`report`、`persist`、`diagram`、`help` |
+| 外科编辑准备与执行 | 拉取紧凑的关联上下文、预览写入并应用图感知编辑 | `surgical_context`、`surgical_context_v2`、`view`、`batch_view`、`edit_preview`、`edit_commit`、`apply`、`apply_batch` |
+
+**分层：** 默认公告 27 个基础工具以降低工具选择成本；设置 `M1ND_TOOL_TIER=full` 可公告完整界面（100+ 工具：RETROBUILDER、perspectives、federation、daemon）。少数工具（`resonate`、`savings`、`lock_*`）仍可按名称调用，但不在公告界面上。隐藏工具始终可通过 `tools/call` 调用——分层仅控制 `tools/list` 显示什么。
+
+## 操作循环
+
+智能体包是产品的一部分，而不是装饰性文档。当智能体收到的是*操作循环*而不仅仅是图端点时，m1nd 最为强大。包中附带五个命名协议：
+
+- **会话开始** — `trust_selftest` → 若信任不完整则 `recovery_playbook` → 若需要则 `ingest` → `seek`/`audit`。
+- **研究** — `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → `learn(feedback)` → `memorize` 任何持久性发现。
+- **代码变更** — `impact(node)` 获取爆炸半径 → `predict(node)` → `counterfactual(nodes)` → `surgical_context_v2` → `memorize` 决策及其原因。
+- **深度分析** — `fingerprint`、`diverge`、`ghost_edges`、`taint_trace`、`twins`、`refactor_plan`、`runtime_overlay`（RETROBUILDER 镜头），用于隐藏耦合、安全路径、结构重复和运行时热点。
+- **记忆** — 用 `memorize` 持久化持久性结论，携带 `confidence` 和 `evidence` 路径。
+
+Mission Control 是证明纪律，而不是功能列表。`mission_next` 恰好返回一个动作加 `do_not` 护栏；`mission_verify` 拒绝纯图声明；`mission_close` 始终推动智能体持久化经过验证的知识并记录缺口和非声明。在 `bug_hunt` 模式下，MC0 在关闭前要求在验证发现之后进行最终的直接 `direct_sweep`，以便智能体检查负空间。
+
+**注意：** `predict` 在 `ghost_edges` 加载 git 共变更矩阵之前**仅有结构回退**——当你需要真实的共变更可能性时，请先运行 `ghost_edges`。
+
+## 证据
+
+每行的对冲范围恰好是所测量的内容。m1nd 不以节省或 ROI 数字作为引导——这正是要点所在。
+
+| 声明 | 结果 | 来源与对冲 |
+|---|---|---|
+| `activate` / `impact` 延迟 | `activate` 亚微秒，`impact` 亚毫秒 | `m1nd-core/benches/` 中基于 1K 节点合成图的 Criterion 基准——[方法论](https://m1nd.world/wiki/benchmarks.html)；视为数量级参考。 |
+| 语言矩阵 | 10 种语言的 calls + 跨文件 imports（+ Ruby 跨文件） | 在单次多语言摄入中端到端验证；每种语言的测试在 `m1nd-ingest` 中。见[语言覆盖](#语言覆盖)。 |
+| 写后验证样本 | 12/12 分类正确 | 内部运行时检查。 |
+| 种子 bug 搜寻 | 在第一轮被接受的 `humanize` 种子缺陷测试中 16/20（m1nd 训练）；`m1nd-basic` 和直接模式各 8/15 | 内部产品证据，`public_claim_worthy=false`——非通用基准。 |
+| 记忆自我验证 | 端到端验证 | `memorize` → `grounded_in` → 编辑文件上的新鲜度标志 → 在 replace 后存活 → 启动自动加载。 |
+
+## 局限性
+
+`m1nd` 是对 LSP、编译器、测试运行器、安全扫描器和可观测性栈的补充，而非替代。在搜索、审查或变更之前，以及在文档、影响或连续性重要时，它最为有用。
+
+在以下情况**用处较小**：
+
+- 精确文本搜索已能回答问题
+- 编译器或运行时真相是唯一需要的
+- 任务是无结构不确定性的简单本地文件操作
+
+**需要喂数据：** `trust` 和 `tremor` 在 `learn` 反馈 / `ghost_edges` 数据积累之前从中性先验开始，`predict` 在 `ghost_edges` 加载之前需要其共变更信号才有意义。这些会随使用而改善；它们对启动时的无信息状态保持诚实。
+
+## 架构概览
+
+三个核心 Rust crate 加一个辅助桥接：
+
+- **`m1nd-mcp`** — MCP 服务器和操作运行时界面。
+- **`m1nd-core`** — 图引擎：执行扩散激活、Hebbian 可塑性、CSR 邻接和 git 派生幽灵边的 `WavefrontEngine`。
+- **`m1nd-ingest`** — 提取、路由和图构建适配器（代码、通用文档、L1GHT）。
+- **`m1nd-openclaw`** — 辅助 OpenClaw 桥接（Unix socket 通道，独立版本）。
+
+当前 crate 版本：`m1nd-core`、`m1nd-ingest`、`m1nd-mcp` 均为 `0.9.0-beta.7`。
+
+<p align="center">
+  <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd 架构概览" width="960" />
+</p>
+
+关于联邦、perspectives、RETROBUILDER、多智能体协调以及完整的智能体包和运维参考，请参阅[官方 wiki](https://m1nd.world/wiki/)、[docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) 和 [EXAMPLES.md](../EXAMPLES.md)。
 
 ## 贡献
 
-m1nd 仍然很年轻，也在快速变化。欢迎贡献：语言提取器、图算法、MCP 工具和基准。
-请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎在提取器与适配器、MCP/运行时工具、基准、文档和图算法方面做出贡献。详见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
 ## 许可证
 
-MIT - 见 [LICENSE](../LICENSE)。
-
----
-
-**想看具体工作流？** 阅读 [EXAMPLES.md](../EXAMPLES.md)。
-**发现了 bug 或不一致？** [Open an issue](https://github.com/maxkle1nz/m1nd/issues)。
-**想看完整 API 表面？** 参阅 [wiki](https://github.com/maxkle1nz/m1nd/wiki)。
+MIT。详见 [LICENSE](../LICENSE)。

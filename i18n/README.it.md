@@ -4,43 +4,23 @@
   <img src="../.github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h3 align="center">Costruito prima per gli agenti. Gli umani sono i benvenuti.</h3>
+<h1 align="center">Un Runtime di Missione Locale per Agenti di Coding</h1>
 
 <p align="center">
-  <strong>Prima di cambiare codice, guarda cosa si rompe.</strong><br/>
-  <strong>Fai una domanda al codebase. Ottieni la mappa, non il labirinto.</strong><br/><br/>
-  m1nd offre agli agenti di coding intelligenza strutturale prima che si perdano in derive grep/read. Ingestisci il codebase una volta, lo trasformi in un grafo e lasci che l'agente chieda ciò che conta davvero: cosa si rompe se cambia, cos'altro si muove con esso e cosa va verificato subito dopo.<br/>
-  <em>Esecuzione locale. MCP su stdio. Superficie HTTP/UI opzionale nella build predefinita attuale.</em>
+  <strong>Il tuo agente di coding smette di partire alla cieca.</strong><br/>
+  <em>Local-first. MCP-native. Grafo di memoria, trust e ragionamento sui cambiamenti per agent host.</em>
 </p>
 
 <p align="center">
-  <strong>Basato sul codice, sui test e sulle superfici tool già rilasciate.</strong>
-</p>
-
-<p align="center">
+  <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
   <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="Licenza" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
 </p>
 
 <p align="center">
-  <a href="#identity">Identità</a> &middot;
-  <a href="#what-m1nd-does">Cosa fa m1nd</a> &middot;
-  <a href="#results-and-measurements">Risultati</a> &middot;
-  <a href="#quick-start">Avvio rapido</a> &middot;
-  <a href="#configura-il-tuo-agente">Configura il tuo agente</a> &middot;
-  <a href="#when-not-to-use-m1nd">Quando non usare m1nd</a> &middot;
-  <a href="#use-cases">Casi d'uso</a> &middot;
-  <a href="#contributing">Contribuire</a> &middot;
-  <a href="#license">Licenza</a> &middot;
-  <a href="#tool-surface">Strumenti</a> &middot;
-  <a href="../EXAMPLES.md">Esempi</a>
-</p>
-
-<h4 align="center">Funziona con qualsiasi client MCP</h4>
-
-<p align="center">
+  <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/OpenAI_Codex-412991?logo=openai&logoColor=fff" alt="OpenAI Codex" /></a>
   <a href="https://claude.ai/download"><img src="https://img.shields.io/badge/Claude_Code-f0ebe3?logo=claude&logoColor=d97706" alt="Claude Code" /></a>
   <a href="https://cursor.sh"><img src="https://img.shields.io/badge/Cursor-000?logo=cursor&logoColor=fff" alt="Cursor" /></a>
   <a href="https://codeium.com/windsurf"><img src="https://img.shields.io/badge/Windsurf-0d1117?logo=windsurf&logoColor=3ec9a7" alt="Windsurf" /></a>
@@ -50,653 +30,226 @@
   <a href="https://roocode.com"><img src="https://img.shields.io/badge/Roo_Code-6d28d9?logoColor=fff" alt="Roo Code" /></a>
   <a href="https://github.com/continuedev/continue"><img src="https://img.shields.io/badge/Continue-000?logoColor=fff" alt="Continue" /></a>
   <a href="https://opencode.ai"><img src="https://img.shields.io/badge/OpenCode-18181b?logoColor=fff" alt="OpenCode" /></a>
+  <a href="https://aistudio.google.com"><img src="https://img.shields.io/badge/Gemini-4285F4?logo=google&logoColor=fff" alt="Gemini" /></a>
   <a href="https://aws.amazon.com/q/developer"><img src="https://img.shields.io/badge/Amazon_Q-232f3e?logo=amazonaws&logoColor=f90" alt="Amazon Q" /></a>
 </p>
 
+---
+
+**m1nd è un runtime di missione locale per agenti di coding — governa il ciclo operativo, non solo il retrieval.**
+
+> grep trova testo. La ricerca vettoriale trova chunk simili. `m1nd` dà agli agenti un grafo locale di cosa è connesso, cosa è cambiato, cosa si rompe, cosa è andato in drift, e dove riprendere.
+
+Tre cose che qui coesistono e non si trovano in nessun altro strumento:
+
+- **Grafo causale del codice** — `impact` prima di modificare mostra il blast radius che non avevi letto; `ghost_edges` fa emergere i file che cambiano sempre insieme ma non condividono alcun import.
+- **Memoria auto-verificante** — `memorize` ancora i risultati a nodi reali del codice; `cross_verify` li segnala come obsoleti quando quel codice cambia.
+- **Un layer di trust / recovery** — ogni risultato porta un trust mode; `trust_selftest` e `recovery_playbook` dicono all'agente quando il binding del workspace è sbagliato e come recuperare.
+
 <p align="center">
-  <strong>Trova bug strutturali in &lt;1s</strong> &middot; 89% di accuratezza delle ipotesi &middot; Riduce l'84% dei costi di contesto LLM
+  <img src="../.github/m1nd-agent-first-map-v2.jpeg" alt="Ciclo agente tradizionale vs ciclo m1nd-grounded" width="960" />
 </p>
 
----
+## Avvio Rapido
 
-## Identity
-
-m1nd è intelligenza strutturale per agenti di coding.
-
-Ingestisci il codebase una volta, lo trasformi in un grafo e lasci che l'agente faccia domande strutturali direttamente.
-
-Prima di una modifica, m1nd aiuta l'agente a vedere blast radius, contesto connesso, co-change probabili e cosa verificare subito dopo, prima di perdersi in grep e read loop.
-
-> Smetti di pagare il costo di orientamento a ogni turno.
->
-> `grep` trova ciò che hai chiesto. `m1nd` trova ciò che ti è sfuggito.
-
-## What m1nd Does
-
-m1nd serve nel momento prima che l'agente si perda.
-
-Ingestisci il repository una volta, lo trasformi in un grafo e smetti di far ricostruire la struttura al modello da testo grezzo a ogni giro.
-
-Questo significa che può rispondere alle domande che contano davvero:
-
-- cosa è collegato a questo?
-- cosa si rompe se lo cambio?
-- cos'altro probabilmente deve muoversi?
-- dov'è il contesto connesso per una modifica?
-- cosa dovrei verificare dopo?
-
-Sotto il cofano, il workspace ha tre crate core più un crate ponte ausiliario:
-
-- `m1nd-core`: motore del grafo, propagazione, plasticità, euristiche e livelli di analisi
-- `m1nd-ingest`: ingestione di codice e documenti, extractor, resolver, percorsi di merge e costruzione del grafo
-- `m1nd-mcp`: server MCP su stdio, più una superficie HTTP/UI nella build predefinita attuale
-- `m1nd-openclaw`: crate ponte ausiliario per le superfici di integrazione rivolte a OpenClaw
-
-Punti di forza attuali:
-
-- navigazione del repository basata sul grafo invece che solo sulla ricerca testuale
-- relazione tra file, funzioni, tipi, moduli e vicinati del grafo
-- esposizione del grafo tramite tool MCP per navigazione, analisi d'impatto, tracing, predizione e workflow di editing
-- fusione di codice con markdown o grafi di memoria strutturata quando serve
-- memoria euristica persistente nel tempo, così il feedback può migliorare il recupero tramite `learn`, `trust`, `tremor` e `antibody`
-- spiegazione del perché un risultato è stato classificato, non solo di cosa ha matchato
-
-Oggi include:
-
-- extractor nativi/manuali per Python, TypeScript/JavaScript, Rust, Go e Java
-- 22 linguaggi aggiuntivi supportati da tree-sitter tra Tier 1 e Tier 2
-- un fallback generico per i tipi di file non supportati
-- risoluzione dei riferimenti nel percorso di ingest live
-- arricchimento Cargo workspace per repository Rust
-- ingestione di documenti per brevetti (USPTO/EPO XML), articoli scientifici (PubMed/JATS), bibliografie BibTeX, metadati DOI CrossRef e RFC IETF
-- segnali euristici ispezionabili sui percorsi di recupero di livello superiore, così `seek` e `predict` possono esporre più di un semplice punteggio
-- una lane documentale universale per markdown, pagine HTML/wiki, documenti office e PDF
-- artefatti locali canonici come `source.<ext>`, `canonical.md`, `canonical.json`, `claims.json` e `metadata.json`
-- workflow MCP documentali come `document_resolve`, `document_bindings`, `document_drift`, `document_provider_health` e `auto_ingest_*`
-
-La copertura linguistica è ampia, ma la profondità semantica varia ancora da linguaggio a linguaggio. Python e Rust hanno oggi un trattamento più specializzato rispetto a molti linguaggi basati su tree-sitter.
-
-## Why Use m1nd
-
-La maggior parte dei loop degli agenti perde tempo nello stesso schema:
-
-1. grep di un simbolo o di una frase
-2. apertura di un file
-3. grep dei chiamanti o dei file correlati
-4. apertura di altri file
-5. ripetizione finché la forma del sottosistema non diventa chiara
-
-m1nd aiuta quando questo costo di navigazione è il vero collo di bottiglia.
-
-Invece di trattare ogni volta un repository come testo grezzo, costruisce una volta un grafo e permette a un agente di chiedere:
-
-- cosa è collegato a questo errore o sottosistema
-- quali file sono davvero nel blast radius
-- cosa manca attorno a un flusso, una guardia o un boundary
-- quali file connessi contano prima di una modifica multi-file
-- perché un file o un nodo viene classificato come rischioso o importante
-
-Il vantaggio pratico è semplice:
-
-- meno letture di file prima che l'agente sappia dove guardare
-- minor consumo di token nella ricostruzione del repository
-- analisi di impatto più veloce prima di modificare
-- modifiche multi-file più sicure perché chiamanti, chiamati, test e hotspot possono essere raccolti insieme in un solo passaggio
-
-## What m1nd Is
-
-m1nd è un workspace Rust locale con tre crate core e un crate ponte ausiliario:
-
-- `m1nd-core`: motore a grafo, ranking, propagazione, euristiche e livelli di analisi
-- `m1nd-ingest`: ingestione di codice e documenti, extractor, resolver, percorsi di merge e costruzione del grafo
-- `m1nd-mcp`: server MCP su stdio, più una superficie HTTP/UI nell'attuale build predefinita
-
-Punti di forza attuali:
-
-- navigazione del repository basata sul grafo
-- contesto connesso per le modifiche
-- analisi di impatto e raggiungibilità
-- mappatura da stacktrace a insiemi di sospetti
-- controlli strutturali come `missing`, `hypothesize`, `counterfactual` e `layers`
-- sidecar persistenti per i workflow `boot_memory`, `trust`, `tremor` e `antibody`
-
-Ambito attuale:
-
-- extractor nativi/manuali per Python, TypeScript/JavaScript, Rust, Go e Java
-- 22 linguaggi aggiuntivi supportati da tree-sitter tra Tier 1 e Tier 2
-- adapter di ingestione per codice, `memory`, `json` e `light`
-- arricchimento Cargo workspace per repository Rust
-- riepiloghi euristici nei percorsi surgical e di pianificazione
-
-L'ampiezza dei linguaggi è vasta, ma la profondità varia ancora da linguaggio a linguaggio. Python e Rust hanno un supporto più forte rispetto a molti linguaggi supportati da tree-sitter.
-
-## What m1nd Is Not
-
-m1nd non è:
-
-- un compilatore
-- un debugger
-- un sostituto del test runner
-- un frontend completo di compilazione semantica
-- un sostituto di log, stacktrace o evidenze di runtime
-
-Si colloca tra la semplice ricerca testuale e l'analisi statica pesante. Dà il meglio quando un agente ha bisogno di struttura e contesto connesso più velocemente di quanto possano fornire loop ripetuti di grep/lettura.
-
-## Quick Start
+Il percorso minimo funzionante — installa dai sorgenti (sempre aggiornato), verifica la salute, collega il tuo host:
 
 ```bash
-git clone https://github.com/maxkle1nz/m1nd.git
-cd m1nd
-cargo build --release
-./target/release/m1nd-mcp
+git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
+npm install -g .
+m1nd doctor
+m1nd install-skills codex          # oppure: claude / gemini / antigravity / generic
+m1nd mcp-config codex --project /your/project
 ```
 
-Questo ti dà un server locale funzionante a partire dal sorgente. L'attuale branch `main` è stato validato con `cargo build --release` e offre un percorso server MCP funzionante.
+Oppure dal canale npm beta: `npm install -g @maxkle1nz/m1nd@beta`.
 
-Flusso MCP minimo:
+Mappa di installazione completa, pack per host, build del runtime nativo e flag di aggiornamento: [docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) · configurazione client per client: [matrice di integrazione](../docs/IDE-INTEGRATIONS.md).
+
+### Punto di Ingresso per Agenti
+
+Gli agenti analizzano questo README. Quando la sessione MCP host è obsoleta, associata al repository sbagliato, o non ancora caricata, usa la CLI host-neutral — lancia un runtime isolato, lo associa al repository e restituisce un unico envelope leggibile da macchina:
+
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
+
+`m1nd agent first-minute` è il primo contatto più sicuro con un nuovo repository. Definisce lo scope del repository, stabilisce il trust, esegue l'ingest se necessario, fa un passaggio di orientamento delimitato, restituisce anchor candidati, e poi dice all'agente di provare direttamente da sorgente, test, output del compilatore/runtime, log o probe.
+
+All'interno di una sessione MCP, la dottrina è questo ciclo di trust — stabilisci il trust *prima* di fidarti di qualsiasi retrieval:
 
 ```jsonc
-// 1. Costruisci il grafo
+// 0. Verifica il binding in una sola chiamata (verdetto prima del retrieval)
+{"method":"tools/call","params":{"name":"trust_selftest","arguments":{"agent_id":"dev"}}}
+
+// 1. Se il verdetto non è full_trust, chiedi il percorso di recovery deterministico
+{"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
+
+// 2. Costruisci la verità del grafo
 {"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 
-// 2. Chiedi la struttura connessa
+// 3. Poni una domanda strutturale — risultati vuoti dicono *perché*, mai solo "nessun risultato"
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
-
-// 3. Ispeziona il blast radius prima di cambiare un file
-{"method":"tools/call","params":{"name":"impact","arguments":{"node_id":"file::src/auth.rs","agent_id":"dev"}}}
 ```
 
-Aggiungi a Claude Code (`~/.claude.json`):
+**Ciclo prima sessione, in quattro mosse:** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` il risultato duraturo così la sessione successiva parte avvantaggiata.
 
-```json
-{
-  "mcpServers": {
-    "m1nd": {
-      "command": "/path/to/m1nd-mcp",
-      "env": {
-        "M1ND_GRAPH_SOURCE": "/tmp/m1nd-graph.json",
-        "M1ND_PLASTICITY_STATE": "/tmp/m1nd-plasticity.json"
-      }
-    }
-  }
-}
-```
+## Cosa m1nd Non È
 
-Funziona con qualsiasi client MCP che possa collegarsi a un server MCP: Claude Code, Codex, Cursor, Windsurf, Zed o uno tuo.
+`m1nd` non è solo:
 
-Per repository più grandi e un utilizzo persistente, vedi [Deployment & Production Setup](../docs/deployment.md).
+- uno strumento di ricerca del codice con un indice più grande
+- un layer di RAG sul repository che recupera solo file o chunk
+- un database a grafo che lascia le decisioni di workflow al client
+- un sostituto dell'analisi statica per compilatore, test o strumenti di sicurezza
+- un bundle MCP di utility non correlate
 
-## Graph-First Instead Of Text-First
+È il layer che trasforma quelle superfici in un sistema operativo su cui un agente può ragionare e agire. Non per ricerche su singolo file, semplici grep, o verità del compilatore — usa strumenti semplici in quei casi.
 
-La maggior parte dei flussi di coding AI continua a spendere tempo nella navigazione: grep, glob, letture di file e ricarichi ripetuti di contesto. m1nd prende una strada diversa: pre-calcola un grafo e lo espone tramite MCP.
+## Perché gli Agenti ne Hanno Bisogno
 
-Questo cambia la forma della domanda. Invece di chiedere al modello di ricostruire ogni volta la struttura del repository dai file grezzi, l'agente può chiedere:
+Senza m1nd, ogni sessione inizia con loop di grep e riorientamento manuale; i risultati della settimana scorsa sono persi, e un risultato di ricerca vuoto è indistinguibile da un binding workspace sbagliato. Con m1nd, la sessione inizia con un verdetto di trust, i risultati passati si caricano automaticamente già ancorati al codice che li supporta, e i risultati vuoti dicono *perché*.
 
-- quali code path sono collegati
-- qual è il blast radius
-- quali sono i buchi strutturali
-- quali sono i percorsi del grafo tra nodi
-- qual è il contesto connesso per una modifica
+Gli agenti su codebase reali non falliscono perché non sanno cercare. Falliscono perché non hanno un modello operativo. Ricostruiscono il contesto da zero ad ogni sessione, modificano senza conoscere il blast radius, e non riescono a distinguere un risultato vuoto che significa "non esiste nulla" da uno che significa "repository sbagliato."
 
-Questo non sostituisce un LSP, un compilatore o una suite completa di static analysis/security. Fornisce all'agente una mappa strutturale del repository, così può spendere meno tempo nella navigazione e più tempo nel task.
+Funziona per codebase piccoli. Crolla quando il progetto ha artefatti generati, spec, doc, cronologia nascosta di co-change, più agenti e handoff lunghi. Il problema non è solo il ragionamento dell'agente — l'agente non ha un modello duraturo della struttura del codebase. `m1nd` glielo dà: un grafo causale del codice con spreading activation attraverso dimensioni strutturali, semantiche, temporali e causali, più plasticità Hebbiana che si accumula per agente tra le sessioni.
 
----
+## Memoria Composta (L1GHT)
 
-**Ti è stato utile?** [Metti una stella a questo repository](https://github.com/maxkle1nz/m1nd) -- aiuti altri a trovarlo.
-**Hai trovato un bug o un'idea?** [Apri una issue](https://github.com/maxkle1nz/m1nd/issues).
-**Vuoi andare più a fondo?** Consulta [EXAMPLES.md](../EXAMPLES.md) per pipeline reali.
+La maggior parte degli strumenti dà all'agente un *retrieval* migliore. `m1nd` permette anche all'agente di **creare conoscenza durevole e leggibile dalla macchina** che si accumula tra le sessioni e rimane onesta rispetto al codice. L1GHT trasforma la conoscenza creata in struttura graph-native che si auto-segnala quando il codice che cita cambia — le affermazioni sicure diffondono più attivazione di quelle incerte.
 
-## When It Is Useful
+Il ciclo, dall'inizio alla fine:
 
-Il miglior README per m1nd non è “fa cose con i grafi”. È “ecco i loop in cui ti fa risparmiare lavoro reale”.
-
-### 1. Triage di stacktrace
-
-Usa `trace` quando hai uno stacktrace o un output di errore e ti serve il vero insieme dei sospetti, non solo il frame più alto.
-
-Senza m1nd:
-
-- grep del simbolo che fallisce
-- apertura di un file
-- ricerca dei chiamanti
-- apertura di altri file
-- ipotesi sulla vera causa radice
-
-Con m1nd:
-
-- esegui `trace`
-- ispeziona i sospetti classificati
-- segui il contesto connesso con `activate`, `why` o `perspective_*`
-
-Vantaggio pratico:
-
-- meno letture cieche di file
-- percorso più veloce da “punto del crash” a “punto della causa”
-
-### 2. Trovare ciò che manca
-
-Usa `missing`, `hypothesize` e `flow_simulate` quando il problema è un'assenza:
-
-- validazione mancante
-- lock mancante
-- cleanup mancante
-- astrazione mancante attorno a un lifecycle
-
-Senza m1nd, questo di solito diventa un lungo loop di grep e lettura con regole di arresto deboli.
-
-Con m1nd, puoi chiedere direttamente i buchi strutturali o testare un'affermazione contro i percorsi del grafo.
-
-### 3. Modifiche multi-file sicure
-
-Usa `validate_plan`, `surgical_context_v2`, `heuristics_surface` e `apply_batch` quando stai modificando codice sconosciuto o connesso.
-
-Senza m1nd:
-
-- grep dei chiamanti
-- grep dei test
-- lettura dei file vicini
-- costruzione mentale della lista di dipendenze
-- speranza di non aver perso un file downstream
-
-Con m1nd:
-
-- valida prima il piano
-- recupera il file primario più i file connessi in una sola chiamata
-- ispeziona i riepiloghi euristici
-- scrivi con un batch atomico quando serve
-
-Vantaggio pratico:
-
-- modifiche più sicure
-- meno vicini dimenticati
-- minor costo di caricamento del contesto
-
-## When Plain Tools Are Better
-
-Ci sono molti task in cui m1nd non serve e gli strumenti semplici sono più veloci.
-
-- modifiche a un singolo file quando conosci già il file
-- sostituzioni esatte di stringhe in un repository
-- conteggio o grep di testo letterale
-- verità del compilatore, fallimenti dei test, log di runtime e lavoro di debugger
-
-Usa `rg`, il tuo editor, i log, `cargo test`, `go test`, `pytest` o il compilatore quando conta la verità dell'esecuzione. m1nd è uno strumento di navigazione e contesto strutturale, non un sostituto delle evidenze di runtime.
-
-## Choose The Right Tool
-
-Questa è la parte che la maggior parte dei README salta. Se il lettore non sa quale strumento usare, la superficie sembrerà più grande di quanto sia.
-
-| Need | Use |
-|------|-----|
-| Testo esatto o regex nel codice | `search` |
-| Pattern di nome file/percorso | `glob` |
-| Intento in linguaggio naturale come “chi possiede il retry backoff?” | `seek` |
-| Neighborhood connesso attorno a un argomento | `activate` |
-| Lettura rapida di file senza espansione del grafo | `view` |
-| Perché qualcosa è stato classificato come rischioso o importante | `heuristics_surface` |
-| Blast radius prima di modificare | `impact` |
-| Pre-flight di un piano di modifica rischioso | `validate_plan` |
-| Recuperare file + chiamanti + chiamati + test per una modifica | `surgical_context` |
-| Recuperare il file primario più i sorgenti dei file connessi in un solo colpo | `surgical_context_v2` |
-| Salvare piccolo stato operativo persistente | `boot_memory` |
-| Salvare o riprendere un trail di investigazione | `trail_save`, `trail_resume`, `trail_merge` |
-
-## Results And Measurements
-
-Questi numeri sono esempi osservati nella documentazione, nei benchmark e nei test attuali del repository. Considerali come punti di riferimento, non come garanzie per ogni repository.
-
-Caso di audit su un codebase Python/FastAPI:
-
-| Metric | Result |
-|--------|--------|
-| Bug trovati in una sessione | 39 (28 corretti confermati + 9 ad alta confidenza) |
-| Invisibili a grep | 8 su 28 |
-| Accuratezza delle ipotesi | 89% su 10 affermazioni live |
-| Campione di validazione post-scrittura | 12/12 scenari classificati correttamente nel set documentato |
-| Token LLM consumati dal motore a grafo stesso | 0 |
-| Numero di query di esempio vs loop pesante di grep | 46 vs ~210 |
-| Latenza totale stimata delle query nella sessione documentata | ~3.1 secondi |
-
-Criterion micro-benchmark registrati nella documentazione attuale:
-
-| Operation | Time |
-|-----------|------|
-| `activate` 1K nodes | 1.36 &micro;s |
-| `impact` depth=3 | 543 ns |
-| `flow_simulate` 4 particles | 552 &micro;s |
-| `antibody_scan` 50 patterns | 2.68 ms |
-| `layers` 500 nodes | 862 &micro;s |
-| `resonate` 5 harmonics | 8.17 &micro;s |
-
-Questi numeri contano soprattutto se affiancati al beneficio di workflow: meno round-trip nei loop grep/lettura e meno contesto da caricare nel modello.
-
-Nel corpus warm-graph aggregato documentato oggi, `warm` scende da `10518` a `5182` token proxy (`50.73%` di risparmio), riduce i `false_starts` da `14` a `0`, registra `31` guided follow-throughs e `12` recovery loops seguiti con successo.
-
-## Configura il tuo agente
-
-m1nd funziona al meglio quando il tuo agente lo tratta come prima fermata per struttura e contesto connesso, non come l'unico strumento che è autorizzato a usare.
-
-### Cosa aggiungere al system prompt del tuo agente
-
-```text
-Usa m1nd prima di loop ampi di grep/glob/lettura file quando il compito dipende da struttura, impatto, contesto connesso o ragionamento cross-file.
-
-- usa `search` per testo esatto o regex con scope consapevole del grafo
-- usa `glob` per pattern di nome/percorso
-- usa `seek` per intenzione in linguaggio naturale
-- usa `activate` per vicinati connessi
-- usa `impact` prima di modifiche rischiose
-- usa `heuristics_surface` quando ti serve giustificare il ranking
-- usa `validate_plan` prima di cambi ampi o accoppiati
-- usa `surgical_context_v2` quando prepari una modifica multi-file
-- usa `boot_memory` per piccolo stato operativo persistente
-- usa `help` quando non sei sicuro di quale tool usare
-
-Usa strumenti semplici quando il compito è single-file, a testo esatto o guidato dalla verità di runtime/build.
-```
-
-### Claude Code (`CLAUDE.md`)
-
-```markdown
-## Code Intelligence
-Usa m1nd prima di loop ampi di grep/glob/lettura file quando il compito dipende da struttura, impatto, contesto connesso o ragionamento cross-file.
-
-Preferisci:
-- `search` per codice/testo esatto
-- `glob` per pattern di nome file
-- `seek` per intenzione
-- `activate` per codice correlato
-- `impact` prima delle modifiche
-- `validate_plan` prima di cambi rischiosi
-- `surgical_context_v2` per preparare modifiche multi-file
-- `heuristics_surface` per spiegare il ranking
-- `trail_resume` per continuità quando ti serve la prossima mossa probabile
-- `help` per scegliere il tool giusto o recuperare da una chiamata sbagliata
-
-Usa strumenti semplici per modifiche a singolo file, compiti a testo esatto, test, errori del compilatore e log di runtime.
-```
-
-### Cursor (`.cursorrules`)
-
-```text
-Prefer m1nd for repo exploration when structure matters:
-- search for exact code/text
-- glob for filename/path patterns
-- seek for intent
-- activate for related code
-- impact before edits
-
-Prefer plain tools for single-file edits, exact string chores, and runtime/build truth.
-```
-
-### Why this matters
-
-L'obiettivo non è “usa sempre m1nd”. L'obiettivo è “usa m1nd quando evita al modello di ricostruire da zero la struttura del repository”.
-
-Di solito significa:
-
-- prima di una modifica rischiosa
-- prima di leggere un'ampia porzione del repository
-- durante il triage di un percorso di errore
-- quando si controlla l'impatto architetturale
-
-## Where m1nd Fits
-
-m1nd è più utile quando un agente ha bisogno di contesto del repository basato sul grafo che la semplice ricerca testuale non fornisce bene:
-
-- stato persistente del grafo invece di risultati di ricerca usa-e-getta
-- query di impatto e neighborhood prima delle modifiche
-- investigazioni salvate tra sessioni
-- controlli strutturali come hypothesis testing, rimozione controfattuale e ispezione dei layer
-- grafi misti codice + documentazione tramite gli adapter `memory`, `json` e `light`
-
-Non sostituisce un LSP, un compilatore o l'osservabilità di runtime. Fornisce all'agente una mappa strutturale così l'esplorazione diventa più economica e le modifiche più sicure.
-
-## What Makes It Different
-
-**Mantiene un grafo persistente, non solo risultati di ricerca.** I percorsi confermati possono essere rinforzati tramite `learn`, e le query successive possono riutilizzare quella struttura invece di ripartire da zero.
-
-**Può spiegare perché un risultato è stato classificato in un certo modo.** `heuristics_surface`, `validate_plan`, `predict` e i flussi surgical possono esporre riepiloghi euristici e riferimenti agli hotspot invece di restituire solo un punteggio.
-
-**Può unire codice e documentazione in un unico spazio interrogabile.** Codice, memoria markdown, JSON strutturato e documenti L1GHT possono essere ingeriti nello stesso grafo e interrogati insieme.
-
-**Ha workflow consapevoli della scrittura.** `surgical_context_v2`, `edit_preview`, `edit_commit` e `apply_batch` hanno più senso come strumenti di preparazione e verifica delle modifiche che come semplici strumenti di ricerca generici.
-
-## Tool Surface
-
-Usa `tools/list` per ottenere il conteggio live esatto nella build che stai usando. Le categorie sotto contano più di un numero hardcoded.
-
-I nomi canonici degli strumenti nello schema MCP esportato usano underscore, come `trail_save`, `perspective_start` e `apply_batch`. Alcuni client possono mostrare alias con prefisso di trasporto, ma il registry live e `tools/list` usano i nomi senza prefisso.
-
-| Category | Highlights |
-|----------|------------|
-| Foundation | ingest, activate, impact, why, learn, drift, seek, search, glob, view, warmup, federate |
-| Document Intelligence | document_resolve, document_bindings, document_drift, document_provider_health, auto_ingest_start/status/tick/stop |
-| Perspective Navigation | perspective_start, perspective_follow, perspective_peek, perspective_branch, perspective_compare, perspective_inspect, perspective_suggest |
-| Graph Analysis | hypothesize, counterfactual, missing, resonate, fingerprint, trace, predict, validate_plan, trail_* |
-| Extended Analysis | antibody_*, flow_simulate, epidemic, tremor, trust, layers, layer_inspect |
-| Reporting & State | report, savings, persist, boot_memory |
-| Surgical | surgical_context, surgical_context_v2, heuristics_surface, apply, edit_preview, edit_commit, apply_batch |
-
-<details>
-<summary><strong>Foundation</strong></summary>
-
-| Tool | Cosa fa | Velocità |
-|------|-------------|-------|
-| `ingest` | Analizza un codebase o un corpus nel grafo | 910ms / 335 file |
-| `search` | Testo esatto o regex con gestione dell'ambito basata sul grafo | variabile |
-| `glob` | Ricerca di pattern file/percorso | variabile |
-| `view` | Lettura rapida di file con intervalli di righe | variabile |
-| `seek` | Trova codice per intento espresso in linguaggio naturale | 10-15ms |
-| `activate` | Recupero del neighborhood connesso | 1.36 &micro;s (bench) |
-| `impact` | Blast radius di una modifica al codice | 543ns (bench) |
-| `why` | Percorso più breve tra due nodi | 5-6ms |
-| `learn` | Loop di feedback che rinforza i percorsi utili | <1ms |
-| `drift` | Cosa è cambiato rispetto a una baseline | 23ms |
-| `health` | Diagnostica del server | <1ms |
-| `warmup` | Prepara il grafo per un task imminente | 82-89ms |
-| `federate` | Unifica più repository in un solo grafo | 1.3s / 2 repository |
-</details>
-
-<details>
-<summary><strong>Perspective Navigation</strong></summary>
-
-| Tool | Purpose |
-|------|---------|
-| `perspective_start` | Apre una perspective ancorata a un nodo o a una query |
-| `perspective_routes` | Elenca i percorsi dal focus corrente |
-| `perspective_follow` | Sposta il focus verso un target di percorso |
-| `perspective_back` | Naviga all'indietro |
-| `perspective_peek` | Legge il codice sorgente del nodo a fuoco |
-| `perspective_inspect` | Metadati più profondi del percorso e dettaglio del punteggio |
-| `perspective_suggest` | Raccomandazione di navigazione |
-| `perspective_affinity` | Verifica la rilevanza di un percorso rispetto all'investigazione corrente |
-| `perspective_branch` | Crea una copia indipendente della perspective |
-| `perspective_compare` | Fa il diff di due perspective |
-| `perspective_list` | Elenca le perspective attive |
-| `perspective_close` | Rilascia lo stato della perspective |
-</details>
-
-<details>
-<summary><strong>Graph Analysis</strong></summary>
-
-| Tool | Cosa fa | Velocità |
-|------|-------------|-------|
-| `hypothesize` | Testa un'affermazione strutturale contro il grafo | 28-58ms |
-| `counterfactual` | Simula la rimozione di un nodo e la cascata risultante | 3ms |
-| `missing` | Trova buchi strutturali | 44-67ms |
-| `resonate` | Trova hub strutturali e armoniche | 37-52ms |
-| `fingerprint` | Trova gemelli strutturali per topologia | 1-107ms |
-| `trace` | Mappa stacktrace a cause strutturali probabili | 3.5-5.8ms |
-| `validate_plan` | Pre-flight del rischio di modifica con riferimenti agli hotspot | 0.5-10ms |
-| `predict` | Predizione dei co-change con giustificazione del ranking | <1ms |
-| `trail_save` | Salva lo stato dell'investigazione | ~0ms |
-| `trail_resume` | Ripristina un'investigazione salvata e suggerisce la prossima mossa | 0.2ms |
-| `trail_merge` | Combina investigazioni multi-agente | 1.2ms |
-| `trail_list` | Sfoglia le investigazioni salvate | ~0ms |
-| `differential` | Diff strutturale tra snapshot del grafo | variabile |
-</details>
-
-<details>
-<summary><strong>Extended Analysis</strong></summary>
-
-| Tool | Cosa fa | Velocità |
-|------|-------------|-------|
-| `antibody_scan` | Scansiona il grafo rispetto a pattern di bug memorizzati | 2.68ms |
-| `antibody_list` | Elenca gli antibody memorizzati con cronologia delle corrispondenze | ~0ms |
-| `antibody_create` | Crea, disabilita, abilita o elimina un antibody | ~0ms |
-| `flow_simulate` | Simula il flusso di esecuzione concorrente | 552 &micro;s |
-| `epidemic` | Predizione della propagazione dei bug in stile SIR | 110 &micro;s |
-| `tremor` | Rilevamento dell'accelerazione della frequenza di modifica | 236 &micro;s |
-| `trust` | Punteggi di affidabilità per modulo basati sulla storia dei difetti | 70 &micro;s |
-| `layers` | Rileva automaticamente layer architetturali e violazioni | 862 &micro;s |
-| `layer_inspect` | Ispeziona uno specifico layer | variabile |
-</details>
-
-<details>
-<summary><strong>Surgical</strong></summary>
-
-| Tool | Cosa fa | Velocità |
-|------|-------------|-------|
-| `surgical_context` | File primario più chiamanti, chiamati, test e riepilogo euristico | variabile |
-| `heuristics_surface` | Spiega perché un file o un nodo è stato classificato come rischioso o importante | variabile |
-| `surgical_context_v2` | File primario più sorgenti dei file connessi in una sola chiamata | 1.3ms |
-| `edit_preview` | Anteprima di una scrittura senza toccare il disco | <1ms |
-| `edit_commit` | Conferma una scrittura in anteprima con controlli di freschezza | <1ms + apply |
-| `apply` | Scrive un file, re-ingesta e aggiorna lo stato del grafo | 3.5ms |
-| `apply_batch` | Scrive più file in modo atomico con un solo passaggio di re-ingest | 165ms |
-| `apply_batch(verify=true)` | Scrittura batch più verifica post-scrittura e verdetto consapevole degli hotspot | 165ms + verify |
-</details>
-
-<details>
-<summary><strong>Reporting & State</strong></summary>
-
-| Tool | Cosa fa | Velocità |
-|------|-------------|-------|
-| `report` | Report di sessione con query recenti, risparmi, statistiche del grafo e hotspot euristici | ~0ms |
-| `savings` | Riepilogo dei risparmi di token, CO2 e costi a livello di sessione/globale | ~0ms |
-| `persist` | Salva/carica snapshot del grafo e della plasticity | variabile |
-| `boot_memory` | Salva piccola dottrina canonica o stato operativo e lo mantiene caldo nella memoria di runtime | ~0ms |
-</details>
-
-[Riferimento API completo con esempi ->](https://github.com/maxkle1nz/m1nd/wiki/API-Reference)
-
-## Post-Write Verification
-
-`apply_batch` con `verify=true` esegue più layer di verifica e restituisce un unico verdetto in stile SAFE / RISKY / BROKEN.
-
-Quando `verification.high_impact_files` contiene hotspot euristici, il report può essere promosso a `RISKY` anche se il solo blast radius sarebbe rimasto più basso.
-
-`apply_batch` ora restituisce anche:
-
-- `status_message` e campi coarse di progresso
-- `proof_state` più `next_suggested_tool`, `next_suggested_target` e `next_step_hint`
-- `phases` come timeline strutturata di `validate`, `write`, `reingest`, `verify` e `done`
-- `progress_events` come log streaming-friendly dello stesso ciclo
-- nel trasporto HTTP/UI, progresso SSE live come `apply_batch_progress`, seguito da handoff semantico alla fine del batch
+1. **Concludi** — l'agente raggiunge qualcosa di duraturo (una decisione, un risultato verificato, perché il codice è così) e chiama `memorize` con affermazioni strutturate e percorsi `evidence`.
 
 ```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "apply_batch",
-    "arguments": {
-      "agent_id": "my-agent",
-      "verify": true,
-      "edits": [
-        { "file_path": "/project/src/auth.py", "new_content": "..." },
-        { "file_path": "/project/src/session.py", "new_content": "..." }
-      ]
-    }
-  }
-}
+memorize({
+  "agent_id": "dev",
+  "node_label": "AuthTokenFlow",
+  "claims": [
+    { "label": "TokenValidator", "text": "validates JWTs via HMAC",
+      "confidence": "high", "evidence": ["src/auth/token.rs"] }
+  ]
+})
 ```
 
-I layer includono:
+2. **Ancora** — m1nd scrive un `.light.md` graph-native sotto `<runtime>/agent-memory/`, lo ingerisce (`adapter=light mode=merge`), e risolve ogni percorso `evidence` al nodo reale del codice tramite un edge `grounded_in` — così la conoscenza vive nello stesso spazio di attivazione del codice e emerge in `seek` / `activate` / `impact`.
+3. **Auto-load** — all'inizio di ogni sessione futura, `m1nd` ingerisce `agent-memory/` automaticamente e lo riporta in `session_handshake.agent_memory`. I risultati passati sopravvivono a un ingest `mode=replace` e sono semplicemente *lì*.
+4. **Auto-segnala la staleness** — `cross_verify(check: ["evidence_freshness"])` ri-hash ogni file citato e nomina quali affermazioni sono diventate obsolete perché il loro codice è cambiato — così la memoria ti dice quando mente invece di ingannarti.
 
-- controlli di diff strutturale
-- analisi di anti-pattern
-- impatto BFS sul grafo
-- esecuzione dei test del progetto
-- controlli di compilazione/build
+Questo ciclo è stato provato live end-to-end: `memorize` → edge `grounded_in` → segnale di freshness su file modificato → sopravvive a `mode=replace` → boot auto-load. Stai chiudendo una missione delimitata? Passa `write_light_memory: true` a `mission_close` per persistere le sue affermazioni verificate allo stesso modo. L'abitudine è documentata nelle `instructions` del server che ogni client MCP riceve all'`initialize` — host-agnostic, nessun plugin client-specifico richiesto.
 
-Il punto non è la “prova formale”. Il punto è intercettare rotture evidenti e propagazione rischiosa prima che l'agente se ne vada.
+## Il Layer di Trust / Onestà
 
-## Architecture
+Questa è la cosa più difendibile che m1nd fa, e nessun concorrente la offre. La dottrina: **la credibilità viene dall'onestà, non dal vincere sempre.**
 
-Tre crate Rust. Esecuzione locale. Nessuna API key richiesta per il percorso server core.
+- **`trust_selftest`** restituisce un verdetto *prima* di qualsiasi retrieval: `full_trust`, `needs_ingest`, `wrong_workspace_binding`, `stale_binding_suspected`, o `degraded_host_tool_surface`. L'agente sa se procedere, eseguire ingest, rebindare, o fare fallback.
+- **`agent_runtime_contract`** è presente in ogni risposta di retrieval, portando un `trust_mode`. Un risultato vuoto è disambiguato — associato al repository sbagliato vs. genuinamente niente lì — mai riportato silenziosamente come "nessun risultato."
+- **Array `non_claims`** presenti su ogni tool di missione. m1nd dice all'agente cosa *non* ha provato.
+- **`mission_verify` può dire no — e lo fa, nel codice testato.** Rifiuta prove solo da grafo: un'affermazione non può chiudersi senza una lettura di file, un'esecuzione di test, o un probe di runtime. Il test si chiama letteralmente `graph_only_evidence_is_not_enough`.
+- **`recovery_playbook`** restituisce un elenco di passi deterministico e ordinato per riparare il binding.
 
-```text
-m1nd-core/     Motore a grafo, propagazione, euristiche, motore di ipotesi,
-               sistema antibody, flow simulator, epidemic, tremor, trust, layers
-m1nd-ingest/   Extractor di linguaggi, adapter memory/json/light,
-               arricchimento git, cross-file resolver, diff incrementale
-m1nd-mcp/      Server MCP, JSON-RPC su stdio, più supporto HTTP/UI nell'attuale build predefinita
-```
+La prova dell'impegno è ciò che è stato eliminato per esso: `savings` e `resonate` sono stati rimossi dalla superficie pubblicizzata nella beta.7 perché uno strumento che afferma sempre di vincere non è credibile. Nessun concorrente — né mem0, Zep, Letta, Sourcegraph, né alcun MCP code-graph — offre un layer che dice all'agente cosa *non* fidarsi e come recuperare.
 
-```mermaid
-graph LR
-    subgraph Ingest
-        A[Codice e documenti] --> R[Resolver e adapter]
-        R --> G[Grafo]
-    end
-    subgraph Core
-        G --> SA[Attivazione e ranking]
-        G --> HY[Ipotesi e impatto]
-        G --> HS[Euristiche e memoria]
-    end
-    subgraph MCP
-        SA --> T[Superficie degli strumenti]
-        HY --> T
-        HS --> T
-        T --> IO[JSON-RPC stdio]
-        T --> HTTP[HTTP e UI]
-    end
-    IO --> C[Client MCP]
-    HTTP --> B[Browser su localhost]
-```
+## Copertura Linguistica
 
-Il numero di linguaggi è ampio, ma la profondità varia da linguaggio a linguaggio. Consulta il wiki per i dettagli sugli adapter.
+Il ragionamento sul grafo (`impact`, `why`, `predict`, `trace`, `taint_trace`) è valido solo quanto l'estrattore. m1nd risolve sia gli **edge `calls`** (call graph) che i **`imports` cross-file** (risoluzione delle dipendenze file→file) per linguaggio. La matrice sotto è stata provata live in un singolo ingest poliglotta:
 
-## When NOT to Use m1nd
+| Linguaggio | `calls` | import cross-file |
+|---|:---:|:---:|
+| Rust | ✅ | ✅ (`mod`/`use crate::`) |
+| Python | ✅ | ✅ |
+| JavaScript / TypeScript | ✅ | ✅ |
+| Go | ✅ | ✅ (package) |
+| Java | ✅ | ✅ (FQCN + wildcard) |
+| C / C++ | ✅ | ✅ (`#include "..."`) |
+| Kotlin | ✅ | ✅ (package) |
+| PHP | ✅ | ✅ (PSR-4) |
+| Scala | ✅ | ✅ (package) |
+| Ruby | ⏳ | ✅ (`require_relative`) |
+| C# | ✅ | — (i namespace non mappano 1:1 ai file) |
+| Swift | ✅ | — |
 
-- **Hai bisogno di retrieval embedding-first di livello frontier come motore di ricerca principale.** m1nd supporta retrieval semantico e basato sull'intento (`seek`, indici semantici ibridi, graph re-ranking), ma è ottimizzato per il grounding strutturale più che per la ricerca puramente embedding-first.
-- **Hai 400K+ file e vuoi che sembri economico.** Il grafo vive ancora in memoria. Può reggere quella scala, ma è stato ottimizzato per repository dove la velocità di orientamento dell'agente conta più della densità estrema del grafo.
-- **Ti servono garanzie di dataflow a livello di variabile in stile CodeQL.** m1nd ora ha capacità orientate a flow e taint, ma deve comunque affiancare - non sostituire - strumenti SAST/dataflow dedicati per l'analisi di sicurezza formale.
-- **Ti serve una propagazione SSA-style argomento per argomento.** m1nd traccia bene file, simboli, chiamate, vicinati, contesto chirurgico di modifica e path del grafo; non è un motore di value-flow a livello di compilatore.
-- **Ti serve indicizzazione alla velocità del keystroke a ogni salvataggio.** L'ingest è veloce, ma m1nd è ancora intelligenza a livello di sessione, non infrastruttura ad ogni battuta di tasto. Per quello usa il tuo LSP.
+Tutte le righe ✅ sono verificate end-to-end (un import `caller`→`callee` si risolve e il caller emette edge di chiamata). Gli altri linguaggi cadono sull'estrattore generico (solo `contains`). Gli import non risolvibili (pacchetti esterni, gem, stdlib, header di sistema) sono onestamente lasciati irrisolti anziché indovinati.
 
-## Use Cases
+## Mappa delle Capacità
 
-**Caccia ai bug:** `hypothesize` -> `missing` -> `flow_simulate` -> `trace`.
-Nel caso di audit documentato, questo ha ridotto l'esplorazione basata su grep e ha fatto emergere problemi che la semplice ricerca testuale non vedeva. [Caso studio ->](../EXAMPLES.md)
+La superficie MCP live si evolve con i rilasci. Usa `tools/list` per il conteggio esatto degli strumenti e i nomi nella tua build corrente.
 
-**Gate pre-deploy:** `antibody_scan` -> `validate_plan` -> `epidemic`.
-Scansiona i bug noti, valuta il blast radius, prevede la diffusione dell'infezione.
+| Area | Cosa abilita | Strumenti rappresentativi |
+|---|---|---|
+| Fondamenta del grafo | ingerire codice, mantenere lo stato del grafo, diagnosticare la continuità della sessione, rinforzare i percorsi utili, e rilevare il drift dei pesi tra sessioni | `trust_selftest`, `session_handshake`, `recovery_playbook`, `ingest`, `health`, `doctor`, `learn`, `warmup`, `drift` |
+| Retrieval e orientamento | cercare per testo, percorso, intento, struttura, o relazione prima delle letture manuali dei file | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
+| Doc e binding della conoscenza | ingerire doc universali o `L1GHT` graph-native, poi collegare i concetti al codice | `ingest(adapter="universal"\|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
+| Navigazione e continuità | mantenere route stateful, handoff, baseline, e memoria investigativa tra sessioni | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
+| Mission control e disciplina della prova | mantenere una route delimitata, registrare eventi, passare dall'orientamento sul grafo alla prova diretta, fare handoff, e chiudere con gap espliciti | `mission_start`, `mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, `mission_close` |
+| Pianificazione e prova dei cambiamenti | ragionare su impatto, co-change, passi mancanti, percorsi di fallimento, e affermazioni strutturali | `impact`, `predict`, `validate_plan`, `missing`, `hypothesize`, `counterfactual`, `differential` |
+| Qualità, sicurezza e architettura | rilevare pattern, percorsi di taint, confini di trust, duplicazioni, violazioni di layer, flussi di tipo e target di refactoring | `scan`, `scan_all`, `heuristics_surface`, `antibody_*`, `taint_trace`, `type_trace`, `trust`, `layers`, `layer_inspect`, `twins`, `fingerprint`, `flow_simulate`, `epidemic`, `tremor`, `refactor_plan` |
+| Tempo, runtime e lavoro multi-repo | ispezionare la cronologia git, drift, edge di co-change nascosti, overlay di runtime e riferimenti cross-repo | `timeline`, `diverge`, `ghost_edges`, `runtime_overlay`, `external_references`, `federate`, `federate_auto` |
+| Operazioni e monitoraggio | verificare lo stato del repo, verificare la verità grafo-vs-disco, eseguire watch daemon, persistere lo stato, e far emergere alert durevoli | `audit`, `cross_verify`, `daemon_*`, `alerts_*`, `panoramic`, `metrics`, `report`, `persist`, `diagram`, `help` |
+| Preparazione ed esecuzione di modifiche chirurgiche | estrarre contesto connesso compatto, anteprima delle scritture, e applicare modifiche graph-aware | `surgical_context`, `surgical_context_v2`, `view`, `batch_view`, `edit_preview`, `edit_commit`, `apply`, `apply_batch` |
 
-**Audit architetturale:** `layers` -> `layer_inspect` -> `counterfactual`.
-Rileva automaticamente i layer, trova le violazioni, simula cosa si rompe se rimuovi un modulo.
+**Livelli:** 27 strumenti essenziali sono pubblicizzati di default per ridurre il costo di selezione degli strumenti; imposta `M1ND_TOOL_TIER=full` per pubblicizzare la superficie completa (100+ strumenti: RETROBUILDER, perspectives, federation, daemon). Alcuni strumenti (`resonate`, `savings`, `lock_*`) rimangono chiamabili per nome ma non sono sulla superficie pubblicizzata. Gli strumenti nascosti sono sempre chiamabili via `tools/call` — il livello controlla solo ciò che `tools/list` espone.
 
-**Onboarding:** `activate` -> `layers` -> `perspective_start` -> `perspective_follow`.
-Un nuovo developer chiede "come funziona auth?" e il grafo illumina il percorso.
+## I Cicli Operativi
 
-**Ricerca cross-domain:** `ingest(adapter="memory", mode="merge")` -> `activate`.
-Code + docs nello stesso grafo. Una domanda restituisce sia la spec sia l'implementazione.
+Il pack per agenti è parte del prodotto, non documentazione decorativa. m1nd è più potente quando l'agente riceve il *ciclo operativo*, non solo un endpoint del grafo. Cinque protocolli nominati sono inclusi nel pack:
 
-**Modifica sicura multi-file:** `surgical_context_v2` -> `apply_batch(verify=true)`.
-Scrivi N file insieme. Ottieni un verdetto SAFE/RISKY/BROKEN prima che parta CI.
+- **Avvio Sessione** — `trust_selftest` → `recovery_playbook` se il trust non è pieno → `ingest` se necessario → `seek`/`audit`.
+- **Ricerca** — `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → `learn(feedback)` → `memorize` qualsiasi risultato duraturo.
+- **Modifica Codice** — `impact(node)` per il blast radius → `predict(node)` → `counterfactual(nodes)` → `surgical_context_v2` → `memorize` la decisione e il perché.
+- **Analisi Approfondita** — `fingerprint`, `diverge`, `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, `runtime_overlay` (la lente RETROBUILDER) per accoppiamento nascosto, percorsi di sicurezza, duplicati strutturali e calore di runtime.
+- **Memoria** — persisti conclusioni durevoli con `memorize`, portando `confidence` e percorsi `evidence`.
 
-## Contributing
+Mission Control è disciplina della prova, non un elenco di funzionalità. `mission_next` restituisce esattamente una mossa più guardrail `do_not`; `mission_verify` rifiuta affermazioni solo da grafo; `mission_close` spinge sempre l'agente a persistere la conoscenza verificata e registra gap e non-claim. In modalità `bug_hunt`, MC0 richiede un `direct_sweep` finale dopo i risultati verificati prima della chiusura, così gli agenti controllano lo spazio negativo.
 
-m1nd è ancora giovane e si muove velocemente. Contributi benvenuti: extractor di linguaggi, algoritmi di grafo, tool MCP e benchmark.
-Vedi [CONTRIBUTING.md](CONTRIBUTING.md).
+**Avvertenza:** `predict` ha **solo fallback strutturale** finché `ghost_edges` non carica la matrice di co-change git — esegui `ghost_edges` prima quando hai bisogno della reale probabilità di co-change.
 
-## License
+## Evidenze
 
-MIT -- vedi [LICENSE](../LICENSE).
+Ogni riga è calibrata esattamente a ciò che è stato misurato. m1nd non guida con numeri di risparmio o ROI — questo è il punto.
 
----
+| Affermazione | Risultato | Fonte / calibrazione |
+|---|---|---|
+| Latenza `activate` / `impact` | `activate` sub-µs, `impact` sub-ms | Benchmark Criterion in `m1nd-core/benches/` su un grafo sintetico da 1K nodi — [metodologia](https://m1nd.world/wiki/benchmarks.html); trattare come ordine di grandezza. |
+| Matrice linguistica | chiamate + import cross-file per 10 linguaggi (+ Ruby cross-file) | Verificato end-to-end in un singolo ingest poliglotta; test per linguaggio in `m1nd-ingest`. Vedi [Copertura Linguistica](#copertura-linguistica). |
+| Campione di validazione post-scrittura | 12/12 classificati correttamente | Controllo di runtime interno. |
+| Bug-hunt con semi | 16/20 al primo round accettato di difetti seminati `humanize` (m1nd-trained); `m1nd-basic` e diretto ciascuno 8/15 | Evidenza di prodotto interno, `public_claim_worthy=false` — non un benchmark universale. |
+| Auto-verifica della memoria | provata live end-to-end | `memorize` → `grounded_in` → segnale di freshness su file modificato → sopravvive a replace → boot auto-load. |
 
-**Vuoi workflow concreti?** Leggi [EXAMPLES.md](../EXAMPLES.md).
-**Hai trovato un bug o una discrepanza?** [Apri una issue](https://github.com/maxkle1nz/m1nd/issues).
-**Vuoi tutta la superficie API?** Consulta il [wiki](https://github.com/maxkle1nz/m1nd/wiki).
+## Limiti
+
+`m1nd` complementa piuttosto che sostituire il tuo LSP, compilatore, test runner, scanner di sicurezza e stack di osservabilità. È più utile prima della ricerca, della revisione o di una modifica, e ogni volta che doc, impatto o continuità sono importanti.
+
+È **meno utile** quando:
+
+- la ricerca esatta di testo risponde già alla domanda
+- la verità del compilatore o del runtime è l'unica cosa di cui hai bisogno
+- il task è un'azione locale banale su file senza incertezza strutturale
+
+**Necessita di alimentazione:** `trust` e `tremor` partono con prior neutri finché non si accumula feedback da `learn` / dati da `ghost_edges`, e `predict` ha bisogno che `ghost_edges` sia caricato prima che il suo segnale di co-change sia significativo. Migliorano con l'uso; sono onesti sull'essere non informati all'avvio.
+
+## Architettura in Sintesi
+
+Tre crate Rust core più un bridge ausiliario:
+
+- **`m1nd-mcp`** — il server MCP e la superficie del runtime operativo.
+- **`m1nd-core`** — il motore del grafo: un `WavefrontEngine` che fa spreading activation, plasticità Hebbiana, adiacenza CSR e ghost edge derivati da git.
+- **`m1nd-ingest`** — adapter di estrazione, routing e costruzione del grafo (codice, doc universali, L1GHT).
+- **`m1nd-openclaw`** — bridge ausiliario OpenClaw (lane Unix-socket, versioning indipendente).
+
+Versioni correnti dei crate: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` tutti `0.9.0-beta.7`.
+
+<p align="center">
+  <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="Panoramica architettura m1nd" width="960" />
+</p>
+
+Per federation, perspectives, RETROBUILDER, coordinamento multi-agente e il riferimento completo del pack agenti e operatore, consulta il [wiki canonico](https://m1nd.world/wiki/), [docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) e [EXAMPLES.md](../EXAMPLES.md).
+
+## Contribuire
+
+I contributi sono benvenuti su estrattori e adapter, tooling MCP/runtime, benchmark, doc e algoritmi di grafo. Vedi [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+## Licenza
+
+MIT. Vedi [LICENSE](../LICENSE).
