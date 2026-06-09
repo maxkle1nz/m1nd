@@ -553,6 +553,32 @@ fn l2_seek_next_step(
 /// 8 predefined categories: error_handling, resource_cleanup, api_surface,
 /// state_mutation, concurrency, auth_boundary, test_coverage, dependency_injection.
 /// V2 upgrade path: replace label keyword matching with ast-grep-core structural patterns.
+/// Split an identifier label into lowercase tokens on camelCase boundaries and
+/// non-alphanumeric separators (`_`, `::`, `.`, digits). Used for word-boundary
+/// aware scan-keyword matching so `expect` does not match `expected_phases`.
+fn scan_label_tokens(label: &str) -> std::collections::HashSet<String> {
+    let mut tokens = std::collections::HashSet::new();
+    let mut cur = String::new();
+    let mut prev_lower = false;
+    for ch in label.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if prev_lower && ch.is_ascii_uppercase() && !cur.is_empty() {
+                tokens.insert(std::mem::take(&mut cur).to_ascii_lowercase());
+            }
+            cur.push(ch);
+            prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        } else if !cur.is_empty() {
+            tokens.insert(std::mem::take(&mut cur).to_ascii_lowercase());
+            prev_lower = false;
+        }
+    }
+    if !cur.is_empty() {
+        tokens.insert(cur.to_ascii_lowercase());
+    }
+    tokens.remove("");
+    tokens
+}
+
 pub fn handle_scan(
     state: &mut SessionState,
     input: layers::ScanInput,
@@ -631,7 +657,12 @@ pub fn handle_scan(
             }
         }
 
-        let label = graph.strings.resolve(graph.nodes.label[i]).to_lowercase();
+        let raw_label = graph.strings.resolve(graph.nodes.label[i]);
+        let label = raw_label.to_lowercase();
+        // Tokenize the RAW label (camelCase + snake/:: boundaries) so keyword
+        // matching is word-boundary aware: `error` matches ErrorResponse and
+        // unwrap_or, but `expect` no longer matches `expected_phases`.
+        let tokens = scan_label_tokens(raw_label);
         let prov = &graph.nodes.provenance[i];
         let source_path = prov
             .source_path
@@ -642,7 +673,10 @@ pub fn handle_scan(
         }
 
         for kw in &keywords {
-            if label.contains(kw.as_str()) {
+            // Exact token match (keywords are whole words) — kills substring
+            // false positives. Negations stay substring (compound guards like
+            // test_error).
+            if tokens.contains(kw.as_str()) {
                 let negated = negations.iter().any(|nk| label.contains(nk.as_str()));
                 if !negated {
                     raw_matches.push(i);
@@ -10985,5 +11019,23 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             "finding.file_path '{}' must contain 'core' (from 'file::src/core.rs')",
             finding.file_path
         );
+    }
+
+    #[test]
+    fn scan_label_tokens_are_word_boundary_aware() {
+        // The keyword "error" should match these (token "error" present)...
+        for label in ["ErrorResponse", "unwrap_or", "timeout_error_payload", "throwError"] {
+            let toks = super::scan_label_tokens(label);
+            let has = match label {
+                "unwrap_or" => toks.contains("unwrap"),
+                _ => toks.contains("error"),
+            };
+            assert!(has, "{} tokens {:?} missing expected token", label, toks);
+        }
+        // ...but the keyword "expect" must NOT match "expected_phases" (the
+        // substring false positive the audit found): token is "expected", not "expect".
+        let toks = super::scan_label_tokens("expected_phases");
+        assert!(toks.contains("expected") && !toks.contains("expect"),
+            "expected_phases tokens {:?} must contain 'expected' but not 'expect'", toks);
     }
 }
