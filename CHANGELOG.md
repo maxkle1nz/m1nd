@@ -10,6 +10,81 @@ No unreleased changes.
 
 ---
 
+## [0.9.0-beta.7] — 2026-06-09
+
+### Added
+
+#### Language coverage — calls + cross-file import resolution
+
+Native extractors now resolve both call edges and cross-file import edges across
+the major languages, bringing the structural graph to real multi-language parity.
+
+- Calls + cross-file import resolution for Rust, Python, JS/TS, Go, Java, C, C++,
+  Kotlin, PHP, Scala, and Ruby.
+- C# and Swift are calls-only; C# namespaces are intentionally not file-resolved.
+- Specific mechanisms include a `RustModuleIndex` (resolve `mod`/`use` to file
+  nodes), a `JavaPackageIndex`, C `#include` and Kotlin `import` resolution,
+  PHP (PSR-4) and Scala (package) cross-file imports, a Ruby
+  `require_relative` scanner, and AST-verified tree-sitter call extraction for
+  C++, PHP, Scala, and Swift.
+
+#### L1GHT compounding memory
+
+The first end-to-end agent-authored memory loop that lives in the same activation
+space as code and survives across sessions.
+
+- `memorize` — the first L1GHT *writer*: agents persist structured claims with
+  `confidence` and `evidence`, written as a graph-native `.light.md`.
+- Evidence→code `grounded_in` anchoring resolves L1GHT `𝔻` epistemic markers to
+  real code nodes.
+- `cross_verify` `evidence_freshness` flags memorized claims whose cited code has
+  since changed; `memory_freshness` is reported inline on code re-ingest.
+- Boot auto-load of agent memory (`.light.md`), reported in
+  `session_handshake.agent_memory`.
+- Memory survives a `mode=replace` ingest instead of being silently lost.
+- `mission_close` gained `write_light_memory` for one-step mission + memory commit.
+- L1GHT confidence accepts word-form values (`low`/`medium`/`high`/`certain`).
+
+#### Output discipline & tool tiering
+
+- Bounded output for `impact`, `layers`, and `surgical_context_v2`.
+- Env-gated tool surface tiering: an ESSENTIAL tier is advertised by default
+  (`M1ND_TOOL_TIER`), with the full surface available on demand. Hidden tools
+  remain callable by name regardless of tier.
+
+#### RETROBUILDER + kickstart (from the consolidation line)
+
+- RETROBUILDER agent-first wiring into agent routing.
+- `m1nd kickstart` command.
+- User-scope host detection (hosts-status fix for user-scope installs).
+
+### Changed
+
+#### Agent legibility & honesty
+
+- `session_handshake` now surfaces `graph_intelligence` (top PageRank, attention
+  anchors, memory counts).
+- Real per-file `change_frequency` is wired from git history.
+- `savings` and `resonate` were removed from the advertised tool surface (both
+  remain callable by name).
+- `twins` topological similarity is now gated by identifier-token overlap.
+- `scan` uses word-boundary matching and returns populated `file_path`/`line`.
+- Honest empty-state guidance for `predict`, `trust`, and `tremor`.
+- Slim release binary: `[profile.release]` now uses `strip` + thin LTO.
+
+### Fixed
+
+#### Instruction/schema dead-ends and trust hardening
+
+- Closed instruction-vs-schema dead-ends: `learn` is now advertised,
+  `write_light_memory` and `evidence_freshness` appear in their schemas, and the
+  `diverge` description was corrected.
+- `attention_anchors` now reads the correct plasticity engine (was a dead signal).
+- P1 trust hardening: `trace` absolute paths, `hypothesize` verdict, and
+  `predict` co-change.
+
+---
+
 ## [0.9.0-beta.5] — 2026-05-16
 
 ### Added

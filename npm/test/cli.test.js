@@ -167,7 +167,7 @@ function writeFakeMcpRuntime(file) {
     file,
     `#!/usr/bin/env node
 if (process.argv.includes("--version")) {
-  console.log("m1nd-mcp 0.9.0-beta.6");
+  console.log("m1nd-mcp 0.9.0-beta.7");
   process.exit(0);
 }
 const readline = require("readline");
@@ -256,20 +256,20 @@ function realpathOrSame(file) {
 }
 
 const registryCurrent = JSON.stringify({
-  "dist-tags": { beta: "0.9.0-beta.6", latest: "0.9.0-beta.6" },
-  version: "0.9.0-beta.6",
+  "dist-tags": { beta: "0.9.0-beta.7", latest: "0.9.0-beta.7" },
+  version: "0.9.0-beta.7",
 });
 
 const fakeEnvBase = {
   M1ND_TEST_NPM_VIEW_JSON: registryCurrent,
-  M1ND_TEST_CRATE_VERSION: "0.9.0-beta.6",
+  M1ND_TEST_CRATE_VERSION: "0.9.0-beta.7",
   M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "true",
 };
 
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
   () => {
     const current = selfUpdate({
@@ -289,7 +289,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
   () => {
     const status = selfUpdate({
@@ -450,7 +450,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
     // Use an isolated home dir so that a real ~/.claude.json does not affect
     // the "missing" assertion below.
     M1ND_TEST_HOME: mkTmpDir(),
@@ -536,8 +536,8 @@ withEnv(fakeEnvBase, () => {
     {
       PATH: `${pathRuntimeDir}${path.delimiter}${process.env.PATH || ""}`,
       M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
-        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.6",
-        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.6",
+        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.7",
+        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.7",
         [pathRuntime]: "m1nd-mcp 0.8.0",
         [realpathOrSame(pathRuntime)]: "m1nd-mcp 0.8.0",
       }),
@@ -564,8 +564,8 @@ withEnv(fakeEnvBase, () => {
     {
       PATH: `${pathRuntimeDir}${path.delimiter}${process.env.PATH || ""}`,
       M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
-        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.6",
-        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.6",
+        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.7",
+        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.7",
         [pathRuntime]: "m1nd-mcp 0.8.0",
         [realpathOrSame(pathRuntime)]: "m1nd-mcp 0.8.0",
       }),
@@ -603,8 +603,8 @@ M1ND_MCP_BINARY = "${foreignRuntime}"
     {
       M1ND_TEST_HOME: testHome,
       M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
-        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.6",
-        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.6",
+        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.7",
+        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.7",
         [foreignRuntime]: "m1nd-mcp 0.8.0",
         [realpathOrSame(foreignRuntime)]: "m1nd-mcp 0.8.0",
       }),
@@ -626,7 +626,7 @@ M1ND_MCP_BINARY = "${foreignRuntime}"
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
   () => {
     const tmp = mkTmpDir();
@@ -676,7 +676,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
   () => {
     const tmp = mkTmpDir();
@@ -709,7 +709,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
   () => {
     const testHome = mkTmpDir();
@@ -742,7 +742,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
   () => {
     const testHome = mkTmpDir();
@@ -776,7 +776,7 @@ const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json
   env: {
     ...process.env,
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
 });
 assert.strictEqual(updateCheck.status, 0, updateCheck.stderr);
@@ -787,7 +787,7 @@ const updateStatus = spawnSync(process.execPath, [cli, "update", "status", "--js
   env: {
     ...process.env,
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
   },
 });
 assert.strictEqual(updateStatus.status, 0, updateStatus.stderr);
@@ -806,7 +806,7 @@ const hostsStatus = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
     },
   }
 );
@@ -825,7 +825,7 @@ const hostsPlan = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
     },
   }
 );
@@ -844,7 +844,7 @@ const hostApplyCli = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
     },
   }
 );
@@ -872,7 +872,7 @@ writeFakeMcpRuntime(fakeMcp);
 const agentEnv = {
   ...process.env,
   ...fakeEnvBase,
-  M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.6",
+  M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
 };
 const agentScopeRepo = mkTmpDir();
 const agentScope = spawnSync(
