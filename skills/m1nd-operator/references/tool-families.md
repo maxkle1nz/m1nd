@@ -44,6 +44,12 @@ This is the compact capability inventory for the current `m1nd` shape. Use the l
 - `differential`: compare two graph snapshots.
 - `diverge`: detect structural drift vs a baseline (ISO date / git ref / last_session).
 
+Note on `predict`: co-change predictions need the git co-change matrix — run `ghost_edges` once before `predict`, otherwise it returns only structural fallback (the response carries a `note` saying so). `trust` and `tremor` are honest-empty until populated: `trust` from `learn`/`cross_verify` defect feedback (NOT churn), `tremor` from `ghost_edges`/daemon velocity observations.
+
+## Language Coverage (what graph reasoning can trust)
+
+`impact`/`why`/`predict`/`trace`/`taint_trace` depend on the extractor emitting real `calls` edges and resolved cross-file `imports`. Both are verified for: **Rust, Python, JS/TS, Go, Java, C, C++, Kotlin, PHP, Scala** (full parity). **Ruby**: cross-file `require_relative` resolves; calls pending. **C#, Swift**: calls only (C# namespaces don't map 1:1 to files). Anything else falls back to the generic extractor (`contains` only) — on those, prefer `search`/`grep` over `impact`/`why`. Unresolvable imports (external gems/packages/stdlib/system headers) are left unresolved, never guessed.
+
 ## Memory, Learning, And Continuity
 
 - `learn`: reinforce or weaken paths based on feedback.
