@@ -610,6 +610,357 @@ impl JavaPackageIndex {
 }
 
 // ---------------------------------------------------------------------------
+// CHeaderIndex — maps C/C++ #include paths to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps C/C++ `#include` target strings to file external IDs.
+///
+/// The tree-sitter extractor produces the following ref:: targets for C/C++:
+///   - `#include "util.h"`   → `util.h`   (string_literal child, quotes stripped)
+///   - `#include <stdio.h>`  → `stdio.h`  (system_lib_string, angle brackets stripped
+///                                          via fallback word extraction in extract_import_target)
+///
+/// Resolution strategy (QUOTED includes only):
+///   1. If the target contains a path separator (`/`), join it against the
+///      including file's directory and look up the normalized relative path.
+///   2. If the target is a bare filename (no `/`), try basename match among all
+///      ingested C/C++ files — e.g. `util.h` → `include/util.h`.
+///
+/// System / angle-bracket includes (`stdio.h`, `stdlib.h`, etc.) are left
+/// UNRESOLVED — they will simply not be found in the project's file index,
+/// which is the correct behaviour.  We never fabricate edges to external headers.
+///
+/// Limitations (honest):
+///   • No `-I` / include-path awareness — only project-local headers resolve.
+///   • Bare-name collision: if two headers share the same filename, first-win.
+///   • C# `using_directive` is NOT resolved here (see separate comment in
+///     resolve_cross_file_edges for the rationale).
+struct CHeaderIndex {
+    /// Canonical relative path (no leading `./`) → file external ID
+    /// e.g. "include/util.h" → "file::include/util.h"
+    path_to_file: HashMap<String, String>,
+    /// Basename → Vec<(file_external_id, dir_slash_separated)>
+    /// Used for bare-name resolution when path join misses.
+    /// e.g. "util.h" → [("file::include/util.h", "include"), ...]
+    basename_to_files: HashMap<String, Vec<(String, String)>>,
+}
+
+const C_EXTENSIONS: &[&str] = &["h", "hpp", "hxx", "hh", "c", "cc", "cpp", "cxx"];
+
+impl CHeaderIndex {
+    fn build(graph: &Graph) -> Self {
+        let mut path_to_file: HashMap<String, String> = HashMap::new();
+        let mut basename_to_files: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) => p,
+                None => continue,
+            };
+
+            let is_c = C_EXTENSIONS
+                .iter()
+                .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+            if !is_c {
+                continue;
+            }
+
+            // Register under the full relative path (normalized, no ./)
+            path_to_file
+                .entry(rel_path.to_string())
+                .or_insert_with(|| ext_id.clone());
+
+            // Register under the basename for bare-name fallback
+            let dir = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[..idx],
+                None => "",
+            };
+            let basename = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[idx + 1..],
+                None => rel_path,
+            };
+
+            if !basename.is_empty() {
+                basename_to_files
+                    .entry(basename.to_string())
+                    .or_default()
+                    .push((ext_id.clone(), dir.to_string()));
+            }
+        }
+
+        Self {
+            path_to_file,
+            basename_to_files,
+        }
+    }
+
+    /// Resolve a C/C++ `#include` target to a file external ID.
+    ///
+    /// `target`: the string produced by extract_import_target, e.g.
+    ///   `util.h`, `../include/types.h`, `stdio.h`.
+    /// `source_dir`: the directory of the including file (e.g. `src/net`).
+    ///
+    /// Returns None when the header cannot be matched to any ingested file
+    /// (system header, external dep, or path not in project).
+    fn resolve(&self, target: &str, source_dir: &str) -> Option<&str> {
+        // Strip any leading ./ for normalization
+        let target = target.trim_start_matches("./");
+
+        if target.contains('/') {
+            // Path-relative include: join against source directory
+            let joined = join_path(source_dir, target);
+            if let Some(file_id) = self.path_to_file.get(joined.as_str()) {
+                return Some(file_id.as_str());
+            }
+            // Fallback: try the basename only (in case the path isn't rooted at project root)
+            let basename = joined.rsplit('/').next().unwrap_or(target);
+            return self.resolve_by_basename(basename);
+        }
+
+        // Bare filename (no path separator): exact path match first
+        // e.g. target = "util.h" and file at "util.h" (root level)
+        if let Some(file_id) = self.path_to_file.get(target) {
+            return Some(file_id.as_str());
+        }
+
+        // Try joining with source_dir: `util.h` in `src/net` → `src/net/util.h`
+        if !source_dir.is_empty() {
+            let joined = format!("{}/{}", source_dir, target);
+            if let Some(file_id) = self.path_to_file.get(joined.as_str()) {
+                return Some(file_id.as_str());
+            }
+        }
+
+        // Basename fallback: find any ingested header with this filename
+        self.resolve_by_basename(target)
+    }
+
+    /// Resolve by basename alone, returning the unique or best-match file.
+    fn resolve_by_basename(&self, basename: &str) -> Option<&str> {
+        let candidates = self.basename_to_files.get(basename)?;
+        if candidates.is_empty() {
+            return None;
+        }
+        // Single candidate: accept it
+        if candidates.len() == 1 {
+            return Some(candidates[0].0.as_str());
+        }
+        // Multiple: prefer header files (.h/.hpp) over source files, then first wins
+        for (file_id, _) in candidates {
+            let is_header = file_id.ends_with(".h") || file_id.ends_with(".hpp")
+                || file_id.ends_with(".hxx") || file_id.ends_with(".hh");
+            if is_header {
+                return Some(file_id.as_str());
+            }
+        }
+        Some(candidates[0].0.as_str())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// KotlinPackageIndex — maps Kotlin import paths to file external IDs
+// ---------------------------------------------------------------------------
+
+/// Maps Kotlin import paths (fully-qualified class/object names) to file external IDs.
+///
+/// Kotlin imports look like:
+///   `import com.example.foo.Bar`     — specific class
+///   `import com.example.foo.*`       — wildcard (all declarations in package)
+///
+/// Convention mirrors Java: class `com.example.foo.Bar` lives in a file
+/// whose stem is `Bar` inside a directory path matching `com/example/foo/`.
+///
+/// Resolution heuristic (mirrors JavaPackageIndex — honest/conservative):
+///   1. Extract the LAST segment of the import path:
+///      `com.example.foo.Bar` → `Bar`; wildcard `com.example.foo.*` → `*`.
+///   2. Walk all `.kt` file nodes; match stem (e.g. `Bar` from `Bar.kt`).
+///   3. Among candidates, prefer the one with the longest suffix overlap
+///      between the import's package path and the file's directory path.
+///
+/// Wildcard imports (`com.example.foo.*`): resolve to ALL `.kt` files whose
+///   directory path matches the package prefix.
+///
+/// Limitations (honest):
+///   • No build.gradle / pom.xml parsing — source roots unknown.
+///   • Ambiguous same-stem class names resolved by suffix overlap; first wins.
+///   • External/stdlib classes (kotlin.collections.*, java.io.*, etc.) with no
+///     ingested files stay unresolved — never fabricate edges.
+///   • Kotlin allows top-level functions and multiple classes per file, so a
+///     stem match is a heuristic — single-class-per-file convention is assumed.
+struct KotlinPackageIndex {
+    /// stem -> Vec<(file_external_id, dir_path_slash_separated)>
+    /// e.g. "Bar" -> [("file::com/example/foo/Bar.kt", "com/example/foo"), ...]
+    stem_to_files: HashMap<String, Vec<(String, String)>>,
+    /// dir_path -> Vec<file_external_id> for wildcard resolution
+    dir_to_files: HashMap<String, Vec<String>>,
+}
+
+const KOTLIN_EXTENSIONS: &[&str] = &["kt", "kts"];
+
+impl KotlinPackageIndex {
+    fn build(graph: &Graph) -> Self {
+        let mut stem_to_files: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut dir_to_files: HashMap<String, Vec<String>> = HashMap::new();
+
+        for i in 0..graph.num_nodes() as usize {
+            if graph.nodes.node_type[i] != NodeType::File {
+                continue;
+            }
+
+            let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let rel_path = match ext_id.strip_prefix("file::") {
+                Some(p) => p,
+                None => continue,
+            };
+
+            let is_kt = KOTLIN_EXTENSIONS
+                .iter()
+                .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+            if !is_kt {
+                continue;
+            }
+
+            // Directory of this .kt file
+            let dir = match rel_path.rfind('/') {
+                Some(idx) => &rel_path[..idx],
+                None => "",
+            };
+
+            // Stem: filename without extension
+            let filename = rel_path.rsplit('/').next().unwrap_or(rel_path);
+            let stem = KOTLIN_EXTENSIONS
+                .iter()
+                .find_map(|ext| filename.strip_suffix(&format!(".{}", ext)))
+                .unwrap_or(filename);
+
+            if stem.is_empty() {
+                continue;
+            }
+
+            stem_to_files
+                .entry(stem.to_string())
+                .or_default()
+                .push((ext_id.clone(), dir.to_string()));
+
+            dir_to_files
+                .entry(dir.to_string())
+                .or_default()
+                .push(ext_id.clone());
+        }
+
+        Self {
+            stem_to_files,
+            dir_to_files,
+        }
+    }
+
+    /// Resolve a Kotlin fully-qualified import path to file external ID(s).
+    ///
+    /// `import_path`: e.g. `com.example.foo.Bar` or `com.example.foo.*`.
+    ///
+    /// Returns a Vec (possibly empty). Empty when the class/package cannot be
+    /// matched to any ingested `.kt` file (external dep, stdlib).
+    fn resolve(&self, import_path: &str) -> Vec<&str> {
+        // Wildcard: com.example.foo.*
+        if import_path.ends_with(".*") {
+            let package = &import_path[..import_path.len() - 2]; // strip ".*"
+            let dir_path = package.replace('.', "/");
+            let mut results: Vec<&str> = Vec::new();
+            // Exact dir match
+            if let Some(files) = self.dir_to_files.get(dir_path.as_str()) {
+                for f in files {
+                    results.push(f.as_str());
+                }
+            }
+            if results.is_empty() {
+                // Suffix match: any dir whose trailing segments match dir_path
+                for (dir, files) in &self.dir_to_files {
+                    if dir.ends_with(dir_path.as_str())
+                        && (dir.len() == dir_path.len()
+                            || dir.as_bytes()[dir.len() - dir_path.len() - 1] == b'/')
+                    {
+                        for f in files {
+                            results.push(f.as_str());
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        // Specific class: com.example.foo.Bar
+        let last_seg = import_path.split('.').last().filter(|s| !s.is_empty());
+        let last_seg = match last_seg {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let candidates = match self.stem_to_files.get(last_seg) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
+        if candidates.len() == 1 {
+            return vec![candidates[0].0.as_str()];
+        }
+
+        // Multiple candidates: pick by longest suffix overlap of package path vs dir path
+        let import_dir = if let Some(last_dot) = import_path.rfind('.') {
+            import_path[..last_dot].replace('.', "/")
+        } else {
+            String::new()
+        };
+        let import_dir_segs: Vec<&str> = import_dir
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let mut best: Option<&(String, String)> = None;
+        let mut best_overlap = 0usize;
+
+        for candidate in candidates {
+            let dir_segs: Vec<&str> = candidate
+                .1
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .collect();
+            let overlap = import_dir_segs
+                .iter()
+                .rev()
+                .zip(dir_segs.iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            if overlap > best_overlap || (overlap == best_overlap && best.is_none()) {
+                best_overlap = overlap;
+                best = Some(candidate);
+            }
+        }
+
+        match best {
+            Some((id, _)) => vec![id.as_str()],
+            None => vec![candidates[0].0.as_str()],
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RustModuleIndex — maps Rust module paths to file external IDs
 // ---------------------------------------------------------------------------
 
@@ -934,6 +1285,44 @@ pub fn resolve_cross_file_edges(graph: &mut Graph, root: &Path) -> M1ndResult<Cr
     stats.files_indexed += rust_index.path_to_file.len() as u64;
     let rust_import_edges = collect_rust_import_edges_from_files(graph, root, &rust_index);
     for (source_file_id, target_file_id, relation) in &rust_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 9: C/C++ cross-file #include resolution via CHeaderIndex.
+    // Only QUOTED includes (`#include "..."`) resolve to project-local files.
+    // System / angle-bracket includes (`#include <stdio.h>`) produce a bare
+    // basename like `stdio.h` that will simply not be found in the index —
+    // they stay unresolved naturally without any special-casing.
+    //
+    // NOTE — C# `using_directive` is intentionally NOT resolved here.
+    // C# namespaces do not map 1:1 to files: multiple files can declare the
+    // same namespace, and a single file can declare any namespace.  Resolving
+    // `using Foo.Bar;` to a file would require a full Roslyn-style compilation
+    // model.  Without that, any edge we produced would be fabricated.
+    // C# imports are left unresolved until a proper namespace index is available.
+    let c_index = CHeaderIndex::build(graph);
+    stats.files_indexed += c_index.path_to_file.len() as u64;
+    let c_import_edges = collect_c_import_edges_from_files(graph, root, &c_index);
+    for (source_file_id, target_file_id, relation) in &c_import_edges {
+        if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
+            stats.imports_resolved += 1;
+        } else {
+            stats.imports_unresolved += 1;
+        }
+    }
+
+    // Step 10: Kotlin cross-file import resolution via KotlinPackageIndex.
+    // Mirrors JavaPackageIndex: last-segment stem match + package-path suffix overlap.
+    // Wildcard `import com.foo.*` resolves to all `.kt` files in that package dir.
+    // External / stdlib imports stay unresolved.
+    let kotlin_index = KotlinPackageIndex::build(graph);
+    stats.files_indexed += kotlin_index.stem_to_files.len() as u64;
+    let kotlin_import_edges = collect_kotlin_import_edges_from_files(graph, root, &kotlin_index);
+    for (source_file_id, target_file_id, relation) in &kotlin_import_edges {
         if add_cross_file_edge(graph, source_file_id, target_file_id, relation, &mut stats) {
             stats.imports_resolved += 1;
         } else {
@@ -1688,6 +2077,193 @@ fn collect_rust_import_edges_from_files(
                         // `use self::X` → current module's file; skip (self-import)
                     }
                     // else: external crate (std, serde, etc.) → leave unresolved
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
+// C/C++ #include edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all C/C++ file nodes in the graph, read their source from disk,
+/// extract `#include` directives, and resolve QUOTED includes to file-to-file
+/// edges via CHeaderIndex.
+///
+/// Only quoted includes (`#include "..."`) are resolved.  Angle-bracket
+/// includes (`#include <...>`) target system/external headers which will not
+/// be found in the project index and therefore stay unresolved naturally.
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_c_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    c_index: &CHeaderIndex,
+) -> Vec<(String, String, String)> {
+    // Matches: #include "path"  (quoted — project-local)
+    // Group 1: the path string without quotes.
+    let re_quoted = Regex::new(r#"^\s*#\s*include\s+"([^"]+)""#).unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Only process C/C++ files
+        let is_c = C_EXTENSIONS
+            .iter()
+            .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+        if !is_c {
+            continue;
+        }
+
+        // Source directory for relative resolution
+        let source_dir = match rel_path.rfind('/') {
+            Some(idx) => &rel_path[..idx],
+            None => "",
+        };
+
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            // Skip empty lines and pure comment lines
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
+                continue;
+            }
+
+            // Only handle quoted includes (angle-bracket includes go unresolved)
+            if let Some(caps) = re_quoted.captures(trimmed) {
+                let target = caps.get(1).unwrap().as_str();
+
+                if let Some(target_file_id) = c_index.resolve(target, source_dir) {
+                    // Skip self-includes (shouldn't happen but guard anyway)
+                    if target_file_id == ext_id {
+                        continue;
+                    }
+                    let key = (ext_id.clone(), target_file_id.to_string());
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
+                        edges.push((
+                            ext_id.clone(),
+                            target_file_id.to_string(),
+                            "imports".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
+// Kotlin import edge collection
+// ---------------------------------------------------------------------------
+
+/// Scan all Kotlin file nodes in the graph, read their source from disk,
+/// extract `import` statements, and resolve them to file-to-file edges via
+/// KotlinPackageIndex.
+///
+/// Kotlin import forms handled:
+///   Specific:  import com.example.foo.Bar
+///   Wildcard:  import com.example.foo.*
+///   Aliased:   import com.example.foo.Bar as B  (alias stripped, path resolved)
+///
+/// Returns Vec<(source_file_id, target_file_id, relation)>.
+fn collect_kotlin_import_edges_from_files(
+    graph: &Graph,
+    root: &Path,
+    kotlin_index: &KotlinPackageIndex,
+) -> Vec<(String, String, String)> {
+    // Matches: import <path>  or  import <path> as <alias>
+    // Group 1: the dotted import path (before optional `as` alias).
+    let re_import =
+        Regex::new(r"^\s*import\s+([\w.*]+)(?:\s+as\s+\w+)?\s*;?\s*$").unwrap();
+
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+
+    for i in 0..graph.num_nodes() as usize {
+        if graph.nodes.node_type[i] != NodeType::File {
+            continue;
+        }
+
+        let ext_id = match find_external_id(graph, NodeId::new(i as u32)) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let rel_path = match ext_id.strip_prefix("file::") {
+            Some(p) => p,
+            None => continue,
+        };
+
+        // Only process Kotlin files
+        let is_kt = KOTLIN_EXTENSIONS
+            .iter()
+            .any(|ext| rel_path.ends_with(&format!(".{}", ext)));
+        if !is_kt {
+            continue;
+        }
+
+        let file_path = root.join(rel_path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
+                continue;
+            }
+
+            // Only look at import lines
+            if !trimmed.starts_with("import ") {
+                continue;
+            }
+
+            if let Some(caps) = re_import.captures(trimmed) {
+                let import_path = caps.get(1).unwrap().as_str();
+
+                let targets = kotlin_index.resolve(import_path);
+                for target_id in targets {
+                    if target_id == ext_id {
+                        continue;
+                    }
+                    let key = (ext_id.clone(), target_id.to_string());
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
+                        edges.push((
+                            ext_id.clone(),
+                            target_id.to_string(),
+                            "imports".to_string(),
+                        ));
+                    }
                 }
             }
         }
@@ -2518,5 +3094,250 @@ mod tests {
     fn rust_expand_use_paths_handles_glob() {
         let paths = expand_use_paths("crate::utils::*");
         assert_eq!(paths, vec!["crate::utils::*".to_string()]);
+    }
+
+    // -----------------------------------------------------------------------
+    // CHeaderIndex tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: add a C file node to the graph.
+    fn add_c_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
+        let ext_id = format!("file::{}", rel_path);
+        let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        graph
+            .add_node(&ext_id, label, NodeType::File, &["c"], 0.0, 0.3)
+            .unwrap()
+    }
+
+    /// Quoted `#include "callee.h"` (sibling) → resolved file→file imports edge.
+    #[test]
+    fn c_cross_file_quoted_include_resolves_to_file_node() {
+        // caller.c and callee.h are siblings at the root level.
+        let mut graph = Graph::with_capacity(8, 8);
+        add_c_file_node(&mut graph, "caller.c");
+        add_c_file_node(&mut graph, "callee.h");
+
+        let index = CHeaderIndex::build(&graph);
+
+        // `#include "callee.h"` from a root-level file: source_dir = ""
+        let resolved = index.resolve("callee.h", "");
+        assert_eq!(
+            resolved,
+            Some("file::callee.h"),
+            "Quoted sibling include should resolve. Got: {:?}",
+            resolved
+        );
+
+        // Add the cross-file edge and verify it lands in the graph
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::caller.c",
+            "file::callee.h",
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge caller.c → callee.h should be added");
+        assert_eq!(stats.total_edges_created, 1);
+
+        // Verify the edge is in pending_edges
+        let caller_id = graph.resolve_id("file::caller.c").unwrap();
+        let callee_id = graph.resolve_id("file::callee.h").unwrap();
+        let edge = graph
+            .csr
+            .pending_edges
+            .iter()
+            .find(|e| e.source == caller_id && e.target == callee_id);
+        assert!(
+            edge.is_some(),
+            "imports edge caller.c → callee.h must be in graph pending_edges"
+        );
+    }
+
+    /// `#include <stdio.h>` (angle-bracket system header) stays unresolved.
+    #[test]
+    fn c_system_include_stays_unresolved() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_c_file_node(&mut graph, "main.c");
+        // Note: we deliberately do NOT add a "stdio.h" file node — it's a
+        // system header and must not be fabricated.
+
+        let index = CHeaderIndex::build(&graph);
+
+        // System header `stdio.h` should not resolve to anything in the project
+        let resolved = index.resolve("stdio.h", "");
+        assert!(
+            resolved.is_none(),
+            "System header stdio.h must not resolve to any project file"
+        );
+
+        // stdlib.h likewise
+        let resolved2 = index.resolve("stdlib.h", "");
+        assert!(
+            resolved2.is_none(),
+            "System header stdlib.h must not resolve"
+        );
+    }
+
+    /// Quoted relative include: `#include "../include/types.h"` with path separator.
+    #[test]
+    fn c_relative_path_include_resolves() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_c_file_node(&mut graph, "src/main.c");
+        add_c_file_node(&mut graph, "include/types.h");
+
+        let index = CHeaderIndex::build(&graph);
+
+        // `#include "../include/types.h"` from "src/" directory
+        let resolved = index.resolve("../include/types.h", "src");
+        assert_eq!(
+            resolved,
+            Some("file::include/types.h"),
+            "Relative path include should resolve via join_path. Got: {:?}",
+            resolved
+        );
+    }
+
+    /// Bare basename include where the header lives in a subdirectory.
+    #[test]
+    fn c_bare_basename_include_resolves_to_subdir_header() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_c_file_node(&mut graph, "src/main.c");
+        add_c_file_node(&mut graph, "include/util.h");
+
+        let index = CHeaderIndex::build(&graph);
+
+        // `#include "util.h"` from "src/" — not a sibling, but basename matches include/util.h
+        let resolved = index.resolve("util.h", "src");
+        assert_eq!(
+            resolved,
+            Some("file::include/util.h"),
+            "Bare basename should fall back to basename index. Got: {:?}",
+            resolved
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // KotlinPackageIndex tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: add a Kotlin file node to the graph.
+    fn add_kotlin_file_node(graph: &mut Graph, rel_path: &str) -> NodeId {
+        let ext_id = format!("file::{}", rel_path);
+        let label = rel_path.rsplit('/').next().unwrap_or(rel_path);
+        graph
+            .add_node(&ext_id, label, NodeType::File, &["kotlin"], 0.0, 0.3)
+            .unwrap()
+    }
+
+    /// `import com.example.Callee` in `Caller.kt` → resolved to `Callee.kt`.
+    #[test]
+    fn kotlin_cross_file_import_resolves_to_file_node() {
+        // Caller.kt is at root level; Callee.kt lives in com/example/.
+        let mut graph = Graph::with_capacity(8, 8);
+        add_kotlin_file_node(&mut graph, "Caller.kt");
+        add_kotlin_file_node(&mut graph, "com/example/Callee.kt");
+
+        let index = KotlinPackageIndex::build(&graph);
+
+        // Resolve the import
+        let resolved = index.resolve("com.example.Callee");
+        assert_eq!(
+            resolved,
+            vec!["file::com/example/Callee.kt"],
+            "import com.example.Callee should resolve to com/example/Callee.kt. Got: {:?}",
+            resolved
+        );
+
+        // Add the cross-file edge and verify it lands in the graph
+        let mut stats = CrossFileStats::default();
+        let added = add_cross_file_edge(
+            &mut graph,
+            "file::Caller.kt",
+            "file::com/example/Callee.kt",
+            "imports",
+            &mut stats,
+        );
+        assert!(added, "imports edge Caller.kt → Callee.kt should be added");
+        assert_eq!(stats.total_edges_created, 1);
+
+        // Verify the edge is in pending_edges
+        let caller_id = graph.resolve_id("file::Caller.kt").unwrap();
+        let callee_id = graph.resolve_id("file::com/example/Callee.kt").unwrap();
+        let edge = graph
+            .csr
+            .pending_edges
+            .iter()
+            .find(|e| e.source == caller_id && e.target == callee_id);
+        assert!(
+            edge.is_some(),
+            "imports edge Caller.kt → com/example/Callee.kt must be in graph pending_edges"
+        );
+    }
+
+    /// External Kotlin/Java stdlib imports stay unresolved.
+    #[test]
+    fn kotlin_external_import_stays_unresolved() {
+        let mut graph = Graph::with_capacity(4, 4);
+        add_kotlin_file_node(&mut graph, "com/example/Service.kt");
+
+        let index = KotlinPackageIndex::build(&graph);
+
+        // kotlin.collections.List is external — no ingested file
+        assert!(
+            index.resolve("kotlin.collections.List").is_empty(),
+            "kotlin.collections.List must not resolve"
+        );
+        // java.io.* is external
+        assert!(
+            index.resolve("java.io.*").is_empty(),
+            "java.io.* wildcard must not resolve"
+        );
+    }
+
+    /// Wildcard `import com.example.*` resolves to all `.kt` files in that package.
+    #[test]
+    fn kotlin_wildcard_import_resolves_to_all_package_files() {
+        let mut graph = Graph::with_capacity(8, 8);
+        add_kotlin_file_node(&mut graph, "com/example/Alpha.kt");
+        add_kotlin_file_node(&mut graph, "com/example/Beta.kt");
+        add_kotlin_file_node(&mut graph, "com/other/Gamma.kt");
+
+        let index = KotlinPackageIndex::build(&graph);
+
+        let mut resolved = index.resolve("com.example.*");
+        resolved.sort();
+        assert_eq!(
+            resolved.len(),
+            2,
+            "Wildcard should resolve to both files in package. Got: {:?}",
+            resolved
+        );
+        assert!(resolved.contains(&"file::com/example/Alpha.kt"));
+        assert!(resolved.contains(&"file::com/example/Beta.kt"));
+
+        // Different package wildcard should not include com/example files
+        let resolved_other = index.resolve("com.other.*");
+        assert_eq!(resolved_other.len(), 1);
+        assert!(resolved_other.contains(&"file::com/other/Gamma.kt"));
+    }
+
+    /// Suffix overlap disambiguates same-stem Kotlin classes in different packages.
+    #[test]
+    fn kotlin_package_index_suffix_match_disambiguates() {
+        let mut graph = Graph::with_capacity(6, 6);
+        add_kotlin_file_node(&mut graph, "com/example/foo/Bar.kt");
+        add_kotlin_file_node(&mut graph, "org/other/Bar.kt");
+
+        let index = KotlinPackageIndex::build(&graph);
+
+        // import "com.example.foo.Bar" should prefer com/example/foo/Bar.kt
+        let resolved = index.resolve("com.example.foo.Bar");
+        assert_eq!(
+            resolved,
+            vec!["file::com/example/foo/Bar.kt"],
+            "Suffix match should pick the deeper match. Got: {:?}",
+            resolved
+        );
     }
 }
