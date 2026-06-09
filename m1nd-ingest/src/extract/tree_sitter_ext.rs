@@ -354,15 +354,43 @@ impl TreeSitterExtractor {
     ///   - first named child = `navigation_expression` →
     ///     `navigation_suffix` child contains trailing `simple_identifier` = callee name.
     ///
+    /// - **Ruby** (`call`):
+    ///   - `method` field child = `identifier` → method name (e.g., `bar` in `obj.bar(1)`)
+    ///   - `receiver` field child holds the receiver (skipped to avoid false positives)
+    ///   - Bare calls without parens (e.g., `foo`) parse as plain `identifier` — they do
+    ///     NOT produce a `call` node and are intentionally skipped.
+    ///   - Verified via AST dump: `method` field is always a plain `identifier`.
+    ///
     /// Returns `None` when the callee cannot be cleanly identified, which
     /// causes `walk_ast` to silently skip the edge (safe, no false positives).
     fn extract_callee<'a>(&self, node: Node<'a>, source: &'a [u8]) -> Option<String> {
+        // Pattern Ruby: `call` node with a `method` field child.
+        // Verified via AST dump: tree-sitter-ruby uses `call` for all receiver.method()
+        // invocations. The `method` field is always a plain `identifier` containing
+        // the method name. The `receiver` field (identifier or constant) is ignored.
+        //
+        // Bare calls without parens (e.g., `foo`) parse as `identifier` in Ruby and
+        // do NOT produce a `call` node — so they are not captured here (safe).
+        //
+        // A method DEFINITION (`def foo ... end`) parses as `method` (not `call`), so
+        // definitions never match this branch and never produce self-call edges.
+        let node_kind = node.kind();
+        if node_kind == "call" && self.config.lang_tag == "ruby" {
+            if let Some(method_node) = node.child_by_field_name("method") {
+                let text = method_node.utf8_text(source).ok()?;
+                let text = text.trim();
+                if !text.is_empty() {
+                    return Some(text.to_string());
+                }
+            }
+            return None; // `call` without clean `method` field → skip
+        }
+
         // Pattern 0: PHP `member_call_expression` and `scoped_call_expression`.
         // Verified: these nodes have children [receiver, name(callee), arguments].
         // Must be checked BEFORE the generic `name` pattern (Pattern 2) because
         // the first child of `scoped_call_expression` is also `name` kind (class).
         // Second named child is the method/static callee `name`.
-        let node_kind = node.kind();
         if node_kind == "member_call_expression" || node_kind == "scoped_call_expression" {
             let mut nc = node.walk();
             let mut named_children = node.named_children(&mut nc);
@@ -742,6 +770,21 @@ pub fn csharp_config() -> LanguageConfig {
 }
 
 /// Ruby language config.
+///
+/// `call_kinds`: verified via AST dump — tree-sitter-ruby uses `call` for all
+/// receiver.method() invocations (e.g., `obj.bar(1)`, `Helper.process(x)`).
+/// The callee is extracted via the `method` field child (always an `identifier`).
+/// The `receiver` field (identifier or constant) is ignored to avoid false positives.
+///
+/// Bare calls without parens (e.g., `foo`) parse as plain `identifier` in Ruby,
+/// NOT as `call` nodes — they are intentionally skipped (conservative default).
+///
+/// Method DEFINITIONs (`def foo ... end`) parse as `method` node kind, never as
+/// `call`, so a def never produces a self-call edge.
+///
+/// `import_kinds` remains `&[]` — Ruby imports are handled by the dedicated
+/// require_relative scanner (cross_file.rs). Since `call` is no longer in
+/// import_kinds, there is no dual-use conflict; `call` can safely go in call_kinds.
 pub fn ruby_config() -> LanguageConfig {
     LanguageConfig {
         lang_tag: "ruby",
@@ -755,12 +798,12 @@ pub fn ruby_config() -> LanguageConfig {
         // Ruby imports are handled by the dedicated require_relative scanner
         // (collect_ruby_import_edges_from_files in cross_file.rs). Using "call"
         // here mis-tagged EVERY method call as an import; removed to stop the noise.
+        // No dual-use conflict: `call` in call_kinds is safe.
         import_kinds: &[],
-        // Deferred: Ruby uses `call` for ALL method calls, but `call` is also
-        // used in import_kinds (for require/require_relative). Mixing call-graph
-        // edges with the same node kind requires disambiguation logic (check
-        // the callee name) that adds complexity. Deferred to avoid false positives.
-        call_kinds: &[],
+        // Verified: tree-sitter-ruby uses `call` for receiver.method() invocations.
+        // extract_callee uses the `method` field child to get the method name cleanly.
+        // No overlap with import_kinds (which is empty for Ruby).
+        call_kinds: &["call"],
         name_field: "name",
         alt_name_fields: &[],
         name_from_first_child: true,
@@ -2297,6 +2340,43 @@ mod tests {
         println!("=== Swift navigation detail ===\n{}", dump);
     }
 
+    #[test]
+    #[ignore]
+    fn ast_dump_ruby_calls() {
+        // Verify the exact node kind + children for Ruby call nodes.
+        // Expected: `call` for method calls, with `method` field child = identifier.
+        // Bare calls without parens (like `foo`) may parse as `identifier`.
+        let src = b"def run\n  foo\n  obj.bar(1)\n  Helper.process(x)\nend";
+        let dump = dump_ast(tree_sitter_ruby::LANGUAGE.into(), src);
+        println!("=== Ruby calls AST ===\n{}", dump);
+
+        // Also verify via field-based access that `method` field exists on `call`.
+        let mut parser = Parser::new();
+        parser.set_language(&tree_sitter_ruby::LANGUAGE.into()).unwrap();
+        let tree = parser.parse(src, None).unwrap();
+        // Walk down to the `call` node (obj.bar(1)) and inspect its `method` field.
+        let root = tree.root_node();
+        // root > method(def run) > body_statement > call(obj.bar(1))
+        let method_def = root.named_child(0).unwrap(); // method def `run`
+        let body = method_def.child_by_field_name("body").or_else(|| method_def.named_child(1)).unwrap();
+        println!("=== body node kind: {} ===", body.kind());
+        let mut cursor = body.walk();
+        for (i, child) in body.named_children(&mut cursor).enumerate() {
+            println!("  body child[{}]: kind={} text={:?}", i, child.kind(), child.utf8_text(src).unwrap_or("?"));
+            if child.kind() == "call" {
+                // Check `method` field
+                let mf = child.child_by_field_name("method");
+                let rf = child.child_by_field_name("receiver");
+                println!("    -> `method` field: {:?}", mf.map(|n| (n.kind(), n.utf8_text(src).unwrap_or("?"))));
+                println!("    -> `receiver` field: {:?}", rf.map(|n| (n.kind(), n.utf8_text(src).unwrap_or("?"))));
+                let mut nc = child.walk();
+                for (j, c2) in child.named_children(&mut nc).enumerate() {
+                    println!("    named_child[{}]: kind={} text={:?}", j, c2.kind(), c2.utf8_text(src).unwrap_or("?"));
+                }
+            }
+        }
+    }
+
     // ===================================================================
     // call_kinds tests — C++, PHP, Scala, Swift (new pilots)
     // ===================================================================
@@ -2567,17 +2647,89 @@ mod tests {
         );
     }
 
-    // Verify non-piloted languages (Ruby, Bash, Lua) still produce
+    // ===================================================================
+    // Ruby call_kinds tests — verified via AST dump (ast_dump_ruby_calls)
+    // ===================================================================
+
+    #[test]
+    fn ruby_calls_emit_edges() {
+        // Verify that receiver.method() calls produce `calls` edges to the method name,
+        // NOT the receiver. Both `identifier` receivers (obj) and `constant` receivers
+        // (Helper) must work. Bare `foo` without parens parses as identifier (not `call`)
+        // and is intentionally not captured — only actual `call` nodes are emitted.
+        let src = b"def run\n  obj.bar(1)\n  Helper.process(x)\nend";
+        let ext = ruby_extractor();
+        let result = ext.extract(src, "file::test.rb").unwrap();
+
+        let call_edges: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.strip_prefix("ref::").unwrap_or(&e.target))
+            .collect();
+
+        // (a) method names extracted (not receivers)
+        assert!(
+            call_edges.contains(&"bar"),
+            "Should have calls edge to 'bar' (method field, not receiver 'obj'). Got: {:?}",
+            call_edges
+        );
+        assert!(
+            call_edges.contains(&"process"),
+            "Should have calls edge to 'process' (method field, not receiver 'Helper'). Got: {:?}",
+            call_edges
+        );
+
+        // (b) receivers must NOT appear as callees
+        let bogus_receivers = ["obj", "Helper"];
+        for bad in bogus_receivers {
+            assert!(
+                !call_edges.contains(&bad),
+                "Receiver '{}' must not appear as callee. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+
+        // (c) Ruby keywords and control-flow must not appear
+        let bogus_keywords = ["def", "end", "if", "while", "return", "do"];
+        for bad in bogus_keywords {
+            assert!(
+                !call_edges.contains(&bad),
+                "Keyword '{}' must not appear as callee. Got: {:?}",
+                bad,
+                call_edges
+            );
+        }
+    }
+
+    #[test]
+    fn ruby_no_calls_from_def() {
+        // A method definition (`def foo ... end`) must NOT produce a self-call edge to `foo`.
+        // `def` parses as `method` node kind, never as `call`, so no edge should appear.
+        let src = b"def foo\n  42\nend\n\ndef bar\n  99\nend";
+        let ext = ruby_extractor();
+        let result = ext.extract(src, "file::test.rb").unwrap();
+
+        let call_edges: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .collect();
+
+        assert!(
+            call_edges.is_empty(),
+            "def definitions must not produce self-call edges. Got: {:?}",
+            call_edges
+        );
+    }
+
+    // Verify non-piloted languages (Bash, Lua, R) still produce
     // zero calls edges — they must be unchanged by this expansion.
-    // PHP, Scala, and Swift have been graduated to piloted status above.
+    // Ruby, PHP, Scala, and Swift have been graduated to piloted status above.
     #[test]
     fn non_piloted_languages_emit_no_calls_edges() {
         let cases: &[(&str, Box<dyn Extractor>, &[u8])] = &[
-            (
-                "ruby",
-                Box::new(ruby_extractor()),
-                b"def foo; end\ndef bar; foo; end" as &[u8],
-            ),
             (
                 "bash",
                 Box::new(bash_extractor()),
