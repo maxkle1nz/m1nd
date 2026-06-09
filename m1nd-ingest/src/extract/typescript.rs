@@ -224,10 +224,7 @@ impl Extractor for TypeScriptExtractor {
                 || trimmed.starts_with("export interface ")
                 || trimmed.starts_with("export abstract class "))
                 && !trimmed.contains('{');
-            if !is_pure_decl
-                && !trimmed.starts_with("import ")
-                && !trimmed.starts_with("//")
-            {
+            if !is_pure_decl && !trimmed.starts_with("import ") && !trimmed.starts_with("//") {
                 // receiver.method() — emit calls ref to the method name
                 for caps in self.re_method_call.captures_iter(line) {
                     let receiver = caps.get(1).unwrap().as_str();
@@ -253,12 +250,11 @@ impl Extractor for TypeScriptExtractor {
                     }
                     // If receiver starts with uppercase it's likely a type; ref to receiver
                     // Otherwise ref to the method name (mirrors Python pattern)
-                    let ref_target =
-                        if receiver.chars().next().is_some_and(|c| c.is_uppercase()) {
-                            format!("ref::{}", receiver)
-                        } else {
-                            format!("ref::{}", method)
-                        };
+                    let ref_target = if receiver.chars().next().is_some_and(|c| c.is_uppercase()) {
+                        format!("ref::{}", receiver)
+                    } else {
+                        format!("ref::{}", method)
+                    };
                     if !unresolved_refs.contains(&ref_target) {
                         edges.push(ExtractedEdge {
                             source: file_id.to_string(),
@@ -277,8 +273,7 @@ impl Extractor for TypeScriptExtractor {
                     // Skip JS/TS keywords that look like function calls
                     if matches!(
                         fn_name,
-                        "if"
-                            | "for"
+                        "if" | "for"
                             | "while"
                             | "switch"
                             | "catch"

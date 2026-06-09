@@ -119,8 +119,12 @@ pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) ->
 
         let node_count = ingest_result["node_count"].as_u64().unwrap_or(0);
         let edge_count = ingest_result["edge_count"].as_u64().unwrap_or(0);
-        let resolved = ingest_result["light_evidence_resolved"].as_u64().unwrap_or(0);
-        let unresolved = ingest_result["light_evidence_unresolved"].as_u64().unwrap_or(0);
+        let resolved = ingest_result["light_evidence_resolved"]
+            .as_u64()
+            .unwrap_or(0);
+        let unresolved = ingest_result["light_evidence_unresolved"]
+            .as_u64()
+            .unwrap_or(0);
 
         // Only-when-relevant guidance: unresolved evidence usually means the cited
         // code was not ingested, or the path is not repo-relative to the code root.
@@ -173,14 +177,8 @@ pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) ->
 /// the parser's `last_claim_id` attaches 𝔻 qualifiers to the most-recent
 /// non-epistemic claim; reversing the order would attach them to the wrong node.
 pub fn render_light_markdown(input: &LightAuthorInput) -> String {
-    let state_val = input
-        .state
-        .as_deref()
-        .unwrap_or("authored");
-    let title_val = input
-        .title
-        .as_deref()
-        .unwrap_or(input.node_label.as_str());
+    let state_val = input.state.as_deref().unwrap_or("authored");
+    let title_val = input.title.as_deref().unwrap_or(input.node_label.as_str());
 
     let mut out = String::new();
 
@@ -311,8 +309,7 @@ mod tests {
             runtime_dir: Some(runtime_dir),
             ..Default::default()
         };
-        SessionState::initialize(Graph::new(), &config, DomainConfig::code())
-            .expect("init session")
+        SessionState::initialize(Graph::new(), &config, DomainConfig::code()).expect("init session")
     }
 
     // -----------------------------------------------------------------------
@@ -344,12 +341,19 @@ mod tests {
         let md = render_light_markdown(&input);
 
         // Frontmatter present
-        assert!(md.contains("Protocol: L1GHT/1.0"), "missing protocol header");
+        assert!(
+            md.contains("Protocol: L1GHT/1.0"),
+            "missing protocol header"
+        );
         assert!(md.contains("Node: AuthSystem"), "missing Node header");
 
         // Entity marker is before 𝔻 confidence
-        let entity_pos = md.find("[⍂ entity: TokenValidator]").expect("entity marker missing");
-        let conf_pos = md.find("[𝔻 confidence: 0.9]").expect("confidence marker missing");
+        let entity_pos = md
+            .find("[⍂ entity: TokenValidator]")
+            .expect("entity marker missing");
+        let conf_pos = md
+            .find("[𝔻 confidence: 0.9]")
+            .expect("confidence marker missing");
         assert!(
             entity_pos < conf_pos,
             "entity marker must appear before 𝔻 confidence marker (parser attaches 𝔻 to last non-epistemic claim)"

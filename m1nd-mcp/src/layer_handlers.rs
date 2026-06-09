@@ -3525,9 +3525,7 @@ pub fn handle_hypothesize(
     // Guard: if any supporting evidence contains a real graph path (path_found),
     // the verdict must NOT be "likely_false" — spurious no_path contradicting
     // entries between unrelated node pairs must not override a confirmed path.
-    let has_real_supporting_path = supporting
-        .iter()
-        .any(|e| e.evidence_type == "path_found");
+    let has_real_supporting_path = supporting.iter().any(|e| e.evidence_type == "path_found");
     let verdict = if confidence > 0.8 {
         "likely_true"
     } else if confidence < 0.2 && !has_real_supporting_path {
@@ -4747,39 +4745,45 @@ fn l6_parse_frames(error_text: &str, language: &str) -> Vec<L6RawFrame> {
 }
 
 /// Parse "path:line:col" or "path:line" into (path, line).
+///
+/// Splits from the right so that colons inside the path itself (e.g. a Windows
+/// drive letter like `C:\...`) are preserved. The trailing 1-2 colon-separated
+/// tokens are the numeric line and optional column; everything before them is
+/// the file path.
 fn l6_parse_path_line_col(s: &str) -> Option<(String, u32)> {
     let s = s.trim();
     if s.is_empty() {
         return None;
     }
-    let parts: Vec<&str> = s.rsplitn(4, ':').collect();
-    match parts.len() {
-        3 => {
-            let ln = parts[1].trim().parse::<u32>().ok()?;
-            let file = parts[2].trim().to_string();
-            if file.is_empty() {
-                return None;
-            }
-            Some((file, ln))
-        }
-        2 => {
-            let ln = parts[0].trim().parse::<u32>().ok()?;
-            let file = parts[1].trim().to_string();
-            if file.is_empty() {
-                return None;
-            }
-            Some((file, ln))
-        }
-        4 => {
-            let ln = parts[2].trim().parse::<u32>().ok()?;
-            let file = parts[3].trim().to_string();
-            if file.is_empty() {
-                return None;
-            }
-            Some((file, ln))
-        }
-        _ => None,
+
+    // Peel up to two trailing numeric tokens (line[:col]) off the right.
+    let mut rest = s;
+    let mut trailing_numbers: Vec<u32> = Vec::new();
+    while trailing_numbers.len() < 2 {
+        let Some(colon) = rest.rfind(':') else {
+            break;
+        };
+        let tail = rest[colon + 1..].trim();
+        let Ok(num) = tail.parse::<u32>() else {
+            break;
+        };
+        trailing_numbers.push(num);
+        rest = &rest[..colon];
     }
+
+    // The line number is the first numeric token after the path. When both
+    // line and col were peeled, they were pushed in col-then-line order.
+    let line = match trailing_numbers.len() {
+        1 => trailing_numbers[0],
+        2 => trailing_numbers[1],
+        _ => return None,
+    };
+
+    let file = rest.trim().to_string();
+    if file.is_empty() {
+        return None;
+    }
+    Some((file, line))
 }
 
 /// Parse Go frame: "path.go:line +offset".
@@ -4815,13 +4819,12 @@ fn l6_resolve_frame(
 ) -> Option<NodeId> {
     // Normalize: strip absolute prefix via ingest_roots first, then fallback
     // to the heuristic l6_normalize_path so repo-relative paths still work.
-    let frame_path = if let Some(rel) =
-        crate::scope::normalize_scope_path(Some(&frame.file), ingest_roots)
-    {
-        rel
-    } else {
-        l6_normalize_path(&frame.file)
-    };
+    let frame_path =
+        if let Some(rel) = crate::scope::normalize_scope_path(Some(&frame.file), ingest_roots) {
+            rel
+        } else {
+            l6_normalize_path(&frame.file)
+        };
 
     // Strategy 1: direct external_id lookup
     let ext_id = format!("file::{}", frame_path);
@@ -4910,9 +4913,7 @@ fn l6_classify_unmapped(
         return "stdlib/third-party".into();
     }
     // Strip absolute prefix via ingest_roots so the ext_id lookup matches.
-    let norm = if let Some(rel) =
-        crate::scope::normalize_scope_path(Some(file), ingest_roots)
-    {
+    let norm = if let Some(rel) = crate::scope::normalize_scope_path(Some(file), ingest_roots) {
         rel
     } else {
         l6_normalize_path(file)
@@ -10747,13 +10748,18 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         let mut state = build_layer_state(root);
 
         // The graph has "file::src/core.rs". Build an absolute path by
-        // prepending the ingest_root, as a real runtime stacktrace would.
-        let abs_path = format!("{}/src/core.rs", root.to_string_lossy());
+        // joining onto the ingest_root with std::path so it is a real
+        // platform-correct absolute path (drive letter + backslashes on
+        // Windows, leading slash on Unix), as a runtime stacktrace would be.
+        let abs_path = root
+            .join("src")
+            .join("core.rs")
+            .to_string_lossy()
+            .into_owned();
 
         // Craft a minimal Node.js-style stacktrace with the absolute path.
-        let error_text = format!(
-            "Error: something went wrong\n    at Object.<anonymous> ({abs_path}:10:5)\n"
-        );
+        let error_text =
+            format!("Error: something went wrong\n    at Object.<anonymous> ({abs_path}:10:5)\n");
 
         let output = handle_trace(
             &mut state,
@@ -10980,7 +10986,10 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             "finding.line must be > 0 when provenance line_start is set; got {}",
             finding.line
         );
-        assert_eq!(finding.line, 42, "finding.line must match provenance line_start");
+        assert_eq!(
+            finding.line, 42,
+            "finding.line must match provenance line_start"
+        );
     }
 
     /// Scan findings must derive a non-empty file_path from the "file::" external-id
@@ -11024,7 +11033,12 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
     #[test]
     fn scan_label_tokens_are_word_boundary_aware() {
         // The keyword "error" should match these (token "error" present)...
-        for label in ["ErrorResponse", "unwrap_or", "timeout_error_payload", "throwError"] {
+        for label in [
+            "ErrorResponse",
+            "unwrap_or",
+            "timeout_error_payload",
+            "throwError",
+        ] {
             let toks = super::scan_label_tokens(label);
             let has = match label {
                 "unwrap_or" => toks.contains("unwrap"),
@@ -11035,7 +11049,10 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         // ...but the keyword "expect" must NOT match "expected_phases" (the
         // substring false positive the audit found): token is "expected", not "expect".
         let toks = super::scan_label_tokens("expected_phases");
-        assert!(toks.contains("expected") && !toks.contains("expect"),
-            "expected_phases tokens {:?} must contain 'expected' but not 'expect'", toks);
+        assert!(
+            toks.contains("expected") && !toks.contains("expect"),
+            "expected_phases tokens {:?} must contain 'expected' but not 'expect'",
+            toks
+        );
     }
 }

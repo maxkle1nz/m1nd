@@ -371,7 +371,7 @@ impl GoModuleIndex {
         // Extract the last path segment of the import
         let last_seg = import_path
             .split('/')
-            .last()
+            .next_back()
             .filter(|s| !s.is_empty())?;
 
         let candidates = self.segment_to_files.get(last_seg)?;
@@ -520,8 +520,7 @@ impl JavaPackageIndex {
     /// Wildcard imports return ALL matching files in the resolved package directory.
     fn resolve(&self, import_path: &str) -> Vec<&str> {
         // Wildcard: com.example.foo.*
-        if import_path.ends_with(".*") {
-            let package = &import_path[..import_path.len() - 2]; // strip ".*"
+        if let Some(package) = import_path.strip_suffix(".*") {
             // Convert dotted package to slash-separated dir
             let dir_path = package.replace('.', "/");
             // Find all .java files in that directory (exact match or suffix match)
@@ -549,7 +548,7 @@ impl JavaPackageIndex {
         }
 
         // Specific class: com.example.foo.Bar
-        let last_seg = import_path.split('.').last().filter(|s| !s.is_empty());
+        let last_seg = import_path.split('.').next_back().filter(|s| !s.is_empty());
         let last_seg = match last_seg {
             Some(s) => s,
             None => return Vec::new(),
@@ -583,20 +582,14 @@ impl JavaPackageIndex {
         let mut best_overlap = 0usize;
 
         for candidate in candidates {
-            let dir_segs: Vec<&str> = candidate
-                .1
-                .split('/')
-                .filter(|s| !s.is_empty())
-                .collect();
+            let dir_segs: Vec<&str> = candidate.1.split('/').filter(|s| !s.is_empty()).collect();
             let overlap = import_dir_segs
                 .iter()
                 .rev()
                 .zip(dir_segs.iter().rev())
                 .take_while(|(a, b)| a == b)
                 .count();
-            if overlap > best_overlap
-                || (overlap == best_overlap && best.is_none())
-            {
+            if overlap > best_overlap || (overlap == best_overlap && best.is_none()) {
                 best_overlap = overlap;
                 best = Some(candidate);
             }
@@ -616,9 +609,9 @@ impl JavaPackageIndex {
 /// Maps C/C++ `#include` target strings to file external IDs.
 ///
 /// The tree-sitter extractor produces the following ref:: targets for C/C++:
-///   - `#include "util.h"`   → `util.h`   (string_literal child, quotes stripped)
-///   - `#include <stdio.h>`  → `stdio.h`  (system_lib_string, angle brackets stripped
-///                                          via fallback word extraction in extract_import_target)
+/// - `#include "util.h"`   → `util.h`   (string_literal child, quotes stripped)
+/// - `#include <stdio.h>`  → `stdio.h`  (system_lib_string, angle brackets stripped
+///   via fallback word extraction in extract_import_target)
 ///
 /// Resolution strategy (QUOTED includes only):
 ///   1. If the target contains a path separator (`/`), join it against the
@@ -756,8 +749,10 @@ impl CHeaderIndex {
         }
         // Multiple: prefer header files (.h/.hpp) over source files, then first wins
         for (file_id, _) in candidates {
-            let is_header = file_id.ends_with(".h") || file_id.ends_with(".hpp")
-                || file_id.ends_with(".hxx") || file_id.ends_with(".hh");
+            let is_header = file_id.ends_with(".h")
+                || file_id.ends_with(".hpp")
+                || file_id.ends_with(".hxx")
+                || file_id.ends_with(".hh");
             if is_header {
                 return Some(file_id.as_str());
             }
@@ -872,7 +867,7 @@ impl PhpNamespaceIndex {
         let slash_path = import_path.replace('\\', "/");
 
         // Last segment is the file stem (PSR-4 convention)
-        let last_seg = slash_path.split('/').last().filter(|s| !s.is_empty());
+        let last_seg = slash_path.split('/').next_back().filter(|s| !s.is_empty());
         let last_seg = match last_seg {
             Some(s) => s,
             None => return Vec::new(),
@@ -905,20 +900,13 @@ impl PhpNamespaceIndex {
         } else {
             ""
         };
-        let ns_dir_segs: Vec<&str> = ns_dir
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
+        let ns_dir_segs: Vec<&str> = ns_dir.split('/').filter(|s| !s.is_empty()).collect();
 
         let mut best: Option<&(String, String)> = None;
         let mut best_overlap = 0usize;
 
         for candidate in candidates {
-            let dir_segs: Vec<&str> = candidate
-                .1
-                .split('/')
-                .filter(|s| !s.is_empty())
-                .collect();
+            let dir_segs: Vec<&str> = candidate.1.split('/').filter(|s| !s.is_empty()).collect();
             // Case-insensitive suffix overlap (PHP namespaces are case-insensitive
             // in practice, but filesystem may differ — be liberal here)
             let overlap = ns_dir_segs
@@ -1054,8 +1042,7 @@ impl ScalaPackageIndex {
         let import_path = import_path.trim();
 
         // Scala wildcard: com.example._
-        if import_path.ends_with("._") {
-            let package = &import_path[..import_path.len() - 2]; // strip "._"
+        if let Some(package) = import_path.strip_suffix("._") {
             let dir_path = package.replace('.', "/");
             let mut results: Vec<&str> = Vec::new();
             // Exact dir match
@@ -1081,7 +1068,7 @@ impl ScalaPackageIndex {
         }
 
         // Specific class: com.example.Foo
-        let last_seg = import_path.split('.').last().filter(|s| !s.is_empty());
+        let last_seg = import_path.split('.').next_back().filter(|s| !s.is_empty());
         let last_seg = match last_seg {
             Some(s) => s,
             None => return Vec::new(),
@@ -1111,20 +1098,13 @@ impl ScalaPackageIndex {
         } else {
             String::new()
         };
-        let import_dir_segs: Vec<&str> = import_dir
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
+        let import_dir_segs: Vec<&str> = import_dir.split('/').filter(|s| !s.is_empty()).collect();
 
         let mut best: Option<&(String, String)> = None;
         let mut best_overlap = 0usize;
 
         for candidate in candidates {
-            let dir_segs: Vec<&str> = candidate
-                .1
-                .split('/')
-                .filter(|s| !s.is_empty())
-                .collect();
+            let dir_segs: Vec<&str> = candidate.1.split('/').filter(|s| !s.is_empty()).collect();
             let overlap = import_dir_segs
                 .iter()
                 .rev()
@@ -1253,8 +1233,7 @@ impl KotlinPackageIndex {
     /// matched to any ingested `.kt` file (external dep, stdlib).
     fn resolve(&self, import_path: &str) -> Vec<&str> {
         // Wildcard: com.example.foo.*
-        if import_path.ends_with(".*") {
-            let package = &import_path[..import_path.len() - 2]; // strip ".*"
+        if let Some(package) = import_path.strip_suffix(".*") {
             let dir_path = package.replace('.', "/");
             let mut results: Vec<&str> = Vec::new();
             // Exact dir match
@@ -1280,7 +1259,7 @@ impl KotlinPackageIndex {
         }
 
         // Specific class: com.example.foo.Bar
-        let last_seg = import_path.split('.').last().filter(|s| !s.is_empty());
+        let last_seg = import_path.split('.').next_back().filter(|s| !s.is_empty());
         let last_seg = match last_seg {
             Some(s) => s,
             None => return Vec::new(),
@@ -1305,20 +1284,13 @@ impl KotlinPackageIndex {
         } else {
             String::new()
         };
-        let import_dir_segs: Vec<&str> = import_dir
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
+        let import_dir_segs: Vec<&str> = import_dir.split('/').filter(|s| !s.is_empty()).collect();
 
         let mut best: Option<&(String, String)> = None;
         let mut best_overlap = 0usize;
 
         for candidate in candidates {
-            let dir_segs: Vec<&str> = candidate
-                .1
-                .split('/')
-                .filter(|s| !s.is_empty())
-                .collect();
+            let dir_segs: Vec<&str> = candidate.1.split('/').filter(|s| !s.is_empty()).collect();
             let overlap = import_dir_segs
                 .iter()
                 .rev()
@@ -1415,17 +1387,15 @@ impl RustModuleIndex {
             let without_ext = &rel_path[..rel_path.len() - 3]; // strip ".rs"
 
             // Handle mod.rs: "src/foo/mod.rs" -> register under "src/foo"
-            let key = if without_ext.ends_with("/mod") {
-                without_ext[..without_ext.len() - 4].to_string() // strip "/mod"
+            let key = if let Some(stripped) = without_ext.strip_suffix("/mod") {
+                stripped.to_string()
             } else {
                 without_ext.to_string()
             };
 
             // Register: first registration wins (mod.rs and foo.rs may both exist
             // but we prefer non-mod.rs since it's the more modern form)
-            path_to_file
-                .entry(key)
-                .or_insert_with(|| ext_id.clone());
+            path_to_file.entry(key).or_insert_with(|| ext_id.clone());
 
             // Detect crate roots: files named lib.rs or main.rs
             let filename = rel_path.rsplit('/').next().unwrap_or(rel_path);
@@ -1458,12 +1428,11 @@ impl RustModuleIndex {
             let is_ancestor = if root_dir.is_empty() {
                 true // repo root is ancestor of everything
             } else {
-                source_dir == root_dir
-                    || source_dir.starts_with(&format!("{}/", root_dir))
+                source_dir == root_dir || source_dir.starts_with(&format!("{}/", root_dir))
             };
             if is_ancestor {
                 // Prefer deepest ancestor (longest path)
-                if best.map_or(true, |b: &str| root_dir.len() > b.len()) {
+                if best.is_none_or(|b: &str| root_dir.len() > b.len()) {
                     best = Some(root_dir.as_str());
                 }
             }
@@ -1521,8 +1490,8 @@ impl RustModuleIndex {
         let without_ext = source_file_rel_path.strip_suffix(".rs")?;
 
         // If this is a mod.rs, the parent is the grandparent dir
-        let canonical = if without_ext.ends_with("/mod") {
-            &without_ext[..without_ext.len() - 4] // "src/foo"
+        let canonical = if let Some(stripped) = without_ext.strip_suffix("/mod") {
+            stripped // "src/foo"
         } else {
             without_ext // "src/foo/bar" -> parent is "src/foo"
         };
@@ -2049,8 +2018,7 @@ fn collect_js_import_edges_from_files(
     js_index: &JsModuleIndex,
 ) -> Vec<(String, String, String)> {
     // ES module: import ... from "./specifier"
-    let re_esm_import =
-        Regex::new(r#"^\s*import\s+.*from\s+['"]([^'"]+)['"]"#).unwrap();
+    let re_esm_import = Regex::new(r#"^\s*import\s+.*from\s+['"]([^'"]+)['"]"#).unwrap();
     // CJS: require("./specifier") or require('./specifier')
     let re_require = Regex::new(r#"\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap();
 
@@ -2209,9 +2177,7 @@ fn collect_go_import_edges_from_files(
                     if let Some(target_id) = go_index.resolve(import_path) {
                         if target_id != ext_id {
                             let key = (ext_id.clone(), target_id.to_string());
-                            if let std::collections::hash_map::Entry::Vacant(e) =
-                                seen.entry(key)
-                            {
+                            if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
                                 e.insert(true);
                                 edges.push((
                                     ext_id.clone(),
@@ -2232,9 +2198,7 @@ fn collect_go_import_edges_from_files(
                     if let Some(target_id) = go_index.resolve(import_path) {
                         if target_id != ext_id {
                             let key = (ext_id.clone(), target_id.to_string());
-                            if let std::collections::hash_map::Entry::Vacant(e) =
-                                seen.entry(key)
-                            {
+                            if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
                                 e.insert(true);
                                 edges.push((
                                     ext_id.clone(),
@@ -2323,11 +2287,7 @@ fn collect_java_import_edges_from_files(
                     let key = (ext_id.clone(), target_id.to_string());
                     if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
                         e.insert(true);
-                        edges.push((
-                            ext_id.clone(),
-                            target_id.to_string(),
-                            "imports".to_string(),
-                        ));
+                        edges.push((ext_id.clone(), target_id.to_string(), "imports".to_string()));
                     }
                 }
             }
@@ -2441,11 +2401,7 @@ fn collect_rust_import_edges_from_files(
                         let key = (ext_id.clone(), candidate_id.clone());
                         if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
                             e.insert(true);
-                            edges.push((
-                                ext_id.clone(),
-                                candidate_id,
-                                "imports".to_string(),
-                            ));
+                            edges.push((ext_id.clone(), candidate_id, "imports".to_string()));
                         }
                         break; // Only resolve to the first existing candidate
                     }
@@ -2486,8 +2442,8 @@ fn collect_rust_import_edges_from_files(
                         // Find crate root directory for this source file
                         let crate_root = rust_index.crate_root_for(source_dir);
 
-                        if let Some(target_id) = crate_root
-                            .and_then(|cr| rust_index.resolve_crate_path(slash_path, cr))
+                        if let Some(target_id) =
+                            crate_root.and_then(|cr| rust_index.resolve_crate_path(slash_path, cr))
                         {
                             if target_id != ext_id {
                                 let key = (ext_id.clone(), target_id.to_string());
@@ -2647,8 +2603,7 @@ fn collect_kotlin_import_edges_from_files(
 ) -> Vec<(String, String, String)> {
     // Matches: import <path>  or  import <path> as <alias>
     // Group 1: the dotted import path (before optional `as` alias).
-    let re_import =
-        Regex::new(r"^\s*import\s+([\w.*]+)(?:\s+as\s+\w+)?\s*;?\s*$").unwrap();
+    let re_import = Regex::new(r"^\s*import\s+([\w.*]+)(?:\s+as\s+\w+)?\s*;?\s*$").unwrap();
 
     let mut edges: Vec<(String, String, String)> = Vec::new();
     let mut seen: HashMap<(String, String), bool> = HashMap::new();
@@ -2705,11 +2660,7 @@ fn collect_kotlin_import_edges_from_files(
                     let key = (ext_id.clone(), target_id.to_string());
                     if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
                         e.insert(true);
-                        edges.push((
-                            ext_id.clone(),
-                            target_id.to_string(),
-                            "imports".to_string(),
-                        ));
+                        edges.push((ext_id.clone(), target_id.to_string(), "imports".to_string()));
                     }
                 }
             }
@@ -2770,7 +2721,11 @@ fn collect_php_import_edges_from_files(
         for line in content.lines() {
             let trimmed = line.trim();
 
-            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+            if trimmed.is_empty()
+                || trimmed.starts_with("//")
+                || trimmed.starts_with("/*")
+                || trimmed.starts_with('*')
+            {
                 continue;
             }
 
@@ -2790,11 +2745,7 @@ fn collect_php_import_edges_from_files(
                     let key = (ext_id.clone(), target_id.to_string());
                     if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
                         e.insert(true);
-                        edges.push((
-                            ext_id.clone(),
-                            target_id.to_string(),
-                            "imports".to_string(),
-                        ));
+                        edges.push((ext_id.clone(), target_id.to_string(), "imports".to_string()));
                     }
                 }
             }
@@ -2864,7 +2815,11 @@ fn collect_scala_import_edges_from_files(
         for line in content.lines() {
             let trimmed = line.trim();
 
-            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+            if trimmed.is_empty()
+                || trimmed.starts_with("//")
+                || trimmed.starts_with("/*")
+                || trimmed.starts_with('*')
+            {
                 continue;
             }
 
@@ -2884,11 +2839,7 @@ fn collect_scala_import_edges_from_files(
                     let key = (ext_id.clone(), target_id.to_string());
                     if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
                         e.insert(true);
-                        edges.push((
-                            ext_id.clone(),
-                            target_id.to_string(),
-                            "imports".to_string(),
-                        ));
+                        edges.push((ext_id.clone(), target_id.to_string(), "imports".to_string()));
                     }
                 }
             }
@@ -3005,8 +2956,7 @@ fn collect_ruby_import_edges_from_files(
 ) -> Vec<(String, String, String)> {
     // Pattern 1: require_relative "PATH" or require_relative 'PATH'
     // Captures the path string (without quotes).
-    let re_require_relative =
-        Regex::new(r#"^\s*require_relative\s+['"]([^'"]+)['"]"#).unwrap();
+    let re_require_relative = Regex::new(r#"^\s*require_relative\s+['"]([^'"]+)['"]"#).unwrap();
 
     // Pattern 2: require "./PATH" or require '../PATH'  (explicitly relative)
     // Only matches when the path starts with ./ or ../ (bare names are gems/stdlib).
@@ -3520,10 +3470,7 @@ mod tests {
         );
 
         let resolved2 = index.resolve("com.example.baz.Qux");
-        assert_eq!(
-            resolved2,
-            vec!["file::com/example/baz/Qux.java"],
-        );
+        assert_eq!(resolved2, vec!["file::com/example/baz/Qux.java"],);
     }
 
     #[test]
@@ -3556,7 +3503,12 @@ mod tests {
 
         let mut resolved = index.resolve("com.example.foo.*");
         resolved.sort();
-        assert_eq!(resolved.len(), 2, "Wildcard should resolve to both files in package. Got: {:?}", resolved);
+        assert_eq!(
+            resolved.len(),
+            2,
+            "Wildcard should resolve to both files in package. Got: {:?}",
+            resolved
+        );
         assert!(resolved.contains(&"file::com/example/foo/Alpha.java"));
         assert!(resolved.contains(&"file::com/example/foo/Beta.java"));
 
@@ -4309,7 +4261,10 @@ mod tests {
             "imports",
             &mut stats,
         );
-        assert!(added, "imports edge Caller.scala → Callee.scala should be added");
+        assert!(
+            added,
+            "imports edge Caller.scala → Callee.scala should be added"
+        );
         assert_eq!(stats.total_edges_created, 1);
 
         // Verify the edge is in pending_edges

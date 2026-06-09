@@ -13,10 +13,10 @@ pub mod tools;
 
 // Perspective MCP — stateful navigation layer (12-PERSPECTIVE-SYNTHESIS)
 pub mod boot_memory_handlers;
-pub mod light_author_handlers;
 pub mod engine_ops;
 pub mod instance_registry;
 pub mod layer_handlers;
+pub mod light_author_handlers;
 pub mod lock_handlers;
 pub mod mission_handlers;
 pub mod persist_handlers;

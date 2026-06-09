@@ -595,7 +595,9 @@ impl L1ghtIngestAdapter {
                 // Epistemic markers attach to the preceding claim; others attach to
                 // the current section/file parent.
                 let edge_source = if is_epistemic {
-                    last_claim_id.clone().unwrap_or_else(|| current_parent.clone())
+                    last_claim_id
+                        .clone()
+                        .unwrap_or_else(|| current_parent.clone())
                 } else {
                     current_parent.clone()
                 };

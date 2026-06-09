@@ -355,8 +355,7 @@ pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
         return all;
     }
     // Filter to essential set only
-    let essential_set: std::collections::HashSet<&str> =
-        ESSENTIAL_TOOLS.iter().copied().collect();
+    let essential_set: std::collections::HashSet<&str> = ESSENTIAL_TOOLS.iter().copied().collect();
     let filtered: Vec<serde_json::Value> = all["tools"]
         .as_array()
         .cloned()
@@ -3680,7 +3679,11 @@ mod tests {
             .agent_memory_boot
             .as_ref()
             .expect("agent_memory_boot should be Some when the dir exists with files");
-        assert_eq!(report["loaded"], true, "memory should auto-load: {:?}", report);
+        assert_eq!(
+            report["loaded"], true,
+            "memory should auto-load: {:?}",
+            report
+        );
         assert_eq!(report["file_count"], 1);
         assert!(
             report["nodes_added"].as_u64().unwrap_or(0) >= 1,

@@ -277,7 +277,7 @@ fn resolve_light_evidence(graph: &mut m1nd_core::graph::Graph) -> (usize, usize)
     };
 
     for i in 0..node_count {
-        let has_tag = graph.nodes.tags[i].iter().any(|&t| t == tag_interned);
+        let has_tag = graph.nodes.tags[i].contains(&tag_interned);
         if !has_tag {
             continue;
         }
@@ -300,10 +300,7 @@ fn resolve_light_evidence(graph: &mut m1nd_core::graph::Graph) -> (usize, usize)
             }
         };
         let path_raw = path_raw.replace('\\', "/");
-        let path_raw = path_raw
-            .strip_prefix("./")
-            .unwrap_or(&path_raw)
-            .to_string();
+        let path_raw = path_raw.strip_prefix("./").unwrap_or(&path_raw).to_string();
         // Strip trailing ":<digits>" (line number)
         let path_clean = if let Some(colon_pos) = path_raw.rfind(':') {
             let suffix = &path_raw[colon_pos + 1..];
@@ -583,10 +580,7 @@ fn finalize_ingest(
                         .strings
                         .resolve(graph.nodes.label[src_idx])
                         .to_string();
-                    let marker_ext_id = nid_to_ext
-                        .get(&src_idx)
-                        .cloned()
-                        .unwrap_or_default();
+                    let marker_ext_id = nid_to_ext.get(&src_idx).cloned().unwrap_or_default();
 
                     // New hash: from the just-built inventory_entries.
                     let new_hash = inventory_entries
@@ -1212,7 +1206,11 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
             // For each marker, record its label as the "claim" text.
             let marker_labels: HashMap<usize, String> = (0..n)
                 .filter(|&i| {
-                    graph.nodes.tags.get(i).map_or(false, |tags| tags.iter().any(|&t| t == tag))
+                    graph
+                        .nodes
+                        .tags
+                        .get(i)
+                        .is_some_and(|tags| tags.contains(&tag))
                 })
                 .map(|i| {
                     let lbl = graph.strings.resolve(graph.nodes.label[i]).to_string();
@@ -2923,8 +2921,7 @@ pub fn handle_session_handshake(
     // memory: counts of light:: nodes and grounded_in edges.
     //
     // Build NodeId → external_id reverse map once, reuse for all three signals.
-    let mut nid_to_ext: HashMap<usize, String> =
-        HashMap::with_capacity(graph.id_to_node.len());
+    let mut nid_to_ext: HashMap<usize, String> = HashMap::with_capacity(graph.id_to_node.len());
     for (interned, &nid) in &graph.id_to_node {
         nid_to_ext.insert(nid.as_usize(), graph.strings.resolve(*interned).to_string());
     }
@@ -2938,7 +2935,11 @@ pub fn handle_session_handshake(
         let mut ranked: Vec<(f32, usize)> = (0..n)
             .filter_map(|i| {
                 let pr = graph.nodes.pagerank[i].get();
-                if pr > 0.0 { Some((pr, i)) } else { None }
+                if pr > 0.0 {
+                    Some((pr, i))
+                } else {
+                    None
+                }
             })
             .collect();
         // Partial descending sort, keep top-5.
@@ -2959,7 +2960,8 @@ pub fn handle_session_handshake(
     } else {
         vec![]
     };
-    let pagerank_note: Option<&str> = if !graph.pagerank_computed || graph.nodes.pagerank.is_empty() {
+    let pagerank_note: Option<&str> = if !graph.pagerank_computed || graph.nodes.pagerank.is_empty()
+    {
         Some("not_computed")
     } else {
         None
@@ -2977,7 +2979,9 @@ pub fn handle_session_handshake(
                 light_node_count += 1;
             }
             if let Some(gi) = grounded_in_interned {
-                let range = graph.csr.out_range(m1nd_core::types::NodeId::new(idx as u32));
+                let range = graph
+                    .csr
+                    .out_range(m1nd_core::types::NodeId::new(idx as u32));
                 for edge_i in range {
                     if graph.csr.relations[edge_i] == gi {
                         grounded_in_edge_count += 1;
@@ -2997,10 +3001,7 @@ pub fn handle_session_handshake(
     // `activate`/`query` actually updates (query.rs query()->plasticity.update).
     // `state.plasticity` is a separate engine that queries never touch, so
     // reading it here made attention_anchors permanently empty.
-    let raw_freqs = state
-        .orchestrator
-        .plasticity
-        .top_node_access_frequencies(5);
+    let raw_freqs = state.orchestrator.plasticity.top_node_access_frequencies(5);
     let attention_anchors_empty = raw_freqs.is_empty();
     let attention_anchors: Vec<serde_json::Value> = {
         // Re-acquire a short read lock only to resolve labels for the few returned nodes.
@@ -4180,7 +4181,10 @@ mod tests {
         graph.finalize().expect("post-pass finalize");
 
         // Confirm `grounded_in` edge from marker → code in the CSR
-        let grounded_in_interned = graph.strings.lookup("grounded_in").expect("relation interned");
+        let grounded_in_interned = graph
+            .strings
+            .lookup("grounded_in")
+            .expect("relation interned");
         let marker_idx = marker_node.as_usize();
         let lo = graph.csr.offsets[marker_idx] as usize;
         let hi = graph.csr.offsets[marker_idx + 1] as usize;
@@ -4203,8 +4207,7 @@ mod tests {
         let hi2 = graph.csr.offsets[marker_idx + 1] as usize;
         let count = (lo2..hi2)
             .filter(|&i| {
-                graph.csr.targets[i] == code_node
-                    && graph.csr.relations[i] == grounded_in_interned
+                graph.csr.targets[i] == code_node && graph.csr.relations[i] == grounded_in_interned
             })
             .count();
         assert_eq!(
@@ -4293,7 +4296,10 @@ mod tests {
         let code_node = graph
             .resolve_id("file::auth.rs")
             .expect("file::auth.rs code node present after merge");
-        let grounded = graph.strings.lookup("grounded_in").expect("grounded_in interned");
+        let grounded = graph
+            .strings
+            .lookup("grounded_in")
+            .expect("grounded_in interned");
         let ci = code_node.as_usize();
         let lo = graph.csr.offsets[ci] as usize;
         let hi = graph.csr.offsets[ci + 1] as usize;
@@ -4483,8 +4489,11 @@ mod tests {
         std::fs::create_dir_all(&proj).expect("proj dir");
 
         let auth_path = proj.join("auth.rs");
-        std::fs::write(&auth_path, "pub fn validate(t: &str) -> bool { !t.is_empty() }\n")
-            .expect("write auth.rs v1");
+        std::fs::write(
+            &auth_path,
+            "pub fn validate(t: &str) -> bool { !t.is_empty() }\n",
+        )
+        .expect("write auth.rs v1");
 
         let light_path = proj.join("findings.md");
         std::fs::write(
@@ -4563,8 +4572,13 @@ mod tests {
             "memory_freshness.stale_evidence_count must be >= 1 after evidence file changed, got {}",
             stale_count
         );
-        let stale_arr = mf["stale_evidence"].as_array().expect("stale_evidence array");
-        assert!(!stale_arr.is_empty(), "stale_evidence array must be non-empty");
+        let stale_arr = mf["stale_evidence"]
+            .as_array()
+            .expect("stale_evidence array");
+        assert!(
+            !stale_arr.is_empty(),
+            "stale_evidence array must be non-empty"
+        );
         // Confirm reason is evidence_changed (real hash comparison, not just possibly_changed).
         let reason = stale_arr[0]["reason"].as_str().unwrap_or("");
         assert!(
@@ -4753,7 +4767,10 @@ mod tests {
             },
         )
         .expect("memorize");
-        assert!(count_light(&state) > 0, "memorize should create light:: nodes");
+        assert!(
+            count_light(&state) > 0,
+            "memorize should create light:: nodes"
+        );
 
         // 2) A replace code ingest would wipe the graph — but agent-memory must
         //    be auto-restored. The result must report it AND the light nodes

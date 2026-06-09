@@ -209,7 +209,7 @@ impl QueryMemory {
             .map(|(idx, &freq)| (NodeId::new(idx as u32), freq))
             .collect();
         // Partial sort: top-k by descending frequency
-        indexed.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        indexed.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
         indexed.truncate(n);
         indexed
     }

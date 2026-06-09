@@ -874,30 +874,28 @@ pub fn handle_cross_verify(
                     // Resolve absolute disk path via stored_inventory (which
                     // records the absolute file_path at ingest time), falling
                     // back to joining the first ingest root.
-                    let abs_path: PathBuf = if let Some(inv_entry) = stored_inventory.get(&tgt_ext_id) {
-                        PathBuf::from(&inv_entry.file_path)
-                    } else {
-                        // Try each ingest root until we find a plausible path.
-                        let candidate = state
-                            .ingest_roots
-                            .iter()
-                            .map(|r| PathBuf::from(r).join(rel_path))
-                            .find(|p| p.exists())
-                            .unwrap_or_else(|| {
-                                state
-                                    .ingest_roots
-                                    .first()
-                                    .map(|r| PathBuf::from(r).join(rel_path))
-                                    .unwrap_or_else(|| PathBuf::from(rel_path))
-                            });
-                        candidate
-                    };
+                    let abs_path: PathBuf =
+                        if let Some(inv_entry) = stored_inventory.get(&tgt_ext_id) {
+                            PathBuf::from(&inv_entry.file_path)
+                        } else {
+                            // Try each ingest root until we find a plausible path.
+                            let candidate = state
+                                .ingest_roots
+                                .iter()
+                                .map(|r| PathBuf::from(r).join(rel_path))
+                                .find(|p| p.exists())
+                                .unwrap_or_else(|| {
+                                    state
+                                        .ingest_roots
+                                        .first()
+                                        .map(|r| PathBuf::from(r).join(rel_path))
+                                        .unwrap_or_else(|| PathBuf::from(rel_path))
+                                });
+                            candidate
+                        };
 
                     // Get the marker's external_id and label.
-                    let marker_ext_id = nid_to_ext
-                        .get(&src_idx)
-                        .cloned()
-                        .unwrap_or_default();
+                    let marker_ext_id = nid_to_ext.get(&src_idx).cloned().unwrap_or_default();
                     let marker_label = graph
                         .strings
                         .resolve(graph.nodes.label[src_idx])

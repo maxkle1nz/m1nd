@@ -231,12 +231,11 @@ impl Extractor for GoExtractor {
                         continue;
                     }
 
-                    let ref_target =
-                        if qualifier.chars().next().is_some_and(|c| c.is_uppercase()) {
-                            format!("ref::{}", qualifier)
-                        } else {
-                            format!("ref::{}", method)
-                        };
+                    let ref_target = if qualifier.chars().next().is_some_and(|c| c.is_uppercase()) {
+                        format!("ref::{}", qualifier)
+                    } else {
+                        format!("ref::{}", method)
+                    };
                     if !unresolved_refs.contains(&ref_target) {
                         edges.push(ExtractedEdge {
                             source: file_id.to_string(),
@@ -363,7 +362,11 @@ mod tests {
             result.nodes.iter().any(|n| n.label == "Config"),
             "Should extract struct node"
         );
-        assert!(has_edge(&result, "contains", "file::testfile.go::struct::Config"));
+        assert!(has_edge(
+            &result,
+            "contains",
+            "file::testfile.go::struct::Config"
+        ));
     }
 
     #[test]
@@ -384,11 +387,7 @@ mod tests {
             "Should emit import edge for fmt"
         );
         assert!(
-            has_edge(
-                &result,
-                "imports",
-                "ref::github.com/org/repo/pkg/util"
-            ),
+            has_edge(&result, "imports", "ref::github.com/org/repo/pkg/util"),
             "Should emit import edge for github.com/org/repo/pkg/util"
         );
     }
@@ -430,7 +429,8 @@ mod tests {
 
     #[test]
     fn go_extractor_does_not_emit_calls_for_for_keyword() {
-        let result = extract("package main\n\nfunc run() {\n    for i := 0; i < 10; i++ {\n    }\n}\n");
+        let result =
+            extract("package main\n\nfunc run() {\n    for i := 0; i < 10; i++ {\n    }\n}\n");
         assert!(
             !has_edge(&result, "calls", "ref::for"),
             "Must NOT emit calls edge for `for` keyword. Edges: {:?}",
@@ -440,7 +440,8 @@ mod tests {
 
     #[test]
     fn go_extractor_does_not_emit_calls_for_switch() {
-        let result = extract("package main\n\nfunc run(x int) {\n    switch x {\n    case 1:\n    }\n}\n");
+        let result =
+            extract("package main\n\nfunc run(x int) {\n    switch x {\n    case 1:\n    }\n}\n");
         assert!(
             !has_edge(&result, "calls", "ref::switch"),
             "Must NOT emit calls edge for `switch`. Edges: {:?}",
@@ -450,7 +451,8 @@ mod tests {
 
     #[test]
     fn go_extractor_does_not_emit_calls_for_make_builtin() {
-        let result = extract("package main\n\nfunc run() {\n    s := make([]int, 10)\n    _ = s\n}\n");
+        let result =
+            extract("package main\n\nfunc run() {\n    s := make([]int, 10)\n    _ = s\n}\n");
         assert!(
             !has_edge(&result, "calls", "ref::make"),
             "Must NOT emit calls edge for built-in `make`. Edges: {:?}",
@@ -548,6 +550,10 @@ func processData(d []byte) []byte {
             .iter()
             .filter(|e| e.relation == "calls" && e.target == "ref::helper")
             .count();
-        assert_eq!(count, 1, "Duplicate calls to helper() should produce exactly 1 edge, got {}", count);
+        assert_eq!(
+            count, 1,
+            "Duplicate calls to helper() should produce exactly 1 edge, got {}",
+            count
+        );
     }
 }

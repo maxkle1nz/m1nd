@@ -304,10 +304,8 @@ impl Ingestor {
 
             // Look up git data for this file. Sub-file nodes (functions, structs, …)
             // inherit from their containing file identified by file_id.
-            let (commit_count, last_modified) = file_git_data
-                .get(file_id)
-                .copied()
-                .unwrap_or((0, 0.0));
+            let (commit_count, last_modified) =
+                file_git_data.get(file_id).copied().unwrap_or((0, 0.0));
 
             // change_frequency: monotonically maps commit_count -> [0, 1).
             // 0 commits → 0.0 (neutral/unknown), 10 commits → ~0.5, 50+ → ~0.83.
@@ -427,8 +425,8 @@ impl Ingestor {
 #[cfg(test)]
 mod tests {
     use super::{build_file_external_id, is_valid_external_id, IngestConfig, Ingestor};
-    use crate::L1ghtIngestAdapter;
     use crate::IngestAdapter;
+    use crate::L1ghtIngestAdapter;
     use m1nd_core::types::EdgeIdx;
     use std::fs;
     use std::path::PathBuf;
@@ -645,11 +643,7 @@ mod tests {
         let root = temp_ingest_dir("ts-calls-imports");
         fs::create_dir_all(&root).unwrap();
 
-        fs::write(
-            root.join("b.ts"),
-            "export function foo() { return 1; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("b.ts"), "export function foo() { return 1; }\n").unwrap();
         fs::write(
             root.join("a.ts"),
             "import { foo } from \"./b\";\nexport function run() { return foo(); }\n",
@@ -664,15 +658,15 @@ mod tests {
         let (graph, _stats) = ingest.ingest().unwrap();
 
         // --- (a) Assert a `calls` edge exists in the graph (from any node in a.ts) ---
-        let has_calls_edge = (0..graph.csr.pending_edges.len()).any(|idx| {
-            graph.strings.resolve(graph.csr.relations[idx]) == "calls"
-        });
+        let has_calls_edge = (0..graph.csr.pending_edges.len())
+            .any(|idx| graph.strings.resolve(graph.csr.relations[idx]) == "calls");
         // Also check in finalized CSR
         let has_calls_csr = (0..graph.num_nodes() as usize).any(|i| {
             let node_id = m1nd_core::types::NodeId::new(i as u32);
-            graph.csr.out_range(node_id).any(|idx| {
-                graph.strings.resolve(graph.csr.relations[idx]) == "calls"
-            })
+            graph
+                .csr
+                .out_range(node_id)
+                .any(|idx| graph.strings.resolve(graph.csr.relations[idx]) == "calls")
         });
 
         assert!(
@@ -681,8 +675,12 @@ mod tests {
         );
 
         // --- (b) Assert a cross-file `imports` edge from a.ts to b.ts ---
-        let a_ts = graph.resolve_id("file::a.ts").expect("file::a.ts node missing");
-        let b_ts = graph.resolve_id("file::b.ts").expect("file::b.ts node missing");
+        let a_ts = graph
+            .resolve_id("file::a.ts")
+            .expect("file::a.ts node missing");
+        let b_ts = graph
+            .resolve_id("file::b.ts")
+            .expect("file::b.ts node missing");
 
         let has_import_edge = graph.csr.out_range(a_ts).any(|idx| {
             graph.csr.targets[idx] == b_ts
@@ -803,22 +801,28 @@ The [⍂ entity: TokenValidator] runs HMAC checks.
                 break;
             }
         }
-        let conf_weight = conf_weight.expect("epistemic_confidence edge not found from entity node");
+        let conf_weight =
+            conf_weight.expect("epistemic_confidence edge not found from entity node");
         assert!(
             (conf_weight - 0.6_f32).abs() < 1e-5,
             "epistemic_confidence weight expected ~0.6, got {conf_weight}"
         );
 
         // (b) epistemic_ambiguity edge from entity node
-        let has_ambiguity = graph.csr.out_range(entity_node_id).any(|idx| {
-            graph.strings.resolve(graph.csr.relations[idx]) == "epistemic_ambiguity"
-        });
-        assert!(has_ambiguity, "epistemic_ambiguity edge not found from entity node");
+        let has_ambiguity = graph
+            .csr
+            .out_range(entity_node_id)
+            .any(|idx| graph.strings.resolve(graph.csr.relations[idx]) == "epistemic_ambiguity");
+        assert!(
+            has_ambiguity,
+            "epistemic_ambiguity edge not found from entity node"
+        );
 
         // (c) evidenced_by edge from entity node
-        let has_evidence = graph.csr.out_range(entity_node_id).any(|idx| {
-            graph.strings.resolve(graph.csr.relations[idx]) == "evidenced_by"
-        });
+        let has_evidence = graph
+            .csr
+            .out_range(entity_node_id)
+            .any(|idx| graph.strings.resolve(graph.csr.relations[idx]) == "evidenced_by");
         assert!(has_evidence, "evidenced_by edge not found from entity node");
 
         let _ = fs::remove_dir_all(root);
@@ -862,7 +866,10 @@ The [⍂ entity: TokenValidator] runs HMAC checks.
         fs::write(root.join("cold.rs"), "pub fn cold() {}\n").unwrap();
 
         // Initial commit — both files touched once
-        let _ = Command::new("git").args(["add", "."]).current_dir(&root).output();
+        let _ = Command::new("git")
+            .args(["add", "."])
+            .current_dir(&root)
+            .output();
         let _ = Command::new("git")
             .args(["commit", "-m", "init", "--no-gpg-sign"])
             .current_dir(&root)
@@ -870,8 +877,15 @@ The [⍂ entity: TokenValidator] runs HMAC checks.
 
         // Commit hot.rs four more times (total 5 commits)
         for i in 1..=4 {
-            fs::write(root.join("hot.rs"), format!("pub fn hot() {{ /* v{i} */ }}\n")).unwrap();
-            let _ = Command::new("git").args(["add", "hot.rs"]).current_dir(&root).output();
+            fs::write(
+                root.join("hot.rs"),
+                format!("pub fn hot() {{ /* v{i} */ }}\n"),
+            )
+            .unwrap();
+            let _ = Command::new("git")
+                .args(["add", "hot.rs"])
+                .current_dir(&root)
+                .output();
             let _ = Command::new("git")
                 .args(["commit", "-m", &format!("hot v{i}"), "--no-gpg-sign"])
                 .current_dir(&root)
@@ -961,9 +975,10 @@ func run() {
         // resolved or unresolved calls edge must exist.
         let has_calls_edge = (0..graph.num_nodes() as usize).any(|i| {
             let node_id = m1nd_core::types::NodeId::new(i as u32);
-            graph.csr.out_range(node_id).any(|idx| {
-                graph.strings.resolve(graph.csr.relations[idx]) == "calls"
-            })
+            graph
+                .csr
+                .out_range(node_id)
+                .any(|idx| graph.strings.resolve(graph.csr.relations[idx]) == "calls")
         });
 
         assert!(
@@ -1064,7 +1079,11 @@ func main() {
 
         // Must not panic
         let result = ingest.ingest();
-        assert!(result.is_ok(), "ingest should succeed in non-git dir: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ingest should succeed in non-git dir: {:?}",
+            result.err()
+        );
 
         let (graph, _stats) = result.unwrap();
         let file_id = graph.resolve_id("file::lib.rs");

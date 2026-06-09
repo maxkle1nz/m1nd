@@ -2177,7 +2177,8 @@ mod tests {
     #[test]
     fn csharp_no_calls_from_class_definition() {
         // A class with only field declarations and no method bodies must produce zero calls edges.
-        let src = b"class Config {\n    public int MaxRetries { get; set; }\n    public string Name;\n}";
+        let src =
+            b"class Config {\n    public int MaxRetries { get; set; }\n    public string Name;\n}";
         let ext = csharp_extractor();
         let result = ext.extract(src, "file::test.cs").unwrap();
 
@@ -2352,26 +2353,47 @@ mod tests {
 
         // Also verify via field-based access that `method` field exists on `call`.
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_ruby::LANGUAGE.into()).unwrap();
+        parser
+            .set_language(&tree_sitter_ruby::LANGUAGE.into())
+            .unwrap();
         let tree = parser.parse(src, None).unwrap();
         // Walk down to the `call` node (obj.bar(1)) and inspect its `method` field.
         let root = tree.root_node();
         // root > method(def run) > body_statement > call(obj.bar(1))
         let method_def = root.named_child(0).unwrap(); // method def `run`
-        let body = method_def.child_by_field_name("body").or_else(|| method_def.named_child(1)).unwrap();
+        let body = method_def
+            .child_by_field_name("body")
+            .or_else(|| method_def.named_child(1))
+            .unwrap();
         println!("=== body node kind: {} ===", body.kind());
         let mut cursor = body.walk();
         for (i, child) in body.named_children(&mut cursor).enumerate() {
-            println!("  body child[{}]: kind={} text={:?}", i, child.kind(), child.utf8_text(src).unwrap_or("?"));
+            println!(
+                "  body child[{}]: kind={} text={:?}",
+                i,
+                child.kind(),
+                child.utf8_text(src).unwrap_or("?")
+            );
             if child.kind() == "call" {
                 // Check `method` field
                 let mf = child.child_by_field_name("method");
                 let rf = child.child_by_field_name("receiver");
-                println!("    -> `method` field: {:?}", mf.map(|n| (n.kind(), n.utf8_text(src).unwrap_or("?"))));
-                println!("    -> `receiver` field: {:?}", rf.map(|n| (n.kind(), n.utf8_text(src).unwrap_or("?"))));
+                println!(
+                    "    -> `method` field: {:?}",
+                    mf.map(|n| (n.kind(), n.utf8_text(src).unwrap_or("?")))
+                );
+                println!(
+                    "    -> `receiver` field: {:?}",
+                    rf.map(|n| (n.kind(), n.utf8_text(src).unwrap_or("?")))
+                );
                 let mut nc = child.walk();
                 for (j, c2) in child.named_children(&mut nc).enumerate() {
-                    println!("    named_child[{}]: kind={} text={:?}", j, c2.kind(), c2.utf8_text(src).unwrap_or("?"));
+                    println!(
+                        "    named_child[{}]: kind={} text={:?}",
+                        j,
+                        c2.kind(),
+                        c2.utf8_text(src).unwrap_or("?")
+                    );
                 }
             }
         }
@@ -2504,7 +2526,8 @@ mod tests {
     fn scala_calls_simple_function() {
         // bar() calls foo() and baz(42) — both are `call_expression` with
         // `identifier` first child.
-        let src = b"def foo(): Int = 1\ndef baz(x: Int): Int = x\ndef bar(): Int = { foo(); baz(42) }";
+        let src =
+            b"def foo(): Int = 1\ndef baz(x: Int): Int = x\ndef bar(): Int = { foo(); baz(42) }";
         let ext = scala_extractor();
         let result = ext.extract(src, "file::test.scala").unwrap();
 

@@ -220,23 +220,40 @@ impl Extractor for JavaExtractor {
                     // (e.g. would not naturally appear as receiver.X but guard anyway)
                     if matches!(
                         receiver,
-                        "if" | "for" | "while" | "switch" | "catch" | "return"
-                            | "new" | "synchronized" | "super" | "this" | "assert"
-                            | "throw" | "throws" | "try" | "else" | "finally"
-                            | "instanceof" | "class" | "interface" | "enum"
-                            | "import" | "package" | "extends" | "implements"
+                        "if" | "for"
+                            | "while"
+                            | "switch"
+                            | "catch"
+                            | "return"
+                            | "new"
+                            | "synchronized"
+                            | "super"
+                            | "this"
+                            | "assert"
+                            | "throw"
+                            | "throws"
+                            | "try"
+                            | "else"
+                            | "finally"
+                            | "instanceof"
+                            | "class"
+                            | "interface"
+                            | "enum"
+                            | "import"
+                            | "package"
+                            | "extends"
+                            | "implements"
                     ) {
                         continue;
                     }
 
-                    let ref_target =
-                        if receiver.chars().next().is_some_and(|c| c.is_uppercase()) {
-                            // Static/class call: ClassName.method( → ref to ClassName
-                            format!("ref::{}", receiver)
-                        } else {
-                            // Instance call: obj.method( → ref to method
-                            format!("ref::{}", method)
-                        };
+                    let ref_target = if receiver.chars().next().is_some_and(|c| c.is_uppercase()) {
+                        // Static/class call: ClassName.method( → ref to ClassName
+                        format!("ref::{}", receiver)
+                    } else {
+                        // Instance call: obj.method( → ref to method
+                        format!("ref::{}", method)
+                    };
 
                     if !unresolved_refs.contains(&ref_target) {
                         edges.push(ExtractedEdge {
@@ -356,13 +373,21 @@ mod tests {
             result.nodes.iter().any(|n| n.label == "Foo"),
             "Should extract class node"
         );
-        assert!(has_edge(&result, "contains", "file::testfile.java::class::Foo"));
+        assert!(has_edge(
+            &result,
+            "contains",
+            "file::testfile.java::class::Foo"
+        ));
     }
 
     #[test]
     fn java_extractor_emits_method_node() {
         let result = extract("public class Foo {\n    public void run() {}\n}\n");
-        assert!(has_edge(&result, "contains", "file::testfile.java::fn::run"));
+        assert!(has_edge(
+            &result,
+            "contains",
+            "file::testfile.java::fn::run"
+        ));
     }
 
     #[test]
@@ -518,7 +543,8 @@ public class Service {
 
     #[test]
     fn java_emits_calls_for_static_class_call() {
-        let src = "public class A {\n    public void run() {\n        Logger.info(msg);\n    }\n}\n";
+        let src =
+            "public class A {\n    public void run() {\n        Logger.info(msg);\n    }\n}\n";
         let result = extract(src);
         // uppercase receiver → ref to class name (static call)
         assert!(
@@ -563,8 +589,7 @@ public class A {
             .filter(|e| e.relation == "calls" && e.target == "ref::helper")
             .count();
         assert_eq!(
-            count,
-            1,
+            count, 1,
             "Duplicate calls to helper() should produce exactly 1 edge, got {}",
             count
         );
