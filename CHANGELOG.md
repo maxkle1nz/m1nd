@@ -10,6 +10,41 @@ No unreleased changes.
 
 ---
 
+## [0.9.0-beta.8] — 2026-06-10
+
+### Fixed
+
+#### Graph edges now survive re-finalization (critical)
+
+`Graph::finalize()` rebuilt the CSR index exclusively from pending edges, so any
+node insertion followed by a re-finalization silently discarded every
+materialized edge. In the MCP runtime this left retrieval running on a
+near-empty graph — `impact`, `seek`, and activation queries saw no structural
+edges even though ingest reported them created. `finalize()` is now idempotent:
+existing CSR edges are rehydrated before the rebuild, with plasticity weights
+preserved. Found through live agent dogfooding of beta.7; covered by new core
+regression tests (`refinalize_preserves_edges`) and an end-to-end handler test
+that asserts a cross-file import edge stays queryable after a memory write.
+
+- Stack-trace frame parsing handles Windows drive-letter paths: the `C:` colon
+  previously shifted the `path:line:col` split and zeroed parsed frames.
+- L1GHT evidence dedup checks materialized edges, not only pending ones (the
+  previous behavior implicitly relied on the finalize bug).
+
+### Security
+
+- Dependency advisories patched: `rustls-webpki` → 0.103.13 (high), `rand` →
+  0.9.3, `postcss` → 8.5.15 in both UI trees. `npm audit` and Dependabot now
+  report zero open advisories.
+
+### Documentation
+
+- README rewritten around the local mission runtime thesis — funnel-first,
+  ~255 lines, quick start near the top, claims bounded by what tests prove.
+- All seven i18n READMEs regenerated 1:1 against the new structure.
+
+---
+
 ## [0.9.0-beta.7] — 2026-06-09
 
 ### Added

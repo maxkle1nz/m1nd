@@ -238,7 +238,7 @@ Mission Control は証明の規律であり、機能リストではない。`mis
 - **`m1nd-ingest`** — 抽出、ルーティング、グラフ構築アダプター（コード、ユニバーサルドキュメント、L1GHT）。
 - **`m1nd-openclaw`** — 補助 OpenClaw ブリッジ（Unix ソケットレーン、独立バージョニング）。
 
-現在のクレートバージョン：`m1nd-core`、`m1nd-ingest`、`m1nd-mcp` はすべて `0.9.0-beta.7`。
+現在のクレートバージョン：`m1nd-core`、`m1nd-ingest`、`m1nd-mcp` はすべて `0.9.0-beta.8`。
 
 <p align="center">
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd アーキテクチャ概観" width="960" />

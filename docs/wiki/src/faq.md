@@ -74,7 +74,7 @@ Approximately 8MB for a release build. No runtime dependencies, no shared librar
 
 ### Can I install from crates.io?
 
-Yes: `cargo install m1nd-mcp --version 0.9.0-beta.7` for the current beta runtime.
+Yes: `cargo install m1nd-mcp --version 0.9.0-beta.8` for the current beta runtime.
 
 ---
 

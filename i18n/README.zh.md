@@ -238,7 +238,7 @@ Mission Control 是证明纪律，而不是功能列表。`mission_next` 恰好�
 - **`m1nd-ingest`** — 提取、路由和图构建适配器（代码、通用文档、L1GHT）。
 - **`m1nd-openclaw`** — 辅助 OpenClaw 桥接（Unix socket 通道，独立版本）。
 
-当前 crate 版本：`m1nd-core`、`m1nd-ingest`、`m1nd-mcp` 均为 `0.9.0-beta.7`。
+当前 crate 版本：`m1nd-core`、`m1nd-ingest`、`m1nd-mcp` 均为 `0.9.0-beta.8`。
 
 <p align="center">
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd 架构概览" width="960" />

@@ -238,7 +238,7 @@ Drei Kern-Rust-Crates plus eine auxiliäre Bridge:
 - **`m1nd-ingest`** — Extraktions-, Routing- und Graph-Konstruktions-Adapter (Code, universelle Docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliäre OpenClaw-Bridge (Unix-Socket-Lane, unabhängig versioniert).
 
-Aktuelle Crate-Versionen: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` alle `0.9.0-beta.7`.
+Aktuelle Crate-Versionen: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` alle `0.9.0-beta.8`.
 
 <p align="center">
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd Architektur-Übersicht" width="960" />

@@ -238,7 +238,7 @@ Trois crates Rust core plus un bridge auxiliaire :
 - **`m1nd-ingest`** — adapters d'extraction, de routage et de construction de graphe (code, docs universels, L1GHT).
 - **`m1nd-openclaw`** — bridge auxiliaire OpenClaw (lane Unix-socket, versioning indépendant).
 
-Versions actuelles des crates : `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` tous `0.9.0-beta.7`.
+Versions actuelles des crates : `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` tous `0.9.0-beta.8`.
 
 <p align="center">
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="Aperçu de l'architecture m1nd" width="960" />
