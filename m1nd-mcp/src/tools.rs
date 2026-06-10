@@ -250,19 +250,37 @@ fn resolve_light_evidence(graph: &mut m1nd_core::graph::Graph) -> (usize, usize)
     let relation_needle = "grounded_in";
 
     // Phase 1 — collect already-present (marker, code) pairs to ensure idempotency.
-    // We scan pending_edges because at this point the graph may not yet be finalized
-    // (fresh merge sets finalized=false via add_node), so the CSR might not include
-    // all edges.  Using pending_edges is correct because finalize() will drain them.
+    // An existing grounded_in edge can live in EITHER place:
+    //   * pending_edges — a fresh merge sets finalized=false via add_node, so the new
+    //     edges from this load may not be in the CSR yet; finalize() will drain them.
+    //   * the CSR — finalize() is now non-destructive, so edges added by a previous
+    //     resolution pass persist in the CSR rather than vanishing. We must dedup
+    //     against them too, otherwise a re-run adds a duplicate grounded_in edge.
     let existing: std::collections::HashSet<(m1nd_core::types::NodeId, m1nd_core::types::NodeId)> = {
         let rel_interned = graph.strings.lookup(relation_needle);
         match rel_interned {
-            Some(rel) => graph
-                .csr
-                .pending_edges
-                .iter()
-                .filter(|e| e.relation == rel)
-                .map(|e| (e.source, e.target))
-                .collect(),
+            Some(rel) => {
+                let mut set: std::collections::HashSet<(
+                    m1nd_core::types::NodeId,
+                    m1nd_core::types::NodeId,
+                )> = graph
+                    .csr
+                    .pending_edges
+                    .iter()
+                    .filter(|e| e.relation == rel)
+                    .map(|e| (e.source, e.target))
+                    .collect();
+                let csr_nodes = graph.csr.offsets.len().saturating_sub(1);
+                for src in 0..csr_nodes {
+                    let src_nid = m1nd_core::types::NodeId::new(src as u32);
+                    for idx in graph.csr.out_range(src_nid) {
+                        if graph.csr.relations[idx] == rel {
+                            set.insert((src_nid, graph.csr.targets[idx]));
+                        }
+                    }
+                }
+                set
+            }
             None => std::collections::HashSet::new(),
         }
     };
@@ -4785,6 +4803,132 @@ mod tests {
         assert!(
             count_light(&state) > 0,
             "light:: memory nodes must survive a replace ingest (auto-restored)"
+        );
+    }
+
+    /// P0 regression (live symptom: ingest reports edges_created=N but edge_count
+    /// collapses to ~2). Structural code edges materialized in the CSR must survive a
+    /// subsequent graph mutation + re-finalize triggered by a memorize (light author).
+    ///
+    /// Root cause was `Graph::finalize()` rebuilding the CSR purely from
+    /// `pending_edges`; after the first finalize that list is empty, so the
+    /// `add_node` performed when memorizing flipped `finalized=false` and the next
+    /// `finalize()` wiped every code edge. This test ingests two files with a real
+    /// cross-file import, memorizes a claim (which mutates + re-finalizes the live
+    /// graph), and asserts the import edge is still queryable.
+    #[test]
+    fn memorize_after_code_ingest_preserves_code_edges() {
+        use crate::light_author_handlers::{handle_light_author, LightAuthorInput, LightClaim};
+        use crate::protocol::core::IngestInput;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(proj.join("src")).expect("proj src dir");
+        // helper.rs defines Helper; main.rs imports + uses it => a real cross-file edge.
+        std::fs::write(proj.join("src/helper.rs"), "pub struct Helper;\n").expect("write helper");
+        std::fs::write(
+            proj.join("src/main.rs"),
+            "mod helper;\nuse crate::helper::Helper;\npub fn build(_: Helper) {}\n",
+        )
+        .expect("write main");
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        let out = super::handle_ingest(
+            &mut state,
+            IngestInput {
+                path: proj.to_string_lossy().to_string(),
+                agent_id: "test".into(),
+                incremental: false,
+                adapter: "code".into(),
+                mode: "replace".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+            },
+        )
+        .expect("code ingest");
+
+        let edges_after_ingest = out["edge_count"].as_u64().expect("edge_count present");
+        // Sanity-scale: the live edge counter must match the structural edges that were
+        // created — not collapse to a near-zero baseline.
+        assert!(
+            edges_after_ingest > 2,
+            "code ingest must leave structural edges in the live graph, got edge_count={edges_after_ingest} (edges_created={})",
+            out["edges_created"]
+        );
+
+        // Locate the cross-file import edge main.rs -> helper.rs::struct::Helper.
+        let edge_exists = |state: &SessionState| -> bool {
+            let g = state.graph.read();
+            let Some(main_file) = g.resolve_id("file::src/main.rs") else {
+                return false;
+            };
+            let Some(helper) = g.resolve_id("file::src/helper.rs::struct::Helper") else {
+                return false;
+            };
+            g.csr
+                .out_range(main_file)
+                .any(|i| g.csr.targets[i] == helper)
+        };
+        assert!(
+            edge_exists(&state),
+            "the cross-file import edge must exist right after ingest"
+        );
+        let edges_baseline = {
+            let g = state.graph.read();
+            g.num_edges()
+        };
+
+        // Memorize a claim citing main.rs. This mutates the live graph (adds light
+        // marker nodes + grounded_in edges) and re-finalizes it — the exact sequence
+        // that used to destroy the code edges.
+        handle_light_author(
+            &mut state,
+            LightAuthorInput {
+                agent_id: "test".into(),
+                node_label: "ArchMem".into(),
+                title: None,
+                state: None,
+                claims: vec![LightClaim {
+                    label: "MainUsesHelper".into(),
+                    text: Some("main wires Helper".into()),
+                    kind: Some("entity".into()),
+                    confidence: Some("high".into()),
+                    ambiguity: None,
+                    evidence: vec!["src/main.rs".into()],
+                    depends_on: vec![],
+                }],
+                output_path: None,
+                namespace: None,
+                ingest_after: true,
+                mode: "merge".into(),
+            },
+        )
+        .expect("memorize");
+
+        // The code edge MUST still be queryable, and the total edge count must have
+        // grown (memory edges added) rather than collapsed.
+        assert!(
+            edge_exists(&state),
+            "code import edge must survive a memorize-triggered re-finalize"
+        );
+        let edges_after_memorize = {
+            let g = state.graph.read();
+            g.num_edges()
+        };
+        assert!(
+            edges_after_memorize >= edges_baseline,
+            "edge count must not collapse after memorize: was {edges_baseline}, now {edges_after_memorize}"
         );
     }
 }

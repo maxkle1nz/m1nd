@@ -566,6 +566,114 @@ impl Graph {
         Ok(edge_idx)
     }
 
+    /// Harvest edges already materialized in the forward CSR back into the
+    /// `pending_edges` staging area so a re-`finalize()` does not discard them.
+    ///
+    /// Invariant relied upon: after a previous `finalize()`, `edge_plasticity` is laid
+    /// out in CSR-slot order (length == `csr.num_edges()`), and any edges added since
+    /// via `add_edge` appended their plasticity *after* that block (with one entry per
+    /// `add_edge`, un-expanded). This method rebuilds `pending_edges` and
+    /// `edge_plasticity` as `[harvested canonical CSR edges] ++ [newly-added edges]`,
+    /// carrying each harvested edge's current (plasticity-tracked) weight. Bidirectional
+    /// edges are de-duplicated to their canonical (`source <= target`) slot, exactly as
+    /// `save_graph` does, so the subsequent rebuild re-expands them correctly.
+    fn rehydrate_csr_into_pending(&mut self) {
+        let csr_total = self.csr.num_edges();
+
+        // The CSR `offsets` array was sized for the node count at the *previous*
+        // finalize. Nodes added since then are not represented in it, so iterate only
+        // over the range the CSR actually covers (`offsets.len() - 1`). Newly-added
+        // nodes have no outgoing CSR edges to harvest by definition.
+        let csr_nodes = self.csr.offsets.len().saturating_sub(1);
+
+        // Stash the newly-added (post-finalize) pending edges; they keep their tail
+        // slots in edge_plasticity.
+        let new_pending = std::mem::take(&mut self.csr.pending_edges);
+
+        let mut harvested: Vec<PendingEdge> = Vec::with_capacity(csr_total);
+        let mut harvested_plasticity = EdgePlasticity::with_capacity(csr_total);
+
+        for src in 0..csr_nodes {
+            let lo = self.csr.offsets[src] as usize;
+            let hi = self.csr.offsets[src + 1] as usize;
+            for j in lo..hi {
+                let tgt = self.csr.targets[j].as_usize();
+                let direction = self.csr.directions[j];
+                // For bidirectional edges keep only the canonical direction; the rebuild
+                // re-creates the reverse copy.
+                if direction == EdgeDirection::Bidirectional && src > tgt {
+                    continue;
+                }
+                harvested.push(PendingEdge {
+                    source: NodeId::new(src as u32),
+                    target: self.csr.targets[j],
+                    // Use the live (current) weight so learned plasticity survives.
+                    weight: self.csr.read_weight(EdgeIdx::new(j as u32)),
+                    inhibitory: self.csr.inhibitory[j],
+                    relation: self.csr.relations[j],
+                    direction,
+                    causal_strength: self.csr.causal_strengths[j],
+                });
+                harvested_plasticity
+                    .original_weight
+                    .push(self.edge_plasticity.original_weight[j]);
+                harvested_plasticity
+                    .current_weight
+                    .push(self.edge_plasticity.current_weight[j]);
+                harvested_plasticity
+                    .strengthen_count
+                    .push(self.edge_plasticity.strengthen_count[j]);
+                harvested_plasticity
+                    .weaken_count
+                    .push(self.edge_plasticity.weaken_count[j]);
+                harvested_plasticity
+                    .ltp_applied
+                    .push(self.edge_plasticity.ltp_applied[j]);
+                harvested_plasticity
+                    .ltd_applied
+                    .push(self.edge_plasticity.ltd_applied[j]);
+                harvested_plasticity
+                    .last_used_query
+                    .push(self.edge_plasticity.last_used_query[j]);
+            }
+        }
+
+        // Rebuild edge_plasticity as [harvested canonical] ++ [newly-added tail].
+        // Start from the harvested block (already in [0..harvested.len()) order)...
+        let mut combined_plasticity = harvested_plasticity;
+        combined_plasticity
+            .original_weight
+            .reserve(new_pending.len());
+        // The newly-added edges occupied the tail slots [csr_total..] of the old
+        // edge_plasticity arrays — append them in order.
+        combined_plasticity
+            .original_weight
+            .extend_from_slice(&self.edge_plasticity.original_weight[csr_total..]);
+        combined_plasticity
+            .current_weight
+            .extend_from_slice(&self.edge_plasticity.current_weight[csr_total..]);
+        combined_plasticity
+            .strengthen_count
+            .extend_from_slice(&self.edge_plasticity.strengthen_count[csr_total..]);
+        combined_plasticity
+            .weaken_count
+            .extend_from_slice(&self.edge_plasticity.weaken_count[csr_total..]);
+        combined_plasticity
+            .ltp_applied
+            .extend_from_slice(&self.edge_plasticity.ltp_applied[csr_total..]);
+        combined_plasticity
+            .ltd_applied
+            .extend_from_slice(&self.edge_plasticity.ltd_applied[csr_total..]);
+        combined_plasticity
+            .last_used_query
+            .extend_from_slice(&self.edge_plasticity.last_used_query[csr_total..]);
+
+        // pending_edges = [harvested canonical] ++ [newly-added]
+        harvested.extend(new_pending);
+        self.csr.pending_edges = harvested;
+        self.edge_plasticity = combined_plasticity;
+    }
+
     /// Build CSR forward + reverse adjacency. Compute PageRank.
     /// Must be called before any query. Sets `finalized = true`.
     /// Replaces: engine_fast.py FastPropertyGraph.finalize()
@@ -574,6 +682,22 @@ impl Graph {
             return Ok(());
         }
         let n = self.nodes.count as usize;
+
+        // Re-finalization safety: `finalize()` rebuilds the CSR *exclusively* from
+        // `pending_edges`. After the first finalize, `pending_edges` is empty and all
+        // edges live only in the CSR arrays. Any subsequent mutation that flips
+        // `finalized` back to false (e.g. `add_node`) followed by another `finalize()`
+        // would therefore wipe every edge already materialized in the CSR.
+        //
+        // To make finalize idempotent and non-destructive, harvest the edges that are
+        // already in the CSR back into `pending_edges` (carrying their *current*
+        // plasticity-tracked weights), realigning the plasticity staging arrays so the
+        // insertion-index ↔ plasticity-slot mapping below stays correct. Harvested
+        // edges go first (matching how their plasticity is laid out from the previous
+        // finalize), followed by the newly-added pending edges.
+        if self.csr.num_edges() > 0 {
+            self.rehydrate_csr_into_pending();
+        }
 
         // Build forward CSR from pending edges
         // Sort edges by source for CSR layout, preserving original insertion index
