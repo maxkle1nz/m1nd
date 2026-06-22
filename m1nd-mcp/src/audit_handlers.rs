@@ -405,7 +405,15 @@ fn supports_external_reference_scan(kind: AuditFileKind) -> bool {
     )
 }
 
-fn simple_content_hash(path: &Path) -> Option<String> {
+/// Canonical on-disk content hash used across freshness/staleness checks.
+///
+/// Reads the whole file and hashes its bytes with the same algorithm the
+/// ingest path records into `FileInventoryEntry::sha256` (see
+/// `tools::build_file_inventory_entries`), so a recomputed hash can be compared
+/// directly against the stored inventory value. Shared by `cross_verify`'s
+/// evidence-freshness check and the `am_i_stale` self-awareness tool — do NOT
+/// roll a second hashing routine.
+pub(crate) fn simple_content_hash(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
