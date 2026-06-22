@@ -261,6 +261,174 @@ impl QueryOrchestrator {
         })
     }
 
+    /// Execute a query with a **zero-mutation guarantee** on the graph.
+    ///
+    /// Runs the identical steps 1–7 of [`Self::query`] (seeds -> 4-dim
+    /// activation -> XLR -> merge -> PageRank boost -> ghost edges ->
+    /// structural holes) and produces byte-identical
+    /// `activation`/`ghost_edges`/`structural_holes` output for the same
+    /// input, but **deliberately skips the mutating Step 8** (the plasticity
+    /// `update`, see [`Self::query`] which calls
+    /// `self.plasticity.update(graph, ..)` and rewrites edge weights via
+    /// atomic CAS + `edge_plasticity`).
+    ///
+    /// This makes it safe to run against a graph that is **shared by other
+    /// readers**: a second (read-only) m1nd process can call this without
+    /// perturbing the activation buffers or edge weights that concurrent
+    /// readers depend on.
+    ///
+    /// ## Zero-mutation proof (why `&self` + `&Graph` is sufficient)
+    ///
+    /// Every step below borrows the graph **immutably** and accumulates its
+    /// work in *local* scratch buffers — none of them writes back into the
+    /// shared `Graph`. The only `&mut Graph` in the whole pipeline is the
+    /// plasticity update we skip here. Verified signatures:
+    ///   - Step 1 `SeedFinder::find_seeds_semantic(graph: &Graph, ..)`  (seed.rs)
+    ///   - Step 2 D1 `HybridEngine::propagate(&self, graph: &Graph, ..)`,
+    ///     which dispatches to `Wavefront`/`Heap` engines that allocate their
+    ///     own `vec![0.0f32; n]` activation buffers (activation.rs).
+    ///   - Step 2 D2/D3/D4 `activate_semantic`/`activate_temporal`/
+    ///     `activate_causal(graph: &Graph, ..)`  (activation.rs).
+    ///   - Step 3 `AdaptiveXlrEngine::query(&self, graph: &Graph, ..)`  (xlr.rs).
+    ///   - Step 4 `merge_dimensions(results, top_k)` — never touches the graph.
+    ///   - Step 5 reads only `graph.nodes.pagerank` and mutates the *local*
+    ///     `activation` struct (owned here), not the graph.
+    ///   - Step 6/7 `detect_ghost_edges`/`detect_structural_holes(&self,
+    ///     graph: &Graph, ..)` — read-only traversals.
+    ///
+    /// CALLER NOTE: activation scores live **in the returned `QueryResult`**
+    /// (`result.activation.activated`), not stamped onto graph nodes. There is
+    /// no `apply_boosts`/`runtime_overlay` write here — that path takes
+    /// `&mut Graph` and is intentionally never invoked.
+    ///
+    /// The `plasticity` field is set to the same empty/zeroed
+    /// [`PlasticityResult`] used by the empty-seeds early return in
+    /// [`Self::query`].
+    pub fn query_readonly(
+        &self,
+        graph: &Graph,
+        config: &QueryConfig,
+    ) -> M1ndResult<QueryResult> {
+        let start = Instant::now();
+
+        // Zeroed plasticity result — Step 8 is intentionally skipped, so no
+        // edges are strengthened/decayed and no events are recorded. This is
+        // the exact shape used by the empty-seeds early-return in `query()`.
+        let empty_plasticity = PlasticityResult {
+            edges_strengthened: 0,
+            edges_decayed: 0,
+            ltp_events: 0,
+            ltd_events: 0,
+            homeostatic_rescales: 0,
+            priming_nodes: 0,
+        };
+
+        // Step 1: Find seeds (read-only; `&Graph`).
+        let seeds = SeedFinder::find_seeds_semantic(
+            graph,
+            &self.semantic,
+            &config.query,
+            config.top_k * 5,
+        )?;
+
+        if seeds.is_empty() {
+            return Ok(QueryResult {
+                activation: ActivationResult {
+                    activated: Vec::new(),
+                    seeds: Vec::new(),
+                    elapsed_ns: 0,
+                    xlr_fallback_used: false,
+                },
+                ghost_edges: Vec::new(),
+                structural_holes: Vec::new(),
+                plasticity: empty_plasticity,
+                elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+            });
+        }
+
+        // Step 2: Run 4 dimensions (all take `&Graph`, write local buffers).
+        // D1: Structural
+        let d1 = self.engine.propagate(graph, &seeds, &config.propagation)?;
+
+        // D2: Semantic
+        let d2 = activate_semantic(graph, &self.semantic, &config.query, config.top_k)?;
+
+        // D3: Temporal
+        let d3 = activate_temporal(graph, &seeds, &TemporalWeights::default())?;
+
+        // D4: Causal
+        let d4 = activate_causal(graph, &seeds, &config.propagation)?;
+
+        // Step 3: XLR noise cancellation on D1 (read-only; `&Graph`).
+        let mut xlr_fallback = false;
+        let d1_final = if config.xlr_enabled {
+            let xlr_result = self.xlr.query(graph, &seeds, &config.propagation)?;
+            xlr_fallback = xlr_result.fallback_to_hot_only;
+
+            // Merge XLR result with D1
+            if !xlr_result.activations.is_empty() {
+                DimensionResult {
+                    scores: xlr_result.activations,
+                    dimension: Dimension::Structural,
+                    elapsed_ns: d1.elapsed_ns,
+                }
+            } else {
+                d1
+            }
+        } else {
+            d1
+        };
+
+        // Step 4: Merge dimensions (does not touch the graph).
+        let results = [d1_final, d2, d3, d4];
+        let mut activation = merge_dimensions(&results, config.top_k)?;
+        activation.seeds = seeds.clone();
+        activation.xlr_fallback_used = xlr_fallback;
+
+        // Step 5: Add PageRank boost. Reads `graph.nodes.pagerank` only and
+        // mutates the *local* `activation` struct owned by this fn — the graph
+        // is untouched.
+        for node in &mut activation.activated {
+            let idx = node.node.as_usize();
+            if idx < graph.nodes.pagerank.len() {
+                let pr_boost = graph.nodes.pagerank[idx].get() * 0.1;
+                node.activation = FiniteF32::new(node.activation.get() + pr_boost);
+            }
+        }
+        // Re-sort after PageRank boost
+        activation
+            .activated
+            .sort_by_key(|entry| std::cmp::Reverse(entry.activation));
+
+        // Step 6: Ghost edges (read-only traversal; `&Graph`).
+        let ghost_edges = if config.include_ghost_edges {
+            self.detect_ghost_edges(graph, &activation)?
+        } else {
+            Vec::new()
+        };
+
+        // Step 7: Structural holes (read-only traversal; `&Graph`).
+        let structural_holes = if config.include_structural_holes {
+            self.detect_structural_holes(graph, &activation, FiniteF32::new(0.3))?
+        } else {
+            Vec::new()
+        };
+
+        // Step 8: SKIPPED. `query()` calls `self.plasticity.update(graph, ..)`
+        // here, which is the sole `&mut Graph` write in the pipeline. We omit
+        // it entirely to keep the shared graph pristine.
+
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        Ok(QueryResult {
+            activation,
+            ghost_edges,
+            structural_holes,
+            plasticity: empty_plasticity,
+            elapsed_ms,
+        })
+    }
+
     /// Detect ghost edges from multi-dimensional resonance.
     /// Nodes activated in multiple dimensions but not directly connected = ghost edge.
     /// Replaces: engine_v2.py ConnectomeEngine._detect_ghost_edges()
