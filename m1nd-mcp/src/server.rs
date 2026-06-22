@@ -115,13 +115,21 @@ next session, and self-flags as stale via `cross_verify(check:[\"evidence_freshn
 that code changes. This is how findings compound across sessions instead of being lost.
 ";
 
+/// Stdio MCP framing mode auto-detected on the inbound stream. The matching
+/// outbound write MUST use the same mode so the host's framing assumptions hold.
+/// Exposed `pub` so the `--attach` stdio↔HTTP bridge reuses the exact same
+/// framing primitives instead of hand-rolling a divergent encoder.
 #[derive(Clone, Copy, Debug)]
-enum TransportMode {
+pub enum TransportMode {
     Framed,
     Line,
 }
 
-fn read_request_payload<R: BufRead>(
+/// Read one JSON-RPC payload from `reader`, auto-detecting Content-Length framing
+/// vs newline framing, and report which mode was seen so the response can be
+/// written back in the same framing. `Ok(None)` signals EOF. Reused verbatim by
+/// the `--attach` bridge — see `attach_client.rs`.
+pub fn read_request_payload<R: BufRead>(
     reader: &mut R,
 ) -> std::io::Result<Option<(String, TransportMode)>> {
     loop {
@@ -180,7 +188,11 @@ fn read_request_payload<R: BufRead>(
     }
 }
 
-fn write_response<W: Write>(
+/// Write a `JsonRpcResponse` to `writer` in the given framing mode (the one
+/// detected by [`read_request_payload`] for the matching request). Reused
+/// verbatim by the `--attach` bridge so its stdout framing is byte-identical to
+/// the embedded stdio server's.
+pub fn write_response<W: Write>(
     writer: &mut W,
     response: &JsonRpcResponse,
     mode: TransportMode,

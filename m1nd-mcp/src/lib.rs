@@ -40,3 +40,7 @@ pub mod http_types;
 // Streamable-HTTP MCP transport (POST /mcp) — Wave 4, Slice 1.
 #[cfg(feature = "serve")]
 pub mod mcp_http;
+// stdio↔HTTP bridge for `--attach` — Wave 4, Slice 3. Lets multiple stdio MCP
+// hosts share one running `--serve` owner's live graph.
+#[cfg(feature = "serve")]
+pub mod attach_client;
