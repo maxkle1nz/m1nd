@@ -291,6 +291,9 @@ pub struct AppState {
     /// Optional event log path for cross-process SSE (Option B).
     pub event_log_path: Option<std::path::PathBuf>,
     pub registry_dir: Option<std::path::PathBuf>,
+    /// Registry of live Streamable-HTTP MCP wire sessions (Wave 4, Slice 1).
+    /// Distinct from the instance lease and from `SessionState.sessions`.
+    pub mcp_sessions: crate::mcp_http::McpSessionRegistry,
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +334,7 @@ pub fn spawn_background(
         event_tx,
         event_log_path: None,
         registry_dir: Some(registry_root),
+        mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
     });
     {
         let session = app_state.session.lock();
@@ -430,6 +434,7 @@ pub async fn run(
         event_tx: event_tx.clone(),
         event_log_path: event_log_path.clone(),
         registry_dir: config.registry_dir.clone(),
+        mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
     });
     {
         let session = app_state.session.lock();
@@ -700,6 +705,8 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         )
         .route("/api/tools", get(handle_list_tools))
         .route("/api/tools/{*tool_name}", post(handle_tool_call))
+        // Streamable-HTTP MCP transport (Wave 4, Slice 1). GET/DELETE land in Slice 2.
+        .route("/mcp", post(crate::mcp_http::handle_mcp_post))
         .route("/api/graph/stats", get(handle_graph_stats))
         .route("/api/graph/subgraph", get(handle_subgraph))
         .route("/api/graph/snapshot", get(handle_graph_snapshot))

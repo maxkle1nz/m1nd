@@ -37,3 +37,6 @@ pub mod universal_docs;
 pub mod http_server;
 #[cfg(feature = "serve")]
 pub mod http_types;
+// Streamable-HTTP MCP transport (POST /mcp) — Wave 4, Slice 1.
+#[cfg(feature = "serve")]
+pub mod mcp_http;
