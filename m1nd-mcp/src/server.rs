@@ -294,6 +294,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "trust_selftest",
     "session_handshake",
     "orient",
+    "am_i_stale",
     "recovery_playbook",
     "health",
     "doctor",
@@ -408,6 +409,27 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "scope": { "type": "string", "description": "Optional scope hint to bound orientation" }
                     },
                     "required": ["agent_id", "task"]
+                }
+            },
+            {
+                "name": "am_i_stale",
+                "description": "Self-awareness check a long-running agent should reach for OFTEN: which files in your working set changed on disk SINCE m1nd ingested them, so you know to re-read before acting. You can't see the filesystem change under you (the user edits, another agent edits, a build runs); this gives you that perception. Pass `files` and/or `nodes` to check specific targets, or pass NEITHER and m1nd checks every file you've touched this session. Returns stale (changed|missing), fresh, and unknown (never-ingested) paths. Read-only safe.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "files": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional explicit file paths to check. If omitted (and no `nodes`), defaults to the files you've visited this session."
+                        },
+                        "nodes": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional node ids to check; each is resolved to its backing file path."
+                        }
+                    },
+                    "required": ["agent_id"]
                 }
             },
             {
@@ -2543,6 +2565,235 @@ fn handle_orient(
     }))
 }
 
+/// Resolve a node id to its absolute on-disk file path for `am_i_stale`.
+///
+/// Two paths, both grounded in already-recorded state — no new traversal logic:
+///   1. The node id is itself a `file::…` inventory key → return its recorded
+///      `file_path` directly.
+///   2. Otherwise look the node up in the graph and use its provenance
+///      `source_path` (the file the node was ingested from).
+///
+/// Returns `None` when the node is unknown / has no file provenance.
+fn resolve_node_file_path(state: &SessionState, node_id: &str) -> Option<String> {
+    // Fast path: the node id is already a file inventory key.
+    if let Some(entry) = state.file_inventory.get(node_id) {
+        return Some(entry.file_path.clone());
+    }
+    // Otherwise resolve via the graph's provenance source_path.
+    let graph = state.graph.read();
+    let interned = graph.strings.lookup(node_id)?;
+    let nid = *graph.id_to_node.get(&interned)?;
+    let prov = graph.resolve_node_provenance(nid);
+    prov.source_path
+}
+
+/// `am_i_stale` — tell a long-running agent which files in its working set have
+/// changed on disk SINCE m1nd ingested them, so it knows to re-read before
+/// acting. The perception an agent structurally lacks.
+///
+/// AGGREGATION handler: it composes existing primitives and reimplements
+/// nothing.
+///   * `state.file_inventory` is the "what m1nd last saw" baseline — each entry
+///     records the absolute `file_path` and the `sha256` captured at ingest.
+///   * `audit_handlers::simple_content_hash` recomputes the current on-disk hash
+///     with the SAME algorithm the ingest path used, so a recomputed hash is
+///     directly comparable to the stored one (shared fn — no second hasher).
+///   * `state.coverage_sessions[agent_id].visited_files` is the DEFAULT working
+///     set when the caller passes neither `files` nor `nodes`: "you don't even
+///     have to tell me what you're holding; I'll check what you've touched".
+///
+/// READ-ONLY SAFE: only reads disk + inventory. Not in `read_only_denied`.
+fn handle_am_i_stale(
+    state: &mut SessionState,
+    params: &serde_json::Value,
+) -> M1ndResult<serde_json::Value> {
+    let agent_id = params
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "am_i_stale".into(),
+            detail: "am_i_stale requires an `agent_id` string".into(),
+        })?
+        .to_string();
+
+    let explicit_files: Vec<String> = params
+        .get("files")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let explicit_nodes: Vec<String> = params
+        .get("nodes")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Decide the working set + its provenance. Each target is (path, node_id?).
+    // `note` is a caller-facing explanation when a target couldn't be turned
+    // into a checkable path (e.g. an unresolvable node id).
+    let mut targets: Vec<(String, Option<String>)> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+    let source: &str;
+
+    if !explicit_files.is_empty() {
+        source = "explicit_files";
+        for path in explicit_files {
+            targets.push((path, None));
+        }
+    } else if !explicit_nodes.is_empty() {
+        source = "explicit_nodes";
+        for node_id in explicit_nodes {
+            match resolve_node_file_path(state, &node_id) {
+                Some(path) => targets.push((path, Some(node_id))),
+                None => notes.push(format!(
+                    "node `{}` could not be resolved to a file path (unknown or not file-backed)",
+                    node_id
+                )),
+            }
+        }
+    } else if let Some(session) = state.coverage_sessions.get(&agent_id) {
+        source = "coverage_session";
+        for path in &session.visited_files {
+            targets.push((path.clone(), None));
+        }
+    } else {
+        source = "empty";
+    }
+
+    // Build a quick lookup from absolute file_path → inventory entry. The
+    // inventory is keyed by external_id, but visited_files / explicit files are
+    // disk paths, so index by file_path (mirrors audit_handlers usage). We also
+    // index by the canonicalized form so a caller passing a non-canonical path
+    // (e.g. /var/… on macOS where the inventory recorded /private/var/…) still
+    // matches the same baseline.
+    let mut inventory_by_path: std::collections::HashMap<String, &crate::session::FileInventoryEntry> =
+        std::collections::HashMap::with_capacity(state.file_inventory.len() * 2);
+    for entry in state.file_inventory.values() {
+        inventory_by_path.insert(entry.file_path.clone(), entry);
+        if let Ok(canon) = std::fs::canonicalize(&entry.file_path) {
+            inventory_by_path.insert(canon.to_string_lossy().to_string(), entry);
+        }
+    }
+
+    let mut stale: Vec<serde_json::Value> = Vec::new();
+    let mut fresh: Vec<String> = Vec::new();
+    let mut unknown: Vec<String> = Vec::new();
+
+    for (path, node_id) in &targets {
+        let entry = inventory_by_path.get(path.as_str()).copied().or_else(|| {
+            std::fs::canonicalize(path)
+                .ok()
+                .and_then(|c| inventory_by_path.get(c.to_string_lossy().as_ref()).copied())
+        });
+        let Some(entry) = entry else {
+            // Never ingested → m1nd has no baseline for this path.
+            unknown.push(path.clone());
+            continue;
+        };
+        let disk_path = std::path::Path::new(path.as_str());
+        if !disk_path.exists() {
+            let mut item = serde_json::json!({ "path": path, "reason": "missing" });
+            if let Some(nid) = node_id {
+                item["node_id"] = serde_json::Value::String(nid.clone());
+            }
+            stale.push(item);
+            continue;
+        }
+        let current_hash = crate::audit_handlers::simple_content_hash(disk_path);
+        match (&entry.sha256, current_hash) {
+            (Some(known), Some(now)) if known != &now => {
+                let mut item = serde_json::json!({ "path": path, "reason": "changed" });
+                if let Some(nid) = node_id {
+                    item["node_id"] = serde_json::Value::String(nid.clone());
+                }
+                stale.push(item);
+            }
+            (Some(_), Some(_)) => {
+                // Hash matches — fresh.
+                fresh.push(path.clone());
+            }
+            _ => {
+                // No recorded hash, or the file couldn't be re-read: we can't
+                // make a confident staleness judgement, so report as unknown
+                // rather than silently calling it fresh.
+                unknown.push(path.clone());
+            }
+        }
+    }
+
+    let checked = stale.len() + fresh.len() + unknown.len();
+
+    let summary = if source == "empty" {
+        notes.push(
+            "no `files`/`nodes` given and agent has no coverage session — nothing to check".into(),
+        );
+        format!(
+            "0 files checked: agent `{}` has no coverage session and you passed no files or nodes.",
+            agent_id
+        )
+    } else if checked == 0 {
+        format!(
+            "0 files checked ({}): nothing in your working set was tracked in m1nd's file inventory.",
+            source
+        )
+    } else if stale.is_empty() {
+        format!(
+            "All {} file(s) checked ({}) are fresh — nothing changed on disk since ingest.",
+            checked, source
+        )
+    } else {
+        let stale_paths: Vec<&str> = stale
+            .iter()
+            .filter_map(|s| s.get("path").and_then(|p| p.as_str()))
+            .collect();
+        let preview: Vec<&str> = stale_paths.iter().take(3).copied().collect();
+        let suffix = if stale_paths.len() > preview.len() {
+            format!("{}, +{} more", preview.join(", "), stale_paths.len() - preview.len())
+        } else {
+            preview.join(", ")
+        };
+        let touched = if source == "coverage_session" {
+            "you've touched"
+        } else {
+            "you're checking"
+        };
+        format!(
+            "{} of {} files {} changed since ingest — re-read {} before editing.",
+            stale.len(),
+            checked,
+            touched,
+            suffix
+        )
+    };
+
+    let mut out = serde_json::json!({
+        "checked": checked,
+        "stale": stale,
+        "fresh": fresh,
+        "unknown": unknown,
+        "source": source,
+        "summary": summary,
+    });
+    if !notes.is_empty() {
+        out["notes"] = serde_json::Value::Array(
+            notes.into_iter().map(serde_json::Value::String).collect(),
+        );
+    }
+    Ok(out)
+}
+
 /// Build the `coverage` block for `orient` from `state.coverage_sessions`.
 ///
 /// Returns `{visited, total, unvisited_high_value:[paths]}` when the agent has a
@@ -2762,6 +3013,7 @@ fn dispatch_core_tool(
 ) -> M1ndResult<serde_json::Value> {
     match tool_name {
         "orient" => handle_orient(state, params),
+        "am_i_stale" => handle_am_i_stale(state, params),
         "activate" => {
             let input: ActivateInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -6102,5 +6354,308 @@ mod tests {
             !out["focus_nodes"].as_array().unwrap().is_empty(),
             "orient must surface focus nodes on the real graph"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // am_i_stale — agent-first on-disk staleness perception
+    // -----------------------------------------------------------------------
+
+    /// Ingest a temp repo with a single file and return (temp, state, abs_path).
+    /// After ingest, `state.file_inventory` holds the recorded sha256 baseline.
+    fn ingest_single_file(contents: &str) -> (tempfile::TempDir, SessionState, std::path::PathBuf) {
+        let (temp, mut state) = build_state();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join("src")).expect("repo src");
+        let file = repo.join("src/target.py");
+        std::fs::write(&file, contents).expect("write target file");
+
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: repo.to_string_lossy().to_string(),
+                agent_id: "stale-agent".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest single file");
+
+        // The ingest pipeline canonicalizes paths (on macOS /var → /private/var),
+        // so resolve the test's path the same way to address the file the tool
+        // will actually see. Mirrors what a caller passing a real on-disk path
+        // gets, and what `am_i_stale`'s own canonicalization-aware match handles.
+        let file = std::fs::canonicalize(&file).unwrap_or(file);
+
+        // Inventory must record the file with a hash baseline.
+        assert!(
+            state
+                .file_inventory
+                .values()
+                .any(|e| e.file_path == file.to_string_lossy() && e.sha256.is_some()),
+            "ingest must record the target file with a sha256 baseline"
+        );
+        (temp, state, file)
+    }
+
+    #[test]
+    fn am_i_stale_detects_changed_file() {
+        let (_temp, mut state, file) =
+            ingest_single_file("def target():\n    return 'original'\n");
+
+        // Rewrite the file on disk with different content (the change m1nd can't see).
+        std::fs::write(&file, "def target():\n    return 'MUTATED'\n").expect("rewrite file");
+
+        let out = super::handle_am_i_stale(
+            &mut state,
+            &serde_json::json!({
+                "agent_id": "stale-agent",
+                "files": [file.to_string_lossy()],
+            }),
+        )
+        .expect("am_i_stale must succeed");
+
+        assert_eq!(out["source"], "explicit_files");
+        assert_eq!(out["checked"], serde_json::json!(1));
+        let stale = out["stale"].as_array().expect("stale array");
+        assert_eq!(stale.len(), 1, "the rewritten file must be flagged stale");
+        assert_eq!(stale[0]["path"], file.to_string_lossy().as_ref());
+        assert_eq!(stale[0]["reason"], "changed");
+        assert!(
+            out["fresh"].as_array().unwrap().is_empty(),
+            "no file should be fresh after the rewrite"
+        );
+    }
+
+    #[test]
+    fn am_i_stale_detects_missing_file() {
+        let (_temp, mut state, file) =
+            ingest_single_file("def target():\n    return 'original'\n");
+
+        // Delete the file on disk after ingest.
+        std::fs::remove_file(&file).expect("delete file");
+
+        let out = super::handle_am_i_stale(
+            &mut state,
+            &serde_json::json!({
+                "agent_id": "stale-agent",
+                "files": [file.to_string_lossy()],
+            }),
+        )
+        .expect("am_i_stale must succeed");
+
+        let stale = out["stale"].as_array().expect("stale array");
+        assert_eq!(stale.len(), 1, "the deleted file must be flagged stale");
+        assert_eq!(stale[0]["reason"], "missing");
+    }
+
+    #[test]
+    fn am_i_stale_reports_fresh() {
+        let (_temp, mut state, file) =
+            ingest_single_file("def target():\n    return 'untouched'\n");
+
+        // Do NOT touch the file — it must come back fresh.
+        let out = super::handle_am_i_stale(
+            &mut state,
+            &serde_json::json!({
+                "agent_id": "stale-agent",
+                "files": [file.to_string_lossy()],
+            }),
+        )
+        .expect("am_i_stale must succeed");
+
+        assert_eq!(out["checked"], serde_json::json!(1));
+        assert!(
+            out["stale"].as_array().unwrap().is_empty(),
+            "an untouched file must not be stale"
+        );
+        let fresh = out["fresh"].as_array().expect("fresh array");
+        assert_eq!(fresh.len(), 1, "the untouched file must be fresh");
+        assert_eq!(fresh[0], file.to_string_lossy().as_ref());
+    }
+
+    #[test]
+    fn am_i_stale_defaults_to_coverage_session() {
+        let (_temp, mut state, file) =
+            ingest_single_file("def target():\n    return 'original'\n");
+
+        // Record a coverage session for the agent that has visited the file,
+        // then mutate the file so the default working set should flag it.
+        state.note_coverage(
+            "stale-agent",
+            "view",
+            [file.to_string_lossy().to_string()],
+            std::iter::empty::<String>(),
+        );
+        std::fs::write(&file, "def target():\n    return 'changed-under-agent'\n")
+            .expect("rewrite file");
+
+        // No `files`/`nodes` → must default to the coverage session's visited files.
+        let out = super::handle_am_i_stale(
+            &mut state,
+            &serde_json::json!({ "agent_id": "stale-agent" }),
+        )
+        .expect("am_i_stale must succeed");
+
+        assert_eq!(
+            out["source"], "coverage_session",
+            "with no explicit targets it must default to the coverage session"
+        );
+        assert_eq!(out["checked"], serde_json::json!(1));
+        let stale = out["stale"].as_array().expect("stale array");
+        assert_eq!(stale.len(), 1, "the touched-then-changed file must be stale");
+        assert_eq!(stale[0]["reason"], "changed");
+    }
+
+    #[test]
+    fn am_i_stale_empty_when_no_targets_and_no_session() {
+        let (_temp, mut state, _file) =
+            ingest_single_file("def target():\n    return 'x'\n");
+
+        // A different agent with no coverage session and no explicit targets.
+        let out = super::handle_am_i_stale(
+            &mut state,
+            &serde_json::json!({ "agent_id": "ghost-agent" }),
+        )
+        .expect("am_i_stale must succeed");
+
+        assert_eq!(out["source"], "empty");
+        assert_eq!(out["checked"], serde_json::json!(0));
+        assert!(out["notes"].is_array(), "empty result must carry a note");
+    }
+
+    #[test]
+    fn am_i_stale_is_not_read_only_denied() {
+        use super::read_only_denied;
+        assert!(
+            !read_only_denied("am_i_stale", &serde_json::json!({})),
+            "am_i_stale only reads disk + inventory — it must be allowed in read-only attach"
+        );
+        // The prefix-normalized forms must also be allowed.
+        assert!(!read_only_denied("m1nd_am_i_stale", &serde_json::json!({})));
+        assert!(!read_only_denied("m1nd.am_i_stale", &serde_json::json!({})));
+    }
+
+    /// REAL PROBE: ingest a SMALL real directory (`m1nd-core/src`), record the
+    /// inventory, mutate ONE real file's content on disk, call `am_i_stale`, and
+    /// print the stale/fresh classification so we can SEE it catch the real
+    /// change. Restores the file afterward so the working tree stays clean.
+    ///
+    /// Run with: `cargo test -p m1nd-mcp am_i_stale_real_probe -- --nocapture`
+    #[test]
+    fn am_i_stale_real_probe() {
+        // Locate m1nd-core/src relative to the crate dir (repo-root/m1nd-core/src).
+        let real_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.join("m1nd-core").join("src"))
+            .filter(|p| p.is_dir());
+        let Some(real_dir) = real_dir else {
+            eprintln!("[am_i_stale_real_probe] m1nd-core/src not found — skipping");
+            return;
+        };
+
+        let (_temp, mut state) = build_state();
+        crate::tools::handle_ingest(
+            &mut state,
+            crate::protocol::IngestInput {
+                path: real_dir.to_string_lossy().to_string(),
+                agent_id: "real-probe".into(),
+                mode: "replace".into(),
+                incremental: false,
+                adapter: "code".into(),
+                namespace: None,
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("ingest real m1nd-core/src");
+
+        let inv_count = state.file_inventory.len();
+        eprintln!(
+            "\n=== am_i_stale REAL PROBE: ingested {} files from {} ===",
+            inv_count,
+            real_dir.display()
+        );
+        assert!(inv_count >= 3, "expected several real files in m1nd-core/src");
+
+        // Pick three real ingested files: one to mutate, two left untouched.
+        let mut paths: Vec<String> = state
+            .file_inventory
+            .values()
+            .map(|e| e.file_path.clone())
+            .collect();
+        paths.sort();
+        let victim = paths[0].clone();
+        let untouched_a = paths.get(1).cloned().expect("a second real file");
+        let untouched_b = paths.get(2).cloned().expect("a third real file");
+
+        // Snapshot the victim's real bytes, mutate, and ALWAYS restore.
+        let original_bytes = std::fs::read(&victim).expect("read victim file");
+        let mut mutated = original_bytes.clone();
+        mutated.extend_from_slice(b"\n// am_i_stale real probe touch\n");
+        std::fs::write(&victim, &mutated).expect("mutate victim file");
+
+        // Run the probe inside a closure so we can restore on any path.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let out = super::handle_am_i_stale(
+                &mut state,
+                &serde_json::json!({
+                    "agent_id": "real-probe",
+                    "files": [victim.clone(), untouched_a.clone(), untouched_b.clone()],
+                }),
+            )
+            .expect("am_i_stale on real files");
+
+            eprintln!("source : {}", out["source"]);
+            eprintln!("checked: {}", out["checked"]);
+            eprintln!("summary: {}", out["summary"].as_str().unwrap_or(""));
+            eprintln!("STALE:");
+            for s in out["stale"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+                eprintln!(
+                    "  - {} [{}]",
+                    s["path"].as_str().unwrap_or(""),
+                    s["reason"].as_str().unwrap_or("")
+                );
+            }
+            eprintln!("FRESH:");
+            for f in out["fresh"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+                eprintln!("  - {}", f.as_str().unwrap_or(""));
+            }
+            eprintln!("=== end real probe ===\n");
+
+            // The mutated file MUST be flagged changed; the others MUST be fresh.
+            let stale_paths: Vec<String> = out["stale"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|s| s.get("path").and_then(|p| p.as_str()).map(String::from))
+                .collect();
+            assert!(
+                stale_paths.contains(&victim),
+                "the mutated real file must be flagged stale"
+            );
+            let fresh_paths: Vec<String> = out["fresh"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|f| f.as_str().map(String::from))
+                .collect();
+            assert!(
+                fresh_paths.contains(&untouched_a) && fresh_paths.contains(&untouched_b),
+                "the untouched real files must be fresh, not flagged"
+            );
+        }));
+
+        // ALWAYS restore the real file so the working tree is clean.
+        std::fs::write(&victim, &original_bytes).expect("restore victim file");
+        let restored = std::fs::read(&victim).expect("re-read restored file");
+        assert_eq!(restored, original_bytes, "victim file must be restored byte-for-byte");
+
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
     }
 }
