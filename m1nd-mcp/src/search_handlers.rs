@@ -516,6 +516,9 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                // Search does its own budget packing on the converted rows below;
+                // the delegated seek runs unbudgeted.
+                token_budget: None,
             };
             let seek_result = crate::layer_handlers::handle_seek(state, seek_input)?;
             let seek_candidates = seek_result.total_candidates_scanned;
@@ -552,6 +555,25 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             let (results, truncated, inline_summary) =
                 truncate_search_results(results, input.max_output_chars);
+            // Context-budget packing for semantic-mode rows (count_only is never
+            // set on this path). Only engages when `token_budget` is provided.
+            let (results, budget) = if let Some(budget_tokens) = input.token_budget {
+                let (kept, dropped) = crate::result_shaping::pack_to_budget(
+                    results,
+                    budget_tokens,
+                    search_entry_token_estimate,
+                );
+                let used: usize = kept.iter().map(search_entry_token_estimate).sum();
+                let block = crate::result_shaping::budget_block(
+                    budget_tokens,
+                    used,
+                    kept.len(),
+                    dropped,
+                );
+                (kept, Some(block))
+            } else {
+                (results, None)
+            };
             state.note_coverage(
                 &input.agent_id,
                 "search",
@@ -617,6 +639,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 graph_state,
                 recovery,
                 agent_runtime_contract,
+                budget,
             });
         }
     }
@@ -644,6 +667,24 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
     drop(graph);
     let (final_results, truncated, inline_summary) =
         truncate_search_results(final_results, input.max_output_chars);
+    // Context-budget packing: keep the ranked prefix that fits the agent's
+    // declared token budget. Skips count_only (no rows to pack). Only engages
+    // when `token_budget` is provided — otherwise output is unchanged.
+    let (final_results, budget) = if let (Some(budget_tokens), false) =
+        (input.token_budget, input.count_only)
+    {
+        let (kept, dropped) = crate::result_shaping::pack_to_budget(
+            final_results,
+            budget_tokens,
+            search_entry_token_estimate,
+        );
+        let used: usize = kept.iter().map(search_entry_token_estimate).sum();
+        let block =
+            crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
+        (kept, Some(block))
+    } else {
+        (final_results, None)
+    };
     state.note_coverage(
         &input.agent_id,
         "search",
@@ -721,7 +762,22 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
         graph_state,
         recovery,
         agent_runtime_contract,
+        budget,
     })
+}
+
+/// Per-row token ESTIMATE for a search result, summed over its load-bearing
+/// text fields (label, path, matched line, surrounding context). Uses the
+/// chars/4 heuristic — an approximation, not exact tokenization.
+fn search_entry_token_estimate(entry: &crate::protocol::layers::SearchResultEntry) -> usize {
+    let mut chars = entry.label.len()
+        + entry.node_type.len()
+        + entry.file_path.len()
+        + entry.matched_line.len();
+    for line in entry.context_before.iter().chain(entry.context_after.iter()) {
+        chars += line.len();
+    }
+    crate::result_shaping::estimate_tokens_from_chars(chars)
 }
 
 fn maybe_auto_ingest_search_scope(
@@ -1806,6 +1862,7 @@ mod tests {
                 auto_ingest: false,
                 filename_pattern: Some("*.rs".into()),
                 max_output_chars: None,
+                token_budget: None,
             };
 
             let output = handle_search(state, input).expect("search output");
@@ -1901,6 +1958,7 @@ mod tests {
             auto_ingest: false,
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
+            token_budget: None,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -1942,6 +2000,7 @@ mod tests {
                 auto_ingest: false,
                 filename_pattern: Some("*.js".into()),
                 max_output_chars: None,
+                token_budget: None,
             },
         )
         .expect("search output");
@@ -2003,6 +2062,7 @@ mod tests {
                 auto_ingest: false,
                 filename_pattern: None,
                 max_output_chars: None,
+                token_budget: None,
             },
         )
         .expect("search output");
@@ -2039,6 +2099,7 @@ mod tests {
                 auto_ingest: false,
                 filename_pattern: None,
                 max_output_chars: None,
+                token_budget: None,
             },
         )
         .expect("search output");
@@ -2137,6 +2198,7 @@ mod tests {
             auto_ingest: true,
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
+            token_budget: None,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -2183,6 +2245,7 @@ mod tests {
             auto_ingest: true,
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
+            token_budget: None,
         };
 
         let output = handle_search(&mut state, input).expect("search output");
@@ -2237,6 +2300,7 @@ mod tests {
             auto_ingest: true,
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
+            token_budget: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err();
@@ -2269,6 +2333,7 @@ mod tests {
             auto_ingest: false,
             filename_pattern: Some("*.rs".into()),
             max_output_chars: None,
+            token_budget: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();
@@ -2298,6 +2363,7 @@ mod tests {
             auto_ingest: false,
             filename_pattern: Some("[".into()),
             max_output_chars: None,
+            token_budget: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();
@@ -2327,6 +2393,7 @@ mod tests {
             auto_ingest: false,
             filename_pattern: None,
             max_output_chars: None,
+            token_budget: None,
         };
 
         let err = handle_search(&mut state, input).unwrap_err().to_string();

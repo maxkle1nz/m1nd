@@ -42,6 +42,89 @@ pub fn dedupe_ranked<T: RankedResult>(mut items: Vec<T>, top_k: usize) -> Vec<T>
     out
 }
 
+/// Greedily pack a *pre-ranked* list into a token budget, keeping the
+/// highest-signal items first.
+///
+/// `ranked` MUST already be sorted best-first (e.g. the output of
+/// [`dedupe_ranked`] and any `top_k` truncation) — this function does NOT
+/// re-rank. It walks the list in order, accumulating each item's estimated
+/// token cost (via `est`), and stops as soon as the *next* item would push the
+/// running total past `budget_tokens`. At least one item is always kept so a
+/// tiny budget still returns the single top hit (even if that one item alone
+/// exceeds the budget — the "single-item overflow" case).
+///
+/// Returns `(kept, dropped_count)` where `dropped_count == original_len -
+/// kept.len()`.
+pub fn pack_to_budget<T>(
+    ranked: Vec<T>,
+    budget_tokens: usize,
+    est: impl Fn(&T) -> usize,
+) -> (Vec<T>, usize) {
+    let original_len = ranked.len();
+    let mut kept: Vec<T> = Vec::with_capacity(original_len);
+    let mut used = 0usize;
+
+    for item in ranked {
+        let cost = est(&item);
+        // Always keep the first (top-ranked) item, even if it alone overflows.
+        if kept.is_empty() {
+            kept.push(item);
+            used = used.saturating_add(cost);
+            continue;
+        }
+        if used.saturating_add(cost) > budget_tokens {
+            break;
+        }
+        used = used.saturating_add(cost);
+        kept.push(item);
+    }
+
+    let dropped = original_len - kept.len();
+    (kept, dropped)
+}
+
+/// Rough, deterministic token-count ESTIMATE for a string of serialized result
+/// text. This is the widely-used `chars / 4` heuristic — it is NOT real
+/// tokenization (no BPE/tiktoken), so the true token count for any given model
+/// may differ by a meaningful margin. It exists only to let the budget packer
+/// rank/threshold consistently. We round up so a non-empty string never
+/// estimates as zero tokens.
+pub fn estimate_tokens_from_chars(chars: usize) -> usize {
+    if chars == 0 {
+        0
+    } else {
+        chars.div_ceil(4)
+    }
+}
+
+/// Build the honest `budget` accounting block attached to budgeted retrieval
+/// results. `requested` is the agent's declared token budget, `used` is the
+/// summed per-item ESTIMATE of the kept items, `kept`/`dropped` are the
+/// post-packing counts. The note is phrased for an agent reader.
+pub fn budget_block(
+    requested: usize,
+    used: usize,
+    kept: usize,
+    dropped: usize,
+) -> serde_json::Value {
+    let note = if dropped == 0 {
+        format!(
+            "kept all {kept} hits; estimated ~{used} tokens, within the ~{requested} token budget"
+        )
+    } else {
+        format!(
+            "kept the {kept} highest-signal hits; dropped {dropped} lower-ranked to fit ~{requested} tokens"
+        )
+    };
+    serde_json::json!({
+        "requested_tokens": requested,
+        "estimated_used_tokens": used,
+        "kept": kept,
+        "dropped": dropped,
+        "note": note,
+    })
+}
+
 fn normalize_label(label: &str) -> String {
     label.trim().to_lowercase()
 }
@@ -301,5 +384,83 @@ mod tests {
 
         let shaped = dedupe_ranked(items, 10);
         assert_eq!(shaped[0].label, "impl Extractor for RustExtractor");
+    }
+
+    // --- pack_to_budget / estimate_tokens_from_chars ----------------------
+
+    /// Each test item costs a flat 10 tokens, so budgets map cleanly to counts.
+    fn flat_cost(_item: &usize) -> usize {
+        10
+    }
+
+    #[test]
+    fn pack_to_budget_tiny_budget_keeps_at_least_one() {
+        let ranked = vec![1usize, 2, 3, 4, 5];
+        // Budget smaller than a single item's cost -> still keep the top hit.
+        let (kept, dropped) = pack_to_budget(ranked, 3, flat_cost);
+        assert_eq!(kept, vec![1]);
+        assert_eq!(dropped, 4);
+        assert_eq!(kept.len() + dropped, 5);
+    }
+
+    #[test]
+    fn pack_to_budget_zero_budget_still_keeps_one() {
+        let ranked = vec![1usize, 2, 3];
+        let (kept, dropped) = pack_to_budget(ranked, 0, flat_cost);
+        assert_eq!(kept, vec![1]);
+        assert_eq!(dropped, 2);
+    }
+
+    #[test]
+    fn pack_to_budget_generous_budget_keeps_all() {
+        let ranked = vec![1usize, 2, 3, 4, 5];
+        let (kept, dropped) = pack_to_budget(ranked, 10_000, flat_cost);
+        assert_eq!(kept, vec![1, 2, 3, 4, 5]);
+        assert_eq!(dropped, 0);
+    }
+
+    #[test]
+    fn pack_to_budget_mid_budget_keeps_ranked_prefix() {
+        let ranked = vec![1usize, 2, 3, 4, 5];
+        // 35 fits exactly 3 items (30); the 4th (40) would overflow.
+        let (kept, dropped) = pack_to_budget(ranked, 35, flat_cost);
+        assert_eq!(kept, vec![1, 2, 3], "keeps the top-ranked prefix in order");
+        assert_eq!(dropped, 2);
+        assert_eq!(kept.len() + dropped, 5);
+    }
+
+    #[test]
+    fn pack_to_budget_exact_budget_boundary_inclusive() {
+        let ranked = vec![1usize, 2, 3, 4];
+        // 20 == exactly two items; boundary is inclusive (<= budget).
+        let (kept, dropped) = pack_to_budget(ranked, 20, flat_cost);
+        assert_eq!(kept, vec![1, 2]);
+        assert_eq!(dropped, 2);
+    }
+
+    #[test]
+    fn pack_to_budget_empty_input() {
+        let ranked: Vec<usize> = vec![];
+        let (kept, dropped) = pack_to_budget(ranked, 100, flat_cost);
+        assert!(kept.is_empty());
+        assert_eq!(dropped, 0);
+    }
+
+    #[test]
+    fn estimate_tokens_monotonic_and_chars_over_four() {
+        assert_eq!(estimate_tokens_from_chars(0), 0);
+        // chars/4 rounded up: 1..=4 -> 1 token.
+        assert_eq!(estimate_tokens_from_chars(1), 1);
+        assert_eq!(estimate_tokens_from_chars(4), 1);
+        assert_eq!(estimate_tokens_from_chars(5), 2);
+        assert_eq!(estimate_tokens_from_chars(8), 2);
+        assert_eq!(estimate_tokens_from_chars(400), 100);
+        // Monotonic non-decreasing as char count grows.
+        let mut prev = 0;
+        for chars in [0usize, 1, 4, 5, 9, 16, 40, 41, 100, 1000] {
+            let est = estimate_tokens_from_chars(chars);
+            assert!(est >= prev, "estimate must be monotonic in char count");
+            prev = est;
+        }
     }
 }

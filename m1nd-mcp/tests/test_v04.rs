@@ -72,6 +72,7 @@ fn build_search_output(query: &str, mode: &str, count: usize) -> SearchOutput {
         graph_state: None,
         recovery: None,
         agent_runtime_contract: None,
+        budget: None,
     }
 }
 
