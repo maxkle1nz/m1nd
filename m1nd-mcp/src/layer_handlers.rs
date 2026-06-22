@@ -122,6 +122,7 @@ pub fn handle_seek(
             graph_state,
             recovery,
             agent_runtime_contract,
+            budget: None,
         });
     }
 
@@ -454,6 +455,27 @@ pub fn handle_seek(
         .collect();
     let results = dedupe_ranked(results, input.top_k);
 
+    // Context-budget packing: keep highest-signal hits (already rank-ordered by
+    // dedupe_ranked) that fit the agent's declared token budget. Only engages
+    // when `token_budget` is provided — otherwise output is byte-for-byte the
+    // same as before.
+    let (results, budget) = if let Some(budget_tokens) = input.token_budget {
+        let baseline = results.len();
+        let (kept, dropped) =
+            crate::result_shaping::pack_to_budget(results, budget_tokens, seek_entry_token_estimate);
+        let used: usize = kept.iter().map(seek_entry_token_estimate).sum();
+        let block = crate::result_shaping::budget_block(
+            budget_tokens,
+            used,
+            kept.len(),
+            dropped,
+        );
+        debug_assert_eq!(kept.len() + dropped, baseline);
+        (kept, Some(block))
+    } else {
+        (results, None)
+    };
+
     drop(graph);
 
     state.queries_processed += 1;
@@ -518,7 +540,27 @@ pub fn handle_seek(
         graph_state,
         recovery,
         agent_runtime_contract,
+        budget,
     })
+}
+
+/// Per-result token ESTIMATE for a seek hit, summed over its load-bearing text
+/// fields (label, path, intent summary, excerpt). Uses the chars/4 heuristic —
+/// see `result_shaping::estimate_tokens_from_chars`; this is an approximation,
+/// not exact tokenization.
+fn seek_entry_token_estimate(entry: &layers::SeekResultEntry) -> usize {
+    let mut chars = entry.label.len() + entry.node_type.len() + entry.intent_summary.len();
+    chars += entry.node_id.len();
+    if let Some(path) = entry.file_path.as_deref() {
+        chars += path.len();
+    }
+    if let Some(excerpt) = entry.excerpt.as_deref() {
+        chars += excerpt.len();
+    }
+    for conn in &entry.connections {
+        chars += conn.label.len() + conn.relation.len();
+    }
+    crate::result_shaping::estimate_tokens_from_chars(chars)
 }
 
 fn l2_seek_next_step(
@@ -9530,9 +9572,113 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                token_budget: None,
             },
         )
         .expect("seek should succeed")
+    }
+
+    /// Build a state whose graph has many seek-matching file nodes, so that
+    /// `seek` returns a sizeable result set we can pack against a token budget.
+    fn build_state_many_search_nodes(root: &std::path::Path, count: usize) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        for i in 0..count {
+            // Every label contains "search" so the seek query matches them all.
+            graph
+                .add_node(
+                    &format!("file::src/search_module_{i}.rs"),
+                    &format!("search_module_{i}"),
+                    NodeType::File,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .expect("add search node");
+        }
+        graph.finalize().expect("finalize graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    fn run_seek_budgeted(
+        state: &mut SessionState,
+        token_budget: Option<usize>,
+    ) -> crate::protocol::layers::SeekOutput {
+        handle_seek(
+            state,
+            SeekInput {
+                query: "search".into(),
+                agent_id: "test".into(),
+                top_k: 50,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                token_budget,
+            },
+        )
+        .expect("seek should succeed")
+    }
+
+    /// Handler test: a small `token_budget` returns fewer results than the
+    /// unbudgeted baseline, keeps the top-ranked hit, and emits a consistent
+    /// `budget` block (kept + dropped == baseline; estimated_used <= requested
+    /// unless the single top item alone overflows).
+    #[test]
+    fn seek_token_budget_packs_and_reports_honestly() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_state_many_search_nodes(temp.path(), 40);
+
+        let baseline = run_seek_budgeted(&mut state, None);
+        assert!(baseline.budget.is_none(), "no budget block when unbudgeted");
+        let baseline_count = baseline.results.len();
+        assert!(
+            baseline_count > 3,
+            "expected a sizeable baseline, got {baseline_count}"
+        );
+        let top_label = baseline.results[0].label.clone();
+
+        let budget_tokens = 30usize;
+        let budgeted = run_seek_budgeted(&mut state, Some(budget_tokens));
+        let budget = budgeted.budget.clone().expect("budget block present");
+
+        // Fewer results, top-ranked hit preserved.
+        assert!(
+            budgeted.results.len() < baseline_count,
+            "budgeted ({}) must be < baseline ({})",
+            budgeted.results.len(),
+            baseline_count
+        );
+        assert!(!budgeted.results.is_empty(), "must keep at least one hit");
+        assert_eq!(budgeted.results[0].label, top_label, "keep the top hit");
+
+        // Budget block accounting is internally consistent.
+        let kept = budget["kept"].as_u64().unwrap() as usize;
+        let dropped = budget["dropped"].as_u64().unwrap() as usize;
+        let used = budget["estimated_used_tokens"].as_u64().unwrap() as usize;
+        assert_eq!(kept, budgeted.results.len());
+        assert_eq!(
+            kept + dropped,
+            baseline_count,
+            "kept + dropped must equal the unbudgeted count"
+        );
+        assert_eq!(budget["requested_tokens"].as_u64().unwrap() as usize, budget_tokens);
+        // Estimate stays within budget unless the single top item alone exceeds it.
+        assert!(
+            used <= budget_tokens || kept == 1,
+            "used {used} should be <= {budget_tokens} unless single-item overflow"
+        );
     }
 
     fn run_validate_plan(
@@ -10220,6 +10366,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                token_budget: None,
             },
         )
         .expect("seek should return a structured blocked response");
@@ -10305,6 +10452,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                token_budget: None,
             },
         )
         .expect("seek should succeed");
@@ -10337,6 +10485,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                token_budget: None,
             },
         )
         .expect("seek should succeed");

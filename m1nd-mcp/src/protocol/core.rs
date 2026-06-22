@@ -52,6 +52,13 @@ pub struct ActivateInput {
     pub include_ghost_edges: bool,
     #[serde(default)]
     pub include_structural_holes: bool,
+    /// Optional approximate context-token budget. When set, the `activated`
+    /// node list is kept in graph-importance rank order until the running token
+    /// ESTIMATE (chars/4) would exceed this budget; lower-ranked nodes are
+    /// dropped and a `budget` block reports what was kept vs dropped. None =
+    /// unbudgeted (return the full top_k set, behavior unchanged).
+    #[serde(default)]
+    pub token_budget: Option<usize>,
 }
 
 /// Input for impact (03-MCP Section 2.2).
@@ -361,6 +368,10 @@ pub struct ActivateOutput {
     pub recovery: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_runtime_contract: Option<serde_json::Value>,
+    /// Present only when `token_budget` was requested: an honest accounting of
+    /// the context-budget packing (requested/used estimate, kept, dropped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]

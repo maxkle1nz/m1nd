@@ -449,7 +449,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         },
                         "xlr": { "type": "boolean", "default": true, "description": "Enable XLR noise cancellation" },
                         "include_ghost_edges": { "type": "boolean", "default": true, "description": "Include ghost edge detection" },
-                        "include_structural_holes": { "type": "boolean", "default": false, "description": "Include structural hole detection" }
+                        "include_structural_holes": { "type": "boolean", "default": false, "description": "Include structural hole detection" },
+                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest-activation nodes that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization)" }
                     },
                     "required": ["query", "agent_id"]
                 }
@@ -1007,7 +1008,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "scope": { "type": "string", "description": "File path prefix to limit search scope" },
                         "node_types": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Filter by node type: function, class, struct, module, file" },
                         "min_score": { "type": "number", "default": 0.1, "description": "Minimum combined score threshold" },
-                        "graph_rerank": { "type": "boolean", "default": true, "description": "Whether to run graph re-ranking on embedding candidates" }
+                        "graph_rerank": { "type": "boolean", "default": true, "description": "Whether to run graph re-ranking on embedding candidates" },
+                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest graph-importance hits that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization)" }
                     },
                     "required": ["query", "agent_id"]
                 }
@@ -1654,7 +1656,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "multiline": { "type": "boolean", "default": false, "description": "Enable multiline regex: dot matches newline (rg -U). Only for regex mode." },
                         "auto_ingest": { "type": "boolean", "default": false, "description": "Auto-ingest exactly one resolved scope path outside current ingest roots before searching; ambiguous scopes return an error that lists candidate paths in detail" },
                         "filename_pattern": { "type": "string", "description": "Glob pattern to filter filenames (e.g. '*.rs', 'test_*.py')" },
-                        "max_output_chars": { "type": "integer", "description": "Optional cap for total returned characters across serialized matches" }
+                        "max_output_chars": { "type": "integer", "description": "Optional cap for total returned characters across serialized matches" },
+                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest-ranked rows that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization; ignored when count_only)" }
                     },
                     "required": ["agent_id", "query"]
                 }
@@ -2472,6 +2475,7 @@ fn handle_orient(
         xlr: true,
         include_ghost_edges: false,
         include_structural_holes: false,
+        token_budget: None,
     };
     let activate_out = tools::handle_activate(state, activate_input)?;
 
@@ -5772,6 +5776,7 @@ mod tests {
                 multiline: false,
                 auto_ingest: false,
                 max_output_chars: None,
+                token_budget: None,
             },
         )
         .expect("search after background tick");
@@ -6354,6 +6359,133 @@ mod tests {
             !out["focus_nodes"].as_array().unwrap().is_empty(),
             "orient must surface focus nodes on the real graph"
         );
+    }
+
+    /// REAL PROBE: load the repo's actual graph_snapshot.json (~5540 nodes) and
+    /// run `seek` for a broad query twice — once unbudgeted, once with a tight
+    /// `token_budget` — printing both result counts, the `budget` block, and the
+    /// kept labels so the context-budget packing can be SEEN keeping the
+    /// top-signal hits and dropping the rest on real data.
+    ///
+    /// Run with: `cargo test -p m1nd-mcp seek_token_budget_real_snapshot_probe -- --nocapture`
+    /// Skips gracefully (printing a note) if the snapshot is not present.
+    #[test]
+    fn seek_token_budget_real_snapshot_probe() {
+        let snapshot = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.join("graph_snapshot.json"))
+            .filter(|p| p.exists());
+        let Some(snapshot_path) = snapshot else {
+            eprintln!(
+                "[seek_token_budget_real_snapshot_probe] graph_snapshot.json not found — skipping"
+            );
+            return;
+        };
+
+        let graph = m1nd_core::snapshot::load_graph(&snapshot_path)
+            .expect("load real graph_snapshot.json");
+        let node_count = graph.nodes.count;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            read_only: true,
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("init session from real snapshot");
+
+        let query = "read only";
+        let top_k = 40;
+
+        // Baseline: no token_budget.
+        let base = super::dispatch_tool(
+            &mut state,
+            "seek",
+            &serde_json::json!({
+                "agent_id": "probe",
+                "query": query,
+                "top_k": top_k,
+            }),
+        )
+        .expect("baseline seek on real snapshot");
+        let base_results = base["results"].as_array().cloned().unwrap_or_default();
+
+        // Budgeted: tight ~300-token budget.
+        let budget_tokens = 300u64;
+        let budgeted = super::dispatch_tool(
+            &mut state,
+            "seek",
+            &serde_json::json!({
+                "agent_id": "probe",
+                "query": query,
+                "top_k": top_k,
+                "token_budget": budget_tokens,
+            }),
+        )
+        .expect("budgeted seek on real snapshot");
+        let budgeted_results = budgeted["results"].as_array().cloned().unwrap_or_default();
+
+        eprintln!(
+            "\n=== seek(query=\"{}\") on REAL graph ({} nodes) ===",
+            query, node_count
+        );
+        eprintln!("BASELINE (no token_budget): {} results", base_results.len());
+        eprintln!(
+            "  top labels: {:?}",
+            base_results
+                .iter()
+                .take(8)
+                .map(|r| r["label"].as_str().unwrap_or("?"))
+                .collect::<Vec<_>>()
+        );
+        eprintln!(
+            "BUDGETED (token_budget={}): {} results",
+            budget_tokens,
+            budgeted_results.len()
+        );
+        eprintln!("  budget block: {}", budgeted["budget"]);
+        eprintln!("  kept labels (score / path):");
+        for (i, r) in budgeted_results.iter().enumerate() {
+            eprintln!(
+                "    {:>2}. {:<48} score={:.4} path={}",
+                i + 1,
+                r["label"].as_str().unwrap_or("?"),
+                r["score"].as_f64().unwrap_or(0.0),
+                r["file_path"].as_str().unwrap_or("·"),
+            );
+        }
+        eprintln!("=== end probe ===\n");
+
+        // Baseline absent of a budget block; budgeted carries one.
+        assert!(base.get("budget").is_none() || base["budget"].is_null());
+        assert!(budgeted["budget"].is_object());
+
+        // Packing must keep fewer than the (larger) baseline and keep the
+        // top-ranked prefix.
+        assert!(
+            budgeted_results.len() <= base_results.len(),
+            "budgeted seek must not return more than baseline"
+        );
+        if !base_results.is_empty() {
+            assert!(!budgeted_results.is_empty(), "must keep at least one hit");
+            assert_eq!(
+                budgeted_results[0]["label"], base_results[0]["label"],
+                "budgeted set must keep the same top-ranked hit"
+            );
+        }
+
+        // budget accounting must be internally consistent.
+        let b = &budgeted["budget"];
+        let kept = b["kept"].as_u64().unwrap();
+        let dropped = b["dropped"].as_u64().unwrap();
+        assert_eq!(kept as usize, budgeted_results.len());
+        assert_eq!(kept + dropped, base_results.len() as u64);
+        assert_eq!(b["requested_tokens"].as_u64().unwrap(), budget_tokens);
     }
 
     // -----------------------------------------------------------------------

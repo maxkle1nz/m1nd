@@ -785,6 +785,7 @@ pub fn handle_activate(
             graph_state,
             recovery,
             agent_runtime_contract,
+            budget: None,
         });
     }
 
@@ -922,6 +923,24 @@ pub fn handle_activate(
         })
         .collect();
     let activated = dedupe_ranked(activated, input.top_k);
+
+    // Context-budget packing: keep the highest-activation nodes (already
+    // rank-ordered by dedupe_ranked) that fit the agent's declared token
+    // budget. Only engages when `token_budget` is provided — otherwise the
+    // output is byte-for-byte unchanged.
+    let (activated, budget) = if let Some(budget_tokens) = input.token_budget {
+        let (kept, dropped) = crate::result_shaping::pack_to_budget(
+            activated,
+            budget_tokens,
+            activated_node_token_estimate,
+        );
+        let used: usize = kept.iter().map(activated_node_token_estimate).sum();
+        let block =
+            crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
+        (kept, Some(block))
+    } else {
+        (activated, None)
+    };
 
     // Map ghost edges
     let ghost_edges: Vec<GhostEdgeOutput> = result
@@ -1106,7 +1125,27 @@ pub fn handle_activate(
         graph_state,
         recovery,
         agent_runtime_contract,
+        budget,
     })
+}
+
+/// Per-node token ESTIMATE for an activated node, summed over its load-bearing
+/// text fields (label, type, node_id, tags, provenance path/excerpt). Uses the
+/// chars/4 heuristic — an approximation, not exact tokenization.
+fn activated_node_token_estimate(node: &ActivatedNodeOutput) -> usize {
+    let mut chars = node.label.len() + node.node_type.len() + node.node_id.len();
+    for tag in &node.tags {
+        chars += tag.len();
+    }
+    if let Some(prov) = node.provenance.as_ref() {
+        if let Some(path) = prov.source_path.as_deref() {
+            chars += path.len();
+        }
+        if let Some(excerpt) = prov.excerpt.as_deref() {
+            chars += excerpt.len();
+        }
+    }
+    crate::result_shaping::estimate_tokens_from_chars(chars)
 }
 
 /// Handle impact (03-MCP Section 2.2).
@@ -4453,6 +4492,7 @@ mod tests {
                 xlr: false,
                 include_ghost_edges: false,
                 include_structural_holes: false,
+                token_budget: None,
             },
         )
         .expect("activate should succeed");

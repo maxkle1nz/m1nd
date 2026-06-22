@@ -74,6 +74,13 @@ pub struct SeekInput {
     /// Whether to run graph re-ranking on embedding candidates. Default: true.
     #[serde(default = "default_true")]
     pub graph_rerank: bool,
+    /// Optional approximate context-token budget. When set, results are kept
+    /// in graph-importance rank order until the running token ESTIMATE
+    /// (chars/4) would exceed this budget; lower-ranked hits are dropped and a
+    /// `budget` block reports what was kept vs dropped. None = unbudgeted
+    /// (return the full top_k set, behavior unchanged).
+    #[serde(default)]
+    pub token_budget: Option<usize>,
 }
 
 /// Output for seek.
@@ -100,6 +107,10 @@ pub struct SeekOutput {
     pub recovery: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_runtime_contract: Option<serde_json::Value>,
+    /// Present only when `token_budget` was requested: an honest accounting of
+    /// the context-budget packing (requested/used estimate, kept, dropped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget: Option<serde_json::Value>,
 }
 
 /// Shared heuristic metadata exposed by tools that apply trust/tremor priors.
@@ -1875,6 +1886,12 @@ pub struct SearchInput {
     /// Optional cap for total returned characters across serialized matches.
     #[serde(default)]
     pub max_output_chars: Option<usize>,
+    /// Optional approximate context-token budget. When set, ranked results are
+    /// kept best-first until the running token ESTIMATE (chars/4) would exceed
+    /// this budget; lower-ranked rows are dropped and a `budget` block reports
+    /// what was kept vs dropped. None = unbudgeted (behavior unchanged).
+    #[serde(default)]
+    pub token_budget: Option<usize>,
 }
 
 fn default_search_top_k() -> u32 {
@@ -1927,6 +1944,10 @@ pub struct SearchOutput {
     pub recovery: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_runtime_contract: Option<serde_json::Value>,
+    /// Present only when `token_budget` was requested: an honest accounting of
+    /// the context-budget packing (requested/used estimate, kept, dropped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget: Option<serde_json::Value>,
 }
 
 /// A single search result entry.
