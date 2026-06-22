@@ -293,6 +293,7 @@ struct DaemonRuntimeControl {
 pub const ESSENTIAL_TOOLS: &[&str] = &[
     "trust_selftest",
     "session_handshake",
+    "orient",
     "recovery_playbook",
     "health",
     "doctor",
@@ -395,6 +396,20 @@ pub fn tool_schemas_for_tier(tier: &str) -> serde_json::Value {
 fn all_tool_schemas_inner() -> serde_json::Value {
     serde_json::json!({
         "tools": [
+            {
+                "name": "orient",
+                "description": "Boot into a task in one call. Give your free-form task and get your STARTING CONTEXT pre-packed: the focus nodes the task activates (ranked), prior memorized conclusions nearby, the global PageRank attention backbone, coverage so far, and the concrete first calls to make. Call this FIRST when you receive a task instead of doing exploratory reads. Read-only safe.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "task": { "type": "string", "description": "Free-form description of the task you are about to start. The graph spread-activates on this text to find your starting context." },
+                        "top_k": { "type": "integer", "default": 8, "description": "How many focus nodes to return (ranked by activation from the task)" },
+                        "scope": { "type": "string", "description": "Optional scope hint to bound orientation" }
+                    },
+                    "required": ["agent_id", "task"]
+                }
+            },
             {
                 "name": "activate",
                 "description": "Spreading activation query across the connectome",
@@ -2324,6 +2339,260 @@ fn memory_nearby_for_result(
 }
 
 // ---------------------------------------------------------------------------
+// `orient` — boot into a task in one call (agent-first cold-start aggregation)
+// ---------------------------------------------------------------------------
+
+/// Top-N nodes by PageRank as the global "attention backbone".
+///
+/// Shared helper factored from the `graph_intelligence` block in
+/// `handle_session_handshake` (tools.rs). Returns `{node_id, label, pagerank}`
+/// objects, descending by score, skipping zero scores. Empty when PageRank has
+/// not been computed yet.
+fn top_pagerank_anchors(graph: &m1nd_core::graph::Graph, n: usize) -> Vec<serde_json::Value> {
+    if !graph.pagerank_computed || graph.nodes.pagerank.is_empty() {
+        return vec![];
+    }
+    // NodeId → external id reverse map (only for the few nodes we return).
+    let mut nid_to_ext: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::with_capacity(graph.id_to_node.len());
+    for (interned, &nid) in &graph.id_to_node {
+        nid_to_ext.insert(nid.as_usize(), graph.strings.resolve(*interned).to_string());
+    }
+    let count = graph.nodes.count as usize;
+    let mut ranked: Vec<(f32, usize)> = (0..count)
+        .filter_map(|i| {
+            let pr = graph.nodes.pagerank[i].get();
+            if pr > 0.0 {
+                Some((pr, i))
+            } else {
+                None
+            }
+        })
+        .collect();
+    ranked.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.truncate(n);
+    ranked
+        .into_iter()
+        .map(|(pr, idx)| {
+            let ext_id = nid_to_ext.get(&idx).cloned().unwrap_or_default();
+            let label = graph
+                .strings
+                .try_resolve(graph.nodes.label[idx])
+                .unwrap_or("")
+                .to_string();
+            serde_json::json!({ "node_id": ext_id, "label": label, "pagerank": pr })
+        })
+        .collect()
+}
+
+/// `orient` — pre-pack an agent's STARTING CONTEXT from a free-form task string.
+///
+/// AGGREGATION handler: it composes existing primitives rather than
+/// reimplementing them.
+///   * spread-activation on the task text via `handle_activate` (which uses
+///     `SessionState::run_query`, so this works in `--read-only` attach too) →
+///     `focus_nodes`.
+///   * `memory_nearby_for_result` over the focus nodes → prior conclusions.
+///   * `top_pagerank_anchors` → global attention backbone.
+///   * coverage state from `state.coverage_sessions` → visited/total +
+///     high-PageRank unvisited files (or null when the agent has no session).
+///   * the top focus node → concrete `suggested_first_calls` (surgical_context,
+///     then why) so the agent's very next move is grounded.
+///
+/// READ-ONLY SAFE: only queries. Not in `read_only_denied`.
+fn handle_orient(
+    state: &mut SessionState,
+    params: &serde_json::Value,
+) -> M1ndResult<serde_json::Value> {
+    let agent_id = params
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "orient".into(),
+            detail: "orient requires an `agent_id` string".into(),
+        })?
+        .to_string();
+    let task = params
+        .get("task")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "orient".into(),
+            detail: "orient requires a `task` string describing what the agent is about to do"
+                .into(),
+        })?
+        .to_string();
+    if task.trim().is_empty() {
+        return Err(M1ndError::InvalidParams {
+            tool: "orient".into(),
+            detail: "orient `task` must be non-empty".into(),
+        });
+    }
+    let top_k = params
+        .get("top_k")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(8)
+        .clamp(1, 50);
+
+    // 1. Spread-activate on the task text. handle_activate routes through
+    //    run_query, which picks query_readonly in read-only mode — so orient is
+    //    safe in --read-only attach. Reuse it wholesale; no reimplementation.
+    let activate_input = ActivateInput {
+        query: task.clone(),
+        agent_id: agent_id.clone(),
+        top_k,
+        dimensions: vec![
+            "structural".into(),
+            "semantic".into(),
+            "temporal".into(),
+            "causal".into(),
+        ],
+        xlr: true,
+        include_ghost_edges: false,
+        include_structural_holes: false,
+    };
+    let activate_out = tools::handle_activate(state, activate_input)?;
+
+    // focus_nodes: compact projection of the activated nodes, ranked by activation.
+    let focus_nodes: Vec<serde_json::Value> = activate_out
+        .activated
+        .iter()
+        .take(top_k)
+        .map(|a| {
+            let path = a
+                .provenance
+                .as_ref()
+                .and_then(|p| p.source_path.clone());
+            serde_json::json!({
+                "node_id": a.node_id,
+                "label": a.label,
+                "path": path,
+                "pagerank": a.pagerank,
+                "activation": a.activation,
+                "kind": a.node_type,
+            })
+        })
+        .collect();
+    let top_focus_id = activate_out
+        .activated
+        .first()
+        .map(|a| a.node_id.clone());
+
+    // 2. memory_nearby: reuse memory_nearby_for_result over the focus nodes.
+    //    It expects a `results` array of `{node_id|label}` — shape one from the
+    //    focus nodes (capped at ~5 prior conclusions).
+    let memory_nearby = {
+        let pseudo_result = serde_json::json!({
+            "results": activate_out
+                .activated
+                .iter()
+                .take(5)
+                .map(|a| serde_json::json!({ "node_id": a.node_id }))
+                .collect::<Vec<_>>(),
+        });
+        memory_nearby_for_result(state, "activate", &pseudo_result).unwrap_or_default()
+    };
+
+    // 3. anchors: global PageRank attention backbone (cap 5).
+    let anchors = {
+        let graph = state.graph.read();
+        top_pagerank_anchors(&graph, 5)
+    };
+
+    // 4. coverage: surface visited/total + a few high-PageRank unvisited files
+    //    when the agent has a coverage session; otherwise null.
+    let coverage = build_orient_coverage(state, &agent_id);
+
+    // 5. suggested_first_calls: lead with surgical_context on the top focus node
+    //    (grounded edit prep), then reuse suggest_next for textual guidance.
+    let mut suggested_first_calls: Vec<serde_json::Value> = Vec::new();
+    if let Some(ref node_id) = top_focus_id {
+        suggested_first_calls.push(serde_json::json!({
+            "tool": "surgical_context",
+            "arguments": { "agent_id": agent_id, "node_id": node_id },
+        }));
+    }
+    suggested_first_calls.push(serde_json::json!({
+        "tool": "why",
+        "arguments": { "agent_id": agent_id, "query": task },
+    }));
+
+    let summary = if let Some(first) = focus_nodes.first() {
+        let label = first
+            .get("label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("the top focus node");
+        format!(
+            "Load {} first ({} focus node(s) activated for this task); then ground it with surgical_context.",
+            label,
+            focus_nodes.len()
+        )
+    } else {
+        "No focus nodes activated for this task — try ingesting the relevant area or refining the task description.".to_string()
+    };
+
+    Ok(serde_json::json!({
+        "task": task,
+        "focus_nodes": focus_nodes,
+        "memory_nearby": memory_nearby,
+        "anchors": anchors,
+        "coverage": coverage,
+        "suggested_first_calls": suggested_first_calls,
+        "proof_state": "triaging",
+        "summary": summary,
+    }))
+}
+
+/// Build the `coverage` block for `orient` from `state.coverage_sessions`.
+///
+/// Returns `{visited, total, unvisited_high_value:[paths]}` when the agent has a
+/// coverage session, otherwise `null`. `unvisited_high_value` lists up to 5 file
+/// paths with the highest PageRank that the agent has not yet visited.
+fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Value {
+    let Some(session) = state.coverage_sessions.get(agent_id) else {
+        return serde_json::Value::Null;
+    };
+    let graph = state.graph.read();
+    let total = graph.nodes.count as usize;
+    let visited = session.visited_nodes.len();
+
+    // High-PageRank file nodes the agent has not visited yet.
+    let mut unvisited: Vec<(f32, String)> = Vec::new();
+    if graph.pagerank_computed && !graph.nodes.pagerank.is_empty() {
+        for (interned, &nid) in &graph.id_to_node {
+            let ext = graph.strings.resolve(*interned).to_string();
+            if session.visited_nodes.contains(&ext) || session.visited_files.contains(&ext) {
+                continue;
+            }
+            // Prefer file-level nodes for the "what to read next" hint.
+            if !ext.starts_with("file::") {
+                continue;
+            }
+            let idx = nid.as_usize();
+            let pr = graph
+                .nodes
+                .pagerank
+                .get(idx)
+                .map(|p| p.get())
+                .unwrap_or(0.0);
+            if pr > 0.0 {
+                let path = ext.strip_prefix("file::").unwrap_or(&ext).to_string();
+                unvisited.push((pr, path));
+            }
+        }
+        unvisited.sort_unstable_by(|a, b| {
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        unvisited.truncate(5);
+    }
+    serde_json::json!({
+        "visited": visited,
+        "total": total,
+        "unvisited_high_value": unvisited.into_iter().map(|(_, p)| p).collect::<Vec<_>>(),
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Free dispatch functions — used by both JSON-RPC stdio and HTTP API.
 // Zero duplication: McpServer::dispatch_tool() delegates to these.
 // ---------------------------------------------------------------------------
@@ -2492,6 +2761,7 @@ fn dispatch_core_tool(
     params: &serde_json::Value,
 ) -> M1ndResult<serde_json::Value> {
     match tool_name {
+        "orient" => handle_orient(state, params),
         "activate" => {
             let input: ActivateInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -5554,5 +5824,283 @@ mod tests {
                 label
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // orient — agent-first cold-start aggregation tool
+    // -----------------------------------------------------------------------
+
+    /// Build a SessionState backed by a small populated, finalized graph so
+    /// PageRank is computed and spread-activation has nodes to land on.
+    fn build_state_populated(read_only: bool) -> (tempfile::TempDir, SessionState) {
+        use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            read_only,
+            ..McpConfig::default()
+        };
+
+        let mut graph = Graph::new();
+        // A tiny "lease" cluster so a task about leases activates something.
+        let lease = graph
+            .add_node(
+                "file::src/lease.rs",
+                "lease enforcement",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add lease node");
+        let registry = graph
+            .add_node(
+                "file::src/registry.rs",
+                "instance registry lease",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add registry node");
+        let other = graph
+            .add_node(
+                "file::src/unrelated.rs",
+                "unrelated helper",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add other node");
+        graph
+            .add_edge(
+                lease,
+                registry,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.9),
+            )
+            .expect("edge lease->registry");
+        graph
+            .add_edge(
+                registry,
+                other,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.3),
+            )
+            .expect("edge registry->other");
+        graph.finalize().expect("finalize graph");
+
+        let state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("init populated session");
+        (temp, state)
+    }
+
+    #[test]
+    fn orient_returns_focus_nodes_on_populated_graph() {
+        let (_temp, mut state) = build_state_populated(false);
+        let out = super::dispatch_tool(
+            &mut state,
+            "orient",
+            &serde_json::json!({
+                "agent_id": "orienter",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("orient should succeed on a populated graph");
+
+        // Contract shape.
+        assert_eq!(
+            out["task"], "lease enforcement in the instance registry",
+            "task must be echoed"
+        );
+        assert_eq!(out["proof_state"], "triaging");
+        assert!(out["summary"].is_string(), "summary must be a string");
+
+        let focus = out["focus_nodes"].as_array().expect("focus_nodes array");
+        assert!(
+            !focus.is_empty(),
+            "focus_nodes must be non-empty on a populated graph"
+        );
+        // Each focus node carries the contract fields.
+        for f in focus {
+            assert!(f["node_id"].is_string(), "focus node needs node_id");
+            assert!(f["label"].is_string(), "focus node needs label");
+            assert!(f.get("pagerank").is_some(), "focus node needs pagerank");
+            assert!(f.get("activation").is_some(), "focus node needs activation");
+            assert!(f.get("kind").is_some(), "focus node needs kind");
+            assert!(f.get("path").is_some(), "focus node needs path key");
+        }
+
+        // anchors are the global PageRank backbone (non-empty on a finalized graph).
+        let anchors = out["anchors"].as_array().expect("anchors array");
+        assert!(
+            !anchors.is_empty(),
+            "anchors must be non-empty once PageRank is computed"
+        );
+        for a in anchors {
+            assert!(a["node_id"].is_string());
+            assert!(a["pagerank"].is_number());
+        }
+
+        // The activation inside orient records a coverage session for this agent,
+        // so coverage is populated with visited/total and a high-value shortlist.
+        let cov = &out["coverage"];
+        assert!(cov.is_object(), "coverage must be populated after activation");
+        assert!(cov["visited"].is_number(), "coverage.visited present");
+        assert_eq!(cov["total"], serde_json::json!(3), "graph has 3 nodes");
+        assert!(
+            cov["unvisited_high_value"].is_array(),
+            "coverage.unvisited_high_value is an array"
+        );
+
+        // suggested_first_calls leads with surgical_context on the top focus node.
+        let calls = out["suggested_first_calls"]
+            .as_array()
+            .expect("suggested_first_calls array");
+        assert!(!calls.is_empty(), "must suggest at least one first call");
+        assert_eq!(calls[0]["tool"], "surgical_context");
+        assert!(calls[0]["arguments"]["node_id"].is_string());
+
+        // The _m1nd envelope is attached by dispatch (additive).
+        assert!(
+            out.as_object().unwrap().contains_key("_m1nd"),
+            "_m1nd envelope must wrap orient too"
+        );
+    }
+
+    #[test]
+    fn orient_works_in_read_only_mode() {
+        let (_temp, mut state) = build_state_populated(true);
+        assert!(state.read_only, "state must be read-only");
+
+        // orient must NOT be caught by the mutation deny-list.
+        use super::read_only_denied;
+        assert!(
+            !read_only_denied("orient", &serde_json::json!({})),
+            "orient must be allowed in read-only mode"
+        );
+
+        // It dispatches successfully through the read-only path (query_readonly).
+        let out = super::dispatch_tool(
+            &mut state,
+            "orient",
+            &serde_json::json!({
+                "agent_id": "ro-agent",
+                "task": "lease enforcement",
+            }),
+        )
+        .expect("orient must succeed in read-only attach");
+        assert_eq!(out["task"], "lease enforcement");
+        assert!(out["focus_nodes"].is_array());
+        // read_only flag is surfaced via the envelope.
+        assert_eq!(out["_m1nd"]["read_only"], serde_json::json!(true));
+
+        // A read-only attach must never write the graph snapshot.
+        assert!(
+            !state.graph_path.exists(),
+            "orient must not persist anything in read-only mode"
+        );
+    }
+
+    /// REAL PROBE: load the repo's actual graph_snapshot.json (~5540 nodes) and
+    /// run `orient` on a real task, printing the focus nodes + summary.
+    ///
+    /// Run with: `cargo test -p m1nd-mcp orient_real_snapshot_probe -- --nocapture`
+    /// Skips gracefully (printing a note) if the snapshot is not present.
+    #[test]
+    fn orient_real_snapshot_probe() {
+        // Locate the repo-root snapshot relative to the crate dir.
+        let snapshot = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.join("graph_snapshot.json"))
+            .filter(|p| p.exists());
+        let Some(snapshot_path) = snapshot else {
+            eprintln!("[orient_real_snapshot_probe] graph_snapshot.json not found — skipping");
+            return;
+        };
+
+        let graph = m1nd_core::snapshot::load_graph(&snapshot_path)
+            .expect("load real graph_snapshot.json");
+        eprintln!(
+            "[orient_real_snapshot_probe] loaded {} nodes from {}",
+            graph.nodes.count,
+            snapshot_path.display()
+        );
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            read_only: true, // attach-style: prove orient works without mutating
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(graph, &config, DomainConfig::code())
+            .expect("init session from real snapshot");
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "orient",
+            &serde_json::json!({
+                "agent_id": "probe",
+                "task": "read-only attach lease enforcement",
+                "top_k": 8,
+            }),
+        )
+        .expect("orient on real snapshot");
+
+        eprintln!("\n=== orient(task=\"read-only attach lease enforcement\") on REAL graph ===");
+        eprintln!("summary: {}", out["summary"].as_str().unwrap_or(""));
+        eprintln!("focus_nodes:");
+        for (i, f) in out["focus_nodes"]
+            .as_array()
+            .map(|a| a.as_slice())
+            .unwrap_or(&[])
+            .iter()
+            .enumerate()
+        {
+            eprintln!(
+                "  {:>2}. {:<55} act={:.4} pr={:.6} kind={} path={}",
+                i + 1,
+                f["label"].as_str().unwrap_or(""),
+                f["activation"].as_f64().unwrap_or(0.0),
+                f["pagerank"].as_f64().unwrap_or(0.0),
+                f["kind"].as_str().unwrap_or(""),
+                f["path"].as_str().unwrap_or("·"),
+            );
+        }
+        eprintln!("anchors (global PageRank backbone):");
+        for a in out["anchors"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+            eprintln!(
+                "  - {:<55} pr={:.6}",
+                a["label"].as_str().unwrap_or(""),
+                a["pagerank"].as_f64().unwrap_or(0.0)
+            );
+        }
+        eprintln!(
+            "memory_nearby: {} | coverage: {}",
+            out["memory_nearby"].as_array().map(|a| a.len()).unwrap_or(0),
+            out["coverage"]
+        );
+        eprintln!("=== end probe ===\n");
+
+        // Real data must produce a non-empty starting context.
+        assert!(
+            !out["focus_nodes"].as_array().unwrap().is_empty(),
+            "orient must surface focus nodes on the real graph"
+        );
     }
 }
