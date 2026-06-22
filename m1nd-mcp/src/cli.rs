@@ -74,4 +74,13 @@ pub struct Cli {
     /// Also honored via env `M1ND_READ_ONLY=1`.
     #[arg(long)]
     pub read_only: bool,
+
+    /// Attach to a running `--serve` owner as a thin stdio↔HTTP MCP bridge.
+    /// Takes the owner's base URL (e.g. `http://127.0.0.1:1337`). The bridge
+    /// loads NO graph, builds NO engines, and takes NO lease: it speaks stdio
+    /// MCP to the host (Claude Code) and forwards every JSON-RPC frame to the
+    /// owner's `POST /mcp` endpoint. Multiple `--attach` clients pointed at one
+    /// owner share that owner's single live graph. Requires the `serve` feature.
+    #[arg(long)]
+    pub attach: Option<String>,
 }

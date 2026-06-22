@@ -158,7 +158,7 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
     };
 
     #[cfg(not(feature = "serve"))]
-    let _ = (no_gui, port); // suppress unused warnings
+    let _ = (no_gui, _port); // suppress unused warnings
 
     let mut server = match McpServer::new(config) {
         Ok(s) => s,
@@ -203,6 +203,26 @@ async fn main() {
     ensure_bwrap_compat_wrapper();
 
     let cli = Cli::parse();
+
+    // --attach: thin stdio↔HTTP bridge. This path loads NO graph, builds NO
+    // engines, and takes NO lease — it must NEVER reach `McpServer::new`. It is
+    // handled before `load_config_from_cli`/`--serve`/stdio so none of that
+    // owner-side machinery runs.
+    if let Some(base_url) = cli.attach.clone() {
+        #[cfg(feature = "serve")]
+        {
+            m1nd_mcp::attach_client::run_attach_client(base_url).await;
+            return;
+        }
+        #[cfg(not(feature = "serve"))]
+        {
+            let _ = base_url;
+            eprintln!("[m1nd-mcp] --attach requires the 'serve' feature (HTTP client).");
+            eprintln!("  Rebuild with: cargo build --release --features serve");
+            std::process::exit(1);
+        }
+    }
+
     let config = load_config_from_cli(&cli);
 
     let event_log = cli.event_log;
