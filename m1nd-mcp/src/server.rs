@@ -3563,6 +3563,151 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// MCP protocol version this server implements/prefers.
+pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Older MCP protocol versions we remain compatible with. If a client offers one
+/// of these we echo it back (per the MCP spec's version-negotiation handshake);
+/// otherwise we reply with our preferred [`MCP_PROTOCOL_VERSION`].
+const MCP_SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+
+/// Negotiate the protocol version: honor the client's requested version when we
+/// support it, otherwise fall back to our preferred version.
+fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
+    if let Some(req) = requested {
+        if let Some(v) = MCP_SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .copied()
+            .find(|v| *v == req)
+        {
+            return v;
+        }
+    }
+    MCP_PROTOCOL_VERSION
+}
+
+/// Transport-agnostic MCP method dispatch.
+///
+/// Handles the JSON-RPC MCP protocol methods (`initialize`,
+/// `notifications/initialized`, `tools/list`, `tools/call`, method-not-found)
+/// against a borrowed [`SessionState`]. Used by both the stdio transport
+/// (via [`McpServer::dispatch`]) and the Streamable-HTTP transport
+/// (`mcp_http::handle_mcp_post`), so both bind to the same shared graph.
+///
+/// Note: the stdio-only live FS watcher refresh for `daemon_start`/`daemon_stop`
+/// is NOT performed here — the caller (`McpServer::dispatch`) handles that after
+/// this returns, since it requires `&mut McpServer`, not just `&mut SessionState`.
+pub fn handle_mcp_method(state: &mut SessionState, request: &JsonRpcRequest) -> JsonRpcResponse {
+    let method = request.method.as_str();
+
+    match method {
+        "initialize" => {
+            let requested = request
+                .params
+                .get("protocolVersion")
+                .and_then(|v| v.as_str());
+            let protocol_version = negotiate_protocol_version(requested);
+            JsonRpcResponse {
+                jsonrpc: "2.0".into(),
+                id: request.id.clone(),
+                result: Some(serde_json::json!({
+                    "protocolVersion": protocol_version,
+                    "serverInfo": {
+                        "name": "m1nd-mcp",
+                        "version": env!("CARGO_PKG_VERSION"),
+                    },
+                    "capabilities": {
+                        "tools": {},
+                    },
+                    "instructions": M1ND_INSTRUCTIONS,
+                })),
+                error: None,
+            }
+        }
+        "notifications/initialized" => {
+            // No response needed for notifications, but we return one since caller expects it
+            JsonRpcResponse {
+                jsonrpc: "2.0".into(),
+                id: request.id.clone(),
+                result: Some(serde_json::Value::Null),
+                error: None,
+            }
+        }
+        "tools/list" => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: request.id.clone(),
+            result: Some(tool_schemas()),
+            error: None,
+        },
+        "tools/call" => {
+            // Extract tool name and arguments from params
+            let tool_name = request
+                .params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let arguments = request
+                .params
+                .get("arguments")
+                .cloned()
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+            // Track agent session from arguments
+            if let Some(agent_id) = arguments.get("agent_id").and_then(|v| v.as_str()) {
+                state.track_agent(agent_id);
+                if state.daemon_state.active
+                    && should_autotick_daemon(tool_name)
+                    && state.daemon_state.last_tick_ms.is_some_and(|last| {
+                        now_ms().saturating_sub(last) >= state.daemon_state.poll_interval_ms
+                    })
+                {
+                    run_daemon_tick(state, "traffic");
+                }
+            }
+
+            // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
+            match dispatch_tool(state, tool_name, &arguments) {
+                Ok(result) => JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id: request.id.clone(),
+                    result: Some(serde_json::json!({
+                        "content": [{
+                            "type": "text",
+                            "text": serde_json::to_string_pretty(&result).unwrap_or_default(),
+                        }]
+                    })),
+                    error: None,
+                },
+                Err(e) => JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id: request.id.clone(),
+                    result: Some(serde_json::json!({
+                        "content": [{
+                            "type": "text",
+                            "text": format!("Error: {}", e),
+                        }],
+                        "isError": true
+                    })),
+                    error: None,
+                },
+            }
+        }
+        _ => {
+            // Method not found — JSON-RPC protocol error
+            JsonRpcResponse {
+                jsonrpc: "2.0".into(),
+                id: request.id.clone(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32601,
+                    message: format!("Method not found: {}", method),
+                    data: None,
+                }),
+            }
+        }
+    }
+}
+
 fn should_autotick_daemon(tool_name: &str) -> bool {
     !matches!(
         tool_name,
@@ -4257,115 +4402,38 @@ impl McpServer {
     }
 
     /// Dispatch a single JSON-RPC request to the appropriate tool handler.
+    ///
+    /// Thin wrapper over the transport-agnostic [`handle_mcp_method`] free fn.
+    /// The only stdio-specific concern kept here is refreshing the live FS
+    /// watcher after a successful `daemon_start`/`daemon_stop`, which requires
+    /// `&mut self` (the watcher lives on `McpServer`, not `SessionState`).
     fn dispatch(&mut self, request: &JsonRpcRequest) -> M1ndResult<JsonRpcResponse> {
-        let method = request.method.as_str();
+        let response = handle_mcp_method(&mut self.state, request);
 
-        // Handle MCP protocol methods
-        match method {
-            "initialize" => Ok(JsonRpcResponse {
-                jsonrpc: "2.0".into(),
-                id: request.id.clone(),
-                result: Some(serde_json::json!({
-                    "protocolVersion": "2024-11-05",
-                    "serverInfo": {
-                        "name": "m1nd-mcp",
-                        "version": env!("CARGO_PKG_VERSION"),
-                    },
-                    "capabilities": {
-                        "tools": {},
-                    },
-                    "instructions": M1ND_INSTRUCTIONS,
-                })),
-                error: None,
-            }),
-            "notifications/initialized" => {
-                // No response needed for notifications, but we return one since caller expects it
-                Ok(JsonRpcResponse {
-                    jsonrpc: "2.0".into(),
-                    id: request.id.clone(),
-                    result: Some(serde_json::Value::Null),
-                    error: None,
-                })
-            }
-            "tools/list" => Ok(JsonRpcResponse {
-                jsonrpc: "2.0".into(),
-                id: request.id.clone(),
-                result: Some(tool_schemas()),
-                error: None,
-            }),
-            "tools/call" => {
-                // Extract tool name and arguments from params
-                let tool_name = request
-                    .params
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let arguments = request
-                    .params
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-                // Track agent session from arguments
-                if let Some(agent_id) = arguments.get("agent_id").and_then(|v| v.as_str()) {
-                    self.state.track_agent(agent_id);
-                    if self.state.daemon_state.active
-                        && should_autotick_daemon(tool_name)
-                        && self.state.daemon_state.last_tick_ms.is_some_and(|last| {
-                            now_ms().saturating_sub(last)
-                                >= self.state.daemon_state.poll_interval_ms
-                        })
-                    {
-                        run_daemon_tick(&mut self.state, "traffic");
-                    }
+        // stdio-only: if this was a successful daemon_start/daemon_stop tool call,
+        // rebind the live FS watcher to match the new daemon state.
+        if request.method == "tools/call" {
+            let tool_name = request
+                .params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if matches!(tool_name, "daemon_start" | "daemon_stop") {
+                // The MCP wrapper reports tool execution errors via isError content,
+                // not JSON-RPC errors, so only refresh when the call did not error.
+                let is_error = response
+                    .result
+                    .as_ref()
+                    .and_then(|r| r.get("isError"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if !is_error {
+                    self.refresh_daemon_watcher();
                 }
-
-                // MCP spec: tool execution errors -> isError content, not JSON-RPC errors
-                match self.dispatch_tool_call(tool_name, &arguments) {
-                    Ok(result) => {
-                        if matches!(tool_name, "daemon_start" | "daemon_stop") {
-                            self.refresh_daemon_watcher();
-                        }
-                        Ok(JsonRpcResponse {
-                            jsonrpc: "2.0".into(),
-                            id: request.id.clone(),
-                            result: Some(serde_json::json!({
-                                "content": [{
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&result).unwrap_or_default(),
-                                }]
-                            })),
-                            error: None,
-                        })
-                    }
-                    Err(e) => Ok(JsonRpcResponse {
-                        jsonrpc: "2.0".into(),
-                        id: request.id.clone(),
-                        result: Some(serde_json::json!({
-                            "content": [{
-                                "type": "text",
-                                "text": format!("Error: {}", e),
-                            }],
-                            "isError": true
-                        })),
-                        error: None,
-                    }),
-                }
-            }
-            _ => {
-                // Method not found — JSON-RPC protocol error
-                Ok(JsonRpcResponse {
-                    jsonrpc: "2.0".into(),
-                    id: request.id.clone(),
-                    result: None,
-                    error: Some(JsonRpcError {
-                        code: -32601,
-                        message: format!("Method not found: {}", method),
-                        data: None,
-                    }),
-                })
             }
         }
+
+        Ok(response)
     }
 
     /// Dispatch a tool call by name. Delegates to the free dispatch_tool() function.
