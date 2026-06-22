@@ -705,8 +705,14 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         )
         .route("/api/tools", get(handle_list_tools))
         .route("/api/tools/{*tool_name}", post(handle_tool_call))
-        // Streamable-HTTP MCP transport (Wave 4, Slice 1). GET/DELETE land in Slice 2.
-        .route("/mcp", post(crate::mcp_http::handle_mcp_post))
+        // Streamable-HTTP MCP transport. POST = client→server requests (Slice 1);
+        // GET = server→client SSE push, DELETE = session termination (Slice 2).
+        .route(
+            "/mcp",
+            post(crate::mcp_http::handle_mcp_post)
+                .get(crate::mcp_http::handle_mcp_get)
+                .delete(crate::mcp_http::handle_mcp_delete),
+        )
         .route("/api/graph/stats", get(handle_graph_stats))
         .route("/api/graph/subgraph", get(handle_subgraph))
         .route("/api/graph/snapshot", get(handle_graph_snapshot))

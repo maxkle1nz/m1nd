@@ -1,8 +1,16 @@
 // === m1nd-mcp Streamable-HTTP MCP transport (axum) ===
 //
 // Wave 4, Slice 1: a compliant `POST /mcp` Streamable-HTTP MCP endpoint that
-// handles `initialize` + `tools/list` + `tools/call`, returning JSON
-// (no SSE / GET / DELETE yet — those land in Slice 2).
+// handles `initialize` + `tools/list` + `tools/call`, returning JSON.
+//
+// Wave 4, Slice 2: the server→client SSE stream (`GET /mcp`, a real
+// `text/event-stream` per the Streamable-HTTP MCP spec) and session
+// termination (`DELETE /mcp`). The GET stream is how an attached agent learns
+// that ANOTHER agent changed the shared graph — the start of real
+// server→agent push. It is deliberately LOW-NOISE: only mutation-class
+// broadcast events (the ones that mean "the shared graph changed") are
+// relayed as `notifications/m1nd/graph_changed`; an agent never sees an echo
+// of its own (or anyone's) read-only tool results.
 //
 // This transport binds to the SAME shared `Arc<Mutex<SessionState>>` that the
 // HTTP server already owns (via `AppState.session`), so a future `--attach`
@@ -21,11 +29,12 @@ use std::time::Duration;
 use axum::{
     body::Bytes,
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{sse, IntoResponse, Response, Sse},
 };
+use futures::stream::StreamExt;
 use parking_lot::Mutex;
 
-use crate::http_server::AppState;
+use crate::http_server::{AppState, SseEvent};
 use crate::protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::server::handle_mcp_method;
 
@@ -35,6 +44,112 @@ const MCP_SESSION_HEADER: &str = "mcp-session-id";
 /// Per-tool execution timeout for the HTTP MCP transport (mirrors the REST
 /// `TOOL_TIMEOUT_SECS` discipline in `http_server`).
 const MCP_TOOL_TIMEOUT_SECS: u64 = 120;
+
+/// Namespaced JSON-RPC method for the one notification this stream emits.
+/// Clearly scoped under `m1nd/` so it never collides with a spec method.
+const GRAPH_CHANGED_METHOD: &str = "notifications/m1nd/graph_changed";
+
+/// Keepalive interval for the `GET /mcp` SSE stream so proxies / idle clients
+/// don't drop a quiet connection.
+const MCP_SSE_KEEPALIVE_SECS: u64 = 15;
+
+/// Tools whose successful execution mutates the shared graph / plasticity /
+/// disk state in a way ANOTHER attached agent needs to know about. This mirrors
+/// the `READ_ONLY_DENIED_TOOLS` set in `server.rs` (the canonical "mutation"
+/// boundary) — kept local here so the notification relay's intent is explicit
+/// and the relay stays decoupled from the read-only gate's internals.
+///
+/// LOW-NOISE: a `tool_result` broadcast is relayed ONLY when its `tool` is in
+/// this set. Read/analysis tool results (the overwhelming majority of traffic,
+/// and the echoes of an agent's own reads) are never pushed.
+const GRAPH_MUTATION_TOOLS: &[&str] = &[
+    "ingest",
+    "apply",
+    "apply_batch",
+    "edit_commit",
+    "memorize",
+    "learn",
+    "daemon_start",
+    "auto_ingest_start",
+];
+
+/// Normalize an optional `m1nd.`/`m1nd_` tool prefix, matching the same idiom
+/// `server.rs::read_only_denied` uses, so `apply`, `m1nd_apply` and `m1nd.apply`
+/// all resolve to the same bare name.
+fn bare_tool_name(tool: &str) -> &str {
+    tool.strip_prefix("m1nd.")
+        .or_else(|| tool.strip_prefix("m1nd_"))
+        .unwrap_or(tool)
+}
+
+/// Decide whether a broadcast `SseEvent` represents a shared-graph change worth
+/// pushing to an attached agent, and if so, build the minimal JSON-RPC
+/// notification frame to carry on the SSE `data:` line.
+///
+/// Returns `None` for everything we deliberately suppress (read tool results,
+/// unrelated event types, mutations that did not actually succeed).
+fn graph_changed_notification(event: &SseEvent) -> Option<serde_json::Value> {
+    let relay_event_name: &str = match event.event_type.as_str() {
+        // A finished tool call. Relay only mutation tools, and only when the
+        // call actually succeeded (a failed mutation changed nothing).
+        "tool_result" => {
+            let tool = event.data.get("tool").and_then(|v| v.as_str())?;
+            if !GRAPH_MUTATION_TOOLS.contains(&bare_tool_name(tool)) {
+                return None;
+            }
+            // `success` may be absent on older frames; treat absent as success
+            // (the event only exists because the tool returned), but an explicit
+            // `false` means no mutation landed → suppress.
+            if event.data.get("success").and_then(|v| v.as_bool()) == Some(false) {
+                return None;
+            }
+            tool
+        }
+        // Apply-batch handoff / progress are mutation-only by construction.
+        "apply_batch_handoff" | "apply_batch_progress" => event
+            .data
+            .get("tool")
+            .and_then(|v| v.as_str())
+            .unwrap_or("apply_batch"),
+        // A tool that timed out: relay only if it was a mutation tool (a slow
+        // read timing out is not a graph change another agent must act on).
+        "tool_timeout" => {
+            let tool = event.data.get("tool").and_then(|v| v.as_str())?;
+            if !GRAPH_MUTATION_TOOLS.contains(&bare_tool_name(tool)) {
+                return None;
+            }
+            tool
+        }
+        // Everything else (health pings, read results, UI-only events) is noise.
+        _ => return None,
+    };
+
+    // Minimal, non-echoing detail: enough for the receiving agent to know WHAT
+    // changed and re-orient, without replaying the full result payload.
+    let mut detail = serde_json::Map::new();
+    if let Some(agent_id) = event.data.get("agent_id") {
+        detail.insert("agent_id".into(), agent_id.clone());
+    }
+    if let Some(source) = event.data.get("source") {
+        detail.insert("source".into(), source.clone());
+    }
+    if let Some(batch_id) = event.data.get("batch_id") {
+        detail.insert("batch_id".into(), batch_id.clone());
+    }
+    if let Some(ts) = event.data.get("timestamp_ms") {
+        detail.insert("timestamp_ms".into(), ts.clone());
+    }
+    detail.insert("kind".into(), serde_json::json!(event.event_type));
+
+    Some(serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": GRAPH_CHANGED_METHOD,
+        "params": {
+            "event": relay_event_name,
+            "detail": serde_json::Value::Object(detail),
+        },
+    }))
+}
 
 /// An MCP *wire* session (Streamable-HTTP transport session).
 ///
@@ -339,4 +454,362 @@ pub async fn handle_mcp_post(
     // 4. Known session → run the method against the shared graph.
     let response = run_mcp_method(app, request).await;
     jsonrpc_ok_response(&response, None)
+}
+
+/// Validate the `Mcp-Session-Id` header against the live registry, bumping
+/// `last_seen_ms` on success. Mirrors the slice-1 POST validation, factored out
+/// so `GET` and `DELETE` share one source of truth.
+///
+/// Errors are plain-text axum responses with the correct status:
+///   - missing header → `400 Bad Request`
+///   - unknown / expired id → `404 Not Found` (signals "re-initialize")
+///
+/// The `parking_lot` lock is held only for the brief get-and-touch; it is never
+/// carried across an `.await` (critical for the long-lived SSE stream).
+fn validate_session(app: &Arc<AppState>, headers: &HeaderMap) -> Result<String, Response> {
+    let session_id = match session_id_from_headers(headers) {
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Missing Mcp-Session-Id header",
+            )
+                .into_response());
+        }
+        Some(sid) => sid,
+    };
+
+    {
+        let mut reg = app.mcp_sessions.lock();
+        match reg.get_mut(&session_id) {
+            None => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    "Unknown or expired Mcp-Session-Id; re-initialize",
+                )
+                    .into_response());
+            }
+            Some(s) => {
+                s.last_seen_ms = now_ms();
+            }
+        }
+    }
+
+    Ok(session_id)
+}
+
+/// `GET /mcp` — the server→client Streamable-HTTP SSE stream.
+///
+/// Per the MCP spec this is a long-lived `text/event-stream` that the server
+/// uses to push JSON-RPC messages to the client. Here it carries exactly one
+/// kind of message — a `notifications/m1nd/graph_changed` notification — emitted
+/// whenever ANOTHER agent mutates the shared graph. It is intentionally
+/// low-noise (see [`graph_changed_notification`]): read-only tool results are
+/// never relayed.
+///
+/// Each frame gets an incrementing SSE `id:` (cheap; enables future
+/// `Last-Event-ID` resumability — replay itself is NOT implemented in this
+/// slice). A periodic keepalive comment keeps idle connections open.
+pub async fn handle_mcp_get(
+    axum::extract::State(app): axum::extract::State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    // Validate before opening the stream (no lock held across `.await`).
+    if let Err(resp) = validate_session(&app, &headers) {
+        return resp;
+    }
+
+    let rx = app.event_tx.subscribe();
+    let mut next_id: u64 = 0;
+    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(move |event| {
+        // Synchronous mapping closure → no `.await`, so the session mutex is
+        // never touched here and tool dispatch is never blocked by a slow client.
+        let frame = match event {
+            Ok(e) => graph_changed_notification(&e),
+            // Lagged (slow consumer dropped messages) or closed → skip; the
+            // keepalive and subsequent live events keep the stream useful.
+            Err(_) => None,
+        };
+        let item = frame.and_then(|notification| {
+            let id = next_id;
+            next_id += 1;
+            sse::Event::default()
+                .id(id.to_string())
+                .json_data(notification)
+                .ok()
+                .map(Ok::<_, std::convert::Infallible>)
+        });
+        async move { item }
+    });
+
+    Sse::new(stream)
+        .keep_alive(
+            sse::KeepAlive::new().interval(Duration::from_secs(MCP_SSE_KEEPALIVE_SECS)),
+        )
+        .into_response()
+}
+
+/// `DELETE /mcp` — explicit session termination per the Streamable-HTTP spec.
+///
+/// Validates the `Mcp-Session-Id`; on a known session, removes it from the
+/// registry and returns `200 OK` with an empty body. Missing header → `400`,
+/// unknown id → `404`.
+pub async fn handle_mcp_delete(
+    axum::extract::State(app): axum::extract::State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    let session_id = match validate_session(&app, &headers) {
+        Ok(sid) => sid,
+        Err(resp) => return resp,
+    };
+
+    {
+        let mut reg = app.mcp_sessions.lock();
+        reg.remove(&session_id);
+    }
+
+    StatusCode::OK.into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::{tool_schemas, McpConfig};
+    use crate::session::SessionState;
+    use m1nd_core::domain::DomainConfig;
+    use m1nd_core::graph::Graph;
+    use tokio::sync::broadcast;
+
+    fn ev(event_type: &str, data: serde_json::Value) -> SseEvent {
+        SseEvent {
+            event_type: event_type.to_string(),
+            data,
+        }
+    }
+
+    // ---- Low-noise relay decision -----------------------------------------
+
+    #[test]
+    fn read_tool_result_is_not_relayed() {
+        // A `seek` (read) result must produce no notification — this is the
+        // whole point: an agent never sees an echo of a read.
+        let e = ev(
+            "tool_result",
+            serde_json::json!({"tool": "seek", "success": true, "agent_id": "a"}),
+        );
+        assert!(graph_changed_notification(&e).is_none());
+    }
+
+    #[test]
+    fn mutation_tool_result_is_relayed_with_namespaced_method() {
+        let e = ev(
+            "tool_result",
+            serde_json::json!({
+                "tool": "memorize",
+                "success": true,
+                "agent_id": "agent-b",
+                "source": "http",
+                "timestamp_ms": 1234,
+            }),
+        );
+        let frame = graph_changed_notification(&e).expect("memorize relays");
+        assert_eq!(frame["jsonrpc"], "2.0");
+        assert_eq!(frame["method"], "notifications/m1nd/graph_changed");
+        assert_eq!(frame["params"]["event"], "memorize");
+        assert_eq!(frame["params"]["detail"]["agent_id"], "agent-b");
+        assert_eq!(frame["params"]["detail"]["kind"], "tool_result");
+    }
+
+    #[test]
+    fn prefixed_mutation_tool_is_relayed() {
+        for tool in ["m1nd.apply", "m1nd_apply", "apply"] {
+            let e = ev(
+                "tool_result",
+                serde_json::json!({"tool": tool, "success": true}),
+            );
+            assert!(
+                graph_changed_notification(&e).is_some(),
+                "{} should relay",
+                tool
+            );
+        }
+    }
+
+    #[test]
+    fn failed_mutation_is_suppressed() {
+        // A mutation that did not succeed changed nothing → no push.
+        let e = ev(
+            "tool_result",
+            serde_json::json!({"tool": "ingest", "success": false}),
+        );
+        assert!(graph_changed_notification(&e).is_none());
+    }
+
+    #[test]
+    fn apply_batch_handoff_and_progress_relay() {
+        for et in ["apply_batch_handoff", "apply_batch_progress"] {
+            let e = ev(et, serde_json::json!({"tool": "apply_batch", "batch_id": "b1"}));
+            let frame = graph_changed_notification(&e).expect("relays");
+            assert_eq!(frame["params"]["event"], "apply_batch");
+            assert_eq!(frame["params"]["detail"]["batch_id"], "b1");
+        }
+    }
+
+    #[test]
+    fn read_tool_timeout_is_not_relayed_but_mutation_timeout_is() {
+        let read = ev("tool_timeout", serde_json::json!({"tool": "seek"}));
+        assert!(graph_changed_notification(&read).is_none());
+
+        let mutation = ev("tool_timeout", serde_json::json!({"tool": "ingest"}));
+        assert!(graph_changed_notification(&mutation).is_some());
+    }
+
+    #[test]
+    fn unrelated_event_types_are_dropped() {
+        for et in ["health", "heartbeat", "ui_refresh", "instance_changed"] {
+            let e = ev(et, serde_json::json!({"foo": "bar"}));
+            assert!(
+                graph_changed_notification(&e).is_none(),
+                "{} must not relay",
+                et
+            );
+        }
+    }
+
+    // ---- Handler behavior (validation / termination) ----------------------
+
+    fn build_app_state(root: &std::path::Path) -> Arc<AppState> {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let session = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        let (event_tx, _) = broadcast::channel::<SseEvent>(16);
+        let tool_schemas_cache = tool_schemas()
+            .get("tools")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        Arc::new(AppState {
+            session: Arc::new(Mutex::new(session)),
+            tool_schemas_cache,
+            event_tx,
+            event_log_path: None,
+            registry_dir: None,
+            mcp_sessions: new_mcp_session_registry(),
+        })
+    }
+
+    fn header_map_with_session(sid: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(MCP_SESSION_HEADER, sid.parse().unwrap());
+        h
+    }
+
+    fn seed_session(app: &Arc<AppState>) -> String {
+        let sid = generate_mcp_session_id();
+        let now = now_ms();
+        app.mcp_sessions.lock().insert(
+            sid.clone(),
+            McpTransportSession {
+                protocol_version: "test".into(),
+                created_ms: now,
+                last_seen_ms: now,
+            },
+        );
+        sid
+    }
+
+    #[tokio::test]
+    async fn get_missing_session_is_400() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let resp =
+            handle_mcp_get(axum::extract::State(app), HeaderMap::new()).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn get_unknown_session_is_404() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let headers = header_map_with_session("does-not-exist");
+        let resp = handle_mcp_get(axum::extract::State(app), headers).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_known_session_opens_event_stream() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+        let headers = header_map_with_session(&sid);
+        let resp = handle_mcp_get(axum::extract::State(app), headers).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert!(
+            ct.starts_with("text/event-stream"),
+            "expected SSE content-type, got {ct}"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_missing_session_is_400() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let resp =
+            handle_mcp_delete(axum::extract::State(app), HeaderMap::new()).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn delete_unknown_session_is_404() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let headers = header_map_with_session("nope");
+        let resp = handle_mcp_delete(axum::extract::State(app), headers).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_removes_session_then_revalidation_is_404() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let app = build_app_state(temp.path());
+        let sid = seed_session(&app);
+
+        // DELETE → 200 and session gone from registry.
+        let resp =
+            handle_mcp_delete(axum::extract::State(app.clone()), header_map_with_session(&sid))
+                .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(!app.mcp_sessions.lock().contains_key(&sid));
+
+        // A subsequent GET with the now-dead session id → 404.
+        let resp2 =
+            handle_mcp_get(axum::extract::State(app.clone()), header_map_with_session(&sid)).await;
+        assert_eq!(resp2.status(), StatusCode::NOT_FOUND);
+
+        // And a POST tools/list with that session → 404 (matches the probe's
+        // post-delete acceptance check).
+        let body = axum::body::Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/list"
+            }))
+            .unwrap(),
+        );
+        let resp3 = handle_mcp_post(
+            axum::extract::State(app),
+            header_map_with_session(&sid),
+            body,
+        )
+        .await;
+        assert_eq!(resp3.status(), StatusCode::NOT_FOUND);
+    }
 }
