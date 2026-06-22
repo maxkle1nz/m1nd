@@ -38,6 +38,50 @@ pub struct InstanceRegistryEntry {
     pub conflicts: Vec<String>,
 }
 
+/// Acquisition mode for an instance.
+///
+/// `ReadWrite` takes the exclusive PID+heartbeat lease (one per `runtime_root`),
+/// exactly as before. `ReadOnly` never takes a lease: it only registers a
+/// discoverable `instances/<id>.json` entry and always succeeds, even while a
+/// live `ReadWrite` owner holds the lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstanceMode {
+    ReadWrite,
+    ReadOnly,
+}
+
+impl InstanceMode {
+    /// On-disk string used in the `mode` field. Kept stable for backward
+    /// compatibility with the ~54k existing lease/instance JSON files.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InstanceMode::ReadWrite => "read_write",
+            InstanceMode::ReadOnly => "read_only",
+        }
+    }
+
+    /// Parse the on-disk `mode` string. Anything that is not exactly
+    /// `"read_only"` is treated as `ReadWrite` so legacy/unknown values keep
+    /// their historical (exclusive) meaning.
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "read_only" => InstanceMode::ReadOnly,
+            _ => InstanceMode::ReadWrite,
+        }
+    }
+}
+
+/// Result of a dead-lease garbage-collection sweep.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GcReport {
+    /// Number of files removed from the `leases/` directory.
+    pub leases_removed: usize,
+    /// Number of files removed from the `instances/` directory.
+    pub instances_removed: usize,
+    /// Total number of JSON entries inspected across both directories.
+    pub scanned: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct InstanceHandle {
     inner: Arc<Mutex<InstanceHandleInner>>,
@@ -48,16 +92,49 @@ struct InstanceHandleInner {
     entry: InstanceRegistryEntry,
     registry_root: PathBuf,
     entry_path: PathBuf,
-    lock_path: PathBuf,
+    /// `Some` only for `ReadWrite` handles. `ReadOnly` handles hold no
+    /// exclusive lease, so they have no lease file to refresh or remove.
+    lock_path: Option<PathBuf>,
+    mode: InstanceMode,
 }
 
 impl InstanceHandle {
+    /// Acquire in the default `ReadWrite` mode. Behavior is identical to the
+    /// historical single-argument-set version; existing callers are untouched.
     pub fn acquire(
         workspace_root: &Path,
         runtime_root: &Path,
         graph_source: &Path,
         plasticity_state: &Path,
         registry_root: Option<&Path>,
+    ) -> M1ndResult<Self> {
+        Self::acquire_with_mode(
+            workspace_root,
+            runtime_root,
+            graph_source,
+            plasticity_state,
+            registry_root,
+            InstanceMode::ReadWrite,
+        )
+    }
+
+    /// Acquire with an explicit mode.
+    ///
+    /// `ReadWrite` is the exclusive PID+heartbeat lease (unchanged from before):
+    /// if a live, non-stale, foreign owner holds the lease for this
+    /// `runtime_root`, this returns `AlreadyExists`.
+    ///
+    /// `ReadOnly` always succeeds and never touches the lease file. It only
+    /// writes an `instances/<id>.json` entry (with `mode:"read_only"`) so the
+    /// attacher is discoverable via `list_instances`. Multiple `ReadOnly`
+    /// attachers and one `ReadWrite` owner coexist with zero conflict.
+    pub fn acquire_with_mode(
+        workspace_root: &Path,
+        runtime_root: &Path,
+        graph_source: &Path,
+        plasticity_state: &Path,
+        registry_root: Option<&Path>,
+        mode: InstanceMode,
     ) -> M1ndResult<Self> {
         let workspace_root = canonicalish(workspace_root)?;
         let runtime_root = canonicalish(runtime_root)?;
@@ -71,11 +148,14 @@ impl InstanceHandle {
         fs::create_dir_all(registry_root.join(INSTANCE_DIR_NAME))?;
         fs::create_dir_all(registry_root.join(LEASE_DIR_NAME))?;
 
-        let lock_path = registry_root
+        let lease_file = registry_root
             .join(LEASE_DIR_NAME)
             .join(format!("{}.json", fingerprint_path(&runtime_root)));
-        if lock_path.exists() {
-            let existing: InstanceRegistryEntry = read_json(&lock_path)?;
+
+        // ReadWrite is the only mode that contends for the exclusive lease.
+        // ReadOnly never inspects, steals, or overwrites the lease file.
+        if mode == InstanceMode::ReadWrite && lease_file.exists() {
+            let existing: InstanceRegistryEntry = read_json(&lease_file)?;
             let live = is_pid_live(existing.pid);
             let stale = is_stale(existing.last_heartbeat_ms);
             if live && !stale && existing.pid != std::process::id() {
@@ -104,7 +184,7 @@ impl InstanceHandle {
             port: None,
             started_at_ms: now_ms,
             last_heartbeat_ms: now_ms,
-            mode: "read_write".into(),
+            mode: mode.as_str().into(),
             status: "starting".into(),
             owner_live: Some(true),
             stale: false,
@@ -114,7 +194,15 @@ impl InstanceHandle {
         let entry_path = registry_root
             .join(INSTANCE_DIR_NAME)
             .join(format!("{}.json", instance_id));
-        save_json_atomic(&lock_path, &entry)?;
+
+        // ReadOnly: discovery entry only, no exclusive lease.
+        let lock_path = match mode {
+            InstanceMode::ReadWrite => {
+                save_json_atomic(&lease_file, &entry)?;
+                Some(lease_file)
+            }
+            InstanceMode::ReadOnly => None,
+        };
         save_json_atomic(&entry_path, &entry)?;
 
         Ok(Self {
@@ -123,6 +211,7 @@ impl InstanceHandle {
                 registry_root,
                 entry_path,
                 lock_path,
+                mode,
             })),
         })
     }
@@ -160,9 +249,17 @@ impl InstanceHandle {
         self.inner.lock().registry_root.clone()
     }
 
+    /// The mode this handle was acquired with.
+    pub fn mode(&self) -> InstanceMode {
+        self.inner.lock().mode
+    }
+
     pub fn release(&self) -> M1ndResult<()> {
         let inner = self.inner.lock();
-        let _ = fs::remove_file(&inner.lock_path);
+        // ReadOnly handles hold no lease; only the discovery entry is removed.
+        if let Some(lock_path) = &inner.lock_path {
+            let _ = fs::remove_file(lock_path);
+        }
         let _ = fs::remove_file(&inner.entry_path);
         Ok(())
     }
@@ -275,6 +372,61 @@ pub fn delete_instance_state(
     Ok(entry)
 }
 
+/// Garbage-collect dead lease and instance entries.
+///
+/// Scans both `leases/` and `instances/` under `registry_root` and removes any
+/// JSON entry whose recorded `pid` is provably NOT live (via `is_pid_live`).
+/// Entries owned by a live pid are NEVER removed. Any entry that fails to read
+/// or parse is skipped (never deleted), so corrupt/foreign files are left
+/// untouched. Safe to call while a live instance is running — only
+/// provably-dead entries are removed.
+pub fn gc_dead_leases(registry_root: &Path) -> std::io::Result<GcReport> {
+    let mut report = GcReport::default();
+    gc_dead_in_dir(
+        &registry_root.join(LEASE_DIR_NAME),
+        &mut report.scanned,
+        &mut report.leases_removed,
+    )?;
+    gc_dead_in_dir(
+        &registry_root.join(INSTANCE_DIR_NAME),
+        &mut report.scanned,
+        &mut report.instances_removed,
+    )?;
+    Ok(report)
+}
+
+/// Sweep a single registry directory, removing only entries whose pid is dead.
+fn gc_dead_in_dir(dir: &Path, scanned: &mut usize, removed: &mut usize) -> std::io::Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for item in fs::read_dir(dir)? {
+        // Skip unreadable directory entries rather than aborting the sweep.
+        let item = match item {
+            Ok(item) => item,
+            Err(_) => continue,
+        };
+        let path = item.path();
+        if path.extension().and_then(|v| v.to_str()) != Some("json") {
+            continue;
+        }
+        // Conservative: any read/parse error -> skip (do NOT delete).
+        let entry: InstanceRegistryEntry = match read_json(&path) {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        *scanned += 1;
+        // NEVER remove an entry whose owning process is still alive.
+        if is_pid_live(entry.pid) {
+            continue;
+        }
+        if fs::remove_file(&path).is_ok() {
+            *removed += 1;
+        }
+    }
+    Ok(())
+}
+
 pub fn default_registry_root() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         return PathBuf::from(home).join(DEFAULT_REGISTRY_SUBDIR);
@@ -314,9 +466,22 @@ fn apply_conflicts(entries: &mut [InstanceRegistryEntry]) {
 }
 
 fn persist_handle_inner(inner: &InstanceHandleInner) -> M1ndResult<()> {
+    // Always refresh the discovery entry so heartbeats keep ReadOnly attachers
+    // (and ReadWrite owners) visible/live in list_instances.
     save_json_atomic(&inner.entry_path, &inner.entry)?;
-    save_json_atomic(&inner.lock_path, &inner.entry)
+    // Refresh the exclusive lease only for ReadWrite handles.
+    if let Some(lock_path) = &inner.lock_path {
+        save_json_atomic(lock_path, &inner.entry)?;
+    }
+    Ok(())
 }
+
+/// Monotonic per-process nonce so that two instances acquired in the same
+/// process for the same (workspace, runtime) within a single millisecond clock
+/// tick never collide on `instance_id`. The pid already disambiguates across
+/// processes; this disambiguates within one (e.g. a ReadWrite owner and a
+/// ReadOnly attacher started back-to-back, or test setups).
+static INSTANCE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn generate_instance_id(workspace_root: &Path, runtime_root: &Path, now_ms: u64) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -324,6 +489,9 @@ fn generate_instance_id(workspace_root: &Path, runtime_root: &Path, now_ms: u64)
     runtime_root.to_string_lossy().hash(&mut hasher);
     std::process::id().hash(&mut hasher);
     now_ms.hash(&mut hasher);
+    INSTANCE_SEQ
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        .hash(&mut hasher);
     format!("inst_{:x}", hasher.finish())
 }
 
@@ -616,5 +784,164 @@ mod tests {
         assert!(runtime.exists());
         assert!(entry_path.exists());
         assert!(lease_path.exists());
+    }
+
+    #[test]
+    fn instance_mode_roundtrips_on_disk_string() {
+        assert_eq!(InstanceMode::ReadWrite.as_str(), "read_write");
+        assert_eq!(InstanceMode::ReadOnly.as_str(), "read_only");
+        assert_eq!(InstanceMode::from_str("read_write"), InstanceMode::ReadWrite);
+        assert_eq!(InstanceMode::from_str("read_only"), InstanceMode::ReadOnly);
+        // Unknown/legacy values default to ReadWrite.
+        assert_eq!(InstanceMode::from_str("whatever"), InstanceMode::ReadWrite);
+    }
+
+    #[test]
+    fn readonly_attach_coexists_with_live_readwrite_owner() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let owner =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        assert_eq!(owner.mode(), InstanceMode::ReadWrite);
+
+        // Two ReadOnly attachers succeed even with a live ReadWrite owner.
+        let ro_a = InstanceHandle::acquire_with_mode(
+            &workspace,
+            &runtime,
+            &graph,
+            &plasticity,
+            Some(&registry),
+            InstanceMode::ReadOnly,
+        )
+        .unwrap();
+        let ro_b = InstanceHandle::acquire_with_mode(
+            &workspace,
+            &runtime,
+            &graph,
+            &plasticity,
+            Some(&registry),
+            InstanceMode::ReadOnly,
+        )
+        .unwrap();
+        assert_eq!(ro_a.mode(), InstanceMode::ReadOnly);
+        assert_eq!(ro_b.mode(), InstanceMode::ReadOnly);
+
+        // The single exclusive lease still belongs to the ReadWrite owner.
+        let lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        let lease: InstanceRegistryEntry = read_json(&lease_path).unwrap();
+        assert_eq!(lease.instance_id, owner.summary().instance_id);
+        assert_eq!(lease.mode, "read_write");
+
+        // All three are discoverable; two carry read_only mode.
+        let instances = list_instances(Some(&registry)).unwrap();
+        assert_eq!(instances.len(), 3);
+        let read_only = instances
+            .iter()
+            .filter(|e| e.mode == "read_only")
+            .count();
+        assert_eq!(read_only, 2);
+
+        // ReadOnly release removes only its own discovery entry, never the lease.
+        ro_a.release().unwrap();
+        assert!(lease_path.exists());
+        let after = list_instances(Some(&registry)).unwrap();
+        assert_eq!(after.len(), 2);
+    }
+
+    #[test]
+    fn readonly_acquire_never_creates_a_lease() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        let ro = InstanceHandle::acquire_with_mode(
+            &workspace,
+            &runtime,
+            &graph,
+            &plasticity,
+            Some(&registry),
+            InstanceMode::ReadOnly,
+        )
+        .unwrap();
+        let lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+        assert!(!lease_path.exists());
+        // Heartbeats keep the discovery entry fresh without creating a lease.
+        ro.mark_heartbeat().unwrap();
+        assert!(!lease_path.exists());
+        assert_eq!(list_instances(Some(&registry)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn gc_removes_dead_entries_and_keeps_live_ones() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        // Live owner (current pid) — must survive GC.
+        let live =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let live_entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", live.summary().instance_id));
+        let live_lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+
+        // Plant a dead lease + dead instance entry under a different runtime root.
+        let mut dead = live.summary();
+        dead.instance_id = "inst_dead".into();
+        dead.pid = u32::MAX - 1; // never live
+        dead.runtime_root = "/tmp/dead-runtime".into();
+        let dead_entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join("inst_dead.json");
+        let dead_lease_path = registry
+            .join(LEASE_DIR_NAME)
+            .join("deadfingerprint.json");
+        save_json_atomic(&dead_entry_path, &dead).unwrap();
+        save_json_atomic(&dead_lease_path, &dead).unwrap();
+
+        // A corrupt file must be skipped, not deleted.
+        let corrupt_path = registry.join(LEASE_DIR_NAME).join("corrupt.json");
+        fs::write(&corrupt_path, "{ not valid json").unwrap();
+
+        let report = gc_dead_leases(&registry).unwrap();
+        assert_eq!(report.leases_removed, 1);
+        assert_eq!(report.instances_removed, 1);
+        // scanned counts only successfully-parsed entries.
+        assert_eq!(report.scanned, 4);
+
+        // Dead entries gone; live entries and the corrupt file remain.
+        assert!(!dead_entry_path.exists());
+        assert!(!dead_lease_path.exists());
+        assert!(live_entry_path.exists());
+        assert!(live_lease_path.exists());
+        assert!(corrupt_path.exists());
     }
 }

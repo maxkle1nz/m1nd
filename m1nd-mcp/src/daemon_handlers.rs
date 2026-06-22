@@ -716,6 +716,16 @@ pub fn handle_daemon_tick(
     let emitted_alerts_total = emitted_alert_ids.len() + heuristic_alerts_emitted;
     state.daemon_state.last_tick_ms = Some(tick_ms);
     state.daemon_state.tick_count = state.daemon_state.tick_count.saturating_add(1);
+
+    // Periodically garbage-collect dead lease/instance entries so crashed
+    // instances don't leak registry files forever. Cheap (a directory scan +
+    // `kill -0` per entry) and only removes provably-dead entries, so it is
+    // safe to run alongside live instances. Throttled to every Nth tick.
+    const GC_EVERY_N_TICKS: u64 = 50;
+    if state.daemon_state.tick_count % GC_EVERY_N_TICKS == 0 {
+        let registry_root = state.instance.registry_root();
+        let _ = crate::instance_registry::gc_dead_leases(&registry_root);
+    }
     state.daemon_state.last_tick_duration_ms = Some(start.elapsed().as_secs_f64() * 1000.0);
     state.daemon_state.last_tick_changed_files = changed_entries.len();
     state.daemon_state.last_tick_deleted_files = deleted_entries.len();
