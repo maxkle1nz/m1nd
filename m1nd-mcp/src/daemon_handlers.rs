@@ -722,7 +722,7 @@ pub fn handle_daemon_tick(
     // `kill -0` per entry) and only removes provably-dead entries, so it is
     // safe to run alongside live instances. Throttled to every Nth tick.
     const GC_EVERY_N_TICKS: u64 = 50;
-    if state.daemon_state.tick_count % GC_EVERY_N_TICKS == 0 {
+    if state.daemon_state.tick_count.is_multiple_of(GC_EVERY_N_TICKS) {
         let registry_root = state.instance.registry_root();
         let _ = crate::instance_registry::gc_dead_leases(&registry_root);
     }

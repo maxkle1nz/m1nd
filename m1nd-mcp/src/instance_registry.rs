@@ -63,6 +63,9 @@ impl InstanceMode {
     /// Parse the on-disk `mode` string. Anything that is not exactly
     /// `"read_only"` is treated as `ReadWrite` so legacy/unknown values keep
     /// their historical (exclusive) meaning.
+    // Infallible, default-on-unknown conversion — the std `FromStr` trait would
+    // force a never-used `Err` type, so an inherent method is the right shape.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(value: &str) -> Self {
         match value {
             "read_only" => InstanceMode::ReadOnly,
