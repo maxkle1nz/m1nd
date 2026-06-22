@@ -221,6 +221,11 @@ pub struct McpConfig {
     /// Controls temporal decay half-lives and relation types.
     #[serde(default)]
     pub domain: Option<String>,
+    /// Attach read-only: the session loads the snapshot and serves queries but
+    /// never persists to disk and never holds an exclusive lease. Mutation tools
+    /// are disabled. Set via `--read-only` CLI flag or `M1ND_READ_ONLY=1`.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 impl Default for McpConfig {
@@ -237,6 +242,7 @@ impl Default for McpConfig {
             max_concurrent_reads: 32,
             write_queue_size: 64,
             domain: None,
+            read_only: false,
         }
     }
 }
@@ -327,6 +333,20 @@ pub fn active_tool_tier() -> &'static str {
     {
         "full" => "full",
         _ => "essential",
+    }
+}
+
+/// Whether the additive `_m1nd` response envelope is attached to tool results.
+///
+/// Gated by `M1ND_RESPONSE_ENVELOPE`, default ON. Only an explicit `"0"` or
+/// `"false"` (case-insensitive) disables it; any other value (or unset) is ON.
+pub fn response_envelope_enabled() -> bool {
+    match std::env::var("M1ND_RESPONSE_ENVELOPE") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            v != "0" && v != "false"
+        }
+        Err(_) => true,
     }
 }
 
@@ -2114,6 +2134,196 @@ fn all_tool_schemas_inner() -> serde_json::Value {
 }
 
 // ---------------------------------------------------------------------------
+// Read-only attach: mutating-tool deny-list
+// ---------------------------------------------------------------------------
+
+/// Tools that mutate graph/plasticity/disk state and must be refused when the
+/// session is attached read-only. Read-only/analysis tools are NOT listed here
+/// and continue to work normally. `persist` is handled specially (see
+/// [`read_only_denied`]) because its `status` action is read-only.
+const READ_ONLY_DENIED_TOOLS: &[&str] = &[
+    "ingest",
+    "apply",
+    "apply_batch",
+    "edit_commit",
+    "memorize",
+    "learn",
+    "daemon_start",
+    "auto_ingest_start",
+];
+
+/// Returns true if `tool_name` must be refused in read-only attach mode.
+///
+/// Normalizes the optional `m1nd.`/`m1nd_` prefix first so `apply`, `m1nd_apply`
+/// and `m1nd.apply` are all caught. `persist` is allowed only for its read-only
+/// `action == "status"`; every other persist action (`save`/`checkpoint`/`load`)
+/// writes graph/disk state and is denied. `edit_preview` is intentionally
+/// allowed: it stages an in-memory preview and never writes to disk; only
+/// `edit_commit` performs the write.
+fn read_only_denied(tool_name: &str, params: &serde_json::Value) -> bool {
+    let bare = tool_name
+        .strip_prefix("m1nd.")
+        .or_else(|| tool_name.strip_prefix("m1nd_"))
+        .unwrap_or(tool_name);
+    if READ_ONLY_DENIED_TOOLS.contains(&bare) {
+        return true;
+    }
+    if bare == "persist" {
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("status");
+        return !action.eq_ignore_ascii_case("status");
+    }
+    false
+}
+
+// ---------------------------------------------------------------------------
+// Tier 3: memory at point-of-relevance (`_m1nd.memory_nearby`)
+// ---------------------------------------------------------------------------
+
+/// Tools whose results carry rankable node ids worth checking for nearby memory.
+fn tool_has_memory_anchors(tool: &str) -> bool {
+    let bare = tool
+        .strip_prefix("m1nd.")
+        .or_else(|| tool.strip_prefix("m1nd_"))
+        .unwrap_or(tool);
+    matches!(
+        bare,
+        "activate" | "seek" | "search" | "surgical_context" | "surgical_context_v2"
+    )
+}
+
+/// Parse a confidence value out of a memory marker label, if present.
+/// Markers authored via `memorize` embed `[𝔻 confidence: 0.9]` in the label text.
+fn parse_marker_confidence(label: &str) -> Option<f64> {
+    let pos = label.find("confidence:")? + "confidence:".len();
+    let tail = &label[pos..];
+    let num: String = tail
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    num.parse::<f64>().ok()
+}
+
+/// Build `_m1nd.memory_nearby`: for the top result node ids of a query/seek/
+/// activate/surgical result, surface any memorized claim that anchors to them
+/// via a `grounded_in` edge (marker → code), so the agent sees prior
+/// conclusions WITHOUT issuing another query.
+///
+/// Best-effort and capped at 3. `evidence_fresh` is a cheap signal: true when
+/// the cited code file still exists on disk (re-hashing on every query would be
+/// too costly here; `audit(checks=["evidence_freshness"])` remains the
+/// authoritative hash-level check). Returns `None` when the tool has no anchors
+/// or nothing is found.
+fn memory_nearby_for_result(
+    state: &SessionState,
+    tool: &str,
+    result: &serde_json::Value,
+) -> Option<Vec<serde_json::Value>> {
+    if !tool_has_memory_anchors(tool) {
+        return None;
+    }
+
+    // Collect up to a few top result node ids (labels / external ids).
+    let results = result.get("results").and_then(|v| v.as_array())?;
+    let top_ids: Vec<String> = results
+        .iter()
+        .take(3)
+        .filter_map(|r| {
+            r.get("node_id")
+                .or_else(|| r.get("label"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+    if top_ids.is_empty() {
+        return None;
+    }
+
+    let graph = state.graph.read();
+    let grounded_in = graph.strings.lookup("grounded_in")?;
+    let evidenced_by_tag = graph.strings.lookup("light:evidenced_by");
+
+    // Map each requested top id → its node index (skip ids not in the graph).
+    let mut target_idx: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+    for id in &top_ids {
+        if let Some(nid) = graph.resolve_id(id) {
+            target_idx.insert(nid.as_usize(), id.clone());
+        }
+    }
+    if target_idx.is_empty() {
+        return None;
+    }
+
+    // Walk markers: every node with an outgoing `grounded_in` edge whose target
+    // is one of our top result nodes is a memory anchor for that result.
+    let node_count = graph.nodes.count as usize;
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    'outer: for src_idx in 0..node_count {
+        // Only consider memory/light markers when the tag is present in the graph.
+        if let Some(tag) = evidenced_by_tag {
+            let is_marker = graph
+                .nodes
+                .tags
+                .get(src_idx)
+                .is_some_and(|tags| tags.contains(&tag));
+            if !is_marker {
+                continue;
+            }
+        }
+        let src_nid = m1nd_core::types::NodeId::new(src_idx as u32);
+        for edge_i in graph.csr.out_range(src_nid) {
+            if graph.csr.relations[edge_i] != grounded_in {
+                continue;
+            }
+            let tgt_idx = graph.csr.targets[edge_i].as_usize();
+            let Some(anchor_id) = target_idx.get(&tgt_idx) else {
+                continue;
+            };
+            let claim = graph.strings.resolve(graph.nodes.label[src_idx]).to_string();
+            if !seen.insert(claim.clone()) {
+                continue;
+            }
+            let confidence = parse_marker_confidence(&claim);
+            // Cheap freshness: does the cited code file still exist on disk?
+            let tgt_ext = graph
+                .id_to_node
+                .iter()
+                .find(|(_, &nid)| nid.as_usize() == tgt_idx)
+                .map(|(interned, _)| graph.strings.resolve(*interned).to_string());
+            let evidence_fresh = tgt_ext
+                .as_deref()
+                .and_then(|ext| state.file_inventory.get(ext))
+                .map(|inv| std::path::Path::new(&inv.file_path).exists())
+                .unwrap_or(true);
+
+            let mut entry = serde_json::json!({
+                "claim": claim,
+                "anchored_to": anchor_id,
+                "evidence_fresh": evidence_fresh,
+            });
+            if let Some(c) = confidence {
+                entry["confidence"] = serde_json::json!(c);
+            }
+            out.push(entry);
+            if out.len() >= 3 {
+                break 'outer;
+            }
+        }
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Free dispatch functions — used by both JSON-RPC stdio and HTTP API.
 // Zero duplication: McpServer::dispatch_tool() delegates to these.
 // ---------------------------------------------------------------------------
@@ -2129,6 +2339,18 @@ pub fn dispatch_tool(
 ) -> M1ndResult<serde_json::Value> {
     let normalized = tool_name.to_string();
     let start = std::time::Instant::now();
+
+    // Read-only attach gate: refuse mutating tools BEFORE any dispatch or
+    // side-effecting tick so the writer's on-disk state can never be touched.
+    if state.read_only && read_only_denied(&normalized, params) {
+        return Err(M1ndError::InvalidParams {
+            tool: normalized.clone(),
+            detail: format!(
+                "m1nd is attached read-only (--read-only); mutation tool '{}' is disabled. Detach or run a read-write instance to modify state.",
+                normalized
+            ),
+        });
+    }
 
     // Extract agent_id for tracking
     let agent_id = params
@@ -2186,7 +2408,8 @@ pub fn dispatch_tool(
     });
 
     // Post-dispatch: track savings + log query + add _m1nd metadata
-    if let Ok(ref value) = result {
+    let mut result = result;
+    if let Ok(ref mut value) = result {
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         let result_count = value
             .get("results")
@@ -2223,6 +2446,40 @@ pub fn dispatch_tool(
             result_count,
             &query_preview,
         );
+
+        // Additive `_m1nd` response envelope (Tier 2). Gated behind
+        // M1ND_RESPONSE_ENVELOPE (default ON; set to "0"/"false" to disable).
+        // ADDITIVE ONLY: attaches a `_m1nd` object to JSON-object results;
+        // never removes or renames existing fields. Non-object results (rare)
+        // are left untouched.
+        if response_envelope_enabled() && value.is_object() {
+            let session_saved = state.savings_tracker.tokens_saved;
+            let global_saved = state.global_savings.total_tokens_saved + session_saved;
+            // Builders read the result; snapshot it once to avoid a borrow
+            // conflict with the mutable insert below.
+            let snapshot = value.clone();
+            let mut meta =
+                personality::build_m1nd_meta(&normalized, &snapshot, session_saved, global_saved);
+            // Promote the headline fields the contract calls for so agents get
+            // them without reaching into nested `savings`.
+            let summary = personality::personality_line(&normalized, &snapshot);
+            if !summary.is_empty() {
+                meta["summary"] = serde_json::Value::String(summary);
+            }
+            meta["tokens_saved"] = serde_json::json!(session_saved);
+            meta["read_only"] = serde_json::json!(state.read_only);
+
+            // Tier 3: memory at point-of-relevance (additive, capped, best-effort).
+            if let Some(nearby) = memory_nearby_for_result(state, &normalized, &snapshot) {
+                if !nearby.is_empty() {
+                    meta["memory_nearby"] = serde_json::Value::Array(nearby);
+                }
+            }
+
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("_m1nd".to_string(), meta);
+            }
+        }
     }
 
     result
@@ -3635,6 +3892,135 @@ mod tests {
         };
         let server = McpServer::new(config).expect("server");
         (temp, server)
+    }
+
+    fn build_state_read_only() -> (tempfile::TempDir, SessionState) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            read_only: true,
+            ..McpConfig::default()
+        };
+        let state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        (temp, state)
+    }
+
+    #[test]
+    fn read_only_deny_list_is_precise() {
+        use super::read_only_denied;
+        let empty = serde_json::json!({});
+        // Mutating tools are denied (bare and prefixed).
+        for t in [
+            "ingest",
+            "apply",
+            "apply_batch",
+            "edit_commit",
+            "memorize",
+            "learn",
+            "daemon_start",
+            "auto_ingest_start",
+            "m1nd_apply",
+            "m1nd.ingest",
+        ] {
+            assert!(read_only_denied(t, &empty), "{t} should be denied");
+        }
+        // Read-only / analysis tools are allowed.
+        for t in [
+            "seek",
+            "search",
+            "activate",
+            "why",
+            "impact",
+            "audit",
+            "surgical_context_v2",
+            "session_handshake",
+            "trust_selftest",
+            "doctor",
+            "health",
+            "view",
+            "scan",
+            "trace",
+            "edit_preview",
+        ] {
+            assert!(!read_only_denied(t, &empty), "{t} should be allowed");
+        }
+        // persist: status is allowed; save/checkpoint/load are denied.
+        assert!(!read_only_denied(
+            "persist",
+            &serde_json::json!({"action": "status"})
+        ));
+        assert!(read_only_denied(
+            "persist",
+            &serde_json::json!({"action": "save"})
+        ));
+        assert!(read_only_denied(
+            "persist",
+            &serde_json::json!({"action": "load"})
+        ));
+        // persist with no action defaults to status (allowed).
+        assert!(!read_only_denied("persist", &empty));
+    }
+
+    #[test]
+    fn read_only_dispatch_refuses_mutation_but_allows_query() {
+        let (_temp, mut state) = build_state_read_only();
+        assert!(state.read_only);
+
+        // A mutation tool is refused with the contract error message.
+        let err = super::dispatch_tool(
+            &mut state,
+            "ingest",
+            &serde_json::json!({"agent_id": "t", "path": "/tmp/x"}),
+        )
+        .expect_err("ingest must be refused in read-only");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("attached read-only") && msg.contains("ingest"),
+            "unexpected error: {msg}"
+        );
+
+        // A read-only tool still works (health needs no graph).
+        let ok = super::dispatch_tool(&mut state, "health", &serde_json::json!({"agent_id": "t"}));
+        assert!(ok.is_ok(), "health should work read-only: {ok:?}");
+    }
+
+    #[test]
+    fn read_only_persist_is_a_noop() {
+        let (_temp, mut state) = build_state_read_only();
+        // persist() must early-return Ok without creating the graph file.
+        state.persist().expect("read-only persist returns Ok");
+        assert!(
+            !state.graph_path.exists(),
+            "read-only persist must not write the graph snapshot"
+        );
+        // should_persist is always false even after many queries.
+        state.queries_processed = state.auto_persist_interval as u64;
+        assert!(!state.should_persist());
+    }
+
+    #[test]
+    fn response_envelope_attaches_additively() {
+        let (_temp, mut state) = build_state();
+        // seek on an empty graph returns a results-shaped object; the envelope
+        // must be attached without removing existing fields.
+        let out = super::dispatch_tool(
+            &mut state,
+            "seek",
+            &serde_json::json!({"agent_id": "t", "query": "anything"}),
+        )
+        .expect("seek ok");
+        let obj = out.as_object().expect("object result");
+        assert!(obj.contains_key("_m1nd"), "_m1nd envelope must be present");
+        let meta = &obj["_m1nd"];
+        assert!(meta.get("suggest_next").is_some(), "suggest_next present");
+        assert!(meta.get("tokens_saved").is_some(), "tokens_saved present");
+        // Additive: the original results field is still there.
+        assert!(obj.contains_key("results"), "results field preserved");
     }
 
     #[test]

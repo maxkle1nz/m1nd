@@ -820,10 +820,9 @@ pub fn handle_activate(
         propagation: PropagationConfig::default(),
     };
 
-    let result = {
-        let mut graph = state.graph.write();
-        state.orchestrator.query(&mut graph, &config)?
-    };
+    // Read-only attach takes the immutable read path (query_readonly); read-write
+    // keeps the historical mutate-on-query (plasticity) behavior.
+    let result = state.run_query(&config)?;
 
     state.queries_processed += 1;
     if state.should_persist() {
@@ -1387,10 +1386,8 @@ pub fn handle_missing(
         ..QueryConfig::default()
     };
 
-    let result = {
-        let mut graph = state.graph.write();
-        state.orchestrator.query(&mut graph, &config)?
-    };
+    // Read-only attach takes the immutable read path (query_readonly).
+    let result = state.run_query(&config)?;
 
     let graph = state.graph.read();
 
