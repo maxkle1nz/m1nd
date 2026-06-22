@@ -466,6 +466,9 @@ pub async fn handle_mcp_post(
 ///
 /// The `parking_lot` lock is held only for the brief get-and-touch; it is never
 /// carried across an `.await` (critical for the long-lived SSE stream).
+// The `Err` is an axum `Response` (the natural rejection type for these handlers);
+// boxing it would only push the allocation onto every caller's happy path.
+#[allow(clippy::result_large_err)]
 fn validate_session(app: &Arc<AppState>, headers: &HeaderMap) -> Result<String, Response> {
     let session_id = match session_id_from_headers(headers) {
         None => {
