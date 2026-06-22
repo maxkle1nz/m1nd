@@ -60,11 +60,20 @@ exec /usr/bin/bwrap "${args[@]}"
 fn load_config_from_cli(cli: &Cli) -> McpConfig {
     // Priority: --config file > --graph/--plasticity/--domain flags > env vars > defaults
 
+    // Read-only attach: --read-only flag OR M1ND_READ_ONLY=1 (any non-"0"/"false").
+    // Resolved up-front so it can be forced on top of a config file too.
+    let force_read_only = cli.read_only
+        || std::env::var("M1ND_READ_ONLY")
+            .map(|v| v != "0" && v != "false" && !v.is_empty())
+            .unwrap_or(false);
+
     // 1. Try config file
     if let Some(ref path) = cli.config {
         if let Ok(contents) = std::fs::read_to_string(path) {
-            if let Ok(config) = serde_json::from_str::<McpConfig>(&contents) {
+            if let Ok(mut config) = serde_json::from_str::<McpConfig>(&contents) {
                 eprintln!("[m1nd-mcp] Config loaded from {}", path);
+                // --read-only / env always wins over a config file (safety opt-in).
+                config.read_only = config.read_only || force_read_only;
                 return config;
             }
         }
@@ -119,6 +128,7 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         registry_dir,
         xlr_enabled,
         domain,
+        read_only: force_read_only,
         ..McpConfig::default()
     }
 }

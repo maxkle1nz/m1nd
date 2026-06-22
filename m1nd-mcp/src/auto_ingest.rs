@@ -661,6 +661,11 @@ impl AutoIngestState {
     }
 
     pub fn maybe_tick(&mut self, state: &mut SessionState) -> M1ndResult<()> {
+        // Read-only attach must never re-ingest/persist, even if a prior
+        // read-write session left auto-ingest `running` in the loaded state.
+        if state.read_only {
+            return Ok(());
+        }
         if !self.running {
             return Ok(());
         }

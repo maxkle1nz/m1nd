@@ -68,4 +68,10 @@ pub struct Cli {
     /// Use when a separate stdio process writes events to this file.
     #[arg(long)]
     pub watch_events: Option<String>,
+
+    /// Attach read-only: load the snapshot and serve queries, but never write to
+    /// disk and never take an exclusive lease. Mutation tools are disabled.
+    /// Also honored via env `M1ND_READ_ONLY=1`.
+    #[arg(long)]
+    pub read_only: bool,
 }

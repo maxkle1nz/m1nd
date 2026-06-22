@@ -379,6 +379,14 @@ pub struct SessionState {
     /// `session_handshake` (and thus `trust_selftest`). `None` = the auto-load
     /// did not run (no agent-memory dir yet); never hidden.
     pub agent_memory_boot: Option<serde_json::Value>,
+
+    /// Read-only attach mode. When true: `persist()` and every granular
+    /// persist helper are no-ops, `should_persist()` is always false, queries
+    /// take the immutable read path (`query_readonly`), and mutating tools are
+    /// gated off in `dispatch_tool`. The instance holds no exclusive lease.
+    pub read_only: bool,
+    /// One-shot guard so the "skipping persist" line is logged only once.
+    pub read_only_persist_logged: std::cell::Cell<bool>,
 }
 
 const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
@@ -1149,13 +1157,24 @@ impl SessionState {
         std::fs::create_dir_all(&runtime_root)?;
         let (workspace_root, workspace_root_source) =
             Self::infer_workspace_root(config, &runtime_root);
-        let instance = InstanceHandle::acquire(
+        let instance_mode = if config.read_only {
+            crate::instance_registry::InstanceMode::ReadOnly
+        } else {
+            crate::instance_registry::InstanceMode::ReadWrite
+        };
+        let instance = InstanceHandle::acquire_with_mode(
             &workspace_root,
             &runtime_root,
             &config.graph_source,
             &config.plasticity_state,
             config.registry_dir.as_deref(),
+            instance_mode,
         )?;
+        if config.read_only {
+            eprintln!(
+                "[m1nd] read-only attach: holding no lease; persistence disabled; mutation tools gated."
+            );
+        }
         let ingest_roots = Self::load_ingest_roots(&config.graph_source);
 
         Ok(Self {
@@ -1244,15 +1263,49 @@ impl SessionState {
             auto_ingest: AutoIngestState::load(&runtime_root),
             document_cache: load_document_cache(&runtime_root),
             agent_memory_boot: None,
+            read_only: config.read_only,
+            read_only_persist_logged: std::cell::Cell::new(false),
         })
     }
 
     /// Check if auto-persist should trigger. Returns true every N queries.
+    ///
+    /// Always false in read-only attach mode so the every-N-queries auto-persist
+    /// never fires and the read-only process never writes to disk.
     pub fn should_persist(&self) -> bool {
-        self.queries_processed > 0
+        !self.read_only
+            && self.queries_processed > 0
             && self
                 .queries_processed
                 .is_multiple_of(self.auto_persist_interval as u64)
+    }
+
+    /// Log the read-only persist skip exactly once per session.
+    fn log_read_only_persist_skip(&self) {
+        if !self.read_only_persist_logged.replace(true) {
+            eprintln!("[m1nd] read-only attach: skipping persist");
+        }
+    }
+
+    /// Run an orchestrator query, picking the lock + method by attach mode.
+    ///
+    /// In read-only mode this takes an immutable `graph.read()` borrow and calls
+    /// [`QueryOrchestrator::query_readonly`], which skips plasticity Step 8 and
+    /// never mutates the graph. In read-write mode it takes `graph.write()` and
+    /// calls the normal `query`, preserving the historical mutate-on-query
+    /// (plasticity) behavior. Centralizing this keeps every call site honest
+    /// about the read-only contract.
+    pub fn run_query(
+        &mut self,
+        config: &m1nd_core::query::QueryConfig,
+    ) -> M1ndResult<m1nd_core::query::QueryResult> {
+        if self.read_only {
+            let graph = self.graph.read();
+            self.orchestrator.query_readonly(&graph, config)
+        } else {
+            let mut graph = self.graph.write();
+            self.orchestrator.query(&mut graph, config)
+        }
     }
 
     /// Persist all state to disk.
@@ -1261,6 +1314,13 @@ impl SessionState {
     /// If graph save fails, skip plasticity to avoid inconsistent state.
     /// If plasticity save fails after graph succeeds, log warning but don't crash.
     pub fn persist(&mut self) -> M1ndResult<()> {
+        // HARD SAFETY: a read-only attach must never write to disk. This is the
+        // single choke point every persist call site funnels through, so this
+        // early return protects the writer's on-disk state from corruption.
+        if self.read_only {
+            self.log_read_only_persist_skip();
+            return Ok(());
+        }
         let _ = self.instance.mark_heartbeat();
         self.persist_ingest_roots();
         let graph = self.graph.read();
@@ -1357,6 +1417,10 @@ impl SessionState {
     }
 
     pub fn persist_boot_memory(&self) -> M1ndResult<()> {
+        if self.read_only {
+            self.log_read_only_persist_skip();
+            return Ok(());
+        }
         let state = BootMemoryState {
             entries: self.boot_memory.clone(),
         };
@@ -1372,6 +1436,10 @@ impl SessionState {
     }
 
     pub fn persist_daemon_state(&self) -> M1ndResult<()> {
+        if self.read_only {
+            self.log_read_only_persist_skip();
+            return Ok(());
+        }
         save_json_atomic(&self.daemon_state_path, &self.daemon_state)
     }
 
@@ -1383,6 +1451,10 @@ impl SessionState {
     }
 
     pub fn persist_daemon_alerts(&self) -> M1ndResult<()> {
+        if self.read_only {
+            self.log_read_only_persist_skip();
+            return Ok(());
+        }
         save_json_atomic(&self.daemon_alerts_path, &self.daemon_alerts)
     }
 
@@ -1672,6 +1744,10 @@ impl SessionState {
 
     /// Persist global savings state to disk.
     pub fn persist_savings(&self) {
+        if self.read_only {
+            self.log_read_only_persist_skip();
+            return;
+        }
         if let Ok(json) = serde_json::to_string_pretty(&self.global_savings) {
             let _ = std::fs::write(&self.savings_path, json);
         }
