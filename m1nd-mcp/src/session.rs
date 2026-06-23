@@ -1902,8 +1902,7 @@ impl SessionState {
     /// Borrow the proof-ready mark for inspection (staleness/evidence), mirroring
     /// [`Self::get_perspective`].
     pub fn get_proof_ready(&self, agent_id: &str, raw_target: &str) -> Option<&ProofReadyMark> {
-        let target =
-            crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)?;
+        let target = crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)?;
         self.proof_ready.get(&(agent_id.to_string(), target))
     }
 

@@ -4246,8 +4246,7 @@ pub fn handle_apply_batch(
             .collect();
         let mut proposed = Vec::new();
         for file_path in &written_files {
-            let mut per_file =
-                propose_antibodies_for_write(state, &input.agent_id, file_path, &[]);
+            let mut per_file = propose_antibodies_for_write(state, &input.agent_id, file_path, &[]);
             proposed.append(&mut per_file);
         }
         if !proposed.is_empty() {
@@ -6191,8 +6190,9 @@ mod tests {
         // (2) Drive surgical_context_v2 through dispatch -> reaches ready_to_edit
         //     and RECORDS the proof for this agent+target.
         let sctx_params = serde_json::json!({ "agent_id": agent, "file_path": target_str });
-        let sctx_out = crate::server::dispatch_tool(&mut state, "surgical_context_v2", &sctx_params)
-            .expect("surgical_context_v2 dispatch");
+        let sctx_out =
+            crate::server::dispatch_tool(&mut state, "surgical_context_v2", &sctx_params)
+                .expect("surgical_context_v2 dispatch");
         let proof_state = sctx_out
             .get("result")
             .and_then(|r| r.get("proof_state"))
@@ -6250,7 +6250,10 @@ mod tests {
         });
         // Gate OFF: unproven apply must NOT be refused by the proof gate.
         let out = crate::server::dispatch_tool(&mut state, "apply", &apply_params);
-        println!("[probe] gate OFF unproven apply result is_ok={}", out.is_ok());
+        println!(
+            "[probe] gate OFF unproven apply result is_ok={}",
+            out.is_ok()
+        );
         assert!(
             out.is_ok(),
             "with gate OFF an unproven apply must pass: {out:?}"
@@ -6314,8 +6317,24 @@ mod tests {
         std::fs::write(target, "pub fn handle_login() {}\n").expect("write target");
         std::fs::create_dir_all(other.parent().unwrap()).expect("mk other parent");
         std::fs::write(other, "pub fn unrelated() {}\n").expect("write other");
-        let target_str = target.to_string_lossy().to_string();
-        let other_str = other.to_string_lossy().to_string();
+        // Resolve the node paths through the SAME functions apply uses
+        // (resolve_file_path + validate_path_safety, which canonicalizes:
+        // resolves symlinks, 8.3 short→long names, and the \\?\ prefix on
+        // Windows). This guarantees each node's source_path matches apply's
+        // `validated_path` on every platform, so find_nodes_for_file links the
+        // written file to its flagged node regardless of OS path form.
+        let root_str = root.to_string_lossy().to_string();
+        let ingest_roots = vec![root_str.clone()];
+        let resolve_like_apply = |p: &std::path::Path| -> String {
+            validate_path_safety(
+                &resolve_file_path(&p.to_string_lossy(), &ingest_roots),
+                &ingest_roots,
+            )
+            .map(|v| v.to_string_lossy().to_string())
+            .unwrap_or_else(|_| p.to_string_lossy().to_string())
+        };
+        let target_str = resolve_like_apply(target);
+        let other_str = resolve_like_apply(other);
 
         let mut graph = Graph::new();
         // A symbol (Function) node for the target: type + discriminating label
@@ -6360,8 +6379,8 @@ mod tests {
         graph.finalize().expect("finalize graph");
         let mut state =
             SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
-        state.ingest_roots = vec![root.to_string_lossy().to_string()];
-        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state.ingest_roots = ingest_roots;
+        state.workspace_root = Some(root_str);
         (state, func_ext)
     }
 
@@ -6431,7 +6450,10 @@ mod tests {
         );
         // Schema sanity: required fields present and well-formed.
         assert_eq!(args.get("agent_id").and_then(|v| v.as_str()), Some(agent));
-        assert!(args.get("pattern").is_some(), "pattern is required for create");
+        assert!(
+            args.get("pattern").is_some(),
+            "pattern is required for create"
+        );
         let nodes = args
             .pointer("/pattern/nodes")
             .and_then(|v| v.as_array())

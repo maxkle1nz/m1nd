@@ -2257,10 +2257,7 @@ fn proof_gated_write_tool(tool_name: &str) -> Option<&'static str> {
         .strip_prefix("m1nd.")
         .or_else(|| tool_name.strip_prefix("m1nd_"))
         .unwrap_or(tool_name);
-    PROOF_GATED_WRITE_TOOLS
-        .iter()
-        .copied()
-        .find(|&t| t == bare)
+    PROOF_GATED_WRITE_TOOLS.iter().copied().find(|&t| t == bare)
 }
 
 /// Collect the raw target file path(s) a write call will touch, exactly as the
@@ -2408,7 +2405,10 @@ fn memory_nearby_for_result(
             let Some(anchor_id) = target_idx.get(&tgt_idx) else {
                 continue;
             };
-            let claim = graph.strings.resolve(graph.nodes.label[src_idx]).to_string();
+            let claim = graph
+                .strings
+                .resolve(graph.nodes.label[src_idx])
+                .to_string();
             if !seen.insert(claim.clone()) {
                 continue;
             }
@@ -2569,10 +2569,7 @@ fn handle_orient(
         .iter()
         .take(top_k)
         .map(|a| {
-            let path = a
-                .provenance
-                .as_ref()
-                .and_then(|p| p.source_path.clone());
+            let path = a.provenance.as_ref().and_then(|p| p.source_path.clone());
             serde_json::json!({
                 "node_id": a.node_id,
                 "label": a.label,
@@ -2583,10 +2580,7 @@ fn handle_orient(
             })
         })
         .collect();
-    let top_focus_id = activate_out
-        .activated
-        .first()
-        .map(|a| a.node_id.clone());
+    let top_focus_id = activate_out.activated.first().map(|a| a.node_id.clone());
 
     // 2. memory_nearby: reuse memory_nearby_for_result over the focus nodes.
     //    It expects a `results` array of `{node_id|label}` — shape one from the
@@ -2766,8 +2760,10 @@ fn handle_am_i_stale(
     // index by the canonicalized form so a caller passing a non-canonical path
     // (e.g. /var/… on macOS where the inventory recorded /private/var/…) still
     // matches the same baseline.
-    let mut inventory_by_path: std::collections::HashMap<String, &crate::session::FileInventoryEntry> =
-        std::collections::HashMap::with_capacity(state.file_inventory.len() * 2);
+    let mut inventory_by_path: std::collections::HashMap<
+        String,
+        &crate::session::FileInventoryEntry,
+    > = std::collections::HashMap::with_capacity(state.file_inventory.len() * 2);
     for entry in state.file_inventory.values() {
         inventory_by_path.insert(entry.file_path.clone(), entry);
         if let Ok(canon) = std::fs::canonicalize(&entry.file_path) {
@@ -2848,7 +2844,11 @@ fn handle_am_i_stale(
             .collect();
         let preview: Vec<&str> = stale_paths.iter().take(3).copied().collect();
         let suffix = if stale_paths.len() > preview.len() {
-            format!("{}, +{} more", preview.join(", "), stale_paths.len() - preview.len())
+            format!(
+                "{}, +{} more",
+                preview.join(", "),
+                stale_paths.len() - preview.len()
+            )
         } else {
             preview.join(", ")
         };
@@ -2875,9 +2875,8 @@ fn handle_am_i_stale(
         "summary": summary,
     });
     if !notes.is_empty() {
-        out["notes"] = serde_json::Value::Array(
-            notes.into_iter().map(serde_json::Value::String).collect(),
-        );
+        out["notes"] =
+            serde_json::Value::Array(notes.into_iter().map(serde_json::Value::String).collect());
     }
     Ok(out)
 }
@@ -2919,9 +2918,8 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
                 unvisited.push((pr, path));
             }
         }
-        unvisited.sort_unstable_by(|a, b| {
-            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        unvisited
+            .sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         unvisited.truncate(5);
     }
     serde_json::json!({
@@ -6402,7 +6400,10 @@ mod tests {
         // The activation inside orient records a coverage session for this agent,
         // so coverage is populated with visited/total and a high-value shortlist.
         let cov = &out["coverage"];
-        assert!(cov.is_object(), "coverage must be populated after activation");
+        assert!(
+            cov.is_object(),
+            "coverage must be populated after activation"
+        );
         assert!(cov["visited"].is_number(), "coverage.visited present");
         assert_eq!(cov["total"], serde_json::json!(3), "graph has 3 nodes");
         assert!(
@@ -6476,8 +6477,8 @@ mod tests {
             return;
         };
 
-        let graph = m1nd_core::snapshot::load_graph(&snapshot_path)
-            .expect("load real graph_snapshot.json");
+        let graph =
+            m1nd_core::snapshot::load_graph(&snapshot_path).expect("load real graph_snapshot.json");
         eprintln!(
             "[orient_real_snapshot_probe] loaded {} nodes from {}",
             graph.nodes.count,
@@ -6529,7 +6530,11 @@ mod tests {
             );
         }
         eprintln!("anchors (global PageRank backbone):");
-        for a in out["anchors"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+        for a in out["anchors"]
+            .as_array()
+            .map(|a| a.as_slice())
+            .unwrap_or(&[])
+        {
             eprintln!(
                 "  - {:<55} pr={:.6}",
                 a["label"].as_str().unwrap_or(""),
@@ -6538,7 +6543,10 @@ mod tests {
         }
         eprintln!(
             "memory_nearby: {} | coverage: {}",
-            out["memory_nearby"].as_array().map(|a| a.len()).unwrap_or(0),
+            out["memory_nearby"]
+                .as_array()
+                .map(|a| a.len())
+                .unwrap_or(0),
             out["coverage"]
         );
         eprintln!("=== end probe ===\n");
@@ -6571,8 +6579,8 @@ mod tests {
             return;
         };
 
-        let graph = m1nd_core::snapshot::load_graph(&snapshot_path)
-            .expect("load real graph_snapshot.json");
+        let graph =
+            m1nd_core::snapshot::load_graph(&snapshot_path).expect("load real graph_snapshot.json");
         let node_count = graph.nodes.count;
 
         let temp = tempfile::tempdir().expect("tempdir");
@@ -6724,8 +6732,7 @@ mod tests {
 
     #[test]
     fn am_i_stale_detects_changed_file() {
-        let (_temp, mut state, file) =
-            ingest_single_file("def target():\n    return 'original'\n");
+        let (_temp, mut state, file) = ingest_single_file("def target():\n    return 'original'\n");
 
         // Rewrite the file on disk with different content (the change m1nd can't see).
         std::fs::write(&file, "def target():\n    return 'MUTATED'\n").expect("rewrite file");
@@ -6753,8 +6760,7 @@ mod tests {
 
     #[test]
     fn am_i_stale_detects_missing_file() {
-        let (_temp, mut state, file) =
-            ingest_single_file("def target():\n    return 'original'\n");
+        let (_temp, mut state, file) = ingest_single_file("def target():\n    return 'original'\n");
 
         // Delete the file on disk after ingest.
         std::fs::remove_file(&file).expect("delete file");
@@ -6800,8 +6806,7 @@ mod tests {
 
     #[test]
     fn am_i_stale_defaults_to_coverage_session() {
-        let (_temp, mut state, file) =
-            ingest_single_file("def target():\n    return 'original'\n");
+        let (_temp, mut state, file) = ingest_single_file("def target():\n    return 'original'\n");
 
         // Record a coverage session for the agent that has visited the file,
         // then mutate the file so the default working set should flag it.
@@ -6827,14 +6832,17 @@ mod tests {
         );
         assert_eq!(out["checked"], serde_json::json!(1));
         let stale = out["stale"].as_array().expect("stale array");
-        assert_eq!(stale.len(), 1, "the touched-then-changed file must be stale");
+        assert_eq!(
+            stale.len(),
+            1,
+            "the touched-then-changed file must be stale"
+        );
         assert_eq!(stale[0]["reason"], "changed");
     }
 
     #[test]
     fn am_i_stale_empty_when_no_targets_and_no_session() {
-        let (_temp, mut state, _file) =
-            ingest_single_file("def target():\n    return 'x'\n");
+        let (_temp, mut state, _file) = ingest_single_file("def target():\n    return 'x'\n");
 
         // A different agent with no coverage session and no explicit targets.
         let out = super::handle_am_i_stale(
@@ -6900,7 +6908,10 @@ mod tests {
             inv_count,
             real_dir.display()
         );
-        assert!(inv_count >= 3, "expected several real files in m1nd-core/src");
+        assert!(
+            inv_count >= 3,
+            "expected several real files in m1nd-core/src"
+        );
 
         // Pick three real ingested files: one to mutate, two left untouched.
         let mut paths: Vec<String> = state
@@ -6973,7 +6984,10 @@ mod tests {
         // ALWAYS restore the real file so the working tree is clean.
         std::fs::write(&victim, &original_bytes).expect("restore victim file");
         let restored = std::fs::read(&victim).expect("re-read restored file");
-        assert_eq!(restored, original_bytes, "victim file must be restored byte-for-byte");
+        assert_eq!(
+            restored, original_bytes,
+            "victim file must be restored byte-for-byte"
+        );
 
         if let Err(panic) = result {
             std::panic::resume_unwind(panic);

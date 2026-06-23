@@ -307,10 +307,7 @@ async fn run_mcp_method(app: Arc<AppState>, request: JsonRpcRequest) -> JsonRpcR
             result: None,
             error: Some(JsonRpcError {
                 code: -32000,
-                message: format!(
-                    "Tool execution exceeded {}s timeout",
-                    MCP_TOOL_TIMEOUT_SECS
-                ),
+                message: format!("Tool execution exceeded {}s timeout", MCP_TOOL_TIMEOUT_SECS),
                 data: None,
             }),
         },
@@ -528,11 +525,7 @@ fn publish_graph_mutation_event(
 fn validate_session(app: &Arc<AppState>, headers: &HeaderMap) -> Result<String, Response> {
     let session_id = match session_id_from_headers(headers) {
         None => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "Missing Mcp-Session-Id header",
-            )
-                .into_response());
+            return Err((StatusCode::BAD_REQUEST, "Missing Mcp-Session-Id header").into_response());
         }
         Some(sid) => sid,
     };
@@ -601,9 +594,7 @@ pub async fn handle_mcp_get(
     });
 
     Sse::new(stream)
-        .keep_alive(
-            sse::KeepAlive::new().interval(Duration::from_secs(MCP_SSE_KEEPALIVE_SECS)),
-        )
+        .keep_alive(sse::KeepAlive::new().interval(Duration::from_secs(MCP_SSE_KEEPALIVE_SECS)))
         .into_response()
 }
 
@@ -706,7 +697,10 @@ mod tests {
     #[test]
     fn apply_batch_handoff_and_progress_relay() {
         for et in ["apply_batch_handoff", "apply_batch_progress"] {
-            let e = ev(et, serde_json::json!({"tool": "apply_batch", "batch_id": "b1"}));
+            let e = ev(
+                et,
+                serde_json::json!({"tool": "apply_batch", "batch_id": "b1"}),
+            );
             let frame = graph_changed_notification(&e).expect("relays");
             assert_eq!(frame["params"]["event"], "apply_batch");
             assert_eq!(frame["params"]["detail"]["batch_id"], "b1");
@@ -786,8 +780,7 @@ mod tests {
     async fn get_missing_session_is_400() {
         let temp = tempfile::tempdir().expect("tempdir");
         let app = build_app_state(temp.path());
-        let resp =
-            handle_mcp_get(axum::extract::State(app), HeaderMap::new()).await;
+        let resp = handle_mcp_get(axum::extract::State(app), HeaderMap::new()).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -823,8 +816,7 @@ mod tests {
     async fn delete_missing_session_is_400() {
         let temp = tempfile::tempdir().expect("tempdir");
         let app = build_app_state(temp.path());
-        let resp =
-            handle_mcp_delete(axum::extract::State(app), HeaderMap::new()).await;
+        let resp = handle_mcp_delete(axum::extract::State(app), HeaderMap::new()).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -844,15 +836,20 @@ mod tests {
         let sid = seed_session(&app);
 
         // DELETE → 200 and session gone from registry.
-        let resp =
-            handle_mcp_delete(axum::extract::State(app.clone()), header_map_with_session(&sid))
-                .await;
+        let resp = handle_mcp_delete(
+            axum::extract::State(app.clone()),
+            header_map_with_session(&sid),
+        )
+        .await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(!app.mcp_sessions.lock().contains_key(&sid));
 
         // A subsequent GET with the now-dead session id → 404.
-        let resp2 =
-            handle_mcp_get(axum::extract::State(app.clone()), header_map_with_session(&sid)).await;
+        let resp2 = handle_mcp_get(
+            axum::extract::State(app.clone()),
+            header_map_with_session(&sid),
+        )
+        .await;
         assert_eq!(resp2.status(), StatusCode::NOT_FOUND);
 
         // And a POST tools/list with that session → 404 (matches the probe's

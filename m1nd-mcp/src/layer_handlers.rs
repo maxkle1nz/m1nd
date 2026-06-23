@@ -461,15 +461,13 @@ pub fn handle_seek(
     // same as before.
     let (results, budget) = if let Some(budget_tokens) = input.token_budget {
         let baseline = results.len();
-        let (kept, dropped) =
-            crate::result_shaping::pack_to_budget(results, budget_tokens, seek_entry_token_estimate);
-        let used: usize = kept.iter().map(seek_entry_token_estimate).sum();
-        let block = crate::result_shaping::budget_block(
+        let (kept, dropped) = crate::result_shaping::pack_to_budget(
+            results,
             budget_tokens,
-            used,
-            kept.len(),
-            dropped,
+            seek_entry_token_estimate,
         );
+        let used: usize = kept.iter().map(seek_entry_token_estimate).sum();
+        let block = crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
         debug_assert_eq!(kept.len() + dropped, baseline);
         (kept, Some(block))
     } else {
@@ -9705,7 +9703,10 @@ mod tests {
             baseline_count,
             "kept + dropped must equal the unbudgeted count"
         );
-        assert_eq!(budget["requested_tokens"].as_u64().unwrap() as usize, budget_tokens);
+        assert_eq!(
+            budget["requested_tokens"].as_u64().unwrap() as usize,
+            budget_tokens
+        );
         // Estimate stays within budget unless the single top item alone exceeds it.
         assert!(
             used <= budget_tokens || kept == 1,

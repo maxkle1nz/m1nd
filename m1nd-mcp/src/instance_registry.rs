@@ -868,7 +868,10 @@ mod tests {
     fn instance_mode_roundtrips_on_disk_string() {
         assert_eq!(InstanceMode::ReadWrite.as_str(), "read_write");
         assert_eq!(InstanceMode::ReadOnly.as_str(), "read_only");
-        assert_eq!(InstanceMode::from_str("read_write"), InstanceMode::ReadWrite);
+        assert_eq!(
+            InstanceMode::from_str("read_write"),
+            InstanceMode::ReadWrite
+        );
         assert_eq!(InstanceMode::from_str("read_only"), InstanceMode::ReadOnly);
         // Unknown/legacy values default to ReadWrite.
         assert_eq!(InstanceMode::from_str("whatever"), InstanceMode::ReadWrite);
@@ -924,10 +927,7 @@ mod tests {
         // All three are discoverable; two carry read_only mode.
         let instances = list_instances(Some(&registry)).unwrap();
         assert_eq!(instances.len(), 3);
-        let read_only = instances
-            .iter()
-            .filter(|e| e.mode == "read_only")
-            .count();
+        let read_only = instances.iter().filter(|e| e.mode == "read_only").count();
         assert_eq!(read_only, 2);
 
         // ReadOnly release removes only its own discovery entry, never the lease.
@@ -996,12 +996,8 @@ mod tests {
         dead.instance_id = "inst_dead".into();
         dead.pid = u32::MAX - 1; // never live
         dead.runtime_root = "/tmp/dead-runtime".into();
-        let dead_entry_path = registry
-            .join(INSTANCE_DIR_NAME)
-            .join("inst_dead.json");
-        let dead_lease_path = registry
-            .join(LEASE_DIR_NAME)
-            .join("deadfingerprint.json");
+        let dead_entry_path = registry.join(INSTANCE_DIR_NAME).join("inst_dead.json");
+        let dead_lease_path = registry.join(LEASE_DIR_NAME).join("deadfingerprint.json");
         save_json_atomic(&dead_entry_path, &dead).unwrap();
         save_json_atomic(&dead_lease_path, &dead).unwrap();
 
