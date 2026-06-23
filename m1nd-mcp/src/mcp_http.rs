@@ -452,8 +452,64 @@ pub async fn handle_mcp_post(
     }
 
     // 4. Known session → run the method against the shared graph.
-    let response = run_mcp_method(app, request).await;
+    //
+    // Capture the tool name + agent_id BEFORE `run_mcp_method` consumes the
+    // request, so that after a successful mutation we can publish a `tool_result`
+    // SseEvent onto the broadcast bus. This is the producer side of the
+    // server→client push relay: `handle_mcp_get` subscribes to the same bus and
+    // forwards `notifications/m1nd/graph_changed` to every attached client. Reads
+    // and failed calls publish nothing (`graph_changed_notification` filters to
+    // GRAPH_MUTATION_TOOLS + success).
+    let mutation_meta = mutation_event_meta(&request);
+    let response = run_mcp_method(app.clone(), request).await;
+    if let Some((tool, agent_id)) = mutation_meta {
+        publish_graph_mutation_event(&app, &tool, agent_id.as_deref(), response.error.is_none());
+    }
     jsonrpc_ok_response(&response, None)
+}
+
+/// Extract `(tool_name, agent_id)` from a `tools/call` request whose tool is a
+/// graph-mutation tool; returns `None` for any other method or a non-mutation
+/// tool, so we never publish noise.
+fn mutation_event_meta(request: &JsonRpcRequest) -> Option<(String, Option<String>)> {
+    if request.method != "tools/call" {
+        return None;
+    }
+    let tool = request.params.get("name").and_then(|v| v.as_str())?;
+    if !GRAPH_MUTATION_TOOLS.contains(&bare_tool_name(tool)) {
+        return None;
+    }
+    let agent_id = request
+        .params
+        .get("arguments")
+        .and_then(|a| a.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    Some((tool.to_string(), agent_id))
+}
+
+/// Publish a `tool_result` SseEvent for a finished mutation onto the broadcast
+/// bus. The shape mirrors the stdio server's `tool_result` event so the shared
+/// [`graph_changed_notification`] relay logic forwards it identically. A failed
+/// call carries `success:false` and is suppressed downstream.
+fn publish_graph_mutation_event(
+    app: &Arc<AppState>,
+    tool: &str,
+    agent_id: Option<&str>,
+    success: bool,
+) {
+    let sse_event = SseEvent {
+        event_type: "tool_result".to_string(),
+        data: serde_json::json!({
+            "tool": tool,
+            "source": "mcp_http",
+            "agent_id": agent_id,
+            "success": success,
+            "timestamp_ms": now_ms(),
+        }),
+    };
+    // Best-effort: a send error only means there are no subscribers right now.
+    let _ = app.event_tx.send(sse_event);
 }
 
 /// Validate the `Mcp-Session-Id` header against the live registry, bumping
