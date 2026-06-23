@@ -935,8 +935,7 @@ pub fn handle_activate(
             activated_node_token_estimate,
         );
         let used: usize = kept.iter().map(activated_node_token_estimate).sum();
-        let block =
-            crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
+        let block = crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
         (kept, Some(block))
     } else {
         (activated, None)

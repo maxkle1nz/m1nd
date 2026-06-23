@@ -304,11 +304,7 @@ impl QueryOrchestrator {
     /// The `plasticity` field is set to the same empty/zeroed
     /// [`PlasticityResult`] used by the empty-seeds early return in
     /// [`Self::query`].
-    pub fn query_readonly(
-        &self,
-        graph: &Graph,
-        config: &QueryConfig,
-    ) -> M1ndResult<QueryResult> {
+    pub fn query_readonly(&self, graph: &Graph, config: &QueryConfig) -> M1ndResult<QueryResult> {
         let start = Instant::now();
 
         // Zeroed plasticity result — Step 8 is intentionally skipped, so no

@@ -152,8 +152,7 @@ pub async fn run_attach_client(base_url: String) {
     // discard already-buffered bytes (read-ahead) and silently drop the next
     // request. Frames are pushed to the async loop over a bounded channel; this
     // mirrors the embedded stdio server's reader-thread pattern in `server.rs`.
-    let (frame_tx, mut frame_rx) =
-        tokio::sync::mpsc::channel::<(String, TransportMode)>(64);
+    let (frame_tx, mut frame_rx) = tokio::sync::mpsc::channel::<(String, TransportMode)>(64);
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
         let mut reader = BufReader::new(stdin.lock());
@@ -196,7 +195,11 @@ pub async fn run_attach_client(base_url: String) {
             Err(e) => {
                 // Malformed JSON from the host → reply with a parse error so the
                 // host sees a clean frame rather than a dropped message.
-                let err = jsonrpc_error(serde_json::Value::Null, -32700, format!("Parse error: {}", e));
+                let err = jsonrpc_error(
+                    serde_json::Value::Null,
+                    -32700,
+                    format!("Parse error: {}", e),
+                );
                 sink.emit(&err, mode);
                 continue;
             }
@@ -204,13 +207,19 @@ pub async fn run_attach_client(base_url: String) {
 
         let req_id = parsed.get("id").cloned();
         let is_request = req_id.as_ref().is_some_and(|v| !v.is_null());
-        let method = parsed.get("method").and_then(|m| m.as_str()).map(str::to_owned);
+        let method = parsed
+            .get("method")
+            .and_then(|m| m.as_str())
+            .map(str::to_owned);
         let is_initialize = method.as_deref() == Some("initialize");
 
         // --- Build the POST with the MCP-mandated headers. ---
         let mut builder = client
             .post(&endpoint)
-            .header(reqwest::header::ACCEPT, "application/json, text/event-stream")
+            .header(
+                reqwest::header::ACCEPT,
+                "application/json, text/event-stream",
+            )
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(payload.clone());
 
@@ -235,7 +244,10 @@ pub async fn run_attach_client(base_url: String) {
                     let err = jsonrpc_error(
                         id,
                         -32002,
-                        format!("attach bridge: failed to reach m1nd owner at {}: {}", endpoint, e),
+                        format!(
+                            "attach bridge: failed to reach m1nd owner at {}: {}",
+                            endpoint, e
+                        ),
                     );
                     sink.emit(&err, mode);
                 }
@@ -311,24 +323,24 @@ pub async fn run_attach_client(base_url: String) {
         };
 
         // --- Demux by content-type. ---
-        let response_value: Option<serde_json::Value> = if content_type.contains("text/event-stream")
-        {
-            // SSE: extract the JSON-RPC response frame whose `id` matches the
-            // request; relay any interim server→client notifications to stdout.
-            extract_sse_response(&body, req_id.as_ref(), mode, &sink)
-        } else {
-            // application/json (slice-1's path): the body IS the JSON-RPC response.
-            match serde_json::from_str::<serde_json::Value>(&body) {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    eprintln!(
-                        "[m1nd-mcp][attach] owner returned {} with non-JSON body ({}): {}",
-                        status, e, body
-                    );
-                    None
+        let response_value: Option<serde_json::Value> =
+            if content_type.contains("text/event-stream") {
+                // SSE: extract the JSON-RPC response frame whose `id` matches the
+                // request; relay any interim server→client notifications to stdout.
+                extract_sse_response(&body, req_id.as_ref(), mode, &sink)
+            } else {
+                // application/json (slice-1's path): the body IS the JSON-RPC response.
+                match serde_json::from_str::<serde_json::Value>(&body) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        eprintln!(
+                            "[m1nd-mcp][attach] owner returned {} with non-JSON body ({}): {}",
+                            status, e, body
+                        );
+                        None
+                    }
                 }
-            }
-        };
+            };
 
         match response_value {
             Some(v) => {
@@ -403,7 +415,10 @@ async fn run_push_relay(
     const MAX_BACKOFF_SECS: u64 = 30;
     let mut backoff_secs: u64 = 1;
 
-    eprintln!("[m1nd-mcp][attach] push relay: subscribing to {} (SSE)", endpoint);
+    eprintln!(
+        "[m1nd-mcp][attach] push relay: subscribing to {} (SSE)",
+        endpoint
+    );
 
     loop {
         let mut builder = client
@@ -711,7 +726,8 @@ mod tests {
     #[test]
     fn relay_joins_multiline_data() {
         let (sink, mut rx) = test_sink();
-        let event = "data: {\"jsonrpc\":\"2.0\",\ndata: \"method\":\"notifications/x\",\"params\":{}}\n";
+        let event =
+            "data: {\"jsonrpc\":\"2.0\",\ndata: \"method\":\"notifications/x\",\"params\":{}}\n";
         relay_one_event(event, &sink, TransportMode::Line);
         let out = drain(&mut rx);
         assert_eq!(out.len(), 1);

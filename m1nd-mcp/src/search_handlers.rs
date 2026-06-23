@@ -564,12 +564,8 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                     search_entry_token_estimate,
                 );
                 let used: usize = kept.iter().map(search_entry_token_estimate).sum();
-                let block = crate::result_shaping::budget_block(
-                    budget_tokens,
-                    used,
-                    kept.len(),
-                    dropped,
-                );
+                let block =
+                    crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
                 (kept, Some(block))
             } else {
                 (results, None)
@@ -679,8 +675,7 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
             search_entry_token_estimate,
         );
         let used: usize = kept.iter().map(search_entry_token_estimate).sum();
-        let block =
-            crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
+        let block = crate::result_shaping::budget_block(budget_tokens, used, kept.len(), dropped);
         (kept, Some(block))
     } else {
         (final_results, None)
@@ -774,7 +769,11 @@ fn search_entry_token_estimate(entry: &crate::protocol::layers::SearchResultEntr
         + entry.node_type.len()
         + entry.file_path.len()
         + entry.matched_line.len();
-    for line in entry.context_before.iter().chain(entry.context_after.iter()) {
+    for line in entry
+        .context_before
+        .iter()
+        .chain(entry.context_after.iter())
+    {
         chars += line.len();
     }
     crate::result_shaping::estimate_tokens_from_chars(chars)
