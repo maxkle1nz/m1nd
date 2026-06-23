@@ -29,7 +29,7 @@ rust-embed = { version = "8", optional = true }
 mime_guess = { version = "2", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
-reqwest = { version = "0.13", features = ["json"], optional = true }
+reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
 
 [[bin]]
 name = "m1nd-mcp"

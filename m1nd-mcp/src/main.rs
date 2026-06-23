@@ -57,6 +57,41 @@ exec /usr/bin/bwrap "${args[@]}"
     }
 }
 
+/// Resolve `--attach auto` to a concrete owner base URL by discovering the live
+/// serve ReadWrite owner for this client's runtime_root.
+///
+/// The runtime_root is computed with the SAME rule the owner uses
+/// (`session.rs` runtime-root default): explicit `--runtime-dir` if given, else
+/// the parent directory of `--graph` if given, else the current working dir. The
+/// discovery itself is read-only and takes NO lease.
+#[cfg(feature = "serve")]
+fn resolve_attach_auto(cli: &Cli) -> Result<String, String> {
+    let runtime_root: PathBuf = if let Some(dir) = &cli.runtime_dir {
+        PathBuf::from(dir)
+    } else if let Some(graph) = &cli.graph {
+        PathBuf::from(graph)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        std::env::current_dir().map_err(|e| format!("cannot read current dir: {e}"))?
+    };
+
+    let registry_dir = cli.registry_dir.as_ref().map(PathBuf::from);
+
+    eprintln!(
+        "[m1nd-mcp][attach] auto-discovery: runtime_root={}",
+        runtime_root.display()
+    );
+
+    let url = m1nd_mcp::instance_registry::discover_serve_owner_base_url(
+        &runtime_root,
+        registry_dir.as_deref(),
+    )?;
+    eprintln!("[m1nd-mcp][attach] auto-discovery resolved owner: {url}");
+    Ok(url)
+}
+
 fn load_config_from_cli(cli: &Cli) -> McpConfig {
     // Priority: --config file > --graph/--plasticity/--domain flags > env vars > defaults
 
@@ -208,15 +243,40 @@ async fn main() {
     // engines, and takes NO lease — it must NEVER reach `McpServer::new`. It is
     // handled before `load_config_from_cli`/`--serve`/stdio so none of that
     // owner-side machinery runs.
-    if let Some(base_url) = cli.attach.clone() {
+    if let Some(attach_arg) = cli.attach.clone() {
         #[cfg(feature = "serve")]
         {
+            // Resolve the owner base URL. Precedence:
+            //   1. env M1ND_ATTACH_URL  — explicit override, always wins.
+            //   2. `--attach auto`      — discover the live serve ReadWrite owner
+            //                             for this runtime_root via the registry
+            //                             (read-only, NO lease).
+            //   3. `--attach <url>`     — use the literal URL verbatim.
+            let base_url = match std::env::var("M1ND_ATTACH_URL") {
+                Ok(url) if !url.trim().is_empty() => {
+                    eprintln!(
+                        "[m1nd-mcp][attach] using M1ND_ATTACH_URL override: {}",
+                        url.trim()
+                    );
+                    url.trim().to_string()
+                }
+                _ if attach_arg.trim().eq_ignore_ascii_case("auto") => {
+                    match resolve_attach_auto(&cli) {
+                        Ok(url) => url,
+                        Err(msg) => {
+                            eprintln!("[m1nd-mcp][attach] auto-discovery failed: {msg}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                _ => attach_arg,
+            };
             m1nd_mcp::attach_client::run_attach_client(base_url).await;
             return;
         }
         #[cfg(not(feature = "serve"))]
         {
-            let _ = base_url;
+            let _ = attach_arg;
             eprintln!("[m1nd-mcp] --attach requires the 'serve' feature (HTTP client).");
             eprintln!("  Rebuild with: cargo build --release --features serve");
             std::process::exit(1);

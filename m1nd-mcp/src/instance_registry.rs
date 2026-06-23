@@ -595,6 +595,81 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Build the reachable base URL for a registry entry, applying the same rule the
+/// HTTP server uses for self-advertisement: a wildcard `0.0.0.0` bind is rewritten
+/// to a loopback `127.0.0.1`, any other bind is used verbatim. Returns `None` when
+/// the entry has no published port (a stdio-only owner that never called
+/// `set_running_endpoint`), which makes it un-attachable by construction.
+pub fn entry_base_url(entry: &InstanceRegistryEntry) -> Option<String> {
+    let port = entry.port?;
+    let bind = entry.bind.as_deref().unwrap_or("127.0.0.1");
+    let host = if bind == "0.0.0.0" { "127.0.0.1" } else { bind };
+    Some(format!("http://{}:{}", host, port))
+}
+
+/// Read-only discovery for the `--attach auto` thin client.
+///
+/// Given the caller's `runtime_root` (e.g. the cwd or an explicit `--runtime-dir`),
+/// find the freshest live ReadWrite owner that is actually serving HTTP for that
+/// runtime_root and return its base URL (e.g. `http://127.0.0.1:1337`).
+///
+/// This is PURE read-only registry inspection: it calls `list_instances` (which
+/// only reads `instances/*.json`) and NEVER `acquire`/`acquire_with_mode`, so it
+/// takes no lease and never contends the owner's exclusive PID+heartbeat lock.
+///
+/// Matching mirrors `acquire_with_mode`'s persistence exactly:
+///   * the target `runtime_root` is canonicalized with the same `canonicalish`
+///     semantics the owner used before writing `entry.runtime_root`, so the
+///     string comparison lines up on macOS (`/tmp` → `/private/tmp`, symlinks…);
+///   * only `mode == read_write`, `owner_live == Some(true)`, `stale == false`
+///     entries that ALSO publish `bind`+`port` (the serve gate) survive;
+///   * with multiple survivors the freshest by `last_heartbeat_ms` wins
+///     (`list_instances` already sorts descending, so the first survivor is it).
+///
+/// On no match returns `Err(message)` distinguishing "no instances at all" from
+/// "instances exist but none is a live serve ReadWrite owner for this runtime_root".
+pub fn discover_serve_owner_base_url(
+    runtime_root: &Path,
+    registry_dir: Option<&Path>,
+) -> Result<String, String> {
+    // Canonicalize the target identically to how the owner stored it.
+    let target = canonicalish(runtime_root)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| runtime_root.to_string_lossy().into_owned());
+
+    let entries = list_instances(registry_dir)
+        .map_err(|e| format!("failed to read instance registry: {e}"))?;
+
+    if entries.is_empty() {
+        return Err(format!(
+            "no m1nd instances registered (looked for a live serve ReadWrite owner for runtime_root {target})"
+        ));
+    }
+
+    // `list_instances` is already sorted freshest-first by last_heartbeat_ms, so
+    // the FIRST entry that passes every gate is the freshest serve owner.
+    for entry in &entries {
+        if entry.runtime_root != target {
+            continue;
+        }
+        if InstanceMode::from_str(&entry.mode) != InstanceMode::ReadWrite {
+            continue;
+        }
+        if entry.owner_live != Some(true) || entry.stale {
+            continue;
+        }
+        // Serve gate: stdio-only owners publish no bind/port and are unreachable.
+        if let Some(url) = entry_base_url(entry) {
+            return Ok(url);
+        }
+    }
+
+    Err(format!(
+        "no live serve ReadWrite owner for runtime_root {target}. \
+Start one with: m1nd-mcp --serve --no-gui"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

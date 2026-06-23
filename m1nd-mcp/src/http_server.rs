@@ -849,10 +849,9 @@ async fn handle_instance_save(State(state): State<Arc<AppState>>) -> axum::respo
 }
 
 fn instance_base_url(entry: &InstanceRegistryEntry) -> Option<String> {
-    let port = entry.port?;
-    let bind = entry.bind.as_deref().unwrap_or("127.0.0.1");
-    let host = if bind == "0.0.0.0" { "127.0.0.1" } else { bind };
-    Some(format!("http://{}:{}", host, port))
+    // Single source of truth for the bind/port → base-URL rule (0.0.0.0 → 127.0.0.1),
+    // shared with the `--attach auto` discovery client.
+    crate::instance_registry::entry_base_url(entry)
 }
 
 async fn handle_instance_save_target(
