@@ -277,6 +277,10 @@ pub struct EditCommitOutput {
     pub lines_removed: i32,
     pub reingested: bool,
     pub updated_node_ids: Vec<String>,
+    /// Proactive structural follow-up suggestions attached to this commit,
+    /// forwarded from the underlying apply (includes `proposed_antibody`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub proactive_insights: Vec<ProactiveInsight>,
     pub elapsed_ms: f64,
 }
 

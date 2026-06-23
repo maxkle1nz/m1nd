@@ -789,6 +789,24 @@ pub fn handle_scan(
     let total_validated = findings.len();
     drop(graph);
 
+    // Record each confirmed/mitigated finding as a per-agent ephemeral mark so a
+    // later edit/apply of the same node can PROPOSE a ready-to-run antibody
+    // (compounding negative memory). False positives are skipped — they are not
+    // bugs worth seeding an antibody from.
+    for finding in &findings {
+        if finding.status == "false_positive" {
+            continue;
+        }
+        let severity_bucket = scan_severity_bucket(finding.severity);
+        state.note_finding(
+            &input.agent_id,
+            &finding.node_id,
+            &finding.pattern,
+            severity_bucket,
+            &finding.file_path,
+        );
+    }
+
     state.queries_processed += 1;
     if state.should_persist() {
         let _ = state.persist();
@@ -1218,6 +1236,20 @@ fn timeline_paths_match(candidate: &str, normalized_target: &str) -> bool {
         .unwrap_or("");
 
     !target_name.is_empty() && target_name == candidate_name
+}
+
+/// Bucket a scan finding's continuous severity (`[0.0, 1.0]`) into the discrete
+/// severity vocabulary shared with antibodies / ProactiveInsight
+/// ("info" | "warning" | "critical"). Mirrors the antibody severity parse so a
+/// proposed antibody inherits a sane severity from the finding that motivated it.
+pub(crate) fn scan_severity_bucket(severity: f32) -> &'static str {
+    if severity >= 0.7 {
+        "critical"
+    } else if severity >= 0.4 {
+        "warning"
+    } else {
+        "info"
+    }
 }
 
 /// Convert a node external_id (e.g. "file::backend/chat_handler.py") to a
