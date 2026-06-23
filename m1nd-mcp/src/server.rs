@@ -364,6 +364,19 @@ pub fn response_envelope_enabled() -> bool {
     }
 }
 
+/// Whether the M1ND_PROOF_GATE write guard is active.
+///
+/// Opt-in safety flag (default OFF), mirroring the `M1ND_READ_ONLY` parsing:
+/// any value other than `"0"`/`"false"`/empty turns it ON; unset is OFF. When
+/// ON, code-writing tools (`apply`/`apply_batch`/`edit_commit`) are refused at
+/// dispatch unless the agent has already driven each target to
+/// `proof_state == "ready_to_edit"` (via `surgical_context_v2`) this session.
+pub fn proof_gate_enabled() -> bool {
+    std::env::var("M1ND_PROOF_GATE")
+        .map(|v| v != "0" && v != "false" && !v.is_empty())
+        .unwrap_or(false)
+}
+
 /// Returns ALL registered MCP tool schemas regardless of tier.
 /// Use this when you always need the full 102-tool registry (e.g., health
 /// contract counts, internal tests that verify advanced tool registration).
@@ -2230,6 +2243,65 @@ fn read_only_denied(tool_name: &str, params: &serde_json::Value) -> bool {
     false
 }
 
+/// Real code-writing tools the M1ND_PROOF_GATE guards. These are exactly the
+/// tools that perform an on-disk write of agent-supplied content. `edit_preview`
+/// is deliberately excluded: it only stages an in-memory preview and never
+/// writes — same stance as the read-only gate.
+const PROOF_GATED_WRITE_TOOLS: &[&str] = &["apply", "apply_batch", "edit_commit"];
+
+/// Returns the normalized (prefix-stripped) tool name if `tool_name` is a
+/// proof-gated code-writing tool, else `None`. Mirrors the prefix handling in
+/// [`read_only_denied`].
+fn proof_gated_write_tool(tool_name: &str) -> Option<&'static str> {
+    let bare = tool_name
+        .strip_prefix("m1nd.")
+        .or_else(|| tool_name.strip_prefix("m1nd_"))
+        .unwrap_or(tool_name);
+    PROOF_GATED_WRITE_TOOLS
+        .iter()
+        .copied()
+        .find(|&t| t == bare)
+}
+
+/// Collect the raw target file path(s) a write call will touch, exactly as the
+/// agent supplied them (pre-normalization). For `apply`/`edit_preview` this is
+/// `params["file_path"]`; for `apply_batch` it is every `params["edits"][*]
+/// ["file_path"]`; for `edit_commit` there is no path in params, so it is
+/// recovered from the staged preview (`state.edit_previews[preview_id]
+/// .file_path`). Returns the gathered raw targets (may be empty if params are
+/// malformed — the gate treats an empty/unresolvable target set as unproven).
+fn proof_gate_targets(
+    bare_tool: &str,
+    params: &serde_json::Value,
+    state: &SessionState,
+) -> Vec<String> {
+    match bare_tool {
+        "apply" => params
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .map(|s| vec![s.to_string()])
+            .unwrap_or_default(),
+        "apply_batch" => params
+            .get("edits")
+            .and_then(|v| v.as_array())
+            .map(|edits| {
+                edits
+                    .iter()
+                    .filter_map(|e| e.get("file_path").and_then(|v| v.as_str()))
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        "edit_commit" => params
+            .get("preview_id")
+            .and_then(|v| v.as_str())
+            .and_then(|pid| state.edit_previews.get(pid))
+            .map(|preview| vec![preview.file_path.clone()])
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tier 3: memory at point-of-relevance (`_m1nd.memory_nearby`)
 // ---------------------------------------------------------------------------
@@ -2894,6 +2966,43 @@ pub fn dispatch_tool(
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
+
+    // M1ND_PROOF_GATE: when ON, refuse a real code-writing tool BEFORE any write
+    // unless every target it will touch was driven to proof_state ==
+    // "ready_to_edit" this session (via surgical_context_v2). edit_preview is
+    // allowed (it only stages). All targets are normalized through the same
+    // scope normalizer the recorder used, so proved==edited keys compare equal.
+    if proof_gate_enabled() {
+        if let Some(bare_tool) = proof_gated_write_tool(&normalized) {
+            let targets = proof_gate_targets(bare_tool, params, state);
+            let unproven: Vec<String> = if targets.is_empty() {
+                // Malformed/unresolvable target set: refuse rather than allow an
+                // unverifiable write through. Surface the tool itself.
+                vec![format!("<unresolved target for {bare_tool}>")]
+            } else {
+                targets
+                    .iter()
+                    .filter(|t| !state.is_proof_ready(&agent_id, t))
+                    .cloned()
+                    .collect()
+            };
+            if !unproven.is_empty() {
+                let unproven_list = unproven.join(", ");
+                let first = unproven.first().cloned().unwrap_or_default();
+                return Err(M1ndError::InvalidParams {
+                    tool: normalized.clone(),
+                    detail: format!(
+                        "M1ND_PROOF_GATE is on: {count} target(s) not proven ready_to_edit for agent_id='{agent}': {unproven_list}. \
+Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven target to gather context and reach proof_state==ready_to_edit, then retry '{tool}'.",
+                        count = unproven.len(),
+                        agent = agent_id,
+                        tool = normalized,
+                    ),
+                });
+            }
+        }
+    }
+
     let query_preview = params
         .get("query")
         .and_then(|v| v.as_str())

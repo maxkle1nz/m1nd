@@ -2657,6 +2657,14 @@ pub fn handle_surgical_context_v2(
         visited_nodes,
     );
 
+    // M1ND_PROOF_GATE: when this prover clears the primary target to edit, record
+    // (agent_id, normalized target) so the write gate can later let a real edit
+    // of that exact file through. Only the primary `file_path` is proved here —
+    // connected files are context, not cleared edit targets.
+    if proof_state == "ready_to_edit" {
+        state.note_proof_ready(&input.agent_id, &primary.file_path, "surgical_context_v2");
+    }
+
     Ok(surgical::SurgicalContextV2Output {
         file_path: primary.file_path,
         file_contents: primary_file_contents,
@@ -5782,5 +5790,205 @@ mod tests {
         assert!(coverage
             .visited_files
             .contains(&secondary.to_string_lossy().to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // M1ND_PROOF_GATE — live end-to-end probe through real dispatch.
+    // -------------------------------------------------------------------------
+
+    /// Process-global lock: M1ND_PROOF_GATE is read live from the environment, so
+    /// these tests must not run concurrently with each other. Recovers from
+    /// poison so one failing probe does not cascade-fail the others.
+    fn proof_gate_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+        let m = LOCK.get_or_init(|| Mutex::new(()));
+        m.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Build a state whose graph contains ONE unrelated node, while the probe
+    /// targets a separate on-disk file that is NOT in the graph. An ungraphed
+    /// target resolves to an empty `node_id`, so `surgical_context_v2` produces
+    /// no heuristic summary and no connected files and therefore reaches
+    /// `proof_state == "ready_to_edit"` for that file.
+    fn build_isolated_state(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        // A single unrelated node just so the graph finalizes; the probe target
+        // is deliberately NOT this node.
+        let other = root.join("src/other.rs");
+        std::fs::create_dir_all(other.parent().unwrap()).expect("mk other parent");
+        std::fs::write(&other, "pub fn other() {}\n").expect("write other");
+        let other_str = other.to_string_lossy().to_string();
+        let node = graph
+            .add_node(
+                &format!("file::{other_str}"),
+                "other.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add node");
+        graph.set_node_provenance(
+            node,
+            NodeProvenanceInput {
+                source_path: Some(&other_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph.finalize().expect("finalize graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    #[test]
+    fn proof_gate_blocks_then_allows_apply_through_real_dispatch() {
+        let _guard = proof_gate_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let target = root.join("src/isolated.rs");
+        std::fs::create_dir_all(target.parent().unwrap()).expect("mk parent");
+        std::fs::write(&target, "pub fn a() {}\n").expect("write target");
+        let target_str = target.to_string_lossy().to_string();
+
+        let mut state = build_isolated_state(root);
+        let agent = "probe-agent";
+
+        std::env::set_var("M1ND_PROOF_GATE", "1");
+
+        // (1) GATE ON, UNPROVEN apply -> refused with the proof-gate message.
+        let apply_params = serde_json::json!({
+            "agent_id": agent,
+            "file_path": target_str,
+            "new_content": "pub fn a() {}\npub fn b() {}\n",
+        });
+        let err = crate::server::dispatch_tool(&mut state, "apply", &apply_params)
+            .expect_err("unproven apply must be refused");
+        let msg = format!("{err}");
+        println!("[probe] unproven apply refusal: {msg}");
+        assert!(
+            msg.contains("M1ND_PROOF_GATE is on")
+                && msg.contains("not proven ready_to_edit")
+                && msg.contains("surgical_context_v2"),
+            "refusal message must be actionable, got: {msg}"
+        );
+        assert!(
+            !state.is_proof_ready(agent, &target_str),
+            "target must NOT be proved yet"
+        );
+
+        // (2) Drive surgical_context_v2 through dispatch -> reaches ready_to_edit
+        //     and RECORDS the proof for this agent+target.
+        let sctx_params = serde_json::json!({ "agent_id": agent, "file_path": target_str });
+        let sctx_out = crate::server::dispatch_tool(&mut state, "surgical_context_v2", &sctx_params)
+            .expect("surgical_context_v2 dispatch");
+        let proof_state = sctx_out
+            .get("result")
+            .and_then(|r| r.get("proof_state"))
+            .or_else(|| sctx_out.get("proof_state"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("<none>");
+        println!("[probe] surgical_context_v2 proof_state = {proof_state}");
+        assert_eq!(
+            proof_state, "ready_to_edit",
+            "isolated low-risk file must reach ready_to_edit"
+        );
+        assert!(
+            state.is_proof_ready(agent, &target_str),
+            "proof must be recorded after ready_to_edit"
+        );
+
+        // (3) GATE ON, NOW-PROVEN apply -> passes the gate (write succeeds).
+        let apply_out = crate::server::dispatch_tool(&mut state, "apply", &apply_params)
+            .expect("proven apply must pass the gate");
+        println!(
+            "[probe] proven apply passed gate, ok={}",
+            apply_out.get("result").is_some() || apply_out.is_object()
+        );
+
+        // (4) Cross-agent isolation: a DIFFERENT agent is still gated.
+        let other_params = serde_json::json!({
+            "agent_id": "other-agent",
+            "file_path": target_str,
+            "new_content": "pub fn a() {}\n",
+        });
+        let other_err = crate::server::dispatch_tool(&mut state, "apply", &other_params)
+            .expect_err("different agent must still be gated");
+        println!("[probe] cross-agent refusal: {other_err}");
+        assert!(format!("{other_err}").contains("M1ND_PROOF_GATE is on"));
+
+        std::env::remove_var("M1ND_PROOF_GATE");
+    }
+
+    #[test]
+    fn proof_gate_off_allows_unproven_apply() {
+        let _guard = proof_gate_env_lock();
+        std::env::remove_var("M1ND_PROOF_GATE");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let target = root.join("src/isolated.rs");
+        std::fs::create_dir_all(target.parent().unwrap()).expect("mk parent");
+        std::fs::write(&target, "pub fn a() {}\n").expect("write target");
+        let target_str = target.to_string_lossy().to_string();
+        let mut state = build_isolated_state(root);
+
+        let apply_params = serde_json::json!({
+            "agent_id": "no-proof-agent",
+            "file_path": target_str,
+            "new_content": "pub fn a() {}\npub fn c() {}\n",
+        });
+        // Gate OFF: unproven apply must NOT be refused by the proof gate.
+        let out = crate::server::dispatch_tool(&mut state, "apply", &apply_params);
+        println!("[probe] gate OFF unproven apply result is_ok={}", out.is_ok());
+        assert!(
+            out.is_ok(),
+            "with gate OFF an unproven apply must pass: {out:?}"
+        );
+    }
+
+    #[test]
+    fn proof_gate_never_blocks_edit_preview() {
+        let _guard = proof_gate_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let target = root.join("src/isolated.rs");
+        std::fs::create_dir_all(target.parent().unwrap()).expect("mk parent");
+        std::fs::write(&target, "pub fn a() {}\n").expect("write target");
+        let target_str = target.to_string_lossy().to_string();
+        let mut state = build_isolated_state(root);
+
+        std::env::set_var("M1ND_PROOF_GATE", "1");
+        let preview_params = serde_json::json!({
+            "agent_id": "preview-agent",
+            "file_path": target_str,
+            "new_content": "pub fn a() {}\npub fn d() {}\n",
+        });
+        // edit_preview only stages; the gate must never block it even when ON.
+        let out = crate::server::dispatch_tool(&mut state, "edit_preview", &preview_params);
+        println!(
+            "[probe] gate ON edit_preview result is_ok={} (must be Ok / not gate-refused)",
+            out.is_ok()
+        );
+        if let Err(e) = &out {
+            assert!(
+                !format!("{e}").contains("M1ND_PROOF_GATE"),
+                "edit_preview must never hit the proof gate, got: {e}"
+            );
+        }
+        std::env::remove_var("M1ND_PROOF_GATE");
     }
 }

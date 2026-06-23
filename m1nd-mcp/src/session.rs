@@ -173,6 +173,20 @@ pub struct CoverageSessionState {
     pub tools_used: HashMap<String, u64>,
 }
 
+/// A per-agent mark that a concrete edit target reached `proof_state ==
+/// "ready_to_edit"` during this session (M1ND_PROOF_GATE). Ephemeral session
+/// intent — NOT persisted; it lives only on `SessionState.proof_ready` and dies
+/// with the process. Recorded by the surgical prover, consumed by the write gate.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ProofReadyMark {
+    /// When the target was proved ready, in unix-epoch milliseconds.
+    pub proved_at_ms: u64,
+    /// Cache generation captured at proof time (for staleness inspection).
+    pub generation: u64,
+    /// Tool/evidence that established readiness (e.g. "surgical_context_v2").
+    pub evidence: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DaemonRuntimeState {
     pub active: bool,
@@ -371,6 +385,11 @@ pub struct SessionState {
     pub file_inventory: HashMap<String, FileInventoryEntry>,
     /// Per-agent exploration coverage state for visited files/nodes.
     pub coverage_sessions: HashMap<String, CoverageSessionState>,
+    /// Per-agent "proof ready" marks keyed by (agent_id, normalized repo-relative
+    /// target). Ephemeral session intent — NOT persisted. Records that an agent
+    /// has driven a target to `proof_state == "ready_to_edit"`; checked at edit
+    /// time by the M1ND_PROOF_GATE write gate against the normalized edit target.
+    pub proof_ready: HashMap<(String, String), ProofReadyMark>,
     /// Local document auto-ingest runtime.
     pub auto_ingest: AutoIngestState,
     /// Universal document artifact/cache index.
@@ -1260,6 +1279,7 @@ impl SessionState {
             },
             file_inventory: HashMap::new(),
             coverage_sessions: HashMap::new(),
+            proof_ready: HashMap::new(),
             auto_ingest: AutoIngestState::load(&runtime_root),
             document_cache: load_document_cache(&runtime_root),
             agent_memory_boot: None,
@@ -1807,6 +1827,52 @@ impl SessionState {
                 entry.visited_nodes.insert(node);
             }
         }
+    }
+
+    /// Record that `agent_id` drove `raw_target` to `proof_state ==
+    /// "ready_to_edit"` (M1ND_PROOF_GATE). `raw_target` may be absolute,
+    /// repo-relative, or `file::`-prefixed; it is normalized through
+    /// [`crate::scope::normalize_scope_path`] so the recorded key compares equal
+    /// to the key the write gate derives from the about-to-edit path. A target
+    /// that normalizes to `None` (empty/repo-root) is skipped so a malformed
+    /// target never silently grants edit permission. `evidence` names the prover.
+    pub fn note_proof_ready(&mut self, agent_id: &str, raw_target: &str, evidence: &str) {
+        let Some(target) = crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)
+        else {
+            return;
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        self.proof_ready.insert(
+            (agent_id.to_string(), target),
+            ProofReadyMark {
+                proved_at_ms: now_ms,
+                generation: self.cache_generation,
+                evidence: Some(evidence.to_string()),
+            },
+        );
+    }
+
+    /// Whether `agent_id` has a proof-ready mark for `raw_target` (normalized via
+    /// the same [`crate::scope::normalize_scope_path`] used when recording). A
+    /// target that normalizes to `None` is treated as not-proved.
+    pub fn is_proof_ready(&self, agent_id: &str, raw_target: &str) -> bool {
+        let Some(target) = crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)
+        else {
+            return false;
+        };
+        self.proof_ready
+            .contains_key(&(agent_id.to_string(), target))
+    }
+
+    /// Borrow the proof-ready mark for inspection (staleness/evidence), mirroring
+    /// [`Self::get_perspective`].
+    pub fn get_proof_ready(&self, agent_id: &str, raw_target: &str) -> Option<&ProofReadyMark> {
+        let target =
+            crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)?;
+        self.proof_ready.get(&(agent_id.to_string(), target))
     }
 }
 
