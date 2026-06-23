@@ -211,7 +211,7 @@ Every row is hedged to exactly what was measured. m1nd does not lead with saving
 
 | Claim | Result | Source / hedge |
 |---|---|---|
-| `activate` / `impact` latency | sub-µs `activate`, sub-ms `impact` | Criterion benchmarks in `m1nd-core/benches/` on a 1K-node synthetic graph — [methodology](https://m1nd.world/wiki/benchmarks.html); treat as order-of-magnitude. |
+| `activate` / `impact` latency | ~1µs `activate`, sub-µs `impact` on a 1K-node synthetic graph | Criterion benches — **reproduce it yourself: `cargo bench -p m1nd-core`** (measured `activate_1k_nodes` ≈1.4µs, `impact_depth3` ≈0.5µs on an Apple-silicon Mac); [methodology](https://m1nd.world/wiki/benchmarks.html); order-of-magnitude, hardware-dependent. |
 | Language matrix | calls + cross-file imports for 10 languages (+ Ruby cross-file) | Verified end-to-end in a single polyglot ingest; per-language tests in `m1nd-ingest`. See [Language Coverage](#language-coverage). |
 | Post-write validation sample | 12/12 classified correctly | Internal runtime check. |
 | Seeded bug-hunt | 16/20 in the first accepted `humanize` seeded-defect round (m1nd-trained); `m1nd-basic` and direct each 8/15 | Internal product evidence, `public_claim_worthy=false` — not a universal benchmark. |
