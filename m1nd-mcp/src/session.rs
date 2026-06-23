@@ -187,6 +187,25 @@ pub struct ProofReadyMark {
     pub evidence: Option<String>,
 }
 
+/// A per-agent mark that an agent's scan/audit flagged a finding against a
+/// concrete node during this session. Ephemeral session intent — NOT persisted;
+/// it lives only on `SessionState.flagged_findings` and dies with the process.
+/// Recorded when a scan/audit finding is assembled, consumed at edit/apply time
+/// to emit a `proposed_antibody` ProactiveInsight (compounding negative memory).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct FindingMark {
+    /// When the finding was flagged, in unix-epoch milliseconds.
+    pub flagged_at_ms: u64,
+    /// Cache generation captured at flag time (for staleness inspection).
+    pub generation: u64,
+    /// Detector/pattern kind that produced the finding, e.g. "auth_boundary".
+    pub kind: String,
+    /// Severity bucket: "info" | "warning" | "critical".
+    pub severity: String,
+    /// File path of the flagged node, for display/template hints (may be empty).
+    pub file_path: String,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DaemonRuntimeState {
     pub active: bool,
@@ -390,6 +409,13 @@ pub struct SessionState {
     /// has driven a target to `proof_state == "ready_to_edit"`; checked at edit
     /// time by the M1ND_PROOF_GATE write gate against the normalized edit target.
     pub proof_ready: HashMap<(String, String), ProofReadyMark>,
+    /// Per-agent flagged findings keyed by (agent_id, node_id) where node_id is
+    /// the node's external id. Ephemeral session intent — NOT persisted. Recorded
+    /// when a scan/audit finding is assembled for an agent; consumed at edit/apply
+    /// time to emit a `proposed_antibody` ProactiveInsight so the next agent's
+    /// audit catches the same structural bug elsewhere (compounding negative
+    /// memory). Dies with the process.
+    pub flagged_findings: HashMap<(String, String), FindingMark>,
     /// Local document auto-ingest runtime.
     pub auto_ingest: AutoIngestState,
     /// Universal document artifact/cache index.
@@ -407,6 +433,11 @@ pub struct SessionState {
     /// One-shot guard so the "skipping persist" line is logged only once.
     pub read_only_persist_logged: std::cell::Cell<bool>,
 }
+
+/// Upper bound on the ephemeral per-agent `flagged_findings` map. Keeps the
+/// compounding-negative-memory store from growing without bound across a long
+/// session; on overflow the oldest mark is evicted (see [`SessionState::note_finding`]).
+const MAX_FLAGGED_FINDINGS: usize = 4096;
 
 const WORKSPACE_ROOT_ENV_CANDIDATES: &[&str] = &[
     // Host-neutral contract. Any MCP host can set one of these.
@@ -1280,6 +1311,7 @@ impl SessionState {
             file_inventory: HashMap::new(),
             coverage_sessions: HashMap::new(),
             proof_ready: HashMap::new(),
+            flagged_findings: HashMap::new(),
             auto_ingest: AutoIngestState::load(&runtime_root),
             document_cache: load_document_cache(&runtime_root),
             agent_memory_boot: None,
@@ -1873,6 +1905,68 @@ impl SessionState {
         let target =
             crate::scope::normalize_scope_path(Some(raw_target), &self.ingest_roots)?;
         self.proof_ready.get(&(agent_id.to_string(), target))
+    }
+
+    /// Record that `agent_id`'s scan/audit flagged a finding against `node_id`
+    /// (an opaque external id) this session. Mirrors [`Self::note_proof_ready`]
+    /// but keys on the raw `node_id` directly (NO path normalization) so the
+    /// recorder (scan/audit) and the reader (edit/apply) agree on the external-id
+    /// form. Ephemeral — never persisted. The map is capped at
+    /// [`MAX_FLAGGED_FINDINGS`] entries; the oldest entry is evicted on overflow
+    /// so a long-running session cannot grow it without bound.
+    pub fn note_finding(
+        &mut self,
+        agent_id: &str,
+        node_id: &str,
+        kind: &str,
+        severity: &str,
+        file_path: &str,
+    ) {
+        if node_id.is_empty() {
+            return;
+        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let key = (agent_id.to_string(), node_id.to_string());
+        if !self.flagged_findings.contains_key(&key)
+            && self.flagged_findings.len() >= MAX_FLAGGED_FINDINGS
+        {
+            // Evict the oldest mark to keep the ephemeral map bounded.
+            if let Some(oldest) = self
+                .flagged_findings
+                .iter()
+                .min_by_key(|(_, mark)| mark.flagged_at_ms)
+                .map(|(k, _)| k.clone())
+            {
+                self.flagged_findings.remove(&oldest);
+            }
+        }
+        self.flagged_findings.insert(
+            key,
+            FindingMark {
+                flagged_at_ms: now_ms,
+                generation: self.cache_generation,
+                kind: kind.to_string(),
+                severity: severity.to_string(),
+                file_path: file_path.to_string(),
+            },
+        );
+    }
+
+    /// Borrow the flagged-finding mark for `(agent_id, node_id)` for inspection.
+    pub fn get_finding(&self, agent_id: &str, node_id: &str) -> Option<&FindingMark> {
+        self.flagged_findings
+            .get(&(agent_id.to_string(), node_id.to_string()))
+    }
+
+    /// Consume (remove and return) the flagged-finding mark for `(agent_id,
+    /// node_id)`. Used at edit/apply time so a single fix emits the
+    /// `proposed_antibody` once and does not re-propose on subsequent writes.
+    pub fn take_finding(&mut self, agent_id: &str, node_id: &str) -> Option<FindingMark> {
+        self.flagged_findings
+            .remove(&(agent_id.to_string(), node_id.to_string()))
     }
 }
 

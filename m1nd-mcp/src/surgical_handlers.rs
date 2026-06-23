@@ -335,6 +335,231 @@ pub(crate) fn daemon_proactive_insights_for_file(
     )
 }
 
+/// Map a `m1nd_core` NodeType to the antibody `node_type` string vocabulary
+/// (the set understood by `ab_str_to_node_type`). Returns `None` for
+/// `Custom(_)`, which the antibody matcher treats as unrecognized/lenient — in
+/// that case we omit `node_type` and lean on `label_contains` instead so we
+/// never emit a constraint that is silently dropped.
+fn antibody_node_type_str(nt: &NodeType) -> Option<&'static str> {
+    match nt {
+        NodeType::File => Some("file"),
+        NodeType::Directory => Some("directory"),
+        NodeType::Function => Some("function"),
+        NodeType::Class => Some("class"),
+        NodeType::Struct => Some("struct"),
+        NodeType::Enum => Some("enum"),
+        NodeType::Type => Some("type"),
+        NodeType::Module => Some("module"),
+        NodeType::Reference => Some("reference"),
+        NodeType::Concept => Some("concept"),
+        NodeType::Material => Some("material"),
+        NodeType::Process => Some("process"),
+        NodeType::Product => Some("product"),
+        NodeType::Supplier => Some("supplier"),
+        NodeType::Regulatory => Some("regulatory"),
+        NodeType::System => Some("system"),
+        NodeType::Cost => Some("cost"),
+        NodeType::Custom(_) => None,
+    }
+}
+
+/// Pick a discriminating `label_contains` fragment from a node label. For symbol
+/// labels (function/struct/... names) we want a token that generalizes across
+/// the codebase, not the whole verbose id. Strips any `file::`/`::`-segmented
+/// id down to its last segment, then takes a meaningful identifier token. Returns
+/// `None` when nothing usable remains (e.g. an empty or path-only label).
+fn antibody_label_fragment(label: &str) -> Option<String> {
+    let last = label.rsplit("::").next().unwrap_or(label).trim();
+    // Drop a leading "file::"-style path tail or empty values.
+    let last = last.trim_start_matches("file::").trim();
+    if last.is_empty() || last.contains('/') {
+        return None;
+    }
+    // Prefer a single identifier-ish token (split on common separators) that is
+    // long enough to be discriminating but short enough to generalize.
+    let token = last
+        .split(['(', ' ', '<', '['])
+        .next()
+        .unwrap_or(last)
+        .trim();
+    if token.len() < 3 {
+        return None;
+    }
+    Some(token.to_string())
+}
+
+/// Build a `proposed_antibody` ProactiveInsight from a flagged finding the agent
+/// just fixed by editing `node_id`. Consumes the finding (so each fix proposes
+/// once) and derives a MINIMAL VIABLE antibody template from the edited node's
+/// live structural signature (seed node = node_type + a discriminating label
+/// fragment). The insight carries a ready-to-run `antibody_create` call: the
+/// complete `arguments` object is embedded as a compact JSON string in
+/// `evidence[0]` so the agent can send it as-is. This is a PROPOSAL only — it
+/// never writes to the antibody store.
+///
+/// Honest degradation: if no usable structural signature can be derived from the
+/// node (e.g. a file-level finding whose only label is a path), the proposal
+/// still emits a syntactically valid `antibody_create` call seeded with whatever
+/// is known plus a `refine` note in the message — it never fabricates an edge or
+/// relation that may not exist in the graph (which would produce a non-matching
+/// antibody). Returns `None` when there is no flagged finding for this
+/// `(agent_id, node_id)`.
+fn build_proposed_antibody_insight(
+    state: &mut SessionState,
+    agent_id: &str,
+    node_id: &str,
+) -> Option<surgical::ProactiveInsight> {
+    let mark = state.take_finding(agent_id, node_id)?;
+
+    // Resolve the edited node's live structural signature from the graph.
+    let (node_type_str, label_fragment): (Option<&'static str>, Option<String>) = {
+        let graph = state.graph.read();
+        let mut found: Option<NodeId> = None;
+        for (interned, &nid) in &graph.id_to_node {
+            if graph.strings.resolve(*interned) == node_id {
+                found = Some(nid);
+                break;
+            }
+        }
+        if let Some(nid) = found {
+            let idx = nid.as_usize();
+            let nt = antibody_node_type_str(&graph.nodes.node_type[idx]);
+            let label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
+            (nt, antibody_label_fragment(&label))
+        } else {
+            (None, antibody_label_fragment(node_id))
+        }
+    };
+
+    // Assemble the single seed pattern node. We deliberately emit ONLY the seed
+    // node (no fabricated edges) so the antibody is guaranteed to match at least
+    // structurally-similar nodes; edges/relations would risk a non-matching
+    // pattern unless mined from the real graph vocabulary.
+    let mut seed = serde_json::Map::new();
+    seed.insert("role".to_string(), serde_json::json!("site"));
+    let mut have_constraint = false;
+    if let Some(nt) = node_type_str {
+        seed.insert("node_type".to_string(), serde_json::json!(nt));
+        have_constraint = true;
+    }
+    if let Some(frag) = &label_fragment {
+        seed.insert("label_contains".to_string(), serde_json::json!(frag));
+        have_constraint = true;
+    }
+
+    // Specificity floor honesty: a seed with neither a node_type nor a label
+    // fragment would be below MIN_SPECIFICITY and rejected by antibody_create.
+    // In that degraded case fall back to a structural node_type only when we have
+    // one, else there is genuinely nothing to seed from — surface a refine-only
+    // proposal that the agent must complete by hand.
+    let needs_refine = label_fragment.is_none() || node_type_str.is_none();
+
+    let antibody_name = format!("{}-recurrence", mark.kind);
+    let description = if needs_refine {
+        format!(
+            "Auto-proposed from a fixed `{}` finding at {}. Seed is structural-only — refine the pattern (add a discriminating label_contains and/or an edge) before relying on it.",
+            mark.kind, node_id
+        )
+    } else {
+        format!(
+            "Auto-proposed from a fixed `{}` finding so the next audit catches the same structural bug elsewhere.",
+            mark.kind
+        )
+    };
+
+    let pattern = serde_json::json!({
+        "nodes": [ serde_json::Value::Object(seed) ],
+        "edges": []
+    });
+    let arguments = serde_json::json!({
+        "agent_id": agent_id,
+        "action": "create",
+        "name": antibody_name,
+        "description": description,
+        "severity": mark.severity,
+        "pattern": pattern,
+    });
+    let arguments_str = serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string());
+
+    let message = if !have_constraint {
+        format!(
+            "You just fixed a `{}` finding here. No structural signature could be derived from this node — refine the proposed antibody_create pattern (node_type + label_contains) so the next agent's audit catches this bug elsewhere.",
+            mark.kind
+        )
+    } else if needs_refine {
+        format!(
+            "You just fixed a `{}` finding here. Proposed a ready-to-run antibody_create (structural seed) — refine its label_contains/edges, then send it so the next audit catches this bug elsewhere.",
+            mark.kind
+        )
+    } else {
+        format!(
+            "You just fixed a `{}` finding here. Proposed a ready-to-run antibody_create so the next agent's audit catches the same structural bug elsewhere — send it as-is to seed the antibody.",
+            mark.kind
+        )
+    };
+
+    let severity = match mark.severity.as_str() {
+        "critical" => "critical",
+        "info" => "info",
+        _ => "warning",
+    };
+
+    Some(surgical::ProactiveInsight {
+        severity: severity.to_string(),
+        kind: "proposed_antibody".to_string(),
+        message,
+        confidence: if needs_refine { 0.55 } else { 0.8 },
+        evidence: vec![
+            // evidence[0] is the COMPLETE, ready-to-run antibody_create arguments
+            // object as a compact JSON string — the agent sends it as-is.
+            arguments_str,
+            format!("finding_kind={}", mark.kind),
+            format!("finding_severity={}", mark.severity),
+            format!("flagged_node={}", node_id),
+        ],
+        suggested_tool: Some("antibody_create".to_string()),
+        suggested_target: Some(node_id.to_string()),
+    })
+}
+
+/// Collect candidate external node ids for `file_path` and, for each that has a
+/// flagged finding recorded by `agent_id` this session, emit a `proposed_antibody`
+/// insight. `primary_ids` (e.g. `updated_node_ids`) are checked first; the rest
+/// are gathered from the graph so a symbol-level finding still joins a file-level
+/// write. Consumes each matched finding (proposes once).
+fn propose_antibodies_for_write(
+    state: &mut SessionState,
+    agent_id: &str,
+    file_path: &str,
+    primary_ids: &[String],
+) -> Vec<surgical::ProactiveInsight> {
+    // Build the candidate id set: explicit updated ids + every graph node for the
+    // written file. Dedup while preserving the primary-first order.
+    let mut candidates: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for id in primary_ids {
+        if seen.insert(id.clone()) {
+            candidates.push(id.clone());
+        }
+    }
+    {
+        let graph = state.graph.read();
+        for (_, ext_id) in find_nodes_for_file(&graph, file_path) {
+            if seen.insert(ext_id.clone()) {
+                candidates.push(ext_id);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for id in &candidates {
+        if let Some(insight) = build_proposed_antibody_insight(state, agent_id, id) {
+            out.push(insight);
+        }
+    }
+    out
+}
+
 pub(crate) fn persist_daemon_alerts_from_insights(
     state: &mut SessionState,
     proactive_insights: &[surgical::ProactiveInsight],
@@ -2263,6 +2488,7 @@ pub fn handle_edit_commit(
         lines_removed: apply_output.lines_removed,
         reingested: apply_output.reingested,
         updated_node_ids: apply_output.updated_node_ids,
+        proactive_insights: apply_output.proactive_insights,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
 }
@@ -2398,7 +2624,42 @@ pub fn handle_apply(
     state.track_agent(&input.agent_id);
 
     let applied_file_path = validated_path.to_string_lossy().to_string();
-    let proactive_insights = daemon_proactive_insights_for_file(state, &applied_file_path, None);
+    let mut proactive_insights =
+        daemon_proactive_insights_for_file(state, &applied_file_path, None);
+    // Antibody auto-propose on fix: if this agent's scan/audit previously flagged
+    // a node in the written file, emit a `proposed_antibody` carrying a
+    // ready-to-run antibody_create so the next agent's audit catches the same
+    // structural bug elsewhere (compounding negative memory). Proposal only — no
+    // silent write to the antibody store.
+    {
+        let mut proposed = propose_antibodies_for_write(
+            state,
+            &input.agent_id,
+            &applied_file_path,
+            &updated_node_ids,
+        );
+        if !proposed.is_empty() {
+            // Keep the standard 3-insight cap, but never let the proposed_antibody
+            // be silently dropped by truncation: prepend the proposals, sort the
+            // remainder, and re-truncate so at least the proposals survive.
+            let mut combined = proposed;
+            combined.append(&mut proactive_insights);
+            combined.sort_by(|a, b| {
+                // proposed_antibody first, then by severity, then confidence.
+                let a_prop = (a.kind != "proposed_antibody") as u8;
+                let b_prop = (b.kind != "proposed_antibody") as u8;
+                a_prop
+                    .cmp(&b_prop)
+                    .then_with(|| {
+                        proactive_severity_rank(&a.severity)
+                            .cmp(&proactive_severity_rank(&b.severity))
+                    })
+                    .then_with(|| b.confidence.total_cmp(&a.confidence))
+            });
+            combined.truncate(3);
+            proactive_insights = combined;
+        }
+    }
     let _ = persist_daemon_alerts_from_insights(
         state,
         &proactive_insights,
@@ -3971,6 +4232,42 @@ pub fn handle_apply_batch(
         insights.truncate(3);
         insights
     };
+    // Antibody auto-propose on fix (batch): for each successfully written file,
+    // if this agent's scan/audit previously flagged a node in it, emit a
+    // `proposed_antibody`. Done after the read-only insight block closes so we
+    // hold `&mut state` for finding consumption. Proposed antibodies are kept
+    // even if the standard cap is hit.
+    let mut proactive_insights = proactive_insights;
+    {
+        let written_files: Vec<String> = results
+            .iter()
+            .filter(|result| result.success)
+            .map(|result| result.file_path.clone())
+            .collect();
+        let mut proposed = Vec::new();
+        for file_path in &written_files {
+            let mut per_file =
+                propose_antibodies_for_write(state, &input.agent_id, file_path, &[]);
+            proposed.append(&mut per_file);
+        }
+        if !proposed.is_empty() {
+            let mut combined = proposed;
+            combined.append(&mut proactive_insights);
+            combined.sort_by(|a, b| {
+                let a_prop = (a.kind != "proposed_antibody") as u8;
+                let b_prop = (b.kind != "proposed_antibody") as u8;
+                a_prop
+                    .cmp(&b_prop)
+                    .then_with(|| {
+                        proactive_severity_rank(&a.severity)
+                            .cmp(&proactive_severity_rank(&b.severity))
+                    })
+                    .then_with(|| b.confidence.total_cmp(&a.confidence))
+            });
+            combined.truncate(3);
+            proactive_insights = combined;
+        }
+    }
     let primary_file_path = results
         .iter()
         .find(|result| result.success)
@@ -5990,5 +6287,232 @@ mod tests {
             );
         }
         std::env::remove_var("M1ND_PROOF_GATE");
+    }
+
+    // -------------------------------------------------------------------------
+    // Antibody auto-propose on fix (gamechanger #6).
+    // -------------------------------------------------------------------------
+
+    /// Build a state whose graph holds a Function node for `target` (with a
+    /// discriminating label so a derived antibody is clean) plus an unrelated
+    /// file node for `other`. Both files are written to disk so apply can touch
+    /// them. Returns the function node's external id.
+    fn build_findings_state(
+        root: &std::path::Path,
+        target: &std::path::Path,
+        other: &std::path::Path,
+    ) -> (SessionState, String) {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        std::fs::create_dir_all(target.parent().unwrap()).expect("mk target parent");
+        std::fs::write(target, "pub fn handle_login() {}\n").expect("write target");
+        std::fs::create_dir_all(other.parent().unwrap()).expect("mk other parent");
+        std::fs::write(other, "pub fn unrelated() {}\n").expect("write other");
+        let target_str = target.to_string_lossy().to_string();
+        let other_str = other.to_string_lossy().to_string();
+
+        let mut graph = Graph::new();
+        // A symbol (Function) node for the target: type + discriminating label
+        // gives a clean antibody seed (specificity 0.667).
+        let func_ext = format!("function::{target_str}::handle_login");
+        let func = graph
+            .add_node(&func_ext, "handle_login", NodeType::Function, &[], 0.0, 0.0)
+            .expect("add func node");
+        graph.set_node_provenance(
+            func,
+            NodeProvenanceInput {
+                source_path: Some(&target_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        // The unrelated file node (never flagged).
+        let other_node = graph
+            .add_node(
+                &format!("file::{other_str}"),
+                "unrelated.rs",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add other node");
+        graph.set_node_provenance(
+            other_node,
+            NodeProvenanceInput {
+                source_path: Some(&other_str),
+                line_start: Some(1),
+                line_end: Some(1),
+                excerpt: None,
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph.finalize().expect("finalize graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        (state, func_ext)
+    }
+
+    /// Pull the proposed_antibody insight out of an apply/edit_commit dispatch
+    /// result, if present.
+    fn extract_proposed_antibody(out: &serde_json::Value) -> Option<serde_json::Value> {
+        let insights = out
+            .get("result")
+            .and_then(|r| r.get("proactive_insights"))
+            .or_else(|| out.get("proactive_insights"))?;
+        insights
+            .as_array()?
+            .iter()
+            .find(|i| i.get("kind").and_then(|k| k.as_str()) == Some("proposed_antibody"))
+            .cloned()
+    }
+
+    #[test]
+    fn antibody_auto_propose_on_fix_then_roundtrip() {
+        let _guard = proof_gate_env_lock();
+        std::env::remove_var("M1ND_PROOF_GATE");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let target = root.join("src/auth.rs");
+        let other = root.join("src/unrelated.rs");
+        let (mut state, func_ext) = build_findings_state(root, &target, &other);
+        let target_str = target.to_string_lossy().to_string();
+        let other_str = other.to_string_lossy().to_string();
+        let agent = "fix-agent";
+
+        // (1) Simulate a scan/audit flagging the function node for this agent.
+        //     (This is exactly what handle_scan now does after assembling a
+        //     finding: note_finding(agent, finding.node_id, pattern, sev, path).)
+        state.note_finding(agent, &func_ext, "auth_boundary", "critical", &target_str);
+        assert!(
+            state.get_finding(agent, &func_ext).is_some(),
+            "finding must be recorded"
+        );
+
+        // (2) Apply (fix) the flagged file through real dispatch.
+        let apply_params = serde_json::json!({
+            "agent_id": agent,
+            "file_path": target_str,
+            "new_content": "pub fn handle_login() { /* validated */ }\n",
+        });
+        let apply_out = crate::server::dispatch_tool(&mut state, "apply", &apply_params)
+            .expect("apply must succeed");
+        let proposed = extract_proposed_antibody(&apply_out)
+            .expect("apply of a flagged node must carry a proposed_antibody");
+        println!(
+            "[probe] proposed_antibody: {}",
+            serde_json::to_string_pretty(&proposed).unwrap()
+        );
+
+        // The ready-to-run antibody_create arguments live in evidence[0].
+        let args_str = proposed
+            .get("evidence")
+            .and_then(|e| e.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_str())
+            .expect("evidence[0] must be the antibody_create arguments JSON");
+        let args: serde_json::Value =
+            serde_json::from_str(args_str).expect("antibody_create arguments must be valid JSON");
+        println!(
+            "[probe] antibody_create arguments: {}",
+            serde_json::to_string_pretty(&args).unwrap()
+        );
+        // Schema sanity: required fields present and well-formed.
+        assert_eq!(args.get("agent_id").and_then(|v| v.as_str()), Some(agent));
+        assert!(args.get("pattern").is_some(), "pattern is required for create");
+        let nodes = args
+            .pointer("/pattern/nodes")
+            .and_then(|v| v.as_array())
+            .expect("pattern.nodes must be an array");
+        assert_eq!(nodes.len(), 1, "minimal viable seed = one node");
+        assert_eq!(
+            nodes[0].get("node_type").and_then(|v| v.as_str()),
+            Some("function"),
+            "seed must carry the edited node's structural type"
+        );
+        assert_eq!(
+            nodes[0].get("label_contains").and_then(|v| v.as_str()),
+            Some("handle_login"),
+            "seed must carry a discriminating label fragment"
+        );
+        assert!(
+            args.pointer("/pattern/edges")
+                .and_then(|v| v.as_array())
+                .map(|a| a.is_empty())
+                .unwrap_or(false),
+            "minimal viable seed has no fabricated edges"
+        );
+
+        // (3) Finding consumed: re-applying must NOT re-propose.
+        assert!(
+            state.get_finding(agent, &func_ext).is_none(),
+            "finding must be consumed by the proposal"
+        );
+        let apply_again = crate::server::dispatch_tool(&mut state, "apply", &apply_params)
+            .expect("second apply must succeed");
+        assert!(
+            extract_proposed_antibody(&apply_again).is_none(),
+            "a consumed finding must not re-propose"
+        );
+
+        // (4) Round-trip: feed the proposed arguments to antibody_create through
+        //     dispatch and prove they are ACCEPTED.
+        let create_out = crate::server::dispatch_tool(&mut state, "antibody_create", &args)
+            .expect("proposed antibody_create arguments must be accepted as-is");
+        let antibody_id = create_out
+            .pointer("/result/antibody_id")
+            .or_else(|| create_out.get("antibody_id"))
+            .and_then(|v| v.as_str())
+            .expect("antibody_create must return an antibody_id")
+            .to_string();
+        println!(
+            "[probe] antibody created id={antibody_id}, full result: {}",
+            serde_json::to_string(&create_out).unwrap()
+        );
+
+        // (5) Scan with that antibody and prove it matches at least the seed node.
+        let scan_params = serde_json::json!({
+            "agent_id": agent,
+            "antibody_ids": [antibody_id],
+        });
+        let scan_out = crate::server::dispatch_tool(&mut state, "antibody_scan", &scan_params)
+            .expect("antibody_scan must succeed");
+        let matches = scan_out
+            .pointer("/result/matches")
+            .or_else(|| scan_out.get("matches"))
+            .and_then(|v| v.as_array())
+            .expect("scan must return a matches array");
+        println!("[probe] antibody_scan matches={}", matches.len());
+        assert!(
+            !matches.is_empty(),
+            "the proposed antibody must match at least the seed node, got 0 matches: {}",
+            serde_json::to_string(&scan_out).unwrap()
+        );
+
+        // (6) Editing a DIFFERENT, UNFLAGGED file must propose nothing.
+        let other_apply = serde_json::json!({
+            "agent_id": agent,
+            "file_path": other_str,
+            "new_content": "pub fn unrelated() { /* changed */ }\n",
+        });
+        let other_out = crate::server::dispatch_tool(&mut state, "apply", &other_apply)
+            .expect("apply of unflagged file must succeed");
+        assert!(
+            extract_proposed_antibody(&other_out).is_none(),
+            "an unflagged node must NOT trigger a proposed_antibody"
+        );
+        println!("[probe] unflagged file produced no proposed_antibody (correct)");
     }
 }
