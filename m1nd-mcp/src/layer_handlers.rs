@@ -233,12 +233,8 @@ pub fn handle_seek(
     // label-only trigrams, but NOT transformer-grade. The ONNX/bge tier is the
     // path for maximal quality.
     #[cfg(feature = "embed")]
-    let query_embedding: Option<Box<[f32]>> = state
-        .orchestrator
-        .semantic
-        .embedder
-        .as_ref()
-        .map(|e| {
+    let query_embedding: Option<Box<[f32]>> =
+        state.orchestrator.semantic.embedder.as_ref().map(|e| {
             use m1nd_core::embed::Embedder;
             e.embed(&input.query)
         });
@@ -9594,7 +9590,10 @@ mod tests {
         }
 
         // The embedding must have actually fed the score.
-        assert!(out.embeddings_used, "embeddings_used must be true with feature ON + model present");
+        assert!(
+            out.embeddings_used,
+            "embeddings_used must be true with feature ON + model present"
+        );
         // The semantically-relevant node must be surfaced.
         let target_pos = out.results.iter().position(|r| r.label == "drain_inflight");
         assert!(
