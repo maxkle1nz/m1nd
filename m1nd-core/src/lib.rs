@@ -7,6 +7,8 @@ pub mod counterfactual;
 pub mod domain;
 #[cfg(feature = "embed")]
 pub mod embed;
+#[cfg(feature = "embed")]
+pub mod embed_cache;
 pub mod epidemic;
 pub mod error;
 pub mod flow;

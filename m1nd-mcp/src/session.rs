@@ -310,6 +310,9 @@ pub struct SessionState {
     pub graph_path: PathBuf,
     /// Path to plasticity state file.
     pub plasticity_path: PathBuf,
+    /// Path to the on-disk embedding cache (OPTIONAL `embed` feature). Derived
+    /// from the runtime root; reused across warm boots and re-ingests.
+    pub embeddings_cache_path: PathBuf,
     /// Per-agent session tracking.
     pub sessions: HashMap<String, AgentSession>,
     /// In-memory preview states for Ultra Edit phase 1.
@@ -1186,17 +1189,8 @@ impl SessionState {
         config: &crate::server::McpConfig,
         domain: DomainConfig,
     ) -> M1ndResult<Self> {
-        // Build all engines from graph
-        let orchestrator = QueryOrchestrator::build(&graph)?;
-        let temporal = TemporalEngine::build(&graph)?;
-        let counterfactual = CounterfactualEngine::with_defaults();
-        let topology = TopologyAnalyzer::with_defaults();
-        let resonance = ResonanceEngine::with_defaults();
-        let plasticity =
-            PlasticityEngine::new(&graph, m1nd_core::plasticity::PlasticityConfig::default());
-
-        let shared = Arc::new(parking_lot::RwLock::new(graph));
-
+        // Resolve the runtime root up front so the embedding cache (and its
+        // directory) exist before any engine build writes to them.
         let runtime_root = config.runtime_dir.clone().unwrap_or_else(|| {
             config
                 .graph_source
@@ -1205,6 +1199,27 @@ impl SessionState {
                 .to_path_buf()
         });
         std::fs::create_dir_all(&runtime_root)?;
+        // OPTIONAL `embed` feature: per-node embeddings are cached on disk next
+        // to the snapshot so a warm boot reuses them instead of recomputing.
+        // Ignored entirely when the `embed` feature is off.
+        let embeddings_cache_path = runtime_root.join("embeddings_cache.bin");
+
+        // Build all engines from graph (semantic reuses the embedding cache).
+        // Only the writable owner persists the cache; a read-only attacher reuses
+        // it but never writes (honoring the read-only "persistence disabled" contract).
+        let orchestrator = QueryOrchestrator::build_with_cache(
+            &graph,
+            Some(&embeddings_cache_path),
+            !config.read_only,
+        )?;
+        let temporal = TemporalEngine::build(&graph)?;
+        let counterfactual = CounterfactualEngine::with_defaults();
+        let topology = TopologyAnalyzer::with_defaults();
+        let resonance = ResonanceEngine::with_defaults();
+        let plasticity =
+            PlasticityEngine::new(&graph, m1nd_core::plasticity::PlasticityConfig::default());
+
+        let shared = Arc::new(parking_lot::RwLock::new(graph));
         let (workspace_root, workspace_root_source) =
             Self::infer_workspace_root(config, &runtime_root);
         let instance_mode = if config.read_only {
@@ -1242,6 +1257,7 @@ impl SessionState {
             last_persist_time: None,
             graph_path: config.graph_source.clone(),
             plasticity_path: config.plasticity_state.clone(),
+            embeddings_cache_path,
             sessions: HashMap::new(),
             edit_previews: HashMap::new(),
             // Perspective MCP state
@@ -1543,7 +1559,11 @@ impl SessionState {
         // Scope the read lock so it's dropped before &mut self methods
         {
             let graph = self.graph.read();
-            self.orchestrator = QueryOrchestrator::build(&graph)?;
+            self.orchestrator = QueryOrchestrator::build_with_cache(
+                &graph,
+                Some(&self.embeddings_cache_path),
+                !self.read_only,
+            )?;
             self.temporal = TemporalEngine::build(&graph)?;
             self.plasticity =
                 PlasticityEngine::new(&graph, m1nd_core::plasticity::PlasticityConfig::default());
