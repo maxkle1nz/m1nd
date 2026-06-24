@@ -1,5 +1,10 @@
 target/
 
+# Vendored model blobs for the OPTIONAL `embed` feature (model2vec static embeddings).
+# The ~129MB safetensors blob must NOT be committed directly — finalize via Git LFS
+# (see model2vec embedder docs). Code loads from this path at runtime when --features embed is on.
+m1nd-core/assets/
+
 # Frontend dependencies/build outputs
 m1nd-demo/node_modules/
 m1nd-viz/node_modules/

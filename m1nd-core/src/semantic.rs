@@ -561,6 +561,18 @@ pub struct SemanticEngine {
     pub cooccurrence: CoOccurrenceIndex,
     pub synonym: SynonymExpander,
     pub weights: SemanticWeights,
+    /// OPTIONAL `embed` feature: per-node L2-normalized static embedding,
+    /// keyed by NodeId, computed in `build` over text = label + excerpt.
+    /// This is a low-risk side-map: NodeStorage SoA and the snapshot are NOT
+    /// touched (deferred follow-up). Recomputed on every build — fine for now.
+    /// Empty when the model could not be loaded; callers fall back to trigrams.
+    #[cfg(feature = "embed")]
+    pub embeddings: HashMap<NodeId, Box<[f32]>>,
+    /// OPTIONAL `embed` feature: the loaded static embedder for query-time
+    /// encoding (so callers don't need to reload the model). None when the
+    /// model is unavailable.
+    #[cfg(feature = "embed")]
+    pub embedder: Option<std::sync::Arc<crate::embed::Model2VecEmbedder>>,
 }
 
 impl SemanticEngine {
@@ -572,12 +584,64 @@ impl SemanticEngine {
             CoOccurrenceIndex::build(graph, WALK_LENGTH, WALKS_PER_NODE, WINDOW_SIZE)?;
         let synonym = SynonymExpander::build_default()?;
 
+        // OPTIONAL `embed` feature: compute a per-node static-embedding side-map
+        // over text = label + resolved provenance.excerpt (label-only when the
+        // excerpt is None). Loading the model is best-effort: if it is not
+        // vendored locally, we log and leave the map empty so `seek` cleanly
+        // falls back to the legacy trigram path (ZERO behavior change).
+        #[cfg(feature = "embed")]
+        let (embeddings, embedder) = Self::build_embeddings(graph);
+
         Ok(Self {
             ngram,
             cooccurrence,
             synonym,
             weights,
+            #[cfg(feature = "embed")]
+            embeddings,
+            #[cfg(feature = "embed")]
+            embedder,
         })
+    }
+
+    /// OPTIONAL `embed` feature: load the static embedder and embed every node's
+    /// (label + excerpt) text. Returns an empty map + None embedder if the model
+    /// cannot be loaded — never fails the build.
+    #[cfg(feature = "embed")]
+    fn build_embeddings(
+        graph: &Graph,
+    ) -> (
+        HashMap<NodeId, Box<[f32]>>,
+        Option<std::sync::Arc<crate::embed::Model2VecEmbedder>>,
+    ) {
+        use crate::embed::{Embedder, Model2VecEmbedder};
+
+        let embedder = match Model2VecEmbedder::from_default() {
+            Ok(e) => std::sync::Arc::new(e),
+            Err(e) => {
+                eprintln!("[m1nd embed] static embeddings disabled: {e}");
+                return (HashMap::new(), None);
+            }
+        };
+
+        let n = graph.num_nodes() as usize;
+        let mut map: HashMap<NodeId, Box<[f32]>> = HashMap::with_capacity(n);
+        for i in 0..n {
+            let label = graph.strings.resolve(graph.nodes.label[i]);
+            let text = match graph.nodes.provenance[i].excerpt {
+                Some(e) => {
+                    let excerpt = graph.strings.resolve(e);
+                    if excerpt.is_empty() {
+                        label.to_string()
+                    } else {
+                        format!("{label} {excerpt}")
+                    }
+                }
+                None => label.to_string(),
+            };
+            map.insert(NodeId::new(i as u32), embedder.embed(&text));
+        }
+        (map, Some(embedder))
     }
 
     /// Full query: score all nodes, return top_k.

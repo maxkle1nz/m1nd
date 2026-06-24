@@ -9,6 +9,9 @@ repository = "https://github.com/maxkle1nz/m1nd"
 [features]
 default = ["serve"]
 serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest"]
+# OPTIONAL: enable real local static embeddings in `seek` (forwards to m1nd-core).
+# OFF by default — model2vec dep is not compiled unless this is on.
+embed = ["m1nd-core/embed"]
 
 [dependencies]
 m1nd-core = { path = "../m1nd-core", version = "0.9.0-beta.8" }

@@ -17,6 +17,31 @@ The rule:
 
 ## Open Notes
 
+### 2026-06-24 — OPTIONAL real local embeddings for `seek` (first cut, OFF by default)
+
+- Context: `seek`'s "semantic" slot was character-trigram TF-IDF over labels —
+  it cannot match intent queries whose words never appear in the node label.
+- First cut: a cargo feature `embed` (OFF by default; `m1nd-core/embed`,
+  forwarded by `m1nd-mcp/embed`) wires FAST STATIC embeddings via `model2vec-rs`
+  (`potion-base-8M`, ~29 MB, MIT, L2-normalized; output dim probed at load).
+  Model chosen by deep research as the leanest all-rounder serving BOTH code and
+  l1ght prose in one space; `M1ND_EMBED_MODEL` overrides (e.g. potion-code-16M for
+  code-max, potion-multilingual-128M for non-English). `SemanticEngine::build`
+  computes a per-node embedding side-map over `label + provenance.excerpt`;
+  `seek` embeds the query once and blends `sem = 0.7*cosine + 0.3*legacy_trigram`
+  for Phase-1 survivors. `embeddings_used` in the response is now TRUTHFUL.
+- HONESTY: these are STATIC embeddings — a real upgrade over label-only
+  trigrams, but NOT transformer-grade (no attention/contextualization). The
+  ONNX/bge tier is the path for maximal quality. No string should imply
+  transformer semantics.
+- Deferred: persisting embeddings into NodeStorage SoA + the snapshot (today
+  they are recomputed on every build); embedding AST body text (not just the
+  excerpt); and the ONNX/transformer quality tier (runner-up: jina-v2-base-code
+  pure-Rust via candle, the right upgrade once nodes carry real bodies + an ANN
+  index). The model is gitignored under `m1nd-core/assets/`; it is
+  downloaded-on-first-use from Hugging Face (`DEFAULT_HF_REPO`) or pointed at a
+  vendored copy via `M1ND_EMBED_MODEL` — no model blob is committed.
+
 ### 2026-05-05 — scope normalization failures should prefill doctor recovery too
 
 - Context: `seek`, `search`, and `activate` now attach `graph_state` and a
