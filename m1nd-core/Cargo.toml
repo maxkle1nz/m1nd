@@ -16,6 +16,19 @@ rayon = { workspace = true }
 static_assertions = { workspace = true }
 bincode = "1.3"
 
+# OPTIONAL: pure-Rust static embeddings (model2vec). OFF by default.
+# `fancy-regex` avoids the oniguruma C dependency; `hf-hub` lets from_pretrained
+# accept a local dir path (and optionally fetch). The dep is NOT compiled unless
+# the `embed` feature is enabled.
+model2vec-rs = { version = "0.2.1", default-features = false, features = ["fancy-regex", "hf-hub"], optional = true }
+
+[features]
+default = []
+# Optional real local semantic embedding for `seek` using FAST STATIC embeddings
+# (model2vec / potion-retrieval-32M). A real upgrade over label-only trigrams but
+# NOT transformer-grade; the ONNX/bge tier is the path for maximal quality.
+embed = ["dep:model2vec-rs"]
+
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 m1nd-ingest = { path = "../m1nd-ingest" }

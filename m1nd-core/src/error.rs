@@ -115,6 +115,10 @@ pub enum M1ndError {
     #[error("schema drift on import: {reason}")]
     SchemaDrift { reason: String },
 
+    /// OPTIONAL `embed` feature: failed to load or run the static embedding model.
+    #[error("embed error: {0}")]
+    EmbedError(String),
+
     // --- Counterfactual ---
     /// FM-CF-001: Seed node was in the removal set.
     #[error("counterfactual seed overlap: seed {node:?} is in the removal set")]

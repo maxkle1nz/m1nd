@@ -219,6 +219,34 @@ pub fn handle_seek(
             .collect()
     };
     let semantic_used = !semantic_scores.is_empty();
+    // Legacy trigram-path indicator; retained for clarity but no longer aliased
+    // into the response's (now truthful) `embeddings_used` flag.
+    let _ = semantic_used;
+
+    // OPTIONAL `embed` feature: embed the query ONCE (covers both the server arm
+    // and the internal Semantic-search caller in search_handlers, which routes
+    // through handle_seek). When the feature is OFF, `query_embedding` is always
+    // None and nothing below changes — the `sem` slot stays the legacy trigram
+    // TF-IDF score, i.e. ZERO behavior change.
+    //
+    // HONESTY: these are FAST STATIC embeddings (model2vec) — a real upgrade over
+    // label-only trigrams, but NOT transformer-grade. The ONNX/bge tier is the
+    // path for maximal quality.
+    #[cfg(feature = "embed")]
+    let query_embedding: Option<Box<[f32]>> = state
+        .orchestrator
+        .semantic
+        .embedder
+        .as_ref()
+        .map(|e| {
+            use m1nd_core::embed::Embedder;
+            e.embed(&input.query)
+        });
+    // Tracks whether a real embedding actually fed at least one node's score, so
+    // `embeddings_used` in the response is TRUTHFUL (not a misnomer for the
+    // trigram path). Stays false when the `embed` feature is OFF.
+    #[allow(unused_mut)]
+    let mut embeddings_used = false;
 
     // Phase 3: Combine with graph re-ranking.
     // V2 formula: keyword_match * 0.4 + semantic_embedding * 0.3 + graph_activation(PageRank) * 0.2 + trigram * 0.1
@@ -243,7 +271,34 @@ pub fn handle_seek(
     for i in 0..n {
         let kw = keyword_scores[i];
         let tri = trigram_scores[i];
-        let sem = semantic_scores.get(&i).copied().unwrap_or(0.0);
+        let legacy_sem = semantic_scores.get(&i).copied().unwrap_or(0.0);
+
+        // Phase-1 survivor = node with any lexical signal (keyword or trigram).
+        // For survivors, when the `embed` feature is ON and BOTH the query and
+        // this node have an embedding, blend: sem = 0.7*cosine + 0.3*legacy.
+        // The lexical/trigram signal is preserved (not discarded). When the
+        // feature is OFF or an embedding is missing, sem stays legacy_sem.
+        #[allow(unused_mut)]
+        let mut sem = legacy_sem;
+        #[cfg(feature = "embed")]
+        {
+            let is_survivor = kw > 0.0 || tri > 0.0;
+            if is_survivor {
+                if let Some(qv) = query_embedding.as_ref() {
+                    if let Some(nv) = state
+                        .orchestrator
+                        .semantic
+                        .embeddings
+                        .get(&m1nd_core::types::NodeId::new(i as u32))
+                    {
+                        let cos = m1nd_core::embed::cosine(qv, nv).clamp(0.0, 1.0);
+                        sem = 0.7 * cos + 0.3 * legacy_sem;
+                        embeddings_used = true;
+                    }
+                }
+            }
+        }
+
         if kw < 0.01 && tri < 0.15 && sem < 0.05 {
             continue;
         }
@@ -529,7 +584,12 @@ pub fn handle_seek(
         query: input.query,
         results,
         total_candidates_scanned: candidates_scanned,
-        embeddings_used: semantic_used,
+        // TRUTHFUL: true ONLY when a real static embedding actually fed a node's
+        // score (OPTIONAL `embed` feature). With the feature OFF this is always
+        // false. Previously this aliased `semantic_used` (the trigram path),
+        // which was a misnomer. `_ = semantic_used` keeps the legacy binding live
+        // for the unchanged trigram scoring without re-confusing the flag.
+        embeddings_used,
         proof_state,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         next_suggested_tool,
@@ -9403,6 +9463,148 @@ mod tests {
     use m1nd_core::graph::Graph;
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
     use std::collections::HashMap;
+
+    /// OPTIONAL `embed` feature REAL PROBE.
+    ///
+    /// Build a graph where the answer node does NOT keyword-match the intent
+    /// query — the intent lives only in its provenance excerpt. With static
+    /// embeddings ON, seek must surface that node (and report
+    /// `embeddings_used == true`). The probe prints the ranked output so the
+    /// behavior is observable. Gated on the model being vendored locally; skips
+    /// (does not fail) when the ~129MB blob is absent.
+    #[cfg(feature = "embed")]
+    #[test]
+    fn embed_probe_surfaces_semantic_node() {
+        use m1nd_core::graph::NodeProvenanceInput;
+
+        // Skip cleanly if the model isn't vendored in this environment.
+        let model_dir = m1nd_core::embed::Model2VecEmbedder::default_model_dir();
+        if !model_dir.join("model.safetensors").exists() {
+            eprintln!(
+                "SKIP embed_probe_surfaces_semantic_node: model not vendored at {}",
+                model_dir.display()
+            );
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("m1nd_embed_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp dir");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        // Decoy: a node whose label is lexically busy but semantically unrelated.
+        let decoy = graph
+            .add_node(
+                "fn::parse_csv_header",
+                "parse_csv_header",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add decoy");
+        graph.set_node_provenance(
+            decoy,
+            NodeProvenanceInput {
+                source_path: Some("src/csv.rs"),
+                line_start: Some(1),
+                line_end: Some(20),
+                excerpt: Some("splits the first row into column names for the parser"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        // Target: label does NOT contain the query words ("shutdown",
+        // "cancellation", "guard"); the intent is ONLY in the excerpt.
+        let target = graph
+            .add_node(
+                "fn::drain_inflight",
+                "drain_inflight",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add target");
+        graph.set_node_provenance(
+            target,
+            NodeProvenanceInput {
+                source_path: Some("src/runtime.rs"),
+                line_start: Some(40),
+                line_end: Some(70),
+                excerpt: Some(
+                    "gracefully aborts the running work and stops accepting tasks when the \
+                     context is cancelled during shutdown",
+                ),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph
+            .add_edge(
+                decoy,
+                target,
+                "calls",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge");
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "guard shutdown against cancellation".into(),
+                agent_id: "probe".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        eprintln!("=== EMBED PROBE: query='guard shutdown against cancellation' ===");
+        eprintln!("embeddings_used = {}", out.embeddings_used);
+        for (rank, r) in out.results.iter().enumerate() {
+            eprintln!(
+                "  #{rank} {:<22} score={:.4} kw_slot={:.4} graph={:.4} tri_slot={:.4}",
+                r.label,
+                r.score,
+                r.score_breakdown.embedding_similarity,
+                r.score_breakdown.graph_activation,
+                r.score_breakdown.temporal_recency,
+            );
+        }
+
+        // The embedding must have actually fed the score.
+        assert!(out.embeddings_used, "embeddings_used must be true with feature ON + model present");
+        // The semantically-relevant node must be surfaced.
+        let target_pos = out.results.iter().position(|r| r.label == "drain_inflight");
+        assert!(
+            target_pos.is_some(),
+            "semantic target 'drain_inflight' must be surfaced; got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     fn build_layer_state(root: &std::path::Path) -> SessionState {
         let runtime_dir = root.join("runtime");
