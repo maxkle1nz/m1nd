@@ -51,6 +51,10 @@ pub trait Embedder: Send + Sync {
 pub struct Model2VecEmbedder {
     model: Arc<StaticModel>,
     dim: usize,
+    /// Stable identity of the loaded model (resolved local directory path or
+    /// Hugging Face repo id). Recorded into the embedding cache header so a
+    /// cache built with a different model is transparently ignored.
+    id: String,
 }
 
 impl Model2VecEmbedder {
@@ -86,6 +90,7 @@ impl Model2VecEmbedder {
         Ok(Self {
             model: Arc::new(model),
             dim,
+            id: repo.to_string(),
         })
     }
 
@@ -111,10 +116,26 @@ impl Model2VecEmbedder {
         // Probe the output dimension once via a trivial encode.
         let probe = model.encode_single("dim probe");
         let dim = probe.len();
+        // Lightweight content fingerprint: fold the weights-file byte length into
+        // the identity so an in-place model swap at the same path (different
+        // weights) changes `model_id` and invalidates any stale embedding cache.
+        // Size is stable (no mtime churn); a same-size, different-weights swap is
+        // astronomically unlikely for safetensors.
+        let weights_len = std::fs::metadata(dir.join("model.safetensors"))
+            .map(|m| m.len())
+            .unwrap_or(0);
         Ok(Self {
             model: Arc::new(model),
             dim,
+            id: format!("{}#{weights_len}", dir.display()),
         })
+    }
+
+    /// Stable identity string of the loaded model (resolved directory path or
+    /// Hugging Face repo id). Recorded into the embedding cache header so a
+    /// cache produced by a different model is transparently ignored.
+    pub fn model_id(&self) -> &str {
+        &self.id
     }
 }
 

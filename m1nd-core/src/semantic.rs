@@ -575,10 +575,35 @@ pub struct SemanticEngine {
     pub embedder: Option<std::sync::Arc<crate::embed::Model2VecEmbedder>>,
 }
 
+/// Result of [`SemanticEngine::build_embeddings`]: per-node embeddings keyed by
+/// `NodeId`, plus the loaded embedder for query-time encoding.
+#[cfg(feature = "embed")]
+type EmbeddingBuild = (
+    HashMap<NodeId, Box<[f32]>>,
+    Option<std::sync::Arc<crate::embed::Model2VecEmbedder>>,
+);
+
 impl SemanticEngine {
     /// Build all three indexes from the graph.
     /// Replaces: semantic_v2.py SemanticEngine.__init__()
     pub fn build(graph: &Graph, weights: SemanticWeights) -> M1ndResult<Self> {
+        Self::build_with_cache(graph, weights, None, false)
+    }
+
+    /// Like [`SemanticEngine::build`], but when the `embed` feature is on and
+    /// `cache_path` is `Some`, per-node embeddings are loaded from a
+    /// content-addressed on-disk cache (keyed by a stable hash of model id +
+    /// node text), reusing unchanged vectors instead of recomputing them; only
+    /// changed/new nodes are re-embedded. The updated cache is written back ONLY
+    /// when `persist` is true — read-only attachers pass `false` so they reuse
+    /// the cache but never write it (one writer per file; honors the read-only
+    /// contract). `cache_path`/`persist` are ignored when the `embed` feature is off.
+    pub fn build_with_cache(
+        graph: &Graph,
+        weights: SemanticWeights,
+        cache_path: Option<&std::path::Path>,
+        persist: bool,
+    ) -> M1ndResult<Self> {
         let ngram = CharNgramIndex::build(graph, NGRAM_SIZE)?;
         let cooccurrence =
             CoOccurrenceIndex::build(graph, WALK_LENGTH, WALKS_PER_NODE, WINDOW_SIZE)?;
@@ -590,7 +615,9 @@ impl SemanticEngine {
         // vendored locally, we log and leave the map empty so `seek` cleanly
         // falls back to the legacy trigram path (ZERO behavior change).
         #[cfg(feature = "embed")]
-        let (embeddings, embedder) = Self::build_embeddings(graph);
+        let (embeddings, embedder) = Self::build_embeddings(graph, cache_path, persist);
+        #[cfg(not(feature = "embed"))]
+        let _ = (cache_path, persist); // unused without the embed feature
 
         Ok(Self {
             ngram,
@@ -605,16 +632,19 @@ impl SemanticEngine {
     }
 
     /// OPTIONAL `embed` feature: load the static embedder and embed every node's
-    /// (label + excerpt) text. Returns an empty map + None embedder if the model
-    /// cannot be loaded — never fails the build.
+    /// (label + excerpt) text, reusing a content-addressed on-disk cache when
+    /// `cache_path` is `Some`. The updated cache is persisted only when `persist`
+    /// is true (the lease-holding writer); read-only attachers load-but-never-write.
+    /// Returns an empty map + None embedder if the model cannot be loaded — never
+    /// fails the build.
     #[cfg(feature = "embed")]
     fn build_embeddings(
         graph: &Graph,
-    ) -> (
-        HashMap<NodeId, Box<[f32]>>,
-        Option<std::sync::Arc<crate::embed::Model2VecEmbedder>>,
-    ) {
+        cache_path: Option<&std::path::Path>,
+        persist: bool,
+    ) -> EmbeddingBuild {
         use crate::embed::{Embedder, Model2VecEmbedder};
+        use crate::embed_cache::{content_key, EmbeddingCache};
 
         let embedder = match Model2VecEmbedder::from_default() {
             Ok(e) => std::sync::Arc::new(e),
@@ -624,8 +654,20 @@ impl SemanticEngine {
             }
         };
 
+        let model_id = embedder.model_id().to_string();
+        let dim = embedder.dim() as u32;
+
+        // Warm cache: reuse vectors whose (model, text) are unchanged. Any
+        // version/model/dim mismatch or corruption yields None (full recompute).
+        let warm = cache_path.and_then(|p| EmbeddingCache::load_compatible(p, &model_id, dim));
+
         let n = graph.num_nodes() as usize;
         let mut map: HashMap<NodeId, Box<[f32]>> = HashMap::with_capacity(n);
+        // Persisted set = EXACTLY the current graph's entries (self-pruning: no
+        // stale accumulation across re-ingests or repos sharing a cache file).
+        let mut next = EmbeddingCache::new(model_id.clone(), dim);
+        let (mut hits, mut misses) = (0usize, 0usize);
+
         for i in 0..n {
             let label = graph.strings.resolve(graph.nodes.label[i]);
             let text = match graph.nodes.provenance[i].excerpt {
@@ -639,8 +681,34 @@ impl SemanticEngine {
                 }
                 None => label.to_string(),
             };
-            map.insert(NodeId::new(i as u32), embedder.embed(&text));
+            let key = content_key(&model_id, &text);
+            let vec: Box<[f32]> = match warm.as_ref().and_then(|c| c.entries.get(&key)) {
+                Some(v) if v.len() == dim as usize => {
+                    hits += 1;
+                    v.clone()
+                }
+                _ => {
+                    misses += 1;
+                    embedder.embed(&text)
+                }
+            };
+            next.entries.entry(key).or_insert_with(|| vec.clone());
+            map.insert(NodeId::new(i as u32), vec);
         }
+
+        // Best-effort persist (atomic temp+rename); never fatal. Only the
+        // writable (lease-holding) owner persists — read-only attachers reuse the
+        // cache but never write it, keeping a single writer per cache file.
+        if let (true, Some(p)) = (persist, cache_path) {
+            match next.save(p) {
+                Ok(()) => eprintln!(
+                    "[m1nd embed] cache {hits} reused / {misses} new of {n} nodes -> {}",
+                    p.display()
+                ),
+                Err(e) => eprintln!("[m1nd embed] cache save failed: {e}; continuing"),
+            }
+        }
+
         (map, Some(embedder))
     }
 

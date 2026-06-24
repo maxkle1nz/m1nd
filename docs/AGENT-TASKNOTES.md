@@ -34,8 +34,7 @@ The rule:
   trigrams, but NOT transformer-grade (no attention/contextualization). The
   ONNX/bge tier is the path for maximal quality. No string should imply
   transformer semantics.
-- Deferred: persisting embeddings into NodeStorage SoA + the snapshot (today
-  they are recomputed on every build); embedding AST body text (not just the
+- Deferred: embedding AST body text (not just the
   excerpt); and the ONNX/transformer quality tier (runner-up: jina-v2-base-code
   pure-Rust via candle, the right upgrade once nodes carry real bodies + an ANN
   index). The model is gitignored under `m1nd-core/assets/`; it is
@@ -57,6 +56,27 @@ The rule:
     fields
 
 ## Resolved Notes
+
+### 2026-06-24 — embeddings now persist in a content-addressed cache (was: recomputed every build)
+
+- Context: with `embed` on, `SemanticEngine::build` recomputed every node's
+  static embedding on every boot and re-ingest — a model load + N encodes each
+  time, the main cost of keeping `embed` warm.
+- Resolution: a new `embed_cache.rs` sidecar (`EmbeddingCache`, bincode, atomic
+  temp+rename) keyed by a STABLE FNV-1a hash of `(model_id, label+excerpt)`.
+  `SemanticEngine::build_with_cache(graph, weights, cache_path, persist)` loads
+  the warm cache and reuses any vector whose `(model, text)` is unchanged,
+  re-embedding only changed/new nodes, then persists EXACTLY the current graph's
+  entries (self-pruning — no stale / cross-repo growth). The in-memory map stays
+  keyed by `NodeId`, so the `seek` path is untouched. The cache lives next to the
+  snapshot in `runtime_dir`, derived in `SessionState::initialize` and refreshed
+  by `rebuild_engines`. Advisory: any version/model/dim mismatch or corruption →
+  full recompute (never a wrong vector). `model_id` folds the weights-file byte
+  length, so an in-place model swap invalidates the cache. Read-only attachers
+  REUSE the cache but never write it (`persist=false`) — one writer per file,
+  honoring the read-only contract. All OFF by default behind `embed`.
+- Still deferred: NodeStorage SoA embedding fields + an ANN index over the
+  persisted vectors (the next unlock — vector search over the whole graph).
 
 ### 2026-05-06 — agents need one startup verdict, not stitched diagnostics
 
