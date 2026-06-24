@@ -6,7 +6,7 @@ m1nd doctor
 m1nd pack-check
 
 # native MCP runtime
-cargo install m1nd-mcp --version 0.9.0-beta.2`;
+cargo install m1nd-mcp --version 0.9.0-beta.8`;
 
 const STEP_CONFIG = `{
   "mcpServers": {
