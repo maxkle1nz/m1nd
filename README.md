@@ -4,7 +4,7 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h1 align="center">A Local Mission Runtime for Coding Agents</h1>
+<h1 align="center">Operational Intelligence for Coding Agents</h1>
 
 <p align="center">
   <strong>Your coding agent stops starting blind.</strong><br/>
@@ -36,7 +36,7 @@
 
 ---
 
-**m1nd is a local mission runtime for coding agents — it governs the operating loop, not just retrieval.**
+**m1nd is operational intelligence for coding agents — it governs the operating loop, not just retrieval.**
 
 > grep finds text. Vector search finds similar chunks. `m1nd` gives agents a local graph of what connects, what changed, what breaks, what drifted, and where to resume.
 

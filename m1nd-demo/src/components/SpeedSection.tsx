@@ -170,7 +170,7 @@ export function SpeedSection() {
           <p className="text-sm text-muted-foreground/70 max-w-sm">
             Less file waste. Instant connection to anywhere in the code.
             <br />
-            <span className="text-primary/80 font-medium">Saves time. Saves money.</span>
+            <span className="text-primary/80 font-medium">Fewer tokens, lower cost — measured, not promised.</span>
           </p>
         </motion.div>
       </div>
