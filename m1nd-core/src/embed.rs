@@ -78,7 +78,9 @@ impl Model2VecEmbedder {
     /// downloads and caches the model on first use under `~/.cache/huggingface`.
     pub fn from_hf(repo: &str) -> M1ndResult<Self> {
         let model = StaticModel::from_pretrained(repo, None, None, None).map_err(|e| {
-            M1ndError::EmbedError(format!("failed to load model {repo} from Hugging Face: {e}"))
+            M1ndError::EmbedError(format!(
+                "failed to load model {repo} from Hugging Face: {e}"
+            ))
         })?;
         let dim = model.encode_single("dim probe").len();
         Ok(Self {
@@ -188,7 +190,10 @@ mod tests {
 
         // L2-normalized => norm ~= 1.
         let norm = v_a.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-3, "vector should be L2-normalized, got {norm}");
+        assert!(
+            (norm - 1.0).abs() < 1e-3,
+            "vector should be L2-normalized, got {norm}"
+        );
 
         let related = cosine(&v_a, &v_b);
         let unrelated = cosine(&v_a, &v_c);
