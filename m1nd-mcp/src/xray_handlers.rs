@@ -12,11 +12,13 @@
 //! point (`SessionState::persist`).
 
 use crate::session::SessionState;
-use m1nd_core::error::M1ndResult;
+use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::Graph;
 use m1nd_core::types::{NodeId, NodeType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // Input / output types
@@ -310,6 +312,474 @@ pub fn handle_xray_retag(
     }
 
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
+}
+
+// ===========================================================================
+// X-RAY physical-write verb: `xray_apply` — atomic source-file codemod
+// ===========================================================================
+// WARNING: this verb WRITES SOURCE FILES TO DISK.
+//
+// One agent call applies an idempotent, deterministic text transform across many
+// source files via an ATOMIC 2-phase apply with content-hash optimistic
+// concurrency. dry_run is the default; commit is the explicit opt-in to write.
+//
+// Algorithm (ported from xray/slice3_apply_atomic.py):
+//   SELECT  read + content-hash + plan (skip no-ops; idempotent)
+//   STAGE   write `<file>.xray.tmp`, flush + fsync, NEVER touching the original
+//   REHASH  re-hash ALL originals; if any drifted since SELECT -> CONFLICT
+//   ABORT   on any conflict (or any stage I/O error): delete every temp,
+//           write ZERO originals (all-or-nothing)
+//   SWAP    else atomic `rename(tmp, original)` for every staged pair
+//
+// SAFETY MODEL: this verb is intentionally NOT wired into PROOF_GATED_WRITE_TOOLS
+// yet — integrating with the existing proof-gate is a deliberate follow-up. For
+// now the guard rails are: dry-run-by-default, read-only-attach-denied (see
+// READ_ONLY_DENIED_TOOLS in server.rs), root-confinement (canonical containment
+// under workspace_root), and a forbidden-artifact filter (runtime/VCS/build).
+//
+// HASHING: the OCC guard hash is an *in-process-only* content fingerprint — it is
+// never persisted, never compared across processes, and only ever compared to a
+// re-hash of the same file inside the same apply call. We therefore use the same
+// non-cryptographic `DefaultHasher` content hash the rest of this crate already
+// uses (see `simple_content_hash` in tools.rs / daemon_handlers.rs). `sha2` is
+// NOT a direct dependency of m1nd-mcp (it only reaches us transitively via the
+// optional `serve`-feature `rust-embed`), so reaching for it would mean adding a
+// new direct dep — unnecessary for an internal optimistic-concurrency guard.
+
+/// File selector for `xray_apply`. Paths are resolved relative to the project
+/// root (the session's `workspace_root`).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct XrayFileSelector {
+    /// Optional path prefix (relative to project root) to narrow the walk.
+    #[serde(default)]
+    pub path_prefix: Option<String>,
+    /// File extensions to include (e.g. `["rs"]`). Empty = any extension.
+    #[serde(default)]
+    pub extensions: Vec<String>,
+}
+
+/// The transform to apply. An enum so more transforms can slot in later.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum XrayTransform {
+    /// Ensure a header tag exists in the first 3 lines; idempotent insert.
+    EnsureHeaderTag { tag: String },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct XrayApplyInput {
+    pub selector: XrayFileSelector,
+    pub transform: XrayTransform,
+    #[serde(default)]
+    pub mode: XrayMode,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct XrayApplyCounts {
+    /// Files the selector + safety filters yielded.
+    pub matched: u32,
+    /// Files the transform would change.
+    pub planned: u32,
+    /// Matched files where the transform is a no-op (idempotent hit).
+    pub skipped_noop: u32,
+    /// Files actually written (0 on dry_run / abort).
+    pub applied: u32,
+    /// Files whose content drifted between STAGE and REHASH.
+    pub conflicts: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayApplyPlannedSample {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayApplyOutput {
+    pub verb: &'static str,
+    /// "dry_run" | "committed" | "aborted_conflicts".
+    pub status: String,
+    pub counts: XrayApplyCounts,
+    /// First few planned paths (cap 5), for the agent to eyeball before commit.
+    pub planned_sample: Vec<XrayApplyPlannedSample>,
+    /// First few conflict file names (cap 5).
+    pub conflicts_sample: Vec<String>,
+}
+
+/// In-process content fingerprint for the OCC guard. Non-cryptographic by design
+/// (see the hashing note above): only ever compared to a re-hash of the same
+/// file within one apply call.
+fn content_hash(bytes: &[u8]) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Pure transform: returns `Some(new_content)` if it changes the file, `None`
+/// if it is a no-op. Matching on the enum lets future variants slot in.
+fn apply_transform(content: &str, transform: &XrayTransform) -> Option<String> {
+    match transform {
+        XrayTransform::EnsureHeaderTag { tag } => {
+            // Look at the first 3 lines (keepends-equivalent). If the tag is
+            // already a substring there -> no-op (idempotent).
+            let lines: Vec<&str> = content.split_inclusive('\n').collect();
+            let head: String = lines.iter().take(3).copied().collect();
+            if head.contains(tag.as_str()) {
+                return None;
+            }
+            // Insert AFTER line 0 if line 0 starts with `//`, else at line 0.
+            let insert_at = if lines.first().is_some_and(|l| l.starts_with("//")) {
+                1
+            } else {
+                0
+            };
+            let mut out = String::with_capacity(content.len() + tag.len() + 1);
+            for line in lines.iter().take(insert_at) {
+                out.push_str(line);
+            }
+            out.push_str(tag);
+            out.push('\n');
+            for line in lines.iter().skip(insert_at) {
+                out.push_str(line);
+            }
+            Some(out)
+        }
+    }
+}
+
+/// Pure, unit-testable apply engine (no `SessionState`). See the algorithm note
+/// at the top of this section. Infallible by design: any stage-phase I/O error
+/// is treated as a hard abort that deletes every temp written so far and returns
+/// status "aborted_conflicts" with ZERO originals touched.
+pub fn apply_files(
+    paths: &[PathBuf],
+    transform: &XrayTransform,
+    mode: XrayMode,
+) -> XrayApplyOutput {
+    apply_files_inner(paths, transform, mode, None)
+}
+
+/// Test seam: a callback fired between STAGE and REHASH, receiving the original
+/// paths so a test can mutate one mid-apply (mirrors the Python `tamper(plan)`).
+type TamperHook<'a> = Option<&'a dyn Fn(&[PathBuf])>;
+
+/// Shared implementation. `tamper`, when `Some`, is invoked AFTER the STAGE phase
+/// and BEFORE the REHASH phase, receiving the list of original paths so a test
+/// can mutate one mid-apply to exercise the OCC-conflict path (mirrors the
+/// Python `tamper(plan)` placement). Production always passes `None`.
+fn apply_files_inner(
+    paths: &[PathBuf],
+    transform: &XrayTransform,
+    mode: XrayMode,
+    tamper: TamperHook<'_>,
+) -> XrayApplyOutput {
+    let mut counts = XrayApplyCounts {
+        matched: paths.len() as u32,
+        ..Default::default()
+    };
+
+    // ---- SELECT: read + guard-hash + plan ----
+    // plan entries: (path, guard_hash, new_bytes)
+    let mut plan: Vec<(PathBuf, String, Vec<u8>)> = Vec::new();
+    for p in paths {
+        let Ok(bytes) = std::fs::read(p) else {
+            // Unreadable file: skip without panicking (never unwrap a read).
+            continue;
+        };
+        let guard = content_hash(&bytes);
+        let current = String::from_utf8_lossy(&bytes);
+        match apply_transform(&current, transform) {
+            None => {
+                counts.skipped_noop += 1;
+            }
+            Some(new_content) => {
+                counts.planned += 1;
+                plan.push((p.clone(), guard, new_content.into_bytes()));
+            }
+        }
+    }
+
+    // ---- DRY RUN: report the plan, write nothing ----
+    if mode != XrayMode::Commit {
+        let planned_sample = plan
+            .iter()
+            .take(SAMPLE_CAP)
+            .map(|(p, _, _)| XrayApplyPlannedSample {
+                path: p.to_string_lossy().into_owned(),
+            })
+            .collect();
+        return XrayApplyOutput {
+            verb: "xray_apply",
+            status: "dry_run".to_string(),
+            counts,
+            planned_sample,
+            conflicts_sample: Vec::new(),
+        };
+    }
+
+    // ---- COMMIT · STAGE (phase 1): write all `.xray.tmp`, fsync, touch no original ----
+    let mut temps: Vec<(PathBuf, PathBuf)> = Vec::new(); // (original, tmp)
+    let cleanup = |temps: &[(PathBuf, PathBuf)]| {
+        for (_orig, tmp) in temps {
+            let _ = std::fs::remove_file(tmp);
+        }
+    };
+    for (p, _guard, new_bytes) in &plan {
+        let tmp = tmp_path_for(p);
+        let staged = (|| -> std::io::Result<()> {
+            use std::io::Write;
+            let mut f = std::fs::File::create(&tmp)?;
+            f.write_all(new_bytes)?;
+            f.flush()?;
+            f.sync_all()?; // fsync the staged temp
+            Ok(())
+        })();
+        if staged.is_err() {
+            // Hard abort on any stage I/O error: delete every temp written so
+            // far (including this one if it partially exists), write ZERO
+            // originals. Reported as "aborted_conflicts" with a synthetic entry
+            // naming the file that failed to stage.
+            let _ = std::fs::remove_file(&tmp);
+            cleanup(&temps);
+            let name = file_label(p);
+            counts.conflicts = 1;
+            counts.applied = 0;
+            return XrayApplyOutput {
+                verb: "xray_apply",
+                status: "aborted_conflicts".to_string(),
+                counts,
+                planned_sample: Vec::new(),
+                conflicts_sample: vec![name],
+            };
+        }
+        temps.push((p.clone(), tmp));
+    }
+
+    // ---- test seam: simulate concurrent edits between STAGE and REHASH ----
+    if let Some(tamper) = tamper {
+        let originals: Vec<PathBuf> = plan.iter().map(|(p, _, _)| p.clone()).collect();
+        tamper(&originals);
+    }
+
+    // ---- REHASH (OCC): re-read + re-hash every original; collect drift ----
+    let mut conflicts: Vec<String> = Vec::new();
+    for (p, guard, _) in &plan {
+        let drifted = match std::fs::read(p) {
+            Ok(bytes) => content_hash(&bytes) != *guard,
+            // A file that vanished/became unreadable since SELECT counts as drift.
+            Err(_) => true,
+        };
+        if drifted {
+            conflicts.push(file_label(p));
+        }
+    }
+
+    if !conflicts.is_empty() {
+        // ABORT all-or-nothing: delete every temp, write ZERO originals.
+        cleanup(&temps);
+        counts.conflicts = conflicts.len() as u32;
+        counts.applied = 0;
+        let conflicts_sample = conflicts.into_iter().take(SAMPLE_CAP).collect();
+        return XrayApplyOutput {
+            verb: "xray_apply",
+            status: "aborted_conflicts".to_string(),
+            counts,
+            planned_sample: Vec::new(),
+            conflicts_sample,
+        };
+    }
+
+    // ---- SWAP (phase 2): atomic rename of every staged temp over its original ----
+    for (orig, tmp) in &temps {
+        if let Err(_e) = std::fs::rename(tmp, orig) {
+            // Same-filesystem rename should not fail here; if it does, stop and
+            // clean up the remaining temps. Some originals may already be
+            // swapped — this is the one non-atomic edge and matches the Python
+            // behaviour (which lets an os.replace error bubble).
+            cleanup(&temps);
+            counts.conflicts = 1;
+            counts.applied = 0;
+            return XrayApplyOutput {
+                verb: "xray_apply",
+                status: "aborted_conflicts".to_string(),
+                counts,
+                planned_sample: Vec::new(),
+                conflicts_sample: vec![file_label(orig)],
+            };
+        }
+    }
+
+    counts.applied = counts.planned;
+    let planned_sample = plan
+        .iter()
+        .take(SAMPLE_CAP)
+        .map(|(p, _, _)| XrayApplyPlannedSample {
+            path: p.to_string_lossy().into_owned(),
+        })
+        .collect();
+    XrayApplyOutput {
+        verb: "xray_apply",
+        status: "committed".to_string(),
+        counts,
+        planned_sample,
+        conflicts_sample: Vec::new(),
+    }
+}
+
+/// `<path>.xray.tmp` sibling for the staging phase.
+fn tmp_path_for(p: &Path) -> PathBuf {
+    let mut s = p.as_os_str().to_os_string();
+    s.push(".xray.tmp");
+    PathBuf::from(s)
+}
+
+/// Short, human-readable label for a conflict/sample entry (file name only).
+fn file_label(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.to_string_lossy().into_owned())
+}
+
+/// True if this path must NEVER be touched: m1nd runtime artifacts, VCS, or
+/// build dirs, plus our own staging temps.
+fn is_forbidden_path(p: &Path) -> bool {
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // Forbidden file NAMES (runtime artifacts regenerated by daemon/ingest).
+    if name == "graph_snapshot.json"
+        || name == "daemon_alerts.json"
+        || name == "document_cache_index.json"
+        || name == "ingest_roots.json"
+        || name.ends_with("_state.json")
+        || name.ends_with(".xray.tmp")
+    {
+        return true;
+    }
+    // Forbidden path SEGMENTS (VCS / build / deps).
+    let path_str = p.to_string_lossy();
+    let path_str = path_str.replace('\\', "/"); // normalize for Windows
+    if path_str.contains("/.git/")
+        || path_str.contains("/target/")
+        || path_str.contains("/node_modules/")
+    {
+        return true;
+    }
+    false
+}
+
+/// Recursively collect candidate files under `dir` that pass every safety filter
+/// in `is_included`. Forbidden directories are pruned so we never descend into
+/// `.git` / `target` / `node_modules`.
+fn collect_files(dir: &Path, root: &Path, selector: &XrayFileSelector, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_dir() {
+            // Prune forbidden dirs early (also skips `.git`/`target`/`node_modules`).
+            if is_forbidden_path(&path) {
+                continue;
+            }
+            let dir_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            if matches!(
+                dir_name.as_deref(),
+                Some(".git" | "target" | "node_modules")
+            ) {
+                continue;
+            }
+            collect_files(&path, root, selector, out);
+        } else if ft.is_file() && is_included(&path, root, selector) {
+            out.push(path);
+        }
+    }
+}
+
+/// Per-file safety + selector gate. Includes only if ALL hold (see handler doc).
+fn is_included(path: &Path, root: &Path, selector: &XrayFileSelector) -> bool {
+    // (5) never touch runtime/VCS/build artifacts or our own temps.
+    if is_forbidden_path(path) {
+        return false;
+    }
+    // (2) canonical containment under the canonical root.
+    let Ok(canon) = path.canonicalize() else {
+        return false;
+    };
+    if !canon.starts_with(root) {
+        return false;
+    }
+    // (3) extension filter (case-sensitive on the ext string).
+    if !selector.extensions.is_empty() {
+        let ext_ok = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| selector.extensions.iter().any(|w| w == e));
+        if !ext_ok {
+            return false;
+        }
+    }
+    // (4) path_prefix: the path relative to root must start with the prefix.
+    if let Some(prefix) = selector.path_prefix.as_deref() {
+        let Ok(rel) = path.strip_prefix(root) else {
+            return false;
+        };
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let prefix_norm = prefix.trim_start_matches("./").replace('\\', "/");
+        if !rel_str.starts_with(&prefix_norm) {
+            return false;
+        }
+    }
+    true
+}
+
+/// X-RAY physical-write handler. Resolves the project root from
+/// `state.workspace_root` (which `infer_workspace_root` computes to AVOID managed
+/// runtime dirs), walks the source tree under the safety filters, then calls the
+/// pure engine. Refuses to write anything if the root cannot be resolved.
+///
+/// NOTE: intentionally NOT wired into PROOF_GATED_WRITE_TOOLS — see the section
+/// note above. Safety here is dry-run-default + read-only-denied + root-confinement.
+pub fn handle_xray_apply(
+    state: &mut SessionState,
+    input: XrayApplyInput,
+) -> M1ndResult<serde_json::Value> {
+    let root: PathBuf = state
+        .workspace_root
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "xray_apply".to_string(),
+            detail: "project root (workspace_root) could not be resolved; refusing to write"
+                .to_string(),
+        })?;
+    let root = root.canonicalize().map_err(|e| M1ndError::InvalidParams {
+        tool: "xray_apply".to_string(),
+        detail: format!("could not canonicalize project root; refusing to write: {e}"),
+    })?;
+
+    // Narrow the walk start to root.join(prefix) when a prefix is given (and it
+    // stays a dir under root); the per-file gate re-checks the prefix anyway.
+    let walk_start = match input.selector.path_prefix.as_deref() {
+        Some(prefix) => {
+            let joined = root.join(prefix.trim_start_matches("./"));
+            if joined.is_dir() {
+                joined
+            } else {
+                root.clone()
+            }
+        }
+        None => root.clone(),
+    };
+
+    let mut matched: Vec<PathBuf> = Vec::new();
+    collect_files(&walk_start, &root, &input.selector, &mut matched);
+    matched.sort();
+
+    let output = apply_files(&matched, &input.transform, input.mode);
+    serde_json::to_value(output).map_err(M1ndError::Serde)
 }
 
 // ===========================================================================
@@ -994,5 +1464,185 @@ mod tests {
         assert_eq!(out.counts.modules, 1);
         // modA's source node is in scope, so the modA->modB edge still counts
         assert_eq!(out.dependency_matrix.get("modA->modB"), Some(&1));
+    }
+
+    // -----------------------------------------------------------------------
+    // xray_apply — atomic physical-write engine (sandboxed in temp_dir)
+    // -----------------------------------------------------------------------
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    const TEST_TAG: &str = "//! @xray:state:bedrock";
+
+    /// Test seam: invoke the engine with a tamper callback fired between STAGE
+    /// and REHASH (mirrors the Python `tamper(plan)`).
+    fn apply_files_with_tamper(
+        paths: &[PathBuf],
+        transform: &XrayTransform,
+        mode: XrayMode,
+        tamper: impl Fn(&[PathBuf]),
+    ) -> XrayApplyOutput {
+        apply_files_inner(paths, transform, mode, Some(&tamper))
+    }
+
+    fn ensure_tag() -> XrayTransform {
+        XrayTransform::EnsureHeaderTag {
+            tag: TEST_TAG.to_string(),
+        }
+    }
+
+    /// Unique sandbox dir in `std::env::temp_dir()` — NEVER the real repo.
+    fn fresh_sandbox() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir =
+            std::env::temp_dir().join(format!("xray_apply_test_{}_{}", std::process::id(), n));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Write `count` `.rs` files lacking the tag; return their paths.
+    fn seed_untagged(dir: &Path, count: usize) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for i in 0..count {
+            let p = dir.join(format!("file_{i}.rs"));
+            std::fs::write(&p, format!("// file {i}\nfn main() {{}}\n")).unwrap();
+            out.push(p);
+        }
+        out
+    }
+
+    fn first3_contains_tag(p: &Path) -> bool {
+        let content = std::fs::read_to_string(p).unwrap();
+        content
+            .split_inclusive('\n')
+            .take(3)
+            .collect::<String>()
+            .contains(TEST_TAG)
+    }
+
+    #[test]
+    fn dry_run_plans_but_writes_nothing() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+
+        let out = apply_files(&paths, &ensure_tag(), XrayMode::DryRun);
+        assert_eq!(out.verb, "xray_apply");
+        assert_eq!(out.status, "dry_run");
+        assert_eq!(out.counts.matched, 4);
+        assert_eq!(out.counts.planned, 4);
+        assert_eq!(out.counts.applied, 0);
+        assert!(!out.planned_sample.is_empty());
+
+        // Nothing was written: every original is unchanged (tag absent).
+        for p in &paths {
+            assert!(!first3_contains_tag(p), "dry_run must not write {p:?}");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_applies_tag_to_all_files() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+
+        let out = apply_files(&paths, &ensure_tag(), XrayMode::Commit);
+        assert_eq!(out.status, "committed");
+        assert_eq!(out.counts.applied, 4);
+        assert_eq!(out.counts.planned, 4);
+        assert_eq!(out.counts.conflicts, 0);
+
+        // The tag now lives in the first 3 lines of every file.
+        for p in &paths {
+            assert!(first3_contains_tag(p), "commit must tag {p:?}");
+        }
+        // No staging temps left behind.
+        assert!(no_temps_remain(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn idempotent_recommit_plans_zero() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+
+        // First commit tags everything.
+        let first = apply_files(&paths, &ensure_tag(), XrayMode::Commit);
+        assert_eq!(first.counts.applied, 4);
+
+        // Re-commit: the transform is now a no-op for every file.
+        let again = apply_files(&paths, &ensure_tag(), XrayMode::Commit);
+        assert_eq!(again.status, "committed");
+        assert_eq!(again.counts.planned, 0);
+        assert_eq!(again.counts.skipped_noop, 4);
+        assert_eq!(again.counts.applied, 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn contended_apply_aborts_whole_batch() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+
+        // Tamper: append bytes to ONE original between STAGE and REHASH so its
+        // content-hash no longer matches the guard captured at SELECT.
+        let victim = paths[2].clone();
+        let out = apply_files_with_tamper(&paths, &ensure_tag(), XrayMode::Commit, move |_| {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&victim)
+                .unwrap();
+            f.write_all(b"\n// concurrent edit\n").unwrap();
+        });
+
+        assert_eq!(out.status, "aborted_conflicts");
+        assert_eq!(out.counts.applied, 0);
+        assert!(out.counts.conflicts >= 1);
+
+        // Zero writes happened: NONE of the non-tampered originals carry the tag.
+        for (i, p) in paths.iter().enumerate() {
+            if i == 2 {
+                continue; // the tampered file; appended text, never tagged
+            }
+            assert!(
+                !first3_contains_tag(p),
+                "abort must leave {p:?} untouched (no tag)"
+            );
+        }
+        // No staging temps remain anywhere in the sandbox.
+        assert!(no_temps_remain(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// True if no `*.xray.tmp` file remains directly in `dir`.
+    fn no_temps_remain(dir: &Path) -> bool {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .all(|e| !e.file_name().to_string_lossy().ends_with(".xray.tmp"))
+    }
+
+    #[test]
+    fn safety_skips_forbidden_and_outside_root() {
+        // Forbidden: runtime artifacts, VCS/build segments, our own temps.
+        assert!(is_forbidden_path(Path::new("/x/graph_snapshot.json")));
+        assert!(is_forbidden_path(Path::new("/x/plasticity_state.json")));
+        assert!(is_forbidden_path(Path::new("/x/anything_state.json")));
+        assert!(is_forbidden_path(Path::new("/x/daemon_alerts.json")));
+        assert!(is_forbidden_path(Path::new("/x/document_cache_index.json")));
+        assert!(is_forbidden_path(Path::new("/x/ingest_roots.json")));
+        assert!(is_forbidden_path(Path::new("/repo/target/debug/foo.rs")));
+        assert!(is_forbidden_path(Path::new("/repo/.git/config")));
+        assert!(is_forbidden_path(Path::new(
+            "/repo/node_modules/pkg/index.js"
+        )));
+        assert!(is_forbidden_path(Path::new("/repo/src/foo.rs.xray.tmp")));
+        // Allowed: a normal source file.
+        assert!(!is_forbidden_path(Path::new("/repo/src/foo.rs")));
     }
 }
