@@ -892,6 +892,72 @@ impl Graph {
         };
     }
 
+    /// Add tags to a node in place (X-RAY write path / `xray.retag`). Idempotent:
+    /// tags already present are skipped. Returns how many were actually added.
+    ///
+    /// Tags are a cold-path node column (mirrors [`Graph::set_node_provenance`]):
+    /// they feed neither CSR edges nor PageRank, so no re-`finalize` is required.
+    /// New tag strings are interned into the shared pool.
+    pub fn add_node_tags(&mut self, node: NodeId, tags: &[&str]) -> usize {
+        let idx = node.as_usize();
+        if idx >= self.nodes.count as usize {
+            return 0;
+        }
+        let mut added = 0;
+        for tag in tags {
+            let interned = self.strings.get_or_intern(tag);
+            if !self.nodes.tags[idx].contains(&interned) {
+                self.nodes.tags[idx].push(interned);
+                added += 1;
+            }
+        }
+        added
+    }
+
+    /// Remove tags from a node in place. Returns how many were removed. A tag that
+    /// is absent from the intern pool can match nothing and is a no-op.
+    pub fn remove_node_tags(&mut self, node: NodeId, tags: &[&str]) -> usize {
+        let idx = node.as_usize();
+        if idx >= self.nodes.count as usize {
+            return 0;
+        }
+        let targets: SmallVec<[InternedStr; 6]> = tags
+            .iter()
+            .filter_map(|tag| self.strings.lookup(tag))
+            .collect();
+        if targets.is_empty() {
+            return 0;
+        }
+        let before = self.nodes.tags[idx].len();
+        self.nodes.tags[idx].retain(|tag| !targets.contains(tag));
+        before - self.nodes.tags[idx].len()
+    }
+
+    /// Replace a node's entire tag set in place. Returns the new tag count.
+    pub fn set_node_tags(&mut self, node: NodeId, tags: &[&str]) -> usize {
+        let idx = node.as_usize();
+        if idx >= self.nodes.count as usize {
+            return 0;
+        }
+        self.nodes.tags[idx] = tags
+            .iter()
+            .map(|tag| self.strings.get_or_intern(tag))
+            .collect();
+        self.nodes.tags[idx].len()
+    }
+
+    /// Resolve a node's tags to strings (cold-path inspection / round-trip checks).
+    pub fn node_tags(&self, node: NodeId) -> Vec<&str> {
+        let idx = node.as_usize();
+        if idx >= self.nodes.count as usize {
+            return Vec::new();
+        }
+        self.nodes.tags[idx]
+            .iter()
+            .map(|&tag| self.strings.resolve(tag))
+            .collect()
+    }
+
     pub fn merge_node_provenance(&mut self, node: NodeId, incoming: NodeProvenanceInput<'_>) {
         let idx = node.as_usize();
         if idx >= self.nodes.count as usize {
