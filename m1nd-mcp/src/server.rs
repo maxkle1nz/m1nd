@@ -333,6 +333,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "persist",
     "memorize",
     "xray_retag",
+    "xray_orient",
 ];
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
@@ -2220,6 +2221,30 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "selector", "op", "tags"]
                 }
+            },
+            // =================================================================
+            // X-RAY read verb: xray_orient — structural conformance ledger
+            // =================================================================
+            {
+                "name": "xray_orient",
+                "description": "X-RAY read verb (read-only). One call computes a conformance LEDGER over the live graph: derives each node's MODULE from its external_id (first path segment after 'file::'), walks the boundary edges (imports / depends_on), builds a cross-module dependency_matrix, and classifies each cross-module edge against a MANIFESTO (forbid pairs + layer_order) into convergence vs divergence — reported HONESTLY as 'erosion_candidates' (never confirmed violations). Also runs an existence axis: each require_exists substring is present (BEDROCK) or absent (BLUEPRINT). With an empty manifest it just reports the module census + matrix (instrument not aimed yet). Never mutates, never persists — safe in read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "Optional external_id path-prefix filter — only nodes whose external_id starts with this prefix are counted, and only edges from in-scope source nodes contribute" },
+                        "manifest": {
+                            "type": "object",
+                            "description": "North-star layer ruleset. Empty manifest => empty erosion_candidates (honest: instrument not aimed yet, report structure only)",
+                            "properties": {
+                                "forbid": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }, "default": [], "description": "Pairs [A, B] meaning module A must not depend on module B" },
+                                "layer_order": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Modules ordered low->high; a module may depend only on its own level or LOWER — depending on a higher layer is a candidate divergence" },
+                                "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Substrings that must appear in some node external_id (present=BEDROCK, absent=BLUEPRINT)" }
+                            }
+                        }
+                    },
+                    "required": ["agent_id"]
+                }
             }
         ]
     })
@@ -3178,6 +3203,11 @@ fn dispatch_core_tool(
             let input: crate::xray_handlers::XrayRetagInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::xray_handlers::handle_xray_retag(state, input)
+        }
+        "xray_orient" => {
+            let input: crate::xray_handlers::XrayOrientInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_orient(state, input)
         }
         "impact" => {
             let input: ImpactInput =
