@@ -333,6 +333,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "persist",
     "memorize",
     "xray_retag",
+    "xray_apply",
     "xray_orient",
 ];
 
@@ -2245,6 +2246,38 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id"]
                 }
+            },
+            // =================================================================
+            // X-RAY physical-write verb: xray_apply — atomic source-file codemod
+            // =================================================================
+            {
+                "name": "xray_apply",
+                "description": "X-RAY physical-write verb. WRITES SOURCE FILES TO DISK. One call applies an idempotent, deterministic text transform across many source files via an ATOMIC 2-phase apply with content-hash optimistic-concurrency — dry-run by default. Supply a SELECTOR (path_prefix relative to project root + extensions filter) plus a TRANSFORM (kind=ensure_header_tag + tag). Engine: SELECT (read+hash+plan, skipping no-ops) -> STAGE (write `<file>.xray.tmp`, fsync, never touching originals) -> REHASH all originals -> if any drifted: CONFLICT, abort the whole batch and delete every temp with ZERO partial writes -> else atomic rename ALL. Returns counts (matched/planned/skipped_noop/applied/conflicts) + a planned sample; only writes when mode='commit'. Confined to the project root; never touches runtime/VCS/build artifacts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "selector": {
+                            "type": "object",
+                            "description": "File selector, resolved relative to the project root",
+                            "properties": {
+                                "path_prefix": { "type": "string", "description": "Optional path prefix (relative to project root) to narrow the walk" },
+                                "extensions": { "type": "array", "items": { "type": "string" }, "default": [], "description": "File extensions to include (e.g. [\"rs\"]); empty = any extension" }
+                            }
+                        },
+                        "transform": {
+                            "type": "object",
+                            "description": "The transform to apply",
+                            "properties": {
+                                "kind": { "type": "string", "enum": ["ensure_header_tag"], "description": "Transform kind. ensure_header_tag idempotently ensures `tag` appears in the file's first 3 lines" },
+                                "tag": { "type": "string", "description": "The header tag to ensure (e.g. \"//! @xray:state:bedrock\")" }
+                            },
+                            "required": ["kind", "tag"]
+                        },
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies the atomic 2-phase swap" }
+                    },
+                    "required": ["agent_id", "selector", "transform"]
+                }
             }
         ]
     })
@@ -2271,6 +2304,8 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // attach must refuse it (dry_run would also be blocked here — acceptable,
     // since the verb's purpose is to lead to a write).
     "xray_retag",
+    // xray_apply physically writes source files to disk, so a read-only attach must refuse it.
+    "xray_apply",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -3203,6 +3238,11 @@ fn dispatch_core_tool(
             let input: crate::xray_handlers::XrayRetagInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::xray_handlers::handle_xray_retag(state, input)
+        }
+        "xray_apply" => {
+            let input: crate::xray_handlers::XrayApplyInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_apply(state, input)
         }
         "xray_orient" => {
             let input: crate::xray_handlers::XrayOrientInput =
