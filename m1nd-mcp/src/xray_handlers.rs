@@ -16,6 +16,7 @@ use m1nd_core::error::M1ndResult;
 use m1nd_core::graph::Graph;
 use m1nd_core::types::{NodeId, NodeType};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // Input / output types
@@ -311,6 +312,282 @@ pub fn handle_xray_retag(
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
 }
 
+// ===========================================================================
+// X-RAY read verb: `xray_orient` — structural conformance LEDGER (read-only)
+// ===========================================================================
+// One agent call computes a conformance ledger over the *live* graph: it
+// derives each node's MODULE from its external_id, walks the boundary edges
+// (`imports` / `depends_on`), builds a cross-module dependency matrix, and
+// classifies each cross-module edge against a MANIFESTO of layer rules into
+// convergence vs divergence (EROSION candidates). It also runs an existence
+// axis: each `require_exists` substring is present (BEDROCK) or absent
+// (BLUEPRINT) in the live external_ids.
+//
+// HONESTY (proof-grown): divergences are `erosion_candidates`, NEVER confirmed
+// violations. The verb reports; it does not over-claim. With an empty manifest
+// it just reports the matrix + module census — the instrument is "not aimed
+// yet", so the candidate list is empty by construction.
+//
+// Read-only: takes the graph *read* lock, never mutates, never persists. Safe
+// in read-only attach (hence NOT in `READ_ONLY_DENIED_TOOLS`).
+
+const EROSION_CAP: usize = 25;
+const FILE_PREFIX: &str = "file::";
+
+/// A north-star layer/forbid ruleset the agent supplies. Empty by default — an
+/// empty manifest yields an empty `erosion_candidates` list (honest: the
+/// instrument is not aimed yet, we only report structure).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct XrayManifest {
+    /// Hard "module A must not depend on module B" pairs.
+    #[serde(default)]
+    pub forbid: Vec<(String, String)>,
+    /// Modules ordered low -> high. A module may depend only on modules at its
+    /// own level or LOWER; depending on a *higher* layer is a candidate
+    /// divergence. Modules absent from this list are unconstrained by the
+    /// layer axis (only the `forbid` axis applies to them).
+    #[serde(default)]
+    pub layer_order: Vec<String>,
+    /// Existence intents: each substring MUST appear in some node's external_id
+    /// (present => BEDROCK, absent => BLUEPRINT).
+    #[serde(default)]
+    pub require_exists: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct XrayOrientInput {
+    /// Optional external_id path-prefix filter. Only nodes whose external_id
+    /// starts with this prefix are counted, and only edges whose *source* node
+    /// is in scope contribute to the matrix.
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub manifest: XrayManifest,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayErosionCandidate {
+    pub from_module: String,
+    pub to_module: String,
+    /// Which rule flagged it: `forbid` or `layer`.
+    pub rule: &'static str,
+    /// The boundary relation that carried the edge (`imports` / `depends_on`).
+    pub via: String,
+    /// Source node external_id (file:: prefix stripped for readability).
+    pub from: String,
+    /// Target node external_id (file:: prefix stripped for readability).
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayExistence {
+    pub require: String,
+    /// `BEDROCK` (substring present in some external_id) or `BLUEPRINT` (absent).
+    pub state: &'static str,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct XrayOrientCounts {
+    pub modules: u32,
+    /// Cross-module boundary edges counted into the matrix.
+    pub boundary_edges: u32,
+    pub erosion_candidates: u32,
+    pub blueprint: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayOrientOutput {
+    pub verb: &'static str,
+    pub scope: Option<String>,
+    /// module -> node_count (code-node census by module).
+    pub modules: BTreeMap<String, u32>,
+    /// "A->B" -> count of cross-module boundary edges.
+    pub dependency_matrix: BTreeMap<String, u32>,
+    /// Cross-module edges that diverge from the manifesto (cap `EROSION_CAP`).
+    pub erosion_candidates: Vec<XrayErosionCandidate>,
+    pub existence: Vec<XrayExistence>,
+    pub counts: XrayOrientCounts,
+}
+
+// ---------------------------------------------------------------------------
+// Module derivation
+// ---------------------------------------------------------------------------
+
+/// Module of a node = first path segment of its external_id after the `file::`
+/// prefix (e.g. `file::m1nd-core/src/x.rs::fn::y` -> `m1nd-core`). Non-`file::`
+/// ids (and an empty first segment) yield `None` ("unmapped" — skipped).
+fn module_of(external_id: &str) -> Option<&str> {
+    let rest = external_id.strip_prefix(FILE_PREFIX)?;
+    // Path is everything up to the first `::` type/kind separator.
+    let path = rest.split("::").next().unwrap_or(rest);
+    let seg = path.split('/').next().unwrap_or(path);
+    if seg.is_empty() {
+        None
+    } else {
+        Some(seg)
+    }
+}
+
+/// Strip the `file::` prefix for compact, readable sample ids.
+fn strip_file_prefix(id: &str) -> String {
+    id.strip_prefix(FILE_PREFIX).unwrap_or(id).to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Pure core: conformance ledger over a finalized Graph (unit-testable, no
+// SessionState). Walks the live CSR; classifies cross-module boundary edges.
+// ---------------------------------------------------------------------------
+
+/// Compute the conformance ledger. Pure over a finalized `Graph` — the CSR must
+/// be populated (live server / post-`finalize()`).
+pub fn orient_graph(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput {
+    let ext = node_to_ext_map(graph);
+    let n = graph.num_nodes() as usize;
+    let scope = input.scope.as_deref();
+
+    let in_scope = |idx: usize| -> bool {
+        scope.is_none_or(|p| ext.get(idx).is_some_and(|e| e.starts_with(p)))
+    };
+
+    // --- module census (in-scope, mappable code nodes only) ---
+    let mut modules: BTreeMap<String, u32> = BTreeMap::new();
+    for (i, id) in ext.iter().enumerate().take(n) {
+        if !in_scope(i) {
+            continue;
+        }
+        if let Some(m) = module_of(id) {
+            *modules.entry(m.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    // --- manifesto lookups ---
+    let forbid: std::collections::HashSet<(&str, &str)> = input
+        .manifest
+        .forbid
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    let layer_index =
+        |m: &str| -> Option<usize> { input.manifest.layer_order.iter().position(|x| x == m) };
+
+    // A cross-module edge A->B diverges if `forbid` contains (A,B) OR both are
+    // in `layer_order` and B sits at a *higher* layer than A. Returns the rule
+    // name that flagged it, or None if it converges.
+    let classify = |a: &str, b: &str| -> Option<&'static str> {
+        if forbid.contains(&(a, b)) {
+            return Some("forbid");
+        }
+        if let (Some(ia), Some(ib)) = (layer_index(a), layer_index(b)) {
+            if ib > ia {
+                return Some("layer");
+            }
+        }
+        None
+    };
+
+    // --- boundary edge walk over the live CSR ---
+    let mut dependency_matrix: BTreeMap<String, u32> = BTreeMap::new();
+    let mut erosion_candidates: Vec<XrayErosionCandidate> = Vec::new();
+    let mut boundary_edges: u32 = 0;
+    let mut erosion_total: u32 = 0;
+
+    for i in 0..n {
+        if !in_scope(i) {
+            continue;
+        }
+        let src_mod = match module_of(&ext[i]) {
+            Some(m) => m,
+            None => continue,
+        };
+        for e in graph.csr.out_range(NodeId::new(i as u32)) {
+            let rel = graph.strings.resolve(graph.csr.relations[e]);
+            if rel != "imports" && rel != "depends_on" {
+                continue;
+            }
+            let dst = graph.csr.targets[e].as_usize();
+            let dst_id = match ext.get(dst) {
+                Some(d) => d.as_str(),
+                None => continue,
+            };
+            let dst_mod = match module_of(dst_id) {
+                Some(m) => m,
+                None => continue,
+            };
+            if src_mod == dst_mod {
+                continue; // intra-module edges are ignored
+            }
+            boundary_edges += 1;
+            *dependency_matrix
+                .entry(format!("{src_mod}->{dst_mod}"))
+                .or_insert(0) += 1;
+
+            if let Some(rule) = classify(src_mod, dst_mod) {
+                erosion_total += 1;
+                if erosion_candidates.len() < EROSION_CAP {
+                    erosion_candidates.push(XrayErosionCandidate {
+                        from_module: src_mod.to_string(),
+                        to_module: dst_mod.to_string(),
+                        rule,
+                        via: rel.to_string(),
+                        from: strip_file_prefix(&ext[i]),
+                        to: strip_file_prefix(dst_id),
+                    });
+                }
+            }
+        }
+    }
+
+    // --- existence axis: BEDROCK (present) vs BLUEPRINT (absent) ---
+    // Match against in-scope external_ids only, so `scope` narrows existence too.
+    let haystack: Vec<&str> = ext
+        .iter()
+        .enumerate()
+        .take(n)
+        .filter(|&(i, _)| in_scope(i))
+        .map(|(_, id)| id.as_str())
+        .collect();
+    let mut existence: Vec<XrayExistence> = Vec::new();
+    let mut blueprint: u32 = 0;
+    for need in &input.manifest.require_exists {
+        let present = haystack.iter().any(|id| id.contains(need.as_str()));
+        if !present {
+            blueprint += 1;
+        }
+        existence.push(XrayExistence {
+            require: need.clone(),
+            state: if present { "BEDROCK" } else { "BLUEPRINT" },
+        });
+    }
+
+    XrayOrientOutput {
+        verb: "xray_orient",
+        scope: input.scope.clone(),
+        counts: XrayOrientCounts {
+            modules: modules.len() as u32,
+            boundary_edges,
+            erosion_candidates: erosion_total,
+            blueprint,
+        },
+        modules,
+        dependency_matrix,
+        erosion_candidates,
+        existence,
+    }
+}
+
+/// MCP handler for `xray_orient`. Read-only: holds the graph *read* lock for the
+/// computation, never mutates, never persists (safe under read-only attach).
+pub fn handle_xray_orient(
+    state: &mut SessionState,
+    input: XrayOrientInput,
+) -> M1ndResult<serde_json::Value> {
+    let output = {
+        let graph = state.graph.read();
+        orient_graph(&graph, &input)
+    };
+    serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
+}
+
 // ---------------------------------------------------------------------------
 // Tests (pure logic against a Graph — no SessionState needed)
 // ---------------------------------------------------------------------------
@@ -531,5 +808,191 @@ mod tests {
         let mut tags = g.node_tags(g.resolve_id("file::a.rs::fn::foo").unwrap());
         tags.sort_unstable();
         assert_eq!(tags, vec!["only", "these"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // xray_orient — structural conformance ledger (read-only)
+    // -----------------------------------------------------------------------
+
+    use m1nd_core::types::{EdgeDirection, FiniteF32};
+
+    /// Two modules (modA, modB) with a single cross-module `imports` edge
+    /// modA -> modB, plus one intra-module edge inside modA. Finalized so the
+    /// CSR is populated.
+    fn orient_graph_fixture() -> Graph {
+        let mut g = Graph::new();
+        g.add_node(
+            "file::modA/src/lib.rs::fn::a_main",
+            "a_main",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 0
+        g.add_node(
+            "file::modA/src/util.rs::fn::a_util",
+            "a_util",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 1
+        g.add_node(
+            "file::modB/src/lib.rs::fn::b_core",
+            "b_core",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 2
+
+        // cross-module boundary edge: modA -> modB
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(2),
+            "imports",
+            FiniteF32::new(1.0),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.0),
+        )
+        .unwrap();
+        // intra-module edge inside modA (must be ignored by the matrix)
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "imports",
+            FiniteF32::new(1.0),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.0),
+        )
+        .unwrap();
+        g.finalize().unwrap();
+        g
+    }
+
+    fn orient_input(manifest: XrayManifest) -> XrayOrientInput {
+        XrayOrientInput {
+            scope: None,
+            manifest,
+        }
+    }
+
+    #[test]
+    fn module_of_derives_first_path_segment() {
+        assert_eq!(
+            module_of("file::m1nd-core/src/x.rs::fn::y"),
+            Some("m1nd-core")
+        );
+        assert_eq!(module_of("file::modB/src/lib.rs::fn::b"), Some("modB"));
+        // non-file:: id -> unmapped
+        assert_eq!(module_of("concept::foo"), None);
+        assert_eq!(module_of("plain-label"), None);
+    }
+
+    #[test]
+    fn empty_manifest_reports_matrix_with_zero_erosion() {
+        let g = orient_graph_fixture();
+        let out = orient_graph(&g, &orient_input(XrayManifest::default()));
+
+        assert_eq!(out.verb, "xray_orient");
+        // census: two modules, modA has 2 nodes, modB has 1
+        assert_eq!(out.modules.get("modA"), Some(&2));
+        assert_eq!(out.modules.get("modB"), Some(&1));
+        assert_eq!(out.counts.modules, 2);
+        // only the cross-module edge counts; intra-module modA->modA is ignored
+        assert_eq!(out.dependency_matrix.get("modA->modB"), Some(&1));
+        assert_eq!(out.dependency_matrix.len(), 1);
+        assert_eq!(out.counts.boundary_edges, 1);
+        // honest: instrument not aimed -> no candidates
+        assert!(out.erosion_candidates.is_empty());
+        assert_eq!(out.counts.erosion_candidates, 0);
+    }
+
+    #[test]
+    fn forbid_rule_flags_one_erosion_candidate() {
+        let g = orient_graph_fixture();
+        let manifest = XrayManifest {
+            forbid: vec![("modA".to_string(), "modB".to_string())],
+            ..Default::default()
+        };
+        let out = orient_graph(&g, &orient_input(manifest));
+
+        assert_eq!(out.erosion_candidates.len(), 1);
+        assert_eq!(out.counts.erosion_candidates, 1);
+        let c = &out.erosion_candidates[0];
+        assert_eq!(c.from_module, "modA");
+        assert_eq!(c.to_module, "modB");
+        assert_eq!(c.rule, "forbid");
+        assert_eq!(c.via, "imports");
+        assert_eq!(c.from, "modA/src/lib.rs::fn::a_main");
+        assert_eq!(c.to, "modB/src/lib.rs::fn::b_core");
+    }
+
+    #[test]
+    fn layer_order_flags_dependency_on_higher_layer() {
+        let g = orient_graph_fixture();
+        // modA below modB: modA depending on a HIGHER layer (modB) diverges.
+        let manifest = XrayManifest {
+            layer_order: vec!["modA".to_string(), "modB".to_string()],
+            ..Default::default()
+        };
+        let out = orient_graph(&g, &orient_input(manifest));
+        assert_eq!(out.counts.erosion_candidates, 1);
+        assert_eq!(out.erosion_candidates[0].rule, "layer");
+
+        // Reverse the order (modB below modA): modA -> modB is now downward
+        // (allowed) -> converges, no candidate.
+        let g2 = orient_graph_fixture();
+        let manifest2 = XrayManifest {
+            layer_order: vec!["modB".to_string(), "modA".to_string()],
+            ..Default::default()
+        };
+        let out2 = orient_graph(&g2, &orient_input(manifest2));
+        assert_eq!(out2.counts.erosion_candidates, 0);
+        assert!(out2.erosion_candidates.is_empty());
+    }
+
+    #[test]
+    fn require_exists_resolves_bedrock_vs_blueprint() {
+        let g = orient_graph_fixture();
+        let manifest = XrayManifest {
+            require_exists: vec!["modA".to_string(), "nope_absent".to_string()],
+            ..Default::default()
+        };
+        let out = orient_graph(&g, &orient_input(manifest));
+
+        assert_eq!(out.existence.len(), 2);
+        let bedrock = out.existence.iter().find(|e| e.require == "modA").unwrap();
+        assert_eq!(bedrock.state, "BEDROCK");
+        let blueprint = out
+            .existence
+            .iter()
+            .find(|e| e.require == "nope_absent")
+            .unwrap();
+        assert_eq!(blueprint.state, "BLUEPRINT");
+        assert_eq!(out.counts.blueprint, 1);
+    }
+
+    #[test]
+    fn scope_narrows_census_and_matrix() {
+        let g = orient_graph_fixture();
+        // Scope to modA only: modB nodes drop out, the cross-module edge's
+        // source is still in scope but the dependency_matrix still records the
+        // edge (target module is derived from the edge, not scope-filtered).
+        let input = XrayOrientInput {
+            scope: Some("file::modA".to_string()),
+            manifest: XrayManifest::default(),
+        };
+        let out = orient_graph(&g, &input);
+        assert_eq!(out.modules.get("modA"), Some(&2));
+        assert_eq!(out.modules.get("modB"), None);
+        assert_eq!(out.counts.modules, 1);
+        // modA's source node is in scope, so the modA->modB edge still counts
+        assert_eq!(out.dependency_matrix.get("modA->modB"), Some(&1));
     }
 }
