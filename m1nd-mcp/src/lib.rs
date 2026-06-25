@@ -31,6 +31,7 @@ pub mod result_shaping;
 pub mod scope;
 pub mod search_handlers;
 pub mod universal_docs;
+pub mod xray_handlers;
 
 // HTTP server + types (feature-gated behind "serve")
 #[cfg(feature = "serve")]

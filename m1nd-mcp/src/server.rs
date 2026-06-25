@@ -332,6 +332,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "mission_close",
     "persist",
     "memorize",
+    "xray_retag",
 ];
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
@@ -2193,6 +2194,32 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "node_label", "claims"]
                 }
+            },
+            // =================================================================
+            // X-RAY write verb: xray_retag — bulk graph-tag mutation
+            // =================================================================
+            {
+                "name": "xray_retag",
+                "description": "X-RAY write verb. One call fans a tag mutation across every node matching a selector, with a dry-run-by-default / explicit-commit contract. Supply a SELECTOR (any-match filter_tags, exact node_type, external_id path_prefix) plus a TRANSFORM (op add/remove/set + tags). Returns the plan (selected/planned/skipped_noop counts + a sample of before/after) without mutating unless mode='commit'. On commit it applies the columnar tag mutators and persists the graph snapshot. Mutates graph metadata only — never source files.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "selector": {
+                            "type": "object",
+                            "description": "Node selector — a node must satisfy every provided predicate (empty selector matches all nodes)",
+                            "properties": {
+                                "filter_tags": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Node matches if it carries at least one of these tags (any-match)" },
+                                "node_type": { "type": "integer", "description": "Exact node-type as canonical u8 (File=0, Directory=1, Function=2, Class=3, Struct=4, Enum=5, Type=6, Module=7, …, Custom=100+v)" },
+                                "path_prefix": { "type": "string", "description": "Node matches if its external_id starts with this prefix" }
+                            }
+                        },
+                        "op": { "type": "string", "enum": ["add", "remove", "set"], "description": "Tag transform: add (idempotent), remove (absent tags are no-ops), or set (replace the whole tag set)" },
+                        "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags to add / remove / set" },
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies and persists" }
+                    },
+                    "required": ["agent_id", "selector", "op", "tags"]
+                }
             }
         ]
     })
@@ -2215,6 +2242,10 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "learn",
     "daemon_start",
     "auto_ingest_start",
+    // xray_retag commits tag mutations to graph_path on disk, so a read-only
+    // attach must refuse it (dry_run would also be blocked here — acceptable,
+    // since the verb's purpose is to lead to a write).
+    "xray_retag",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -3142,6 +3173,11 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = tools::handle_activate(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "xray_retag" => {
+            let input: crate::xray_handlers::XrayRetagInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_retag(state, input)
         }
         "impact" => {
             let input: ImpactInput =
