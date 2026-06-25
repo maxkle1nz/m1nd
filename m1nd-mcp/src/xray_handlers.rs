@@ -71,6 +71,13 @@ pub struct XrayRetagInput {
     pub tags: Vec<String>,
     #[serde(default)]
     pub mode: XrayMode,
+    /// Cross-call OCC token. When `Some(v)` on a `commit`, the handler recomputes
+    /// the selection `version` fingerprint and ABORTS (writes nothing) if it no
+    /// longer equals `v` — i.e. a selected node's tags changed since the caller's
+    /// dry_run. `None` (default) keeps the original, unconditional-commit
+    /// behavior. Obtain the token from a prior `dry_run`'s `version` field.
+    #[serde(default)]
+    pub expect_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -81,7 +88,9 @@ pub struct XrayCounts {
     pub planned: u32,
     /// Selected nodes the op would leave unchanged (e.g. add of a present tag).
     pub skipped_noop: u32,
-    /// Reserved for cross-call OCC; always 0 in the single-lock path.
+    /// Cross-call OCC: count of selected nodes when a commit aborted because
+    /// `expect_version` no longer matched the recomputed `version`. 0 otherwise
+    /// (the within-lock plan/apply window carries no conflict).
     pub conflicts: u32,
     /// Nodes actually mutated (0 on dry_run, == planned on commit).
     pub applied: u32,
@@ -97,13 +106,18 @@ pub struct XrayPlannedSample {
 #[derive(Debug, Clone, Serialize)]
 pub struct XrayRetagOutput {
     pub verb: &'static str,
-    /// "dry_run" or "committed".
+    /// "dry_run", "committed", or "aborted_conflicts" (cross-call OCC mismatch).
     pub status: String,
     pub counts: XrayCounts,
     /// First few planned changes (cap 5), for the agent to eyeball before commit.
     pub planned_sample: Vec<XrayPlannedSample>,
-    /// First few conflict ids (cap 5). Empty in the single-lock path.
+    /// First few conflict ids (cap 5). Empty unless an `expect_version` mismatch
+    /// aborted the commit, in which case it names the selected nodes.
     pub conflicts_sample: Vec<String>,
+    /// Content fingerprint of the CURRENTLY SELECTED nodes' tag state (hex). The
+    /// caller passes this back as `expect_version` on a later `commit` to guard
+    /// against concurrent tag changes between dry_run and commit (cross-call OCC).
+    pub version: String,
 }
 
 const SAMPLE_CAP: usize = 5;
@@ -159,6 +173,29 @@ fn node_to_ext_map(graph: &Graph) -> Vec<String> {
         }
     }
     map
+}
+
+/// Cross-call OCC fingerprint over the CURRENTLY SELECTED nodes' tag state.
+///
+/// Per node we hash `external_id + "\x00" + sorted(tags).join(",")` into a u64
+/// with the same non-cryptographic `DefaultHasher` the rest of this crate uses
+/// (see the hashing note above `content_hash`), then XOR-fold the per-node
+/// digests so the result is order-independent over the selection. Sorting the
+/// tags first makes the digest insensitive to a node's internal tag order, so it
+/// flips only when a node's *tag set* (or the selection itself) actually changes
+/// — exactly the concurrent-edit signal the OCC guard needs.
+fn selection_version(graph: &Graph, ext: &[String], selected: &[usize]) -> String {
+    let mut fold: u64 = 0;
+    for &idx in selected {
+        let mut tags: Vec<&str> = graph.node_tags(NodeId::new(idx as u32));
+        tags.sort_unstable();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        ext[idx].hash(&mut hasher);
+        0u8.hash(&mut hasher); // explicit field separator
+        tags.join(",").hash(&mut hasher);
+        fold ^= hasher.finish();
+    }
+    format!("{fold:016x}")
 }
 
 /// Compute the tag set this op would produce, given the current set. Returns
@@ -231,7 +268,41 @@ pub fn retag_graph(graph: &mut Graph, input: &XrayRetagInput) -> XrayRetagOutput
     let ext = node_to_ext_map(graph);
     let selected = select_nodes(graph, &input.selector, &ext);
 
+    // Fingerprint the CURRENT selection state up front. On a guarded commit this
+    // is the "actual" version recomputed over the freshly-selected nodes; if it
+    // no longer matches the caller's `expect_version`, a selected node's tags
+    // (or the selection) changed between dry_run and commit — abort, write
+    // nothing, and hand back the current `version` so the caller can re-plan.
+    let version = selection_version(graph, &ext, &selected);
+
     let commit = input.mode == XrayMode::Commit;
+
+    if commit {
+        if let Some(expected) = &input.expect_version {
+            if expected != &version {
+                let conflicts_sample = selected
+                    .iter()
+                    .take(SAMPLE_CAP)
+                    .map(|&idx| ext[idx].clone())
+                    .collect();
+                return XrayRetagOutput {
+                    verb: "xray_retag",
+                    status: "aborted_conflicts".to_string(),
+                    counts: XrayCounts {
+                        selected: selected.len() as u32,
+                        // No plan/apply was performed; flag the whole selection
+                        // as conflicting so the caller sees the contention size.
+                        conflicts: selected.len().max(1) as u32,
+                        ..Default::default()
+                    },
+                    planned_sample: Vec::new(),
+                    conflicts_sample,
+                    version,
+                };
+            }
+        }
+    }
+
     let mut counts = XrayCounts {
         selected: selected.len() as u32,
         ..Default::default()
@@ -275,15 +346,17 @@ pub fn retag_graph(graph: &mut Graph, input: &XrayRetagInput) -> XrayRetagOutput
         }
     }
 
-    // `conflicts` stays 0: under one write lock the plan and apply see the same
-    // graph, so there is no optimistic-concurrency window. True cross-call OCC
-    // (detect a tag set that changed between two xray_retag calls) is a later slice.
+    // Within ONE write lock, plan and apply see the same graph, so `conflicts`
+    // stays 0 on this path — the within-call window is closed by construction.
+    // Cross-call OCC (a tag set that changed BETWEEN two xray_retag calls) is
+    // handled above via `expect_version` vs the recomputed `version`.
     XrayRetagOutput {
         verb: "xray_retag",
         status: if commit { "committed" } else { "dry_run" }.to_string(),
         counts,
         planned_sample,
         conflicts_sample: Vec::new(),
+        version,
     }
 }
 
@@ -372,6 +445,14 @@ pub struct XrayApplyInput {
     pub transform: XrayTransform,
     #[serde(default)]
     pub mode: XrayMode,
+    /// Cross-call OCC token. When `Some(v)` on a `commit`, the engine recomputes
+    /// the planned-files fingerprint after SELECT and ABORTS *before staging*
+    /// (writes nothing) if it no longer equals `v` — i.e. a planned file's
+    /// on-disk content changed since the caller's dry_run. This complements the
+    /// existing within-call stage→rehash guard. `None` (default) keeps the
+    /// original behavior. Obtain the token from a prior `dry_run`'s `version`.
+    #[serde(default)]
+    pub expect_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -403,6 +484,11 @@ pub struct XrayApplyOutput {
     pub planned_sample: Vec<XrayApplyPlannedSample>,
     /// First few conflict file names (cap 5).
     pub conflicts_sample: Vec<String>,
+    /// Content fingerprint of the PLANNED files' current on-disk content (hex),
+    /// order-independent over path. The caller passes this back as
+    /// `expect_version` on a later `commit` to guard against concurrent file
+    /// edits between dry_run and commit (cross-call OCC, checked before staging).
+    pub version: String,
 }
 
 /// In-process content fingerprint for the OCC guard. Non-cryptographic by design
@@ -412,6 +498,22 @@ fn content_hash(bytes: &[u8]) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+/// Cross-call OCC fingerprint over the PLANNED files' current on-disk content.
+///
+/// Folds each file's SELECT-phase `content_hash` (a hex `u64`) by XOR, so the
+/// digest is order-independent over path and flips whenever any planned file's
+/// bytes change on disk. Reuses the same `DefaultHasher` content hash the engine
+/// already computes at SELECT — no new hashing, no new dependency.
+fn plan_version(guards: &[String]) -> String {
+    let mut fold: u64 = 0;
+    for g in guards {
+        // `content_hash` always emits 16 hex chars; parse is infallible, but be
+        // defensive (an unparsable guard folds in as 0 rather than panicking).
+        fold ^= u64::from_str_radix(g, 16).unwrap_or(0);
+    }
+    format!("{fold:016x}")
 }
 
 /// Pure transform: returns `Some(new_content)` if it changes the file, `None`
@@ -454,8 +556,9 @@ pub fn apply_files(
     paths: &[PathBuf],
     transform: &XrayTransform,
     mode: XrayMode,
+    expect_version: Option<&str>,
 ) -> XrayApplyOutput {
-    apply_files_inner(paths, transform, mode, None)
+    apply_files_inner(paths, transform, mode, expect_version, None)
 }
 
 /// Test seam: a callback fired between STAGE and REHASH, receiving the original
@@ -470,6 +573,7 @@ fn apply_files_inner(
     paths: &[PathBuf],
     transform: &XrayTransform,
     mode: XrayMode,
+    expect_version: Option<&str>,
     tamper: TamperHook<'_>,
 ) -> XrayApplyOutput {
     let mut counts = XrayApplyCounts {
@@ -498,6 +602,10 @@ fn apply_files_inner(
         }
     }
 
+    // Cross-call OCC fingerprint over the planned files' current bytes (the
+    // SELECT-phase guard hashes). Order-independent over path.
+    let version = plan_version(&plan.iter().map(|(_, g, _)| g.clone()).collect::<Vec<_>>());
+
     // ---- DRY RUN: report the plan, write nothing ----
     if mode != XrayMode::Commit {
         let planned_sample = plan
@@ -513,7 +621,33 @@ fn apply_files_inner(
             counts,
             planned_sample,
             conflicts_sample: Vec::new(),
+            version,
         };
+    }
+
+    // ---- CROSS-CALL OCC GUARD: abort BEFORE staging if the planned files'
+    // current content no longer matches the caller's expectation. This closes
+    // the window BETWEEN dry_run and commit (a concurrent ingest / another
+    // agent), complementing the within-call stage→rehash guard below. Writes
+    // nothing: no temps are staged, no originals touched.
+    if let Some(expected) = expect_version {
+        if expected != version {
+            let conflicts_sample = plan
+                .iter()
+                .take(SAMPLE_CAP)
+                .map(|(p, _, _)| file_label(p))
+                .collect();
+            counts.conflicts = plan.len().max(1) as u32;
+            counts.applied = 0;
+            return XrayApplyOutput {
+                verb: "xray_apply",
+                status: "aborted_conflicts".to_string(),
+                counts,
+                planned_sample: Vec::new(),
+                conflicts_sample,
+                version,
+            };
+        }
     }
 
     // ---- COMMIT · STAGE (phase 1): write all `.xray.tmp`, fsync, touch no original ----
@@ -549,6 +683,7 @@ fn apply_files_inner(
                 counts,
                 planned_sample: Vec::new(),
                 conflicts_sample: vec![name],
+                version,
             };
         }
         temps.push((p.clone(), tmp));
@@ -585,6 +720,7 @@ fn apply_files_inner(
             counts,
             planned_sample: Vec::new(),
             conflicts_sample,
+            version,
         };
     }
 
@@ -604,6 +740,7 @@ fn apply_files_inner(
                 counts,
                 planned_sample: Vec::new(),
                 conflicts_sample: vec![file_label(orig)],
+                version,
             };
         }
     }
@@ -622,6 +759,7 @@ fn apply_files_inner(
         counts,
         planned_sample,
         conflicts_sample: Vec::new(),
+        version,
     }
 }
 
@@ -778,7 +916,12 @@ pub fn handle_xray_apply(
     collect_files(&walk_start, &root, &input.selector, &mut matched);
     matched.sort();
 
-    let output = apply_files(&matched, &input.transform, input.mode);
+    let output = apply_files(
+        &matched,
+        &input.transform,
+        input.mode,
+        input.expect_version.as_deref(),
+    );
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
 
@@ -1112,6 +1255,21 @@ mod tests {
             op,
             tags: tags.iter().map(|s| s.to_string()).collect(),
             mode,
+            expect_version: None,
+        }
+    }
+
+    /// Same as `input` but with a cross-call OCC `expect_version` token.
+    fn input_expect(
+        selector: XraySelector,
+        op: XrayTagOp,
+        tags: &[&str],
+        mode: XrayMode,
+        expect_version: Option<String>,
+    ) -> XrayRetagInput {
+        XrayRetagInput {
+            expect_version,
+            ..input(selector, op, tags, mode)
         }
     }
 
@@ -1278,6 +1436,145 @@ mod tests {
         let mut tags = g.node_tags(g.resolve_id("file::a.rs::fn::foo").unwrap());
         tags.sort_unstable();
         assert_eq!(tags, vec!["only", "these"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // xray_retag — cross-call OCC (expect_version)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dry_run_returns_nonempty_version() {
+        let mut g = sample_graph();
+        let sel = XraySelector {
+            filter_tags: vec!["rust".to_string()],
+            ..Default::default()
+        };
+        let out = retag_graph(
+            &mut g,
+            &input(sel, XrayTagOp::Add, &["xray:bedrock"], XrayMode::DryRun),
+        );
+        assert_eq!(out.status, "dry_run");
+        assert!(!out.version.is_empty(), "dry_run must surface a version");
+        // 16-hex-char digest from the DefaultHasher fold.
+        assert_eq!(out.version.len(), 16);
+    }
+
+    #[test]
+    fn commit_with_matching_expect_version_succeeds() {
+        let mut g = sample_graph();
+        let sel = XraySelector {
+            filter_tags: vec!["rust".to_string()],
+            ..Default::default()
+        };
+        // Capture the version with a dry_run, then commit guarded by it.
+        let dry = retag_graph(
+            &mut g,
+            &input(
+                sel.clone(),
+                XrayTagOp::Add,
+                &["xray:bedrock"],
+                XrayMode::DryRun,
+            ),
+        );
+        let out = retag_graph(
+            &mut g,
+            &input_expect(
+                sel,
+                XrayTagOp::Add,
+                &["xray:bedrock"],
+                XrayMode::Commit,
+                Some(dry.version.clone()),
+            ),
+        );
+        assert_eq!(out.status, "committed");
+        assert!(out.counts.applied > 0);
+        assert_eq!(out.counts.applied, 3);
+        assert_eq!(out.counts.conflicts, 0);
+        assert!(g
+            .node_tags(g.resolve_id("file::a.rs::fn::foo").unwrap())
+            .contains(&"xray:bedrock"));
+    }
+
+    #[test]
+    fn stale_expect_version_aborts_commit_and_mutates_nothing() {
+        let mut g = sample_graph();
+        let sel = XraySelector {
+            filter_tags: vec!["rust".to_string()],
+            ..Default::default()
+        };
+        // Capture the version at dry_run time.
+        let dry = retag_graph(
+            &mut g,
+            &input(
+                sel.clone(),
+                XrayTagOp::Add,
+                &["xray:bedrock"],
+                XrayMode::DryRun,
+            ),
+        );
+        let stale_version = dry.version.clone();
+
+        // Simulate a CONCURRENT change: mutate a selected node's tags directly on
+        // the graph between the caller's dry_run and its guarded commit. This
+        // moves the live selection fingerprint away from `stale_version`.
+        let victim = g.resolve_id("file::a.rs::fn::foo").unwrap();
+        g.add_node_tags(victim, &["concurrent:edit"]);
+
+        // Snapshot the post-tamper tag sets to prove the call mutates nothing.
+        let before: Vec<Vec<String>> = [
+            "file::a.rs::fn::foo",
+            "file::b.rs::fn::bar",
+            "file::a.rs::struct::Cfg",
+        ]
+        .iter()
+        .map(|ext| {
+            g.node_tags(g.resolve_id(ext).unwrap())
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .collect();
+
+        let out = retag_graph(
+            &mut g,
+            &input_expect(
+                sel,
+                XrayTagOp::Add,
+                &["xray:bedrock"],
+                XrayMode::Commit,
+                Some(stale_version),
+            ),
+        );
+
+        assert_eq!(out.status, "aborted_conflicts");
+        assert_eq!(out.counts.applied, 0);
+        assert!(out.counts.conflicts >= 1);
+        // The reported version is the CURRENT one, so the caller can re-plan.
+        assert!(!out.version.is_empty());
+
+        // Graph is unchanged BY THIS CALL: no node gained `xray:bedrock`.
+        for (i, ext) in [
+            "file::a.rs::fn::foo",
+            "file::b.rs::fn::bar",
+            "file::a.rs::struct::Cfg",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let now: Vec<String> = g
+                .node_tags(g.resolve_id(ext).unwrap())
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            assert_eq!(
+                now, before[i],
+                "{ext} must be untouched by the aborted call"
+            );
+            assert!(
+                !now.iter().any(|t| t == "xray:bedrock"),
+                "{ext} must not gain the planned tag on abort"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1482,7 +1779,7 @@ mod tests {
         mode: XrayMode,
         tamper: impl Fn(&[PathBuf]),
     ) -> XrayApplyOutput {
-        apply_files_inner(paths, transform, mode, Some(&tamper))
+        apply_files_inner(paths, transform, mode, None, Some(&tamper))
     }
 
     fn ensure_tag() -> XrayTransform {
@@ -1526,7 +1823,7 @@ mod tests {
         let dir = fresh_sandbox();
         let paths = seed_untagged(&dir, 4);
 
-        let out = apply_files(&paths, &ensure_tag(), XrayMode::DryRun);
+        let out = apply_files(&paths, &ensure_tag(), XrayMode::DryRun, None);
         assert_eq!(out.verb, "xray_apply");
         assert_eq!(out.status, "dry_run");
         assert_eq!(out.counts.matched, 4);
@@ -1547,7 +1844,7 @@ mod tests {
         let dir = fresh_sandbox();
         let paths = seed_untagged(&dir, 4);
 
-        let out = apply_files(&paths, &ensure_tag(), XrayMode::Commit);
+        let out = apply_files(&paths, &ensure_tag(), XrayMode::Commit, None);
         assert_eq!(out.status, "committed");
         assert_eq!(out.counts.applied, 4);
         assert_eq!(out.counts.planned, 4);
@@ -1569,11 +1866,11 @@ mod tests {
         let paths = seed_untagged(&dir, 4);
 
         // First commit tags everything.
-        let first = apply_files(&paths, &ensure_tag(), XrayMode::Commit);
+        let first = apply_files(&paths, &ensure_tag(), XrayMode::Commit, None);
         assert_eq!(first.counts.applied, 4);
 
         // Re-commit: the transform is now a no-op for every file.
-        let again = apply_files(&paths, &ensure_tag(), XrayMode::Commit);
+        let again = apply_files(&paths, &ensure_tag(), XrayMode::Commit, None);
         assert_eq!(again.status, "committed");
         assert_eq!(again.counts.planned, 0);
         assert_eq!(again.counts.skipped_noop, 4);
@@ -1625,6 +1922,95 @@ mod tests {
             .unwrap()
             .flatten()
             .all(|e| !e.file_name().to_string_lossy().ends_with(".xray.tmp"))
+    }
+
+    // -----------------------------------------------------------------------
+    // xray_apply — cross-call OCC (expect_version)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn apply_dry_run_returns_version() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+
+        let out = apply_files(&paths, &ensure_tag(), XrayMode::DryRun, None);
+        assert_eq!(out.status, "dry_run");
+        assert!(!out.version.is_empty(), "dry_run must surface a version");
+        assert_eq!(out.version.len(), 16);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_commit_with_matching_expect_version_applies() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+
+        // Capture the version via dry_run, then commit guarded by it.
+        let dry = apply_files(&paths, &ensure_tag(), XrayMode::DryRun, None);
+        let out = apply_files(
+            &paths,
+            &ensure_tag(),
+            XrayMode::Commit,
+            Some(dry.version.as_str()),
+        );
+        assert_eq!(out.status, "committed");
+        assert_eq!(out.counts.applied, 4);
+        assert_eq!(out.counts.conflicts, 0);
+        for p in &paths {
+            assert!(first3_contains_tag(p), "commit must tag {p:?}");
+        }
+        assert!(no_temps_remain(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_stale_expect_version_aborts_before_staging() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+
+        // Capture the version with a dry_run.
+        let dry = apply_files(&paths, &ensure_tag(), XrayMode::DryRun, None);
+        let stale_version = dry.version.clone();
+
+        // Externally modify ONE target file between dry_run and the guarded
+        // commit (a concurrent ingest / another agent). The planned-files
+        // fingerprint now differs from `stale_version`.
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&paths[1])
+                .unwrap();
+            f.write_all(b"\n// concurrent edit\n").unwrap();
+        }
+        let tampered_after = std::fs::read_to_string(&paths[1]).unwrap();
+
+        let out = apply_files(
+            &paths,
+            &ensure_tag(),
+            XrayMode::Commit,
+            Some(stale_version.as_str()),
+        );
+        assert_eq!(out.status, "aborted_conflicts");
+        assert_eq!(out.counts.applied, 0);
+        assert!(out.counts.conflicts >= 1);
+
+        // NO file was written: no original carries the tag, and the externally
+        // modified file still holds exactly its concurrent edit (untouched here).
+        for p in &paths {
+            assert!(!first3_contains_tag(p), "aborted commit must not tag {p:?}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(&paths[1]).unwrap(),
+            tampered_after,
+            "the concurrently edited file must be left exactly as the edit left it"
+        );
+        // Nothing was staged.
+        assert!(no_temps_remain(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

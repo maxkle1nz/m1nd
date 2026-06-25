@@ -2218,7 +2218,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         },
                         "op": { "type": "string", "enum": ["add", "remove", "set"], "description": "Tag transform: add (idempotent), remove (absent tags are no-ops), or set (replace the whole tag set)" },
                         "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags to add / remove / set" },
-                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies and persists" }
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies and persists" },
+                        "expect_version": { "type": "string", "description": "Optional cross-call OCC token from a prior dry_run's `version`. On commit the selection fingerprint is recomputed; if it no longer matches, the commit ABORTS (status 'aborted_conflicts', applied 0, nothing written) so a concurrent tag change between dry_run and commit cannot clobber work. Omit for an unconditional commit." }
                     },
                     "required": ["agent_id", "selector", "op", "tags"]
                 }
@@ -2274,7 +2275,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             },
                             "required": ["kind", "tag"]
                         },
-                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies the atomic 2-phase swap" }
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies the atomic 2-phase swap" },
+                        "expect_version": { "type": "string", "description": "Optional cross-call OCC token from a prior dry_run's `version`. On commit the planned-files fingerprint is recomputed after SELECT; if it no longer matches, the commit ABORTS BEFORE staging (status 'aborted_conflicts', applied 0, NO file written) so a concurrent edit between dry_run and commit cannot clobber work. Complements the within-call stage→rehash guard. Omit for an unconditional commit." }
                     },
                     "required": ["agent_id", "selector", "transform"]
                 }
