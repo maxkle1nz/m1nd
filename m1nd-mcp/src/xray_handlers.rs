@@ -292,7 +292,8 @@ pub fn retag_graph(graph: &mut Graph, input: &XrayRetagInput) -> XrayRetagOutput
                         selected: selected.len() as u32,
                         // No plan/apply was performed; flag the whole selection
                         // as conflicting so the caller sees the contention size.
-                        conflicts: selected.len().max(1) as u32,
+                        // Zero selected => zero conflicts (no phantom 1).
+                        conflicts: selected.len() as u32,
                         ..Default::default()
                     },
                     planned_sample: Vec::new(),
@@ -377,6 +378,14 @@ pub fn handle_xray_retag(
     };
 
     if input.mode == XrayMode::Commit && output.counts.applied > 0 {
+        // Graph-write bookkeeping, mirroring `learn` (tools.rs) and the other
+        // in-place writers: bump the generation so optimistic locks keyed on it
+        // see the change, invalidate perspective caches, and mark lock baselines
+        // stale (otherwise `lock.diff` fast-paths to no_changes over a committed
+        // mutation — see lock_handlers.rs).
+        state.bump_graph_generation();
+        state.invalidate_all_perspectives();
+        state.mark_all_lock_baselines_stale();
         // Persist via the session choke point: graph is source of truth, the
         // call is a no-op in read-only attach, and it writes to the canonical
         // graph_path. Not added to PROOF_GATED_WRITE_TOOLS on purpose — this
@@ -477,18 +486,25 @@ pub struct XrayApplyPlannedSample {
 #[derive(Debug, Clone, Serialize)]
 pub struct XrayApplyOutput {
     pub verb: &'static str,
-    /// "dry_run" | "committed" | "aborted_conflicts".
+    /// "dry_run" | "committed" | "partial" | "aborted_conflicts".
     pub status: String,
     pub counts: XrayApplyCounts,
     /// First few planned paths (cap 5), for the agent to eyeball before commit.
     pub planned_sample: Vec<XrayApplyPlannedSample>,
-    /// First few conflict file names (cap 5).
+    /// First few conflict file names (cap 5). On a `partial` swap this names the
+    /// file whose rename failed (the boundary between swapped and not-yet-swapped).
     pub conflicts_sample: Vec<String>,
     /// Content fingerprint of the PLANNED files' current on-disk content (hex),
     /// order-independent over path. The caller passes this back as
     /// `expect_version` on a later `commit` to guard against concurrent file
     /// edits between dry_run and commit (cross-call OCC, checked before staging).
     pub version: String,
+    /// True ONLY on a successful commit that wrote ≥1 source file
+    /// (`status == "committed" && applied > 0`). When set, the in-memory graph is
+    /// now STALE versus disk: the bytes changed but the graph was not re-ingested.
+    /// The caller must trigger a re-ingest to reconcile. Always false on dry_run,
+    /// abort, or a partial swap.
+    pub graph_resync_required: bool,
 }
 
 /// In-process content fingerprint for the OCC guard. Non-cryptographic by design
@@ -502,16 +518,21 @@ fn content_hash(bytes: &[u8]) -> String {
 
 /// Cross-call OCC fingerprint over the PLANNED files' current on-disk content.
 ///
-/// Folds each file's SELECT-phase `content_hash` (a hex `u64`) by XOR, so the
-/// digest is order-independent over path and flips whenever any planned file's
-/// bytes change on disk. Reuses the same `DefaultHasher` content hash the engine
-/// already computes at SELECT — no new hashing, no new dependency.
-fn plan_version(guards: &[String]) -> String {
+/// Per file we hash `path + "\0" + content_hash` (the SELECT-phase guard hex)
+/// into a u64 with the same non-cryptographic `DefaultHasher`, then XOR-fold the
+/// per-file digests so the result is order-independent over path. Keying in the
+/// path is what stops two identical-content files (or a 64-bit content-hash
+/// collision) from cancelling each other out under the fold — without it, a
+/// concurrent edit could be masked. Flips whenever any planned file's path set
+/// or bytes change on disk.
+fn plan_version(entries: &[(PathBuf, String)]) -> String {
     let mut fold: u64 = 0;
-    for g in guards {
-        // `content_hash` always emits 16 hex chars; parse is infallible, but be
-        // defensive (an unparsable guard folds in as 0 rather than panicking).
-        fold ^= u64::from_str_radix(g, 16).unwrap_or(0);
+    for (path, guard) in entries {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        path.to_string_lossy().hash(&mut hasher);
+        0u8.hash(&mut hasher); // explicit field separator
+        guard.hash(&mut hasher);
+        fold ^= hasher.finish();
     }
     format!("{fold:016x}")
 }
@@ -558,23 +579,32 @@ pub fn apply_files(
     mode: XrayMode,
     expect_version: Option<&str>,
 ) -> XrayApplyOutput {
-    apply_files_inner(paths, transform, mode, expect_version, None)
+    apply_files_inner(paths, transform, mode, expect_version, None, None)
 }
 
 /// Test seam: a callback fired between STAGE and REHASH, receiving the original
 /// paths so a test can mutate one mid-apply (mirrors the Python `tamper(plan)`).
 type TamperHook<'a> = Option<&'a dyn Fn(&[PathBuf])>;
 
+/// Test seam: a callback fired AFTER REHASH and BEFORE the SWAP loop, receiving
+/// the staged `(original, tmp)` pairs in swap order so a test can sabotage a
+/// SPECIFIC target's rename (e.g. replace a not-first original with a directory)
+/// to exercise the partial-swap path. Production always passes `None`.
+type BeforeSwapHook<'a> = Option<&'a dyn Fn(&[(PathBuf, PathBuf)])>;
+
 /// Shared implementation. `tamper`, when `Some`, is invoked AFTER the STAGE phase
 /// and BEFORE the REHASH phase, receiving the list of original paths so a test
 /// can mutate one mid-apply to exercise the OCC-conflict path (mirrors the
-/// Python `tamper(plan)` placement). Production always passes `None`.
+/// Python `tamper(plan)` placement). `before_swap`, when `Some`, is invoked AFTER
+/// REHASH and BEFORE the SWAP loop to exercise the partial-swap path. Production
+/// always passes `None` for both.
 fn apply_files_inner(
     paths: &[PathBuf],
     transform: &XrayTransform,
     mode: XrayMode,
     expect_version: Option<&str>,
     tamper: TamperHook<'_>,
+    before_swap: BeforeSwapHook<'_>,
 ) -> XrayApplyOutput {
     let mut counts = XrayApplyCounts {
         matched: paths.len() as u32,
@@ -603,8 +633,13 @@ fn apply_files_inner(
     }
 
     // Cross-call OCC fingerprint over the planned files' current bytes (the
-    // SELECT-phase guard hashes). Order-independent over path.
-    let version = plan_version(&plan.iter().map(|(_, g, _)| g.clone()).collect::<Vec<_>>());
+    // SELECT-phase guard hashes), keyed by path. Order-independent over path.
+    let version = plan_version(
+        &plan
+            .iter()
+            .map(|(p, g, _)| (p.clone(), g.clone()))
+            .collect::<Vec<_>>(),
+    );
 
     // ---- DRY RUN: report the plan, write nothing ----
     if mode != XrayMode::Commit {
@@ -622,6 +657,7 @@ fn apply_files_inner(
             planned_sample,
             conflicts_sample: Vec::new(),
             version,
+            graph_resync_required: false,
         };
     }
 
@@ -637,7 +673,8 @@ fn apply_files_inner(
                 .take(SAMPLE_CAP)
                 .map(|(p, _, _)| file_label(p))
                 .collect();
-            counts.conflicts = plan.len().max(1) as u32;
+            // Zero planned => zero conflicts (no phantom 1).
+            counts.conflicts = plan.len() as u32;
             counts.applied = 0;
             return XrayApplyOutput {
                 verb: "xray_apply",
@@ -646,6 +683,7 @@ fn apply_files_inner(
                 planned_sample: Vec::new(),
                 conflicts_sample,
                 version,
+                graph_resync_required: false,
             };
         }
     }
@@ -684,6 +722,7 @@ fn apply_files_inner(
                 planned_sample: Vec::new(),
                 conflicts_sample: vec![name],
                 version,
+                graph_resync_required: false,
             };
         }
         temps.push((p.clone(), tmp));
@@ -721,29 +760,69 @@ fn apply_files_inner(
             planned_sample: Vec::new(),
             conflicts_sample,
             version,
+            graph_resync_required: false,
         };
     }
 
+    // ---- test seam: sabotage a specific target's rename before the SWAP loop ----
+    if let Some(before_swap) = before_swap {
+        before_swap(&temps);
+    }
+
     // ---- SWAP (phase 2): atomic rename of every staged temp over its original ----
-    for (orig, tmp) in &temps {
-        if let Err(_e) = std::fs::rename(tmp, orig) {
-            // Same-filesystem rename should not fail here; if it does, stop and
-            // clean up the remaining temps. Some originals may already be
-            // swapped — this is the one non-atomic edge and matches the Python
-            // behaviour (which lets an os.replace error bubble).
-            cleanup(&temps);
+    // Track how many renames actually succeeded so a mid-loop failure reports the
+    // TRUTH instead of "aborted, applied 0". The swap is the one non-atomic edge:
+    // files 0..swapped are already live, the rest are still staged temps.
+    let mut swapped: usize = 0;
+    for (i, (orig, tmp)) in temps.iter().enumerate() {
+        if let Err(e) = std::fs::rename(tmp, orig) {
+            // Same-filesystem rename should not fail here; if it does, stop.
+            if swapped == 0 {
+                // NOTHING swapped yet: the whole batch can be cleanly abandoned.
+                // Delete every temp, write ZERO originals — identical to the
+                // all-or-nothing abort paths above.
+                cleanup(&temps);
+                counts.conflicts = 1;
+                counts.applied = 0;
+                return XrayApplyOutput {
+                    verb: "xray_apply",
+                    status: "aborted_conflicts".to_string(),
+                    counts,
+                    planned_sample: Vec::new(),
+                    conflicts_sample: vec![file_label(orig)],
+                    version,
+                    graph_resync_required: false,
+                };
+            }
+            // PARTIAL: files 0..i are already swapped (live on disk). We must NOT
+            // lie ("aborted, applied 0") and must NOT delete the not-yet-swapped
+            // temps (i..) — leaving them lets a retry of the same call complete
+            // the remaining renames (the transform is idempotent + the guard hash
+            // still matches the not-yet-swapped originals). fsync the dirs whose
+            // contents we DID change so the partial swap is durable.
+            let already = &temps[..swapped];
+            fsync_parent_dirs(already);
+            counts.applied = swapped as u32;
             counts.conflicts = 1;
-            counts.applied = 0;
             return XrayApplyOutput {
                 verb: "xray_apply",
-                status: "aborted_conflicts".to_string(),
+                status: "partial".to_string(),
                 counts,
                 planned_sample: Vec::new(),
-                conflicts_sample: vec![file_label(orig)],
+                conflicts_sample: vec![format!("{}: rename failed: {e}", file_label(orig))],
                 version,
+                // Partial: ≥1 source byte changed on disk, graph is stale. But a
+                // retry is expected to finish the swap, so honesty over the
+                // already-written files: signal a resync is required.
+                graph_resync_required: true,
             };
         }
+        swapped = i + 1;
     }
+
+    // All renames succeeded. fsync each DISTINCT parent directory so the
+    // name->inode swaps (not just the staged bytes) are durable across a crash.
+    fsync_parent_dirs(&temps);
 
     counts.applied = counts.planned;
     let planned_sample = plan
@@ -753,6 +832,7 @@ fn apply_files_inner(
             path: p.to_string_lossy().into_owned(),
         })
         .collect();
+    let applied = counts.applied;
     XrayApplyOutput {
         verb: "xray_apply",
         status: "committed".to_string(),
@@ -760,6 +840,28 @@ fn apply_files_inner(
         planned_sample,
         conflicts_sample: Vec::new(),
         version,
+        // A successful commit rewrote source bytes; the in-memory graph is now
+        // stale versus disk and must be re-ingested to reconcile.
+        graph_resync_required: applied > 0,
+    }
+}
+
+/// fsync the DISTINCT parent directory of every swapped (original) path, so the
+/// directory entry rewritten by `rename` is durable (the staged temp was already
+/// `sync_all`'d; this commits the name->inode swap). Dedups the parent set and
+/// ignores any dir that can't be opened/synced on the platform (e.g. Windows,
+/// where directory fsync is not generally available).
+fn fsync_parent_dirs(swapped: &[(PathBuf, PathBuf)]) {
+    let mut seen: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
+    for (orig, _tmp) in swapped {
+        if let Some(parent) = orig.parent() {
+            if !seen.insert(parent.to_path_buf()) {
+                continue;
+            }
+            if let Ok(dir) = std::fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+        }
     }
 }
 
@@ -780,9 +882,12 @@ fn file_label(p: &Path) -> String {
 /// True if this path must NEVER be touched: m1nd runtime artifacts, VCS, or
 /// build dirs, plus our own staging temps.
 fn is_forbidden_path(p: &Path) -> bool {
+    // Lowercase the candidate name so the checks also hold on case-insensitive
+    // filesystems (macOS/Windows): `GRAPH_SNAPSHOT.JSON` / `.XRAY.TMP` must be
+    // caught the same as their lowercase forms.
     let name = p
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
+        .map(|n| n.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     // Forbidden file NAMES (runtime artifacts regenerated by daemon/ingest).
     if name == "graph_snapshot.json"
@@ -794,8 +899,9 @@ fn is_forbidden_path(p: &Path) -> bool {
     {
         return true;
     }
-    // Forbidden path SEGMENTS (VCS / build / deps).
-    let path_str = p.to_string_lossy();
+    // Forbidden path SEGMENTS (VCS / build / deps). Lowercased for the same
+    // case-insensitive-filesystem reason.
+    let path_str = p.to_string_lossy().to_lowercase();
     let path_str = path_str.replace('\\', "/"); // normalize for Windows
     if path_str.contains("/.git/")
         || path_str.contains("/target/")
@@ -848,12 +954,14 @@ fn is_included(path: &Path, root: &Path, selector: &XrayFileSelector) -> bool {
     if !canon.starts_with(root) {
         return false;
     }
-    // (3) extension filter (case-sensitive on the ext string).
+    // (3) extension filter (case-insensitive, so `.RS` matches `rs` on
+    // case-insensitive filesystems and however the caller cased the wanted list).
     if !selector.extensions.is_empty() {
         let ext_ok = path
             .extension()
             .and_then(|e| e.to_str())
-            .is_some_and(|e| selector.extensions.iter().any(|w| w == e));
+            .map(|e| e.to_lowercase())
+            .is_some_and(|e| selector.extensions.iter().any(|w| w.to_lowercase() == e));
         if !ext_ok {
             return false;
         }
@@ -1657,6 +1765,13 @@ pub fn handle_xray_paint(
     };
 
     if input.mode == XrayMode::Commit && output.counts.painted > 0 {
+        // Graph-write bookkeeping, mirroring `learn` and xray_retag: bump the
+        // generation so optimistic locks keyed on it see the change, invalidate
+        // perspective caches, and mark lock baselines stale (otherwise `lock.diff`
+        // fast-paths to no_changes over a committed mutation).
+        state.bump_graph_generation();
+        state.invalidate_all_perspectives();
+        state.mark_all_lock_baselines_stale();
         // Persist via the session choke point. Like xray_retag this mutates graph
         // metadata (tags), not agent-supplied source files — so it is deliberately
         // NOT added to PROOF_GATED_WRITE_TOOLS.
@@ -2244,7 +2359,19 @@ mod tests {
         mode: XrayMode,
         tamper: impl Fn(&[PathBuf]),
     ) -> XrayApplyOutput {
-        apply_files_inner(paths, transform, mode, None, Some(&tamper))
+        apply_files_inner(paths, transform, mode, None, Some(&tamper), None)
+    }
+
+    /// Test seam: invoke the engine with a `before_swap` callback fired after
+    /// REHASH and before the SWAP loop, so a test can sabotage a specific
+    /// target's rename to exercise the partial-swap path.
+    fn apply_files_with_before_swap(
+        paths: &[PathBuf],
+        transform: &XrayTransform,
+        mode: XrayMode,
+        before_swap: impl Fn(&[(PathBuf, PathBuf)]),
+    ) -> XrayApplyOutput {
+        apply_files_inner(paths, transform, mode, None, None, Some(&before_swap))
     }
 
     fn ensure_tag() -> XrayTransform {
@@ -2377,6 +2504,88 @@ mod tests {
         }
         // No staging temps remain anywhere in the sandbox.
         assert!(no_temps_remain(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn plan_version_keys_in_path_so_identical_content_does_not_cancel() {
+        // Two DIFFERENT files with the SAME content hash. With the old raw-XOR
+        // fold (content hash only) these would cancel to 0; keying the path in
+        // must keep the fold non-zero and path-sensitive.
+        let same_hash = content_hash(b"identical bytes");
+        let a = (PathBuf::from("/repo/a.rs"), same_hash.clone());
+        let b = (PathBuf::from("/repo/b.rs"), same_hash.clone());
+        let folded = plan_version(&[a.clone(), b.clone()]);
+        assert_ne!(
+            folded, "0000000000000000",
+            "path keying must prevent cancel"
+        );
+
+        // Same two paths, one's content changes -> version must flip.
+        let b_changed = (PathBuf::from("/repo/b.rs"), content_hash(b"other bytes"));
+        let folded2 = plan_version(&[a, b_changed]);
+        assert_ne!(folded, folded2, "a content change must flip the version");
+    }
+
+    #[test]
+    fn partial_swap_after_first_success_reports_partial() {
+        let dir = fresh_sandbox();
+        let paths = seed_untagged(&dir, 4);
+        // `matched` would be sorted in the handler; mirror that so the swap order
+        // is deterministic and the FIRST rename lands before the sabotaged one.
+        let mut ordered = paths.clone();
+        ordered.sort();
+
+        // Sabotage the SECOND target's rename: after REHASH (so it passes the
+        // drift guard), replace temps[1]'s ORIGINAL with a directory. Renaming a
+        // file over an existing directory fails on Unix and Windows, so the first
+        // swap succeeds and the second fails -> partial.
+        let victim_orig = ordered[1].clone();
+        let out = apply_files_with_before_swap(
+            &ordered,
+            &ensure_tag(),
+            XrayMode::Commit,
+            move |_temps| {
+                std::fs::remove_file(&victim_orig).unwrap();
+                std::fs::create_dir(&victim_orig).unwrap();
+            },
+        );
+
+        // The swap partially applied: file 0 is live, the rest are not.
+        assert_eq!(out.status, "partial");
+        assert_eq!(out.counts.applied, 1, "exactly the first file was swapped");
+        assert!(out.counts.conflicts >= 1);
+        // A partial swap left the graph stale versus disk.
+        assert!(out.graph_resync_required);
+        // The conflict sample names the file whose rename failed.
+        assert!(
+            out.conflicts_sample
+                .iter()
+                .any(|c| c.contains(&file_label(&ordered[1]))),
+            "conflicts_sample must name the failing path: {:?}",
+            out.conflicts_sample
+        );
+
+        // The first file is actually swapped (tagged, no temp left).
+        assert!(first3_contains_tag(&ordered[0]), "file 0 must be swapped");
+        let tmp0 = tmp_path_for(&ordered[0]);
+        assert!(!tmp0.exists(), "swapped file's temp must be gone");
+
+        // The NOT-yet-swapped temps are LEFT in place so a retry can complete
+        // (we only clean up when nothing was swapped). ordered[2] / ordered[3]
+        // were never renamed, so their temps must still exist.
+        for p in [&ordered[2], &ordered[3]] {
+            let tmp = tmp_path_for(p);
+            assert!(
+                tmp.exists(),
+                "not-yet-swapped temp must be retained for retry: {tmp:?}"
+            );
+            assert!(
+                !first3_contains_tag(p),
+                "not-yet-swapped original must be untouched: {p:?}"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }
