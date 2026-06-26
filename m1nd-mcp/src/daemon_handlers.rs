@@ -1027,7 +1027,26 @@ mod tests {
         .expect("changed tick");
         assert_eq!(ticked["changed_files_detected"], 1);
         assert_eq!(ticked["files_reingested"], 1);
-        assert_eq!(ticked["alerts_emitted"], 0);
+        // Ingest now populates node provenance (source_path/line), which revives the
+        // surgical proactive-insight engine: `find_nodes_for_file` keys file lookup
+        // on `source_path`, so while nodes had no provenance it always returned
+        // empty and the daemon surfaced ZERO insights. With provenance populated, a
+        // re-ingested change now legitimately surfaces co-change insights, each
+        // emitted as an alert.
+        let alerts = ticked["alerts_emitted"]
+            .as_u64()
+            .expect("alerts_emitted is a number");
+        let kinds = ticked["ingested_files"][0]["proactive_insight_kinds"]
+            .as_array()
+            .expect("proactive_insight_kinds array");
+        assert!(
+            alerts >= 1,
+            "proactive-insight engine should surface an insight"
+        );
+        assert!(
+            kinds.iter().any(|k| k == "co_change_prediction"),
+            "expected a co-change insight, got {kinds:?}"
+        );
         assert!(ticked["ingested_files"][0]["file_path"]
             .as_str()
             .map(normalize_path_text)
