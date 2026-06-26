@@ -280,6 +280,25 @@ fn node_type_to_u8(nt: NodeType) -> u8 {
     }
 }
 
+/// True if `nt` is a code SYMBOL (a declaration that can be annotated above its
+/// line), as opposed to a container (File/Directory/Module), a reference, or a
+/// domain/business node. `AnnotateSymbol` with `node_type: None` means "any
+/// SYMBOL type", so this is the allowlist that omission resolves to — it stops
+/// annotations from landing at file/module/document/concept locations now that
+/// ingest populates provenance broadly. When `node_type` IS set, exact-match
+/// (`node_type_to_u8`) is used instead and this allowlist is bypassed.
+///
+/// Covers the code-declaration kinds the tree-sitter extractors actually emit
+/// (Function, Class, Struct, Enum, Type) while excluding File, Directory,
+/// Module, Reference, Concept, and the domain variants (Material..Cost, System,
+/// Custom).
+fn is_symbol_node_type(nt: NodeType) -> bool {
+    matches!(
+        nt,
+        NodeType::Function | NodeType::Class | NodeType::Struct | NodeType::Enum | NodeType::Type
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Pure core: selector + plan + (optional) apply against a Graph
 // ---------------------------------------------------------------------------
@@ -1222,16 +1241,28 @@ fn collect_symbol_targets(
     root: &Path,
     node_type: Option<u8>,
     path_prefix: Option<&str>,
+    extensions: &[String],
 ) -> (Vec<SymbolTarget>, u32) {
     let ext = node_to_ext_map(graph);
     let n = graph.num_nodes() as usize;
     let mut targets: Vec<SymbolTarget> = Vec::new();
     let mut symbols_matched: u32 = 0;
     for (i, external_id) in ext.iter().enumerate().take(n) {
-        // node_type: exact match on canonical u8.
-        if let Some(want) = node_type {
-            if node_type_to_u8(graph.nodes.node_type[i]) != want {
-                continue;
+        let nt = graph.nodes.node_type[i];
+        // node_type: when SET, exact match on canonical u8; when OMITTED, accept
+        // only code SYMBOL types (the schema's "any SYMBOL type"), so file/module/
+        // document/concept nodes — which also carry provenance after ingest — are
+        // never annotated.
+        match node_type {
+            Some(want) => {
+                if node_type_to_u8(nt) != want {
+                    continue;
+                }
+            }
+            None => {
+                if !is_symbol_node_type(nt) {
+                    continue;
+                }
             }
         }
         // path_prefix: the node's MODULE (first path segment of external_id)
@@ -1248,6 +1279,15 @@ fn collect_symbol_targets(
             continue;
         };
         if source.is_empty() || line_start < 1 {
+            continue;
+        }
+        // extension filter: a symbol whose provenance source_path points at a file
+        // outside the requested extensions is dropped (e.g. `extensions: ["rs"]`
+        // excludes a `.py`/`.ts` symbol). Empty `extensions` = any. SAME check the
+        // file-driven walk applies via `is_included`, shared through
+        // `extension_allowed`. Applied on the relative source path (the join below
+        // preserves the extension, so it's equivalent and cheaper).
+        if !extension_allowed(Path::new(source.as_str()), extensions) {
             continue;
         }
         // Resolve to an absolute path under root, then confine: forbidden
@@ -1508,6 +1548,22 @@ fn collect_files(dir: &Path, root: &Path, selector: &XrayFileSelector, out: &mut
 }
 
 /// Per-file safety + selector gate. Includes only if ALL hold (see handler doc).
+/// True if `path`'s extension is allowed by `wanted`. Empty `wanted` = any
+/// extension (no filter). Case-insensitive on both sides (`.RS` matches `rs`),
+/// so this is the SINGLE source of truth shared by the file-driven walk
+/// ([`is_included`]) and the graph-driven `AnnotateSymbol` selection
+/// ([`collect_symbol_targets`]) — keeping `extensions: ["rs"]` excluding a
+/// `.py`/`.ts` symbol consistent across both apply paths.
+fn extension_allowed(path: &Path, wanted: &[String]) -> bool {
+    if wanted.is_empty() {
+        return true;
+    }
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .is_some_and(|e| wanted.iter().any(|w| w.to_lowercase() == e))
+}
+
 fn is_included(path: &Path, root: &Path, selector: &XrayFileSelector) -> bool {
     // (5) never touch runtime/VCS/build artifacts or our own temps.
     if is_forbidden_path(path) {
@@ -1522,15 +1578,8 @@ fn is_included(path: &Path, root: &Path, selector: &XrayFileSelector) -> bool {
     }
     // (3) extension filter (case-insensitive, so `.RS` matches `rs` on
     // case-insensitive filesystems and however the caller cased the wanted list).
-    if !selector.extensions.is_empty() {
-        let ext_ok = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .is_some_and(|e| selector.extensions.iter().any(|w| w.to_lowercase() == e));
-        if !ext_ok {
-            return false;
-        }
+    if !extension_allowed(path, &selector.extensions) {
+        return false;
     }
     // (4) path_prefix: the path relative to root must start with the prefix.
     if let Some(prefix) = selector.path_prefix.as_deref() {
@@ -1596,6 +1645,7 @@ pub fn handle_xray_apply(
                     &root,
                     *node_type,
                     input.selector.path_prefix.as_deref(),
+                    &input.selector.extensions,
                 )
             };
             // PHASE B (lock dropped): read files + build the plan.
@@ -3886,8 +3936,22 @@ mod tests {
         path_prefix: Option<&str>,
         mode: XrayMode,
     ) -> XrayApplyOutput {
+        annotate_ext(graph, root, annotation, node_type, path_prefix, &[], mode)
+    }
+
+    /// Like [`annotate`] but with an explicit `extensions` filter, mirroring the
+    /// `XrayFileSelector.extensions` semantics on the graph-driven path.
+    fn annotate_ext(
+        graph: &Graph,
+        root: &Path,
+        annotation: &str,
+        node_type: Option<u8>,
+        path_prefix: Option<&str>,
+        extensions: &[String],
+        mode: XrayMode,
+    ) -> XrayApplyOutput {
         let (targets, symbols_matched) =
-            collect_symbol_targets(graph, root, node_type, path_prefix);
+            collect_symbol_targets(graph, root, node_type, path_prefix, extensions);
         let (plan, counts) = build_annotate_plan(targets, annotation, symbols_matched);
         run_atomic_apply(plan, counts, mode, None, None, None, None)
     }
@@ -4131,8 +4195,13 @@ mod tests {
             },
         );
 
-        let (targets, symbols_matched) =
-            collect_symbol_targets(&g, &root, Some(node_type_to_u8(NodeType::Function)), None);
+        let (targets, symbols_matched) = collect_symbol_targets(
+            &g,
+            &root,
+            Some(node_type_to_u8(NodeType::Function)),
+            None,
+            &[],
+        );
         // foo + bar are confined; the escapee is dropped BEFORE it can be a target.
         assert_eq!(symbols_matched, 2, "escaping symbol must not be matched");
         assert!(
@@ -4168,6 +4237,182 @@ mod tests {
         assert_eq!(miss.counts.planned, 0);
         // file unchanged either way (dry_run).
         assert!(std::fs::read_to_string(&file).unwrap().lines().count() >= 8);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn annotate_extensions_filter_excludes_non_matching_symbols() {
+        // FIX 2: the graph-driven path must honor `selector.extensions` exactly
+        // like the file-driven walk. A `.rs` function and a `.py` function both
+        // carry provenance; `extensions: ["rs"]` must select ONLY the `.rs` one.
+        let root = fresh_sandbox();
+        let root = root.canonicalize().unwrap();
+
+        let rs_rel = "src/a.rs";
+        let rs_file = root.join(rs_rel);
+        std::fs::create_dir_all(rs_file.parent().unwrap()).unwrap();
+        std::fs::write(&rs_file, "// l1\n// l2\nfn rs_fn() {}\n// l4\n").unwrap();
+
+        let py_rel = "src/b.py";
+        let py_file = root.join(py_rel);
+        std::fs::write(&py_file, "# l1\n# l2\ndef py_fn():\n    pass\n").unwrap();
+
+        let mut g = Graph::new();
+        let rs = g
+            .add_node(
+                "file::src/a.rs::fn::rs_fn",
+                "rs_fn",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            rs,
+            NodeProvenanceInput {
+                source_path: Some(rs_rel),
+                line_start: Some(3),
+                line_end: Some(3),
+                ..Default::default()
+            },
+        );
+        let py = g
+            .add_node(
+                "file::src/b.py::fn::py_fn",
+                "py_fn",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            py,
+            NodeProvenanceInput {
+                source_path: Some(py_rel),
+                line_start: Some(3),
+                line_end: Some(3),
+                ..Default::default()
+            },
+        );
+        g.finalize().unwrap();
+
+        // extensions: ["rs"] -> only the .rs symbol matches.
+        let only_rs = annotate_ext(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            None,
+            &["rs".to_string()],
+            XrayMode::DryRun,
+        );
+        assert_eq!(
+            only_rs.counts.symbols_matched, 1,
+            "extensions=[rs] must exclude the .py symbol"
+        );
+
+        // empty extensions -> both symbols match (unchanged behavior).
+        let both = annotate_ext(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            None,
+            &[],
+            XrayMode::DryRun,
+        );
+        assert_eq!(both.counts.symbols_matched, 2, "empty extensions = any");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn annotate_omitted_node_type_excludes_file_and_module_nodes() {
+        // FIX 3: `node_type: None` means "any SYMBOL type". A File node and a
+        // Module node now carry provenance after ingest, but they are containers,
+        // not symbols — omitting node_type must NOT annotate them. Only the
+        // Function (a symbol) is selected.
+        let root = fresh_sandbox();
+        let root = root.canonicalize().unwrap();
+        let rel = "src/c.rs";
+        let file = root.join(rel);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "// l1\n// l2\nfn real_fn() {}\n// l4\n").unwrap();
+
+        let mut g = Graph::new();
+        // A File node pointing at line 1 of the file (containers get provenance too).
+        let file_node = g
+            .add_node("file::src/c.rs", "c.rs", NodeType::File, &[], 0.0, 0.0)
+            .unwrap();
+        g.set_node_provenance(
+            file_node,
+            NodeProvenanceInput {
+                source_path: Some(rel),
+                line_start: Some(1),
+                line_end: Some(4),
+                ..Default::default()
+            },
+        );
+        // A Module node, also with provenance.
+        let mod_node = g
+            .add_node(
+                "file::src/c.rs::mod::inner",
+                "inner",
+                NodeType::Module,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            mod_node,
+            NodeProvenanceInput {
+                source_path: Some(rel),
+                line_start: Some(2),
+                line_end: Some(2),
+                ..Default::default()
+            },
+        );
+        // The actual symbol.
+        let fn_node = g
+            .add_node(
+                "file::src/c.rs::fn::real_fn",
+                "real_fn",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            fn_node,
+            NodeProvenanceInput {
+                source_path: Some(rel),
+                line_start: Some(3),
+                line_end: Some(3),
+                ..Default::default()
+            },
+        );
+        g.finalize().unwrap();
+
+        // node_type omitted -> only the Function symbol is selected; File + Module
+        // (containers) are excluded.
+        let (targets, matched) = collect_symbol_targets(&g, &root, None, None, &[]);
+        assert_eq!(
+            matched, 1,
+            "omitted node_type must match only the symbol, not File/Module"
+        );
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].1, 3, "the one target is the function at line 3");
+
+        // Sanity: explicitly requesting File still matches the File node (exact
+        // match path is unchanged when node_type IS set).
+        let (_, file_matched) =
+            collect_symbol_targets(&g, &root, Some(node_type_to_u8(NodeType::File)), None, &[]);
+        assert_eq!(file_matched, 1, "explicit node_type=File still matches it");
+
         let _ = std::fs::remove_dir_all(&root);
     }
 
