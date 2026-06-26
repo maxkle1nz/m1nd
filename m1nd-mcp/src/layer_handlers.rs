@@ -120,6 +120,13 @@ pub fn handle_seek(
             query: input.query,
             results: vec![],
             total_candidates_scanned: 0,
+            filtering_reason: Some(match error_text {
+                Some(_) => {
+                    "the query produced no searchable tokens; provide concrete identifiers or words"
+                        .to_string()
+                }
+                None => format!("the graph is empty ({n} nodes); run `ingest` before querying"),
+            }),
             embeddings_used: false,
             proof_state: "blocked".into(),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
@@ -586,10 +593,23 @@ pub fn handle_seek(
             .collect::<Vec<_>>(),
     );
 
+    let filtering_reason = if !results.is_empty() {
+        None
+    } else if candidates_scanned == 0 {
+        Some(format!(
+            "the active scope/node_types filter excluded all {n} graph node(s) before scoring — relax `scope`/`node_types`, or run `doctor` to check the binding"
+        ))
+    } else {
+        Some(format!(
+            "{candidates_scanned} of {n} node(s) passed scope/type but none cleared the relevance threshold for this query — broaden the query terms or lower `min_score`"
+        ))
+    };
+
     Ok(layers::SeekOutput {
         query: input.query,
         results,
         total_candidates_scanned: candidates_scanned,
+        filtering_reason,
         // TRUTHFUL: true ONLY when a real static embedding actually fed a node's
         // score (OPTIONAL `embed` feature). With the feature OFF this is always
         // false. Previously this aliased `semantic_used` (the trigram path),
@@ -9949,6 +9969,61 @@ mod tests {
             },
         )
         .expect("seek should succeed")
+    }
+
+    #[test]
+    fn seek_empty_result_explains_why_via_filtering_reason() {
+        // A graph with one Function node; a query with no lexical/semantic match
+        // is scored but falls below the relevance threshold, so the result set is
+        // empty WITH a reason — the agent learns why instead of blindly re-querying.
+        let tmp =
+            std::env::temp_dir().join(format!("m1nd_seek_filterreason_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("fn::do_work", "do_work", NodeType::Function, &[], 0.0, 0.0)
+            .expect("add node");
+        graph.finalize().expect("finalize");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "zzqxwv unrelated gibberish nonmatching".into(),
+                agent_id: "t".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        assert!(
+            out.results.is_empty(),
+            "a query with no lexical/semantic match should return no results, got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+        let reason = out.filtering_reason.as_deref().unwrap_or("");
+        assert!(
+            reason.contains("threshold") || reason.contains("none cleared"),
+            "an empty seek must explain WHY (relevance threshold), got {reason:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// Build a state whose graph has many seek-matching file nodes, so that
