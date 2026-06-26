@@ -1075,6 +1075,86 @@ pub struct XrayManifest {
     pub require_exists: Vec<String>,
 }
 
+/// On-disk North-Star manifest file shape. `ratified` is a top-level flag that
+/// gives a FILE-sourced manifest teeth (drives the gate's block/caution
+/// decision); the rule fields (`forbid`/`layer_order`/`require_exists`) are
+/// flattened into the inner [`XrayManifest`]. Unknown `_*` context keys are
+/// IGNORED by default serde behavior (do NOT add `deny_unknown_fields`).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct XrayManifestFile {
+    #[serde(default)]
+    pub ratified: bool,
+    #[serde(flatten)]
+    pub manifest: XrayManifest,
+}
+
+/// Load a North-Star manifest from a JSON file. Returns `(manifest, ratified)`
+/// or `None` if the file is missing or unparseable (fail soft — log nothing).
+fn load_manifest_file(path: &Path) -> Option<(XrayManifest, bool)> {
+    let bytes = std::fs::read(path).ok()?;
+    let parsed: XrayManifestFile = serde_json::from_slice(&bytes).ok()?;
+    Some((parsed.manifest, parsed.ratified))
+}
+
+/// Resolved manifest + provenance. `ratified` is meaningful only when the source
+/// is a file (it drives the gate's block/caution decision for file-sourced rules).
+struct ResolvedManifest {
+    manifest: XrayManifest,
+    /// `"inline"` | `"file:<path>"` | `"none"`.
+    source: String,
+    /// True only when a file-sourced manifest declared `ratified: true`.
+    ratified: bool,
+}
+
+/// Manifest resolution precedence shared by orient/gate/paint:
+///  (a) INLINE manifest non-empty (any of forbid/layer_order/require_exists
+///      populated) -> use it (source "inline", ratified=false here; the gate
+///      keeps using its own `manifest_ratified` input for inline).
+///  (b) else if `manifest_path` is Some -> load that file (source "file:<path>").
+///  (c) else auto-discover `<workspace_root>/xray.manifest.json`.
+///  (d) else empty manifest (source "none").
+fn resolve_manifest(
+    inline: &XrayManifest,
+    manifest_path: Option<&str>,
+    workspace_root: Option<&str>,
+) -> ResolvedManifest {
+    let inline_nonempty = !inline.forbid.is_empty()
+        || !inline.layer_order.is_empty()
+        || !inline.require_exists.is_empty();
+    if inline_nonempty {
+        return ResolvedManifest {
+            manifest: inline.clone(),
+            source: "inline".to_string(),
+            ratified: false,
+        };
+    }
+    if let Some(p) = manifest_path {
+        if let Some((m, ratified)) = load_manifest_file(Path::new(p)) {
+            return ResolvedManifest {
+                manifest: m,
+                source: format!("file:{p}"),
+                ratified,
+            };
+        }
+        // explicit path that failed to load -> fall through to none (honest)
+    } else if let Some(root) = workspace_root {
+        let candidate = Path::new(root).join("xray.manifest.json");
+        if let Some((m, ratified)) = load_manifest_file(&candidate) {
+            let disp = candidate.to_string_lossy().into_owned();
+            return ResolvedManifest {
+                manifest: m,
+                source: format!("file:{disp}"),
+                ratified,
+            };
+        }
+    }
+    ResolvedManifest {
+        manifest: XrayManifest::default(),
+        source: "none".to_string(),
+        ratified: false,
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct XrayOrientInput {
     /// Optional external_id path-prefix filter. Only nodes whose external_id
@@ -1084,6 +1164,11 @@ pub struct XrayOrientInput {
     pub scope: Option<String>,
     #[serde(default)]
     pub manifest: XrayManifest,
+    /// Optional path to a North-Star manifest JSON file. Used only when the
+    /// inline `manifest` is empty; takes precedence over auto-discovery of
+    /// `<workspace_root>/xray.manifest.json`.
+    #[serde(default)]
+    pub manifest_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1128,6 +1213,9 @@ pub struct XrayOrientOutput {
     pub erosion_candidates: Vec<XrayErosionCandidate>,
     pub existence: Vec<XrayExistence>,
     pub counts: XrayOrientCounts,
+    /// Provenance of the manifest actually used: `"inline"`, `"file:<path>"`,
+    /// or `"none"`.
+    pub manifest_source: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -1182,8 +1270,15 @@ fn classify_edge(manifest: &XrayManifest, a: &str, b: &str) -> Option<&'static s
 // ---------------------------------------------------------------------------
 
 /// Compute the conformance ledger. Pure over a finalized `Graph` — the CSR must
-/// be populated (live server / post-`finalize()`).
-pub fn orient_graph(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput {
+/// be populated (live server / post-`finalize()`). The manifest is RESOLVED by
+/// the caller (inline / file / auto-discover) and passed in alongside its
+/// provenance `manifest_source`, so the pure core has no filesystem concern.
+pub fn orient_graph(
+    graph: &Graph,
+    input: &XrayOrientInput,
+    manifest: &XrayManifest,
+    manifest_source: String,
+) -> XrayOrientOutput {
     let ext = node_to_ext_map(graph);
     let n = graph.num_nodes() as usize;
     let scope = input.scope.as_deref();
@@ -1239,7 +1334,7 @@ pub fn orient_graph(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput 
                 .entry(format!("{src_mod}->{dst_mod}"))
                 .or_insert(0) += 1;
 
-            if let Some(rule) = classify_edge(&input.manifest, src_mod, dst_mod) {
+            if let Some(rule) = classify_edge(manifest, src_mod, dst_mod) {
                 erosion_total += 1;
                 if erosion_candidates.len() < EROSION_CAP {
                     erosion_candidates.push(XrayErosionCandidate {
@@ -1266,7 +1361,7 @@ pub fn orient_graph(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput 
         .collect();
     let mut existence: Vec<XrayExistence> = Vec::new();
     let mut blueprint: u32 = 0;
-    for need in &input.manifest.require_exists {
+    for need in &manifest.require_exists {
         let present = haystack.iter().any(|id| id.contains(need.as_str()));
         if !present {
             blueprint += 1;
@@ -1290,18 +1385,25 @@ pub fn orient_graph(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput 
         dependency_matrix,
         erosion_candidates,
         existence,
+        manifest_source,
     }
 }
 
 /// MCP handler for `xray_orient`. Read-only: holds the graph *read* lock for the
 /// computation, never mutates, never persists (safe under read-only attach).
+/// Resolves the manifest (inline / file / auto-discover) before locking.
 pub fn handle_xray_orient(
     state: &mut SessionState,
     input: XrayOrientInput,
 ) -> M1ndResult<serde_json::Value> {
+    let resolved = resolve_manifest(
+        &input.manifest,
+        input.manifest_path.as_deref(),
+        state.workspace_root.as_deref(),
+    );
     let output = {
         let graph = state.graph.read();
-        orient_graph(&graph, &input)
+        orient_graph(&graph, &input, &resolved.manifest, resolved.source)
     };
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
 }
@@ -1338,8 +1440,16 @@ pub struct XrayGateInput {
     /// When `true`, any violation (existing or planned) escalates the verdict to
     /// `blocked`. When `false` (default), a violation is only `caution` — the
     /// North Star is not yet ratified, so the gate informs without obstructing.
+    /// Used only when the resolved manifest source is INLINE; a FILE-sourced
+    /// manifest's own `ratified` flag overrides this.
     #[serde(default)]
     pub manifest_ratified: bool,
+    /// Optional path to a North-Star manifest JSON file. Used only when the
+    /// inline `manifest` is empty; takes precedence over auto-discovery of
+    /// `<workspace_root>/xray.manifest.json`. The file's `ratified` flag drives
+    /// the block/caution decision for file-sourced rules.
+    #[serde(default)]
+    pub manifest_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1367,11 +1477,23 @@ pub struct XrayGateOutput {
     pub planned_violations: Vec<XrayGateViolation>,
     /// Short human strings explaining each violation / the all-clear.
     pub reasons: Vec<String>,
+    /// Provenance of the manifest actually used: `"inline"`, `"file:<path>"`,
+    /// or `"none"`.
+    pub manifest_source: String,
 }
 
 /// Pure gate logic over a finalized `Graph` (unit-testable, no `SessionState`).
-/// Read-only: walks the node's live outgoing CSR, never mutates.
-pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
+/// Read-only: walks the node's live outgoing CSR, never mutates. The manifest is
+/// RESOLVED by the caller; `ratified` is the EFFECTIVE ratified flag (the inline
+/// `manifest_ratified` input when source is inline, else the file's own flag),
+/// and `manifest_source` is the resolved provenance.
+pub fn gate_graph(
+    graph: &Graph,
+    input: &XrayGateInput,
+    manifest: &XrayManifest,
+    ratified: bool,
+    manifest_source: String,
+) -> XrayGateOutput {
     // 1. Resolve the node. Not found -> honest "clear": there is nothing to gate.
     let Some(nid) = graph.resolve_id(&input.node) else {
         return XrayGateOutput {
@@ -1382,6 +1504,7 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
             existing_violations: Vec::new(),
             planned_violations: Vec::new(),
             reasons: vec!["node not in graph".to_string()],
+            manifest_source,
         };
     };
 
@@ -1394,7 +1517,9 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
         .unwrap_or_default();
 
     // 5. Empty manifest -> always clear (honest: nothing declared to violate).
-    let manifest_empty = input.manifest.forbid.is_empty() && input.manifest.layer_order.is_empty();
+    // Uses the RESOLVED manifest, so a file-loaded manifest carrying rules is
+    // NOT treated as empty.
+    let manifest_empty = manifest.forbid.is_empty() && manifest.layer_order.is_empty();
     if node_module.is_empty() || manifest_empty {
         let reason = if node_module.is_empty() {
             "node has no derivable module"
@@ -1409,6 +1534,7 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
             existing_violations: Vec::new(),
             planned_violations: Vec::new(),
             reasons: vec![reason.to_string()],
+            manifest_source,
         };
     }
 
@@ -1430,7 +1556,7 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
         if dst_mod == node_module {
             continue; // intra-module edges can't violate a cross-module rule
         }
-        if let Some(rule) = classify_edge(&input.manifest, &node_module, dst_mod) {
+        if let Some(rule) = classify_edge(manifest, &node_module, dst_mod) {
             reasons.push(format!(
                 "existing {rule}: {node_module} -> {dst_mod} (via {rel})"
             ));
@@ -1449,7 +1575,7 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
         if m == &node_module {
             continue; // a self-edge to one's own module is not a cross-module rule
         }
-        if let Some(rule) = classify_edge(&input.manifest, &node_module, m) {
+        if let Some(rule) = classify_edge(manifest, &node_module, m) {
             reasons.push(format!("planned {rule}: {node_module} -> {m}"));
             planned_violations.push(XrayGateViolation {
                 from_module: node_module.clone(),
@@ -1464,7 +1590,7 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
     // caution (anti-fatigue); no violations => clear.
     let any = !existing_violations.is_empty() || !planned_violations.is_empty();
     let verdict = if any {
-        if input.manifest_ratified {
+        if ratified {
             "blocked"
         } else {
             "caution"
@@ -1474,7 +1600,7 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
     };
     if !any {
         reasons.push("no North-Star violation".to_string());
-    } else if !input.manifest_ratified {
+    } else if !ratified {
         reasons.push("manifest not ratified — caution, not blocked".to_string());
     }
 
@@ -1486,18 +1612,38 @@ pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
         existing_violations,
         planned_violations,
         reasons,
+        manifest_source,
     }
 }
 
 /// MCP handler for `xray_gate`. Read-only: holds the graph *read* lock for the
 /// computation, never mutates, never persists (safe under read-only attach).
+/// Resolves the manifest (inline / file / auto-discover) and picks the EFFECTIVE
+/// ratified flag (inline -> `manifest_ratified` input; file -> the file's own
+/// `ratified`) before locking.
 pub fn handle_xray_gate(
     state: &mut SessionState,
     input: XrayGateInput,
 ) -> M1ndResult<serde_json::Value> {
+    let resolved = resolve_manifest(
+        &input.manifest,
+        input.manifest_path.as_deref(),
+        state.workspace_root.as_deref(),
+    );
+    let effective_ratified = if resolved.source == "inline" {
+        input.manifest_ratified
+    } else {
+        resolved.ratified
+    };
     let output = {
         let graph = state.graph.read();
-        gate_graph(&graph, &input)
+        gate_graph(
+            &graph,
+            &input,
+            &resolved.manifest,
+            effective_ratified,
+            resolved.source,
+        )
     };
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
 }
@@ -1556,6 +1702,11 @@ pub struct XrayPaintInput {
     /// orphan is overgrowth.
     #[serde(default)]
     pub manifest: XrayManifest,
+    /// Optional path to a North-Star manifest JSON file. Used only when the
+    /// inline `manifest` is empty; takes precedence over auto-discovery of
+    /// `<workspace_root>/xray.manifest.json`.
+    #[serde(default)]
+    pub manifest_path: Option<String>,
     #[serde(default)]
     pub mode: XrayMode,
 }
@@ -1564,10 +1715,12 @@ pub struct XrayPaintInput {
 pub struct XrayPaintCounts {
     /// In-scope nodes classified.
     pub scanned: u32,
-    /// Nodes classified `bedrock` (reference in-degree > 0).
+    /// Nodes classified `bedrock` (has PROOF EVIDENCE: test-exercised or grounded).
     pub bedrock: u32,
-    /// Nodes classified `overgrowth` (orphan over reference relations).
+    /// Nodes classified `overgrowth` (orphan — zero incoming reference edges).
     pub overgrowth: u32,
+    /// Nodes classified `unproven` (used — incoming refs — but no proof evidence).
+    pub unproven: u32,
     /// Nodes classified `erosion-candidate` (source of a flagged cross-module edge).
     pub erosion_candidate: u32,
     /// Nodes whose `xray:state:*` tag set was actually replaced (0 on dry_run;
@@ -1585,15 +1738,24 @@ pub struct XrayPaintOutput {
     /// the same OCC fold as xray_retag. Lets a caller correlate a dry_run plan with
     /// the commit it later runs.
     pub version: String,
+    /// Fraction of scanned (in-scope, non-skipped) nodes classified `bedrock`
+    /// (have proof evidence): `bedrock / scanned`, rounded to 3 decimals. 0.0 when
+    /// nothing is in scope.
+    pub proof_coverage: f64,
+    /// Provenance of the manifest actually used: `"inline"`, `"file:<path>"`,
+    /// or `"none"`.
+    pub manifest_source: String,
 }
 
-/// The three structural proof-states a node can be painted with. Named honestly:
+/// The four structural proof-states a node can be painted with. Named honestly:
 /// these are STRUCTURAL classifications from real graph signals, not confirmed
-/// verdicts (erosion is a *candidate*).
+/// verdicts (erosion is a *candidate*; `bedrock` means it carries proof
+/// EVIDENCE — test-exercised or grounded — not a confirmed proof).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PaintState {
     Bedrock,
     Overgrowth,
+    Unproven,
     ErosionCandidate,
 }
 
@@ -1603,9 +1765,50 @@ impl PaintState {
         match self {
             PaintState::Bedrock => "xray:state:bedrock",
             PaintState::Overgrowth => "xray:state:overgrowth",
+            PaintState::Unproven => "xray:state:unproven",
             PaintState::ErosionCandidate => "xray:state:erosion-candidate",
         }
     }
+}
+
+/// True if a node's external_id denotes a TEST source file. We look at the path
+/// portion (after `file::`, up to the first `::` kind separator).
+fn is_test_source(external_id: &str) -> bool {
+    let rest = external_id.strip_prefix(FILE_PREFIX).unwrap_or(external_id);
+    let path = rest.split("::").next().unwrap_or(rest);
+    path.contains("/tests/")
+        || path.contains("/test_")
+        || path.ends_with("_test.rs")
+        || path.ends_with("/tests.rs")
+        || path == "tests.rs"
+}
+
+/// Indices of nodes that have PROOF EVIDENCE: either they are the target of a
+/// structural edge (imports/calls/references) FROM a test-source node, or they
+/// have an incoming `grounded_in` edge. Computed in one CSR pass.
+fn exercised_set(graph: &Graph, ext: &[String]) -> Vec<bool> {
+    let n = graph.num_nodes() as usize;
+    let mut exercised = vec![false; n];
+    for i in 0..n {
+        let src_is_test = ext.get(i).is_some_and(|e| is_test_source(e));
+        for e in graph.csr.out_range(NodeId::new(i as u32)) {
+            let rel = graph.strings.resolve(graph.csr.relations[e]);
+            let dst = graph.csr.targets[e].as_usize();
+            if dst >= n {
+                continue;
+            }
+            // grounded_in evidence: any incoming grounded_in marks the target.
+            if rel == "grounded_in" {
+                exercised[dst] = true;
+                continue;
+            }
+            // test-exercise evidence: a test-source node referencing a target.
+            if src_is_test && (rel == "imports" || rel == "calls" || rel == "references") {
+                exercised[dst] = true;
+            }
+        }
+    }
+    exercised
 }
 
 /// Build a reference in-degree map over the whole graph in ONE pass: for every
@@ -1663,23 +1866,31 @@ fn erosion_source_set(graph: &Graph, ext: &[String], manifest: &XrayManifest) ->
     flagged
 }
 
-/// Classify a single node: erosion-candidate (flagged source) > bedrock
-/// (reference in-degree > 0) > overgrowth (orphan).
-fn classify_node(indegree: u32, is_erosion_source: bool) -> PaintState {
+/// Precedence: erosion-candidate > bedrock (has proof evidence) > overgrowth
+/// (orphan, zero incoming refs) > unproven (used but no proof evidence).
+fn classify_node(indegree: u32, is_exercised: bool, is_erosion_source: bool) -> PaintState {
     if is_erosion_source {
         PaintState::ErosionCandidate
-    } else if indegree > 0 {
+    } else if is_exercised {
         PaintState::Bedrock
-    } else {
+    } else if indegree == 0 {
         PaintState::Overgrowth
+    } else {
+        PaintState::Unproven
     }
 }
 
 /// Pure paint core over a finalized `Graph` (unit-testable, no `SessionState`).
 /// On `DryRun` the graph is read only; on `Commit` each in-scope node's
 /// `xray:state:*` tags are replaced (remove existing state tags, add the computed
-/// one) via the shipped columnar mutators. Persistence is the handler's job.
-pub fn paint_graph(graph: &mut Graph, input: &XrayPaintInput) -> XrayPaintOutput {
+/// one) via the shipped columnar mutators. Persistence is the handler's job. The
+/// manifest is RESOLVED by the caller and passed in with its provenance.
+pub fn paint_graph(
+    graph: &mut Graph,
+    input: &XrayPaintInput,
+    manifest: &XrayManifest,
+    manifest_source: String,
+) -> XrayPaintOutput {
     let ext = node_to_ext_map(graph);
     let n = graph.num_nodes() as usize;
     let scope = input.scope.as_deref();
@@ -1688,11 +1899,12 @@ pub fn paint_graph(graph: &mut Graph, input: &XrayPaintInput) -> XrayPaintOutput
         scope.is_none_or(|p| ext.get(idx).is_some_and(|e| e.starts_with(p)))
     };
 
-    // One-pass signals over the WHOLE graph (in-degree counts edges from any
-    // source, including out-of-scope ones — a node referenced from outside the
-    // scope is still load-bearing).
+    // One-pass signals over the WHOLE graph (counted edges from any source,
+    // including out-of-scope ones — a node referenced/exercised from outside the
+    // scope is still load-bearing / proven).
     let indeg = reference_indegree(graph);
-    let erosion = erosion_source_set(graph, &ext, &input.manifest);
+    let exercised = exercised_set(graph, &ext);
+    let erosion = erosion_source_set(graph, &ext, manifest);
 
     let selected: Vec<usize> = (0..n).filter(|&i| in_scope(i)).collect();
     let version = selection_version(graph, &ext, &selected);
@@ -1704,10 +1916,11 @@ pub fn paint_graph(graph: &mut Graph, input: &XrayPaintInput) -> XrayPaintOutput
     };
 
     for &i in &selected {
-        let state = classify_node(indeg[i], erosion[i]);
+        let state = classify_node(indeg[i], exercised[i], erosion[i]);
         match state {
             PaintState::Bedrock => counts.bedrock += 1,
             PaintState::Overgrowth => counts.overgrowth += 1,
+            PaintState::Unproven => counts.unproven += 1,
             PaintState::ErosionCandidate => counts.erosion_candidate += 1,
         }
 
@@ -1743,11 +1956,22 @@ pub fn paint_graph(graph: &mut Graph, input: &XrayPaintInput) -> XrayPaintOutput
         }
     }
 
+    // proof_coverage = bedrock / scanned (non-skipped), rounded to 3 decimals.
+    // Guard divide-by-zero: nothing in scope -> 0.0.
+    let proof_coverage = if counts.scanned == 0 {
+        0.0
+    } else {
+        let raw = counts.bedrock as f64 / counts.scanned as f64;
+        (raw * 1000.0).round() / 1000.0
+    };
+
     XrayPaintOutput {
         verb: "xray_paint",
         status: if commit { "committed" } else { "dry_run" }.to_string(),
         counts,
         version,
+        proof_coverage,
+        manifest_source,
     }
 }
 
@@ -1759,9 +1983,14 @@ pub fn handle_xray_paint(
     state: &mut SessionState,
     input: XrayPaintInput,
 ) -> M1ndResult<serde_json::Value> {
+    let resolved = resolve_manifest(
+        &input.manifest,
+        input.manifest_path.as_deref(),
+        state.workspace_root.as_deref(),
+    );
     let output = {
         let mut graph = state.graph.write();
-        paint_graph(&mut graph, &input)
+        paint_graph(&mut graph, &input, &resolved.manifest, resolved.source)
     };
 
     if input.mode == XrayMode::Commit && output.counts.painted > 0 {
@@ -2226,7 +2455,15 @@ mod tests {
         XrayOrientInput {
             scope: None,
             manifest,
+            manifest_path: None,
         }
+    }
+
+    /// Test wrapper: resolve the inline manifest (no file, no workspace_root) and
+    /// call the pure `orient_graph`. Keeps existing call-sites a one-name change.
+    fn orient_g(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput {
+        let resolved = resolve_manifest(&input.manifest, input.manifest_path.as_deref(), None);
+        orient_graph(graph, input, &resolved.manifest, resolved.source)
     }
 
     #[test]
@@ -2244,7 +2481,7 @@ mod tests {
     #[test]
     fn empty_manifest_reports_matrix_with_zero_erosion() {
         let g = orient_graph_fixture();
-        let out = orient_graph(&g, &orient_input(XrayManifest::default()));
+        let out = orient_g(&g, &orient_input(XrayManifest::default()));
 
         assert_eq!(out.verb, "xray_orient");
         // census: two modules, modA has 2 nodes, modB has 1
@@ -2267,7 +2504,7 @@ mod tests {
             forbid: vec![("modA".to_string(), "modB".to_string())],
             ..Default::default()
         };
-        let out = orient_graph(&g, &orient_input(manifest));
+        let out = orient_g(&g, &orient_input(manifest));
 
         assert_eq!(out.erosion_candidates.len(), 1);
         assert_eq!(out.counts.erosion_candidates, 1);
@@ -2288,7 +2525,7 @@ mod tests {
             layer_order: vec!["modA".to_string(), "modB".to_string()],
             ..Default::default()
         };
-        let out = orient_graph(&g, &orient_input(manifest));
+        let out = orient_g(&g, &orient_input(manifest));
         assert_eq!(out.counts.erosion_candidates, 1);
         assert_eq!(out.erosion_candidates[0].rule, "layer");
 
@@ -2299,7 +2536,7 @@ mod tests {
             layer_order: vec!["modB".to_string(), "modA".to_string()],
             ..Default::default()
         };
-        let out2 = orient_graph(&g2, &orient_input(manifest2));
+        let out2 = orient_g(&g2, &orient_input(manifest2));
         assert_eq!(out2.counts.erosion_candidates, 0);
         assert!(out2.erosion_candidates.is_empty());
     }
@@ -2311,7 +2548,7 @@ mod tests {
             require_exists: vec!["modA".to_string(), "nope_absent".to_string()],
             ..Default::default()
         };
-        let out = orient_graph(&g, &orient_input(manifest));
+        let out = orient_g(&g, &orient_input(manifest));
 
         assert_eq!(out.existence.len(), 2);
         let bedrock = out.existence.iter().find(|e| e.require == "modA").unwrap();
@@ -2334,8 +2571,9 @@ mod tests {
         let input = XrayOrientInput {
             scope: Some("file::modA".to_string()),
             manifest: XrayManifest::default(),
+            manifest_path: None,
         };
-        let out = orient_graph(&g, &input);
+        let out = orient_g(&g, &input);
         assert_eq!(out.modules.get("modA"), Some(&2));
         assert_eq!(out.modules.get("modB"), None);
         assert_eq!(out.counts.modules, 1);
@@ -2722,7 +2960,27 @@ mod tests {
             planned_imports: planned_imports.iter().map(|s| s.to_string()).collect(),
             manifest,
             manifest_ratified,
+            manifest_path: None,
         }
+    }
+
+    /// Test wrapper: resolve the inline manifest (no file, no workspace_root),
+    /// compute the effective ratified flag the same way the handler does, and
+    /// call the pure `gate_graph`. Keeps existing call-sites a one-name change.
+    fn gate_g(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
+        let resolved = resolve_manifest(&input.manifest, input.manifest_path.as_deref(), None);
+        let effective_ratified = if resolved.source == "inline" {
+            input.manifest_ratified
+        } else {
+            resolved.ratified
+        };
+        gate_graph(
+            graph,
+            input,
+            &resolved.manifest,
+            effective_ratified,
+            resolved.source,
+        )
     }
 
     fn forbid_a_to_b() -> XrayManifest {
@@ -2736,7 +2994,7 @@ mod tests {
     fn gate_empty_manifest_is_clear() {
         // (a) empty manifest -> a node in modA gates "clear".
         let g = orient_graph_fixture();
-        let out = gate_graph(
+        let out = gate_g(
             &g,
             &gate_input(
                 "file::modA/src/lib.rs::fn::a_main",
@@ -2757,7 +3015,7 @@ mod tests {
         // (b) forbid (modA,modB), modA node that imports modB, NOT ratified
         //     -> "caution", existing_violations has 1.
         let g = orient_graph_fixture();
-        let out = gate_graph(
+        let out = gate_g(
             &g,
             &gate_input(
                 "file::modA/src/lib.rs::fn::a_main",
@@ -2780,7 +3038,7 @@ mod tests {
     fn gate_existing_violation_ratified_is_blocked() {
         // (c) same as (b) but manifest_ratified: true -> "blocked".
         let g = orient_graph_fixture();
-        let out = gate_graph(
+        let out = gate_g(
             &g,
             &gate_input(
                 "file::modA/src/lib.rs::fn::a_main",
@@ -2799,7 +3057,7 @@ mod tests {
         //     ratified -> "blocked" with a planned_violation. Use a_util, which
         //     has NO outgoing edges, so the block comes purely from the plan.
         let g = orient_graph_fixture();
-        let out = gate_graph(
+        let out = gate_g(
             &g,
             &gate_input(
                 "file::modA/src/util.rs::fn::a_util",
@@ -2825,7 +3083,7 @@ mod tests {
     fn gate_unknown_node_is_clear() {
         // (e) unknown node external_id -> "clear".
         let g = orient_graph_fixture();
-        let out = gate_graph(
+        let out = gate_g(
             &g,
             &gate_input(
                 "file::nope/does/not::exist",
@@ -2850,7 +3108,7 @@ mod tests {
             layer_order: vec!["modA".to_string(), "modB".to_string()],
             ..Default::default()
         };
-        let out = gate_graph(
+        let out = gate_g(
             &g,
             &gate_input("file::modA/src/lib.rs::fn::a_main", &[], manifest, true),
         );
@@ -2919,8 +3177,16 @@ mod tests {
         XrayPaintInput {
             scope: scope.map(|s| s.to_string()),
             manifest,
+            manifest_path: None,
             mode,
         }
+    }
+
+    /// Test wrapper: resolve the inline manifest (no file, no workspace_root) and
+    /// call the pure `paint_graph`. Keeps existing call-sites a one-name change.
+    fn paint_g(graph: &mut Graph, input: &XrayPaintInput) -> XrayPaintOutput {
+        let resolved = resolve_manifest(&input.manifest, input.manifest_path.as_deref(), None);
+        paint_graph(graph, input, &resolved.manifest, resolved.source)
     }
 
     /// The single `xray:state:*` tag on a node, if any (test helper).
@@ -2935,7 +3201,7 @@ mod tests {
     #[test]
     fn paint_dry_run_counts_split_and_writes_nothing() {
         let mut g = paint_graph_fixture();
-        let out = paint_graph(
+        let out = paint_g(
             &mut g,
             &paint_input(None, XrayManifest::default(), XrayMode::DryRun),
         );
@@ -2943,11 +3209,17 @@ mod tests {
         assert_eq!(out.verb, "xray_paint");
         assert_eq!(out.status, "dry_run");
         assert_eq!(out.counts.scanned, 3);
-        // No manifest => no erosion candidates. b_core is referenced (bedrock);
-        // a_main + a_util have no incoming reference edges (overgrowth).
-        assert_eq!(out.counts.bedrock, 1);
+        // Evidence-based classifier: nothing is test-exercised or grounded.
+        // b_core is referenced from a NON-test source (a_main) with no proof
+        // evidence -> unproven (NOT bedrock). a_main + a_util have zero incoming
+        // reference edges -> overgrowth.
+        assert_eq!(out.counts.bedrock, 0);
+        assert_eq!(out.counts.unproven, 1);
         assert_eq!(out.counts.overgrowth, 2);
         assert_eq!(out.counts.erosion_candidate, 0);
+        // proof_coverage = bedrock(0) / scanned(3) = 0.0; no manifest source.
+        assert_eq!(out.proof_coverage, 0.0);
+        assert_eq!(out.manifest_source, "none");
         // dry_run writes nothing.
         assert_eq!(out.counts.painted, 0);
         assert!(!out.version.is_empty());
@@ -2966,21 +3238,22 @@ mod tests {
     #[test]
     fn paint_commit_writes_state_tags() {
         let mut g = paint_graph_fixture();
-        let out = paint_graph(
+        let out = paint_g(
             &mut g,
             &paint_input(None, XrayManifest::default(), XrayMode::Commit),
         );
 
         assert_eq!(out.status, "committed");
         assert_eq!(out.counts.scanned, 3);
-        assert_eq!(out.counts.bedrock, 1);
+        assert_eq!(out.counts.bedrock, 0);
+        assert_eq!(out.counts.unproven, 1);
         assert_eq!(out.counts.overgrowth, 2);
         assert_eq!(out.counts.painted, 3);
 
-        // Referenced node -> bedrock.
+        // Referenced from a non-test source, no proof evidence -> unproven.
         assert_eq!(
             state_tag_of(&g, "file::modB/src/lib.rs::fn::b_core"),
-            vec!["xray:state:bedrock".to_string()]
+            vec!["xray:state:unproven".to_string()]
         );
         // Orphan node -> overgrowth.
         assert_eq!(
@@ -2994,7 +3267,7 @@ mod tests {
         let mut g = paint_graph_fixture();
 
         // First commit paints everything.
-        let first = paint_graph(
+        let first = paint_g(
             &mut g,
             &paint_input(None, XrayManifest::default(), XrayMode::Commit),
         );
@@ -3002,7 +3275,7 @@ mod tests {
 
         // Second commit: every node already carries exactly its computed state,
         // so nothing is painted again — and exactly ONE state tag per node.
-        let second = paint_graph(
+        let second = paint_g(
             &mut g,
             &paint_input(None, XrayManifest::default(), XrayMode::Commit),
         );
@@ -3030,7 +3303,7 @@ mod tests {
             forbid: vec![("modA".to_string(), "modB".to_string())],
             ..Default::default()
         };
-        let out = paint_graph(&mut g, &paint_input(None, manifest, XrayMode::Commit));
+        let out = paint_g(&mut g, &paint_input(None, manifest, XrayMode::Commit));
 
         assert_eq!(out.status, "committed");
         assert_eq!(out.counts.erosion_candidate, 1);
@@ -3039,10 +3312,11 @@ mod tests {
             state_tag_of(&g, "file::modA/src/lib.rs::fn::a_main"),
             vec!["xray:state:erosion-candidate".to_string()]
         );
-        // b_core stays bedrock (referenced, not a flagged source).
+        // b_core is referenced from a non-test source, no proof evidence,
+        // and not a flagged source -> unproven.
         assert_eq!(
             state_tag_of(&g, "file::modB/src/lib.rs::fn::b_core"),
-            vec!["xray:state:bedrock".to_string()]
+            vec!["xray:state:unproven".to_string()]
         );
         // a_util stays overgrowth (orphan, not a source).
         assert_eq!(
@@ -3054,7 +3328,7 @@ mod tests {
     #[test]
     fn paint_scope_narrows_the_painted_set() {
         let mut g = paint_graph_fixture();
-        let out = paint_graph(
+        let out = paint_g(
             &mut g,
             &paint_input(
                 Some("file::modA"),
@@ -3073,5 +3347,342 @@ mod tests {
             state_tag_of(&g, "file::modA/src/lib.rs::fn::a_main"),
             vec!["xray:state:overgrowth".to_string()]
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // PART A — manifest file loading + resolution precedence
+    // -----------------------------------------------------------------------
+
+    /// Unique sandbox dir in `std::env::temp_dir()` for manifest-file tests
+    /// (mirrors `fresh_sandbox`). NEVER the real repo.
+    fn fresh_manifest_dir() -> PathBuf {
+        static MCOUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = MCOUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir =
+            std::env::temp_dir().join(format!("xray_manifest_test_{}_{}", std::process::id(), n));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn load_manifest_file_ignores_unknown_keys_and_reads_ratified() {
+        let dir = fresh_manifest_dir();
+        let path = dir.join("xray.manifest.json");
+        // Includes an `_about` key to prove unknown fields are ignored.
+        std::fs::write(
+            &path,
+            r#"{"ratified":true,"layer_order":["x","y"],"forbid":[],"require_exists":["seek"],"_about":"ignored"}"#,
+        )
+        .unwrap();
+
+        let (manifest, ratified) = load_manifest_file(&path).expect("file must parse");
+        assert!(ratified, "ratified flag must be read as true");
+        assert_eq!(manifest.layer_order, vec!["x".to_string(), "y".to_string()]);
+        assert_eq!(manifest.require_exists, vec!["seek".to_string()]);
+        assert!(manifest.forbid.is_empty());
+
+        // A missing path returns None (fail soft).
+        let missing = dir.join("does_not_exist.json");
+        assert!(load_manifest_file(&missing).is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_manifest_file_path_vs_inline_precedence() {
+        let dir = fresh_manifest_dir();
+        let path = dir.join("xray.manifest.json");
+        std::fs::write(
+            &path,
+            r#"{"ratified":true,"layer_order":["a","b"],"forbid":[],"require_exists":[]}"#,
+        )
+        .unwrap();
+        let path_str = path.to_string_lossy().into_owned();
+
+        // Empty inline + manifest_path -> loads the file (source "file:<path>").
+        let empty = XrayManifest::default();
+        let resolved = resolve_manifest(&empty, Some(path_str.as_str()), None);
+        assert_eq!(resolved.source, format!("file:{path_str}"));
+        assert!(resolved.ratified, "file's ratified flag must be carried");
+        assert_eq!(
+            resolved.manifest.layer_order,
+            vec!["a".to_string(), "b".to_string()]
+        );
+
+        // Non-empty inline + a manifest_path still present -> inline wins.
+        let inline = XrayManifest {
+            layer_order: vec!["inline_only".to_string()],
+            ..Default::default()
+        };
+        let resolved2 = resolve_manifest(&inline, Some(path_str.as_str()), None);
+        assert_eq!(resolved2.source, "inline");
+        assert!(!resolved2.ratified, "inline source is never file-ratified");
+        assert_eq!(
+            resolved2.manifest.layer_order,
+            vec!["inline_only".to_string()]
+        );
+
+        // Explicit path that fails to load -> falls straight to "none" (no
+        // auto-discovery), per spec.
+        let bad = dir.join("nope.json");
+        let resolved3 =
+            resolve_manifest(&empty, Some(bad.to_string_lossy().as_ref()), Some("/tmp"));
+        assert_eq!(resolved3.source, "none");
+        assert!(!resolved3.ratified);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // PART B — evidence-based paint (test-exercise + grounded -> bedrock)
+    // -----------------------------------------------------------------------
+
+    /// True if `external_id` carries exactly the given `xray:state:*` tag.
+    fn has_state(g: &Graph, ext: &str, tag: &str) -> bool {
+        state_tag_of(g, ext) == vec![tag.to_string()]
+    }
+
+    /// A test-source node `calls` a code node -> the code node is exercised.
+    /// Plus a non-test `caller` that `calls` a `used` node (used-but-unproven),
+    /// and an orphan node. Finalized so the CSR is populated.
+    fn evidence_graph_fixture() -> Graph {
+        let mut g = Graph::new();
+        // idx0: a TEST source node (path contains /tests/).
+        g.add_node(
+            "file::m1nd-core/tests/x.rs::fn::t",
+            "t",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 0
+                   // idx1: a real code node, exercised by the test above -> bedrock.
+        g.add_node(
+            "file::m1nd-core/src/lib.rs::fn::real",
+            "real",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 1
+                   // idx2: a non-test caller in another module (so its calls are cross-module
+                   // but, crucially, it is NOT a test source).
+        g.add_node(
+            "file::m1nd-mcp/src/caller.rs::fn::caller",
+            "caller",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 2
+                   // idx3: referenced by the non-test caller -> used but unproven.
+        g.add_node(
+            "file::m1nd-mcp/src/used.rs::fn::used",
+            "used",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 3
+                   // idx4: orphan — nothing references it.
+        g.add_node(
+            "file::m1nd-mcp/src/orphan.rs::fn::orphan",
+            "orphan",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 4
+
+        // test-source t -> real (calls): marks `real` as exercised (bedrock).
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "calls",
+            FiniteF32::new(1.0),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.0),
+        )
+        .unwrap();
+        // non-test caller -> used (calls): gives `used` indegree 1, no evidence.
+        g.add_edge(
+            NodeId::new(2),
+            NodeId::new(3),
+            "calls",
+            FiniteF32::new(1.0),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.0),
+        )
+        .unwrap();
+        g.finalize().unwrap();
+        g
+    }
+
+    #[test]
+    fn is_test_source_keys_off_path_after_file_prefix() {
+        assert!(is_test_source("file::m1nd-core/tests/x.rs::fn::t"));
+        assert!(is_test_source("file::pkg/test_helpers.rs::fn::h"));
+        assert!(is_test_source("file::pkg/src/foo_test.rs::fn::f"));
+        assert!(is_test_source("file::pkg/src/tests.rs::fn::f"));
+        assert!(is_test_source("tests.rs"));
+        // NOT a test source: ordinary src path.
+        assert!(!is_test_source("file::m1nd-core/src/lib.rs::fn::real"));
+        assert!(!is_test_source("file::m1nd-mcp/src/caller.rs::fn::caller"));
+    }
+
+    #[test]
+    fn paint_test_exercised_node_is_bedrock() {
+        let mut g = evidence_graph_fixture();
+        let out = paint_g(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        assert_eq!(out.status, "committed");
+        // `real` is the target of a `calls` edge FROM a test source -> bedrock.
+        assert!(
+            has_state(
+                &g,
+                "file::m1nd-core/src/lib.rs::fn::real",
+                "xray:state:bedrock"
+            ),
+            "test-exercised node must be bedrock"
+        );
+    }
+
+    #[test]
+    fn paint_used_but_not_exercised_node_is_unproven() {
+        let mut g = evidence_graph_fixture();
+        paint_g(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        // `used` has indegree 1 (from the non-test caller) but no proof evidence.
+        assert!(
+            has_state(
+                &g,
+                "file::m1nd-mcp/src/used.rs::fn::used",
+                "xray:state:unproven"
+            ),
+            "used-but-unexercised node must be unproven"
+        );
+    }
+
+    #[test]
+    fn paint_orphan_node_is_overgrowth() {
+        let mut g = evidence_graph_fixture();
+        paint_g(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        // `orphan` has zero incoming edges -> overgrowth.
+        assert!(
+            has_state(
+                &g,
+                "file::m1nd-mcp/src/orphan.rs::fn::orphan",
+                "xray:state:overgrowth"
+            ),
+            "orphan node must be overgrowth"
+        );
+    }
+
+    #[test]
+    fn paint_proof_coverage_is_bedrock_over_scanned() {
+        let mut g = evidence_graph_fixture();
+        let out = paint_g(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::DryRun),
+        );
+        // 5 nodes scanned. Exactly ONE (`real`) is bedrock. The test source `t`
+        // itself is an orphan (overgrowth); `used` is unproven; `caller` and
+        // `orphan` are overgrowth. proof_coverage = 1/5 = 0.2 (rounded 3 dp).
+        assert_eq!(out.counts.scanned, 5);
+        assert_eq!(out.counts.bedrock, 1);
+        assert_eq!(out.proof_coverage, 0.2);
+    }
+
+    #[test]
+    fn paint_grounded_in_edge_marks_target_bedrock() {
+        // A `grounded_in` incoming edge is proof evidence even from a non-test
+        // source. Build: code node `claim` grounded_in evidence node `ev` means
+        // the EDGE points claim -> ev with relation grounded_in, so `ev` is the
+        // exercised target. Mirror that: source has an outgoing grounded_in.
+        let mut g = Graph::new();
+        g.add_node(
+            "file::m1nd-core/src/a.rs::fn::claim",
+            "claim",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 0
+        g.add_node(
+            "file::m1nd-core/src/b.rs::fn::ev",
+            "ev",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 1
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(1),
+            "grounded_in",
+            FiniteF32::new(1.0),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.0),
+        )
+        .unwrap();
+        g.finalize().unwrap();
+
+        let out = paint_g(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        assert_eq!(out.status, "committed");
+        // `ev` is the target of a grounded_in edge -> bedrock (proof evidence).
+        assert!(
+            has_state(&g, "file::m1nd-core/src/b.rs::fn::ev", "xray:state:bedrock"),
+            "grounded_in target must be bedrock"
+        );
+    }
+
+    #[test]
+    fn paint_idempotent_repaint_under_new_classifier_one_tag() {
+        let mut g = evidence_graph_fixture();
+        // First commit paints every node with its evidence-based state.
+        let first = paint_g(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        assert_eq!(first.counts.scanned, 5);
+        // Second commit: nothing should change; exactly ONE xray:state:* per node.
+        let second = paint_g(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        assert_eq!(second.counts.painted, 0);
+        for ext in [
+            "file::m1nd-core/tests/x.rs::fn::t",
+            "file::m1nd-core/src/lib.rs::fn::real",
+            "file::m1nd-mcp/src/caller.rs::fn::caller",
+            "file::m1nd-mcp/src/used.rs::fn::used",
+            "file::m1nd-mcp/src/orphan.rs::fn::orphan",
+        ] {
+            assert_eq!(
+                state_tag_of(&g, ext).len(),
+                1,
+                "{ext} must carry exactly one xray:state:* tag after re-paint"
+            );
+        }
     }
 }
