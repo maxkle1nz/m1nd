@@ -18,7 +18,135 @@ use m1nd_core::types::{NodeId, NodeType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+
+// ---------------------------------------------------------------------------
+// Append-only audit ledger
+// ---------------------------------------------------------------------------
+// Every successful X-RAY bulk WRITE (a `commit` that actually applied/painted
+// ≥1 change in xray_retag / xray_paint / xray_apply) appends exactly ONE JSON
+// line to a ledger file beside the runtime graph snapshot, so a write is
+// traceable and manually reversible. The `xray_ledger` read verb plays it back.
+//
+// FAIL-SOFT: ledger I/O NEVER fails the underlying op. If the path can't be
+// resolved or the append errors, the write still succeeds — the ledger is an
+// audit convenience, not a correctness dependency. Best-effort, logs nothing.
+
+/// File name of the append-only audit ledger, written beside the graph
+/// snapshot (`<graph_path parent>/xray.ledger.jsonl`). `.jsonl` (not `.json`)
+/// so it carries one self-contained JSON record per line.
+const LEDGER_FILE_NAME: &str = "xray.ledger.jsonl";
+
+/// Cap on the number of per-change entries embedded in one ledger record. A
+/// bulk write touching more than this records only the first `LEDGER_CHANGES_CAP`
+/// and adds a `changes_truncated` total so the line stays bounded.
+const LEDGER_CHANGES_CAP: usize = 1000;
+
+/// Resolve the ledger path beside the session's runtime graph snapshot:
+/// `<graph_path parent>/xray.ledger.jsonl`. Returns `None` when the graph path
+/// has no parent (the caller then SKIPS ledger writing — fail-soft).
+fn ledger_path_for(state: &SessionState) -> Option<PathBuf> {
+    state
+        .graph_path
+        .parent()
+        .map(|dir| dir.join(LEDGER_FILE_NAME))
+}
+
+/// Count the lines already in the ledger file (0 if it doesn't exist or can't
+/// be read). The next `seq` is this count + 1. Best-effort: any read error
+/// yields 0 so the append still proceeds (seq is the order source of truth,
+/// derived from prior line count under the server's single-instance lock).
+fn ledger_line_count(ledger_path: &Path) -> u64 {
+    let Ok(file) = std::fs::File::open(ledger_path) else {
+        return 0;
+    };
+    io::BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .count() as u64
+}
+
+/// Append exactly one JSON record line to the ledger, returning the new `seq`
+/// (= prior line count + 1). Pure-ish over a `Path` so it can be unit-tested
+/// directly. Creates the file if absent; appends otherwise. The `seq` field
+/// inside `record` is set by the CALLER before serialization — this helper does
+/// not mutate the record; it only computes and returns the seq it expects the
+/// caller used (read-count-then-append, fine under the single-instance lock).
+fn append_ledger(ledger_path: &Path, record: &serde_json::Value) -> io::Result<u64> {
+    let seq = ledger_line_count(ledger_path) + 1;
+    let mut line = serde_json::to_string(record).map_err(io::Error::other)?;
+    line.push('\n');
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(ledger_path)?;
+    file.write_all(line.as_bytes())?;
+    Ok(seq)
+}
+
+/// Best-effort epoch-seconds timestamp for a ledger record (`ts`). Not the
+/// ordering source (that is `seq`); included only as a convenience. `None` if
+/// the clock is before the epoch.
+fn now_epoch_secs() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// Build a single ledger record JSON object. `seq` is read-then-stamped (prior
+/// line count + 1) so the on-disk `seq` is exact. `changes` is capped at
+/// [`LEDGER_CHANGES_CAP`]; a `changes_truncated` total is added when it overflows.
+fn build_ledger_record(
+    seq: u64,
+    verb: &str,
+    version: &str,
+    summary: serde_json::Value,
+    mut changes: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    let total = changes.len();
+    let truncated = total > LEDGER_CHANGES_CAP;
+    if truncated {
+        changes.truncate(LEDGER_CHANGES_CAP);
+    }
+    let mut record = serde_json::json!({
+        "seq": seq,
+        "verb": verb,
+        "mode": "commit",
+        "version": version,
+        "summary": summary,
+        "changes": changes,
+    });
+    if truncated {
+        record["changes_truncated"] = serde_json::json!(total);
+    }
+    if let Some(ts) = now_epoch_secs() {
+        record["ts"] = serde_json::json!(ts);
+    }
+    record
+}
+
+/// Best-effort ledger write for a committed bulk op. Resolves the path beside
+/// the graph snapshot, computes the next `seq`, stamps it into the record, and
+/// appends one line. Any failure (no parent dir, I/O error) is swallowed: the
+/// underlying op already succeeded and the ledger must never fail it.
+fn record_ledger(
+    state: &SessionState,
+    verb: &str,
+    version: &str,
+    summary: serde_json::Value,
+    changes: Vec<serde_json::Value>,
+) {
+    let Some(path) = ledger_path_for(state) else {
+        return; // unresolved path -> skip silently (fail-soft)
+    };
+    // seq = prior line count + 1, computed up front so the stamped record
+    // matches what append writes (single-instance lock makes this race-free).
+    let seq = ledger_line_count(&path) + 1;
+    let record = build_ledger_record(seq, verb, version, summary, changes);
+    let _ = append_ledger(&path, &record);
+}
 
 // ---------------------------------------------------------------------------
 // Input / output types
@@ -265,6 +393,19 @@ fn select_nodes(graph: &Graph, selector: &XraySelector, ext: &[String]) -> Vec<u
 /// `mode == Commit` the planned nodes are mutated in place via the shipped
 /// columnar mutators. Persistence is the caller's job (the handler).
 pub fn retag_graph(graph: &mut Graph, input: &XrayRetagInput) -> XrayRetagOutput {
+    retag_graph_inner(graph, input, None)
+}
+
+/// Shared implementation. `ledger`, when `Some`, collects one
+/// `{ node, before, after }` record per node ACTUALLY mutated (commit only),
+/// captured in the SAME pass that mutates so before/after are exact. Production
+/// passes `Some` only on commit (the handler), `None` on dry_run; tests reuse
+/// `retag_graph` (None) for the existing assertions.
+fn retag_graph_inner(
+    graph: &mut Graph,
+    input: &XrayRetagInput,
+    mut ledger: Option<&mut Vec<serde_json::Value>>,
+) -> XrayRetagOutput {
     let ext = node_to_ext_map(graph);
     let selected = select_nodes(graph, &input.selector, &ext);
 
@@ -321,11 +462,12 @@ pub fn retag_graph(graph: &mut Graph, input: &XrayRetagInput) -> XrayRetagOutput
         match plan_after(input.op, &before, &input.tags) {
             Some(after) => {
                 counts.planned += 1;
+                let before_owned: Vec<String> = before.iter().map(|s| s.to_string()).collect();
                 if planned_sample.len() < SAMPLE_CAP {
                     planned_sample.push(XrayPlannedSample {
                         id: ext[idx].clone(),
-                        before: before.iter().map(|s| s.to_string()).collect(),
-                        after,
+                        before: before_owned.clone(),
+                        after: after.clone(),
                     });
                 }
                 if commit {
@@ -341,6 +483,15 @@ pub fn retag_graph(graph: &mut Graph, input: &XrayRetagInput) -> XrayRetagOutput
                         }
                     }
                     counts.applied += 1;
+                    // Audit ledger: record exact before/after for the node we
+                    // just mutated (captured in the same pass, so it's precise).
+                    if let Some(changes) = ledger.as_deref_mut() {
+                        changes.push(serde_json::json!({
+                            "node": ext[idx],
+                            "before": before_owned,
+                            "after": after,
+                        }));
+                    }
                 }
             }
             None => counts.skipped_noop += 1,
@@ -372,9 +523,17 @@ pub fn handle_xray_retag(
     state: &mut SessionState,
     input: XrayRetagInput,
 ) -> M1ndResult<serde_json::Value> {
+    // Collect per-node before/after only on commit (the ledger is appended once
+    // the commit is confirmed to have applied ≥1 change).
+    let mut changes: Vec<serde_json::Value> = Vec::new();
     let output = {
         let mut graph = state.graph.write();
-        retag_graph(&mut graph, &input)
+        let ledger = if input.mode == XrayMode::Commit {
+            Some(&mut changes)
+        } else {
+            None
+        };
+        retag_graph_inner(&mut graph, &input, ledger)
     };
 
     if input.mode == XrayMode::Commit && output.counts.applied > 0 {
@@ -391,6 +550,20 @@ pub fn handle_xray_retag(
         // graph_path. Not added to PROOF_GATED_WRITE_TOOLS on purpose — this
         // mutates graph metadata (tags), not agent-supplied source files.
         state.persist()?;
+        // Append-only audit ledger (best-effort; never fails the op). Recorded
+        // after persist so a ledgered line corresponds to a durable graph write.
+        record_ledger(
+            state,
+            "xray_retag",
+            &output.version,
+            serde_json::json!({
+                "selected": output.counts.selected,
+                "planned": output.counts.planned,
+                "skipped_noop": output.counts.skipped_noop,
+                "applied": output.counts.applied,
+            }),
+            changes,
+        );
     }
 
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
@@ -582,7 +755,30 @@ pub fn apply_files(
     mode: XrayMode,
     expect_version: Option<&str>,
 ) -> XrayApplyOutput {
-    apply_files_inner(paths, transform, mode, expect_version, None, None)
+    apply_files_inner(paths, transform, mode, expect_version, None, None, None)
+}
+
+/// Like [`apply_files`] but collects, into `ledger`, one
+/// `{ path, before_hash, after_hash }` record per file ACTUALLY swapped to disk
+/// (every file on a clean commit; only the swapped prefix on a `partial`). Used
+/// by the handler to append the audit ledger. `before_hash` is the SELECT-phase
+/// guard hash; `after_hash` is the staged new content's hash.
+pub fn apply_files_with_ledger(
+    paths: &[PathBuf],
+    transform: &XrayTransform,
+    mode: XrayMode,
+    expect_version: Option<&str>,
+    ledger: &mut Vec<serde_json::Value>,
+) -> XrayApplyOutput {
+    apply_files_inner(
+        paths,
+        transform,
+        mode,
+        expect_version,
+        None,
+        None,
+        Some(ledger),
+    )
 }
 
 /// Test seam: a callback fired between STAGE and REHASH, receiving the original
@@ -608,6 +804,7 @@ fn apply_files_inner(
     expect_version: Option<&str>,
     tamper: TamperHook<'_>,
     before_swap: BeforeSwapHook<'_>,
+    mut ledger: Option<&mut Vec<serde_json::Value>>,
 ) -> XrayApplyOutput {
     let mut counts = XrayApplyCounts {
         matched: paths.len() as u32,
@@ -857,6 +1054,11 @@ fn apply_files_inner(
             fsync_parent_dirs(already);
             counts.applied = swapped as u32;
             counts.conflicts = 1;
+            // Audit ledger: record ONLY the files actually swapped to disk
+            // (plan[..swapped]) — the not-yet-swapped temps weren't written.
+            if let Some(changes) = ledger.as_deref_mut() {
+                collect_apply_changes(changes, &plan[..swapped]);
+            }
             return XrayApplyOutput {
                 verb: "xray_apply",
                 status: "partial".to_string(),
@@ -878,6 +1080,10 @@ fn apply_files_inner(
     fsync_parent_dirs(&temps);
 
     counts.applied = counts.planned;
+    // Audit ledger: every planned file was swapped to disk on a clean commit.
+    if let Some(changes) = ledger {
+        collect_apply_changes(changes, &plan);
+    }
     let planned_sample = plan
         .iter()
         .take(SAMPLE_CAP)
@@ -896,6 +1102,24 @@ fn apply_files_inner(
         // A successful commit rewrote source bytes; the in-memory graph is now
         // stale versus disk and must be re-ingested to reconcile.
         graph_resync_required: applied > 0,
+    }
+}
+
+/// Append one `{ path, before_hash, after_hash }` audit-ledger record per plan
+/// entry that was swapped to disk. `before_hash` is the SELECT-phase guard hash
+/// (the original's content hash); `after_hash` is the staged new content's hash.
+/// `path` is the file path the engine operated on (absolute); the handler
+/// relativizes it against the project root before the line is written.
+fn collect_apply_changes(
+    changes: &mut Vec<serde_json::Value>,
+    swapped: &[(PathBuf, String, Vec<u8>)],
+) {
+    for (path, before_hash, new_bytes) in swapped {
+        changes.push(serde_json::json!({
+            "path": path.to_string_lossy(),
+            "before_hash": before_hash,
+            "after_hash": content_hash(new_bytes),
+        }));
     }
 }
 
@@ -1077,12 +1301,57 @@ pub fn handle_xray_apply(
     collect_files(&walk_start, &root, &input.selector, &mut matched);
     matched.sort();
 
-    let output = apply_files(
-        &matched,
-        &input.transform,
-        input.mode,
-        input.expect_version.as_deref(),
-    );
+    // Collect per-file before/after hashes for the audit ledger only when a write
+    // can happen (commit). The engine populates this for every file swapped to
+    // disk (all on a clean commit, the swapped prefix on a partial).
+    let mut changes: Vec<serde_json::Value> = Vec::new();
+    let output = if input.mode == XrayMode::Commit {
+        apply_files_with_ledger(
+            &matched,
+            &input.transform,
+            input.mode,
+            input.expect_version.as_deref(),
+            &mut changes,
+        )
+    } else {
+        apply_files(
+            &matched,
+            &input.transform,
+            input.mode,
+            input.expect_version.as_deref(),
+        )
+    };
+
+    // Append the audit ledger only when source bytes were actually written
+    // (committed or partial with ≥1 swap). The engine recorded absolute paths;
+    // relativize each against the project root for a compact, portable record.
+    let wrote =
+        (output.status == "committed" || output.status == "partial") && output.counts.applied > 0;
+    if wrote {
+        for change in &mut changes {
+            if let Some(abs) = change.get("path").and_then(|p| p.as_str()) {
+                let rel = Path::new(abs)
+                    .strip_prefix(&root)
+                    .map(|r| r.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| abs.to_string());
+                change["path"] = serde_json::json!(rel);
+            }
+        }
+        record_ledger(
+            state,
+            "xray_apply",
+            &output.version,
+            serde_json::json!({
+                "matched": output.counts.matched,
+                "planned": output.counts.planned,
+                "skipped_noop": output.counts.skipped_noop,
+                "skipped_binary": output.counts.skipped_binary,
+                "applied": output.counts.applied,
+                "conflicts": output.counts.conflicts,
+            }),
+            changes,
+        );
+    }
     serde_json::to_value(output).map_err(M1ndError::Serde)
 }
 
@@ -1944,6 +2213,21 @@ pub fn paint_graph(
     manifest: &XrayManifest,
     manifest_source: String,
 ) -> XrayPaintOutput {
+    paint_graph_inner(graph, input, manifest, manifest_source, None)
+}
+
+/// Shared implementation. `ledger`, when `Some`, collects one
+/// `{ node, before, after }` record per node whose `xray:state:*` tag set was
+/// ACTUALLY replaced (commit only), captured in the same pass as the mutation so
+/// before/after are exact. Production passes `Some` only on commit (the handler);
+/// tests reuse `paint_graph` (None).
+fn paint_graph_inner(
+    graph: &mut Graph,
+    input: &XrayPaintInput,
+    manifest: &XrayManifest,
+    manifest_source: String,
+    mut ledger: Option<&mut Vec<serde_json::Value>>,
+) -> XrayPaintOutput {
     let ext = node_to_ext_map(graph);
     let n = graph.num_nodes() as usize;
     let scope = input.scope.as_deref();
@@ -1999,6 +2283,10 @@ pub fn paint_graph(
         // actually written, so it stays 0 on dry_run (mirrors xray_retag's
         // `applied`); commit performs the replace and counts it.
         if commit {
+            // Capture the FULL tag set before the swap for the audit ledger.
+            let before_owned: Option<Vec<String>> = ledger
+                .as_deref()
+                .map(|_| graph.node_tags(nid).iter().map(|s| s.to_string()).collect());
             // Replace: drop every existing state tag, then add the computed one.
             if !existing_state_tags.is_empty() {
                 let to_remove: Vec<&str> = existing_state_tags.iter().map(String::as_str).collect();
@@ -2006,6 +2294,16 @@ pub fn paint_graph(
             }
             graph.add_node_tags(nid, &[new_tag]);
             counts.painted += 1;
+            // Audit ledger: exact before/after for the node we just repainted.
+            if let (Some(changes), Some(before_owned)) = (ledger.as_deref_mut(), before_owned) {
+                let after_owned: Vec<String> =
+                    graph.node_tags(nid).iter().map(|s| s.to_string()).collect();
+                changes.push(serde_json::json!({
+                    "node": ext[i],
+                    "before": before_owned,
+                    "after": after_owned,
+                }));
+            }
         }
     }
 
@@ -2041,9 +2339,21 @@ pub fn handle_xray_paint(
         input.manifest_path.as_deref(),
         state.workspace_root.as_deref(),
     );
+    let mut changes: Vec<serde_json::Value> = Vec::new();
     let output = {
         let mut graph = state.graph.write();
-        paint_graph(&mut graph, &input, &resolved.manifest, resolved.source)
+        let ledger = if input.mode == XrayMode::Commit {
+            Some(&mut changes)
+        } else {
+            None
+        };
+        paint_graph_inner(
+            &mut graph,
+            &input,
+            &resolved.manifest,
+            resolved.source,
+            ledger,
+        )
     };
 
     if input.mode == XrayMode::Commit && output.counts.painted > 0 {
@@ -2058,8 +2368,115 @@ pub fn handle_xray_paint(
         // metadata (tags), not agent-supplied source files — so it is deliberately
         // NOT added to PROOF_GATED_WRITE_TOOLS.
         state.persist()?;
+        // Append-only audit ledger (best-effort; never fails the op).
+        record_ledger(
+            state,
+            "xray_paint",
+            &output.version,
+            serde_json::json!({
+                "scanned": output.counts.scanned,
+                "bedrock": output.counts.bedrock,
+                "overgrowth": output.counts.overgrowth,
+                "unproven": output.counts.unproven,
+                "erosion_candidate": output.counts.erosion_candidate,
+                "painted": output.counts.painted,
+            }),
+            changes,
+        );
     }
 
+    serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
+}
+
+// ===========================================================================
+// X-RAY read verb: `xray_ledger` — replay the append-only audit ledger
+// ===========================================================================
+// One agent call reads back the audit ledger that xray_retag / xray_paint /
+// xray_apply append to on every committed bulk write. Returns the LAST `limit`
+// entries (most recent first), optionally filtered by verb. Missing ledger ->
+// empty list (honest, not an error). READ-ONLY: never writes, safe in read-only
+// attach (hence NOT in READ_ONLY_DENIED_TOOLS).
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct XrayLedgerInput {
+    /// Max entries to return (most recent first). Defaults to 20.
+    #[serde(default)]
+    pub limit: Option<usize>,
+    /// Optional verb-name filter (e.g. "xray_paint"). When set, only records
+    /// whose `verb` equals this are returned (and counted toward `limit`).
+    #[serde(default)]
+    pub verb: Option<String>,
+}
+
+const LEDGER_DEFAULT_LIMIT: usize = 20;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayLedgerOutput {
+    pub verb: &'static str,
+    /// The matching ledger records (most recent first, capped at `limit`).
+    pub entries: Vec<serde_json::Value>,
+    /// Total lines in the ledger file BEFORE the verb filter (0 if missing).
+    pub total_entries: usize,
+    /// Resolved ledger path, or `null` if it couldn't be resolved.
+    pub ledger_path: Option<String>,
+}
+
+/// Pure-ish ledger reader: parse every line of `ledger_path` as JSON, optionally
+/// filter by `verb`, return the LAST `limit` matching entries most-recent-first,
+/// alongside the TOTAL line count (pre-filter). Missing/unreadable file -> empty
+/// entries + total 0. Unparseable lines are skipped (counted in neither total nor
+/// entries) — the ledger is append-only JSONL, so a corrupt line is tolerated.
+fn read_ledger(
+    ledger_path: &Path,
+    limit: usize,
+    verb_filter: Option<&str>,
+) -> (Vec<serde_json::Value>, usize) {
+    let Ok(file) = std::fs::File::open(ledger_path) else {
+        return (Vec::new(), 0);
+    };
+    let mut all: Vec<serde_json::Value> = Vec::new();
+    for line in io::BufReader::new(file).lines().map_while(Result::ok) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            all.push(value);
+        }
+    }
+    let total = all.len();
+    let mut filtered: Vec<serde_json::Value> = match verb_filter {
+        Some(want) => all
+            .into_iter()
+            .filter(|v| v.get("verb").and_then(|x| x.as_str()) == Some(want))
+            .collect(),
+        None => all,
+    };
+    // Most recent first: reverse, then take `limit`.
+    filtered.reverse();
+    filtered.truncate(limit);
+    (filtered, total)
+}
+
+/// MCP handler for `xray_ledger`. READ-ONLY: resolves the ledger path beside the
+/// graph snapshot and replays it; never writes, never persists (safe under
+/// read-only attach).
+pub fn handle_xray_ledger(
+    state: &mut SessionState,
+    input: XrayLedgerInput,
+) -> M1ndResult<serde_json::Value> {
+    let limit = input.limit.unwrap_or(LEDGER_DEFAULT_LIMIT);
+    let path = ledger_path_for(state);
+    let (entries, total_entries) = match &path {
+        Some(p) => read_ledger(p, limit, input.verb.as_deref()),
+        None => (Vec::new(), 0),
+    };
+    let output = XrayLedgerOutput {
+        verb: "xray_ledger",
+        entries,
+        total_entries,
+        ledger_path: path.map(|p| p.to_string_lossy().into_owned()),
+    };
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
 }
 
@@ -2650,7 +3067,7 @@ mod tests {
         mode: XrayMode,
         tamper: impl Fn(&[PathBuf]),
     ) -> XrayApplyOutput {
-        apply_files_inner(paths, transform, mode, None, Some(&tamper), None)
+        apply_files_inner(paths, transform, mode, None, Some(&tamper), None, None)
     }
 
     /// Test seam: invoke the engine with a `before_swap` callback fired after
@@ -2662,7 +3079,7 @@ mod tests {
         mode: XrayMode,
         before_swap: impl Fn(&[(PathBuf, PathBuf)]),
     ) -> XrayApplyOutput {
-        apply_files_inner(paths, transform, mode, None, None, Some(&before_swap))
+        apply_files_inner(paths, transform, mode, None, None, Some(&before_swap), None)
     }
 
     fn ensure_tag() -> XrayTransform {
@@ -3874,5 +4291,294 @@ mod tests {
                 "{ext} must carry exactly one xray:state:* tag after re-paint"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // X-RAY audit ledger — append helper + record shape + reader
+    // -----------------------------------------------------------------------
+
+    use crate::server::McpConfig;
+    use m1nd_core::domain::DomainConfig;
+
+    /// Read every line of a ledger file into parsed JSON values (test helper).
+    fn read_all_ledger_lines(path: &Path) -> Vec<serde_json::Value> {
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                serde_json::from_str::<serde_json::Value>(l).expect("each line parses as JSON")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn append_ledger_increments_seq_and_writes_one_line_each() {
+        let dir = fresh_sandbox();
+        let ledger = dir.join("xray.ledger.jsonl");
+
+        let rec1 = serde_json::json!({ "seq": 1, "verb": "xray_retag", "v": "a" });
+        let seq1 = append_ledger(&ledger, &rec1).expect("first append");
+        assert_eq!(seq1, 1, "first append must return seq 1");
+
+        let rec2 = serde_json::json!({ "seq": 2, "verb": "xray_paint", "v": "b" });
+        let seq2 = append_ledger(&ledger, &rec2).expect("second append");
+        assert_eq!(seq2, 2, "second append must return seq 2");
+
+        let lines = read_all_ledger_lines(&ledger);
+        assert_eq!(lines.len(), 2, "file must have exactly 2 lines");
+        assert_eq!(lines[0]["verb"], "xray_retag");
+        assert_eq!(lines[1]["verb"], "xray_paint");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_ledger_record_truncates_changes_over_cap() {
+        // One over the cap: only the first LEDGER_CHANGES_CAP survive, and the
+        // total is surfaced as changes_truncated.
+        let over = LEDGER_CHANGES_CAP + 5;
+        let changes: Vec<serde_json::Value> = (0..over)
+            .map(|i| serde_json::json!({ "node": format!("n{i}") }))
+            .collect();
+        let record = build_ledger_record(
+            7,
+            "xray_retag",
+            "deadbeef",
+            serde_json::json!({ "applied": over }),
+            changes,
+        );
+        assert_eq!(record["seq"], 7);
+        assert_eq!(record["mode"], "commit");
+        assert_eq!(
+            record["changes"].as_array().unwrap().len(),
+            LEDGER_CHANGES_CAP
+        );
+        assert_eq!(record["changes_truncated"], serde_json::json!(over));
+
+        // Under the cap: no changes_truncated key at all.
+        let small = build_ledger_record(
+            1,
+            "xray_paint",
+            "v",
+            serde_json::json!({}),
+            vec![serde_json::json!({ "node": "x" })],
+        );
+        assert!(small.get("changes_truncated").is_none());
+        assert_eq!(small["changes"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn read_ledger_filters_by_verb_and_returns_most_recent_first() {
+        let dir = fresh_sandbox();
+        let ledger = dir.join("xray.ledger.jsonl");
+        for (i, verb) in ["xray_retag", "xray_paint", "xray_retag", "xray_apply"]
+            .iter()
+            .enumerate()
+        {
+            let rec =
+                build_ledger_record((i + 1) as u64, verb, "v", serde_json::json!({}), Vec::new());
+            append_ledger(&ledger, &rec).unwrap();
+        }
+
+        // No filter, limit 2: the two MOST RECENT records, newest first.
+        let (entries, total) = read_ledger(&ledger, 2, None);
+        assert_eq!(total, 4, "total must count every line pre-filter");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["seq"], 4, "most recent first");
+        assert_eq!(entries[1]["seq"], 3);
+
+        // verb filter: only the two xray_retag records, newest first.
+        let (retags, total2) = read_ledger(&ledger, 20, Some("xray_retag"));
+        assert_eq!(total2, 4, "total is pre-filter even when filtering");
+        assert_eq!(retags.len(), 2);
+        assert_eq!(retags[0]["seq"], 3);
+        assert_eq!(retags[1]["seq"], 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_ledger_missing_file_is_empty_not_error() {
+        let dir = fresh_sandbox();
+        let missing = dir.join("nope.ledger.jsonl");
+        let (entries, total) = read_ledger(&missing, 20, None);
+        assert!(entries.is_empty());
+        assert_eq!(total, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // X-RAY audit ledger — handler-level (SessionState in a temp dir)
+    // -----------------------------------------------------------------------
+
+    /// Build a writable SessionState whose graph_path lives in a temp runtime
+    /// dir, seeded with `g`. The ledger lands beside graph_path.
+    fn ledger_state(root: &Path, g: Graph) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph_snapshot.json"),
+            plasticity_state: runtime_dir.join("plasticity_state.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        SessionState::initialize(g, &config, DomainConfig::code()).expect("init session")
+    }
+
+    /// The ledger path the handler will use for `state` (beside graph_path).
+    fn state_ledger_path(state: &SessionState) -> PathBuf {
+        ledger_path_for(state).expect("graph_path has a parent")
+    }
+
+    #[test]
+    fn retag_commit_writes_one_ledger_entry_with_exact_before_after() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = ledger_state(temp.path(), sample_graph());
+        let ledger = state_ledger_path(&state);
+        assert!(!ledger.exists(), "no ledger before any commit");
+
+        // Commit: add a tag to all rust-tagged nodes (all 3 in sample_graph).
+        let sel = XraySelector {
+            filter_tags: vec!["rust".to_string()],
+            ..Default::default()
+        };
+        let value = handle_xray_retag(
+            &mut state,
+            input(sel, XrayTagOp::Add, &["xray:bedrock"], XrayMode::Commit),
+        )
+        .expect("retag commit");
+        assert_eq!(value["status"], "committed");
+
+        let lines = read_all_ledger_lines(&ledger);
+        assert_eq!(
+            lines.len(),
+            1,
+            "exactly one ledger line per committed write"
+        );
+        let rec = &lines[0];
+        assert_eq!(rec["seq"], 1);
+        assert_eq!(rec["verb"], "xray_retag");
+        assert_eq!(rec["mode"], "commit");
+        assert_eq!(rec["summary"]["applied"], 3);
+        let changes = rec["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 3, "one change record per mutated node");
+        // foo had ["rust","rust:visibility:private"]; after adds xray:bedrock.
+        let foo = changes
+            .iter()
+            .find(|c| c["node"] == "file::a.rs::fn::foo")
+            .expect("foo recorded");
+        let before: Vec<String> = foo["before"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let after: Vec<String> = foo["after"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            !before.contains(&"xray:bedrock".to_string()),
+            "before is pre-state"
+        );
+        assert!(
+            after.contains(&"xray:bedrock".to_string()),
+            "after has the new tag"
+        );
+    }
+
+    #[test]
+    fn retag_dry_run_writes_no_ledger_entry() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = ledger_state(temp.path(), sample_graph());
+        let ledger = state_ledger_path(&state);
+
+        let sel = XraySelector {
+            filter_tags: vec!["rust".to_string()],
+            ..Default::default()
+        };
+        let value = handle_xray_retag(
+            &mut state,
+            input(sel, XrayTagOp::Add, &["xray:bedrock"], XrayMode::DryRun),
+        )
+        .expect("retag dry_run");
+        assert_eq!(value["status"], "dry_run");
+        assert!(!ledger.exists(), "dry_run must write NO ledger");
+    }
+
+    #[test]
+    fn xray_ledger_reads_back_entries_with_limit_and_verb_filter() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = ledger_state(temp.path(), sample_graph());
+
+        // Two committed writes: retag then paint, producing two ledger lines.
+        let sel = XraySelector {
+            filter_tags: vec!["rust".to_string()],
+            ..Default::default()
+        };
+        handle_xray_retag(
+            &mut state,
+            input(sel, XrayTagOp::Add, &["xray:bedrock"], XrayMode::Commit),
+        )
+        .expect("retag commit");
+        handle_xray_paint(
+            &mut state,
+            XrayPaintInput {
+                scope: None,
+                manifest: XrayManifest::default(),
+                manifest_path: None,
+                mode: XrayMode::Commit,
+            },
+        )
+        .expect("paint commit");
+
+        // Read all back: 2 entries, most recent (paint) first.
+        let all = handle_xray_ledger(&mut state, XrayLedgerInput::default()).expect("ledger read");
+        assert_eq!(all["verb"], "xray_ledger");
+        assert_eq!(all["total_entries"], 2);
+        let entries = all["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["verb"], "xray_paint", "most recent first");
+        assert_eq!(entries[1]["verb"], "xray_retag");
+        assert!(all["ledger_path"].is_string());
+
+        // limit 1: only the most recent.
+        let limited = handle_xray_ledger(
+            &mut state,
+            XrayLedgerInput {
+                limit: Some(1),
+                verb: None,
+            },
+        )
+        .expect("ledger read limited");
+        assert_eq!(limited["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(limited["entries"][0]["verb"], "xray_paint");
+
+        // verb filter: only the retag line, but total is still 2.
+        let filtered = handle_xray_ledger(
+            &mut state,
+            XrayLedgerInput {
+                limit: None,
+                verb: Some("xray_retag".to_string()),
+            },
+        )
+        .expect("ledger read filtered");
+        assert_eq!(filtered["total_entries"], 2);
+        let fe = filtered["entries"].as_array().unwrap();
+        assert_eq!(fe.len(), 1);
+        assert_eq!(fe[0]["verb"], "xray_retag");
+    }
+
+    #[test]
+    fn xray_ledger_missing_file_returns_empty_list() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = ledger_state(temp.path(), sample_graph());
+        // No commit happened, so no ledger file exists yet.
+        let out = handle_xray_ledger(&mut state, XrayLedgerInput::default()).expect("ledger read");
+        assert_eq!(out["total_entries"], 0);
+        assert!(out["entries"].as_array().unwrap().is_empty());
     }
 }

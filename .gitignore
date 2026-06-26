@@ -25,6 +25,10 @@ plasticity_state.json
 antibodies.json
 tremor_state.json
 trust_state.json
+# X-RAY append-only audit ledger — runtime state (one JSON line per committed
+# bulk write), written beside the graph snapshot. Not a *.json match (.jsonl),
+# so it needs its own rule; never commit it.
+xray.ledger.jsonl
 trails/
 .m1nd-benchmark-fixtures/
 docs/benchmarks/**/operator-only/seeded-diff.patch
