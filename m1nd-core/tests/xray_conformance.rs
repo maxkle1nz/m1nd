@@ -60,30 +60,85 @@ fn workspace_members(root: &Path) -> Vec<String> {
     out
 }
 
-/// Internal (workspace-member) PRODUCTION deps of `member` as (from, to) pairs.
-/// dev-dependencies are intentionally ignored (tests legitimately cross layers).
-fn internal_prod_deps(root: &Path, member: &str, members: &[String]) -> Vec<(String, String)> {
-    let body = std::fs::read_to_string(root.join(member).join("Cargo.toml")).unwrap_or_default();
+/// Internal (workspace-member) PRODUCTION dependency edges as (from, to) pairs,
+/// resolved via `cargo metadata` so EVERY manifest form is covered: inline
+/// `[dependencies]`, `[dependencies.name]` subtables, and
+/// `[target.'cfg(...)'.dependencies]`. dev- and build-dependencies are excluded
+/// (tests legitimately cross layers).
+fn internal_prod_deps(root: &Path, members: &[String]) -> Vec<(String, String)> {
+    let meta = cargo_metadata::MetadataCommand::new()
+        .manifest_path(root.join("Cargo.toml"))
+        .no_deps()
+        .exec()
+        .expect("cargo metadata");
+    let is_member = |n: &str| members.iter().any(|m| m == n);
     let mut deps = Vec::new();
-    let mut in_deps = false;
-    for line in body.lines() {
-        let t = line.trim();
-        if t.starts_with('[') {
-            in_deps = t == "[dependencies]";
+    for pkg in &meta.packages {
+        let pname = pkg.name.to_string();
+        if !is_member(&pname) {
             continue;
         }
-        if !in_deps || t.is_empty() || t.starts_with('#') {
-            continue;
-        }
-        let key = t.split(['=', ' ']).next().unwrap_or("").trim();
-        if key != member && members.iter().any(|m| m == key) {
-            deps.push((member.to_string(), key.to_string()));
+        for d in &pkg.dependencies {
+            if d.kind == cargo_metadata::DependencyKind::Normal
+                && d.name != pname
+                && is_member(&d.name)
+            {
+                deps.push((pname.clone(), d.name.to_string()));
+            }
         }
     }
     deps
 }
 
-/// Collect all `.rs` source under each member's `src/` (bounded recursion).
+/// Strip Rust line/block comments and double-quoted string literals so
+/// `require_exists` matches only ACTUAL code: a comment or string that merely
+/// mentions a symbol must NOT satisfy the invariant (a silent rename/deletion of
+/// the real implementation has to be caught). Best-effort on raw strings —
+/// sufficient because invariants appear in many code locations.
+fn strip_rust(src: &str) -> String {
+    let b = src.as_bytes();
+    let n = b.len();
+    let mut out: Vec<u8> = Vec::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        if b[i] == b'/' && i + 1 < n && b[i + 1] == b'/' {
+            while i < n && b[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if b[i] == b'/' && i + 1 < n && b[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < n && !(b[i] == b'*' && b[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(n);
+            continue;
+        }
+        if b[i] == b'"' {
+            i += 1;
+            while i < n {
+                if b[i] == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if b[i] == b'"' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push(b' ');
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Collect all `.rs` source under each member's `src/` (bounded recursion),
+/// with comments and string literals stripped (see `strip_rust`).
 fn source_blob(root: &Path, members: &[String]) -> String {
     fn walk(dir: &Path, out: &mut String) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -95,7 +150,7 @@ fn source_blob(root: &Path, members: &[String]) -> String {
                 walk(&p, out);
             } else if p.extension().and_then(|x| x.to_str()) == Some("rs") {
                 if let Ok(s) = std::fs::read_to_string(&p) {
-                    out.push_str(&s);
+                    out.push_str(&strip_rust(&s));
                     out.push('\n');
                 }
             }
@@ -159,10 +214,7 @@ fn xray_conformance_gate() {
         "expected workspace members, got {members:?}"
     );
 
-    let mut deps = Vec::new();
-    for m in &members {
-        deps.extend(internal_prod_deps(&root, m, &members));
-    }
+    let deps = internal_prod_deps(&root, &members);
     let dep_viol = dep_violations(&manifest, &deps);
     let missing = missing_invariants(&manifest, &source_blob(&root, &members));
 
@@ -238,4 +290,29 @@ fn gate_flags_missing_invariant() {
     let src = "fn mission_verify() {}\n";
     let missing = missing_invariants(&m, src);
     assert_eq!(missing, vec!["this_symbol_does_not_exist_xyz".to_string()]);
+}
+
+#[test]
+fn require_exists_ignores_comments_and_strings() {
+    // The symbol appears ONLY in a comment and a string literal -> after stripping
+    // it must read as MISSING: a silent rename/deletion of the real implementation
+    // cannot hide behind a leftover comment or tool-name string.
+    let m = Manifest {
+        ratified: true,
+        layer_order: vec![],
+        forbid: vec![],
+        require_exists: vec!["mission_verify".into()],
+    };
+    let only_mentions = "// mission_verify is the proof gate\nlet tool = \"mission_verify\";\n";
+    assert_eq!(
+        missing_invariants(&m, &strip_rust(only_mentions)),
+        vec!["mission_verify".to_string()],
+        "comment/string mention must NOT satisfy the invariant"
+    );
+    // A real code definition still satisfies it.
+    let real = strip_rust("pub fn mission_verify() {}\n");
+    assert!(
+        missing_invariants(&m, &real).is_empty(),
+        "real symbol must satisfy the invariant"
+    );
 }
