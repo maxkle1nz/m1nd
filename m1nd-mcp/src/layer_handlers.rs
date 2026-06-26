@@ -11655,4 +11655,92 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             toks
         );
     }
+
+    /// END-TO-END proof of the night's semantic arc through the REAL pipeline: a
+    /// live `ingest` folds a function's DOC COMMENT into its excerpt (#138), the
+    /// SemanticEngine embeds label+excerpt (#131/#136), and `seek` surfaces the
+    /// function by the doc's MEANING via principled recall (#139) — even though
+    /// the function's NAME (`qz9wb`) shares zero tokens with the query.
+    #[cfg(feature = "embed")]
+    #[test]
+    fn embed_arc_doc_comment_drives_seek_recall_end_to_end() {
+        let model_dir = m1nd_core::embed::Model2VecEmbedder::default_model_dir();
+        if !model_dir.join("model.safetensors").exists() {
+            eprintln!(
+                "SKIP embed_arc_doc_comment_drives_seek_recall_end_to_end: model not vendored"
+            );
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("m1nd_embed_arc_{}", std::process::id()));
+        let src = tmp.join("src");
+        std::fs::create_dir_all(&src).expect("src dir");
+        // `qz9wb`: opaque name (zero query overlap); the intent lives ONLY in the
+        // rustdoc above it. `parse_csv_header` is an unrelated decoy.
+        std::fs::write(
+            src.join("net.rs"),
+            "/// Negotiates a TLS session and establishes an encrypted tunnel between two hosts.\n\
+             pub fn qz9wb() -> u32 {\n\
+             \x20   let s = open_socket();\n\
+             \x20   perform_handshake(s)\n\
+             }\n\
+             \n\
+             /// Splits the first row of a CSV into column names.\n\
+             pub fn parse_csv_header() -> u32 {\n\
+             \x20   read_line()\n\
+             }\n",
+        )
+        .expect("write src");
+
+        // Real ingest: walk + extract + doc-comment excerpt + build.
+        let (graph, _stats) = m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
+            root: tmp.clone(),
+            ..Default::default()
+        })
+        .ingest()
+        .expect("ingest");
+
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "open a secure encrypted channel".into(),
+                agent_id: "arc".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        eprintln!("ARC E2E: embeddings_used={}", out.embeddings_used);
+        for r in &out.results {
+            eprintln!("  {:<18} score={:.4}", r.label, r.score);
+        }
+
+        assert!(out.embeddings_used, "embeddings must fire end to end");
+        assert!(
+            out.results.iter().any(|r| r.label == "qz9wb"),
+            "the doc-comment intent must surface 'qz9wb' by MEANING through the real \
+             ingest->embed->seek chain; got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
