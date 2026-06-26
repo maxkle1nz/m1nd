@@ -1394,6 +1394,278 @@ pub fn handle_xray_gate(
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
 }
 
+// ===========================================================================
+// X-RAY write verb: `xray_paint` — the PAINT pass (persist proof-state tags)
+// ===========================================================================
+// One agent call classifies every in-scope node into a STRUCTURAL proof-state
+// from REAL graph signals and writes that state as a persistent tag
+// `xray:state:<state>` — closing the loop so proof-states become QUERYABLE tags
+// instead of ephemeral per-call computations (xray_orient reports them; this
+// verb makes them durable graph metadata).
+//
+// CLASSIFICATION (honest / proof-grown — these are STRUCTURAL labels, not
+// confirmed verdicts). For each in-scope node:
+//   * `erosion-candidate` — the node is the SOURCE of a cross-module edge that
+//     the shared `classify_edge` predicate flags as a divergence against the
+//     input manifest. HONEST: a candidate (the manifest may not be ratified),
+//     never a confirmed violation — same stance as xray_orient.
+//   * else `bedrock` — the node has REFERENCE in-degree > 0 (something imports/
+//     calls/references/depends_on it): it is load-bearing.
+//   * else `overgrowth` — the node is an orphan over the reference relations
+//     (off-lattice): nothing points at it.
+// In-degree is computed over the REFERENCE relations only (`imports`, `calls`,
+// `references`, `depends_on`) by walking every node's outgoing CSR range ONCE
+// and counting targets. BLUEPRINT is a manifest-level ABSENCE (a require_exists
+// that has no node), so it is NEVER painted on a node — only the three states
+// above are node tags.
+//
+// IDEMPOTENT RE-PAINT: before adding the computed state tag, every existing
+// `xray:state:*` tag on the node is removed, so re-running REPLACES the state
+// and never accumulates stale states. A node already carrying exactly the
+// computed state is left unchanged (no spurious "painted").
+//
+// dry_run (DEFAULT) computes the classification + counts and writes NOTHING.
+// commit applies the tag swap via the shipped columnar mutators and persists
+// the graph snapshot through the session save choke point. Mutates graph
+// metadata (tags) only — never source files — so, like xray_retag, it is NOT in
+// PROOF_GATED_WRITE_TOOLS but IS in READ_ONLY_DENIED_TOOLS.
+
+/// Reference relations that carry "X is used by Y" semantics — the edges whose
+/// in-degree makes a node load-bearing (BEDROCK) vs orphan (OVERGROWTH).
+const REFERENCE_RELATIONS: &[&str] = &["imports", "calls", "references", "depends_on"];
+
+const STATE_TAG_PREFIX: &str = "xray:state:";
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct XrayPaintInput {
+    /// Optional external_id path-prefix filter. Only nodes whose external_id
+    /// starts with this prefix are classified and (on commit) painted.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// North-star ruleset used only to flag `erosion-candidate` source nodes
+    /// (via the shared `classify_edge`). Empty manifest => no erosion candidates
+    /// (honest: instrument not aimed), every referenced node is bedrock and every
+    /// orphan is overgrowth.
+    #[serde(default)]
+    pub manifest: XrayManifest,
+    #[serde(default)]
+    pub mode: XrayMode,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct XrayPaintCounts {
+    /// In-scope nodes classified.
+    pub scanned: u32,
+    /// Nodes classified `bedrock` (reference in-degree > 0).
+    pub bedrock: u32,
+    /// Nodes classified `overgrowth` (orphan over reference relations).
+    pub overgrowth: u32,
+    /// Nodes classified `erosion-candidate` (source of a flagged cross-module edge).
+    pub erosion_candidate: u32,
+    /// Nodes whose `xray:state:*` tag set was actually replaced (0 on dry_run;
+    /// on commit, the nodes whose state tag changed).
+    pub painted: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayPaintOutput {
+    pub verb: &'static str,
+    /// "dry_run" or "committed".
+    pub status: String,
+    pub counts: XrayPaintCounts,
+    /// Content fingerprint of the in-scope nodes' CURRENT tag state (hex), reusing
+    /// the same OCC fold as xray_retag. Lets a caller correlate a dry_run plan with
+    /// the commit it later runs.
+    pub version: String,
+}
+
+/// The three structural proof-states a node can be painted with. Named honestly:
+/// these are STRUCTURAL classifications from real graph signals, not confirmed
+/// verdicts (erosion is a *candidate*).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaintState {
+    Bedrock,
+    Overgrowth,
+    ErosionCandidate,
+}
+
+impl PaintState {
+    /// The full persistent tag for this state (`xray:state:<state>`).
+    fn tag(self) -> &'static str {
+        match self {
+            PaintState::Bedrock => "xray:state:bedrock",
+            PaintState::Overgrowth => "xray:state:overgrowth",
+            PaintState::ErosionCandidate => "xray:state:erosion-candidate",
+        }
+    }
+}
+
+/// Build a reference in-degree map over the whole graph in ONE pass: for every
+/// node, walk its outgoing CSR range and, for each edge whose relation is a
+/// REFERENCE relation, bump the target's in-degree. Index by node index.
+fn reference_indegree(graph: &Graph) -> Vec<u32> {
+    let n = graph.num_nodes() as usize;
+    let mut indeg = vec![0u32; n];
+    for i in 0..n {
+        for e in graph.csr.out_range(NodeId::new(i as u32)) {
+            let rel = graph.strings.resolve(graph.csr.relations[e]);
+            if !REFERENCE_RELATIONS.contains(&rel) {
+                continue;
+            }
+            let dst = graph.csr.targets[e].as_usize();
+            if dst < n {
+                indeg[dst] += 1;
+            }
+        }
+    }
+    indeg
+}
+
+/// Set of node indices that are the SOURCE of at least one cross-module edge the
+/// `classify_edge` predicate flags against the manifest (the `erosion-candidate`
+/// source set). Walks the live CSR once, reusing `module_of` + `classify_edge` —
+/// the same derivation `xray_orient`/`xray_gate` use, no second copy of the rule.
+fn erosion_source_set(graph: &Graph, ext: &[String], manifest: &XrayManifest) -> Vec<bool> {
+    let n = graph.num_nodes() as usize;
+    let mut flagged = vec![false; n];
+    for i in 0..n {
+        let src_mod = match module_of(&ext[i]) {
+            Some(m) => m,
+            None => continue,
+        };
+        for e in graph.csr.out_range(NodeId::new(i as u32)) {
+            let rel = graph.strings.resolve(graph.csr.relations[e]);
+            if rel != "imports" && rel != "depends_on" {
+                continue;
+            }
+            let dst = graph.csr.targets[e].as_usize();
+            let dst_mod = match ext.get(dst).and_then(|d| module_of(d)) {
+                Some(m) => m,
+                None => continue,
+            };
+            if src_mod == dst_mod {
+                continue;
+            }
+            if classify_edge(manifest, src_mod, dst_mod).is_some() {
+                flagged[i] = true;
+                break; // one flagged edge is enough to mark the source
+            }
+        }
+    }
+    flagged
+}
+
+/// Classify a single node: erosion-candidate (flagged source) > bedrock
+/// (reference in-degree > 0) > overgrowth (orphan).
+fn classify_node(indegree: u32, is_erosion_source: bool) -> PaintState {
+    if is_erosion_source {
+        PaintState::ErosionCandidate
+    } else if indegree > 0 {
+        PaintState::Bedrock
+    } else {
+        PaintState::Overgrowth
+    }
+}
+
+/// Pure paint core over a finalized `Graph` (unit-testable, no `SessionState`).
+/// On `DryRun` the graph is read only; on `Commit` each in-scope node's
+/// `xray:state:*` tags are replaced (remove existing state tags, add the computed
+/// one) via the shipped columnar mutators. Persistence is the handler's job.
+pub fn paint_graph(graph: &mut Graph, input: &XrayPaintInput) -> XrayPaintOutput {
+    let ext = node_to_ext_map(graph);
+    let n = graph.num_nodes() as usize;
+    let scope = input.scope.as_deref();
+
+    let in_scope = |idx: usize| -> bool {
+        scope.is_none_or(|p| ext.get(idx).is_some_and(|e| e.starts_with(p)))
+    };
+
+    // One-pass signals over the WHOLE graph (in-degree counts edges from any
+    // source, including out-of-scope ones — a node referenced from outside the
+    // scope is still load-bearing).
+    let indeg = reference_indegree(graph);
+    let erosion = erosion_source_set(graph, &ext, &input.manifest);
+
+    let selected: Vec<usize> = (0..n).filter(|&i| in_scope(i)).collect();
+    let version = selection_version(graph, &ext, &selected);
+
+    let commit = input.mode == XrayMode::Commit;
+    let mut counts = XrayPaintCounts {
+        scanned: selected.len() as u32,
+        ..Default::default()
+    };
+
+    for &i in &selected {
+        let state = classify_node(indeg[i], erosion[i]);
+        match state {
+            PaintState::Bedrock => counts.bedrock += 1,
+            PaintState::Overgrowth => counts.overgrowth += 1,
+            PaintState::ErosionCandidate => counts.erosion_candidate += 1,
+        }
+
+        let nid = NodeId::new(i as u32);
+        let new_tag = state.tag();
+
+        // Existing state tags on this node (any `xray:state:*`).
+        let existing_state_tags: Vec<String> = graph
+            .node_tags(nid)
+            .iter()
+            .filter(|t| t.starts_with(STATE_TAG_PREFIX))
+            .map(|s| s.to_string())
+            .collect();
+
+        // The node already carries EXACTLY the computed state (and no other
+        // state tag) => no change needed.
+        let already_correct = existing_state_tags.len() == 1 && existing_state_tags[0] == new_tag;
+        if already_correct {
+            continue;
+        }
+
+        // The node's state tag set WOULD change. `painted` counts only nodes
+        // actually written, so it stays 0 on dry_run (mirrors xray_retag's
+        // `applied`); commit performs the replace and counts it.
+        if commit {
+            // Replace: drop every existing state tag, then add the computed one.
+            if !existing_state_tags.is_empty() {
+                let to_remove: Vec<&str> = existing_state_tags.iter().map(String::as_str).collect();
+                graph.remove_node_tags(nid, &to_remove);
+            }
+            graph.add_node_tags(nid, &[new_tag]);
+            counts.painted += 1;
+        }
+    }
+
+    XrayPaintOutput {
+        verb: "xray_paint",
+        status: if commit { "committed" } else { "dry_run" }.to_string(),
+        counts,
+        version,
+    }
+}
+
+/// MCP handler for `xray_paint`. Holds the graph write lock only for the
+/// classify/paint, drops it, then — on commit with changes — persists through the
+/// session's single save choke point (a no-op under read-only attach, and the
+/// dispatcher additionally denies the verb in read-only attach).
+pub fn handle_xray_paint(
+    state: &mut SessionState,
+    input: XrayPaintInput,
+) -> M1ndResult<serde_json::Value> {
+    let output = {
+        let mut graph = state.graph.write();
+        paint_graph(&mut graph, &input)
+    };
+
+    if input.mode == XrayMode::Commit && output.counts.painted > 0 {
+        // Persist via the session choke point. Like xray_retag this mutates graph
+        // metadata (tags), not agent-supplied source files — so it is deliberately
+        // NOT added to PROOF_GATED_WRITE_TOOLS.
+        state.persist()?;
+    }
+
+    serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
+}
+
 // ---------------------------------------------------------------------------
 // Tests (pure logic against a Graph — no SessionState needed)
 // ---------------------------------------------------------------------------
@@ -2376,5 +2648,221 @@ mod tests {
         assert_eq!(out.verdict, "blocked");
         assert_eq!(out.existing_violations.len(), 1);
         assert_eq!(out.existing_violations[0].rule, "layer");
+    }
+
+    // -----------------------------------------------------------------------
+    // xray_paint — persist structural proof-state tags (dry-run/commit)
+    // -----------------------------------------------------------------------
+
+    /// Three modules with reference edges chosen to exercise every state:
+    ///   - modA/a_main  (0): imports modB/b_core -> a cross-module SOURCE
+    ///   - modB/b_core  (2): TARGET of modA's import -> reference in-degree 1
+    ///   - modA/a_util  (1): no incoming reference edges -> orphan
+    ///
+    /// Finalized so the CSR is populated.
+    fn paint_graph_fixture() -> Graph {
+        let mut g = Graph::new();
+        g.add_node(
+            "file::modA/src/lib.rs::fn::a_main",
+            "a_main",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 0
+        g.add_node(
+            "file::modA/src/util.rs::fn::a_util",
+            "a_util",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 1 — orphan (nothing references it)
+        g.add_node(
+            "file::modB/src/lib.rs::fn::b_core",
+            "b_core",
+            NodeType::Function,
+            &["rust"],
+            0.0,
+            0.0,
+        )
+        .unwrap(); // 2 — referenced by modA -> bedrock
+
+        // cross-module reference edge modA -> modB (imports). Makes b_core
+        // referenced (in-degree 1) AND a_main a cross-module source.
+        g.add_edge(
+            NodeId::new(0),
+            NodeId::new(2),
+            "imports",
+            FiniteF32::new(1.0),
+            EdgeDirection::Forward,
+            false,
+            FiniteF32::new(0.0),
+        )
+        .unwrap();
+        g.finalize().unwrap();
+        g
+    }
+
+    fn paint_input(scope: Option<&str>, manifest: XrayManifest, mode: XrayMode) -> XrayPaintInput {
+        XrayPaintInput {
+            scope: scope.map(|s| s.to_string()),
+            manifest,
+            mode,
+        }
+    }
+
+    /// The single `xray:state:*` tag on a node, if any (test helper).
+    fn state_tag_of(g: &Graph, ext: &str) -> Vec<String> {
+        g.node_tags(g.resolve_id(ext).unwrap())
+            .iter()
+            .filter(|t| t.starts_with(STATE_TAG_PREFIX))
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn paint_dry_run_counts_split_and_writes_nothing() {
+        let mut g = paint_graph_fixture();
+        let out = paint_graph(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::DryRun),
+        );
+
+        assert_eq!(out.verb, "xray_paint");
+        assert_eq!(out.status, "dry_run");
+        assert_eq!(out.counts.scanned, 3);
+        // No manifest => no erosion candidates. b_core is referenced (bedrock);
+        // a_main + a_util have no incoming reference edges (overgrowth).
+        assert_eq!(out.counts.bedrock, 1);
+        assert_eq!(out.counts.overgrowth, 2);
+        assert_eq!(out.counts.erosion_candidate, 0);
+        // dry_run writes nothing.
+        assert_eq!(out.counts.painted, 0);
+        assert!(!out.version.is_empty());
+        assert_eq!(out.version.len(), 16);
+
+        // No state tag was written on any node.
+        for ext in [
+            "file::modA/src/lib.rs::fn::a_main",
+            "file::modA/src/util.rs::fn::a_util",
+            "file::modB/src/lib.rs::fn::b_core",
+        ] {
+            assert!(state_tag_of(&g, ext).is_empty(), "{ext} must be unpainted");
+        }
+    }
+
+    #[test]
+    fn paint_commit_writes_state_tags() {
+        let mut g = paint_graph_fixture();
+        let out = paint_graph(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+
+        assert_eq!(out.status, "committed");
+        assert_eq!(out.counts.scanned, 3);
+        assert_eq!(out.counts.bedrock, 1);
+        assert_eq!(out.counts.overgrowth, 2);
+        assert_eq!(out.counts.painted, 3);
+
+        // Referenced node -> bedrock.
+        assert_eq!(
+            state_tag_of(&g, "file::modB/src/lib.rs::fn::b_core"),
+            vec!["xray:state:bedrock".to_string()]
+        );
+        // Orphan node -> overgrowth.
+        assert_eq!(
+            state_tag_of(&g, "file::modA/src/util.rs::fn::a_util"),
+            vec!["xray:state:overgrowth".to_string()]
+        );
+    }
+
+    #[test]
+    fn paint_repaint_is_idempotent_no_accumulation() {
+        let mut g = paint_graph_fixture();
+
+        // First commit paints everything.
+        let first = paint_graph(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        assert_eq!(first.counts.painted, 3);
+
+        // Second commit: every node already carries exactly its computed state,
+        // so nothing is painted again — and exactly ONE state tag per node.
+        let second = paint_graph(
+            &mut g,
+            &paint_input(None, XrayManifest::default(), XrayMode::Commit),
+        );
+        assert_eq!(second.counts.painted, 0);
+
+        for ext in [
+            "file::modA/src/lib.rs::fn::a_main",
+            "file::modA/src/util.rs::fn::a_util",
+            "file::modB/src/lib.rs::fn::b_core",
+        ] {
+            assert_eq!(
+                state_tag_of(&g, ext).len(),
+                1,
+                "{ext} must carry exactly one xray:state:* tag after re-paint"
+            );
+        }
+    }
+
+    #[test]
+    fn paint_manifest_flags_erosion_candidate_source() {
+        let mut g = paint_graph_fixture();
+        // Forbid modA -> modB: a_main is the SOURCE of that cross-module import,
+        // so it is reclassified bedrock/overgrowth -> erosion-candidate.
+        let manifest = XrayManifest {
+            forbid: vec![("modA".to_string(), "modB".to_string())],
+            ..Default::default()
+        };
+        let out = paint_graph(&mut g, &paint_input(None, manifest, XrayMode::Commit));
+
+        assert_eq!(out.status, "committed");
+        assert_eq!(out.counts.erosion_candidate, 1);
+        // a_main is the flagged source.
+        assert_eq!(
+            state_tag_of(&g, "file::modA/src/lib.rs::fn::a_main"),
+            vec!["xray:state:erosion-candidate".to_string()]
+        );
+        // b_core stays bedrock (referenced, not a flagged source).
+        assert_eq!(
+            state_tag_of(&g, "file::modB/src/lib.rs::fn::b_core"),
+            vec!["xray:state:bedrock".to_string()]
+        );
+        // a_util stays overgrowth (orphan, not a source).
+        assert_eq!(
+            state_tag_of(&g, "file::modA/src/util.rs::fn::a_util"),
+            vec!["xray:state:overgrowth".to_string()]
+        );
+    }
+
+    #[test]
+    fn paint_scope_narrows_the_painted_set() {
+        let mut g = paint_graph_fixture();
+        let out = paint_graph(
+            &mut g,
+            &paint_input(
+                Some("file::modA"),
+                XrayManifest::default(),
+                XrayMode::Commit,
+            ),
+        );
+        // Only the two modA nodes are in scope.
+        assert_eq!(out.counts.scanned, 2);
+        assert_eq!(out.counts.painted, 2);
+        // modB node is out of scope -> untouched.
+        assert!(state_tag_of(&g, "file::modB/src/lib.rs::fn::b_core").is_empty());
+        // a_main is referenced from outside its own module? No — a_main is a
+        // SOURCE, not a target; it has no incoming reference edge -> overgrowth.
+        assert_eq!(
+            state_tag_of(&g, "file::modA/src/lib.rs::fn::a_main"),
+            vec!["xray:state:overgrowth".to_string()]
+        );
     }
 }

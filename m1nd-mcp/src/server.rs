@@ -336,6 +336,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "xray_apply",
     "xray_orient",
     "xray_gate",
+    "xray_paint",
 ];
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
@@ -2307,6 +2308,31 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "selector", "transform"]
                 }
+            },
+            // =================================================================
+            // X-RAY write verb: xray_paint — the PAINT pass (persist proof-state tags)
+            // =================================================================
+            {
+                "name": "xray_paint",
+                "description": "X-RAY write verb (the PAINT pass). One call classifies every in-scope node into a STRUCTURAL proof-state from REAL graph signals and writes it as a persistent tag `xray:state:<state>` — making proof-states QUERYABLE tags instead of ephemeral per-call computations. Per node (honest, proof-grown): `erosion-candidate` if it is the SOURCE of a cross-module edge the manifest flags (candidate, not confirmed — same predicate as xray_orient); else `bedrock` if it has reference in-degree > 0 (imports/calls/references/depends_on point at it — load-bearing); else `overgrowth` (orphan / off-lattice). BLUEPRINT is a manifest-level absence, never a node tag. Re-paint is idempotent: existing `xray:state:*` tags are REPLACED, never accumulated. Returns counts (scanned/bedrock/overgrowth/erosion_candidate/painted) without mutating unless mode='commit'; on commit it applies the columnar tag mutators and persists the graph snapshot. Mutates graph metadata only — never source files.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "Optional external_id path-prefix filter — only nodes whose external_id starts with this prefix are classified and painted" },
+                        "manifest": {
+                            "type": "object",
+                            "description": "North-star ruleset used only to flag `erosion-candidate` source nodes (same shape + predicate as xray_orient). Empty manifest => no erosion candidates (every referenced node is bedrock, every orphan is overgrowth)",
+                            "properties": {
+                                "forbid": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }, "default": [], "description": "Pairs [A, B] meaning module A must not depend on module B" },
+                                "layer_order": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Modules ordered low->high; depending on a higher layer flags the source as an erosion-candidate" },
+                                "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Unused by paint (accepted for manifest parity with xray_orient)" }
+                            }
+                        },
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) classifies and counts but writes nothing; commit replaces each node's xray:state:* tag and persists" }
+                    },
+                    "required": ["agent_id"]
+                }
             }
         ]
     })
@@ -2335,6 +2361,9 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "xray_retag",
     // xray_apply physically writes source files to disk, so a read-only attach must refuse it.
     "xray_apply",
+    // xray_paint commits proof-state tag mutations to graph_path on disk, so a
+    // read-only attach must refuse it (same stance as xray_retag).
+    "xray_paint",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -3282,6 +3311,11 @@ fn dispatch_core_tool(
             let input: crate::xray_handlers::XrayGateInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::xray_handlers::handle_xray_gate(state, input)
+        }
+        "xray_paint" => {
+            let input: crate::xray_handlers::XrayPaintInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_paint(state, input)
         }
         "impact" => {
             let input: ImpactInput =
