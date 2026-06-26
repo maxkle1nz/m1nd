@@ -65,6 +65,13 @@ fn l2_seek_heuristic_reason(
 /// V1: heuristic intent matching (trigram + identifier splitting) -- zero new deps.
 /// V2 upgrade path: fastembed-rs with jina-embeddings-v2-base-code for real embeddings.
 ///   V2 score: embedding_similarity * 0.5 + graph_activation * 0.3 + temporal_recency * 0.2.
+/// OPTIONAL `embed` feature: a non-survivor node (zero keyword/trigram signal)
+/// is admitted as a SEMANTIC RECALL candidate only when its query cosine clears
+/// this floor — high enough to avoid noise, low enough to surface true
+/// meaning-matches that share zero tokens with the query.
+#[cfg(feature = "embed")]
+const SEMANTIC_RECALL_FLOOR: f32 = 0.40;
+
 pub fn handle_seek(
     state: &mut SessionState,
     input: layers::SeekInput,
@@ -269,28 +276,31 @@ pub fn handle_seek(
         let tri = trigram_scores[i];
         let legacy_sem = semantic_scores.get(&i).copied().unwrap_or(0.0);
 
-        // Phase-1 survivor = node with any lexical signal (keyword or trigram).
-        // For survivors, when the `embed` feature is ON and BOTH the query and
-        // this node have an embedding, blend: sem = 0.7*cosine + 0.3*legacy.
-        // The lexical/trigram signal is preserved (not discarded). When the
-        // feature is OFF or an embedding is missing, sem stays legacy_sem.
+        // When the `embed` feature is ON, blend the query↔node cosine into `sem`:
+        // sem = 0.7*cosine + 0.3*legacy_trigram (lexical signal preserved). This
+        // runs for SURVIVORS (any keyword/trigram signal) AND — the recall win —
+        // for NON-survivors whose cosine clears SEMANTIC_RECALL_FLOOR, so a node
+        // that matches by MEANING with zero token overlap still surfaces. With the
+        // feature OFF or no embedding, sem stays legacy_sem (ZERO behavior change).
         #[allow(unused_mut)]
         let mut sem = legacy_sem;
         #[cfg(feature = "embed")]
         {
-            let is_survivor = kw > 0.0 || tri > 0.0;
-            if is_survivor {
-                if let Some(qv) = query_embedding.as_ref() {
-                    if let Some(nv) = state
-                        .orchestrator
-                        .semantic
-                        .embeddings
-                        .get(&m1nd_core::types::NodeId::new(i as u32))
-                    {
-                        let cos = m1nd_core::embed::cosine(qv, nv).clamp(0.0, 1.0);
-                        sem = 0.7 * cos + 0.3 * legacy_sem;
-                        embeddings_used = true;
-                    }
+            if let (Some(qv), Some(nv)) = (
+                query_embedding.as_ref(),
+                state
+                    .orchestrator
+                    .semantic
+                    .embeddings
+                    .get(&m1nd_core::types::NodeId::new(i as u32)),
+            ) {
+                let cos = m1nd_core::embed::cosine(qv, nv).clamp(0.0, 1.0);
+                let is_survivor = kw > 0.0 || tri > 0.0;
+                // Non-survivors get no kw/tri boost, so an admitted pure-semantic
+                // hit ranks by cosine and stays modest — recall without flooding.
+                if is_survivor || cos >= SEMANTIC_RECALL_FLOOR {
+                    sem = 0.7 * cos + 0.3 * legacy_sem;
+                    embeddings_used = true;
                 }
             }
         }
@@ -9599,6 +9609,138 @@ mod tests {
         assert!(
             target_pos.is_some(),
             "semantic target 'drain_inflight' must be surfaced; got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// PRINCIPLED RECALL: a node that matches the query by MEANING but shares
+    /// ZERO keyword/trigram signal (a true non-survivor) must still surface,
+    /// admitted purely because its query cosine clears SEMANTIC_RECALL_FLOOR.
+    /// Under the old survivor-gated blend it was dropped by the lexical cutoff.
+    #[cfg(feature = "embed")]
+    #[test]
+    fn embed_recall_surfaces_nonsurvivor_semantic_node() {
+        use m1nd_core::graph::NodeProvenanceInput;
+
+        let model_dir = m1nd_core::embed::Model2VecEmbedder::default_model_dir();
+        if !model_dir.join("model.safetensors").exists() {
+            eprintln!("SKIP embed_recall_surfaces_nonsurvivor_semantic_node: model not vendored");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("m1nd_embed_recall_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp dir");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let query = "open a secure encrypted channel";
+        let mut graph = Graph::new();
+        // Decoy: unrelated meaning, also lexically disjoint from the query.
+        let decoy = graph
+            .add_node(
+                "fn::parse_csv_header",
+                "parse_csv_header",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add decoy");
+        graph.set_node_provenance(
+            decoy,
+            NodeProvenanceInput {
+                source_path: Some("src/csv.rs"),
+                line_start: Some(1),
+                line_end: Some(20),
+                excerpt: Some("splits the first row into column names for the parser"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        // Target: a GIBBERISH label sharing zero trigrams with the query (a true
+        // non-survivor: kw=0, tri=0); the intent lives ONLY in the excerpt.
+        let target = graph
+            .add_node("fn::qz9wb", "qz9wb", NodeType::Function, &[], 0.0, 0.0)
+            .expect("add target");
+        graph.set_node_provenance(
+            target,
+            NodeProvenanceInput {
+                source_path: Some("src/net.rs"),
+                line_start: Some(10),
+                line_end: Some(40),
+                excerpt: Some(
+                    "negotiates a TLS session and establishes an encrypted tunnel between two hosts",
+                ),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        // Calibration: print the query↔node cosines so the floor is observable.
+        {
+            use m1nd_core::embed::Embedder;
+            let qv = state
+                .orchestrator
+                .semantic
+                .embedder
+                .as_ref()
+                .expect("embedder loaded")
+                .embed(query);
+            let cos_of = |id| {
+                state
+                    .orchestrator
+                    .semantic
+                    .embeddings
+                    .get(id)
+                    .map(|nv| m1nd_core::embed::cosine(&qv, nv))
+                    .unwrap_or(0.0)
+            };
+            eprintln!(
+                "RECALL CALIB: target cos={:.4}  decoy cos={:.4}  floor={}",
+                cos_of(&target),
+                cos_of(&decoy),
+                super::SEMANTIC_RECALL_FLOOR
+            );
+        }
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: query.into(),
+                agent_id: "probe".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        eprintln!("embeddings_used = {}", out.embeddings_used);
+        for r in &out.results {
+            eprintln!("  {:<18} score={:.4}", r.label, r.score);
+        }
+
+        assert!(out.embeddings_used, "embeddings must have fired");
+        assert!(
+            out.results.iter().any(|r| r.label == "qz9wb"),
+            "non-survivor semantic match 'qz9wb' must surface via the recall floor; got {:?}",
             out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
         );
 
