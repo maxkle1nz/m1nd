@@ -1,6 +1,7 @@
 {
-  "_about": "X-RAY North Star (MANIFESTO) for the m1nd workspace. Declares the architectural intent that the X-RAY verbs (xray_orient / xray_gate / xray_paint) measure the as-built code against. PROVISIONAL until ratified by a human — set \"ratified\": true to give the guardrail teeth (EROSION hard-block).",
-  "ratified": false,
+  "_about": "X-RAY North Star (MANIFESTO) for the m1nd workspace. Declares the architectural intent that the X-RAY verbs (xray_orient / xray_gate / xray_paint) measure the as-built code against. RATIFIED — the guardrail now blocks EROSION (a dependency that violates a layer rule).",
+  "ratified": true,
+  "ratified_on": "2026-06-26",
   "layer_order": ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw"],
   "forbid": [],
   "require_exists": ["mission_verify", "seek", "lock_create", "query_readonly"],
