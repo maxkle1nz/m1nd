@@ -374,7 +374,22 @@ pub struct ExtractionResult {
 /// Max source lines folded into a code symbol's excerpt (signature + a few body
 /// lines) and the hard character budget on the joined result.
 pub const EXCERPT_MAX_LINES: usize = 4;
-pub const EXCERPT_MAX_CHARS: usize = 240;
+pub const EXCERPT_MAX_CHARS: usize = 320;
+/// Max preceding comment lines folded into a symbol's excerpt as doc-intent context.
+pub const EXCERPT_MAX_DOC_LINES: usize = 6;
+
+/// If `trimmed` is a comment line, return its prose payload (text after the
+/// marker); else None. Handles `///` `//!` `//` (Rust/JS/Go/C), `#`
+/// (Python/Ruby/shell), and `/**` `/*` `*/` `*` block-comment bodies. Used to
+/// fold a symbol's preceding doc comment into its embedding text.
+fn comment_prose(trimmed: &str) -> Option<&str> {
+    for marker in ["///", "//!", "//", "/**", "/*", "*/", "*", "#"] {
+        if let Some(rest) = trimmed.strip_prefix(marker) {
+            return Some(rest.trim());
+        }
+    }
+    None
+}
 
 /// Derive a short behavioral excerpt for each non-File symbol from its own source
 /// span (signature + first body lines), so downstream embeddings capture what a
@@ -410,16 +425,45 @@ pub fn compute_excerpts(result: &ExtractionResult, content: &[u8]) -> Vec<(Strin
             .min(upper)
             .max(start + 1)
             .min(lines.len());
+        // Fold in the symbol's PRECEDING doc comment (rustdoc/JSDoc/Go/`#`) — the
+        // purest statement of INTENT — scanning upward, skipping Rust attributes,
+        // stopping at a blank line (so file-top license headers are excluded).
+        let mut doc: Vec<&str> = Vec::new();
+        let mut i = start;
+        let mut scanned = 0;
+        while i > 0 && scanned < EXCERPT_MAX_DOC_LINES {
+            i -= 1;
+            let t = lines[i].trim();
+            if t.is_empty() {
+                break;
+            }
+            if t.starts_with("#[") || t.starts_with("#![") {
+                scanned += 1; // Rust attribute between doc and item — skip, keep scanning
+                continue;
+            }
+            match comment_prose(t) {
+                Some(prose) => {
+                    if !prose.is_empty() {
+                        doc.push(prose);
+                    }
+                    scanned += 1;
+                }
+                None => break, // reached real code
+            }
+        }
+        doc.reverse(); // back into source order
+
+        // excerpt = doc prose (intent) + signature/body, joined and char-bounded.
         let mut excerpt = String::new();
-        for line in &lines[start..stop] {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
+        let body = lines[start..stop].iter().map(|l| l.trim());
+        for piece in doc.into_iter().chain(body) {
+            if piece.is_empty() {
                 continue;
             }
             if !excerpt.is_empty() {
                 excerpt.push(' ');
             }
-            excerpt.push_str(trimmed);
+            excerpt.push_str(piece);
             if excerpt.chars().count() >= EXCERPT_MAX_CHARS {
                 break;
             }
@@ -456,7 +500,7 @@ mod excerpt_tests {
 
     #[test]
     fn compute_excerpts_slices_signature_and_body_and_skips_files() {
-        let src = "// header\npub fn drain_inflight(ctx: &Ctx) -> Result<()> {\n    abort_running_work();\n    stop_accepting_tasks();\n}\n";
+        let src = "/// Drains in-flight work on cancellation.\npub fn drain_inflight(ctx: &Ctx) -> Result<()> {\n    abort_running_work();\n    stop_accepting_tasks();\n}\n";
         let result = ExtractionResult {
             nodes: vec![
                 ExtractedNode {
@@ -491,6 +535,10 @@ mod excerpt_tests {
         assert!(
             text.contains("abort_running_work"),
             "excerpt folds in the first body line(s): {text}"
+        );
+        assert!(
+            text.contains("cancellation"),
+            "excerpt folds in the preceding doc comment (intent): {text}"
         );
         assert!(text.chars().count() <= EXCERPT_MAX_CHARS);
     }
