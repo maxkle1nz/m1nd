@@ -2,6 +2,7 @@
 // === crates/m1nd-ingest/src/lib.rs ===
 
 use m1nd_core::error::{M1ndError, M1ndResult};
+use m1nd_core::graph::NodeProvenanceInput;
 use m1nd_core::types::*;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -318,18 +319,35 @@ impl Ingestor {
             };
 
             let tags: Vec<&str> = node.tags.iter().map(String::as_str).collect();
-            if graph
-                .add_node(
-                    &node.id,
-                    &node.label,
-                    node.node_type,
-                    &tags,
-                    last_modified,
-                    change_frequency,
-                )
-                .is_ok()
-            {
+            if let Ok(node_id) = graph.add_node(
+                &node.id,
+                &node.label,
+                node.node_type,
+                &tags,
+                last_modified,
+                change_frequency,
+            ) {
                 stats.nodes_created += 1;
+
+                // Provenance: the source file is the node's containing file_id
+                // ("file::<relpath>"), so strip the "file::" prefix to recover the
+                // project-relative source path. This is what makes the graph-driven
+                // AST-apply path (xray_apply AnnotateSymbol) actually match symbols:
+                // without it every code node lands with source_path = None.
+                // line == 0 is fine — resolve_node_provenance treats 0 as None.
+                if let Some(source_path) = file_id.strip_prefix("file::") {
+                    if !source_path.is_empty() {
+                        graph.set_node_provenance(
+                            node_id,
+                            NodeProvenanceInput {
+                                source_path: Some(source_path),
+                                line_start: Some(node.line),
+                                line_end: Some(node.end_line),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
             }
         }
 
@@ -499,6 +517,50 @@ mod tests {
 
         assert!(stats.references_resolved >= 1);
         assert!(has_reference_edge || has_import_edge);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ingest_populates_node_provenance_for_code_symbols() {
+        // PROOF the AST-apply path is not a no-op: a REAL ingest (walk + extract +
+        // build) must populate each symbol node's provenance (source_path +
+        // line_start), not leave it at the add_node default of None / 0.
+        let root = temp_ingest_dir("rust-provenance");
+        fs::create_dir_all(root.join("src")).unwrap();
+
+        // A function spanning known lines: `fn answer` opens on line 3.
+        fs::write(
+            root.join("src/lib.rs"),
+            "// header comment\n\
+             \n\
+             pub fn answer() -> u32 {\n\
+             \x20   42\n\
+             }\n",
+        )
+        .unwrap();
+
+        let ingest = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..Default::default()
+        });
+
+        let (graph, _stats) = ingest.ingest().unwrap();
+        let func = graph
+            .resolve_id("file::src/lib.rs::fn::answer")
+            .expect("function node must exist after ingest");
+
+        let prov = graph.resolve_node_provenance(func);
+        assert_eq!(
+            prov.source_path.as_deref(),
+            Some("src/lib.rs"),
+            "provenance source_path must be the project-relative source file"
+        );
+        assert_eq!(
+            prov.line_start,
+            Some(3),
+            "provenance line_start must be the function's real opening line"
+        );
 
         let _ = fs::remove_dir_all(root);
     }
