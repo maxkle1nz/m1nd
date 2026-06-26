@@ -89,6 +89,12 @@ pub struct SeekOutput {
     pub query: String,
     pub results: Vec<SeekResultEntry>,
     pub total_candidates_scanned: usize,
+    /// Present only when retrieval returned NO results: a plain-English reason the
+    /// result set is empty (empty graph, no searchable tokens, scope/type filtered
+    /// everything, or nothing cleared the relevance threshold), so an agent can
+    /// adjust the query instead of blindly re-querying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filtering_reason: Option<String>,
     /// Whether embeddings were used (false = fallback to trigram/semantic engine).
     pub embeddings_used: bool,
     /// Coarse proof stage for semantic retrieval:
