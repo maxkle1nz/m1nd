@@ -613,12 +613,49 @@ pub struct XrayFileSelector {
     pub extensions: Vec<String>,
 }
 
+/// Where an `AnnotateSymbol` annotation is inserted relative to the symbol. The
+/// MVP supports only [`AnnotatePosition::Above`] (a new line immediately above
+/// the symbol's `line_start`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnnotatePosition {
+    #[default]
+    Above,
+}
+
+/// Default for [`XrayTransform::AnnotateSymbol::position`] (so the field can be
+/// omitted by the agent and still default to `above`).
+fn default_annotate_position() -> AnnotatePosition {
+    AnnotatePosition::Above
+}
+
 /// The transform to apply. An enum so more transforms can slot in later.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum XrayTransform {
     /// Ensure a header tag exists in the first 3 lines; idempotent insert.
+    /// FILE-driven: planned by reading each selected file's text.
     EnsureHeaderTag { tag: String },
+    /// Insert `annotation` as its own line immediately ABOVE each selected
+    /// symbol node's `line_start`. GRAPH-driven: symbols are selected from the
+    /// live graph (tree-sitter provenance captured at ingest), so this is an
+    /// AST-targeted edit that re-parses NOTHING — it reuses the line ranges the
+    /// graph already holds. Applied bottom-up per file so earlier line numbers
+    /// stay valid. Idempotent against the CURRENT provenance (a symbol whose
+    /// immediately-preceding line already equals `annotation` is skipped) — and,
+    /// like every commit of this verb, a write sets `graph_resync_required`: the
+    /// caller must re-ingest before re-running so provenance reflects the shifted
+    /// lines (a re-run on stale line numbers can no longer find the symbol).
+    AnnotateSymbol {
+        annotation: String,
+        /// Optional exact node-type filter, expressed as the canonical u8 (see
+        /// [`node_type_to_u8`] — File=0, Function=2, Struct=4, …). `None` = any.
+        #[serde(default)]
+        node_type: Option<u8>,
+        /// Insertion position. MVP: only `above` (the default).
+        #[serde(default = "default_annotate_position")]
+        position: AnnotatePosition,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -652,6 +689,12 @@ pub struct XrayApplyCounts {
     pub applied: u32,
     /// Files whose content drifted between STAGE and REHASH.
     pub conflicts: u32,
+    /// AST selection signal (graph-driven transforms only, e.g.
+    /// `AnnotateSymbol`): how many symbol NODES the selector targeted across all
+    /// files BEFORE per-line idempotency/skip filtering. 0 for file-driven
+    /// transforms (`EnsureHeaderTag`) so the agent can tell that AST selection
+    /// ran and how many symbols it matched.
+    pub symbols_matched: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -713,10 +756,16 @@ fn plan_version(entries: &[(PathBuf, String)]) -> String {
     format!("{fold:016x}")
 }
 
-/// Pure transform: returns `Some(new_content)` if it changes the file, `None`
-/// if it is a no-op. Matching on the enum lets future variants slot in.
+/// Pure FILE transform: returns `Some(new_content)` if it changes the file,
+/// `None` if it is a no-op. Only FILE-driven variants are handled here;
+/// GRAPH-driven variants (e.g. [`XrayTransform::AnnotateSymbol`]) are planned by
+/// [`build_annotate_plan`] from graph provenance and never reach this function,
+/// so they are a deliberate `None` (no per-file-text plan).
 fn apply_transform(content: &str, transform: &XrayTransform) -> Option<String> {
     match transform {
+        // GRAPH-driven: planned elsewhere from tree-sitter provenance. Never
+        // routed through the file walk, so a no-op here by construction.
+        XrayTransform::AnnotateSymbol { .. } => None,
         XrayTransform::EnsureHeaderTag { tag } => {
             // Look at the first 3 lines (keepends-equivalent). If the tag is
             // already a substring there -> no-op (idempotent).
@@ -811,7 +860,7 @@ fn apply_files_inner(
         ..Default::default()
     };
 
-    // ---- SELECT: read + guard-hash + plan ----
+    // ---- SELECT: read + guard-hash + plan (FILE-driven transform) ----
     // plan entries: (path, guard_hash, new_bytes)
     let mut plan: Vec<(PathBuf, String, Vec<u8>)> = Vec::new();
     for p in paths {
@@ -840,6 +889,38 @@ fn apply_files_inner(
         }
     }
 
+    // Hand the computed plan to the SHARED atomic applier (STAGE→REHASH→SWAP,
+    // OCC, dry_run/commit, ledger). The graph-driven `AnnotateSymbol` path
+    // builds its own `plan` + `counts` and calls the SAME applier — there is no
+    // second write path.
+    run_atomic_apply(
+        plan,
+        counts,
+        mode,
+        expect_version,
+        tamper,
+        before_swap,
+        ledger,
+    )
+}
+
+/// The SHARED atomic applier: takes an already-computed `plan` of
+/// `(path, guard_hash, new_bytes)` plus seed `counts` (the planning phase already
+/// stamped `matched`/`planned`/`skipped_noop`/`skipped_binary`/`symbols_matched`)
+/// and runs the STAGE→REHASH→SWAP engine with content-hash OCC. Both the
+/// file-driven [`apply_files_inner`] and the graph-driven `AnnotateSymbol` path
+/// funnel through here so the on-disk write semantics are identical and live in
+/// ONE place. `guard_hash` is the SELECT-phase content hash of each original.
+#[allow(clippy::too_many_arguments)]
+fn run_atomic_apply(
+    plan: Vec<(PathBuf, String, Vec<u8>)>,
+    mut counts: XrayApplyCounts,
+    mode: XrayMode,
+    expect_version: Option<&str>,
+    tamper: TamperHook<'_>,
+    before_swap: BeforeSwapHook<'_>,
+    mut ledger: Option<&mut Vec<serde_json::Value>>,
+) -> XrayApplyOutput {
     // Cross-call OCC fingerprint over the planned files' current bytes (the
     // SELECT-phase guard hashes), keyed by path. Order-independent over path.
     let version = plan_version(
@@ -1105,6 +1186,213 @@ fn apply_files_inner(
     }
 }
 
+// ---------------------------------------------------------------------------
+// AnnotateSymbol — graph-driven, AST-targeted plan (no re-parse)
+// ---------------------------------------------------------------------------
+// The proof-grown insight: m1nd already parsed every file with tree-sitter at
+// ingest, so each symbol node carries `NodeProvenance { source_path, line_start,
+// line_end }`. "AST-precise apply" = query the graph for symbol nodes, read their
+// provenance line ranges, and insert annotations at exactly those lines — no
+// re-parsing. Selection mirrors `XrayFileSelector` semantics adapted to NODES.
+
+/// One AST target resolved from the graph: a file plus the 1-based `line_start`
+/// of a symbol whose annotation goes immediately ABOVE that line.
+type SymbolTarget = (PathBuf, u32);
+
+/// PHASE A (under the graph READ lock, NO file IO): resolve the selector to
+/// symbol nodes and collect their `(absolute source path, line_start)` targets.
+///
+/// A node is selected only if it satisfies EVERY provided predicate:
+///   * module (derived from external_id via [`module_of`]) matches
+///     `selector.path_prefix` when set;
+///   * `node_type` (canonical u8) equals the requested `node_type` when set;
+///   * the node has provenance with a non-empty `source_path` and
+///     `line_start >= 1`;
+///   * the resolved absolute path stays under `root` and is not a forbidden
+///     runtime/VCS/build artifact (reuses [`is_forbidden_path`] +
+///     `starts_with(root)` containment — the SAME confinement the file walk
+///     uses, so a symbol whose source escapes root is dropped).
+///
+/// Returns `(targets, symbols_matched)` where `symbols_matched` counts every
+/// node that passed selection (BEFORE per-line idempotency, which happens in
+/// PHASE B once the files are read). Holds only the graph read lock; touches no
+/// files.
+fn collect_symbol_targets(
+    graph: &Graph,
+    root: &Path,
+    node_type: Option<u8>,
+    path_prefix: Option<&str>,
+) -> (Vec<SymbolTarget>, u32) {
+    let ext = node_to_ext_map(graph);
+    let n = graph.num_nodes() as usize;
+    let mut targets: Vec<SymbolTarget> = Vec::new();
+    let mut symbols_matched: u32 = 0;
+    for (i, external_id) in ext.iter().enumerate().take(n) {
+        // node_type: exact match on canonical u8.
+        if let Some(want) = node_type {
+            if node_type_to_u8(graph.nodes.node_type[i]) != want {
+                continue;
+            }
+        }
+        // path_prefix: the node's MODULE (first path segment of external_id)
+        // must start with the requested prefix (NODE-adapted selector).
+        if let Some(prefix) = path_prefix {
+            match module_of(external_id) {
+                Some(module) if module.starts_with(prefix) => {}
+                _ => continue,
+            }
+        }
+        // provenance: need a non-empty source_path and a 1-based line_start.
+        let prov = graph.resolve_node_provenance(NodeId::new(i as u32));
+        let (Some(source), Some(line_start)) = (prov.source_path, prov.line_start) else {
+            continue;
+        };
+        if source.is_empty() || line_start < 1 {
+            continue;
+        }
+        // Resolve to an absolute path under root, then confine: forbidden
+        // artifacts and any path escaping root are dropped (same rules as the
+        // file walk). source_path is relative to the project root.
+        let abs = root.join(&source);
+        if is_forbidden_path(&abs) {
+            continue;
+        }
+        // Containment via canonicalized parent (the file may legitimately not
+        // exist yet — confine on the lexical join AND, when resolvable, the
+        // canonical form). A symlink/`..` that escapes root is refused.
+        if !path_confined_to_root(&abs, root) {
+            continue;
+        }
+        symbols_matched += 1;
+        targets.push((abs, line_start));
+    }
+    (targets, symbols_matched)
+}
+
+/// True if `abs` is confined under `root`. Confinement is checked lexically on
+/// the joined path AND, when the path (or its existing parent) can be
+/// canonicalized, on the canonical form — so a `..` or symlink that escapes root
+/// is refused even though the lexical join looked fine. A file that doesn't
+/// exist yet still passes via the lexical + parent-canonical check.
+fn path_confined_to_root(abs: &Path, root: &Path) -> bool {
+    // Lexical guard: no `..` component may climb out (cheap, catches `a/../../x`).
+    let mut depth: i64 = 0;
+    for comp in abs
+        .strip_prefix(root)
+        .into_iter()
+        .flat_map(|r| r.components())
+    {
+        match comp {
+            std::path::Component::ParentDir => depth -= 1,
+            std::path::Component::CurDir => {}
+            _ => depth += 1,
+        }
+        if depth < 0 {
+            return false;
+        }
+    }
+    if !abs.starts_with(root) {
+        return false;
+    }
+    // Canonical guard (defeats symlink escapes). Prefer canonicalizing the file;
+    // if it doesn't exist, canonicalize the nearest existing ancestor.
+    if let Ok(canon) = abs.canonicalize() {
+        return canon.starts_with(root);
+    }
+    let mut cur = abs.parent();
+    while let Some(p) = cur {
+        if let Ok(canon) = p.canonicalize() {
+            return canon.starts_with(root);
+        }
+        cur = p.parent();
+    }
+    // Nothing canonicalizable: fall back to the lexical result (already passed).
+    true
+}
+
+/// PHASE B (graph lock DROPPED — does file IO): turn graph targets into an
+/// atomic-apply plan. Groups targets by file, reads each file once, and inserts
+/// `annotation + "\n"` above each target `line_start`.
+///
+/// CRITICAL invariants:
+///   * BOTTOM-UP: inserts are applied highest-line-first so earlier line numbers
+///     stay valid as lines shift.
+///   * IDEMPOTENT: a target whose immediately-preceding line already equals
+///     `annotation` (trimmed) is skipped — re-running never stacks duplicates.
+///   * Non-UTF-8 files are skipped (binary guard, counted in `skipped_binary`).
+///
+/// Seeds `counts.matched` = number of distinct files touched, `planned` = files
+/// whose content actually changes, `skipped_noop` = files where every target was
+/// already annotated, and `symbols_matched` is passed through from PHASE A.
+/// Returns `(plan, counts)` for [`run_atomic_apply`].
+fn build_annotate_plan(
+    targets: Vec<SymbolTarget>,
+    annotation: &str,
+    symbols_matched: u32,
+) -> (Vec<(PathBuf, String, Vec<u8>)>, XrayApplyCounts) {
+    // Group line_starts by file (dedup + descending for bottom-up insert).
+    let mut by_file: BTreeMap<PathBuf, Vec<u32>> = BTreeMap::new();
+    for (path, line_start) in targets {
+        by_file.entry(path).or_default().push(line_start);
+    }
+
+    let mut counts = XrayApplyCounts {
+        matched: by_file.len() as u32,
+        symbols_matched,
+        ..Default::default()
+    };
+    let mut plan: Vec<(PathBuf, String, Vec<u8>)> = Vec::new();
+    let annotation_trimmed = annotation.trim();
+
+    for (path, mut line_starts) in by_file {
+        let Ok(bytes) = std::fs::read(&path) else {
+            // Unreadable file: skip without panicking (never unwrap a read).
+            continue;
+        };
+        let guard = content_hash(&bytes);
+        let Ok(current) = std::str::from_utf8(&bytes) else {
+            counts.skipped_binary += 1;
+            continue;
+        };
+        // Keepends split so the rebuild is byte-exact (trailing-newline safe).
+        let mut lines: Vec<String> = current.split_inclusive('\n').map(str::to_owned).collect();
+
+        // BOTTOM-UP: highest line first so lower indices remain valid.
+        line_starts.sort_unstable();
+        line_starts.dedup();
+        line_starts.reverse();
+
+        let mut changed = false;
+        for ls in line_starts {
+            // 1-based line_start -> 0-based vec index of the symbol's line.
+            let idx = (ls - 1) as usize;
+            if idx > lines.len() {
+                continue; // provenance points past EOF — skip defensively.
+            }
+            // IDEMPOTENT: skip if the immediately-preceding line already equals
+            // the annotation (trimmed). idx == 0 has no preceding line.
+            if idx > 0 {
+                let prev = lines[idx - 1].trim_end_matches(['\n', '\r']).trim();
+                if prev == annotation_trimmed {
+                    continue;
+                }
+            }
+            // Insert `annotation + "\n"` as its own line ABOVE the symbol line.
+            lines.insert(idx, format!("{annotation}\n"));
+            changed = true;
+        }
+
+        if changed {
+            counts.planned += 1;
+            plan.push((path, guard, lines.concat().into_bytes()));
+        } else {
+            counts.skipped_noop += 1;
+        }
+    }
+
+    (plan, counts)
+}
+
 /// Append one `{ path, before_hash, after_hash }` audit-ledger record per plan
 /// entry that was swapped to disk. `before_hash` is the SELECT-phase guard hash
 /// (the original's content hash); `after_hash` is the staged new content's hash.
@@ -1284,43 +1572,82 @@ pub fn handle_xray_apply(
         detail: format!("could not canonicalize project root; refusing to write: {e}"),
     })?;
 
-    // Narrow the walk start to root.join(prefix) when a prefix is given (and it
-    // stays a dir under root); the per-file gate re-checks the prefix anyway.
-    let walk_start = match input.selector.path_prefix.as_deref() {
-        Some(prefix) => {
-            let joined = root.join(prefix.trim_start_matches("./"));
-            if joined.is_dir() {
-                joined
-            } else {
-                root.clone()
-            }
-        }
-        None => root.clone(),
-    };
-
-    let mut matched: Vec<PathBuf> = Vec::new();
-    collect_files(&walk_start, &root, &input.selector, &mut matched);
-    matched.sort();
-
     // Collect per-file before/after hashes for the audit ledger only when a write
     // can happen (commit). The engine populates this for every file swapped to
     // disk (all on a clean commit, the swapped prefix on a partial).
     let mut changes: Vec<serde_json::Value> = Vec::new();
-    let output = if input.mode == XrayMode::Commit {
-        apply_files_with_ledger(
-            &matched,
-            &input.transform,
-            input.mode,
-            input.expect_version.as_deref(),
-            &mut changes,
-        )
-    } else {
-        apply_files(
-            &matched,
-            &input.transform,
-            input.mode,
-            input.expect_version.as_deref(),
-        )
+    let commit = input.mode == XrayMode::Commit;
+
+    let output = match &input.transform {
+        // GRAPH-driven AST transform: select symbol NODES from the live graph
+        // (tree-sitter provenance), resolve their line ranges, build a bottom-up
+        // idempotent insert plan, then funnel through the SAME atomic applier.
+        XrayTransform::AnnotateSymbol {
+            annotation,
+            node_type,
+            position: _, // MVP: only `above`, enforced by the enum default.
+        } => {
+            // PHASE A: under the graph READ lock, collect (abs_path, line_start)
+            // targets. No file IO here, and the lock is dropped before STAGE/SWAP.
+            let (targets, symbols_matched) = {
+                let graph = state.graph.read();
+                collect_symbol_targets(
+                    &graph,
+                    &root,
+                    *node_type,
+                    input.selector.path_prefix.as_deref(),
+                )
+            };
+            // PHASE B (lock dropped): read files + build the plan.
+            let (plan, counts) = build_annotate_plan(targets, annotation, symbols_matched);
+            // SHARED atomic applier — production passes no test seams. Ledger is
+            // collected only on commit (mirrors the file-driven branch).
+            let ledger = commit.then_some(&mut changes);
+            run_atomic_apply(
+                plan,
+                counts,
+                input.mode,
+                input.expect_version.as_deref(),
+                None,
+                None,
+                ledger,
+            )
+        }
+        // FILE-driven transform: walk the source tree under the safety filters.
+        XrayTransform::EnsureHeaderTag { .. } => {
+            // Narrow the walk start to root.join(prefix) when a prefix is given
+            // (and it stays a dir under root); the per-file gate re-checks anyway.
+            let walk_start = match input.selector.path_prefix.as_deref() {
+                Some(prefix) => {
+                    let joined = root.join(prefix.trim_start_matches("./"));
+                    if joined.is_dir() {
+                        joined
+                    } else {
+                        root.clone()
+                    }
+                }
+                None => root.clone(),
+            };
+            let mut matched: Vec<PathBuf> = Vec::new();
+            collect_files(&walk_start, &root, &input.selector, &mut matched);
+            matched.sort();
+            if commit {
+                apply_files_with_ledger(
+                    &matched,
+                    &input.transform,
+                    input.mode,
+                    input.expect_version.as_deref(),
+                    &mut changes,
+                )
+            } else {
+                apply_files(
+                    &matched,
+                    &input.transform,
+                    input.mode,
+                    input.expect_version.as_deref(),
+                )
+            }
+        }
     };
 
     // Append the audit ledger only when source bytes were actually written
@@ -1349,6 +1676,7 @@ pub fn handle_xray_apply(
                 "skipped_binary": output.counts.skipped_binary,
                 "applied": output.counts.applied,
                 "conflicts": output.counts.conflicts,
+                "symbols_matched": output.counts.symbols_matched,
             }),
             changes,
         );
@@ -2497,7 +2825,7 @@ pub fn handle_xray_ledger(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use m1nd_core::graph::Graph;
+    use m1nd_core::graph::{Graph, NodeProvenanceInput};
     use m1nd_core::types::NodeType;
 
     fn sample_graph() -> Graph {
@@ -3540,6 +3868,307 @@ mod tests {
         assert!(no_temps_remain(&dir));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // AnnotateSymbol — graph-driven AST-targeted apply (no re-parse)
+    // -----------------------------------------------------------------------
+
+    /// Drive the AnnotateSymbol path exactly as `handle_xray_apply` does:
+    /// PHASE A collect targets from the graph (read), PHASE B build the plan from
+    /// files, then the SHARED atomic applier (no test seams). `root` must be the
+    /// CANONICAL sandbox root (the handler canonicalizes before confinement).
+    fn annotate(
+        graph: &Graph,
+        root: &Path,
+        annotation: &str,
+        node_type: Option<u8>,
+        path_prefix: Option<&str>,
+        mode: XrayMode,
+    ) -> XrayApplyOutput {
+        let (targets, symbols_matched) =
+            collect_symbol_targets(graph, root, node_type, path_prefix);
+        let (plan, counts) = build_annotate_plan(targets, annotation, symbols_matched);
+        run_atomic_apply(plan, counts, mode, None, None, None, None)
+    }
+
+    /// Build a graph with two Function symbols and one Struct symbol, all whose
+    /// provenance points at `modA/src/x.rs`, plus a sandbox file ≥8 lines.
+    /// Returns `(graph, canonical_root, file_path)`.
+    fn annotate_fixture() -> (Graph, PathBuf, PathBuf) {
+        let root = fresh_sandbox();
+        let root = root.canonicalize().unwrap();
+        let rel = "modA/src/x.rs";
+        let file = root.join(rel);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        // 10 lines. fn foo at line 3, struct Cfg at line 6, fn bar at line 8.
+        let body = "// header\n\
+                    use std::io;\n\
+                    fn foo() {}\n\
+                    \n\
+                    // a comment\n\
+                    struct Cfg {}\n\
+                    \n\
+                    pub fn bar() {}\n\
+                    // tail\n\
+                    // eof\n";
+        std::fs::write(&file, body).unwrap();
+
+        let mut g = Graph::new();
+        let foo = g
+            .add_node(
+                "file::modA/src/x.rs::fn::foo",
+                "foo",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            foo,
+            NodeProvenanceInput {
+                source_path: Some(rel),
+                line_start: Some(3),
+                line_end: Some(3),
+                ..Default::default()
+            },
+        );
+        let cfg = g
+            .add_node(
+                "file::modA/src/x.rs::struct::Cfg",
+                "Cfg",
+                NodeType::Struct,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            cfg,
+            NodeProvenanceInput {
+                source_path: Some(rel),
+                line_start: Some(6),
+                line_end: Some(6),
+                ..Default::default()
+            },
+        );
+        let bar = g
+            .add_node(
+                "file::modA/src/x.rs::fn::bar",
+                "bar",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            bar,
+            NodeProvenanceInput {
+                source_path: Some(rel),
+                line_start: Some(8),
+                line_end: Some(8),
+                ..Default::default()
+            },
+        );
+        g.finalize().unwrap();
+        (g, root, file)
+    }
+
+    const ANNOT: &str = "// @xray:reviewed";
+
+    #[test]
+    fn annotate_dry_run_matches_symbols_writes_nothing() {
+        let (g, root, file) = annotate_fixture();
+        let before = std::fs::read_to_string(&file).unwrap();
+
+        // Two functions match node_type=Function (foo, bar); struct excluded.
+        let out = annotate(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            None,
+            XrayMode::DryRun,
+        );
+        assert_eq!(out.status, "dry_run");
+        assert_eq!(out.counts.symbols_matched, 2, "AST selected 2 functions");
+        assert_eq!(out.counts.planned, 1, "both functions live in one file");
+        assert_eq!(out.counts.applied, 0);
+
+        // Disk untouched on dry_run.
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn annotate_commit_inserts_above_each_function_bottom_up() {
+        let (g, root, file) = annotate_fixture();
+
+        let out = annotate(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            None,
+            XrayMode::Commit,
+        );
+        assert_eq!(out.status, "committed");
+        assert_eq!(out.counts.symbols_matched, 2);
+        assert_eq!(out.counts.applied, 1);
+        assert!(out.graph_resync_required, "a write must flag resync");
+
+        let lines: Vec<String> = std::fs::read_to_string(&file)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        // The annotation must sit immediately above `fn foo` and `pub fn bar`,
+        // and NOT above the struct (node_type filtered it out). Bottom-up insert
+        // keeps both placements correct in the same file.
+        let foo_i = lines.iter().position(|l| l.contains("fn foo")).unwrap();
+        assert_eq!(lines[foo_i - 1].trim(), ANNOT, "annotation above fn foo");
+        let bar_i = lines.iter().position(|l| l.contains("pub fn bar")).unwrap();
+        assert_eq!(
+            lines[bar_i - 1].trim(),
+            ANNOT,
+            "annotation above pub fn bar"
+        );
+        // The struct line must NOT be annotated (its preceding line is unchanged).
+        let cfg_i = lines.iter().position(|l| l.contains("struct Cfg")).unwrap();
+        assert_ne!(lines[cfg_i - 1].trim(), ANNOT, "struct must be untouched");
+        // Exactly two annotation lines were inserted (no extras).
+        let n_annot = lines.iter().filter(|l| l.trim() == ANNOT).count();
+        assert_eq!(n_annot, 2, "exactly 2 inserts");
+
+        assert!(no_temps_remain(&root));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn annotate_is_idempotent_on_recommit() {
+        let (mut g, root, file) = annotate_fixture();
+        let first = annotate(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            None,
+            XrayMode::Commit,
+        );
+        assert_eq!(first.counts.applied, 1);
+        let after_first = std::fs::read_to_string(&file).unwrap();
+
+        // The verb signalled `graph_resync_required` on the first write: the file
+        // bytes changed but the in-memory graph still holds STALE line numbers.
+        // The honest contract is that a correct re-run happens AFTER re-ingest,
+        // which refreshes provenance to the new line positions. Simulate that
+        // re-ingest by re-pointing each symbol's provenance at its new line
+        // (foo shifted 3->4, bar shifted 8->10 by the two inserts above).
+        g.set_node_provenance(
+            g.resolve_id("file::modA/src/x.rs::fn::foo").unwrap(),
+            NodeProvenanceInput {
+                source_path: Some("modA/src/x.rs"),
+                line_start: Some(4),
+                line_end: Some(4),
+                ..Default::default()
+            },
+        );
+        g.set_node_provenance(
+            g.resolve_id("file::modA/src/x.rs::fn::bar").unwrap(),
+            NodeProvenanceInput {
+                source_path: Some("modA/src/x.rs"),
+                line_start: Some(10),
+                line_end: Some(10),
+                ..Default::default()
+            },
+        );
+
+        // Re-run on the refreshed graph: every target's preceding line already
+        // equals the annotation, so nothing is planned and no duplicates stack.
+        let second = annotate(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            None,
+            XrayMode::Commit,
+        );
+        assert_eq!(second.status, "committed");
+        assert_eq!(second.counts.symbols_matched, 2, "AST still matched 2");
+        assert_eq!(second.counts.planned, 0, "idempotent: nothing to do");
+        assert_eq!(second.counts.applied, 0);
+        // File byte-identical to after the first run (no duplicate annotations).
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), after_first);
+        let n_annot = after_first.lines().filter(|l| l.trim() == ANNOT).count();
+        assert_eq!(n_annot, 2, "no duplicate annotation lines");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn annotate_skips_symbol_whose_source_escapes_root() {
+        let (mut g, root, _file) = annotate_fixture();
+        // A symbol whose provenance source_path climbs OUT of root via `..`.
+        let escapee = g
+            .add_node(
+                "file::escape/src/evil.rs::fn::evil",
+                "evil",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .unwrap();
+        g.set_node_provenance(
+            escapee,
+            NodeProvenanceInput {
+                source_path: Some("../../../../etc/evil.rs"),
+                line_start: Some(1),
+                line_end: Some(1),
+                ..Default::default()
+            },
+        );
+
+        let (targets, symbols_matched) =
+            collect_symbol_targets(&g, &root, Some(node_type_to_u8(NodeType::Function)), None);
+        // foo + bar are confined; the escapee is dropped BEFORE it can be a target.
+        assert_eq!(symbols_matched, 2, "escaping symbol must not be matched");
+        assert!(
+            targets.iter().all(|(p, _)| p.starts_with(&root)),
+            "every target must be confined under root"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn annotate_path_prefix_scopes_by_module() {
+        let (g, root, file) = annotate_fixture();
+        // Module prefix that matches modA -> both functions selected.
+        let hit = annotate(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            Some("modA"),
+            XrayMode::DryRun,
+        );
+        assert_eq!(hit.counts.symbols_matched, 2);
+        // A prefix matching nothing -> zero symbols, zero plan.
+        let miss = annotate(
+            &g,
+            &root,
+            ANNOT,
+            Some(node_type_to_u8(NodeType::Function)),
+            Some("modZ"),
+            XrayMode::DryRun,
+        );
+        assert_eq!(miss.counts.symbols_matched, 0);
+        assert_eq!(miss.counts.planned, 0);
+        // file unchanged either way (dry_run).
+        assert!(std::fs::read_to_string(&file).unwrap().lines().count() >= 8);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
