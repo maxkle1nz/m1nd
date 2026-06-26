@@ -1173,6 +1173,7 @@ fn is_forbidden_path(p: &Path) -> bool {
         || name == "ingest_roots.json"
         || name.ends_with("_state.json")
         || name.ends_with(".xray.tmp")
+        || name == LEDGER_FILE_NAME
     {
         return true;
     }
@@ -2434,28 +2435,37 @@ fn read_ledger(
     let Ok(file) = std::fs::File::open(ledger_path) else {
         return (Vec::new(), 0);
     };
-    let mut all: Vec<serde_json::Value> = Vec::new();
+    // Stream the append-only JSONL, retaining only the last `limit` MATCHING
+    // entries in a bounded ring buffer, so a small read never allocates the whole
+    // audit history (each record may carry up to 1000 change entries). `total`
+    // still counts every parsed record.
+    let mut total = 0usize;
+    let mut recent: std::collections::VecDeque<serde_json::Value> =
+        std::collections::VecDeque::with_capacity(limit.min(1024));
     for line in io::BufReader::new(file).lines().map_while(Result::ok) {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            all.push(value);
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+        total += 1;
+        let matches = match verb_filter {
+            Some(want) => value.get("verb").and_then(|x| x.as_str()) == Some(want),
+            None => true,
+        };
+        if !matches || limit == 0 {
+            continue;
+        }
+        recent.push_back(value);
+        if recent.len() > limit {
+            recent.pop_front();
         }
     }
-    let total = all.len();
-    let mut filtered: Vec<serde_json::Value> = match verb_filter {
-        Some(want) => all
-            .into_iter()
-            .filter(|v| v.get("verb").and_then(|x| x.as_str()) == Some(want))
-            .collect(),
-        None => all,
-    };
-    // Most recent first: reverse, then take `limit`.
-    filtered.reverse();
-    filtered.truncate(limit);
-    (filtered, total)
+    // Most recent first.
+    let entries: Vec<serde_json::Value> = recent.into_iter().rev().collect();
+    (entries, total)
 }
 
 /// MCP handler for `xray_ledger`. READ-ONLY: resolves the ledger path beside the
@@ -4406,6 +4416,16 @@ mod tests {
         assert!(entries.is_empty());
         assert_eq!(total, 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_forbidden_path_excludes_the_audit_ledger() {
+        // xray_apply must never treat its own append-only audit log as a source
+        // file (it lives beside graph_snapshot.json, inside workspace_root).
+        assert!(is_forbidden_path(Path::new("/repo/xray.ledger.jsonl")));
+        assert!(is_forbidden_path(Path::new("/repo/XRAY.LEDGER.JSONL"))); // case-insensitive
+        assert!(is_forbidden_path(Path::new("/repo/graph_snapshot.json")));
+        assert!(!is_forbidden_path(Path::new("/repo/src/main.rs")));
     }
 
     // -----------------------------------------------------------------------
