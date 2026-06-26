@@ -240,7 +240,9 @@ impl Ingestor {
                 detail: format!("thread pool: {}", e),
             })?;
 
-        let extraction_results: Vec<(String, extract::ExtractionResult)> = pool.install(|| {
+        // (file_id, extraction result, [(node_id, behavioral excerpt)])
+        type FileExtraction = (String, extract::ExtractionResult, Vec<(String, String)>);
+        let extraction_results: Vec<FileExtraction> = pool.install(|| {
             walk_result
                 .files
                 .par_iter()
@@ -259,7 +261,10 @@ impl Ingestor {
                         }
                     };
                     let result = extractor.extract(&content, &file_id).ok()?;
-                    Some((file_id, result))
+                    // Behavioral excerpts sliced here while the file content is live,
+                    // so embeddings later see what each symbol DOES, not just its name.
+                    let excerpts = extract::compute_excerpts(&result, &content);
+                    Some((file_id, result, excerpts))
                 })
                 .collect()
         });
@@ -278,9 +283,23 @@ impl Ingestor {
             })
             .collect();
 
+        // Flatten per-file excerpts into a global node_id -> excerpt map (bounded
+        // ~240 chars/node), consumed at provenance time below. FIRST-WINS on a
+        // duplicate id, to match graph insertion: the first node with an id wins
+        // `add_node` (later dups are dropped as DuplicateNode), so the surviving
+        // node must keep ITS OWN excerpt, not a later same-named sibling's.
+        let mut node_excerpts: HashMap<String, String> = HashMap::new();
+        for (_, _, excerpts) in &extraction_results {
+            for (id, excerpt) in excerpts {
+                node_excerpts
+                    .entry(id.clone())
+                    .or_insert_with(|| excerpt.clone());
+            }
+        }
+
         let mut all_nodes: Vec<(String, extract::ExtractedNode)> = Vec::new();
         let mut all_edges = Vec::new();
-        for (file_id, result) in &extraction_results {
+        for (file_id, result, _) in &extraction_results {
             if start.elapsed() > self.config.timeout {
                 eprintln!("[m1nd-ingest] Timeout after {} files", stats.files_parsed);
                 break;
@@ -343,6 +362,7 @@ impl Ingestor {
                                 source_path: Some(source_path),
                                 line_start: Some(node.line),
                                 line_end: Some(node.end_line),
+                                excerpt: node_excerpts.get(&node.id).map(String::as_str),
                                 ..Default::default()
                             },
                         );
@@ -560,6 +580,15 @@ mod tests {
             prov.line_start,
             Some(3),
             "provenance line_start must be the function's real opening line"
+        );
+
+        // The symbol now also carries a behavioral excerpt sliced from its own
+        // source span (signature + body), so embeddings capture what it DOES —
+        // not just its name. (Drives the seek semantic layer end to end.)
+        let excerpt = prov.excerpt.as_deref().unwrap_or("");
+        assert!(
+            excerpt.contains("answer") && excerpt.contains("42"),
+            "provenance excerpt must fold in the signature + body, got {excerpt:?}"
         );
 
         let _ = fs::remove_dir_all(root);
