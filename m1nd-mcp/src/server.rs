@@ -337,6 +337,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "xray_orient",
     "xray_gate",
     "xray_paint",
+    "xray_ledger",
 ];
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
@@ -2336,6 +2337,22 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id"]
                 }
+            },
+            // =================================================================
+            // X-RAY read verb: xray_ledger — replay the append-only audit ledger
+            // =================================================================
+            {
+                "name": "xray_ledger",
+                "description": "X-RAY read verb (read-only). Replays the append-only AUDIT LEDGER that xray_retag / xray_paint / xray_apply append to on every committed bulk write (one JSON line per write, stored beside the graph snapshot as xray.ledger.jsonl), so a write is traceable and manually reversible. Each record carries a monotonic `seq`, the `verb`, the OCC `version` token, a `summary` (the op's counts) and `changes` (per-node before/after tags for retag/paint, or per-file path + before_hash/after_hash for apply, capped at 1000 with `changes_truncated` when overflowed). Returns the LAST `limit` entries MOST RECENT FIRST, optionally filtered by `verb`, plus `total_entries` (full line count) and the resolved `ledger_path`. A missing ledger yields an empty list (honest, not an error). Never mutates, never persists — safe in read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "limit": { "type": "integer", "default": 20, "description": "Max entries to return, most recent first (default 20)" },
+                        "verb": { "type": "string", "description": "Optional verb-name filter (e.g. \"xray_paint\"); only records whose `verb` equals this are returned and counted toward `limit`" }
+                    },
+                    "required": ["agent_id"]
+                }
             }
         ]
     })
@@ -3319,6 +3336,11 @@ fn dispatch_core_tool(
             let input: crate::xray_handlers::XrayPaintInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::xray_handlers::handle_xray_paint(state, input)
+        }
+        "xray_ledger" => {
+            let input: crate::xray_handlers::XrayLedgerInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_ledger(state, input)
         }
         "impact" => {
             let input: ImpactInput =
