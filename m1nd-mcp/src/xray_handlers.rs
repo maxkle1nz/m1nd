@@ -1046,6 +1046,28 @@ fn strip_file_prefix(id: &str) -> String {
     id.strip_prefix(FILE_PREFIX).unwrap_or(id).to_string()
 }
 
+/// THE shared layer-rule predicate. A cross-module edge `a -> b` diverges from
+/// the manifest if `forbid` contains `(a, b)` OR both modules sit in
+/// `layer_order` and `b` is at a *higher* layer than `a`. Returns the rule name
+/// that flagged it (`"forbid"` / `"layer"`), or `None` if the edge converges.
+///
+/// Both `xray_orient` (erosion ledger) and `xray_gate` (pre-edit guardrail)
+/// evaluate edges through THIS one function — there is no second copy of the
+/// rule logic to drift.
+fn classify_edge(manifest: &XrayManifest, a: &str, b: &str) -> Option<&'static str> {
+    if manifest.forbid.iter().any(|(fa, fb)| fa == a && fb == b) {
+        return Some("forbid");
+    }
+    let layer_index =
+        |m: &str| -> Option<usize> { manifest.layer_order.iter().position(|x| x == m) };
+    if let (Some(ia), Some(ib)) = (layer_index(a), layer_index(b)) {
+        if ib > ia {
+            return Some("layer");
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Pure core: conformance ledger over a finalized Graph (unit-testable, no
 // SessionState). Walks the live CSR; classifies cross-module boundary edges.
@@ -1072,31 +1094,6 @@ pub fn orient_graph(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput 
             *modules.entry(m.to_string()).or_insert(0) += 1;
         }
     }
-
-    // --- manifesto lookups ---
-    let forbid: std::collections::HashSet<(&str, &str)> = input
-        .manifest
-        .forbid
-        .iter()
-        .map(|(a, b)| (a.as_str(), b.as_str()))
-        .collect();
-    let layer_index =
-        |m: &str| -> Option<usize> { input.manifest.layer_order.iter().position(|x| x == m) };
-
-    // A cross-module edge A->B diverges if `forbid` contains (A,B) OR both are
-    // in `layer_order` and B sits at a *higher* layer than A. Returns the rule
-    // name that flagged it, or None if it converges.
-    let classify = |a: &str, b: &str| -> Option<&'static str> {
-        if forbid.contains(&(a, b)) {
-            return Some("forbid");
-        }
-        if let (Some(ia), Some(ib)) = (layer_index(a), layer_index(b)) {
-            if ib > ia {
-                return Some("layer");
-            }
-        }
-        None
-    };
 
     // --- boundary edge walk over the live CSR ---
     let mut dependency_matrix: BTreeMap<String, u32> = BTreeMap::new();
@@ -1134,7 +1131,7 @@ pub fn orient_graph(graph: &Graph, input: &XrayOrientInput) -> XrayOrientOutput 
                 .entry(format!("{src_mod}->{dst_mod}"))
                 .or_insert(0) += 1;
 
-            if let Some(rule) = classify(src_mod, dst_mod) {
+            if let Some(rule) = classify_edge(&input.manifest, src_mod, dst_mod) {
                 erosion_total += 1;
                 if erosion_candidates.len() < EROSION_CAP {
                     erosion_candidates.push(XrayErosionCandidate {
@@ -1197,6 +1194,202 @@ pub fn handle_xray_orient(
     let output = {
         let graph = state.graph.read();
         orient_graph(&graph, &input)
+    };
+    serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
+}
+
+// ===========================================================================
+// X-RAY read verb: `xray_gate` — the North-Star guardrail (read-only)
+// ===========================================================================
+// Before an agent edits code it asks ONE question: "am I about to violate the
+// North Star?" The verb takes the node being edited plus the modules the change
+// would add an outgoing dependency to, evaluates BOTH the node's existing
+// outgoing cross-module edges AND the planned ones through the SAME rule
+// predicate `xray_orient` uses (`classify_edge`), and returns clear/caution/
+// blocked.
+//
+// ANTI-GUARDRAIL-FATIGUE: a violation only `blocked`s when the manifest is
+// RATIFIED (`manifest_ratified: true`). Until then a violation is `caution` —
+// the instrument is informative, not obstructive, while the North Star is still
+// being negotiated. An empty manifest (no rules) is always `clear` (honest:
+// nothing declared to violate).
+//
+// Read-only: takes the graph *read* lock, never mutates, never persists. Safe in
+// read-only attach (hence NOT in `READ_ONLY_DENIED_TOOLS`).
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct XrayGateInput {
+    /// external_id of the node about to be edited.
+    pub node: String,
+    /// Module names this change would add an OUTGOING dependency to. Each is
+    /// evaluated as a planned edge `node_module -> M`.
+    #[serde(default)]
+    pub planned_imports: Vec<String>,
+    #[serde(default)]
+    pub manifest: XrayManifest,
+    /// When `true`, any violation (existing or planned) escalates the verdict to
+    /// `blocked`. When `false` (default), a violation is only `caution` — the
+    /// North Star is not yet ratified, so the gate informs without obstructing.
+    #[serde(default)]
+    pub manifest_ratified: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayGateViolation {
+    pub from_module: String,
+    pub to_module: String,
+    /// Which rule flagged it: `forbid` or `layer`.
+    pub rule: &'static str,
+    /// `existing` (a live outgoing edge) or `planned` (from `planned_imports`).
+    pub kind: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct XrayGateOutput {
+    pub verb: &'static str,
+    /// The node external_id the gate evaluated (echoed back).
+    pub node: String,
+    /// Module the node belongs to (empty if the node is unmapped / not found).
+    pub node_module: String,
+    /// `clear` | `caution` | `blocked`.
+    pub verdict: String,
+    /// Live outgoing cross-module edges of `node` that violate the manifest.
+    pub existing_violations: Vec<XrayGateViolation>,
+    /// Planned outgoing edges (from `planned_imports`) that would violate it.
+    pub planned_violations: Vec<XrayGateViolation>,
+    /// Short human strings explaining each violation / the all-clear.
+    pub reasons: Vec<String>,
+}
+
+/// Pure gate logic over a finalized `Graph` (unit-testable, no `SessionState`).
+/// Read-only: walks the node's live outgoing CSR, never mutates.
+pub fn gate_graph(graph: &Graph, input: &XrayGateInput) -> XrayGateOutput {
+    // 1. Resolve the node. Not found -> honest "clear": there is nothing to gate.
+    let Some(nid) = graph.resolve_id(&input.node) else {
+        return XrayGateOutput {
+            verb: "xray_gate",
+            node: input.node.clone(),
+            node_module: String::new(),
+            verdict: "clear".to_string(),
+            existing_violations: Vec::new(),
+            planned_violations: Vec::new(),
+            reasons: vec!["node not in graph".to_string()],
+        };
+    };
+
+    let ext = node_to_ext_map(graph);
+    let idx = nid.as_usize();
+    let node_module = ext
+        .get(idx)
+        .and_then(|id| module_of(id))
+        .map(|m| m.to_string())
+        .unwrap_or_default();
+
+    // 5. Empty manifest -> always clear (honest: nothing declared to violate).
+    let manifest_empty = input.manifest.forbid.is_empty() && input.manifest.layer_order.is_empty();
+    if node_module.is_empty() || manifest_empty {
+        let reason = if node_module.is_empty() {
+            "node has no derivable module"
+        } else {
+            "manifest declares no rules"
+        };
+        return XrayGateOutput {
+            verb: "xray_gate",
+            node: input.node.clone(),
+            node_module,
+            verdict: "clear".to_string(),
+            existing_violations: Vec::new(),
+            planned_violations: Vec::new(),
+            reasons: vec![reason.to_string()],
+        };
+    }
+
+    let mut existing_violations: Vec<XrayGateViolation> = Vec::new();
+    let mut reasons: Vec<String> = Vec::new();
+
+    // 2. EXISTING violations: walk the node's live outgoing imports/depends_on
+    // edges, derive the target module, evaluate the shared rule predicate.
+    for e in graph.csr.out_range(nid) {
+        let rel = graph.strings.resolve(graph.csr.relations[e]);
+        if rel != "imports" && rel != "depends_on" {
+            continue;
+        }
+        let dst = graph.csr.targets[e].as_usize();
+        let Some(dst_id) = ext.get(dst) else { continue };
+        let Some(dst_mod) = module_of(dst_id) else {
+            continue;
+        };
+        if dst_mod == node_module {
+            continue; // intra-module edges can't violate a cross-module rule
+        }
+        if let Some(rule) = classify_edge(&input.manifest, &node_module, dst_mod) {
+            reasons.push(format!(
+                "existing {rule}: {node_module} -> {dst_mod} (via {rel})"
+            ));
+            existing_violations.push(XrayGateViolation {
+                from_module: node_module.clone(),
+                to_module: dst_mod.to_string(),
+                rule,
+                kind: "existing",
+            });
+        }
+    }
+
+    // 3. PLANNED violations: evaluate edge node_module -> M for each planned M.
+    let mut planned_violations: Vec<XrayGateViolation> = Vec::new();
+    for m in &input.planned_imports {
+        if m == &node_module {
+            continue; // a self-edge to one's own module is not a cross-module rule
+        }
+        if let Some(rule) = classify_edge(&input.manifest, &node_module, m) {
+            reasons.push(format!("planned {rule}: {node_module} -> {m}"));
+            planned_violations.push(XrayGateViolation {
+                from_module: node_module.clone(),
+                to_module: m.clone(),
+                rule,
+                kind: "planned",
+            });
+        }
+    }
+
+    // 4. Verdict: violations + ratified => blocked; violations + not ratified =>
+    // caution (anti-fatigue); no violations => clear.
+    let any = !existing_violations.is_empty() || !planned_violations.is_empty();
+    let verdict = if any {
+        if input.manifest_ratified {
+            "blocked"
+        } else {
+            "caution"
+        }
+    } else {
+        "clear"
+    };
+    if !any {
+        reasons.push("no North-Star violation".to_string());
+    } else if !input.manifest_ratified {
+        reasons.push("manifest not ratified — caution, not blocked".to_string());
+    }
+
+    XrayGateOutput {
+        verb: "xray_gate",
+        node: input.node.clone(),
+        node_module,
+        verdict: verdict.to_string(),
+        existing_violations,
+        planned_violations,
+        reasons,
+    }
+}
+
+/// MCP handler for `xray_gate`. Read-only: holds the graph *read* lock for the
+/// computation, never mutates, never persists (safe under read-only attach).
+pub fn handle_xray_gate(
+    state: &mut SessionState,
+    input: XrayGateInput,
+) -> M1ndResult<serde_json::Value> {
+    let output = {
+        let graph = state.graph.read();
+        gate_graph(&graph, &input)
     };
     serde_json::to_value(output).map_err(m1nd_core::error::M1ndError::Serde)
 }
@@ -2030,5 +2223,158 @@ mod tests {
         assert!(is_forbidden_path(Path::new("/repo/src/foo.rs.xray.tmp")));
         // Allowed: a normal source file.
         assert!(!is_forbidden_path(Path::new("/repo/src/foo.rs")));
+    }
+
+    // -----------------------------------------------------------------------
+    // xray_gate — North-Star pre-edit guardrail (read-only)
+    // -----------------------------------------------------------------------
+
+    /// Build a gate input over `node` with the given manifest / planned imports.
+    fn gate_input(
+        node: &str,
+        planned_imports: &[&str],
+        manifest: XrayManifest,
+        manifest_ratified: bool,
+    ) -> XrayGateInput {
+        XrayGateInput {
+            node: node.to_string(),
+            planned_imports: planned_imports.iter().map(|s| s.to_string()).collect(),
+            manifest,
+            manifest_ratified,
+        }
+    }
+
+    fn forbid_a_to_b() -> XrayManifest {
+        XrayManifest {
+            forbid: vec![("modA".to_string(), "modB".to_string())],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn gate_empty_manifest_is_clear() {
+        // (a) empty manifest -> a node in modA gates "clear".
+        let g = orient_graph_fixture();
+        let out = gate_graph(
+            &g,
+            &gate_input(
+                "file::modA/src/lib.rs::fn::a_main",
+                &[],
+                XrayManifest::default(),
+                false,
+            ),
+        );
+        assert_eq!(out.verb, "xray_gate");
+        assert_eq!(out.node_module, "modA");
+        assert_eq!(out.verdict, "clear");
+        assert!(out.existing_violations.is_empty());
+        assert!(out.planned_violations.is_empty());
+    }
+
+    #[test]
+    fn gate_existing_violation_unratified_is_caution() {
+        // (b) forbid (modA,modB), modA node that imports modB, NOT ratified
+        //     -> "caution", existing_violations has 1.
+        let g = orient_graph_fixture();
+        let out = gate_graph(
+            &g,
+            &gate_input(
+                "file::modA/src/lib.rs::fn::a_main",
+                &[],
+                forbid_a_to_b(),
+                false,
+            ),
+        );
+        assert_eq!(out.verdict, "caution");
+        assert_eq!(out.existing_violations.len(), 1);
+        let v = &out.existing_violations[0];
+        assert_eq!(v.from_module, "modA");
+        assert_eq!(v.to_module, "modB");
+        assert_eq!(v.rule, "forbid");
+        assert_eq!(v.kind, "existing");
+        assert!(out.planned_violations.is_empty());
+    }
+
+    #[test]
+    fn gate_existing_violation_ratified_is_blocked() {
+        // (c) same as (b) but manifest_ratified: true -> "blocked".
+        let g = orient_graph_fixture();
+        let out = gate_graph(
+            &g,
+            &gate_input(
+                "file::modA/src/lib.rs::fn::a_main",
+                &[],
+                forbid_a_to_b(),
+                true,
+            ),
+        );
+        assert_eq!(out.verdict, "blocked");
+        assert_eq!(out.existing_violations.len(), 1);
+    }
+
+    #[test]
+    fn gate_planned_import_violation_ratified_is_blocked() {
+        // (d) planned_imports ["modB"] from a modA node with forbid (modA,modB),
+        //     ratified -> "blocked" with a planned_violation. Use a_util, which
+        //     has NO outgoing edges, so the block comes purely from the plan.
+        let g = orient_graph_fixture();
+        let out = gate_graph(
+            &g,
+            &gate_input(
+                "file::modA/src/util.rs::fn::a_util",
+                &["modB"],
+                forbid_a_to_b(),
+                true,
+            ),
+        );
+        assert_eq!(out.verdict, "blocked");
+        assert!(
+            out.existing_violations.is_empty(),
+            "a_util has no outgoing edges"
+        );
+        assert_eq!(out.planned_violations.len(), 1);
+        let v = &out.planned_violations[0];
+        assert_eq!(v.from_module, "modA");
+        assert_eq!(v.to_module, "modB");
+        assert_eq!(v.rule, "forbid");
+        assert_eq!(v.kind, "planned");
+    }
+
+    #[test]
+    fn gate_unknown_node_is_clear() {
+        // (e) unknown node external_id -> "clear".
+        let g = orient_graph_fixture();
+        let out = gate_graph(
+            &g,
+            &gate_input(
+                "file::nope/does/not::exist",
+                &["modB"],
+                forbid_a_to_b(),
+                true,
+            ),
+        );
+        assert_eq!(out.verdict, "clear");
+        assert_eq!(out.node_module, "");
+        assert!(out.existing_violations.is_empty());
+        assert!(out.planned_violations.is_empty());
+        assert!(out.reasons.iter().any(|r| r.contains("not in graph")));
+    }
+
+    #[test]
+    fn gate_layer_rule_also_routes_through_shared_predicate() {
+        // Cross-check: the layer axis (not just forbid) gates too, proving gate
+        // and orient share the one `classify_edge` predicate.
+        let g = orient_graph_fixture();
+        let manifest = XrayManifest {
+            layer_order: vec!["modA".to_string(), "modB".to_string()],
+            ..Default::default()
+        };
+        let out = gate_graph(
+            &g,
+            &gate_input("file::modA/src/lib.rs::fn::a_main", &[], manifest, true),
+        );
+        assert_eq!(out.verdict, "blocked");
+        assert_eq!(out.existing_violations.len(), 1);
+        assert_eq!(out.existing_violations[0].rule, "layer");
     }
 }

@@ -335,6 +335,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "xray_retag",
     "xray_apply",
     "xray_orient",
+    "xray_gate",
 ];
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
@@ -2249,6 +2250,32 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             // =================================================================
+            // X-RAY read verb: xray_gate — North-Star pre-edit guardrail
+            // =================================================================
+            {
+                "name": "xray_gate",
+                "description": "X-RAY read verb (read-only). The North-Star guardrail an agent calls BEFORE editing code: 'am I about to violate the North Star?'. Supply the `node` (external_id) being edited plus `planned_imports` (module names this change would add an outgoing dependency to). The verb derives the node's MODULE, walks its live outgoing imports/depends_on edges, and evaluates BOTH those existing cross-module edges AND each planned edge node_module->M through the SAME rule predicate as xray_orient (forbid pairs + layer_order). Returns verdict clear|caution|blocked: it BLOCKS only on a layer-rule violation (EROSION) AND only when manifest_ratified=true; otherwise a violation is 'caution' (anti-guardrail-fatigue). Empty manifest, unmapped node, or a node not in the graph => 'clear' (honest: nothing to gate). Never mutates, never persists — safe in read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "node": { "type": "string", "description": "external_id of the node about to be edited" },
+                        "planned_imports": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Module names this change would add an OUTGOING dependency to; each is evaluated as a planned edge node_module->M" },
+                        "manifest": {
+                            "type": "object",
+                            "description": "North-star layer ruleset (same shape as xray_orient). Empty manifest => verdict clear (nothing declared to violate)",
+                            "properties": {
+                                "forbid": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }, "default": [], "description": "Pairs [A, B] meaning module A must not depend on module B" },
+                                "layer_order": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Modules ordered low->high; depending on a higher layer is a violation" },
+                                "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Unused by the gate (accepted for manifest parity with xray_orient)" }
+                            }
+                        },
+                        "manifest_ratified": { "type": "boolean", "default": false, "description": "When true, any violation escalates the verdict to 'blocked'. When false (default), a violation is only 'caution' — the North Star is not yet ratified, so the gate informs without obstructing (anti-guardrail-fatigue)" }
+                    },
+                    "required": ["agent_id", "node"]
+                }
+            },
+            // =================================================================
             // X-RAY physical-write verb: xray_apply — atomic source-file codemod
             // =================================================================
             {
@@ -3250,6 +3277,11 @@ fn dispatch_core_tool(
             let input: crate::xray_handlers::XrayOrientInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::xray_handlers::handle_xray_orient(state, input)
+        }
+        "xray_gate" => {
+            let input: crate::xray_handlers::XrayGateInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_gate(state, input)
         }
         "impact" => {
             let input: ImpactInput =
