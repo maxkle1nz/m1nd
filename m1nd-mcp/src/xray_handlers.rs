@@ -472,6 +472,9 @@ pub struct XrayApplyCounts {
     pub planned: u32,
     /// Matched files where the transform is a no-op (idempotent hit).
     pub skipped_noop: u32,
+    /// Matched files skipped because their bytes are not valid UTF-8 (binary).
+    /// Never planned/staged/written — a binary file is left byte-for-byte intact.
+    pub skipped_binary: u32,
     /// Files actually written (0 on dry_run / abort).
     pub applied: u32,
     /// Files whose content drifted between STAGE and REHASH.
@@ -620,8 +623,16 @@ fn apply_files_inner(
             continue;
         };
         let guard = content_hash(&bytes);
-        let current = String::from_utf8_lossy(&bytes);
-        match apply_transform(&current, transform) {
+        // Require valid UTF-8. A lossy decode would replace invalid bytes with
+        // U+FFFD and silently CORRUPT a binary file once the transform staged it
+        // back. Instead: skip non-UTF-8 (binary) files entirely — never
+        // plan/stage/write them — and count them honestly so they can never
+        // appear in `planned`/`applied`.
+        let Ok(current) = std::str::from_utf8(&bytes) else {
+            counts.skipped_binary += 1;
+            continue;
+        };
+        match apply_transform(current, transform) {
             None => {
                 counts.skipped_noop += 1;
             }
@@ -695,35 +706,77 @@ fn apply_files_inner(
             let _ = std::fs::remove_file(tmp);
         }
     };
+    // Helper: a stage-phase hard abort. Deletes every temp WE staged so far,
+    // writes ZERO originals (all-or-nothing), and reports the offending file as a
+    // conflict. Does NOT touch `tmp` here — a pre-existing temp (symlink or stale
+    // regular file) is the caller's to inspect, never ours to silently remove.
+    let stage_abort = |temps: &[(PathBuf, PathBuf)], mut counts: XrayApplyCounts, label: String| {
+        cleanup(temps);
+        counts.conflicts = 1;
+        counts.applied = 0;
+        XrayApplyOutput {
+            verb: "xray_apply",
+            status: "aborted_conflicts".to_string(),
+            counts,
+            planned_sample: Vec::new(),
+            conflicts_sample: vec![label],
+            version: version.clone(),
+            graph_resync_required: false,
+        }
+    };
+
     for (p, _guard, new_bytes) in &plan {
         let tmp = tmp_path_for(p);
+
+        // Defensive pre-check: refuse to stage if `tmp` already exists as a
+        // SYMLINK. `symlink_metadata` does NOT follow the link, so this catches a
+        // sibling `<file>.xray.tmp` that points OUTSIDE workspace_root — writing
+        // through it (and later renaming it over the original) would escape the
+        // verb's root confinement. Treat it as a conflict; never remove/retry it.
+        if let Ok(meta) = std::fs::symlink_metadata(&tmp) {
+            if meta.file_type().is_symlink() {
+                return stage_abort(
+                    &temps,
+                    counts,
+                    format!("{}: refusing pre-existing symlink temp", file_label(p)),
+                );
+            }
+        }
+
+        // create_new(true): fails with ErrorKind::AlreadyExists if `tmp` already
+        // exists (INCLUDING a symlink — which it never follows or truncates) and
+        // never clobbers a pre-existing target. A stale regular `.xray.tmp` from a
+        // crashed run also aborts here — acceptable and safe (zero originals
+        // touched); the operator removes it and retries.
         let staged = (|| -> std::io::Result<()> {
             use std::io::Write;
-            let mut f = std::fs::File::create(&tmp)?;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp)?;
             f.write_all(new_bytes)?;
             f.flush()?;
             f.sync_all()?; // fsync the staged temp
             Ok(())
         })();
-        if staged.is_err() {
-            // Hard abort on any stage I/O error: delete every temp written so
-            // far (including this one if it partially exists), write ZERO
-            // originals. Reported as "aborted_conflicts" with a synthetic entry
-            // naming the file that failed to stage.
-            let _ = std::fs::remove_file(&tmp);
-            cleanup(&temps);
-            let name = file_label(p);
-            counts.conflicts = 1;
-            counts.applied = 0;
-            return XrayApplyOutput {
-                verb: "xray_apply",
-                status: "aborted_conflicts".to_string(),
-                counts,
-                planned_sample: Vec::new(),
-                conflicts_sample: vec![name],
-                version,
-                graph_resync_required: false,
-            };
+        match staged {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A pre-existing temp blocked create-new. Do NOT remove it (it is
+                // not ours), do NOT retry. Abort the whole batch as a conflict.
+                return stage_abort(
+                    &temps,
+                    counts,
+                    format!("{}: pre-existing temp blocks staging", file_label(p)),
+                );
+            }
+            Err(_) => {
+                // Any OTHER stage I/O error: delete every temp WE wrote so far
+                // (including this one if it partially exists), write ZERO
+                // originals, report the file that failed to stage.
+                let _ = std::fs::remove_file(&tmp);
+                return stage_abort(&temps, counts, file_label(p));
+            }
+            Ok(()) => {}
         }
         temps.push((p.clone(), tmp));
     }
@@ -2920,6 +2973,143 @@ mod tests {
             "the concurrently edited file must be left exactly as the edit left it"
         );
         // Nothing was staged.
+        assert!(no_temps_remain(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FIX A — STAGE must never write through a pre-existing SYMLINK temp.
+    ///
+    /// A workspace contains `victim.rs` (planned for tagging) AND a sibling
+    /// `victim.rs.xray.tmp` that is a symlink pointing OUTSIDE the sandbox root.
+    /// The old `File::create(tmp)` followed that symlink and truncated/wrote its
+    /// target, then renamed it over `victim.rs` — escaping root confinement. With
+    /// create-new + symlink_metadata pre-check the commit must ABORT, write ZERO
+    /// originals, and leave the OUTSIDE target byte-for-byte intact.
+    #[cfg(unix)]
+    #[test]
+    fn stage_refuses_preexisting_symlink_temp_and_does_not_escape_root() {
+        use std::os::unix::fs::symlink;
+
+        let dir = fresh_sandbox();
+
+        // The OUTSIDE target the attacker's symlink points at — a sibling of the
+        // sandbox dir, NOT under it. Seed it with known content we will assert is
+        // never modified.
+        let outside = dir
+            .parent()
+            .unwrap()
+            .join(format!("xray_escape_target_{}.txt", std::process::id()));
+        let outside_content = b"OUTSIDE-DO-NOT-TOUCH\n";
+        std::fs::write(&outside, outside_content).unwrap();
+
+        // The planned victim file (untagged .rs) and a control file that WOULD be
+        // tagged if the batch were not aborted all-or-nothing.
+        let victim = dir.join("victim.rs");
+        std::fs::write(&victim, "// victim\nfn main() {}\n").unwrap();
+        let control = dir.join("control.rs");
+        std::fs::write(&control, "// control\nfn main() {}\n").unwrap();
+
+        // Plant the malicious temp: victim.rs.xray.tmp -> the OUTSIDE target.
+        let mal_tmp = tmp_path_for(&victim);
+        symlink(&outside, &mal_tmp).unwrap();
+
+        // victim sorts before control, so victim is staged first and trips the
+        // symlink guard before anything else is written.
+        let mut paths = vec![victim.clone(), control.clone()];
+        paths.sort();
+
+        let out = apply_files(&paths, &ensure_tag(), XrayMode::Commit, None);
+
+        // (1) The commit aborted — nothing was committed.
+        assert_eq!(
+            out.status, "aborted_conflicts",
+            "a pre-existing symlink temp must abort the commit"
+        );
+        assert_eq!(out.counts.applied, 0, "abort must write zero originals");
+        assert!(out.counts.conflicts >= 1);
+        assert!(
+            out.conflicts_sample
+                .iter()
+                .any(|c| c.contains("victim.rs") && c.contains("symlink")),
+            "conflict must name the refused symlink temp: {:?}",
+            out.conflicts_sample
+        );
+
+        // (2) The OUTSIDE target is UNCHANGED — not truncated, not written.
+        assert_eq!(
+            std::fs::read(&outside).unwrap(),
+            outside_content,
+            "the symlink target OUTSIDE root must be byte-for-byte intact"
+        );
+
+        // (3) victim.rs and control.rs are unchanged (all-or-nothing abort).
+        assert!(!first3_contains_tag(&victim), "victim.rs must be untouched");
+        assert!(
+            !first3_contains_tag(&control),
+            "control.rs must be untouched"
+        );
+
+        // We refused — never removed — the attacker's symlink temp; it is still
+        // a symlink, proving we did not silently delete/retry it.
+        let meta = std::fs::symlink_metadata(&mal_tmp).unwrap();
+        assert!(
+            meta.file_type().is_symlink(),
+            "the refused symlink temp must be left in place, not removed"
+        );
+
+        let _ = std::fs::remove_file(&mal_tmp);
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FIX B — a non-UTF-8 (binary) file must be SKIPPED, never corrupted.
+    ///
+    /// An empty-extension selector can match a binary file. The old
+    /// `String::from_utf8_lossy` replaced invalid bytes with U+FFFD and staged
+    /// that corruption back. Now: invalid UTF-8 is skipped (counted as
+    /// skipped_binary, never planned/applied) while a sibling valid `.rs` is
+    /// still tagged.
+    #[test]
+    fn commit_skips_binary_file_and_tags_valid_sibling() {
+        let dir = fresh_sandbox();
+
+        // A genuinely invalid-UTF-8 file (lone 0xff/0xfe are not valid UTF-8).
+        let binary = dir.join("blob.bin");
+        let binary_bytes: &[u8] = &[0xff, 0xfe, 0x00, 0x01];
+        std::fs::write(&binary, binary_bytes).unwrap();
+
+        // A valid sibling that SHOULD be tagged.
+        let valid = dir.join("ok.rs");
+        std::fs::write(&valid, "// ok\nfn main() {}\n").unwrap();
+
+        let mut paths = vec![binary.clone(), valid.clone()];
+        paths.sort();
+
+        let out = apply_files(&paths, &ensure_tag(), XrayMode::Commit, None);
+
+        assert_eq!(out.status, "committed");
+        // The binary file is skipped as binary: never planned, never applied.
+        assert_eq!(out.counts.skipped_binary, 1, "binary file must be skipped");
+        assert_eq!(out.counts.planned, 1, "only the valid sibling is planned");
+        assert_eq!(out.counts.applied, 1, "only the valid sibling is written");
+
+        // The binary file is byte-for-byte intact (not corrupted by U+FFFD).
+        assert_eq!(
+            std::fs::read(&binary).unwrap(),
+            binary_bytes,
+            "binary file must be left exactly as it was"
+        );
+        // No skipped binary leaked into the planned sample.
+        assert!(
+            !out.planned_sample
+                .iter()
+                .any(|s| s.path.ends_with("blob.bin")),
+            "a skipped binary must never appear in planned_sample"
+        );
+
+        // The valid sibling IS tagged.
+        assert!(first3_contains_tag(&valid), "valid .rs must be tagged");
         assert!(no_temps_remain(&dir));
 
         let _ = std::fs::remove_dir_all(&dir);
