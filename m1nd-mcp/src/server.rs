@@ -2245,7 +2245,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                                 "layer_order": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Modules ordered low->high; a module may depend only on its own level or LOWER — depending on a higher layer is a candidate divergence" },
                                 "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Substrings that must appear in some node external_id (present=BEDROCK, absent=BLUEPRINT)" }
                             }
-                        }
+                        },
+                        "manifest_path": { "type": "string", "description": "Optional path to a North-Star manifest JSON file. Used only when the inline `manifest` is empty; takes precedence over auto-discovery of <workspace_root>/xray.manifest.json. A file's `ratified` flag drives the gate's block/caution decision. The resolved provenance is echoed back as `manifest_source`." }
                     },
                     "required": ["agent_id"]
                 }
@@ -2271,7 +2272,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                                 "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Unused by the gate (accepted for manifest parity with xray_orient)" }
                             }
                         },
-                        "manifest_ratified": { "type": "boolean", "default": false, "description": "When true, any violation escalates the verdict to 'blocked'. When false (default), a violation is only 'caution' — the North Star is not yet ratified, so the gate informs without obstructing (anti-guardrail-fatigue)" }
+                        "manifest_ratified": { "type": "boolean", "default": false, "description": "When true, any violation escalates the verdict to 'blocked'. When false (default), a violation is only 'caution' — the North Star is not yet ratified, so the gate informs without obstructing (anti-guardrail-fatigue). Used only when the resolved manifest source is INLINE; a FILE-sourced manifest's own `ratified` flag overrides this" },
+                        "manifest_path": { "type": "string", "description": "Optional path to a North-Star manifest JSON file. Used only when the inline `manifest` is empty; takes precedence over auto-discovery of <workspace_root>/xray.manifest.json. A file's `ratified` flag drives the gate's block/caution decision. The resolved provenance is echoed back as `manifest_source`." }
                     },
                     "required": ["agent_id", "node"]
                 }
@@ -2314,7 +2316,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             // =================================================================
             {
                 "name": "xray_paint",
-                "description": "X-RAY write verb (the PAINT pass). One call classifies every in-scope node into a STRUCTURAL proof-state from REAL graph signals and writes it as a persistent tag `xray:state:<state>` — making proof-states QUERYABLE tags instead of ephemeral per-call computations. Per node (honest, proof-grown): `erosion-candidate` if it is the SOURCE of a cross-module edge the manifest flags (candidate, not confirmed — same predicate as xray_orient); else `bedrock` if it has reference in-degree > 0 (imports/calls/references/depends_on point at it — load-bearing); else `overgrowth` (orphan / off-lattice). BLUEPRINT is a manifest-level absence, never a node tag. Re-paint is idempotent: existing `xray:state:*` tags are REPLACED, never accumulated. Returns counts (scanned/bedrock/overgrowth/erosion_candidate/painted) without mutating unless mode='commit'; on commit it applies the columnar tag mutators and persists the graph snapshot. Mutates graph metadata only — never source files.",
+                "description": "X-RAY write verb (the PAINT pass). One call classifies every in-scope node into a STRUCTURAL proof-state from REAL graph signals and writes it as a persistent tag `xray:state:<state>` — making proof-states QUERYABLE tags instead of ephemeral per-call computations. Per node (honest, proof-grown): `erosion-candidate` if it is the SOURCE of a cross-module edge the manifest flags (candidate, not confirmed — same predicate as xray_orient); else `bedrock` if it has PROOF EVIDENCE — it is exercised by a TEST (a test-source node imports/calls/references it) OR has an incoming `grounded_in` edge (evidence-backed, NOT a mere reference count); else `overgrowth` if it is an orphan (zero incoming reference edges, off-lattice); else `unproven` — used (something references it) but with no proof evidence (the honest majority). BLUEPRINT is a manifest-level absence, never a node tag. Re-paint is idempotent: existing `xray:state:*` tags are REPLACED, never accumulated. Returns counts (scanned/bedrock/overgrowth/unproven/erosion_candidate/painted) plus `proof_coverage` (bedrock/scanned, the fraction with proof evidence) and `manifest_source` (manifest provenance: inline/file:<path>/none), without mutating unless mode='commit'; on commit it applies the columnar tag mutators and persists the graph snapshot. Mutates graph metadata only — never source files.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2329,6 +2331,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                                 "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Unused by paint (accepted for manifest parity with xray_orient)" }
                             }
                         },
+                        "manifest_path": { "type": "string", "description": "Optional path to a North-Star manifest JSON file. Used only when the inline `manifest` is empty; takes precedence over auto-discovery of <workspace_root>/xray.manifest.json. The resolved provenance is echoed back as `manifest_source`." },
                         "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) classifies and counts but writes nothing; commit replaces each node's xray:state:* tag and persists" }
                     },
                     "required": ["agent_id"]

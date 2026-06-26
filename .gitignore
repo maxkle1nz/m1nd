@@ -17,6 +17,9 @@ m1nd-ui/node_modules/
 !package.json
 !tsconfig.json
 !postcss.config.js
+# X-RAY North Star manifest — an intentional, human-authored config artifact
+# (NOT a runtime-regenerated snapshot), so it is tracked despite the *.json rule.
+!xray.manifest.json
 graph_snapshot.json
 plasticity_state.json
 antibodies.json

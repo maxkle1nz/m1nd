@@ -1,0 +1,14 @@
+{
+  "_about": "X-RAY North Star (MANIFESTO) for the m1nd workspace. Declares the architectural intent that the X-RAY verbs (xray_orient / xray_gate / xray_paint) measure the as-built code against. PROVISIONAL until ratified by a human — set \"ratified\": true to give the guardrail teeth (EROSION hard-block).",
+  "ratified": false,
+  "layer_order": ["m1nd-core", "m1nd-ingest", "m1nd-mcp", "m1nd-openclaw"],
+  "forbid": [],
+  "require_exists": ["mission_verify", "seek", "lock_create", "query_readonly"],
+  "_layers": {
+    "m1nd-core": "Foundation — graph, activation, plasticity, snapshot. Depends on no other workspace crate.",
+    "m1nd-ingest": "Tree-sitter ingestion of source into the graph. May depend on m1nd-core only.",
+    "m1nd-mcp": "MCP server, handlers, session. May depend on m1nd-core and m1nd-ingest.",
+    "m1nd-openclaw": "Leaf application. May depend on any lower layer."
+  },
+  "_notes": "layer_order alone encodes the no-upward-dependency rule (a crate may depend only on crates at its level or lower); `forbid` is for extra explicit bans beyond layering. `require_exists` lists substrings that must appear in some node's external_id (existence intents -> BLUEPRINT if absent)."
+}
