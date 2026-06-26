@@ -1525,6 +1525,7 @@ name = "m1nd-core"
 version = "0.9.0-beta.8"
 dependencies = [
  "bincode",
+ "cargo_metadata",
  "criterion",
  "m1nd-ingest",
  "model2vec-rs",

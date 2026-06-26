@@ -32,6 +32,7 @@ embed = ["dep:model2vec-rs"]
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 m1nd-ingest = { path = "../m1nd-ingest" }
+cargo_metadata = { workspace = true }
 
 [[bench]]
 name = "core_benchmarks"
