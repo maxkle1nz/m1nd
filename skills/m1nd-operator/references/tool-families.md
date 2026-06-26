@@ -33,6 +33,18 @@ This is the compact capability inventory for the current `m1nd` shape. Use the l
 - `scan_all`: run all structural patterns in one call.
 - `timeline`: temporal history, churn, velocity, stability, and co-change shape.
 
+> `seek` semantic recall: when the server binary is built with the optional
+> `embed` feature (and a model is present), `seek` also matches by MEANING —
+> embeddings over each symbol's doc-comment + signature + body — so it surfaces a
+> node whose intent matches even with ZERO shared tokens (e.g. a query "secure
+> channel" reaching `fn qz9wb` documented as "TLS encrypted tunnel"). The
+> response's `embeddings_used` tells you whether this fired (`false` = trigram /
+> keyword fallback — still useful, just lexical). These are fast STATIC
+> embeddings (model2vec) — a real upgrade over trigrams but NOT transformer-grade.
+> When `seek` returns no results, `filtering_reason` states why (empty graph /
+> scope-or-type filtered everything / nothing cleared the relevance threshold) —
+> adjust the query or scope instead of re-running blind.
+
 ## Change-Risk And Plan Validation
 
 - `impact`: blast radius from a node.
