@@ -259,7 +259,13 @@ impl CommunityDetector {
         (0..num_comm)
             .map(|c| {
                 let nc = node_counts[c];
-                let max_internal = if nc > 1 { nc * (nc - 1) } else { 1 };
+                // Widen to u64: for a community of >= 65_537 nodes, nc * (nc - 1)
+                // exceeds u32::MAX and overflows (panic in debug, wrap in release).
+                let max_internal: u64 = if nc > 1 {
+                    nc as u64 * (nc as u64 - 1)
+                } else {
+                    1
+                };
                 let density = if max_internal > 0 {
                     internal[c] as f32 / max_internal as f32
                 } else {

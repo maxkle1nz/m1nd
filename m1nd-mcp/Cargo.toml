@@ -1,18 +1,25 @@
 [package]
 name = "m1nd-mcp"
-version = "0.9.0-beta.8"
+version = "1.0.0"
 edition = "2021"
 description = "Local MCP runtime for coding agents: structural retrieval, change reasoning, document grounding, and continuity."
 license = "MIT"
 repository = "https://github.com/maxkle1nz/m1nd"
 
 [features]
-default = ["serve"]
+# `embed` is ON by default so the shipped server has semantic recall out of the
+# box. Build a lean, embeddings-free binary with `--no-default-features --features serve`.
+default = ["serve", "embed"]
 serve = ["dep:axum", "dep:tower-http", "dep:rust-embed", "dep:mime_guess", "dep:tokio-stream", "dep:futures", "dep:reqwest"]
+# Real local static embeddings in `seek` (semantic recall by meaning), forwarded
+# to m1nd-core. The model (~29 MB, model2vec/potion-base-8M) is fetched on first
+# use and cached; if it cannot load, `seek` falls back to trigram matching
+# (graceful — no hard failure).
+embed = ["m1nd-core/embed"]
 
 [dependencies]
-m1nd-core = { path = "../m1nd-core", version = "0.9.0-beta.8" }
-m1nd-ingest = { path = "../m1nd-ingest", version = "0.9.0-beta.8" }
+m1nd-core = { path = "../m1nd-core", version = "1.0.0" }
+m1nd-ingest = { path = "../m1nd-ingest", version = "1.0.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = { workspace = true }

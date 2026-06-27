@@ -65,6 +65,98 @@ fn l2_seek_heuristic_reason(
 /// V1: heuristic intent matching (trigram + identifier splitting) -- zero new deps.
 /// V2 upgrade path: fastembed-rs with jina-embeddings-v2-base-code for real embeddings.
 ///   V2 score: embedding_similarity * 0.5 + graph_activation * 0.3 + temporal_recency * 0.2.
+/// OPTIONAL `embed` feature: a non-survivor node (zero keyword/trigram signal)
+/// is admitted as a SEMANTIC RECALL candidate only when its query cosine clears
+/// this floor — high enough to avoid noise, low enough to surface true
+/// meaning-matches that share zero tokens with the query.
+#[cfg(feature = "embed")]
+const SEMANTIC_RECALL_FLOOR: f32 = 0.40;
+
+/// Relevance floor below which the single best match is considered too weak for
+/// the goal to be meaningfully represented — drives the `saturated` verdict.
+///
+/// CALIBRATED against a real m1nd-core ingest (embed default ON): present-goal
+/// top scores landed in [0.24, 0.54], clear-noise goals in [0.00, 0.16]. 0.18
+/// sits above the pure-noise band and below the weakest real match. The
+/// in-between zone (~0.18–0.26) is genuinely ambiguous — goals that share real
+/// tokens with the codebase score there whether or not they belong — so the
+/// exact `top_score` is always returned in the envelope for the agent to judge;
+/// the floor only decides the coarse verdict, biased AGAINST a false "not here".
+const SUFFICIENCY_WEAK_TOP: f32 = 0.18;
+
+/// Additive attention adjustments applied to a node's pre-rerank score when an
+/// X-RAY manifesto resolves. Bedrock (proof-exercised) is nudged up; an erosion
+/// source (violates a declared layer/forbid rule) is nudged down. Small relative
+/// to typical scores so conformance only re-orders near-ties, never dominates.
+const CONFORMANCE_BEDROCK_BOOST: f32 = 0.20;
+const CONFORMANCE_EROSION_MALUS: f32 = -0.30;
+
+/// Compute the answer-free sufficiency signal from retrieval outcome signals.
+///
+/// `top_score` is the best match's combined score (0 when the set is empty).
+/// `captured` is the fraction of the re-ranked window's salience carried by the
+/// returned set [0,1] (reported for transparency). `marginal_score` is the score
+/// of the best candidate that was LEFT OUT — `None` when the returned set holds
+/// the entire relevant pool. The verdict is a "knee" test: you have enough when
+/// the strongest match is real AND the best thing you're missing is already weak.
+/// A long tail of weak matches therefore does NOT force "gathering" — only a
+/// strong DROPPED candidate does. This inspects relevance strength and what was
+/// cut — never answer content — so it can say "enough / keep going / not here"
+/// without claiming to know the answer.
+fn compute_sufficiency(
+    top_score: f32,
+    captured: f32,
+    marginal_score: Option<f32>,
+    n_results: usize,
+) -> layers::Sufficiency {
+    let pct = (captured * 100.0).round();
+    let (state, why) = if n_results == 0 {
+        (
+            "saturated",
+            "no candidate cleared the relevance threshold for this goal — broaden the goal, relax scope/node_types, or ingest the relevant code".to_string(),
+        )
+    } else if top_score < SUFFICIENCY_WEAK_TOP {
+        (
+            "saturated",
+            format!(
+                "the best match scores only {top_score:.2} — the goal is weakly represented here; refine the goal terms or ingest more context"
+            ),
+        )
+    } else {
+        match marginal_score {
+            // The returned set holds the entire relevant pool — nothing was cut.
+            None => (
+                "sufficient",
+                format!(
+                    "the top match scores {top_score:.2} and the set holds every relevance-clearing node — enough to act"
+                ),
+            ),
+            // A still-relevant candidate was left out — real context exists beyond
+            // the returned set, so keep gathering.
+            Some(m) if m >= SUFFICIENCY_WEAK_TOP => (
+                "gathering",
+                format!(
+                    "the strongest match left out still scores {m:.2} — relevant context did not fit (set carries {pct:.0}% of the salience); raise token_budget/top_k or narrow the goal"
+                ),
+            ),
+            // Everything cut is weaker than the relevance floor — the head is in
+            // hand and the tail is not worth pulling.
+            Some(m) => (
+                "sufficient",
+                format!(
+                    "the top match scores {top_score:.2}; everything left out scores at most {m:.2} (weak tail) — the strongest context is in hand"
+                ),
+            ),
+        }
+    };
+    layers::Sufficiency {
+        state: state.to_string(),
+        top_score,
+        captured,
+        why,
+    }
+}
+
 pub fn handle_seek(
     state: &mut SessionState,
     input: layers::SeekInput,
@@ -72,6 +164,9 @@ pub fn handle_seek(
     let start = Instant::now();
     let query_tokens = l2_seek_tokenize(&input.query);
     let normalized_scope = normalize_scope_path(input.scope.as_deref(), &state.ingest_roots);
+    // Snapshot the workspace root BEFORE taking the graph read borrow below, so
+    // resolving the conformance manifesto does not conflict with the borrow.
+    let workspace_root = state.workspace_root.clone();
 
     // Split query tokens further via identifier splitting for better matching
     let mut all_tokens: Vec<String> = query_tokens.clone();
@@ -113,6 +208,14 @@ pub fn handle_seek(
             query: input.query,
             results: vec![],
             total_candidates_scanned: 0,
+            relevance_clearing_total: 0,
+            filtering_reason: Some(match error_text {
+                Some(_) => {
+                    "the query produced no searchable tokens; provide concrete identifiers or words"
+                        .to_string()
+                }
+                None => format!("the graph is empty ({n} nodes); run `ingest` before querying"),
+            }),
             embeddings_used: false,
             proof_state: "blocked".into(),
             elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
@@ -123,6 +226,8 @@ pub fn handle_seek(
             recovery,
             agent_runtime_contract,
             budget: None,
+            sufficiency: compute_sufficiency(0.0, 0.0, None, 0),
+            conformance: None,
         });
     }
 
@@ -136,6 +241,20 @@ pub fn handle_seek(
             node_to_ext[idx] = graph.strings.resolve(*interned).to_string();
         }
     }
+
+    // Conformance-aware attention (Subsystem 5): resolve the workspace X-RAY
+    // manifesto ONCE and classify every node, only when the caller opts in (the
+    // default). `None` whenever the caller opts out OR no manifesto resolves —
+    // in which case every per-node boost below is 0.0 and the output is
+    // byte-identical to the pre-conformance behavior (zero-cost by absence).
+    // Keeps BOTH the per-index states and the manifesto provenance string.
+    let conformance: Option<(Vec<crate::xray_handlers::PaintState>, String)> =
+        if input.conformance_aware {
+            crate::xray_handlers::resolve_node_conformance(&graph, workspace_root.as_deref())
+        } else {
+            None
+        };
+    let conformance_states = conformance.as_ref().map(|(states, _src)| states);
 
     // Phase 1: Score every node (keyword match + trigram + provenance path matching)
     let mut keyword_scores: Vec<f32> = vec![0.0; n];
@@ -219,6 +338,30 @@ pub fn handle_seek(
             .collect()
     };
     let semantic_used = !semantic_scores.is_empty();
+    // Legacy trigram-path indicator; retained for clarity but no longer aliased
+    // into the response's (now truthful) `embeddings_used` flag.
+    let _ = semantic_used;
+
+    // OPTIONAL `embed` feature: embed the query ONCE (covers both the server arm
+    // and the internal Semantic-search caller in search_handlers, which routes
+    // through handle_seek). When the feature is OFF, `query_embedding` is always
+    // None and nothing below changes — the `sem` slot stays the legacy trigram
+    // TF-IDF score, i.e. ZERO behavior change.
+    //
+    // HONESTY: these are FAST STATIC embeddings (model2vec) — a real upgrade over
+    // label-only trigrams, but NOT transformer-grade. The ONNX/bge tier is the
+    // path for maximal quality.
+    #[cfg(feature = "embed")]
+    let query_embedding: Option<Box<[f32]>> =
+        state.orchestrator.semantic.embedder.as_ref().map(|e| {
+            use m1nd_core::embed::Embedder;
+            e.embed(&input.query)
+        });
+    // Tracks whether a real embedding actually fed at least one node's score, so
+    // `embeddings_used` in the response is TRUTHFUL (not a misnomer for the
+    // trigram path). Stays false when the `embed` feature is OFF.
+    #[allow(unused_mut)]
+    let mut embeddings_used = false;
 
     // Phase 3: Combine with graph re-ranking.
     // V2 formula: keyword_match * 0.4 + semantic_embedding * 0.3 + graph_activation(PageRank) * 0.2 + trigram * 0.1
@@ -243,7 +386,37 @@ pub fn handle_seek(
     for i in 0..n {
         let kw = keyword_scores[i];
         let tri = trigram_scores[i];
-        let sem = semantic_scores.get(&i).copied().unwrap_or(0.0);
+        let legacy_sem = semantic_scores.get(&i).copied().unwrap_or(0.0);
+
+        // When the `embed` feature is ON, blend the query↔node cosine into `sem`:
+        // sem = 0.7*cosine + 0.3*legacy_trigram (lexical signal preserved). This
+        // runs for SURVIVORS (any keyword/trigram signal) AND — the recall win —
+        // for NON-survivors whose cosine clears SEMANTIC_RECALL_FLOOR, so a node
+        // that matches by MEANING with zero token overlap still surfaces. With the
+        // feature OFF or no embedding, sem stays legacy_sem (ZERO behavior change).
+        #[allow(unused_mut)]
+        let mut sem = legacy_sem;
+        #[cfg(feature = "embed")]
+        {
+            if let (Some(qv), Some(nv)) = (
+                query_embedding.as_ref(),
+                state
+                    .orchestrator
+                    .semantic
+                    .embeddings
+                    .get(&m1nd_core::types::NodeId::new(i as u32)),
+            ) {
+                let cos = m1nd_core::embed::cosine(qv, nv).clamp(0.0, 1.0);
+                let is_survivor = kw > 0.0 || tri > 0.0;
+                // Non-survivors get no kw/tri boost, so an admitted pure-semantic
+                // hit ranks by cosine and stays modest — recall without flooding.
+                if is_survivor || cos >= SEMANTIC_RECALL_FLOOR {
+                    sem = 0.7 * cos + 0.3 * legacy_sem;
+                    embeddings_used = true;
+                }
+            }
+        }
+
         if kw < 0.01 && tri < 0.15 && sem < 0.05 {
             continue;
         }
@@ -294,7 +467,21 @@ pub fn handle_seek(
             .partial_cmp(&a.base_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    // Honesty accounting, part 1 — captured BEFORE the heuristic-window cut:
+    //  * `relevance_clearing_total`: every node that cleared `min_score` (the full
+    //    relevant pool size), so `ignored` reflects all of it, not just budget
+    //    drops.
+    //  * `tail_best_base`: the strongest node the heuristic window is about to
+    //    drop — used only in the rare case where the entire window is returned,
+    //    so the knee can still see that weaker-but-relevant nodes exist beyond it.
+    // `base_ranked` is sorted by base_score descending here. The combined-unit
+    // salience used for the actual verdict is captured AFTER the re-rank below,
+    // so the honesty math agrees with the real kept/dropped partition.
+    let relevance_clearing_total = base_ranked.len();
     let heuristic_window = input.top_k.saturating_mul(4).max(input.top_k).min(128);
+    let tail_best_base = base_ranked
+        .get(heuristic_window)
+        .map(|e| e.base_score.max(0.0));
     base_ranked.truncate(heuristic_window);
 
     let now = std::time::SystemTime::now()
@@ -352,9 +539,23 @@ pub fn handle_seek(
             let tremor_factor = l2_dampened_tremor_factor(tremor_alert.as_ref());
             let heuristic_factor = trust_factor * tremor_factor;
 
+            // Conformance-aware attention: an ADDITIVE nudge keyed on the node's
+            // X-RAY state. 0.0 whenever no manifesto resolved (states is None),
+            // so the score — and thus the whole output — is unchanged by absence.
+            // Additive (not a cut): it only re-orders; an erosion source that
+            // still scores high after the malus is retained and later counted.
+            let conformance_boost = conformance_states.map_or(0.0, |st| match st.get(entry.idx) {
+                Some(crate::xray_handlers::PaintState::ErosionCandidate) => {
+                    CONFORMANCE_EROSION_MALUS
+                }
+                Some(crate::xray_handlers::PaintState::Bedrock) => CONFORMANCE_BEDROCK_BOOST,
+                _ => 0.0,
+            });
+
             RankedNode {
                 idx: entry.idx,
-                combined: (entry.base_score * heuristic_factor).max(0.0),
+                combined: ((entry.base_score + conformance_boost).max(0.0) * heuristic_factor)
+                    .max(0.0),
                 keyword: entry.keyword,
                 graph_act: entry.graph_act,
                 trigram: entry.trigram,
@@ -385,6 +586,14 @@ pub fn handle_seek(
             .then_with(|| b.graph_act.total_cmp(&a.graph_act))
             .then_with(|| a.idx.cmp(&b.idx))
     });
+    // Honesty accounting, part 2 — the IN-WINDOW relevant salience in `combined`
+    // units (the SAME units the kept/dropped partition is decided in), captured
+    // right after the re-rank and before top_k/budget truncation. Because every
+    // remaining step keeps a rank-prefix of this list, the returned set's
+    // salience is exactly its prefix sum and the best dropped node is exactly the
+    // element just past it — so trust/tremor re-ranking can no longer make a
+    // strong dropped node look retained.
+    let window_combined_desc: Vec<f32> = ranked.iter().map(|r| r.combined.max(0.0)).collect();
     ranked.truncate(input.top_k);
 
     // Phase 4: Build output
@@ -473,6 +682,35 @@ pub fn handle_seek(
     } else {
         (results, None)
     };
+    let kept_n = results.len();
+    // `captured`: fraction of the re-ranked window's salience the returned set
+    // carries, in `combined` units (the partition's own units), so it is an exact
+    // prefix ratio — never inflated by trust/tremor re-ranking. Anything dropped
+    // beyond the window is a weaker tail surfaced via `marginal_score` and the
+    // `ignored` count, not hidden here. (`dedupe_ranked` may reorder the kept set
+    // by a specificity bonus clamped to ±CLOSE_SCORE_EPS and collapse same-family
+    // hits, so the realized prefix can differ from this by ≤eps — biased toward
+    // "gathering", the safe direction.)
+    let window_mass: f32 = window_combined_desc.iter().sum();
+    let kept_salience: f32 = window_combined_desc.iter().take(kept_n).sum();
+    let captured = if window_mass > f32::EPSILON {
+        (kept_salience / window_mass).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    // `marginal_score`: the score of the best candidate NOT returned — the "knee".
+    // Within the window it is the exact element past the kept prefix (combined
+    // units). If the entire window was returned but weaker nodes were cut beyond
+    // it, fall back to that tail's strongest (base_score — which differs from its
+    // own combined value by ≤~9%, biasing this rare fallback toward "gathering").
+    // `None` only when the returned set holds the entire relevant pool.
+    let marginal_score = if kept_n < window_combined_desc.len() {
+        Some(window_combined_desc[kept_n])
+    } else {
+        tail_best_base
+    };
+    let top_score = results.first().map(|e| e.score).unwrap_or(0.0);
+    let sufficiency = compute_sufficiency(top_score, captured, marginal_score, results.len());
 
     drop(graph);
 
@@ -525,11 +763,65 @@ pub fn handle_seek(
             .collect::<Vec<_>>(),
     );
 
+    let filtering_reason = if !results.is_empty() {
+        None
+    } else if candidates_scanned == 0 {
+        Some(format!(
+            "the active scope/node_types filter excluded all {n} graph node(s) before scoring — relax `scope`/`node_types`, or run `doctor` to check the binding"
+        ))
+    } else {
+        Some(format!(
+            "{candidates_scanned} of {n} node(s) passed scope/type but none cleared the relevance threshold for this query — broaden the query terms or lower `min_score`"
+        ))
+    };
+
+    // Conformance summary over the RETURNED results. Present only when a
+    // manifesto actually biased this query (`conformance` is Some); `None`
+    // otherwise so the output stays byte-identical by absence. Built from a
+    // node_id(external_id) -> PaintState lookup over node_to_ext + the states
+    // Vec. Erosion hits that survived into `results` are COUNTED here (and
+    // surfaced as `erosion_in_result_set`), never hidden.
+    let conformance_summary = conformance.as_ref().map(|(states, source)| {
+        let mut ext_to_state: HashMap<&str, crate::xray_handlers::PaintState> =
+            HashMap::with_capacity(node_to_ext.len());
+        for (idx, ext) in node_to_ext.iter().enumerate() {
+            if let Some(st) = states.get(idx) {
+                if !ext.is_empty() {
+                    ext_to_state.insert(ext.as_str(), *st);
+                }
+            }
+        }
+        let mut bedrock = 0u32;
+        let mut erosion = 0u32;
+        let mut neutral = 0u32;
+        for entry in &results {
+            match ext_to_state.get(entry.node_id.as_str()) {
+                Some(crate::xray_handlers::PaintState::Bedrock) => bedrock += 1,
+                Some(crate::xray_handlers::PaintState::ErosionCandidate) => erosion += 1,
+                _ => neutral += 1,
+            }
+        }
+        layers::ConformanceSummary {
+            source: source.clone(),
+            bedrock,
+            erosion,
+            neutral,
+            erosion_in_result_set: erosion,
+        }
+    });
+
     Ok(layers::SeekOutput {
         query: input.query,
         results,
         total_candidates_scanned: candidates_scanned,
-        embeddings_used: semantic_used,
+        relevance_clearing_total,
+        filtering_reason,
+        // TRUTHFUL: true ONLY when a real static embedding actually fed a node's
+        // score (OPTIONAL `embed` feature). With the feature OFF this is always
+        // false. Previously this aliased `semantic_used` (the trigram path),
+        // which was a misnomer. `_ = semantic_used` keeps the legacy binding live
+        // for the unchanged trigram scoring without re-confusing the flag.
+        embeddings_used,
         proof_state,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         next_suggested_tool,
@@ -539,6 +831,99 @@ pub fn handle_seek(
         recovery,
         agent_runtime_contract,
         budget,
+        sufficiency,
+        conformance: conformance_summary,
+    })
+}
+
+/// Handle `focus` — goal-conditioned attention management (Focus Runtime P1).
+///
+/// `focus` is a thin attention layer over `seek`: it runs the same intent
+/// ranking under a token budget, then reframes the outcome as an attention
+/// decision — the minimal `focus_set` worth loading, an honest `ignored` tail,
+/// and the answer-free `sufficiency` stop signal. It invents no scoring of its
+/// own; the salience, budget packing, `embeddings_used` flag, and recovery
+/// payload are exactly what `seek` produces, so the two stay consistent by
+/// construction and `focus` inherits every honesty guarantee `seek` already has.
+pub fn handle_focus(
+    state: &mut SessionState,
+    input: layers::FocusInput,
+) -> M1ndResult<layers::FocusOutput> {
+    // Drive the existing ranking with the goal as the query and the agent's
+    // declared budget as the limiter. top_k is kept generous so the *budget* —
+    // not an arbitrary count — decides what fits the focus set.
+    let seek_input = layers::SeekInput {
+        query: input.goal.clone(),
+        agent_id: input.agent_id.clone(),
+        top_k: input.top_k,
+        scope: input.scope.clone(),
+        node_types: input.node_types.clone(),
+        min_score: input.min_score,
+        graph_rerank: true,
+        token_budget: Some(input.token_budget),
+        // `focus` rides `handle_seek`, so it inherits conformance-aware attention
+        // for free (and the byte-identical-by-absence guarantee with it).
+        conformance_aware: true,
+    };
+
+    let seek = handle_seek(state, seek_input)?;
+    // Surface seek's conformance accounting on focus too. Captured before
+    // `seek.results` is moved into `focus_set` below.
+    let conformance = seek.conformance.clone();
+
+    let focus_len = seek.results.len();
+    // Every relevance-clearing node NOT shown — the honest "context left out"
+    // count. This spans all causes: token-budget drops AND nodes that fell beyond
+    // top_k / the heuristic window. It can never read 0 while relevant nodes were
+    // truncated, so a budget-or-window-bounded slice is never mistaken for the
+    // whole truth.
+    let ignored_count = seek.relevance_clearing_total.saturating_sub(focus_len);
+    // Of those, the share the token budget dropped (from seek's own accounting);
+    // the remainder fell beyond top_k / the heuristic window as lower salience.
+    let dropped_to_budget = seek
+        .budget
+        .as_ref()
+        .and_then(|block| block.get("dropped"))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    // Remainder beyond the budget drops: nodes past top_k / the re-rank window,
+    // plus any same-family duplicates de-duplicated out of the returned set.
+    let beyond_window = ignored_count.saturating_sub(dropped_to_budget);
+    let reason = if ignored_count == 0 {
+        "every relevance-clearing node fit the focus set".to_string()
+    } else if dropped_to_budget > 0 && beyond_window > 0 {
+        format!(
+            "{dropped_to_budget} node(s) dropped to fit the ~{budget}-token budget and {beyond_window} more left out beyond the top_k window (incl. same-family duplicates) — raise token_budget/top_k or narrow the goal",
+            budget = input.token_budget
+        )
+    } else if dropped_to_budget > 0 {
+        format!(
+            "{dropped_to_budget} ranked node(s) dropped to fit the ~{budget}-token budget — raise token_budget or narrow the goal to keep them",
+            budget = input.token_budget
+        )
+    } else {
+        format!(
+            "{beyond_window} relevance-clearing node(s) left out beyond the top_k window (incl. same-family duplicates) — raise top_k or narrow the goal to see them"
+        )
+    };
+
+    Ok(layers::FocusOutput {
+        goal: input.goal,
+        focus_set: seek.results,
+        ignored: layers::FocusIgnored {
+            count: ignored_count,
+            scanned: seek.total_candidates_scanned,
+            reason,
+        },
+        sufficiency: seek.sufficiency,
+        token_budget: input.token_budget,
+        budget: seek.budget,
+        embeddings_used: seek.embeddings_used,
+        filtering_reason: seek.filtering_reason,
+        elapsed_ms: seek.elapsed_ms,
+        recovery: seek.recovery,
+        agent_runtime_contract: seek.agent_runtime_contract,
+        conformance,
     })
 }
 
@@ -9392,7 +9777,9 @@ fn generate_dot(
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData};
+    use super::{
+        handle_focus, handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData,
+    };
     use crate::protocol::layers::{
         HypothesizeInput, LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput,
         TrailResumeInput, TrailSaveInput, TrailVisitedNodeInput, ValidatePlanInput,
@@ -9403,6 +9790,285 @@ mod tests {
     use m1nd_core::graph::Graph;
     use m1nd_core::types::{EdgeDirection, FiniteF32, NodeType};
     use std::collections::HashMap;
+
+    /// OPTIONAL `embed` feature REAL PROBE.
+    ///
+    /// Build a graph where the answer node does NOT keyword-match the intent
+    /// query — the intent lives only in its provenance excerpt. With static
+    /// embeddings ON, seek must surface that node (and report
+    /// `embeddings_used == true`). The probe prints the ranked output so the
+    /// behavior is observable. Gated on the model being vendored locally; skips
+    /// (does not fail) when the ~129MB blob is absent.
+    #[cfg(feature = "embed")]
+    #[test]
+    fn embed_probe_surfaces_semantic_node() {
+        use m1nd_core::graph::NodeProvenanceInput;
+
+        // Skip cleanly if the model isn't vendored in this environment.
+        let model_dir = m1nd_core::embed::Model2VecEmbedder::default_model_dir();
+        if !model_dir.join("model.safetensors").exists() {
+            eprintln!(
+                "SKIP embed_probe_surfaces_semantic_node: model not vendored at {}",
+                model_dir.display()
+            );
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("m1nd_embed_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp dir");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        // Decoy: a node whose label is lexically busy but semantically unrelated.
+        let decoy = graph
+            .add_node(
+                "fn::parse_csv_header",
+                "parse_csv_header",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add decoy");
+        graph.set_node_provenance(
+            decoy,
+            NodeProvenanceInput {
+                source_path: Some("src/csv.rs"),
+                line_start: Some(1),
+                line_end: Some(20),
+                excerpt: Some("splits the first row into column names for the parser"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        // Target: label does NOT contain the query words ("shutdown",
+        // "cancellation", "guard"); the intent is ONLY in the excerpt.
+        let target = graph
+            .add_node(
+                "fn::drain_inflight",
+                "drain_inflight",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add target");
+        graph.set_node_provenance(
+            target,
+            NodeProvenanceInput {
+                source_path: Some("src/runtime.rs"),
+                line_start: Some(40),
+                line_end: Some(70),
+                excerpt: Some(
+                    "gracefully aborts the running work and stops accepting tasks when the \
+                     context is cancelled during shutdown",
+                ),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph
+            .add_edge(
+                decoy,
+                target,
+                "calls",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge");
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "guard shutdown against cancellation".into(),
+                agent_id: "probe".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        eprintln!("=== EMBED PROBE: query='guard shutdown against cancellation' ===");
+        eprintln!("embeddings_used = {}", out.embeddings_used);
+        for (rank, r) in out.results.iter().enumerate() {
+            eprintln!(
+                "  #{rank} {:<22} score={:.4} kw_slot={:.4} graph={:.4} tri_slot={:.4}",
+                r.label,
+                r.score,
+                r.score_breakdown.embedding_similarity,
+                r.score_breakdown.graph_activation,
+                r.score_breakdown.temporal_recency,
+            );
+        }
+
+        // The embedding must have actually fed the score.
+        assert!(
+            out.embeddings_used,
+            "embeddings_used must be true with feature ON + model present"
+        );
+        // The semantically-relevant node must be surfaced.
+        let target_pos = out.results.iter().position(|r| r.label == "drain_inflight");
+        assert!(
+            target_pos.is_some(),
+            "semantic target 'drain_inflight' must be surfaced; got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// PRINCIPLED RECALL: a node that matches the query by MEANING but shares
+    /// ZERO keyword/trigram signal (a true non-survivor) must still surface,
+    /// admitted purely because its query cosine clears SEMANTIC_RECALL_FLOOR.
+    /// Under the old survivor-gated blend it was dropped by the lexical cutoff.
+    #[cfg(feature = "embed")]
+    #[test]
+    fn embed_recall_surfaces_nonsurvivor_semantic_node() {
+        use m1nd_core::graph::NodeProvenanceInput;
+
+        let model_dir = m1nd_core::embed::Model2VecEmbedder::default_model_dir();
+        if !model_dir.join("model.safetensors").exists() {
+            eprintln!("SKIP embed_recall_surfaces_nonsurvivor_semantic_node: model not vendored");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("m1nd_embed_recall_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp dir");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let query = "open a secure encrypted channel";
+        let mut graph = Graph::new();
+        // Decoy: unrelated meaning, also lexically disjoint from the query.
+        let decoy = graph
+            .add_node(
+                "fn::parse_csv_header",
+                "parse_csv_header",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add decoy");
+        graph.set_node_provenance(
+            decoy,
+            NodeProvenanceInput {
+                source_path: Some("src/csv.rs"),
+                line_start: Some(1),
+                line_end: Some(20),
+                excerpt: Some("splits the first row into column names for the parser"),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        // Target: a GIBBERISH label sharing zero trigrams with the query (a true
+        // non-survivor: kw=0, tri=0); the intent lives ONLY in the excerpt.
+        let target = graph
+            .add_node("fn::qz9wb", "qz9wb", NodeType::Function, &[], 0.0, 0.0)
+            .expect("add target");
+        graph.set_node_provenance(
+            target,
+            NodeProvenanceInput {
+                source_path: Some("src/net.rs"),
+                line_start: Some(10),
+                line_end: Some(40),
+                excerpt: Some(
+                    "negotiates a TLS session and establishes an encrypted tunnel between two hosts",
+                ),
+                namespace: None,
+                canonical: true,
+            },
+        );
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        // Calibration: print the query↔node cosines so the floor is observable.
+        {
+            use m1nd_core::embed::Embedder;
+            let qv = state
+                .orchestrator
+                .semantic
+                .embedder
+                .as_ref()
+                .expect("embedder loaded")
+                .embed(query);
+            let cos_of = |id| {
+                state
+                    .orchestrator
+                    .semantic
+                    .embeddings
+                    .get(id)
+                    .map(|nv| m1nd_core::embed::cosine(&qv, nv))
+                    .unwrap_or(0.0)
+            };
+            eprintln!(
+                "RECALL CALIB: target cos={:.4}  decoy cos={:.4}  floor={}",
+                cos_of(&target),
+                cos_of(&decoy),
+                super::SEMANTIC_RECALL_FLOOR
+            );
+        }
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: query.into(),
+                agent_id: "probe".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        eprintln!("embeddings_used = {}", out.embeddings_used);
+        for r in &out.results {
+            eprintln!("  {:<18} score={:.4}", r.label, r.score);
+        }
+
+        assert!(out.embeddings_used, "embeddings must have fired");
+        assert!(
+            out.results.iter().any(|r| r.label == "qz9wb"),
+            "non-survivor semantic match 'qz9wb' must surface via the recall floor; got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     fn build_layer_state(root: &std::path::Path) -> SessionState {
         let runtime_dir = root.join("runtime");
@@ -9602,10 +10268,67 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
         .expect("seek should succeed")
+    }
+
+    #[test]
+    fn seek_empty_result_explains_why_via_filtering_reason() {
+        // A graph with one Function node; a query with no lexical/semantic match
+        // is scored but falls below the relevance threshold, so the result set is
+        // empty WITH a reason — the agent learns why instead of blindly re-querying.
+        let tmp =
+            std::env::temp_dir().join(format!("m1nd_seek_filterreason_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("fn::do_work", "do_work", NodeType::Function, &[], 0.0, 0.0)
+            .expect("add node");
+        graph.finalize().expect("finalize");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "zzqxwv unrelated gibberish nonmatching".into(),
+                agent_id: "t".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        assert!(
+            out.results.is_empty(),
+            "a query with no lexical/semantic match should return no results, got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+        let reason = out.filtering_reason.as_deref().unwrap_or("");
+        assert!(
+            reason.contains("threshold") || reason.contains("none cleared"),
+            "an empty seek must explain WHY (relevance threshold), got {reason:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// Build a state whose graph has many seek-matching file nodes, so that
@@ -9655,6 +10378,7 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget,
             },
         )
@@ -9712,6 +10436,481 @@ mod tests {
             used <= budget_tokens || kept == 1,
             "used {used} should be <= {budget_tokens} unless single-item overflow"
         );
+    }
+
+    // ---- Subsystem 5: conformance-aware attention ----
+
+    /// Run seek with explicit control over `conformance_aware`.
+    fn run_seek_conformance(
+        state: &mut SessionState,
+        query: &str,
+        conformance_aware: bool,
+    ) -> crate::protocol::layers::SeekOutput {
+        handle_seek(
+            state,
+            SeekInput {
+                query: query.into(),
+                agent_id: "test".into(),
+                top_k: 50,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware,
+                token_budget: None,
+            },
+        )
+        .expect("seek should succeed")
+    }
+
+    /// Build a session whose graph has a REAL erosion edge: node `search_a` in
+    /// module `modA` imports node `search_b` in module `modB`, plus a benign
+    /// `search_c` (also modB) so the result set is mixed. With a `layer_order`
+    /// of `["modA","modB"]` written to `<workspace_root>/xray.manifest.json`,
+    /// the `modA -> modB` import is a layer-violating cross-module edge, so
+    /// `search_a` classifies as an erosion source. `write_manifest=false`
+    /// produces the same graph with NO manifesto on disk (the absence baseline).
+    fn build_state_erosion_graph(root: &std::path::Path, write_manifest: bool) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        // All three labels contain "search" so the query matches them all.
+        let a = graph
+            .add_node(
+                "file::modA/search_a.rs",
+                "search_a",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add a");
+        let b = graph
+            .add_node(
+                "file::modB/search_b.rs",
+                "search_b",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add b");
+        let _c = graph
+            .add_node(
+                "file::modB/search_c.rs",
+                "search_c",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add c");
+        // modA -> modB import: the layer-violating boundary edge.
+        graph
+            .add_edge(
+                a,
+                b,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge a->b");
+        graph.finalize().expect("finalize");
+
+        if write_manifest {
+            // layer_order ["modA","modB"]: modB sits ABOVE modA, so the
+            // modA -> modB import is a layer-axis divergence (erosion).
+            std::fs::write(
+                root.join("xray.manifest.json"),
+                br#"{"ratified": true, "layer_order": ["modA", "modB"]}"#,
+            )
+            .expect("write manifest");
+        }
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    /// Honesty invariant #1 — OPT-OUT and ABSENCE are byte-identical to the
+    /// pre-conformance behavior. Three runs must agree on results+scores and all
+    /// carry `conformance == None`:
+    ///   (i) opt-out (`conformance_aware=false`) WITH a manifesto present,
+    ///   (ii) opt-in but NO manifesto on disk,
+    ///   (iii) opt-out and no manifesto.
+    #[test]
+    fn conformance_off_is_byte_identical() {
+        // (i) manifesto present, but opted out.
+        let temp_m = tempfile::tempdir().expect("tempdir");
+        let mut state_m = build_state_erosion_graph(temp_m.path(), true);
+        let opted_out = run_seek_conformance(&mut state_m, "search", false);
+
+        // (ii) opted in, but no manifesto on disk.
+        let temp_n = tempfile::tempdir().expect("tempdir");
+        let mut state_n = build_state_erosion_graph(temp_n.path(), false);
+        let no_manifest = run_seek_conformance(&mut state_n, "search", true);
+
+        // (iii) opted out, no manifesto — the pure baseline.
+        let temp_b = tempfile::tempdir().expect("tempdir");
+        let mut state_b = build_state_erosion_graph(temp_b.path(), false);
+        let baseline = run_seek_conformance(&mut state_b, "search", false);
+
+        // No conformance summary on any absence/opt-out path.
+        assert!(opted_out.conformance.is_none(), "opt-out: no summary");
+        assert!(no_manifest.conformance.is_none(), "absence: no summary");
+        assert!(baseline.conformance.is_none(), "baseline: no summary");
+
+        // Identical ranking + scores across all three (byte-identical behavior).
+        let fingerprint = |o: &crate::protocol::layers::SeekOutput| {
+            o.results
+                .iter()
+                .map(|r| (r.node_id.clone(), r.score))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            fingerprint(&opted_out),
+            fingerprint(&baseline),
+            "opt-out with a manifesto must match the pure baseline exactly"
+        );
+        assert_eq!(
+            fingerprint(&no_manifest),
+            fingerprint(&baseline),
+            "opt-in with no manifesto must match the pure baseline exactly"
+        );
+    }
+
+    /// `resolve_node_conformance` returns Some only when a non-empty manifesto
+    /// resolves, and None on absence — the gate that keeps seek zero-cost.
+    #[test]
+    fn resolve_node_conformance_some_on_manifest_none_on_absence() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_with = build_state_erosion_graph(temp.path(), true);
+        {
+            let graph = state_with.graph.read();
+            let resolved = crate::xray_handlers::resolve_node_conformance(
+                &graph,
+                state_with.workspace_root.as_deref(),
+            );
+            let (states, source) = resolved.expect("Some when a manifesto resolves");
+            assert_eq!(states.len(), graph.num_nodes() as usize);
+            assert!(source.starts_with("file:"), "source was {source}");
+        }
+
+        let temp2 = tempfile::tempdir().expect("tempdir");
+        let state_without = build_state_erosion_graph(temp2.path(), false);
+        {
+            let graph = state_without.graph.read();
+            let resolved = crate::xray_handlers::resolve_node_conformance(
+                &graph,
+                state_without.workspace_root.as_deref(),
+            );
+            assert!(resolved.is_none(), "None when no manifesto resolves");
+        }
+    }
+
+    /// Honesty invariant #2 — an erosion source is DOWN-weighted (re-ordered
+    /// lower) when the manifesto resolves, never silently dropped: it stays in
+    /// the result set and is COUNTED in the conformance summary's erosion /
+    /// erosion_in_result_set. The same node ranks no lower without the manifesto.
+    #[test]
+    fn conformance_down_weights_erosion_source() {
+        // With the manifesto: search_a (erosion source) is penalized.
+        let temp_on = tempfile::tempdir().expect("tempdir");
+        let mut state_on = build_state_erosion_graph(temp_on.path(), true);
+        let biased = run_seek_conformance(&mut state_on, "search", true);
+
+        // Without the manifesto: identical graph, no bias.
+        let temp_off = tempfile::tempdir().expect("tempdir");
+        let mut state_off = build_state_erosion_graph(temp_off.path(), false);
+        let unbiased = run_seek_conformance(&mut state_off, "search", true);
+
+        // The erosion source survives into the result set (never dropped) ...
+        let pos = |o: &crate::protocol::layers::SeekOutput, id: &str| {
+            o.results.iter().position(|r| r.node_id == id)
+        };
+        let on_a = pos(&biased, "file::modA/search_a.rs").expect("search_a present (biased)");
+        let off_a = pos(&unbiased, "file::modA/search_a.rs").expect("search_a present (unbiased)");
+        // ... and its rank is no better (numerically >= = lower or equal) with
+        // the malus; with a clear erosion node and tie-broken peers it drops.
+        assert!(
+            on_a >= off_a,
+            "erosion source must not rank higher under the malus (on={on_a}, off={off_a})"
+        );
+
+        // The malus actually lowered its score.
+        let score_of = |o: &crate::protocol::layers::SeekOutput, id: &str| {
+            o.results
+                .iter()
+                .find(|r| r.node_id == id)
+                .map(|r| r.score)
+                .expect("node present")
+        };
+        assert!(
+            score_of(&biased, "file::modA/search_a.rs")
+                < score_of(&unbiased, "file::modA/search_a.rs"),
+            "the erosion malus must lower search_a's score"
+        );
+
+        // Conformance summary present and honestly counts the erosion hit.
+        let summary = biased.conformance.expect("conformance summary present");
+        assert!(
+            summary.source.starts_with("file:"),
+            "source {}",
+            summary.source
+        );
+        assert!(summary.erosion >= 1, "at least one erosion hit counted");
+        assert_eq!(
+            summary.erosion_in_result_set, summary.erosion,
+            "every erosion hit in the result set is surfaced as drift"
+        );
+        let returned = biased.results.len() as u32;
+        assert_eq!(
+            summary.bedrock + summary.erosion + summary.neutral,
+            returned,
+            "every returned hit is classified exactly once"
+        );
+    }
+
+    /// `focus` rides `handle_seek`, so it surfaces the same conformance summary.
+    #[test]
+    fn focus_surfaces_conformance() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_state_erosion_graph(temp.path(), true);
+        let out = run_focus(&mut state, "search", 2000, 60);
+        let summary = out
+            .conformance
+            .expect("focus surfaces conformance when a manifesto resolves");
+        assert!(
+            summary.source.starts_with("file:"),
+            "source {}",
+            summary.source
+        );
+        assert!(summary.erosion >= 1, "erosion source surfaced via focus");
+    }
+
+    fn run_focus(
+        state: &mut SessionState,
+        goal: &str,
+        token_budget: usize,
+        top_k: usize,
+    ) -> crate::protocol::layers::FocusOutput {
+        handle_focus(
+            state,
+            crate::protocol::layers::FocusInput {
+                goal: goal.into(),
+                agent_id: "test".into(),
+                token_budget,
+                top_k,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+            },
+        )
+        .expect("focus should succeed")
+    }
+
+    /// P1 leapfrog: `focus` returns a budget-bounded focus_set, an honest
+    /// `ignored` tail tied to the budget's own drop count, and an answer-free
+    /// sufficiency signal. When the budget forces salient nodes out, the signal
+    /// must NEVER read "sufficient" — a truncated set is not silently "enough".
+    #[test]
+    fn focus_budget_bound_is_honest_and_never_silently_sufficient() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_state_many_search_nodes(temp.path(), 40);
+
+        // Tiny budget: only a sliver of the ranked set can fit.
+        let out = run_focus(&mut state, "search", 30, 60);
+
+        assert!(!out.focus_set.is_empty(), "must keep at least one node");
+        // The honest ignored count is exactly the budget's own drop count.
+        let dropped = out
+            .budget
+            .as_ref()
+            .and_then(|block| block.get("dropped"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as usize;
+        assert_eq!(
+            out.ignored.count, dropped,
+            "ignored.count must equal the budget's reported drop count"
+        );
+        assert!(
+            dropped > 0,
+            "a 30-token budget over 40 nodes must drop salient candidates"
+        );
+        // scanned reflects search breadth: all 40 nodes were scored (no filters).
+        assert_eq!(
+            out.ignored.scanned, 40,
+            "all nodes were scored for the goal"
+        );
+        // sufficiency is present; top_score mirrors the top of the focus set.
+        assert_eq!(out.sufficiency.top_score, out.focus_set[0].score);
+        assert!((0.0..=1.0).contains(&out.sufficiency.captured));
+        // The leapfrog invariant: a budget-truncated set is never "sufficient".
+        assert_ne!(
+            out.sufficiency.state, "sufficient",
+            "dropping salient nodes must surface as gathering/saturated, not silently sufficient: {:?}",
+            out.sufficiency
+        );
+    }
+
+    /// A generous budget that holds the whole ranked set drops nothing: `ignored`
+    /// is zero, retention is full, and the stop signal is never "gathering".
+    #[test]
+    fn focus_full_budget_drops_nothing_and_retention_is_full() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_state_many_search_nodes(temp.path(), 12);
+
+        let out = run_focus(&mut state, "search", 100_000, 60);
+
+        assert_eq!(
+            out.ignored.count, 0,
+            "all 12 relevant nodes fit, so nothing is ignored"
+        );
+        assert!(
+            out.ignored
+                .reason
+                .contains("every relevance-clearing node fit"),
+            "reason should explain a clean fit, got {:?}",
+            out.ignored.reason
+        );
+        assert!(
+            (out.sufficiency.captured - 1.0).abs() < 1e-6,
+            "no pruning means full capture, got {}",
+            out.sufficiency.captured
+        );
+        assert_ne!(
+            out.sufficiency.state, "gathering",
+            "nothing was dropped, so the verdict cannot be 'gathering': {:?}",
+            out.sufficiency
+        );
+    }
+
+    /// Regression for the top_k-truncation honesty gap (found in adversarial
+    /// review): when MORE relevance-clearing nodes exist than fit the focus set,
+    /// the cut nodes must be counted in `ignored`, `captured` must drop below
+    /// 1.0, and the verdict must NOT read "sufficient" — even when the token
+    /// budget itself dropped nothing. A truncated slice is never silently enough.
+    #[test]
+    fn focus_top_k_truncation_is_never_silently_sufficient() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // 80 equally-matching nodes, but only the top 20 may be returned.
+        let mut state = build_state_many_search_nodes(temp.path(), 80);
+
+        // Huge budget so the budget drops NOTHING — only top_k truncates.
+        let out = run_focus(&mut state, "search", 1_000_000, 20);
+
+        assert_eq!(out.focus_set.len(), 20, "top_k caps the focus set at 20");
+        let dropped_to_budget = out
+            .budget
+            .as_ref()
+            .and_then(|block| block.get("dropped"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as usize;
+        assert_eq!(dropped_to_budget, 0, "the budget dropped nothing here");
+        // The 60 top_k-truncated relevant nodes are still honestly accounted for.
+        assert_eq!(
+            out.ignored.count, 60,
+            "top_k-truncated relevant nodes must be counted as ignored, got {:?}",
+            out.ignored
+        );
+        assert!(
+            out.ignored.reason.contains("beyond the top_k window"),
+            "reason must name the top_k truncation, got {:?}",
+            out.ignored.reason
+        );
+        // Capture reflects the truncation, and the verdict is honest about it.
+        assert!(
+            out.sufficiency.captured < 1.0,
+            "a truncated slice cannot report full capture, got {}",
+            out.sufficiency.captured
+        );
+        assert_ne!(
+            out.sufficiency.state, "sufficient",
+            "a top_k-truncated slice must never read 'sufficient': {:?}",
+            out.sufficiency
+        );
+    }
+
+    /// When the goal is absent from the graph, `focus` returns an empty set, a
+    /// `saturated` verdict, a zero ignored count, and an honest reason — the
+    /// agent learns "not here" instead of being told a weak set is enough.
+    #[test]
+    fn focus_saturated_when_goal_absent() {
+        let tmp = std::env::temp_dir().join(format!("m1nd_focus_absent_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("fn::do_work", "do_work", NodeType::Function, &[], 0.0, 0.0)
+            .expect("add node");
+        graph.finalize().expect("finalize");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = run_focus(
+            &mut state,
+            "zzqxwv unrelated gibberish nonmatching",
+            2000,
+            60,
+        );
+
+        assert!(
+            out.focus_set.is_empty(),
+            "an absent goal yields an empty set"
+        );
+        assert_eq!(
+            out.sufficiency.state, "saturated",
+            "an absent goal must read 'saturated', got {:?}",
+            out.sufficiency
+        );
+        assert_eq!(out.ignored.count, 0, "nothing relevant was dropped");
+        assert!(
+            out.filtering_reason.is_some(),
+            "an empty focus must explain why nothing was selected"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Pure-function coverage of the sufficiency verdict across every branch,
+    /// deterministic and model-free (the live calibration is documented on the
+    /// thresholds; this pins the decision logic itself).
+    #[test]
+    fn compute_sufficiency_covers_every_state() {
+        use super::compute_sufficiency as cs;
+        // empty set -> saturated
+        assert_eq!(cs(0.0, 0.0, None, 0).state, "saturated");
+        // weak best match (below WEAK_TOP=0.18) -> saturated, regardless of the rest
+        assert_eq!(cs(0.16, 1.0, Some(0.10), 5).state, "saturated");
+        // strong match, nothing left out -> sufficient
+        assert_eq!(cs(0.50, 1.0, None, 5).state, "sufficient");
+        // strong match, but a still-relevant candidate was cut -> gathering
+        assert_eq!(cs(0.50, 0.30, Some(0.40), 5).state, "gathering");
+        // strong match, everything cut is below the floor (weak tail) -> sufficient
+        assert_eq!(cs(0.50, 0.30, Some(0.12), 5).state, "sufficient");
+        // knee exactly at the floor counts as still-relevant -> gathering
+        assert_eq!(cs(0.50, 0.50, Some(0.18), 5).state, "gathering");
+        // the exact top_score is echoed through for the agent to judge
+        assert_eq!(cs(0.42, 1.0, None, 3).top_score, 0.42);
     }
 
     fn run_validate_plan(
@@ -10399,6 +11598,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -10485,6 +11685,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -10518,6 +11719,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -11236,5 +12438,94 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             "expected_phases tokens {:?} must contain 'expected' but not 'expect'",
             toks
         );
+    }
+
+    /// END-TO-END proof of the night's semantic arc through the REAL pipeline: a
+    /// live `ingest` folds a function's DOC COMMENT into its excerpt (#138), the
+    /// SemanticEngine embeds label+excerpt (#131/#136), and `seek` surfaces the
+    /// function by the doc's MEANING via principled recall (#139) — even though
+    /// the function's NAME (`qz9wb`) shares zero tokens with the query.
+    #[cfg(feature = "embed")]
+    #[test]
+    fn embed_arc_doc_comment_drives_seek_recall_end_to_end() {
+        let model_dir = m1nd_core::embed::Model2VecEmbedder::default_model_dir();
+        if !model_dir.join("model.safetensors").exists() {
+            eprintln!(
+                "SKIP embed_arc_doc_comment_drives_seek_recall_end_to_end: model not vendored"
+            );
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("m1nd_embed_arc_{}", std::process::id()));
+        let src = tmp.join("src");
+        std::fs::create_dir_all(&src).expect("src dir");
+        // `qz9wb`: opaque name (zero query overlap); the intent lives ONLY in the
+        // rustdoc above it. `parse_csv_header` is an unrelated decoy.
+        std::fs::write(
+            src.join("net.rs"),
+            "/// Negotiates a TLS session and establishes an encrypted tunnel between two hosts.\n\
+             pub fn qz9wb() -> u32 {\n\
+             \x20   let s = open_socket();\n\
+             \x20   perform_handshake(s)\n\
+             }\n\
+             \n\
+             /// Splits the first row of a CSV into column names.\n\
+             pub fn parse_csv_header() -> u32 {\n\
+             \x20   read_line()\n\
+             }\n",
+        )
+        .expect("write src");
+
+        // Real ingest: walk + extract + doc-comment excerpt + build.
+        let (graph, _stats) = m1nd_ingest::Ingestor::new(m1nd_ingest::IngestConfig {
+            root: tmp.clone(),
+            ..Default::default()
+        })
+        .ingest()
+        .expect("ingest");
+
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "open a secure encrypted channel".into(),
+                agent_id: "arc".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        eprintln!("ARC E2E: embeddings_used={}", out.embeddings_used);
+        for r in &out.results {
+            eprintln!("  {:<18} score={:.4}", r.label, r.score);
+        }
+
+        assert!(out.embeddings_used, "embeddings must fire end to end");
+        assert!(
+            out.results.iter().any(|r| r.label == "qz9wb"),
+            "the doc-comment intent must surface 'qz9wb' by MEANING through the real \
+             ingest->embed->seek chain; got {:?}",
+            out.results.iter().map(|r| &r.label).collect::<Vec<_>>()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

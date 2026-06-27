@@ -17,6 +17,35 @@ The rule:
 
 ## Open Notes
 
+### 2026-06-24 — OPTIONAL real local embeddings for `seek` (first cut, OFF by default)
+
+- UPDATE 2026-06-27: `embed` is now ON by default in `m1nd-mcp` (the shipped
+  server has semantic recall out of the box; model fetched on first use, graceful
+  trigram fallback). The embedding cache is gitignored as a runtime artifact and
+  is not written when empty. Build a lean binary with `--no-default-features
+  --features serve`.
+- Context: `seek`'s "semantic" slot was character-trigram TF-IDF over labels —
+  it cannot match intent queries whose words never appear in the node label.
+- First cut: a cargo feature `embed` (OFF by default; `m1nd-core/embed`,
+  forwarded by `m1nd-mcp/embed`) wires FAST STATIC embeddings via `model2vec-rs`
+  (`potion-base-8M`, ~29 MB, MIT, L2-normalized; output dim probed at load).
+  Model chosen by deep research as the leanest all-rounder serving BOTH code and
+  l1ght prose in one space; `M1ND_EMBED_MODEL` overrides (e.g. potion-code-16M for
+  code-max, potion-multilingual-128M for non-English). `SemanticEngine::build`
+  computes a per-node embedding side-map over `label + provenance.excerpt`;
+  `seek` embeds the query once and blends `sem = 0.7*cosine + 0.3*legacy_trigram`
+  for Phase-1 survivors. `embeddings_used` in the response is now TRUTHFUL.
+- HONESTY: these are STATIC embeddings — a real upgrade over label-only
+  trigrams, but NOT transformer-grade (no attention/contextualization). The
+  ONNX/bge tier is the path for maximal quality. No string should imply
+  transformer semantics.
+- Deferred: embedding AST body text (not just the
+  excerpt); and the ONNX/transformer quality tier (runner-up: jina-v2-base-code
+  pure-Rust via candle, the right upgrade once nodes carry real bodies + an ANN
+  index). The model is gitignored under `m1nd-core/assets/`; it is
+  downloaded-on-first-use from Hugging Face (`DEFAULT_HF_REPO`) or pointed at a
+  vendored copy via `M1ND_EMBED_MODEL` — no model blob is committed.
+
 ### 2026-05-05 — scope normalization failures should prefill doctor recovery too
 
 - Context: `seek`, `search`, and `activate` now attach `graph_state` and a
@@ -32,6 +61,27 @@ The rule:
     fields
 
 ## Resolved Notes
+
+### 2026-06-24 — embeddings now persist in a content-addressed cache (was: recomputed every build)
+
+- Context: with `embed` on, `SemanticEngine::build` recomputed every node's
+  static embedding on every boot and re-ingest — a model load + N encodes each
+  time, the main cost of keeping `embed` warm.
+- Resolution: a new `embed_cache.rs` sidecar (`EmbeddingCache`, bincode, atomic
+  temp+rename) keyed by a STABLE FNV-1a hash of `(model_id, label+excerpt)`.
+  `SemanticEngine::build_with_cache(graph, weights, cache_path, persist)` loads
+  the warm cache and reuses any vector whose `(model, text)` is unchanged,
+  re-embedding only changed/new nodes, then persists EXACTLY the current graph's
+  entries (self-pruning — no stale / cross-repo growth). The in-memory map stays
+  keyed by `NodeId`, so the `seek` path is untouched. The cache lives next to the
+  snapshot in `runtime_dir`, derived in `SessionState::initialize` and refreshed
+  by `rebuild_engines`. Advisory: any version/model/dim mismatch or corruption →
+  full recompute (never a wrong vector). `model_id` folds the weights-file byte
+  length, so an in-place model swap invalidates the cache. Read-only attachers
+  REUSE the cache but never write it (`persist=false`) — one writer per file,
+  honoring the read-only contract. All OFF by default behind `embed`.
+- Still deferred: NodeStorage SoA embedding fields + an ANN index over the
+  persisted vectors (the next unlock — vector search over the whole graph).
 
 ### 2026-05-06 — agents need one startup verdict, not stitched diagnostics
 

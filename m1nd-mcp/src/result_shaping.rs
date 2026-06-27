@@ -13,19 +13,41 @@ pub trait RankedResult: Clone {
 }
 
 pub fn dedupe_ranked<T: RankedResult>(mut items: Vec<T>, top_k: usize) -> Vec<T> {
-    items.sort_by(|a, b| {
-        let score_delta = (a.score() - b.score()).abs();
-        if score_delta <= CLOSE_SCORE_EPS {
-            b.specificity()
-                .total_cmp(&a.specificity())
-                .then_with(|| b.score().total_cmp(&a.score()))
-                .then_with(|| a.family_key().cmp(&b.family_key()))
-        } else {
-            b.score()
-                .total_cmp(&a.score())
-                .then_with(|| b.specificity().total_cmp(&a.specificity()))
-                .then_with(|| a.family_key().cmp(&b.family_key()))
+    // Rank by a single blended key: the score nudged by a bounded specificity
+    // bonus. Within a near-tie the more specific hit wins (a specific symbol over
+    // a generic crate node). The bonus is clamped to ±CLOSE_SCORE_EPS, so the
+    // most specificity can shift a key is one eps; two items can differ by up to
+    // 2·eps from specificity alone, and any score gap wider than that always
+    // wins on score.
+    //
+    // This MUST be a TOTAL ORDER. The previous "abs(a-b) <= eps ? by spec : by
+    // score" switch was intransitive — for A≈B, B≈C, A≠C it compared the three
+    // pairs by different keys and could form a cycle (A>B>C>A). That is
+    // undefined behaviour for a comparator, and modern Rust's sort PANICS when
+    // it detects the violation ("comparison function does not implement a total
+    // order") — which started firing once `embed` (default) clustered scores
+    // into near-ties on real graphs. A single scalar key removes the branch and
+    // the intransitivity entirely. Non-finite score OR specificity carries no
+    // signal and sorts last.
+    const SPEC_WEIGHT: f32 = 0.02;
+    fn rank_key<T: RankedResult>(item: &T) -> f32 {
+        let score = item.score();
+        if !score.is_finite() {
+            return f32::NEG_INFINITY;
         }
+        let spec = item.specificity();
+        let bonus = if spec.is_finite() {
+            (spec * SPEC_WEIGHT).clamp(-CLOSE_SCORE_EPS, CLOSE_SCORE_EPS)
+        } else {
+            0.0
+        };
+        score + bonus
+    }
+    items.sort_by(|a, b| {
+        rank_key(b)
+            .total_cmp(&rank_key(a))
+            .then_with(|| b.score().total_cmp(&a.score()))
+            .then_with(|| a.family_key().cmp(&b.family_key()))
     });
 
     let mut seen: HashSet<String> = HashSet::new();
@@ -250,6 +272,92 @@ mod tests {
     use super::*;
     use crate::protocol::layers::{SeekConnection, SeekResultEntry, SeekScoreBreakdown};
     use crate::protocol::{ActivatedNodeOutput, DimensionsOutput, ProvenanceOutput, SeedOutput};
+
+    /// Minimal `RankedResult` with directly-settable score/specificity so we can
+    /// reproduce the adversarial ordering that broke the comparator.
+    #[derive(Clone)]
+    struct Ranked {
+        s: f32,
+        spec: f32,
+        key: String,
+    }
+    impl RankedResult for Ranked {
+        fn score(&self) -> f32 {
+            self.s
+        }
+        fn specificity(&self) -> f32 {
+            self.spec
+        }
+        fn family_key(&self) -> String {
+            self.key.clone()
+        }
+    }
+
+    /// Regression: `dedupe_ranked`'s comparator MUST be a total order. The old
+    /// "abs(a-b) <= eps ? by specificity : by score" switch was intransitive —
+    /// for a tight score ramp with alternating specificity it forms cycles
+    /// (A>B>C>A), which modern Rust's sort detects and PANICS on. This input
+    /// reproduces that exact shape; the test passing (no panic) is the guard.
+    #[test]
+    fn dedupe_ranked_is_a_total_order_under_near_tie_ramp() {
+        // The minimal cycle the old comparator produced: scores 1.00/1.03/1.06
+        // (adjacent within eps=0.05, ends 0.06 apart) with decreasing
+        // specificity. Old: A≈B,B≈C by spec but A≠C by score => A>B>C>A.
+        let triple = vec![
+            Ranked {
+                s: 1.00,
+                spec: 0.9,
+                key: "a".into(),
+            },
+            Ranked {
+                s: 1.03,
+                spec: 0.5,
+                key: "b".into(),
+            },
+            Ranked {
+                s: 1.06,
+                spec: 0.1,
+                key: "c".into(),
+            },
+        ];
+        let out = dedupe_ranked(triple, 10);
+        assert_eq!(out.len(), 3, "all distinct families survive");
+
+        // A dense ramp (step << eps) with alternating specificity packs many
+        // intransitive triples into the same sort — the strongest trigger.
+        let ramp: Vec<Ranked> = (0..64)
+            .map(|i| Ranked {
+                s: 0.40 + i as f32 * 0.012,
+                spec: if i % 2 == 0 { 0.9 } else { 0.1 },
+                key: format!("k{i}"),
+            })
+            .collect();
+        let sorted = dedupe_ranked(ramp, 64);
+        assert_eq!(sorted.len(), 64, "no family collisions, nothing dropped");
+        // Completing without panic IS the regression guard — the old comparator
+        // aborts on this exact shape.
+
+        // A clearly-higher score (gap > 2*eps) is never overturned by specificity,
+        // even when the low scorer is maximally specific and the high one is not.
+        let clear = vec![
+            Ranked {
+                s: 0.50,
+                spec: 9.9,
+                key: "low_but_specific".into(),
+            },
+            Ranked {
+                s: 0.70,
+                spec: -9.9,
+                key: "high_but_generic".into(),
+            },
+        ];
+        let out = dedupe_ranked(clear, 10);
+        assert_eq!(
+            out[0].family_key(),
+            "high_but_generic",
+            "a clearly-higher score must win regardless of specificity"
+        );
+    }
 
     #[test]
     fn dedupe_ranked_prefers_impl_family_over_duplicate_label_hits() {

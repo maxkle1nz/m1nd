@@ -203,10 +203,16 @@ fn stress_taint_all_entry_points() {
         result.summary.leaks_found,
         elapsed.as_secs_f64() * 1000.0
     );
+    // Correctness invariant — NOT a wall-clock gate. On a loaded CI runner this
+    // taint sweep over up to 50 entry points can exceed any fixed second-count
+    // without anything being wrong, which made the test flaky (it failed
+    // intermittently on ubuntu under parallel load). Performance belongs in the
+    // benches; here we assert the analysis actually propagated, and the elapsed
+    // time is logged above for visibility.
     assert!(
-        elapsed.as_secs() < 180,
-        "Should complete within 180s (CI), took {:?}",
-        elapsed
+        result.summary.total_nodes_reached > 0,
+        "taint over {} entry points should reach at least one node",
+        entries.len()
     );
 }
 
