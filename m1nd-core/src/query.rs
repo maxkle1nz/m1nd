@@ -116,9 +116,26 @@ impl QueryOrchestrator {
     /// Build orchestrator from a graph. Initialises all subsystems.
     /// Replaces: engine_v2.py ConnectomeEngine.__init__()
     pub fn build(graph: &Graph) -> M1ndResult<Self> {
+        Self::build_with_cache(graph, None, false)
+    }
+
+    /// Like [`QueryOrchestrator::build`], but threads an optional embedding cache
+    /// path into the semantic engine (see [`SemanticEngine::build_with_cache`]).
+    /// The cache is written back only when `persist` is true (read-only sessions
+    /// pass `false`). Both args are ignored when the `embed` feature is off.
+    pub fn build_with_cache(
+        graph: &Graph,
+        cache_path: Option<&std::path::Path>,
+        persist: bool,
+    ) -> M1ndResult<Self> {
         let engine = HybridEngine::new();
         let xlr = AdaptiveXlrEngine::with_defaults();
-        let semantic = SemanticEngine::build(graph, SemanticWeights::default())?;
+        let semantic = SemanticEngine::build_with_cache(
+            graph,
+            SemanticWeights::default(),
+            cache_path,
+            persist,
+        )?;
         let temporal = TemporalEngine::build(graph)?;
         let topology = TopologyAnalyzer::with_defaults();
         let resonance = ResonanceEngine::with_defaults();

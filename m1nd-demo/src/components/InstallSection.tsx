@@ -1,12 +1,12 @@
 import { motion } from "framer-motion";
 
 const STEP_INSTALL = `# agent pack, diagnostics, and host setup
-npm install -g @maxkle1nz/m1nd@beta
+npm install -g @maxkle1nz/m1nd
 m1nd doctor
 m1nd pack-check
 
-# native MCP runtime
-cargo install m1nd-mcp --version 0.9.0-beta.2`;
+# native MCP runtime (semantic recall on by default)
+cargo install m1nd-mcp`;
 
 const STEP_CONFIG = `{
   "mcpServers": {

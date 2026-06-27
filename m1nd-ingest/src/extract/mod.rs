@@ -371,6 +371,111 @@ pub struct ExtractionResult {
     pub unresolved_refs: Vec<String>,
 }
 
+/// Max source lines folded into a code symbol's excerpt (signature + a few body
+/// lines) and the hard character budget on the joined result.
+pub const EXCERPT_MAX_LINES: usize = 4;
+pub const EXCERPT_MAX_CHARS: usize = 320;
+/// Max preceding comment lines folded into a symbol's excerpt as doc-intent context.
+pub const EXCERPT_MAX_DOC_LINES: usize = 6;
+
+/// If `trimmed` is a comment line, return its prose payload (text after the
+/// marker); else None. Handles `///` `//!` `//` (Rust/JS/Go/C), `#`
+/// (Python/Ruby/shell), and `/**` `/*` `*/` `*` block-comment bodies. Used to
+/// fold a symbol's preceding doc comment into its embedding text.
+fn comment_prose(trimmed: &str) -> Option<&str> {
+    for marker in ["///", "//!", "//", "/**", "/*", "*/", "*", "#"] {
+        if let Some(rest) = trimmed.strip_prefix(marker) {
+            return Some(rest.trim());
+        }
+    }
+    None
+}
+
+/// Derive a short behavioral excerpt for each non-File symbol from its own source
+/// span (signature + first body lines), so downstream embeddings capture what a
+/// symbol DOES — not just its name (without this, code symbols embed label-only).
+/// Returns `(node_id, excerpt)` pairs; nodes with no usable span are omitted.
+/// Language-agnostic: it slices the file text by the node's `[line, end_line]`
+/// range. Non-UTF-8 content and File nodes are skipped.
+pub fn compute_excerpts(result: &ExtractionResult, content: &[u8]) -> Vec<(String, String)> {
+    let text = match std::str::from_utf8(content) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    for node in &result.nodes {
+        if node.node_type == NodeType::File || node.line == 0 {
+            continue;
+        }
+        let start = (node.line as usize) - 1;
+        if start >= lines.len() {
+            continue;
+        }
+        // Cap by the symbol's real end ONLY when the extractor tracked it
+        // (end_line > line). Regex-based extractors leave end_line == line, so
+        // fall back to the line budget to still fold in the first body lines —
+        // the behavioral signal — rather than the signature alone.
+        let upper = if (node.end_line as usize) > (node.line as usize) {
+            (node.end_line as usize).min(lines.len())
+        } else {
+            lines.len()
+        };
+        let stop = (start + EXCERPT_MAX_LINES)
+            .min(upper)
+            .max(start + 1)
+            .min(lines.len());
+        // Fold in the symbol's PRECEDING doc comment (rustdoc/JSDoc/Go/`#`) — the
+        // purest statement of INTENT — scanning upward, skipping Rust attributes,
+        // stopping at a blank line (so file-top license headers are excluded).
+        let mut doc: Vec<&str> = Vec::new();
+        let mut i = start;
+        let mut scanned = 0;
+        while i > 0 && scanned < EXCERPT_MAX_DOC_LINES {
+            i -= 1;
+            let t = lines[i].trim();
+            if t.is_empty() {
+                break;
+            }
+            if t.starts_with("#[") || t.starts_with("#![") {
+                scanned += 1; // Rust attribute between doc and item — skip, keep scanning
+                continue;
+            }
+            match comment_prose(t) {
+                Some(prose) => {
+                    if !prose.is_empty() {
+                        doc.push(prose);
+                    }
+                    scanned += 1;
+                }
+                None => break, // reached real code
+            }
+        }
+        doc.reverse(); // back into source order
+
+        // excerpt = doc prose (intent) + signature/body, joined and char-bounded.
+        let mut excerpt = String::new();
+        let body = lines[start..stop].iter().map(|l| l.trim());
+        for piece in doc.into_iter().chain(body) {
+            if piece.is_empty() {
+                continue;
+            }
+            if !excerpt.is_empty() {
+                excerpt.push(' ');
+            }
+            excerpt.push_str(piece);
+            if excerpt.chars().count() >= EXCERPT_MAX_CHARS {
+                break;
+            }
+        }
+        let excerpt: String = excerpt.chars().take(EXCERPT_MAX_CHARS).collect();
+        if !excerpt.is_empty() {
+            out.push((node.id.clone(), excerpt));
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Extractor — trait for language-specific extraction
 // Replaces: ingest.py PythonExtractor, TypeScriptExtractor, etc.
@@ -387,4 +492,54 @@ pub trait Extractor: Send + Sync {
 
     /// File extensions this extractor handles.
     fn extensions(&self) -> &[&str];
+}
+
+#[cfg(test)]
+mod excerpt_tests {
+    use super::*;
+
+    #[test]
+    fn compute_excerpts_slices_signature_and_body_and_skips_files() {
+        let src = "/// Drains in-flight work on cancellation.\npub fn drain_inflight(ctx: &Ctx) -> Result<()> {\n    abort_running_work();\n    stop_accepting_tasks();\n}\n";
+        let result = ExtractionResult {
+            nodes: vec![
+                ExtractedNode {
+                    id: "file::x.rs::fn::drain_inflight".into(),
+                    label: "drain_inflight".into(),
+                    node_type: NodeType::Function,
+                    tags: vec![],
+                    line: 2, // the `pub fn ...` line (1-based)
+                    end_line: 5,
+                },
+                ExtractedNode {
+                    id: "file::x.rs".into(),
+                    label: "x.rs".into(),
+                    node_type: NodeType::File,
+                    tags: vec![],
+                    line: 1,
+                    end_line: 5,
+                },
+            ],
+            edges: vec![],
+            unresolved_refs: vec![],
+        };
+        let ex = compute_excerpts(&result, src.as_bytes());
+        // File node is skipped; the function node gets a behavioral excerpt.
+        assert_eq!(ex.len(), 1, "only the non-file symbol gets an excerpt");
+        let (id, text) = &ex[0];
+        assert_eq!(id, "file::x.rs::fn::drain_inflight");
+        assert!(
+            text.contains("drain_inflight"),
+            "excerpt carries the signature: {text}"
+        );
+        assert!(
+            text.contains("abort_running_work"),
+            "excerpt folds in the first body line(s): {text}"
+        );
+        assert!(
+            text.contains("cancellation"),
+            "excerpt folds in the preceding doc comment (intent): {text}"
+        );
+        assert!(text.chars().count() <= EXCERPT_MAX_CHARS);
+    }
 }

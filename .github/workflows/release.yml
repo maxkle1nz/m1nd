@@ -145,3 +145,53 @@ jobs:
         run: |
           ./scripts/publish_crate_if_missing.sh m1nd-mcp "${{ steps.versions.outputs.mcp }}" \
             --token "$CARGO_REGISTRY_TOKEN"
+
+  publish-npm:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Check npm token
+        id: npm_guard
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "NPM_TOKEN is not configured; skipping npm publish."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve version and dist-tag
+        id: npmmeta
+        if: ${{ steps.npm_guard.outputs.enabled == 'true' }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          # Prereleases (a hyphen, e.g. 0.9.0-beta.8) publish under 'beta' so a
+          # bare `npm install` never resolves a prerelease; stable -> 'latest'.
+          case "$VERSION" in
+            *-*) TAG=beta ;;
+            *)   TAG=latest ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Will publish @maxkle1nz/m1nd@$VERSION under dist-tag '$TAG'."
+
+      - name: Publish to npm (idempotent)
+        if: ${{ steps.npm_guard.outputs.enabled == 'true' }}
+        run: |
+          PKG="@maxkle1nz/m1nd@${{ steps.npmmeta.outputs.version }}"
+          if npm view "$PKG" version >/dev/null 2>&1; then
+            echo "$PKG already published; skipping."
+          else
+            npm publish --tag "${{ steps.npmmeta.outputs.tag }}"
+          fi

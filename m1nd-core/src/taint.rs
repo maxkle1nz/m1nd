@@ -262,6 +262,16 @@ impl TaintEngine {
             .map(|p| p.node_id.clone())
             .collect();
 
+        // Seeds (entry points) carry maximal taint by definition — they ARE the
+        // injection points. The epidemic predictions exclude seeds (and truncate
+        // to top_k), so without this a boundary that coincides with a seed would
+        // be misreported as a missed boundary with probability 0.0.
+        let seed_ext_ids: HashSet<&str> = entry_node_ids
+            .iter()
+            .filter_map(|nid| node_to_ext.get(nid.as_usize()).map(String::as_str))
+            .filter(|s| !s.is_empty())
+            .collect();
+
         // Scan all nodes for boundary patterns
         let mut boundary_hits = Vec::new();
         let mut boundary_misses = Vec::new();
@@ -273,13 +283,18 @@ impl TaintEngine {
 
             let boundary_type = detect_boundary_type(&label, &boundary_patterns, &custom_patterns);
             if let Some(btype) = boundary_type {
-                let taint_reached = infected_nodes.contains(ext_id);
-                let prob = epidemic_result
-                    .predictions
-                    .iter()
-                    .find(|p| p.node_id == *ext_id)
-                    .map(|p| p.infection_probability)
-                    .unwrap_or(0.0);
+                let is_seed = seed_ext_ids.contains(ext_id.as_str());
+                let taint_reached = is_seed || infected_nodes.contains(ext_id);
+                let prob = if is_seed {
+                    1.0
+                } else {
+                    epidemic_result
+                        .predictions
+                        .iter()
+                        .find(|p| p.node_id == *ext_id)
+                        .map(|p| p.infection_probability)
+                        .unwrap_or(0.0)
+                };
 
                 let check = BoundaryCheck {
                     node_id: ext_id.to_string(),
@@ -353,11 +368,18 @@ impl TaintEngine {
             boundary_hits: boundary_hits.len(),
             boundary_misses: boundary_misses.len(),
             leaks_found: leaks.len(),
+            // Resolved entry seeds are infected at probability 1.0 by definition;
+            // include them so the summary maximum cannot contradict a seed
+            // boundary (correctly) reported as a 1.0 hit. Gate on the *resolved*
+            // seed set, not the raw input: if a caller passes only out-of-range
+            // ids they resolve to nothing, and the max must stay at the (empty)
+            // prediction max, not be forced to 1.0.
             max_infection_probability: epidemic_result
                 .predictions
                 .first()
                 .map(|p| p.infection_probability)
-                .unwrap_or(0.0),
+                .unwrap_or(0.0)
+                .max(if seed_ext_ids.is_empty() { 0.0 } else { 1.0 }),
             elapsed_ms,
         };
 
