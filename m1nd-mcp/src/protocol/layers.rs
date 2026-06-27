@@ -74,6 +74,11 @@ pub struct SeekInput {
     /// Whether to run graph re-ranking on embedding candidates. Default: true.
     #[serde(default = "default_true")]
     pub graph_rerank: bool,
+    /// When true (default), bias ranking by the resolved X-RAY manifesto: erosion
+    /// sources are down-weighted, proof-exercised (bedrock) nodes up-weighted. No
+    /// effect when no manifesto resolves. Set false to get pure lexical/semantic rank.
+    #[serde(default = "default_true")]
+    pub conformance_aware: bool,
     /// Optional approximate context-token budget. When set, results are kept
     /// in graph-importance rank order until the running token ESTIMATE
     /// (chars/4) would exceed this budget; lower-ranked hits are dropped and a
@@ -153,6 +158,26 @@ pub struct SeekOutput {
     /// Answer-free stop signal: is this enough context, is there more beyond the
     /// budget, or is the goal not represented here? Always present.
     pub sufficiency: Sufficiency,
+    /// Present only when a manifesto biased this query: per-result conformance
+    /// counts + how many returned hits are erosion sources (a drift warning).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conformance: Option<ConformanceSummary>,
+}
+
+/// Per-query conformance accounting attached to a manifesto-biased `seek`/`focus`
+/// run. Surfaced only when an X-RAY manifesto actually resolved and biased the
+/// ranking; absent (zero-cost) otherwise. It never hides a result — erosion
+/// sources that survived into the returned set are COUNTED here, not dropped.
+#[derive(Clone, Debug, Serialize)]
+pub struct ConformanceSummary {
+    /// Manifesto provenance, e.g. "file:/path/xray.manifest.json".
+    pub source: String,
+    /// Counts among the RETURNED results.
+    pub bedrock: u32,
+    pub erosion: u32,
+    pub neutral: u32,
+    /// Returned hits that are erosion sources — surfaced as an honest drift warning.
+    pub erosion_in_result_set: u32,
 }
 
 /// Shared heuristic metadata exposed by tools that apply trust/tremor priors.
@@ -294,6 +319,11 @@ pub struct FocusOutput {
     pub recovery: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_runtime_contract: Option<serde_json::Value>,
+    /// Present only when a manifesto biased the underlying `seek` ranking:
+    /// per-result conformance counts + erosion-in-result drift warning. `focus`
+    /// surfaces exactly what `seek` computed, so the two stay consistent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conformance: Option<ConformanceSummary>,
 }
 
 fn default_focus_budget() -> usize {

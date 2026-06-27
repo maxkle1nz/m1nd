@@ -84,6 +84,13 @@ const SEMANTIC_RECALL_FLOOR: f32 = 0.40;
 /// the floor only decides the coarse verdict, biased AGAINST a false "not here".
 const SUFFICIENCY_WEAK_TOP: f32 = 0.18;
 
+/// Additive attention adjustments applied to a node's pre-rerank score when an
+/// X-RAY manifesto resolves. Bedrock (proof-exercised) is nudged up; an erosion
+/// source (violates a declared layer/forbid rule) is nudged down. Small relative
+/// to typical scores so conformance only re-orders near-ties, never dominates.
+const CONFORMANCE_BEDROCK_BOOST: f32 = 0.20;
+const CONFORMANCE_EROSION_MALUS: f32 = -0.30;
+
 /// Compute the answer-free sufficiency signal from retrieval outcome signals.
 ///
 /// `top_score` is the best match's combined score (0 when the set is empty).
@@ -157,6 +164,9 @@ pub fn handle_seek(
     let start = Instant::now();
     let query_tokens = l2_seek_tokenize(&input.query);
     let normalized_scope = normalize_scope_path(input.scope.as_deref(), &state.ingest_roots);
+    // Snapshot the workspace root BEFORE taking the graph read borrow below, so
+    // resolving the conformance manifesto does not conflict with the borrow.
+    let workspace_root = state.workspace_root.clone();
 
     // Split query tokens further via identifier splitting for better matching
     let mut all_tokens: Vec<String> = query_tokens.clone();
@@ -217,6 +227,7 @@ pub fn handle_seek(
             agent_runtime_contract,
             budget: None,
             sufficiency: compute_sufficiency(0.0, 0.0, None, 0),
+            conformance: None,
         });
     }
 
@@ -230,6 +241,20 @@ pub fn handle_seek(
             node_to_ext[idx] = graph.strings.resolve(*interned).to_string();
         }
     }
+
+    // Conformance-aware attention (Subsystem 5): resolve the workspace X-RAY
+    // manifesto ONCE and classify every node, only when the caller opts in (the
+    // default). `None` whenever the caller opts out OR no manifesto resolves —
+    // in which case every per-node boost below is 0.0 and the output is
+    // byte-identical to the pre-conformance behavior (zero-cost by absence).
+    // Keeps BOTH the per-index states and the manifesto provenance string.
+    let conformance: Option<(Vec<crate::xray_handlers::PaintState>, String)> =
+        if input.conformance_aware {
+            crate::xray_handlers::resolve_node_conformance(&graph, workspace_root.as_deref())
+        } else {
+            None
+        };
+    let conformance_states = conformance.as_ref().map(|(states, _src)| states);
 
     // Phase 1: Score every node (keyword match + trigram + provenance path matching)
     let mut keyword_scores: Vec<f32> = vec![0.0; n];
@@ -514,9 +539,23 @@ pub fn handle_seek(
             let tremor_factor = l2_dampened_tremor_factor(tremor_alert.as_ref());
             let heuristic_factor = trust_factor * tremor_factor;
 
+            // Conformance-aware attention: an ADDITIVE nudge keyed on the node's
+            // X-RAY state. 0.0 whenever no manifesto resolved (states is None),
+            // so the score — and thus the whole output — is unchanged by absence.
+            // Additive (not a cut): it only re-orders; an erosion source that
+            // still scores high after the malus is retained and later counted.
+            let conformance_boost = conformance_states.map_or(0.0, |st| match st.get(entry.idx) {
+                Some(crate::xray_handlers::PaintState::ErosionCandidate) => {
+                    CONFORMANCE_EROSION_MALUS
+                }
+                Some(crate::xray_handlers::PaintState::Bedrock) => CONFORMANCE_BEDROCK_BOOST,
+                _ => 0.0,
+            });
+
             RankedNode {
                 idx: entry.idx,
-                combined: (entry.base_score * heuristic_factor).max(0.0),
+                combined: ((entry.base_score + conformance_boost).max(0.0) * heuristic_factor)
+                    .max(0.0),
                 keyword: entry.keyword,
                 graph_act: entry.graph_act,
                 trigram: entry.trigram,
@@ -736,6 +775,41 @@ pub fn handle_seek(
         ))
     };
 
+    // Conformance summary over the RETURNED results. Present only when a
+    // manifesto actually biased this query (`conformance` is Some); `None`
+    // otherwise so the output stays byte-identical by absence. Built from a
+    // node_id(external_id) -> PaintState lookup over node_to_ext + the states
+    // Vec. Erosion hits that survived into `results` are COUNTED here (and
+    // surfaced as `erosion_in_result_set`), never hidden.
+    let conformance_summary = conformance.as_ref().map(|(states, source)| {
+        let mut ext_to_state: HashMap<&str, crate::xray_handlers::PaintState> =
+            HashMap::with_capacity(node_to_ext.len());
+        for (idx, ext) in node_to_ext.iter().enumerate() {
+            if let Some(st) = states.get(idx) {
+                if !ext.is_empty() {
+                    ext_to_state.insert(ext.as_str(), *st);
+                }
+            }
+        }
+        let mut bedrock = 0u32;
+        let mut erosion = 0u32;
+        let mut neutral = 0u32;
+        for entry in &results {
+            match ext_to_state.get(entry.node_id.as_str()) {
+                Some(crate::xray_handlers::PaintState::Bedrock) => bedrock += 1,
+                Some(crate::xray_handlers::PaintState::ErosionCandidate) => erosion += 1,
+                _ => neutral += 1,
+            }
+        }
+        layers::ConformanceSummary {
+            source: source.clone(),
+            bedrock,
+            erosion,
+            neutral,
+            erosion_in_result_set: erosion,
+        }
+    });
+
     Ok(layers::SeekOutput {
         query: input.query,
         results,
@@ -758,6 +832,7 @@ pub fn handle_seek(
         agent_runtime_contract,
         budget,
         sufficiency,
+        conformance: conformance_summary,
     })
 }
 
@@ -786,9 +861,15 @@ pub fn handle_focus(
         min_score: input.min_score,
         graph_rerank: true,
         token_budget: Some(input.token_budget),
+        // `focus` rides `handle_seek`, so it inherits conformance-aware attention
+        // for free (and the byte-identical-by-absence guarantee with it).
+        conformance_aware: true,
     };
 
     let seek = handle_seek(state, seek_input)?;
+    // Surface seek's conformance accounting on focus too. Captured before
+    // `seek.results` is moved into `focus_set` below.
+    let conformance = seek.conformance.clone();
 
     let focus_len = seek.results.len();
     // Every relevance-clearing node NOT shown — the honest "context left out"
@@ -842,6 +923,7 @@ pub fn handle_focus(
         elapsed_ms: seek.elapsed_ms,
         recovery: seek.recovery,
         agent_runtime_contract: seek.agent_runtime_contract,
+        conformance,
     })
 }
 
@@ -9820,6 +9902,7 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -9966,6 +10049,7 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -10184,6 +10268,7 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -10226,6 +10311,7 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -10292,6 +10378,7 @@ mod tests {
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget,
             },
         )
@@ -10349,6 +10436,266 @@ mod tests {
             used <= budget_tokens || kept == 1,
             "used {used} should be <= {budget_tokens} unless single-item overflow"
         );
+    }
+
+    // ---- Subsystem 5: conformance-aware attention ----
+
+    /// Run seek with explicit control over `conformance_aware`.
+    fn run_seek_conformance(
+        state: &mut SessionState,
+        query: &str,
+        conformance_aware: bool,
+    ) -> crate::protocol::layers::SeekOutput {
+        handle_seek(
+            state,
+            SeekInput {
+                query: query.into(),
+                agent_id: "test".into(),
+                top_k: 50,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware,
+                token_budget: None,
+            },
+        )
+        .expect("seek should succeed")
+    }
+
+    /// Build a session whose graph has a REAL erosion edge: node `search_a` in
+    /// module `modA` imports node `search_b` in module `modB`, plus a benign
+    /// `search_c` (also modB) so the result set is mixed. With a `layer_order`
+    /// of `["modA","modB"]` written to `<workspace_root>/xray.manifest.json`,
+    /// the `modA -> modB` import is a layer-violating cross-module edge, so
+    /// `search_a` classifies as an erosion source. `write_manifest=false`
+    /// produces the same graph with NO manifesto on disk (the absence baseline).
+    fn build_state_erosion_graph(root: &std::path::Path, write_manifest: bool) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        // All three labels contain "search" so the query matches them all.
+        let a = graph
+            .add_node(
+                "file::modA/search_a.rs",
+                "search_a",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add a");
+        let b = graph
+            .add_node(
+                "file::modB/search_b.rs",
+                "search_b",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add b");
+        let _c = graph
+            .add_node(
+                "file::modB/search_c.rs",
+                "search_c",
+                NodeType::File,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add c");
+        // modA -> modB import: the layer-violating boundary edge.
+        graph
+            .add_edge(
+                a,
+                b,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge a->b");
+        graph.finalize().expect("finalize");
+
+        if write_manifest {
+            // layer_order ["modA","modB"]: modB sits ABOVE modA, so the
+            // modA -> modB import is a layer-axis divergence (erosion).
+            std::fs::write(
+                root.join("xray.manifest.json"),
+                br#"{"ratified": true, "layer_order": ["modA", "modB"]}"#,
+            )
+            .expect("write manifest");
+        }
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    /// Honesty invariant #1 — OPT-OUT and ABSENCE are byte-identical to the
+    /// pre-conformance behavior. Three runs must agree on results+scores and all
+    /// carry `conformance == None`:
+    ///   (i) opt-out (`conformance_aware=false`) WITH a manifesto present,
+    ///   (ii) opt-in but NO manifesto on disk,
+    ///   (iii) opt-out and no manifesto.
+    #[test]
+    fn conformance_off_is_byte_identical() {
+        // (i) manifesto present, but opted out.
+        let temp_m = tempfile::tempdir().expect("tempdir");
+        let mut state_m = build_state_erosion_graph(temp_m.path(), true);
+        let opted_out = run_seek_conformance(&mut state_m, "search", false);
+
+        // (ii) opted in, but no manifesto on disk.
+        let temp_n = tempfile::tempdir().expect("tempdir");
+        let mut state_n = build_state_erosion_graph(temp_n.path(), false);
+        let no_manifest = run_seek_conformance(&mut state_n, "search", true);
+
+        // (iii) opted out, no manifesto — the pure baseline.
+        let temp_b = tempfile::tempdir().expect("tempdir");
+        let mut state_b = build_state_erosion_graph(temp_b.path(), false);
+        let baseline = run_seek_conformance(&mut state_b, "search", false);
+
+        // No conformance summary on any absence/opt-out path.
+        assert!(opted_out.conformance.is_none(), "opt-out: no summary");
+        assert!(no_manifest.conformance.is_none(), "absence: no summary");
+        assert!(baseline.conformance.is_none(), "baseline: no summary");
+
+        // Identical ranking + scores across all three (byte-identical behavior).
+        let fingerprint = |o: &crate::protocol::layers::SeekOutput| {
+            o.results
+                .iter()
+                .map(|r| (r.node_id.clone(), r.score))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            fingerprint(&opted_out),
+            fingerprint(&baseline),
+            "opt-out with a manifesto must match the pure baseline exactly"
+        );
+        assert_eq!(
+            fingerprint(&no_manifest),
+            fingerprint(&baseline),
+            "opt-in with no manifesto must match the pure baseline exactly"
+        );
+    }
+
+    /// `resolve_node_conformance` returns Some only when a non-empty manifesto
+    /// resolves, and None on absence — the gate that keeps seek zero-cost.
+    #[test]
+    fn resolve_node_conformance_some_on_manifest_none_on_absence() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state_with = build_state_erosion_graph(temp.path(), true);
+        {
+            let graph = state_with.graph.read();
+            let resolved = crate::xray_handlers::resolve_node_conformance(
+                &graph,
+                state_with.workspace_root.as_deref(),
+            );
+            let (states, source) = resolved.expect("Some when a manifesto resolves");
+            assert_eq!(states.len(), graph.num_nodes() as usize);
+            assert!(source.starts_with("file:"), "source was {source}");
+        }
+
+        let temp2 = tempfile::tempdir().expect("tempdir");
+        let state_without = build_state_erosion_graph(temp2.path(), false);
+        {
+            let graph = state_without.graph.read();
+            let resolved = crate::xray_handlers::resolve_node_conformance(
+                &graph,
+                state_without.workspace_root.as_deref(),
+            );
+            assert!(resolved.is_none(), "None when no manifesto resolves");
+        }
+    }
+
+    /// Honesty invariant #2 — an erosion source is DOWN-weighted (re-ordered
+    /// lower) when the manifesto resolves, never silently dropped: it stays in
+    /// the result set and is COUNTED in the conformance summary's erosion /
+    /// erosion_in_result_set. The same node ranks no lower without the manifesto.
+    #[test]
+    fn conformance_down_weights_erosion_source() {
+        // With the manifesto: search_a (erosion source) is penalized.
+        let temp_on = tempfile::tempdir().expect("tempdir");
+        let mut state_on = build_state_erosion_graph(temp_on.path(), true);
+        let biased = run_seek_conformance(&mut state_on, "search", true);
+
+        // Without the manifesto: identical graph, no bias.
+        let temp_off = tempfile::tempdir().expect("tempdir");
+        let mut state_off = build_state_erosion_graph(temp_off.path(), false);
+        let unbiased = run_seek_conformance(&mut state_off, "search", true);
+
+        // The erosion source survives into the result set (never dropped) ...
+        let pos = |o: &crate::protocol::layers::SeekOutput, id: &str| {
+            o.results.iter().position(|r| r.node_id == id)
+        };
+        let on_a = pos(&biased, "file::modA/search_a.rs").expect("search_a present (biased)");
+        let off_a = pos(&unbiased, "file::modA/search_a.rs").expect("search_a present (unbiased)");
+        // ... and its rank is no better (numerically >= = lower or equal) with
+        // the malus; with a clear erosion node and tie-broken peers it drops.
+        assert!(
+            on_a >= off_a,
+            "erosion source must not rank higher under the malus (on={on_a}, off={off_a})"
+        );
+
+        // The malus actually lowered its score.
+        let score_of = |o: &crate::protocol::layers::SeekOutput, id: &str| {
+            o.results
+                .iter()
+                .find(|r| r.node_id == id)
+                .map(|r| r.score)
+                .expect("node present")
+        };
+        assert!(
+            score_of(&biased, "file::modA/search_a.rs")
+                < score_of(&unbiased, "file::modA/search_a.rs"),
+            "the erosion malus must lower search_a's score"
+        );
+
+        // Conformance summary present and honestly counts the erosion hit.
+        let summary = biased.conformance.expect("conformance summary present");
+        assert!(
+            summary.source.starts_with("file:"),
+            "source {}",
+            summary.source
+        );
+        assert!(summary.erosion >= 1, "at least one erosion hit counted");
+        assert_eq!(
+            summary.erosion_in_result_set, summary.erosion,
+            "every erosion hit in the result set is surfaced as drift"
+        );
+        let returned = biased.results.len() as u32;
+        assert_eq!(
+            summary.bedrock + summary.erosion + summary.neutral,
+            returned,
+            "every returned hit is classified exactly once"
+        );
+    }
+
+    /// `focus` rides `handle_seek`, so it surfaces the same conformance summary.
+    #[test]
+    fn focus_surfaces_conformance() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_state_erosion_graph(temp.path(), true);
+        let out = run_focus(&mut state, "search", 2000, 60);
+        let summary = out
+            .conformance
+            .expect("focus surfaces conformance when a manifesto resolves");
+        assert!(
+            summary.source.starts_with("file:"),
+            "source {}",
+            summary.source
+        );
+        assert!(summary.erosion >= 1, "erosion source surfaced via focus");
     }
 
     fn run_focus(
@@ -11251,6 +11598,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -11337,6 +11685,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -11370,6 +11719,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
@@ -12157,6 +12507,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                conformance_aware: true,
                 token_budget: None,
             },
         )
