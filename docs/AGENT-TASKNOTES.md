@@ -19,6 +19,11 @@ The rule:
 
 ### 2026-06-24 — OPTIONAL real local embeddings for `seek` (first cut, OFF by default)
 
+- UPDATE 2026-06-27: `embed` is now ON by default in `m1nd-mcp` (the shipped
+  server has semantic recall out of the box; model fetched on first use, graceful
+  trigram fallback). The embedding cache is gitignored as a runtime artifact and
+  is not written when empty. Build a lean binary with `--no-default-features
+  --features serve`.
 - Context: `seek`'s "semantic" slot was character-trigram TF-IDF over labels —
   it cannot match intent queries whose words never appear in the node label.
 - First cut: a cargo feature `embed` (OFF by default; `m1nd-core/embed`,

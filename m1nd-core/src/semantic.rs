@@ -699,13 +699,17 @@ impl SemanticEngine {
         // Best-effort persist (atomic temp+rename); never fatal. Only the
         // writable (lease-holding) owner persists — read-only attachers reuse the
         // cache but never write it, keeping a single writer per cache file.
-        if let (true, Some(p)) = (persist, cache_path) {
-            match next.save(p) {
-                Ok(()) => eprintln!(
-                    "[m1nd embed] cache {hits} reused / {misses} new of {n} nodes -> {}",
-                    p.display()
-                ),
-                Err(e) => eprintln!("[m1nd embed] cache save failed: {e}; continuing"),
+        // Skip writing an EMPTY cache (e.g. an empty graph or model-less build):
+        // pointless I/O that would needlessly dirty the runtime dir for no gain.
+        if persist && !next.entries.is_empty() {
+            if let Some(p) = cache_path {
+                match next.save(p) {
+                    Ok(()) => eprintln!(
+                        "[m1nd embed] cache {hits} reused / {misses} new of {n} nodes -> {}",
+                        p.display()
+                    ),
+                    Err(e) => eprintln!("[m1nd embed] cache save failed: {e}; continuing"),
+                }
             }
         }
 
