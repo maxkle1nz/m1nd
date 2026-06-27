@@ -80,3 +80,35 @@ fn boundary_that_is_an_entry_seed_is_a_hit_not_a_miss() {
         hit.infection_probability
     );
 }
+
+#[test]
+fn out_of_range_seed_does_not_fake_maximal_taint() {
+    // A caller passing only an out-of-range NodeId resolves to no seed in the
+    // graph (flow/epidemic skip it). The summary maximum must NOT be forced to
+    // 1.0 on the strength of a non-empty input slice alone — it must reflect the
+    // resolved seed set, which is empty here.
+    let mut g = Graph::new();
+    add(&mut g, "svc::a", "handler_a");
+    add(&mut g, "svc::b", "handler_b");
+    g.add_edge(
+        NodeId::new(0),
+        NodeId::new(1),
+        "calls",
+        FiniteF32::new(0.9),
+        EdgeDirection::Forward,
+        false,
+        FiniteF32::new(0.5),
+    )
+    .unwrap();
+    g.finalize().unwrap();
+
+    let config = TaintConfig::default();
+    // 9999 is out of range for a 2-node graph -> resolves to nothing.
+    let result = TaintEngine::analyze(&g, &[NodeId::new(9999)], &config).unwrap();
+
+    assert!(
+        result.summary.max_infection_probability < 0.99,
+        "no seed resolved, so the summary maximum must not be forced to 1.0; got {}",
+        result.summary.max_infection_probability
+    );
+}

@@ -368,15 +368,18 @@ impl TaintEngine {
             boundary_hits: boundary_hits.len(),
             boundary_misses: boundary_misses.len(),
             leaks_found: leaks.len(),
-            // Entry seeds are infected at probability 1.0 by definition; include
-            // them so the summary maximum cannot contradict a seed boundary that
-            // is (correctly) reported as a 1.0 hit.
+            // Resolved entry seeds are infected at probability 1.0 by definition;
+            // include them so the summary maximum cannot contradict a seed
+            // boundary (correctly) reported as a 1.0 hit. Gate on the *resolved*
+            // seed set, not the raw input: if a caller passes only out-of-range
+            // ids they resolve to nothing, and the max must stay at the (empty)
+            // prediction max, not be forced to 1.0.
             max_infection_probability: epidemic_result
                 .predictions
                 .first()
                 .map(|p| p.infection_probability)
                 .unwrap_or(0.0)
-                .max(if entry_node_ids.is_empty() { 0.0 } else { 1.0 }),
+                .max(if seed_ext_ids.is_empty() { 0.0 } else { 1.0 }),
             elapsed_ms,
         };
 
