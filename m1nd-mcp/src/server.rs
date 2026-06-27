@@ -315,6 +315,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "audit",
     "search",
     "seek",
+    "focus",
     "activate",
     "learn",
     "glob",
@@ -1043,6 +1044,23 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest graph-importance hits that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization)" }
                     },
                     "required": ["query", "agent_id"]
+                }
+            },
+            {
+                "name": "focus",
+                "description": "Attention runtime — given a GOAL and a token budget, return the minimal focus_set worth loading, an honest account of what was left out (ignored), and an answer-free sufficiency signal (sufficient | gathering | saturated) telling you whether to act, gather more, or re-scope. Use it to decide WHAT context to pull and WHEN you have enough, instead of over-reading.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "goal": { "type": "string", "description": "Natural-language description of the goal you are working toward" },
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "token_budget": { "type": "integer", "minimum": 1, "default": 2000, "description": "Approx context-token budget for the focus set (estimate = chars/4). The set keeps the highest-salience nodes that fit; the rest are reported under 'ignored'" },
+                        "top_k": { "type": "integer", "default": 60, "description": "Upper bound on ranked candidates before budget packing; keep generous so the budget is the real limiter" },
+                        "scope": { "type": "string", "description": "File path prefix to limit the focus scope" },
+                        "node_types": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Filter by node type: function, class, struct, module, file" },
+                        "min_score": { "type": "number", "default": 0.1, "description": "Minimum combined score for a node to be eligible for the focus set" }
+                    },
+                    "required": ["goal", "agent_id"]
                 }
             },
             {
@@ -2483,7 +2501,7 @@ fn tool_has_memory_anchors(tool: &str) -> bool {
         .unwrap_or(tool);
     matches!(
         bare,
-        "activate" | "seek" | "search" | "surgical_context" | "surgical_context_v2"
+        "activate" | "seek" | "focus" | "search" | "surgical_context" | "surgical_context_v2"
     )
 }
 
@@ -3502,6 +3520,12 @@ fn dispatch_core_tool(
             let input: layers::SeekInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = layer_handlers::handle_seek(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "focus" => {
+            let input: layers::FocusInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            let output = layer_handlers::handle_focus(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "scan" => {
