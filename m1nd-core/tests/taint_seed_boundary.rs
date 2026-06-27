@@ -69,4 +69,14 @@ fn boundary_that_is_an_entry_seed_is_a_hit_not_a_miss() {
         "the seed carries maximal taint, expected probability ~1.0, got {}",
         hit.infection_probability
     );
+
+    // The summary must not contradict the boundary hits: if a boundary is
+    // reported at probability 1.0, the summary maximum cannot be lower.
+    assert!(
+        result.summary.max_infection_probability >= hit.infection_probability,
+        "summary.max_infection_probability ({}) must not be below a reported \
+         boundary hit ({})",
+        result.summary.max_infection_probability,
+        hit.infection_probability
+    );
 }
