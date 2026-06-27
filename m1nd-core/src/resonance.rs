@@ -173,8 +173,16 @@ impl StandingWavePropagator {
             let range = graph.csr.out_range(pulse.node);
             let out_degree = (range.end - range.start) as f32;
 
-            // Dead-end reflection
-            if out_degree == 0.0 || (out_degree == 1.0 && pulse.hops > 0) {
+            // Dead-end reflection. A node is a true dead-end when it has no
+            // outgoing edge, or its single outgoing edge leads nowhere new — it
+            // points back where the pulse came from, or loops to the node itself.
+            // A lone *forward* edge must transmit the wave down the chain (see
+            // resonance_chain_propagation), not reflect at hop 2.
+            let single_edge_dead_end = out_degree == 1.0
+                && pulse.hops > 0
+                && (graph.csr.targets[range.start] == pulse.prev_node
+                    || graph.csr.targets[range.start] == pulse.node);
+            if out_degree == 0.0 || single_edge_dead_end {
                 // Reflect back with pi phase shift
                 let reflected = WavePulse {
                     node: pulse.prev_node,
