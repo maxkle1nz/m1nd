@@ -648,7 +648,10 @@ pub fn handle_seek(
     // carries, in `combined` units (the partition's own units), so it is an exact
     // prefix ratio — never inflated by trust/tremor re-ranking. Anything dropped
     // beyond the window is a weaker tail surfaced via `marginal_score` and the
-    // `ignored` count, not hidden here.
+    // `ignored` count, not hidden here. (`dedupe_ranked` may reorder the kept set
+    // by a specificity bonus clamped to ±CLOSE_SCORE_EPS and collapse same-family
+    // hits, so the realized prefix can differ from this by ≤eps — biased toward
+    // "gathering", the safe direction.)
     let window_mass: f32 = window_combined_desc.iter().sum();
     let kept_salience: f32 = window_combined_desc.iter().take(kept_n).sum();
     let captured = if window_mass > f32::EPSILON {
@@ -659,7 +662,8 @@ pub fn handle_seek(
     // `marginal_score`: the score of the best candidate NOT returned — the "knee".
     // Within the window it is the exact element past the kept prefix (combined
     // units). If the entire window was returned but weaker nodes were cut beyond
-    // it, fall back to that tail's strongest (base units, necessarily weaker).
+    // it, fall back to that tail's strongest (base_score — which differs from its
+    // own combined value by ≤~9%, biasing this rare fallback toward "gathering").
     // `None` only when the returned set holds the entire relevant pool.
     let marginal_score = if kept_n < window_combined_desc.len() {
         Some(window_combined_desc[kept_n])
