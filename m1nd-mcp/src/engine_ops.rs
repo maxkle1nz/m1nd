@@ -410,30 +410,6 @@ pub fn activate_readonly(
     })
 }
 
-/// Read-only impact. No side effects.
-pub fn impact_readonly(
-    state: &SessionState,
-    node: &str,
-    direction: ImpactDirection,
-) -> M1ndResult<ImpactResult> {
-    todo!("impact_readonly: extract from tools::handle_impact")
-}
-
-/// Read-only missing. No side effects.
-pub fn missing_readonly(state: &SessionState, query: &str) -> M1ndResult<MissingResult> {
-    todo!("missing_readonly: extract from tools::handle_missing")
-}
-
-/// Read-only why. No side effects.
-pub fn why_readonly(state: &SessionState, from: &str, to: &str) -> M1ndResult<WhyResult> {
-    todo!("why_readonly: extract from tools::handle_why")
-}
-
-/// Read-only resonate. Only called if remaining budget allows after first 8 calls.
-pub fn resonate_readonly(state: &SessionState, query: &str) -> M1ndResult<ResonateResult> {
-    todo!("resonate_readonly: extract from tools::handle_resonate")
-}
-
 // ---------------------------------------------------------------------------
 // Budget tracking for route synthesis
 // ---------------------------------------------------------------------------

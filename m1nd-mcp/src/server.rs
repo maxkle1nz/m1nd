@@ -315,6 +315,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "audit",
     "search",
     "seek",
+    "focus",
     "activate",
     "learn",
     "glob",
@@ -332,6 +333,12 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "mission_close",
     "persist",
     "memorize",
+    "xray_retag",
+    "xray_apply",
+    "xray_orient",
+    "xray_gate",
+    "xray_paint",
+    "xray_ledger",
 ];
 
 /// Returns the active tool tier based on the `M1ND_TOOL_TIER` env var.
@@ -1037,6 +1044,23 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest graph-importance hits that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization)" }
                     },
                     "required": ["query", "agent_id"]
+                }
+            },
+            {
+                "name": "focus",
+                "description": "Attention runtime — given a GOAL and a token budget, return the minimal focus_set worth loading, an honest account of what was left out (ignored), and an answer-free sufficiency signal (sufficient | gathering | saturated) telling you whether to act, gather more, or re-scope. Use it to decide WHAT context to pull and WHEN you have enough, instead of over-reading.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "goal": { "type": "string", "description": "Natural-language description of the goal you are working toward" },
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "token_budget": { "type": "integer", "minimum": 1, "default": 2000, "description": "Approx context-token budget for the focus set (estimate = chars/4). The set keeps the highest-salience nodes that fit; the rest are reported under 'ignored'" },
+                        "top_k": { "type": "integer", "default": 60, "description": "Upper bound on ranked candidates before budget packing; keep generous so the budget is the real limiter" },
+                        "scope": { "type": "string", "description": "File path prefix to limit the focus scope" },
+                        "node_types": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Filter by node type: function, class, struct, module, file" },
+                        "min_score": { "type": "number", "default": 0.1, "description": "Minimum combined score for a node to be eligible for the focus set" }
+                    },
+                    "required": ["goal", "agent_id"]
                 }
             },
             {
@@ -2193,6 +2217,163 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                     },
                     "required": ["agent_id", "node_label", "claims"]
                 }
+            },
+            // =================================================================
+            // X-RAY write verb: xray_retag — bulk graph-tag mutation
+            // =================================================================
+            {
+                "name": "xray_retag",
+                "description": "X-RAY write verb. One call fans a tag mutation across every node matching a selector, with a dry-run-by-default / explicit-commit contract. Supply a SELECTOR (any-match filter_tags, exact node_type, external_id path_prefix) plus a TRANSFORM (op add/remove/set + tags). Returns the plan (selected/planned/skipped_noop counts + a sample of before/after) without mutating unless mode='commit'. On commit it applies the columnar tag mutators and persists the graph snapshot. Mutates graph metadata only — never source files.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "selector": {
+                            "type": "object",
+                            "description": "Node selector — a node must satisfy every provided predicate (empty selector matches all nodes)",
+                            "properties": {
+                                "filter_tags": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Node matches if it carries at least one of these tags (any-match)" },
+                                "node_type": { "type": "integer", "description": "Exact node-type as canonical u8 (File=0, Directory=1, Function=2, Class=3, Struct=4, Enum=5, Type=6, Module=7, …, Custom=100+v)" },
+                                "path_prefix": { "type": "string", "description": "Node matches if its external_id starts with this prefix" }
+                            }
+                        },
+                        "op": { "type": "string", "enum": ["add", "remove", "set"], "description": "Tag transform: add (idempotent), remove (absent tags are no-ops), or set (replace the whole tag set)" },
+                        "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags to add / remove / set" },
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies and persists" },
+                        "expect_version": { "type": "string", "description": "Optional cross-call OCC token from a prior dry_run's `version`. On commit the selection fingerprint is recomputed; if it no longer matches, the commit ABORTS (status 'aborted_conflicts', applied 0, nothing written) so a concurrent tag change between dry_run and commit cannot clobber work. Omit for an unconditional commit." }
+                    },
+                    "required": ["agent_id", "selector", "op", "tags"]
+                }
+            },
+            // =================================================================
+            // X-RAY read verb: xray_orient — structural conformance ledger
+            // =================================================================
+            {
+                "name": "xray_orient",
+                "description": "X-RAY read verb (read-only). One call computes a conformance LEDGER over the live graph: derives each node's MODULE from its external_id (first path segment after 'file::'), walks the boundary edges (imports / depends_on), builds a cross-module dependency_matrix, and classifies each cross-module edge against a MANIFESTO (forbid pairs + layer_order) into convergence vs divergence — reported HONESTLY as 'erosion_candidates' (never confirmed violations). Also runs an existence axis: each require_exists substring is present (BEDROCK) or absent (BLUEPRINT). With an empty manifest it just reports the module census + matrix (instrument not aimed yet). Never mutates, never persists — safe in read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "Optional external_id path-prefix filter — only nodes whose external_id starts with this prefix are counted, and only edges from in-scope source nodes contribute" },
+                        "manifest": {
+                            "type": "object",
+                            "description": "North-star layer ruleset. Empty manifest => empty erosion_candidates (honest: instrument not aimed yet, report structure only)",
+                            "properties": {
+                                "forbid": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }, "default": [], "description": "Pairs [A, B] meaning module A must not depend on module B" },
+                                "layer_order": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Modules ordered low->high; a module may depend only on its own level or LOWER — depending on a higher layer is a candidate divergence" },
+                                "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Substrings that must appear in some node external_id (present=BEDROCK, absent=BLUEPRINT)" }
+                            }
+                        },
+                        "manifest_path": { "type": "string", "description": "Optional path to a North-Star manifest JSON file. Used only when the inline `manifest` is empty; takes precedence over auto-discovery of <workspace_root>/xray.manifest.json. A file's `ratified` flag drives the gate's block/caution decision. The resolved provenance is echoed back as `manifest_source`." }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            // =================================================================
+            // X-RAY read verb: xray_gate — North-Star pre-edit guardrail
+            // =================================================================
+            {
+                "name": "xray_gate",
+                "description": "X-RAY read verb (read-only). The North-Star guardrail an agent calls BEFORE editing code: 'am I about to violate the North Star?'. Supply the `node` (external_id) being edited plus `planned_imports` (module names this change would add an outgoing dependency to). The verb derives the node's MODULE, walks its live outgoing imports/depends_on edges, and evaluates BOTH those existing cross-module edges AND each planned edge node_module->M through the SAME rule predicate as xray_orient (forbid pairs + layer_order). Returns verdict clear|caution|blocked: it BLOCKS only on a layer-rule violation (EROSION) AND only when manifest_ratified=true; otherwise a violation is 'caution' (anti-guardrail-fatigue). Empty manifest, unmapped node, or a node not in the graph => 'clear' (honest: nothing to gate). Never mutates, never persists — safe in read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "node": { "type": "string", "description": "external_id of the node about to be edited" },
+                        "planned_imports": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Module names this change would add an OUTGOING dependency to; each is evaluated as a planned edge node_module->M" },
+                        "manifest": {
+                            "type": "object",
+                            "description": "North-star layer ruleset (same shape as xray_orient). Empty manifest => verdict clear (nothing declared to violate)",
+                            "properties": {
+                                "forbid": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }, "default": [], "description": "Pairs [A, B] meaning module A must not depend on module B" },
+                                "layer_order": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Modules ordered low->high; depending on a higher layer is a violation" },
+                                "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Unused by the gate (accepted for manifest parity with xray_orient)" }
+                            }
+                        },
+                        "manifest_ratified": { "type": "boolean", "default": false, "description": "When true, any violation escalates the verdict to 'blocked'. When false (default), a violation is only 'caution' — the North Star is not yet ratified, so the gate informs without obstructing (anti-guardrail-fatigue). Used only when the resolved manifest source is INLINE; a FILE-sourced manifest's own `ratified` flag overrides this" },
+                        "manifest_path": { "type": "string", "description": "Optional path to a North-Star manifest JSON file. Used only when the inline `manifest` is empty; takes precedence over auto-discovery of <workspace_root>/xray.manifest.json. A file's `ratified` flag drives the gate's block/caution decision. The resolved provenance is echoed back as `manifest_source`." }
+                    },
+                    "required": ["agent_id", "node"]
+                }
+            },
+            // =================================================================
+            // X-RAY physical-write verb: xray_apply — atomic source-file codemod
+            // =================================================================
+            {
+                "name": "xray_apply",
+                "description": "X-RAY physical-write verb. WRITES SOURCE FILES TO DISK. One call applies an idempotent, deterministic transform across many source files via an ATOMIC 2-phase apply with content-hash optimistic-concurrency — dry-run by default. Supply a SELECTOR (path_prefix relative to project root + extensions filter) plus a TRANSFORM. TWO transform kinds: (1) kind=ensure_header_tag + tag — FILE-driven, idempotently ensures `tag` appears in each selected file's first 3 lines; (2) kind=annotate_symbol + annotation [+ node_type] — GRAPH/AST-driven: selects symbol NODES from the live graph (tree-sitter provenance captured at ingest — re-parses NOTHING), and inserts `annotation` as its own line immediately ABOVE each symbol's recorded line (bottom-up so line numbers stay valid). For annotate_symbol the selector's path_prefix matches a node's MODULE (first path segment of its external_id) and node_type filters by canonical type u8 (Function=2, Struct=4, …); only symbols whose provenance source_path resolves UNDER the project root are touched. Engine (both kinds): SELECT/plan -> STAGE (write `<file>.xray.tmp` with create-new so a pre-existing temp/symlink can never be followed or clobbered, fsync, never touching originals) -> REHASH all originals -> if any drifted: CONFLICT, abort the whole batch and delete every temp with ZERO partial writes -> else atomic rename ALL (parent dirs fsync'd for durability). Returns counts (matched/planned/skipped_noop/skipped_binary/applied/conflicts + symbols_matched for AST selection) + a planned sample; only writes when mode='commit'. Binary (non-UTF-8) files are skipped and counted as skipped_binary — never planned, staged, or written. status is 'committed' (all swapped), 'partial' (a rename failed mid-swap after ≥1 success — applied = the count actually swapped, remaining temps are LEFT for a retry to complete), 'aborted_conflicts' (drift/contention, ZERO writes), or 'dry_run'. IMPORTANT: a commit that writes files rewrites source bytes WITHOUT updating the in-memory graph — when `graph_resync_required` is true the caller MUST trigger a re-ingest to reconcile the graph with disk (and for annotate_symbol, to refresh the now-shifted line numbers BEFORE any re-run). Confined to the project root; never touches runtime/VCS/build artifacts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "selector": {
+                            "type": "object",
+                            "description": "File selector, resolved relative to the project root",
+                            "properties": {
+                                "path_prefix": { "type": "string", "description": "Optional path prefix (relative to project root) to narrow the walk" },
+                                "extensions": { "type": "array", "items": { "type": "string" }, "default": [], "description": "File extensions to include (e.g. [\"rs\"]); empty = any extension" }
+                            }
+                        },
+                        "transform": {
+                            "type": "object",
+                            "description": "The transform to apply. ensure_header_tag is FILE-driven (needs `tag`); annotate_symbol is GRAPH/AST-driven (needs `annotation`, optional `node_type`).",
+                            "properties": {
+                                "kind": { "type": "string", "enum": ["ensure_header_tag", "annotate_symbol"], "description": "Transform kind. ensure_header_tag idempotently ensures `tag` appears in the file's first 3 lines. annotate_symbol inserts `annotation` as its own line immediately above each selected symbol node's line (resolved from graph tree-sitter provenance; no re-parse)." },
+                                "tag": { "type": "string", "description": "ensure_header_tag only: the header tag to ensure (e.g. \"//! @xray:state:bedrock\")" },
+                                "annotation": { "type": "string", "description": "annotate_symbol only: the line inserted immediately above each selected symbol (e.g. \"// @xray:reviewed\")" },
+                                "node_type": { "type": "integer", "description": "annotate_symbol only (optional): restrict to a node type via its canonical u8 (File=0, Function=2, Class=3, Struct=4, Enum=5, …). Omit to match any symbol type." },
+                                "position": { "type": "string", "enum": ["above"], "default": "above", "description": "annotate_symbol only: insertion position. MVP supports only 'above'." }
+                            },
+                            "required": ["kind"]
+                        },
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) plans only and writes nothing; commit applies the atomic 2-phase swap" },
+                        "expect_version": { "type": "string", "description": "Optional cross-call OCC token from a prior dry_run's `version`. On commit the planned-files fingerprint is recomputed after SELECT; if it no longer matches, the commit ABORTS BEFORE staging (status 'aborted_conflicts', applied 0, NO file written) so a concurrent edit between dry_run and commit cannot clobber work. Complements the within-call stage→rehash guard. Omit for an unconditional commit." }
+                    },
+                    "required": ["agent_id", "selector", "transform"]
+                }
+            },
+            // =================================================================
+            // X-RAY write verb: xray_paint — the PAINT pass (persist proof-state tags)
+            // =================================================================
+            {
+                "name": "xray_paint",
+                "description": "X-RAY write verb (the PAINT pass). One call classifies every in-scope node into a STRUCTURAL proof-state from REAL graph signals and writes it as a persistent tag `xray:state:<state>` — making proof-states QUERYABLE tags instead of ephemeral per-call computations. Per node (honest, proof-grown): `erosion-candidate` if it is the SOURCE of a cross-module edge the manifest flags (candidate, not confirmed — same predicate as xray_orient); else `bedrock` if it has PROOF EVIDENCE — it is exercised by a TEST (a test-source node imports/calls/references it) OR has an incoming `grounded_in` edge (evidence-backed, NOT a mere reference count); else `overgrowth` if it is an orphan (zero incoming reference edges, off-lattice); else `unproven` — used (something references it) but with no proof evidence (the honest majority). BLUEPRINT is a manifest-level absence, never a node tag. Re-paint is idempotent: existing `xray:state:*` tags are REPLACED, never accumulated. Returns counts (scanned/bedrock/overgrowth/unproven/erosion_candidate/painted) plus `proof_coverage` (bedrock/scanned, the fraction with proof evidence) and `manifest_source` (manifest provenance: inline/file:<path>/none), without mutating unless mode='commit'; on commit it applies the columnar tag mutators and persists the graph snapshot. Mutates graph metadata only — never source files.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "scope": { "type": "string", "description": "Optional external_id path-prefix filter — only nodes whose external_id starts with this prefix are classified and painted" },
+                        "manifest": {
+                            "type": "object",
+                            "description": "North-star ruleset used only to flag `erosion-candidate` source nodes (same shape + predicate as xray_orient). Empty manifest => no erosion candidates (every referenced node is bedrock, every orphan is overgrowth)",
+                            "properties": {
+                                "forbid": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }, "default": [], "description": "Pairs [A, B] meaning module A must not depend on module B" },
+                                "layer_order": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Modules ordered low->high; depending on a higher layer flags the source as an erosion-candidate" },
+                                "require_exists": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Unused by paint (accepted for manifest parity with xray_orient)" }
+                            }
+                        },
+                        "manifest_path": { "type": "string", "description": "Optional path to a North-Star manifest JSON file. Used only when the inline `manifest` is empty; takes precedence over auto-discovery of <workspace_root>/xray.manifest.json. The resolved provenance is echoed back as `manifest_source`." },
+                        "mode": { "type": "string", "enum": ["dry_run", "commit"], "default": "dry_run", "description": "dry_run (default) classifies and counts but writes nothing; commit replaces each node's xray:state:* tag and persists" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            // =================================================================
+            // X-RAY read verb: xray_ledger — replay the append-only audit ledger
+            // =================================================================
+            {
+                "name": "xray_ledger",
+                "description": "X-RAY read verb (read-only). Replays the append-only AUDIT LEDGER that xray_retag / xray_paint / xray_apply append to on every committed bulk write (one JSON line per write, stored beside the graph snapshot as xray.ledger.jsonl), so a write is traceable and manually reversible. Each record carries a monotonic `seq`, the `verb`, the OCC `version` token, a `summary` (the op's counts) and `changes` (per-node before/after tags for retag/paint, or per-file path + before_hash/after_hash for apply, capped at 1000 with `changes_truncated` when overflowed). Returns the LAST `limit` entries MOST RECENT FIRST, optionally filtered by `verb`, plus `total_entries` (full line count) and the resolved `ledger_path`. A missing ledger yields an empty list (honest, not an error). Never mutates, never persists — safe in read-only attach.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "limit": { "type": "integer", "default": 20, "description": "Max entries to return, most recent first (default 20)" },
+                        "verb": { "type": "string", "description": "Optional verb-name filter (e.g. \"xray_paint\"); only records whose `verb` equals this are returned and counted toward `limit`" }
+                    },
+                    "required": ["agent_id"]
+                }
             }
         ]
     })
@@ -2215,6 +2396,15 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "learn",
     "daemon_start",
     "auto_ingest_start",
+    // xray_retag commits tag mutations to graph_path on disk, so a read-only
+    // attach must refuse it (dry_run would also be blocked here — acceptable,
+    // since the verb's purpose is to lead to a write).
+    "xray_retag",
+    // xray_apply physically writes source files to disk, so a read-only attach must refuse it.
+    "xray_apply",
+    // xray_paint commits proof-state tag mutations to graph_path on disk, so a
+    // read-only attach must refuse it (same stance as xray_retag).
+    "xray_paint",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -2311,7 +2501,7 @@ fn tool_has_memory_anchors(tool: &str) -> bool {
         .unwrap_or(tool);
     matches!(
         bare,
-        "activate" | "seek" | "search" | "surgical_context" | "surgical_context_v2"
+        "activate" | "seek" | "focus" | "search" | "surgical_context" | "surgical_context_v2"
     )
 }
 
@@ -3143,6 +3333,36 @@ fn dispatch_core_tool(
             let output = tools::handle_activate(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
+        "xray_retag" => {
+            let input: crate::xray_handlers::XrayRetagInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_retag(state, input)
+        }
+        "xray_apply" => {
+            let input: crate::xray_handlers::XrayApplyInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_apply(state, input)
+        }
+        "xray_orient" => {
+            let input: crate::xray_handlers::XrayOrientInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_orient(state, input)
+        }
+        "xray_gate" => {
+            let input: crate::xray_handlers::XrayGateInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_gate(state, input)
+        }
+        "xray_paint" => {
+            let input: crate::xray_handlers::XrayPaintInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_paint(state, input)
+        }
+        "xray_ledger" => {
+            let input: crate::xray_handlers::XrayLedgerInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::xray_handlers::handle_xray_ledger(state, input)
+        }
         "impact" => {
             let input: ImpactInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
@@ -3300,6 +3520,12 @@ fn dispatch_core_tool(
             let input: layers::SeekInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             let output = layer_handlers::handle_seek(state, input)?;
+            serde_json::to_value(output).map_err(M1ndError::Serde)
+        }
+        "focus" => {
+            let input: layers::FocusInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            let output = layer_handlers::handle_focus(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
         "scan" => {

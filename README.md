@@ -4,7 +4,7 @@
   <img src=".github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h1 align="center">A Local Mission Runtime for Coding Agents</h1>
+<h1 align="center">Operational Intelligence for Coding Agents</h1>
 
 <p align="center">
   <strong>Your coding agent stops starting blind.</strong><br/>
@@ -36,7 +36,7 @@
 
 ---
 
-**m1nd is a local mission runtime for coding agents — it governs the operating loop, not just retrieval.**
+**m1nd is operational intelligence for coding agents — it governs the operating loop, not just retrieval.**
 
 > grep finds text. Vector search finds similar chunks. `m1nd` gives agents a local graph of what connects, what changed, what breaks, what drifted, and where to resume.
 
@@ -62,7 +62,7 @@ m1nd install-skills codex          # or: claude / gemini / antigravity / generic
 m1nd mcp-config codex --project /your/project
 ```
 
-Or from the npm beta channel: `npm install -g @maxkle1nz/m1nd@beta`.
+Or from npm: `npm install -g @maxkle1nz/m1nd`.
 
 Full install map, host packs, native runtime build, and update flags: [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) · client-by-client setup: [integration matrix](docs/IDE-INTEGRATIONS.md).
 
@@ -211,7 +211,7 @@ Every row is hedged to exactly what was measured. m1nd does not lead with saving
 
 | Claim | Result | Source / hedge |
 |---|---|---|
-| `activate` / `impact` latency | sub-µs `activate`, sub-ms `impact` | Criterion benchmarks in `m1nd-core/benches/` on a 1K-node synthetic graph — [methodology](https://m1nd.world/wiki/benchmarks.html); treat as order-of-magnitude. |
+| `activate` / `impact` latency | ~1µs `activate`, sub-µs `impact` on a 1K-node synthetic graph | Criterion benches — **reproduce it yourself: `cargo bench -p m1nd-core`** (measured `activate_1k_nodes` ≈1.4µs, `impact_depth3` ≈0.5µs on an Apple-silicon Mac); [methodology](https://m1nd.world/wiki/benchmarks.html); order-of-magnitude, hardware-dependent. |
 | Language matrix | calls + cross-file imports for 10 languages (+ Ruby cross-file) | Verified end-to-end in a single polyglot ingest; per-language tests in `m1nd-ingest`. See [Language Coverage](#language-coverage). |
 | Post-write validation sample | 12/12 classified correctly | Internal runtime check. |
 | Seeded bug-hunt | 16/20 in the first accepted `humanize` seeded-defect round (m1nd-trained); `m1nd-basic` and direct each 8/15 | Internal product evidence, `public_claim_worthy=false` — not a universal benchmark. |
@@ -238,7 +238,7 @@ Three core Rust crates plus one auxiliary bridge:
 - **`m1nd-ingest`** — extraction, routing, and graph construction adapters (code, universal docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliary OpenClaw bridge (Unix-socket lane, independently versioned).
 
-Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `0.9.0-beta.8`.
+Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.0.0`.
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />

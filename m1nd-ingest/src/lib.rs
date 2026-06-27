@@ -2,6 +2,7 @@
 // === crates/m1nd-ingest/src/lib.rs ===
 
 use m1nd_core::error::{M1ndError, M1ndResult};
+use m1nd_core::graph::NodeProvenanceInput;
 use m1nd_core::types::*;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -239,7 +240,9 @@ impl Ingestor {
                 detail: format!("thread pool: {}", e),
             })?;
 
-        let extraction_results: Vec<(String, extract::ExtractionResult)> = pool.install(|| {
+        // (file_id, extraction result, [(node_id, behavioral excerpt)])
+        type FileExtraction = (String, extract::ExtractionResult, Vec<(String, String)>);
+        let extraction_results: Vec<FileExtraction> = pool.install(|| {
             walk_result
                 .files
                 .par_iter()
@@ -258,7 +261,10 @@ impl Ingestor {
                         }
                     };
                     let result = extractor.extract(&content, &file_id).ok()?;
-                    Some((file_id, result))
+                    // Behavioral excerpts sliced here while the file content is live,
+                    // so embeddings later see what each symbol DOES, not just its name.
+                    let excerpts = extract::compute_excerpts(&result, &content);
+                    Some((file_id, result, excerpts))
                 })
                 .collect()
         });
@@ -277,9 +283,23 @@ impl Ingestor {
             })
             .collect();
 
+        // Flatten per-file excerpts into a global node_id -> excerpt map (bounded
+        // ~240 chars/node), consumed at provenance time below. FIRST-WINS on a
+        // duplicate id, to match graph insertion: the first node with an id wins
+        // `add_node` (later dups are dropped as DuplicateNode), so the surviving
+        // node must keep ITS OWN excerpt, not a later same-named sibling's.
+        let mut node_excerpts: HashMap<String, String> = HashMap::new();
+        for (_, _, excerpts) in &extraction_results {
+            for (id, excerpt) in excerpts {
+                node_excerpts
+                    .entry(id.clone())
+                    .or_insert_with(|| excerpt.clone());
+            }
+        }
+
         let mut all_nodes: Vec<(String, extract::ExtractedNode)> = Vec::new();
         let mut all_edges = Vec::new();
-        for (file_id, result) in &extraction_results {
+        for (file_id, result, _) in &extraction_results {
             if start.elapsed() > self.config.timeout {
                 eprintln!("[m1nd-ingest] Timeout after {} files", stats.files_parsed);
                 break;
@@ -318,18 +338,36 @@ impl Ingestor {
             };
 
             let tags: Vec<&str> = node.tags.iter().map(String::as_str).collect();
-            if graph
-                .add_node(
-                    &node.id,
-                    &node.label,
-                    node.node_type,
-                    &tags,
-                    last_modified,
-                    change_frequency,
-                )
-                .is_ok()
-            {
+            if let Ok(node_id) = graph.add_node(
+                &node.id,
+                &node.label,
+                node.node_type,
+                &tags,
+                last_modified,
+                change_frequency,
+            ) {
                 stats.nodes_created += 1;
+
+                // Provenance: the source file is the node's containing file_id
+                // ("file::<relpath>"), so strip the "file::" prefix to recover the
+                // project-relative source path. This is what makes the graph-driven
+                // AST-apply path (xray_apply AnnotateSymbol) actually match symbols:
+                // without it every code node lands with source_path = None.
+                // line == 0 is fine — resolve_node_provenance treats 0 as None.
+                if let Some(source_path) = file_id.strip_prefix("file::") {
+                    if !source_path.is_empty() {
+                        graph.set_node_provenance(
+                            node_id,
+                            NodeProvenanceInput {
+                                source_path: Some(source_path),
+                                line_start: Some(node.line),
+                                line_end: Some(node.end_line),
+                                excerpt: node_excerpts.get(&node.id).map(String::as_str),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
             }
         }
 
@@ -499,6 +537,59 @@ mod tests {
 
         assert!(stats.references_resolved >= 1);
         assert!(has_reference_edge || has_import_edge);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ingest_populates_node_provenance_for_code_symbols() {
+        // PROOF the AST-apply path is not a no-op: a REAL ingest (walk + extract +
+        // build) must populate each symbol node's provenance (source_path +
+        // line_start), not leave it at the add_node default of None / 0.
+        let root = temp_ingest_dir("rust-provenance");
+        fs::create_dir_all(root.join("src")).unwrap();
+
+        // A function spanning known lines: `fn answer` opens on line 3.
+        fs::write(
+            root.join("src/lib.rs"),
+            "// header comment\n\
+             \n\
+             pub fn answer() -> u32 {\n\
+             \x20   42\n\
+             }\n",
+        )
+        .unwrap();
+
+        let ingest = Ingestor::new(IngestConfig {
+            root: root.clone(),
+            ..Default::default()
+        });
+
+        let (graph, _stats) = ingest.ingest().unwrap();
+        let func = graph
+            .resolve_id("file::src/lib.rs::fn::answer")
+            .expect("function node must exist after ingest");
+
+        let prov = graph.resolve_node_provenance(func);
+        assert_eq!(
+            prov.source_path.as_deref(),
+            Some("src/lib.rs"),
+            "provenance source_path must be the project-relative source file"
+        );
+        assert_eq!(
+            prov.line_start,
+            Some(3),
+            "provenance line_start must be the function's real opening line"
+        );
+
+        // The symbol now also carries a behavioral excerpt sliced from its own
+        // source span (signature + body), so embeddings capture what it DOES —
+        // not just its name. (Drives the seek semantic layer end to end.)
+        let excerpt = prov.excerpt.as_deref().unwrap_or("");
+        assert!(
+            excerpt.contains("answer") && excerpt.contains("42"),
+            "provenance excerpt must fold in the signature + body, got {excerpt:?}"
+        );
 
         let _ = fs::remove_dir_all(root);
     }

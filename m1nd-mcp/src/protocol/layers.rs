@@ -74,6 +74,11 @@ pub struct SeekInput {
     /// Whether to run graph re-ranking on embedding candidates. Default: true.
     #[serde(default = "default_true")]
     pub graph_rerank: bool,
+    /// When true (default), bias ranking by the resolved X-RAY manifesto: erosion
+    /// sources are down-weighted, proof-exercised (bedrock) nodes up-weighted. No
+    /// effect when no manifesto resolves. Set false to get pure lexical/semantic rank.
+    #[serde(default = "default_true")]
+    pub conformance_aware: bool,
     /// Optional approximate context-token budget. When set, results are kept
     /// in graph-importance rank order until the running token ESTIMATE
     /// (chars/4) would exceed this budget; lower-ranked hits are dropped and a
@@ -83,12 +88,51 @@ pub struct SeekInput {
     pub token_budget: Option<usize>,
 }
 
+/// Answer-free stop signal for goal-conditioned retrieval. It never claims to
+/// know the answer — only whether the returned context is likely *enough* to
+/// act on, whether more relevant context exists beyond what was returned, or
+/// whether the goal simply isn't well represented in the graph.
+///
+/// - `sufficient`: the top match is real AND the best candidate left out is
+///   already weak — the strongest context is in hand, enough to act.
+/// - `gathering`: a still-relevant candidate was dropped (by token budget, top_k,
+///   or the re-rank window) — raise the budget/top_k or narrow the goal.
+/// - `saturated`: the best match is weak or absent — the goal likely isn't
+///   represented here; re-scope, broaden, or ingest more.
+#[derive(Clone, Debug, Serialize)]
+pub struct Sufficiency {
+    /// "sufficient" | "gathering" | "saturated".
+    pub state: String,
+    /// Strength of the single best match [0.0, 1.0] (0 when empty). This is the
+    /// absolute relevance signal, not a probability.
+    pub top_score: f32,
+    /// Fraction of the re-ranked window's salience carried by the returned set
+    /// [0.0, 1.0], in the same units the kept/dropped partition is decided in.
+    /// 1.0 when the window was returned whole; below 1.0 means salient nodes were
+    /// dropped. Reported for transparency — the verdict is driven by the knee
+    /// test, not this ratio.
+    pub captured: f32,
+    /// Plain-English reason for `state`, phrased for an agent reader.
+    pub why: String,
+}
+
 /// Output for seek.
 #[derive(Clone, Debug, Serialize)]
 pub struct SeekOutput {
     pub query: String,
     pub results: Vec<SeekResultEntry>,
     pub total_candidates_scanned: usize,
+    /// How many of the scanned nodes actually cleared the relevance threshold
+    /// (`min_score`) — the size of the relevant pool BEFORE any top_k / window /
+    /// budget truncation. `results.len()` is the slice of this pool that was
+    /// returned; the gap is honestly relevant context that did not fit.
+    pub relevance_clearing_total: usize,
+    /// Present only when retrieval returned NO results: a plain-English reason the
+    /// result set is empty (empty graph, no searchable tokens, scope/type filtered
+    /// everything, or nothing cleared the relevance threshold), so an agent can
+    /// adjust the query instead of blindly re-querying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filtering_reason: Option<String>,
     /// Whether embeddings were used (false = fallback to trigram/semantic engine).
     pub embeddings_used: bool,
     /// Coarse proof stage for semantic retrieval:
@@ -111,6 +155,29 @@ pub struct SeekOutput {
     /// the context-budget packing (requested/used estimate, kept, dropped).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget: Option<serde_json::Value>,
+    /// Answer-free stop signal: is this enough context, is there more beyond the
+    /// budget, or is the goal not represented here? Always present.
+    pub sufficiency: Sufficiency,
+    /// Present only when a manifesto biased this query: per-result conformance
+    /// counts + how many returned hits are erosion sources (a drift warning).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conformance: Option<ConformanceSummary>,
+}
+
+/// Per-query conformance accounting attached to a manifesto-biased `seek`/`focus`
+/// run. Surfaced only when an X-RAY manifesto actually resolved and biased the
+/// ranking; absent (zero-cost) otherwise. It never hides a result — erosion
+/// sources that survived into the returned set are COUNTED here, not dropped.
+#[derive(Clone, Debug, Serialize)]
+pub struct ConformanceSummary {
+    /// Manifesto provenance, e.g. "file:/path/xray.manifest.json".
+    pub source: String,
+    /// Counts among the RETURNED results.
+    pub bedrock: u32,
+    pub erosion: u32,
+    pub neutral: u32,
+    /// Returned hits that are erosion sources — surfaced as an honest drift warning.
+    pub erosion_in_result_set: u32,
 }
 
 /// Shared heuristic metadata exposed by tools that apply trust/tremor priors.
@@ -166,6 +233,105 @@ pub struct SeekConnection {
     pub node_id: String,
     pub label: String,
     pub relation: String,
+}
+
+// ---------------------------------------------------------------------------
+// m1nd.focus — the attention runtime (Focus Runtime P1)
+// ---------------------------------------------------------------------------
+
+/// Input for `focus` — goal-conditioned attention management. Given a goal and a
+/// token budget, m1nd returns the minimal *focus set* worth loading, an honest
+/// account of what it left out, and an answer-free sufficiency signal telling
+/// the agent whether to act, gather more, or re-scope.
+///
+/// `focus` is a thin attention layer over the same ranking that powers `seek`
+/// (intent embedding + graph importance + recency); it adds the budget-bounded
+/// minimal-set framing, the honest `ignored` tail, and the stop condition.
+#[derive(Clone, Debug, Deserialize)]
+pub struct FocusInput {
+    /// Natural-language description of the goal the agent is working toward.
+    pub goal: String,
+    pub agent_id: String,
+    /// Approximate context-token budget for the focus set. The set keeps the
+    /// highest-salience nodes that fit; the rest are reported under `ignored`.
+    /// Default: 2000.
+    #[serde(default = "default_focus_budget")]
+    pub token_budget: usize,
+    /// Upper bound on ranked candidates considered before budget packing. The
+    /// budget — not this — is the intended limiter; keep it generous.
+    /// Default: 60.
+    #[serde(default = "default_focus_top_k")]
+    pub top_k: usize,
+    /// File path prefix to limit the focus scope. None = entire graph.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// Filter by node type: "function", "class", "struct", "module", "file".
+    #[serde(default)]
+    pub node_types: Vec<String>,
+    /// Minimum combined score for a node to be eligible for the focus set.
+    /// Default: 0.1 (same floor as `seek`).
+    #[serde(default = "default_min_score")]
+    pub min_score: f32,
+}
+
+/// Honest account of what `focus` deliberately left out of the focus set, so the
+/// agent never mistakes a budget-bounded set for the whole truth.
+#[derive(Clone, Debug, Serialize)]
+pub struct FocusIgnored {
+    /// Relevance-clearing nodes NOT in the focus set — everything dropped by the
+    /// token budget, top_k, or the re-rank window. A conservative upper bound: it
+    /// counts pre-de-duplication, so a few may share a family with a returned hit.
+    /// It never under-reports, so a budget/window-bounded slice is never mistaken
+    /// for the whole truth. Zero means the focus set holds the entire relevant pool.
+    pub count: usize,
+    /// Total nodes scored for the goal (search breadth). Most score near zero;
+    /// reported for transparency, not as dropped context.
+    pub scanned: usize,
+    /// Plain-English breakdown of why candidates were left out, including any
+    /// `top_k` cap that may hide further candidates.
+    pub reason: String,
+}
+
+/// Output for `focus` — the budget-bounded attention slice for a goal.
+#[derive(Clone, Debug, Serialize)]
+pub struct FocusOutput {
+    pub goal: String,
+    /// The minimal set of nodes worth loading for the goal, ranked by salience
+    /// and bounded by the token budget. Each entry is a full `seek` hit.
+    pub focus_set: Vec<SeekResultEntry>,
+    /// What was deliberately left out, and why.
+    pub ignored: FocusIgnored,
+    /// Answer-free stop signal: sufficient | gathering | saturated.
+    pub sufficiency: Sufficiency,
+    /// The token budget that bounded the focus set.
+    pub token_budget: usize,
+    /// Honest budget-packing accounting (requested/used estimate, kept, dropped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget: Option<serde_json::Value>,
+    /// Whether real static embeddings fed the ranking (OPTIONAL `embed` feature).
+    pub embeddings_used: bool,
+    /// Present only when the focus set is empty: why nothing was selected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filtering_reason: Option<String>,
+    pub elapsed_ms: f64,
+    /// Deterministic recovery payload when retrieval is blocked (mirrors `seek`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_runtime_contract: Option<serde_json::Value>,
+    /// Present only when a manifesto biased the underlying `seek` ranking:
+    /// per-result conformance counts + erosion-in-result drift warning. `focus`
+    /// surfaces exactly what `seek` computed, so the two stay consistent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conformance: Option<ConformanceSummary>,
+}
+
+fn default_focus_budget() -> usize {
+    2000
+}
+
+fn default_focus_top_k() -> usize {
+    60
 }
 
 // ---------------------------------------------------------------------------
