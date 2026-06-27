@@ -62,7 +62,7 @@ m1nd install-skills codex          # or: claude / gemini / antigravity / generic
 m1nd mcp-config codex --project /your/project
 ```
 
-Or from the npm beta channel: `npm install -g @maxkle1nz/m1nd@beta`.
+Or from npm: `npm install -g @maxkle1nz/m1nd`.
 
 Full install map, host packs, native runtime build, and update flags: [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) · client-by-client setup: [integration matrix](docs/IDE-INTEGRATIONS.md).
 
@@ -238,7 +238,7 @@ Three core Rust crates plus one auxiliary bridge:
 - **`m1nd-ingest`** — extraction, routing, and graph construction adapters (code, universal docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliary OpenClaw bridge (Unix-socket lane, independently versioned).
 
-Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `0.9.0-beta.8`.
+Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.0.0`.
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />
