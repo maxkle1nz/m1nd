@@ -516,6 +516,9 @@ pub fn handle_search(state: &mut SessionState, input: SearchInput) -> M1ndResult
                 node_types: vec![],
                 min_score: 0.0,
                 graph_rerank: true,
+                // Inherit conformance-aware attention (no-op by absence of a
+                // manifesto), matching the default `seek`/`focus` behavior.
+                conformance_aware: true,
                 // Search does its own budget packing on the converted rows below;
                 // the delegated seek runs unbudgeted.
                 token_budget: None,

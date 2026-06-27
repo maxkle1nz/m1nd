@@ -2453,7 +2453,7 @@ pub struct XrayPaintOutput {
 /// verdicts (erosion is a *candidate*; `bedrock` means it carries proof
 /// EVIDENCE — test-exercised or grounded — not a confirmed proof).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PaintState {
+pub(crate) enum PaintState {
     Bedrock,
     Overgrowth,
     Unproven,
@@ -2579,6 +2579,37 @@ fn classify_node(indegree: u32, is_exercised: bool, is_erosion_source: bool) -> 
     } else {
         PaintState::Unproven
     }
+}
+
+/// Resolve the workspace manifesto (auto-discovered xray.manifest.json) and
+/// classify EVERY node's conformance state in one shot, for callers that want to
+/// bias by architectural intent (e.g. seek). Returns None when no usable
+/// (non-empty) manifesto resolves, so callers stay zero-cost by default. Reuses
+/// the exact same predicates as orient/gate/paint — no second evaluator.
+pub(crate) fn resolve_node_conformance(
+    graph: &Graph,
+    workspace_root: Option<&str>,
+) -> Option<(Vec<PaintState>, String)> {
+    let resolved = resolve_manifest(&XrayManifest::default(), None, workspace_root);
+    let m = &resolved.manifest;
+    if m.forbid.is_empty() && m.layer_order.is_empty() && m.require_exists.is_empty() {
+        return None;
+    }
+    let ext = node_to_ext_map(graph);
+    let erosion = erosion_source_set(graph, &ext, m);
+    let exercised = exercised_set(graph, &ext);
+    let indeg = reference_indegree(graph);
+    let n = graph.num_nodes() as usize;
+    let states = (0..n)
+        .map(|i| {
+            classify_node(
+                indeg.get(i).copied().unwrap_or(0),
+                exercised.get(i).copied().unwrap_or(false),
+                erosion.get(i).copied().unwrap_or(false),
+            )
+        })
+        .collect();
+    Some((states, resolved.source))
 }
 
 /// Pure paint core over a finalized `Graph` (unit-testable, no `SessionState`).
