@@ -25,6 +25,10 @@ plasticity_state.json
 antibodies.json
 tremor_state.json
 trust_state.json
+# OPTIONAL `embed` feature: content-addressed embedding cache (+ its atomic temp),
+# written beside the snapshot; runtime-regenerated, never commit.
+embeddings_cache.bin
+embeddings_cache.tmp
 # X-RAY append-only audit ledger — runtime state (one JSON line per committed
 # bulk write), written beside the graph snapshot. Not a *.json match (.jsonl),
 # so it needs its own rule; never commit it.
