@@ -72,6 +72,84 @@ fn l2_seek_heuristic_reason(
 #[cfg(feature = "embed")]
 const SEMANTIC_RECALL_FLOOR: f32 = 0.40;
 
+/// Relevance floor below which the single best match is considered too weak for
+/// the goal to be meaningfully represented — drives the `saturated` verdict.
+///
+/// CALIBRATED against a real m1nd-core ingest (embed default ON): present-goal
+/// top scores landed in [0.24, 0.54], clear-noise goals in [0.00, 0.16]. 0.18
+/// sits above the pure-noise band and below the weakest real match. The
+/// in-between zone (~0.18–0.26) is genuinely ambiguous — goals that share real
+/// tokens with the codebase score there whether or not they belong — so the
+/// exact `top_score` is always returned in the envelope for the agent to judge;
+/// the floor only decides the coarse verdict, biased AGAINST a false "not here".
+const SUFFICIENCY_WEAK_TOP: f32 = 0.18;
+
+/// Compute the answer-free sufficiency signal from retrieval outcome signals.
+///
+/// `top_score` is the best match's combined score (0 when the set is empty).
+/// `captured` is the fraction of the FULL relevance-clearing salience carried by
+/// the returned set [0,1] (reported for transparency). `marginal_score` is the
+/// score of the best candidate that was LEFT OUT — `None` when the returned set
+/// holds the entire relevant pool. The verdict is a "knee" test: you have enough
+/// when the strongest match is real AND the best thing you're missing is already
+/// weak. A long tail of weak matches therefore does NOT force "gathering" — only
+/// a strong DROPPED candidate does. This inspects relevance strength and what was
+/// cut — never answer content — so it can say "enough / keep going / not here"
+/// without claiming to know the answer.
+fn compute_sufficiency(
+    top_score: f32,
+    captured: f32,
+    marginal_score: Option<f32>,
+    n_results: usize,
+) -> layers::Sufficiency {
+    let pct = (captured * 100.0).round();
+    let (state, why) = if n_results == 0 {
+        (
+            "saturated",
+            "no candidate cleared the relevance threshold for this goal — broaden the goal, relax scope/node_types, or ingest the relevant code".to_string(),
+        )
+    } else if top_score < SUFFICIENCY_WEAK_TOP {
+        (
+            "saturated",
+            format!(
+                "the best match scores only {top_score:.2} — the goal is weakly represented here; refine the goal terms or ingest more context"
+            ),
+        )
+    } else {
+        match marginal_score {
+            // The returned set holds the entire relevant pool — nothing was cut.
+            None => (
+                "sufficient",
+                format!(
+                    "the top match scores {top_score:.2} and the set holds every relevance-clearing node — enough to act"
+                ),
+            ),
+            // A still-relevant candidate was left out — real context exists beyond
+            // the returned set, so keep gathering.
+            Some(m) if m >= SUFFICIENCY_WEAK_TOP => (
+                "gathering",
+                format!(
+                    "the strongest match left out still scores {m:.2} — relevant context did not fit (set carries {pct:.0}% of the salience); raise token_budget/top_k or narrow the goal"
+                ),
+            ),
+            // Everything cut is weaker than the relevance floor — the head is in
+            // hand and the tail is not worth pulling.
+            Some(m) => (
+                "sufficient",
+                format!(
+                    "the top match scores {top_score:.2}; everything left out scores at most {m:.2} (weak tail) — the strongest context is in hand"
+                ),
+            ),
+        }
+    };
+    layers::Sufficiency {
+        state: state.to_string(),
+        top_score,
+        captured,
+        why,
+    }
+}
+
 pub fn handle_seek(
     state: &mut SessionState,
     input: layers::SeekInput,
@@ -120,6 +198,7 @@ pub fn handle_seek(
             query: input.query,
             results: vec![],
             total_candidates_scanned: 0,
+            relevance_clearing_total: 0,
             filtering_reason: Some(match error_text {
                 Some(_) => {
                     "the query produced no searchable tokens; provide concrete identifiers or words"
@@ -137,6 +216,7 @@ pub fn handle_seek(
             recovery,
             agent_runtime_contract,
             budget: None,
+            sufficiency: compute_sufficiency(0.0, 0.0, None, 0),
         });
     }
 
@@ -362,6 +442,17 @@ pub fn handle_seek(
             .partial_cmp(&a.base_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    // Honesty accounting, captured BEFORE any truncation: the full pool of nodes
+    // that cleared `min_score`, and their salience. Every later step (heuristic
+    // window, top_k, token budget) keeps the highest-ranked items, so the
+    // returned set is always a rank-PREFIX of this list — which lets the
+    // sufficiency signal and `ignored` count reflect everything left out, not
+    // just what the budget dropped. `base_ranked` is already sorted by base_score
+    // descending here.
+    let relevance_clearing_total = base_ranked.len();
+    let clearing_mass: f32 = base_ranked.iter().map(|e| e.base_score.max(0.0)).sum();
+    let clearing_scores_desc: Vec<f32> =
+        base_ranked.iter().map(|e| e.base_score.max(0.0)).collect();
     let heuristic_window = input.top_k.saturating_mul(4).max(input.top_k).min(128);
     base_ranked.truncate(heuristic_window);
 
@@ -541,6 +632,27 @@ pub fn handle_seek(
     } else {
         (results, None)
     };
+    // Fraction of the FULL relevance-clearing salience carried by the returned
+    // set. The set is a rank-prefix of `clearing_scores_desc` (all truncation +
+    // budget steps keep the highest-ranked items), so its salience is the prefix
+    // sum of the top `kept_n` scores. < 1.0 means relevant context was left out
+    // — by the token budget, top_k, OR the heuristic window — so a truncated
+    // slice can NEVER report as fully "captured". (Heuristic trust/tremor
+    // re-ranking can nudge order within the prefix, making this a close estimate
+    // rather than an exact identity; it is a coarse honesty signal, not a metric.)
+    let kept_n = results.len();
+    let kept_salience: f32 = clearing_scores_desc.iter().take(kept_n).sum();
+    let captured = if clearing_mass > f32::EPSILON {
+        (kept_salience / clearing_mass).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    // Score of the best candidate that did NOT make the returned set (the "knee"):
+    // `None` when the set holds the entire relevant pool. Drives the gather-vs-act
+    // verdict — a strong dropped candidate means there is more worth pulling.
+    let marginal_score = clearing_scores_desc.get(kept_n).copied();
+    let top_score = results.first().map(|e| e.score).unwrap_or(0.0);
+    let sufficiency = compute_sufficiency(top_score, captured, marginal_score, results.len());
 
     drop(graph);
 
@@ -609,6 +721,7 @@ pub fn handle_seek(
         query: input.query,
         results,
         total_candidates_scanned: candidates_scanned,
+        relevance_clearing_total,
         filtering_reason,
         // TRUTHFUL: true ONLY when a real static embedding actually fed a node's
         // score (OPTIONAL `embed` feature). With the feature OFF this is always
@@ -625,6 +738,89 @@ pub fn handle_seek(
         recovery,
         agent_runtime_contract,
         budget,
+        sufficiency,
+    })
+}
+
+/// Handle `focus` — goal-conditioned attention management (Focus Runtime P1).
+///
+/// `focus` is a thin attention layer over `seek`: it runs the same intent
+/// ranking under a token budget, then reframes the outcome as an attention
+/// decision — the minimal `focus_set` worth loading, an honest `ignored` tail,
+/// and the answer-free `sufficiency` stop signal. It invents no scoring of its
+/// own; the salience, budget packing, `embeddings_used` flag, and recovery
+/// payload are exactly what `seek` produces, so the two stay consistent by
+/// construction and `focus` inherits every honesty guarantee `seek` already has.
+pub fn handle_focus(
+    state: &mut SessionState,
+    input: layers::FocusInput,
+) -> M1ndResult<layers::FocusOutput> {
+    // Drive the existing ranking with the goal as the query and the agent's
+    // declared budget as the limiter. top_k is kept generous so the *budget* —
+    // not an arbitrary count — decides what fits the focus set.
+    let seek_input = layers::SeekInput {
+        query: input.goal.clone(),
+        agent_id: input.agent_id.clone(),
+        top_k: input.top_k,
+        scope: input.scope.clone(),
+        node_types: input.node_types.clone(),
+        min_score: input.min_score,
+        graph_rerank: true,
+        token_budget: Some(input.token_budget),
+    };
+
+    let seek = handle_seek(state, seek_input)?;
+
+    let focus_len = seek.results.len();
+    // Every relevance-clearing node NOT shown — the honest "context left out"
+    // count. This spans all causes: token-budget drops AND nodes that fell beyond
+    // top_k / the heuristic window. It can never read 0 while relevant nodes were
+    // truncated, so a budget-or-window-bounded slice is never mistaken for the
+    // whole truth.
+    let ignored_count = seek.relevance_clearing_total.saturating_sub(focus_len);
+    // Of those, the share the token budget dropped (from seek's own accounting);
+    // the remainder fell beyond top_k / the heuristic window as lower salience.
+    let dropped_to_budget = seek
+        .budget
+        .as_ref()
+        .and_then(|block| block.get("dropped"))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let beyond_window = ignored_count.saturating_sub(dropped_to_budget);
+    let reason = if ignored_count == 0 {
+        "every relevance-clearing node fit the focus set".to_string()
+    } else if dropped_to_budget > 0 && beyond_window > 0 {
+        format!(
+            "{dropped_to_budget} node(s) dropped to fit the ~{budget}-token budget and {beyond_window} lower-salience match(es) fell beyond the top_k window — raise token_budget/top_k or narrow the goal",
+            budget = input.token_budget
+        )
+    } else if dropped_to_budget > 0 {
+        format!(
+            "{dropped_to_budget} ranked node(s) dropped to fit the ~{budget}-token budget — raise token_budget or narrow the goal to keep them",
+            budget = input.token_budget
+        )
+    } else {
+        format!(
+            "{beyond_window} lower-salience match(es) fell beyond the top_k window — raise top_k or narrow the goal to see them"
+        )
+    };
+
+    Ok(layers::FocusOutput {
+        goal: input.goal,
+        focus_set: seek.results,
+        ignored: layers::FocusIgnored {
+            count: ignored_count,
+            scanned: seek.total_candidates_scanned,
+            reason,
+        },
+        sufficiency: seek.sufficiency,
+        token_budget: input.token_budget,
+        budget: seek.budget,
+        embeddings_used: seek.embeddings_used,
+        filtering_reason: seek.filtering_reason,
+        elapsed_ms: seek.elapsed_ms,
+        recovery: seek.recovery,
+        agent_runtime_contract: seek.agent_runtime_contract,
     })
 }
 
@@ -9478,7 +9674,9 @@ fn generate_dot(
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData};
+    use super::{
+        handle_focus, handle_layers, handle_scan, handle_seek, handle_validate_plan, TrailData,
+    };
     use crate::protocol::layers::{
         HypothesizeInput, LayersInput, PlannedAction, ScanInput, SeekInput, TrailConclusionInput,
         TrailResumeInput, TrailSaveInput, TrailVisitedNodeInput, ValidatePlanInput,
@@ -10130,6 +10328,221 @@ mod tests {
             used <= budget_tokens || kept == 1,
             "used {used} should be <= {budget_tokens} unless single-item overflow"
         );
+    }
+
+    fn run_focus(
+        state: &mut SessionState,
+        goal: &str,
+        token_budget: usize,
+        top_k: usize,
+    ) -> crate::protocol::layers::FocusOutput {
+        handle_focus(
+            state,
+            crate::protocol::layers::FocusInput {
+                goal: goal.into(),
+                agent_id: "test".into(),
+                token_budget,
+                top_k,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+            },
+        )
+        .expect("focus should succeed")
+    }
+
+    /// P1 leapfrog: `focus` returns a budget-bounded focus_set, an honest
+    /// `ignored` tail tied to the budget's own drop count, and an answer-free
+    /// sufficiency signal. When the budget forces salient nodes out, the signal
+    /// must NEVER read "sufficient" — a truncated set is not silently "enough".
+    #[test]
+    fn focus_budget_bound_is_honest_and_never_silently_sufficient() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_state_many_search_nodes(temp.path(), 40);
+
+        // Tiny budget: only a sliver of the ranked set can fit.
+        let out = run_focus(&mut state, "search", 30, 60);
+
+        assert!(!out.focus_set.is_empty(), "must keep at least one node");
+        // The honest ignored count is exactly the budget's own drop count.
+        let dropped = out
+            .budget
+            .as_ref()
+            .and_then(|block| block.get("dropped"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as usize;
+        assert_eq!(
+            out.ignored.count, dropped,
+            "ignored.count must equal the budget's reported drop count"
+        );
+        assert!(
+            dropped > 0,
+            "a 30-token budget over 40 nodes must drop salient candidates"
+        );
+        // scanned reflects search breadth: all 40 nodes were scored (no filters).
+        assert_eq!(
+            out.ignored.scanned, 40,
+            "all nodes were scored for the goal"
+        );
+        // sufficiency is present; top_score mirrors the top of the focus set.
+        assert_eq!(out.sufficiency.top_score, out.focus_set[0].score);
+        assert!((0.0..=1.0).contains(&out.sufficiency.captured));
+        // The leapfrog invariant: a budget-truncated set is never "sufficient".
+        assert_ne!(
+            out.sufficiency.state, "sufficient",
+            "dropping salient nodes must surface as gathering/saturated, not silently sufficient: {:?}",
+            out.sufficiency
+        );
+    }
+
+    /// A generous budget that holds the whole ranked set drops nothing: `ignored`
+    /// is zero, retention is full, and the stop signal is never "gathering".
+    #[test]
+    fn focus_full_budget_drops_nothing_and_retention_is_full() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_state_many_search_nodes(temp.path(), 12);
+
+        let out = run_focus(&mut state, "search", 100_000, 60);
+
+        assert_eq!(
+            out.ignored.count, 0,
+            "all 12 relevant nodes fit, so nothing is ignored"
+        );
+        assert!(
+            out.ignored
+                .reason
+                .contains("every relevance-clearing node fit"),
+            "reason should explain a clean fit, got {:?}",
+            out.ignored.reason
+        );
+        assert!(
+            (out.sufficiency.captured - 1.0).abs() < 1e-6,
+            "no pruning means full capture, got {}",
+            out.sufficiency.captured
+        );
+        assert_ne!(
+            out.sufficiency.state, "gathering",
+            "nothing was dropped, so the verdict cannot be 'gathering': {:?}",
+            out.sufficiency
+        );
+    }
+
+    /// Regression for the top_k-truncation honesty gap (found in adversarial
+    /// review): when MORE relevance-clearing nodes exist than fit the focus set,
+    /// the cut nodes must be counted in `ignored`, `captured` must drop below
+    /// 1.0, and the verdict must NOT read "sufficient" — even when the token
+    /// budget itself dropped nothing. A truncated slice is never silently enough.
+    #[test]
+    fn focus_top_k_truncation_is_never_silently_sufficient() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // 80 equally-matching nodes, but only the top 20 may be returned.
+        let mut state = build_state_many_search_nodes(temp.path(), 80);
+
+        // Huge budget so the budget drops NOTHING — only top_k truncates.
+        let out = run_focus(&mut state, "search", 1_000_000, 20);
+
+        assert_eq!(out.focus_set.len(), 20, "top_k caps the focus set at 20");
+        let dropped_to_budget = out
+            .budget
+            .as_ref()
+            .and_then(|block| block.get("dropped"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0) as usize;
+        assert_eq!(dropped_to_budget, 0, "the budget dropped nothing here");
+        // The 60 top_k-truncated relevant nodes are still honestly accounted for.
+        assert_eq!(
+            out.ignored.count, 60,
+            "top_k-truncated relevant nodes must be counted as ignored, got {:?}",
+            out.ignored
+        );
+        assert!(
+            out.ignored.reason.contains("beyond the top_k window"),
+            "reason must name the top_k truncation, got {:?}",
+            out.ignored.reason
+        );
+        // Capture reflects the truncation, and the verdict is honest about it.
+        assert!(
+            out.sufficiency.captured < 1.0,
+            "a truncated slice cannot report full capture, got {}",
+            out.sufficiency.captured
+        );
+        assert_ne!(
+            out.sufficiency.state, "sufficient",
+            "a top_k-truncated slice must never read 'sufficient': {:?}",
+            out.sufficiency
+        );
+    }
+
+    /// When the goal is absent from the graph, `focus` returns an empty set, a
+    /// `saturated` verdict, a zero ignored count, and an honest reason — the
+    /// agent learns "not here" instead of being told a weak set is enough.
+    #[test]
+    fn focus_saturated_when_goal_absent() {
+        let tmp = std::env::temp_dir().join(format!("m1nd_focus_absent_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("tmp");
+        let runtime_dir = tmp.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+        graph
+            .add_node("fn::do_work", "do_work", NodeType::Function, &[], 0.0, 0.0)
+            .expect("add node");
+        graph.finalize().expect("finalize");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![tmp.to_string_lossy().to_string()];
+        state.workspace_root = Some(tmp.to_string_lossy().to_string());
+
+        let out = run_focus(
+            &mut state,
+            "zzqxwv unrelated gibberish nonmatching",
+            2000,
+            60,
+        );
+
+        assert!(
+            out.focus_set.is_empty(),
+            "an absent goal yields an empty set"
+        );
+        assert_eq!(
+            out.sufficiency.state, "saturated",
+            "an absent goal must read 'saturated', got {:?}",
+            out.sufficiency
+        );
+        assert_eq!(out.ignored.count, 0, "nothing relevant was dropped");
+        assert!(
+            out.filtering_reason.is_some(),
+            "an empty focus must explain why nothing was selected"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Pure-function coverage of the sufficiency verdict across every branch,
+    /// deterministic and model-free (the live calibration is documented on the
+    /// thresholds; this pins the decision logic itself).
+    #[test]
+    fn compute_sufficiency_covers_every_state() {
+        use super::compute_sufficiency as cs;
+        // empty set -> saturated
+        assert_eq!(cs(0.0, 0.0, None, 0).state, "saturated");
+        // weak best match (below WEAK_TOP=0.18) -> saturated, regardless of the rest
+        assert_eq!(cs(0.16, 1.0, Some(0.10), 5).state, "saturated");
+        // strong match, nothing left out -> sufficient
+        assert_eq!(cs(0.50, 1.0, None, 5).state, "sufficient");
+        // strong match, but a still-relevant candidate was cut -> gathering
+        assert_eq!(cs(0.50, 0.30, Some(0.40), 5).state, "gathering");
+        // strong match, everything cut is below the floor (weak tail) -> sufficient
+        assert_eq!(cs(0.50, 0.30, Some(0.12), 5).state, "sufficient");
+        // knee exactly at the floor counts as still-relevant -> gathering
+        assert_eq!(cs(0.50, 0.50, Some(0.18), 5).state, "gathering");
+        // the exact top_score is echoed through for the agent to judge
+        assert_eq!(cs(0.42, 1.0, None, 3).top_score, 0.42);
     }
 
     fn run_validate_plan(
