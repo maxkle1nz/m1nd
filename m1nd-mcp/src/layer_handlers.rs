@@ -87,13 +87,13 @@ const SUFFICIENCY_WEAK_TOP: f32 = 0.18;
 /// Compute the answer-free sufficiency signal from retrieval outcome signals.
 ///
 /// `top_score` is the best match's combined score (0 when the set is empty).
-/// `captured` is the fraction of the FULL relevance-clearing salience carried by
-/// the returned set [0,1] (reported for transparency). `marginal_score` is the
-/// score of the best candidate that was LEFT OUT — `None` when the returned set
-/// holds the entire relevant pool. The verdict is a "knee" test: you have enough
-/// when the strongest match is real AND the best thing you're missing is already
-/// weak. A long tail of weak matches therefore does NOT force "gathering" — only
-/// a strong DROPPED candidate does. This inspects relevance strength and what was
+/// `captured` is the fraction of the re-ranked window's salience carried by the
+/// returned set [0,1] (reported for transparency). `marginal_score` is the score
+/// of the best candidate that was LEFT OUT — `None` when the returned set holds
+/// the entire relevant pool. The verdict is a "knee" test: you have enough when
+/// the strongest match is real AND the best thing you're missing is already weak.
+/// A long tail of weak matches therefore does NOT force "gathering" — only a
+/// strong DROPPED candidate does. This inspects relevance strength and what was
 /// cut — never answer content — so it can say "enough / keep going / not here"
 /// without claiming to know the answer.
 fn compute_sufficiency(
@@ -442,18 +442,21 @@ pub fn handle_seek(
             .partial_cmp(&a.base_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    // Honesty accounting, captured BEFORE any truncation: the full pool of nodes
-    // that cleared `min_score`, and their salience. Every later step (heuristic
-    // window, top_k, token budget) keeps the highest-ranked items, so the
-    // returned set is always a rank-PREFIX of this list — which lets the
-    // sufficiency signal and `ignored` count reflect everything left out, not
-    // just what the budget dropped. `base_ranked` is already sorted by base_score
-    // descending here.
+    // Honesty accounting, part 1 — captured BEFORE the heuristic-window cut:
+    //  * `relevance_clearing_total`: every node that cleared `min_score` (the full
+    //    relevant pool size), so `ignored` reflects all of it, not just budget
+    //    drops.
+    //  * `tail_best_base`: the strongest node the heuristic window is about to
+    //    drop — used only in the rare case where the entire window is returned,
+    //    so the knee can still see that weaker-but-relevant nodes exist beyond it.
+    // `base_ranked` is sorted by base_score descending here. The combined-unit
+    // salience used for the actual verdict is captured AFTER the re-rank below,
+    // so the honesty math agrees with the real kept/dropped partition.
     let relevance_clearing_total = base_ranked.len();
-    let clearing_mass: f32 = base_ranked.iter().map(|e| e.base_score.max(0.0)).sum();
-    let clearing_scores_desc: Vec<f32> =
-        base_ranked.iter().map(|e| e.base_score.max(0.0)).collect();
     let heuristic_window = input.top_k.saturating_mul(4).max(input.top_k).min(128);
+    let tail_best_base = base_ranked
+        .get(heuristic_window)
+        .map(|e| e.base_score.max(0.0));
     base_ranked.truncate(heuristic_window);
 
     let now = std::time::SystemTime::now()
@@ -544,6 +547,14 @@ pub fn handle_seek(
             .then_with(|| b.graph_act.total_cmp(&a.graph_act))
             .then_with(|| a.idx.cmp(&b.idx))
     });
+    // Honesty accounting, part 2 — the IN-WINDOW relevant salience in `combined`
+    // units (the SAME units the kept/dropped partition is decided in), captured
+    // right after the re-rank and before top_k/budget truncation. Because every
+    // remaining step keeps a rank-prefix of this list, the returned set's
+    // salience is exactly its prefix sum and the best dropped node is exactly the
+    // element just past it — so trust/tremor re-ranking can no longer make a
+    // strong dropped node look retained.
+    let window_combined_desc: Vec<f32> = ranked.iter().map(|r| r.combined.max(0.0)).collect();
     ranked.truncate(input.top_k);
 
     // Phase 4: Build output
@@ -632,25 +643,29 @@ pub fn handle_seek(
     } else {
         (results, None)
     };
-    // Fraction of the FULL relevance-clearing salience carried by the returned
-    // set. The set is a rank-prefix of `clearing_scores_desc` (all truncation +
-    // budget steps keep the highest-ranked items), so its salience is the prefix
-    // sum of the top `kept_n` scores. < 1.0 means relevant context was left out
-    // — by the token budget, top_k, OR the heuristic window — so a truncated
-    // slice can NEVER report as fully "captured". (Heuristic trust/tremor
-    // re-ranking can nudge order within the prefix, making this a close estimate
-    // rather than an exact identity; it is a coarse honesty signal, not a metric.)
     let kept_n = results.len();
-    let kept_salience: f32 = clearing_scores_desc.iter().take(kept_n).sum();
-    let captured = if clearing_mass > f32::EPSILON {
-        (kept_salience / clearing_mass).clamp(0.0, 1.0)
+    // `captured`: fraction of the re-ranked window's salience the returned set
+    // carries, in `combined` units (the partition's own units), so it is an exact
+    // prefix ratio — never inflated by trust/tremor re-ranking. Anything dropped
+    // beyond the window is a weaker tail surfaced via `marginal_score` and the
+    // `ignored` count, not hidden here.
+    let window_mass: f32 = window_combined_desc.iter().sum();
+    let kept_salience: f32 = window_combined_desc.iter().take(kept_n).sum();
+    let captured = if window_mass > f32::EPSILON {
+        (kept_salience / window_mass).clamp(0.0, 1.0)
     } else {
         1.0
     };
-    // Score of the best candidate that did NOT make the returned set (the "knee"):
-    // `None` when the set holds the entire relevant pool. Drives the gather-vs-act
-    // verdict — a strong dropped candidate means there is more worth pulling.
-    let marginal_score = clearing_scores_desc.get(kept_n).copied();
+    // `marginal_score`: the score of the best candidate NOT returned — the "knee".
+    // Within the window it is the exact element past the kept prefix (combined
+    // units). If the entire window was returned but weaker nodes were cut beyond
+    // it, fall back to that tail's strongest (base units, necessarily weaker).
+    // `None` only when the returned set holds the entire relevant pool.
+    let marginal_score = if kept_n < window_combined_desc.len() {
+        Some(window_combined_desc[kept_n])
+    } else {
+        tail_best_base
+    };
     let top_score = results.first().map(|e| e.score).unwrap_or(0.0);
     let sufficiency = compute_sufficiency(top_score, captured, marginal_score, results.len());
 
@@ -786,12 +801,14 @@ pub fn handle_focus(
         .and_then(|block| block.get("dropped"))
         .and_then(|value| value.as_u64())
         .unwrap_or(0) as usize;
+    // Remainder beyond the budget drops: nodes past top_k / the re-rank window,
+    // plus any same-family duplicates de-duplicated out of the returned set.
     let beyond_window = ignored_count.saturating_sub(dropped_to_budget);
     let reason = if ignored_count == 0 {
         "every relevance-clearing node fit the focus set".to_string()
     } else if dropped_to_budget > 0 && beyond_window > 0 {
         format!(
-            "{dropped_to_budget} node(s) dropped to fit the ~{budget}-token budget and {beyond_window} lower-salience match(es) fell beyond the top_k window — raise token_budget/top_k or narrow the goal",
+            "{dropped_to_budget} node(s) dropped to fit the ~{budget}-token budget and {beyond_window} more left out beyond the top_k window (incl. same-family duplicates) — raise token_budget/top_k or narrow the goal",
             budget = input.token_budget
         )
     } else if dropped_to_budget > 0 {
@@ -801,7 +818,7 @@ pub fn handle_focus(
         )
     } else {
         format!(
-            "{beyond_window} lower-salience match(es) fell beyond the top_k window — raise top_k or narrow the goal to see them"
+            "{beyond_window} relevance-clearing node(s) left out beyond the top_k window (incl. same-family duplicates) — raise top_k or narrow the goal to see them"
         )
     };
 
