@@ -88,10 +88,10 @@ pub struct SeekInput {
 /// act on, whether more relevant context exists beyond what was returned, or
 /// whether the goal simply isn't well represented in the graph.
 ///
-/// - `sufficient`: the top matches strongly cover the goal and fit the budget —
-///   enough to act.
-/// - `gathering`: relevant context exists beyond what was returned (the budget
-///   dropped salient nodes) — raise the budget or narrow the goal.
+/// - `sufficient`: the top match is real AND the best candidate left out is
+///   already weak — the strongest context is in hand, enough to act.
+/// - `gathering`: a still-relevant candidate was dropped (by token budget, top_k,
+///   or the re-rank window) — raise the budget/top_k or narrow the goal.
 /// - `saturated`: the best match is weak or absent — the goal likely isn't
 ///   represented here; re-scope, broaden, or ingest more.
 #[derive(Clone, Debug, Serialize)]
@@ -101,9 +101,11 @@ pub struct Sufficiency {
     /// Strength of the single best match [0.0, 1.0] (0 when empty). This is the
     /// absolute relevance signal, not a probability.
     pub top_score: f32,
-    /// Fraction of the ranked salience mass retained in the returned set after
-    /// budget packing [0.0, 1.0]. 1.0 when no budget pruning occurred. Below
-    /// 1.0 means the token budget dropped salient candidates.
+    /// Fraction of the re-ranked window's salience carried by the returned set
+    /// [0.0, 1.0], in the same units the kept/dropped partition is decided in.
+    /// 1.0 when the window was returned whole; below 1.0 means salient nodes were
+    /// dropped. Reported for transparency — the verdict is driven by the knee
+    /// test, not this ratio.
     pub captured: f32,
     /// Plain-English reason for `state`, phrased for an agent reader.
     pub why: String,
@@ -251,9 +253,11 @@ pub struct FocusInput {
 /// agent never mistakes a budget-bounded set for the whole truth.
 #[derive(Clone, Debug, Serialize)]
 pub struct FocusIgnored {
-    /// Ranked, relevance-clearing candidates dropped to fit the token budget —
-    /// the actionable "I left out context you might need" number. Zero means the
-    /// budget held everything ranked.
+    /// Relevance-clearing nodes NOT in the focus set — everything dropped by the
+    /// token budget, top_k, or the re-rank window. A conservative upper bound: it
+    /// counts pre-de-duplication, so a few may share a family with a returned hit.
+    /// It never under-reports, so a budget/window-bounded slice is never mistaken
+    /// for the whole truth. Zero means the focus set holds the entire relevant pool.
     pub count: usize,
     /// Total nodes scored for the goal (search breadth). Most score near zero;
     /// reported for transparency, not as dropped context.
