@@ -64,7 +64,7 @@ const FAQS: FAQ[] = [
   {
     tag: "getting started",
     q: "How long does it take to set up?",
-    a: 'Under 2 minutes. Install the agent pack with npm install -g @maxkle1nz/m1nd@beta, install the native runtime with cargo install m1nd-mcp --version 0.9.0-beta.8, add it to your MCP client config, and run m1nd warmup to build the initial graph. First warmup on a 50K-line codebase takes about 8 seconds. After that, incremental updates run in the background as files change.',
+    a: 'Under 2 minutes. Install the agent pack with npm install -g @maxkle1nz/m1nd, install the native runtime with cargo install m1nd-mcp, add it to your MCP client config, and run m1nd warmup to build the initial graph. First warmup on a 50K-line codebase takes about 8 seconds. After that, incremental updates run in the background as files change.',
   },
 ];
 
