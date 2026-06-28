@@ -280,14 +280,36 @@ impl ReferenceResolver {
         }
     }
 
-    /// Compute proximity score between two external IDs.
-    /// Higher = closer. Same file = 100, same dir = 50, same project = 10.
-    fn proximity_score(source_id: &str, candidate_id: &str) -> u32 {
-        let src_parts: Vec<&str> = source_id.split("::").collect();
-        let cand_parts: Vec<&str> = candidate_id.split("::").collect();
+    /// Split an external id into proximity segments, treating BOTH `::` and the
+    /// path separator `/` as boundaries. Ids look like
+    /// `file::m1nd-core/src/graph.rs::fn::resolve`; splitting only on `::` left
+    /// the whole directory path (`m1nd-core/src/graph.rs`) as one segment, so two
+    /// candidates in the SAME directory but different files scored identically to
+    /// a candidate in a different crate — the same-directory preference promised
+    /// by `proximity_score` was unreachable. Splitting on `/` too makes each
+    /// directory component comparable, restoring that preference.
+    fn proximity_segments(id: &str) -> Vec<&str> {
+        id.split("::")
+            .flat_map(|seg| seg.split('/'))
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
 
-        // Count matching prefix segments
-        let mut matching = 0;
+    /// Compute proximity score between two external IDs.
+    /// Higher = closer. The count of matching leading segments is itself a
+    /// depth-agnostic proximity measure: candidates sharing more of the
+    /// `file::<crate>/<dirs…>/<file>` prefix are closer, with the deepest
+    /// directory components dominating. A `SAME_FILE_BONUS` guarantees a
+    /// candidate in the SAME file always outranks a same-directory one, at any
+    /// path depth (shallow ids like `file::x.rs::fn::y` and deep ids like
+    /// `file::crate/src/m.rs::fn::y` both behave correctly). Only the ORDERING
+    /// matters — the sole caller, `disambiguate`, compares scores with `>`.
+    fn proximity_score(source_id: &str, candidate_id: &str) -> u32 {
+        let src_parts = Self::proximity_segments(source_id);
+        let cand_parts = Self::proximity_segments(candidate_id);
+
+        // Matching leading segments: file::, crate, src, dir…, file, kind, name.
+        let mut matching = 0u32;
         for (a, b) in src_parts.iter().zip(cand_parts.iter()) {
             if a == b {
                 matching += 1;
@@ -296,12 +318,117 @@ impl ReferenceResolver {
             }
         }
 
-        // Score based on matching depth
-        match matching {
-            0 => 1,   // same project
-            1 => 10,  // same top-level
-            2 => 50,  // same directory/module
-            _ => 100, // same file or deeper
-        }
+        // Same file iff everything up to and including the filename matches, i.e.
+        // the parts agree except for the trailing `[kind, name]` (last two). This
+        // dominates directory proximity so an in-file definition always wins.
+        const SAME_FILE_BONUS: u32 = 1000;
+        let src_path_len = src_parts.len().saturating_sub(2);
+        let cand_path_len = cand_parts.len().saturating_sub(2);
+        let same_file = src_path_len > 0
+            && src_path_len == cand_path_len
+            && (matching as usize) >= src_path_len;
+
+        matching + if same_file { SAME_FILE_BONUS } else { 0 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use m1nd_core::types::NodeType;
+
+    fn fn_node(graph: &mut Graph, ext_id: &str, label: &str) -> NodeId {
+        graph
+            .add_node(ext_id, label, NodeType::Function, &[], 0.0, 0.0)
+            .expect("add_node")
+    }
+
+    // The edge target a `calls` ref resolved to, found by scanning pending edges.
+    fn calls_target(graph: &Graph, source: NodeId) -> Option<NodeId> {
+        graph
+            .csr
+            .pending_edges
+            .iter()
+            .find(|e| e.source == source && graph.strings.resolve(e.relation) == "calls")
+            .map(|e| e.target)
+    }
+
+    /// proximity_score must prefer a SAME-DIRECTORY candidate over a candidate in
+    /// a different crate. With the old `::`-only split these tied (both 10) and the
+    /// directory preference promised by the function was unreachable; the `/`-split
+    /// makes the same-directory candidate score strictly higher.
+    #[test]
+    fn proximity_prefers_same_directory_over_cross_crate() {
+        let caller = "file::crate_a/src/walker.rs::fn::walk";
+        let same_dir = "file::crate_a/src/policy.rs::fn::helper";
+        let cross_crate = "file::crate_b/src/other.rs::fn::helper";
+        let s_same = ReferenceResolver::proximity_score(caller, same_dir);
+        let s_cross = ReferenceResolver::proximity_score(caller, cross_crate);
+        assert!(
+            s_same > s_cross,
+            "same-dir ({s_same}) must outrank cross-crate ({s_cross})"
+        );
+    }
+
+    /// A same-FILE candidate must dominate a same-directory one at any path depth
+    /// (guards the SAME_FILE_BONUS for both deep and shallow ids).
+    #[test]
+    fn proximity_same_file_dominates_same_directory() {
+        let caller = "file::crate_a/src/m.rs::fn::a";
+        let same_file = "file::crate_a/src/m.rs::fn::b";
+        let same_dir = "file::crate_a/src/n.rs::fn::b";
+        assert!(
+            ReferenceResolver::proximity_score(caller, same_file)
+                > ReferenceResolver::proximity_score(caller, same_dir)
+        );
+        // Shallow ids (no crate/src path) must behave the same way.
+        let c2 = "file::x.rs::fn::a";
+        let same_file2 = "file::x.rs::fn::b";
+        let diff_file2 = "file::y.rs::fn::b";
+        assert!(
+            ReferenceResolver::proximity_score(c2, same_file2)
+                > ReferenceResolver::proximity_score(c2, diff_file2)
+        );
+    }
+
+    /// End-to-end regression for the cross-file `calls` mis-binding: a caller in
+    /// `crate_a/src/walker.rs` calling `helper`, which is defined in BOTH
+    /// `crate_a/src/policy.rs` (same directory — the correct target) and
+    /// `crate_b/src/other.rs` (a different crate — wrong). The WRONG candidate is
+    /// inserted FIRST so a pure `candidates[0]` tie-break would pick it; the
+    /// proximity fix must instead bind to the same-directory definition.
+    #[test]
+    fn calls_edge_binds_same_directory_not_cross_crate() {
+        let mut graph = Graph::new();
+        let caller = fn_node(&mut graph, "file::crate_a/src/walker.rs::fn::walk", "walk");
+        // Insert the WRONG (cross-crate) candidate before the correct same-dir one.
+        let wrong = fn_node(
+            &mut graph,
+            "file::crate_b/src/other.rs::fn::helper",
+            "helper",
+        );
+        let correct = fn_node(
+            &mut graph,
+            "file::crate_a/src/policy.rs::fn::helper",
+            "helper",
+        );
+
+        let unresolved = vec![(
+            "file::crate_a/src/walker.rs::fn::walk".to_string(),
+            "ref::helper".to_string(),
+            "calls".to_string(),
+        )];
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+        assert_eq!(stats.resolved, 1, "the calls ref must resolve");
+
+        let bound = calls_target(&graph, caller).expect("a calls edge from walk");
+        assert_eq!(
+            bound, correct,
+            "calls edge must bind to the same-directory helper (crate_a/src/policy.rs), not the cross-crate one"
+        );
+        assert_ne!(
+            bound, wrong,
+            "must NOT bind to crate_b/src/other.rs::helper"
+        );
     }
 }
