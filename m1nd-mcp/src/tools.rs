@@ -6,6 +6,7 @@ use crate::protocol::*;
 use crate::result_shaping::dedupe_ranked;
 use crate::session::SessionState;
 use crate::universal_docs;
+use crate::xray_handlers::is_test_source;
 use m1nd_core::error::M1ndResult;
 use m1nd_core::query::QueryConfig;
 use m1nd_core::temporal::ImpactDirection;
@@ -1234,22 +1235,58 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
     let max_nodes_cap = input.max_nodes.unwrap_or(150);
     let total_blast_nodes = impact.blast_radius.len();
 
+    // Reverse lookup NodeId -> external_id, so the rank below can detect
+    // TEST-source callers by path (mirrors the build at the activate handler).
+    let node_to_ext: Vec<String> = {
+        let mut map = vec![String::new(); graph.num_nodes() as usize];
+        for (interned, &nid) in &graph.id_to_node {
+            let idx = nid.as_usize();
+            if idx < map.len() {
+                map[idx] = graph.strings.resolve(*interned).to_string();
+            }
+        }
+        map
+    };
+
+    // True if a node is a TEST function: either it carries the `"test"` tag the
+    // Rust extractor now attaches to `#[cfg(test)]`-module / `#[test]` fns (catches
+    // in-file unit tests living in a NON-test path, which the path check misses),
+    // OR its external_id is a test SOURCE file (path-based, the pre-existing
+    // signal). Both are cheap; together they cover in-file and separate-file tests.
+    let is_test_node = |idx: usize| -> bool {
+        if idx >= graph.num_nodes() as usize {
+            return false;
+        }
+        let tagged = graph.node_tags(NodeId::new(idx as u32)).contains(&"test");
+        tagged || node_to_ext.get(idx).is_some_and(|e| is_test_source(e))
+    };
+
     // Rank for the cap+display so the agent's real question ("what code is
     // affected / who calls this") is answered first. Pure signal_strength buries
     // the actual caller/callee FUNCTIONS under their containing File/Module nodes
     // (which accumulate more blast energy), so a function caller can land past the
-    // cap. Order by: code SYMBOLS before containers, then nearest hop, then
-    // signal. The output still carries `node_type`, so an agent can re-filter.
+    // cap. Order by: PRODUCTION code symbols, then TEST symbols, then containers
+    // (Module/File/Directory), then nearest hop, then signal. Splitting prod vs
+    // test inside the symbol tier keeps the real (production) caller above the
+    // in-file `#[cfg(test)]` callers that otherwise tie on signal and crowd it out
+    // of the cap window. The output still carries `node_type`, so an agent can
+    // re-filter.
     let type_rank = |idx: usize| -> u8 {
         if idx >= graph.num_nodes() as usize {
-            return 5;
+            return 6;
         }
         match format!("{:?}", graph.nodes.node_type[idx]).as_str() {
-            "Function" | "Struct" | "Enum" | "Type" | "Trait" => 0,
-            "Module" => 2,
-            "File" => 3,
-            "Directory" => 4,
-            _ => 1,
+            "Function" | "Struct" | "Enum" | "Type" | "Trait" => {
+                if is_test_node(idx) {
+                    1
+                } else {
+                    0
+                }
+            }
+            "Module" => 3,
+            "File" => 4,
+            "Directory" => 5,
+            _ => 2,
         }
     };
     let mut sorted_blast = impact.blast_radius.clone();
