@@ -1331,6 +1331,30 @@ impl Extractor for RustExtractor {
                         {
                             let ref_id = format!("ref::{}", qualifier);
                             Self::push_unique_ref(&mut result, call_source, "calls", ref_id, 0.4);
+                            // Also emit a QUALIFIER-CARRYING method call
+                            // `ref::Type::method` so the resolver can bind the call
+                            // to the SAME-NAME method owned by `Type` (its
+                            // `rust:impl:self:Type` node) instead of an arbitrary
+                            // same-name sibling. The Type dependency above stays for
+                            // back-compat. Skip noise/constructor methods
+                            // (`new`/`from`/`default`/…) — those flood the graph and
+                            // are not domain calls worth a method edge.
+                            if let Some(method_match) = caps.get(2) {
+                                let method = method_match.as_str();
+                                if method.len() > 1
+                                    && !Self::is_call_keyword(method)
+                                    && !Self::is_noise_method(method)
+                                {
+                                    let ref_id = format!("ref::{}::{}", qualifier, method);
+                                    Self::push_unique_ref(
+                                        &mut result,
+                                        call_source,
+                                        "calls",
+                                        ref_id,
+                                        0.4,
+                                    );
+                                }
+                            }
                         } else if let Some(callee_match) = caps.get(2) {
                             // Lowercase qualifier -> a module/path-qualified FREE
                             // FUNCTION call (`result_shaping::pack_to_budget(`,
@@ -1779,6 +1803,49 @@ mod tests {
         assert!(
             calls.contains(&"ref::Engine"),
             "expected ref::Engine (Type assoc call unchanged), got {calls:?}"
+        );
+    }
+
+    #[test]
+    fn rust_typed_method_call_emits_qualifier_carrying_calls_edge() {
+        // A `Type::method(` call must emit BOTH `ref::Type` (the Type dependency,
+        // back-compat) AND a qualifier-carrying `ref::Type::method` so the resolver
+        // can pin the call to the method OWNED by `Type` among same-name siblings.
+        // A noise/constructor method (`Type::new(`) must NOT get a method edge
+        // (only the Type dep), to avoid binding to arbitrary `new`s.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"fn caller() {\n    let r = TaintEngine::analyze(g);\n    let e = Engine::new();\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        let caller_id = "file::src/lib.rs::fn::caller";
+        let calls: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls" && e.source == caller_id)
+            .map(|e| e.target.as_str())
+            .collect();
+        // Type dependency (existing behavior) is preserved.
+        assert!(
+            calls.contains(&"ref::TaintEngine"),
+            "expected ref::TaintEngine (Type dep), got {calls:?}"
+        );
+        // New qualifier-carrying method edge.
+        assert!(
+            calls.contains(&"ref::TaintEngine::analyze"),
+            "expected ref::TaintEngine::analyze (qualified method call), got {calls:?}"
+        );
+        // Constructor `Engine::new()` keeps only the Type dep, no method edge.
+        assert!(
+            calls.contains(&"ref::Engine"),
+            "expected ref::Engine, got {calls:?}"
+        );
+        assert!(
+            !calls.contains(&"ref::Engine::new"),
+            "constructor `new` must NOT get a qualified method edge, got {calls:?}"
         );
     }
 

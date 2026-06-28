@@ -85,6 +85,19 @@ impl ReferenceResolver {
             // e.g., "m1nd_core::graph::Graph" -> "Graph"
             let last_segment = clean_label.rsplit("::").next().unwrap_or(clean_label);
 
+            // Qualifier carried by a `ref::Type::method` (or `ref::a::b::method`)
+            // call: the segment immediately BEFORE the last one. For
+            // `TaintEngine::analyze` -> "TaintEngine"; for
+            // `m1nd_core::taint::TaintEngine::analyze` -> "TaintEngine". Used to
+            // pick the same-name candidate OWNED by that type/module among ties.
+            // `None` for a bare `ref::name` (no `::`), so resolution is unchanged
+            // for unqualified refs (back-compat).
+            let qualifier = clean_label
+                .strip_suffix(last_segment)
+                .and_then(|head| head.strip_suffix("::"))
+                .and_then(|head| head.rsplit("::").next())
+                .filter(|q| !q.is_empty());
+
             // Check for import path hint (Task #8)
             let import_hint = hint_map
                 .get(&(source_id.as_str(), target_label.as_str()))
@@ -112,15 +125,21 @@ impl ReferenceResolver {
                     if found.len() > 1 {
                         stats.ambiguous += 1;
                     }
-                    // Use first match (or disambiguate if multiple)
+                    // Use first match (or disambiguate if multiple). A call-site
+                    // qualifier (`ref::Type::method`) wins first — it pins the
+                    // owner among same-name candidates; then the import hint; then
+                    // proximity.
                     let target = if found.len() == 1 {
                         found[0]
-                    } else if let Some(hint) = import_hint {
-                        Self::disambiguate_with_hint(graph, source, &found, hint).unwrap_or_else(
-                            || Self::disambiguate(graph, source, &found).unwrap_or(found[0]),
-                        )
                     } else {
-                        Self::disambiguate(graph, source, &found).unwrap_or(found[0])
+                        Self::disambiguate_with_qualifier(graph, &found, qualifier)
+                            .or_else(|| {
+                                import_hint.and_then(|hint| {
+                                    Self::disambiguate_with_hint(graph, source, &found, hint)
+                                })
+                            })
+                            .or_else(|| Self::disambiguate(graph, source, &found))
+                            .unwrap_or(found[0])
                     };
 
                     // Add edge
@@ -151,12 +170,17 @@ impl ReferenceResolver {
 
                 let target = if candidates.len() == 1 {
                     candidates[0]
-                } else if let Some(hint) = import_hint {
-                    Self::disambiguate_with_hint(graph, source, candidates, hint).unwrap_or_else(
-                        || Self::disambiguate(graph, source, candidates).unwrap_or(candidates[0]),
-                    )
                 } else {
-                    Self::disambiguate(graph, source, candidates).unwrap_or(candidates[0])
+                    // Qualifier (`ref::Type::method`) first, then import hint, then
+                    // proximity — same precedence as the suffix branch above.
+                    Self::disambiguate_with_qualifier(graph, candidates, qualifier)
+                        .or_else(|| {
+                            import_hint.and_then(|hint| {
+                                Self::disambiguate_with_hint(graph, source, candidates, hint)
+                            })
+                        })
+                        .or_else(|| Self::disambiguate(graph, source, candidates))
+                        .unwrap_or(candidates[0])
                 };
 
                 let rel = relation.as_str();
@@ -278,6 +302,65 @@ impl ReferenceResolver {
         } else {
             None
         }
+    }
+
+    /// Disambiguate same-name candidates using the CALL-SITE qualifier carried by
+    /// a `ref::Type::method` (or `ref::module::func`). For a `Type::method(` call
+    /// the strongest signal is the method's impl owner: prefer a candidate tagged
+    /// `rust:impl:self:<qualifier>`. Failing that (e.g. a `module::func` path
+    /// qualifier, or a non-tier1 graph with no impl tags), prefer a candidate
+    /// whose external id contains the qualifier as a path/segment component. Only
+    /// the LAST segment of the qualifier is matched (`a::b::Type` -> `Type`), which
+    /// is what the extractor emits. Returns `None` when no candidate matches, so
+    /// the caller falls back to import-hint / proximity (back-compat).
+    fn disambiguate_with_qualifier(
+        graph: &Graph,
+        candidates: &[NodeId],
+        qualifier: Option<&str>,
+    ) -> Option<NodeId> {
+        let qualifier = qualifier?;
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // 1) Impl-owner match: `rust:impl:self:<qualifier>` on the candidate.
+        let owner_tag = format!("rust:impl:self:{qualifier}");
+        let owner_match: Vec<NodeId> = candidates
+            .iter()
+            .copied()
+            .filter(|&c| graph.node_tags(c).iter().any(|t| *t == owner_tag))
+            .collect();
+        if owner_match.len() == 1 {
+            return Some(owner_match[0]);
+        }
+        // Ambiguous owner (same type name in two files): fall through to the
+        // id/path match below, which can still break the tie by module path.
+
+        // 2) External-id / module-path match: the qualifier appears as a path
+        // component of the candidate's id (covers `module::func` and disambiguates
+        // a multi-file impl-owner tie by directory). Match on `::<q>` or `/<q>` /
+        // `<q>/` boundaries so `taint` matches `…/taint.rs::…` but not `restaint`.
+        let pool: &[NodeId] = if owner_match.len() > 1 {
+            &owner_match
+        } else {
+            candidates
+        };
+        let mut id_match: Option<NodeId> = None;
+        for &c in pool {
+            if let Some(id) = Self::find_external_id(graph, c) {
+                let hit = id.contains(&format!("::{qualifier}"))
+                    || id.contains(&format!("/{qualifier}/"))
+                    || id.contains(&format!("/{qualifier}."))
+                    || id.contains(&format!("::{qualifier}::"));
+                if hit {
+                    if id_match.is_some() {
+                        return None; // ambiguous — let proximity decide
+                    }
+                    id_match = Some(c);
+                }
+            }
+        }
+        id_match
     }
 
     /// Split an external id into proximity segments, treating BOTH `::` and the
@@ -430,5 +513,84 @@ mod tests {
             bound, wrong,
             "must NOT bind to crate_b/src/other.rs::helper"
         );
+    }
+
+    /// A `Type::method()` call carries the qualifier in the ref string
+    /// (`ref::TaintEngine::analyze`). Among same-name `analyze` candidates the
+    /// resolver must bind to the one OWNED by `TaintEngine` (tagged
+    /// `rust:impl:self:TaintEngine`), not to a same-name decoy — even when the
+    /// decoy is inserted FIRST (so a `candidates[0]` tie-break would pick it) and
+    /// sits closer to the caller by proximity (same crate). This is the qualified
+    /// same-name CALL resolution the qualifier path adds; bare `ref::analyze`
+    /// (no qualifier) is unaffected.
+    #[test]
+    fn qualified_call_binds_impl_owner_over_proximity_and_order() {
+        let mut graph = Graph::new();
+        let caller = fn_node(&mut graph, "file::crate_b/src/api.rs::fn::handle", "handle");
+        // Decoy: same name, inserted FIRST, SAME crate as the caller (proximity
+        // would prefer it). NOT owned by TaintEngine.
+        let decoy = graph
+            .add_node(
+                "file::crate_b/src/tremor.rs::fn::analyze",
+                "analyze",
+                NodeType::Function,
+                &["rust:impl:self:TremorEngine"],
+                0.0,
+                0.0,
+            )
+            .expect("add decoy");
+        // Correct: owned by TaintEngine, in a DIFFERENT crate (proximity-disfavored).
+        let correct = graph
+            .add_node(
+                "file::crate_a/src/taint.rs::fn::analyze",
+                "analyze",
+                NodeType::Function,
+                &["rust:impl:self:TaintEngine"],
+                0.0,
+                0.0,
+            )
+            .expect("add correct");
+
+        let unresolved = vec![(
+            "file::crate_b/src/api.rs::fn::handle".to_string(),
+            "ref::TaintEngine::analyze".to_string(),
+            "calls".to_string(),
+        )];
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+        assert_eq!(stats.resolved, 1, "the qualified calls ref must resolve");
+
+        let bound = calls_target(&graph, caller).expect("a calls edge from handle");
+        assert_eq!(
+            bound, correct,
+            "qualified `TaintEngine::analyze` must bind to the TaintEngine-owned analyze"
+        );
+        assert_ne!(
+            bound, decoy,
+            "must NOT bind to the same-name TremorEngine decoy"
+        );
+    }
+
+    /// Back-compat guard: a BARE `ref::analyze` (no qualifier) must still resolve
+    /// via proximity exactly as before — the qualifier path is skipped when there
+    /// is no `::` in the ref, so it cannot disturb unqualified resolution.
+    #[test]
+    fn bare_call_still_resolves_by_proximity() {
+        let mut graph = Graph::new();
+        let caller = fn_node(&mut graph, "file::crate_a/src/api.rs::fn::handle", "handle");
+        let far = fn_node(&mut graph, "file::crate_b/src/other.rs::fn::run", "run");
+        let near = fn_node(&mut graph, "file::crate_a/src/api.rs::fn::run", "run");
+
+        let unresolved = vec![(
+            "file::crate_a/src/api.rs::fn::handle".to_string(),
+            "ref::run".to_string(),
+            "calls".to_string(),
+        )];
+        ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+        let bound = calls_target(&graph, caller).expect("a calls edge from handle");
+        assert_eq!(
+            bound, near,
+            "bare ref must bind to the same-file `run` by proximity"
+        );
+        assert_ne!(bound, far, "bare ref must not bind cross-crate");
     }
 }
