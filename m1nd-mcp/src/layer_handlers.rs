@@ -1138,12 +1138,28 @@ pub fn handle_scan(
             ("confirmed", Vec::new())
         };
 
+        // Reported severity carries TWO axes: the pattern's base concern level
+        // and graph validation's confidence (confirmed / mitigated / false_positive).
         let severity = match status {
             "mitigated" => base_severity * 0.4,
             "false_positive" => base_severity * 0.1,
             _ => base_severity,
         };
-        if severity < input.severity_min {
+        // `severity_min` is a NOISE gate, not a confidence gate: it lets a caller
+        // say "only concern classes at least this serious". A `mitigated` finding
+        // is a REAL, documented result ("exists but handled — verify the handling")
+        // the agent asked for, so it is gated on the pattern's BASE severity, not
+        // on the post-mitigation product. Otherwise the ×0.4 downgrade silently
+        // buries mitigated findings of every pattern with base < `severity_min`/0.4
+        // (7/8 predefined patterns at the 0.3 default), making the documented
+        // `mitigated` status unreachable. Only `false_positive` — true noise — is
+        // gated on its downgraded value so it stays suppressible.
+        let gate_severity = if status == "false_positive" {
+            severity
+        } else {
+            base_severity
+        };
+        if gate_severity < input.severity_min {
             continue;
         }
         total_validated += 1;
@@ -11850,6 +11866,126 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             2,
             "the limit still caps the returned findings vector"
         );
+    }
+
+    #[test]
+    fn scan_mitigated_findings_survive_default_severity_floor() {
+        // Regression: the documented `mitigated` status ("exists but handled by a
+        // related module") must be REACHABLE at the default `severity_min` (0.3).
+        // The old code computed `severity = base * 0.4` for a mitigated finding and
+        // gated on that product, so for every pattern with base < 0.75 (7 of the 8
+        // predefined patterns) a mitigated finding (e.g. error_handling: 0.6*0.4 =
+        // 0.24 < 0.3) was silently dropped AND excluded from total_matches_validated.
+        // `severity_min` is a noise gate, not a confidence gate: a mitigated finding
+        // is a real result the agent asked for and must be gated on the pattern's
+        // BASE severity, while its reported severity stays downgraded.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        // A production node matching the `error_handling` keyword `error`, plus a
+        // `test_*` neighbor it calls. `l2_graph_validate` sees the test neighbor and
+        // downgrades the finding to "mitigated" (base 0.6 -> reported 0.24).
+        let mut graph = Graph::new();
+        let prod = graph
+            .add_node(
+                "file::src/handler.rs::fn::error_handler",
+                "error_handler",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add prod node");
+        let test = graph
+            .add_node(
+                "file::tests/handler_test.rs::fn::test_error_handler",
+                "test_error_handler",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add test node");
+        graph
+            .add_edge(
+                prod,
+                test,
+                "calls",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge");
+        graph.finalize().expect("finalize graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+
+        // graph_validate=true so the test neighbor downgrades it to mitigated;
+        // severity_min omitted via the protocol default would be 0.3, but the test
+        // builds ScanInput directly so we pin 0.3 explicitly (the documented default).
+        let out = handle_scan(
+            &mut state,
+            ScanInput {
+                agent_id: "test".into(),
+                pattern: "error_handling".into(),
+                scope: None,
+                limit: 50,
+                severity_min: 0.3,
+                graph_validate: true,
+            },
+        )
+        .expect("scan should succeed");
+
+        let prod_finding = out
+            .findings
+            .iter()
+            .find(|f| f.node_id == "file::src/handler.rs::fn::error_handler")
+            .expect("the mitigated production finding must survive the 0.3 floor");
+        assert_eq!(
+            prod_finding.status, "mitigated",
+            "graph validation downgrades the finding to mitigated"
+        );
+        assert!(
+            (prod_finding.severity - 0.6 * 0.4).abs() < 1e-6,
+            "reported severity stays downgraded (0.24), only the GATE uses the base"
+        );
+        assert_eq!(
+            out.total_matches_validated, 1,
+            "the surviving mitigated finding is counted as validated"
+        );
+
+        // The floor still works as a real noise gate: a severity_min ABOVE the
+        // pattern's base severity (0.6) excludes the finding entirely.
+        let strict = handle_scan(
+            &mut state,
+            ScanInput {
+                agent_id: "test".into(),
+                pattern: "error_handling".into(),
+                scope: None,
+                limit: 50,
+                severity_min: 0.7,
+                graph_validate: true,
+            },
+        )
+        .expect("scan should succeed");
+        assert!(
+            strict
+                .findings
+                .iter()
+                .all(|f| f.node_id != "file::src/handler.rs::fn::error_handler"),
+            "a severity_min above base severity still filters the finding out"
+        );
+        assert_eq!(strict.total_matches_validated, 0);
     }
 
     #[test]
