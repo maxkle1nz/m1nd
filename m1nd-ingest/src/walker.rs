@@ -146,6 +146,12 @@ impl DirectoryWalker {
             });
         }
 
+        // Honour the root .gitignore: gitignored dirs (e.g. donors/ — 456MB of
+        // cloned repos) join the skip set, so ingesting a large repo never walks
+        // irrelevant trees nor holds the server mutex for minutes.
+        let mut effective_skip = self.skip_dirs.clone();
+        effective_skip.extend(crate::path_policy::gitignore_skip_dir_names(&root_canonical));
+
         for entry in WalkDir::new(&root_canonical)
             .follow_links(false)
             .into_iter()
@@ -160,7 +166,7 @@ impl DirectoryWalker {
                     if name.starts_with('.') && name != "." && !self.allow_hidden_path(&rel_path) {
                         return false;
                     }
-                    return !self.skip_dirs.iter().any(|s| name == s.as_str());
+                    return !effective_skip.iter().any(|s| name == s.as_str());
                 }
                 true
             })

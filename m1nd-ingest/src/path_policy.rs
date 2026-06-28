@@ -85,6 +85,37 @@ pub fn is_noise_path(path: &Path) -> bool {
         .is_some_and(|name| is_editor_temp_file_name(name) || is_runtime_artifact_file_name(name))
 }
 
+/// Parse simple top-level directory names from `.gitignore` text.
+/// Honours the common big-noise case (e.g. `donors/`, `dist/`) without pulling
+/// a full gitignore engine: keeps plain dir names, drops comments, negations
+/// (`!`), globs, and nested paths. Names are matched by component during the walk.
+pub fn parse_gitignore_dir_names(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+            continue;
+        }
+        let s = line.trim_end_matches('/').trim_start_matches('/');
+        if s.is_empty() || s.contains('/') || s.contains('*') || s.contains('?') || s.contains('[') {
+            continue;
+        }
+        if !out.iter().any(|e| e == s) {
+            out.push(s.to_string());
+        }
+    }
+    out
+}
+
+/// Read `<root>/.gitignore` and return simple dir names to skip during ingest.
+/// Missing/unreadable `.gitignore` → empty (no-op).
+pub fn gitignore_skip_dir_names(root: &Path) -> Vec<String> {
+    match std::fs::read_to_string(root.join(".gitignore")) {
+        Ok(text) => parse_gitignore_dir_names(&text),
+        Err(_) => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,5 +137,14 @@ mod tests {
         assert!(is_noise_path(Path::new("/repo/file.md.swp")));
         assert!(is_noise_path(Path::new("/repo/.DS_Store")));
         assert!(!is_noise_path(Path::new("/repo/docs/notes.md")));
+    }
+
+    #[test]
+    fn parses_simple_gitignore_dir_names_only() {
+        let gi = "donors\n/build/\n# comment\n!keep\n*.log\nsub/dir\ndist/\ndonors\n";
+        assert_eq!(
+            parse_gitignore_dir_names(gi),
+            vec!["donors".to_string(), "build".to_string(), "dist".to_string()]
+        );
     }
 }
