@@ -1234,13 +1234,35 @@ pub fn handle_impact(state: &mut SessionState, input: ImpactInput) -> M1ndResult
     let max_nodes_cap = input.max_nodes.unwrap_or(150);
     let total_blast_nodes = impact.blast_radius.len();
 
-    // Sort by signal_strength descending before capping
+    // Rank for the cap+display so the agent's real question ("what code is
+    // affected / who calls this") is answered first. Pure signal_strength buries
+    // the actual caller/callee FUNCTIONS under their containing File/Module nodes
+    // (which accumulate more blast energy), so a function caller can land past the
+    // cap. Order by: code SYMBOLS before containers, then nearest hop, then
+    // signal. The output still carries `node_type`, so an agent can re-filter.
+    let type_rank = |idx: usize| -> u8 {
+        if idx >= graph.num_nodes() as usize {
+            return 5;
+        }
+        match format!("{:?}", graph.nodes.node_type[idx]).as_str() {
+            "Function" | "Struct" | "Enum" | "Type" | "Trait" => 0,
+            "Module" => 2,
+            "File" => 3,
+            "Directory" => 4,
+            _ => 1,
+        }
+    };
     let mut sorted_blast = impact.blast_radius.clone();
     sorted_blast.sort_by(|a, b| {
-        b.signal_strength
-            .get()
-            .partial_cmp(&a.signal_strength.get())
-            .unwrap_or(std::cmp::Ordering::Equal)
+        type_rank(a.node.as_usize())
+            .cmp(&type_rank(b.node.as_usize()))
+            .then(a.hop_distance.cmp(&b.hop_distance))
+            .then(
+                b.signal_strength
+                    .get()
+                    .partial_cmp(&a.signal_strength.get())
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
 
     // #3 — Build a lookup of which blast-radius nodes are light:evidenced_by
