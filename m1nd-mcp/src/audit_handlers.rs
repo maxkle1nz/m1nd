@@ -174,7 +174,6 @@ fn is_auxiliary_code_path(file_path: &str) -> bool {
         || lower.contains("/benchmark")
         || lower.contains("/m1nd-demo/")
         || lower.contains("/m1nd-ui/")
-        || lower.contains("/m1nd-viz/")
 }
 
 fn is_placeholder_external_path(path: &Path) -> bool {
