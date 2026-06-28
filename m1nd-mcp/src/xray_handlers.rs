@@ -2474,7 +2474,7 @@ impl PaintState {
 
 /// True if a node's external_id denotes a TEST source file. We look at the path
 /// portion (after `file::`, up to the first `::` kind separator).
-fn is_test_source(external_id: &str) -> bool {
+pub(crate) fn is_test_source(external_id: &str) -> bool {
     let rest = external_id.strip_prefix(FILE_PREFIX).unwrap_or(external_id);
     let path = rest.split("::").next().unwrap_or(rest);
     path.contains("/tests/")
