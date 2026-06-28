@@ -42,8 +42,11 @@ impl RustExtractor {
             re_impl: Regex::new(r"^\s*impl(?:<[^>]*>)?\s+(?:(\w+)\s+for\s+)?(\w+)").unwrap(),
             re_use: Regex::new(r"^\s*(?:pub\s+)?use\s+(.+);").unwrap(),
             re_mod: Regex::new(r"^\s*(?:pub\s+)?mod\s+(\w+)").unwrap(),
-            // Detect Type::method( and .method( calls
-            re_method_call: Regex::new(r"(?:(\w+)::(\w+)|\.(\w+))\s*[(<]").unwrap(),
+            // Detect Type::method( and receiver.method( calls. The second branch
+            // captures the RECEIVER too (group 3) so a lowercase `var.method(` can
+            // be told apart from an UpperCamelCase `Type::method(` and emit a
+            // name-based `calls` edge to the method (mirrors typescript.rs).
+            re_method_call: Regex::new(r"(?:(\w+)::(\w+)|(\w+)\.(\w+))\s*[(<]").unwrap(),
             // UpperCamelCase type references (2+ chars, starts upper)
             // FIX #4: Allow second char to be uppercase (catches CSR, XLR, PPMI)
             re_type_ref: Regex::new(r"\b([A-Z][A-Za-z]\w+)\b").unwrap(),
@@ -524,6 +527,59 @@ impl RustExtractor {
                 | "enum"
                 | "trait"
                 | "union"
+        )
+    }
+
+    /// True if `method` is a very common stdlib / container / conversion method
+    /// that, called as `receiver.method(`, is almost never a DOMAIN function call
+    /// worth a `calls` edge (`.clone()`, `.unwrap()`, `.iter()`, `.push()`, …).
+    /// Method calls on lowercase receivers are name-based (no receiver type), so a
+    /// permissive list would flood the graph with stdlib noise and create label
+    /// collisions; this conservative denylist keeps edges for real domain methods
+    /// like `engine.propagate(` while dropping the ubiquitous boilerplate ones.
+    fn is_noise_method(method: &str) -> bool {
+        matches!(
+            method,
+            "clone"
+                | "unwrap"
+                | "expect"
+                | "to_string"
+                | "to_owned"
+                | "as_str"
+                | "as_ref"
+                | "as_mut"
+                | "iter"
+                | "iter_mut"
+                | "into_iter"
+                | "len"
+                | "is_empty"
+                | "push"
+                | "pop"
+                | "insert"
+                | "remove"
+                | "get"
+                | "get_mut"
+                | "contains"
+                | "map"
+                | "filter"
+                | "collect"
+                | "unwrap_or"
+                | "unwrap_or_else"
+                | "unwrap_or_default"
+                | "borrow"
+                | "borrow_mut"
+                | "lock"
+                | "read"
+                | "write"
+                | "into"
+                | "from"
+                | "default"
+                | "new"
+                | "next"
+                | "ok"
+                | "err"
+                | "and_then"
+                | "or_else"
         )
     }
 }
@@ -1227,7 +1283,7 @@ impl Extractor for RustExtractor {
                     .map(|(id, _)| id.as_str())
                     .unwrap_or(file_id);
 
-                // Path/method calls: `Qualifier::callee(` or `.method(`.
+                // Path/method calls: `Qualifier::callee(` or `receiver.method(`.
                 for caps in self.re_method_call.captures_iter(line) {
                     if let Some(type_match) = caps.get(1) {
                         let qualifier = type_match.as_str();
@@ -1263,6 +1319,30 @@ impl Extractor for RustExtractor {
                                     0.35,
                                 );
                             }
+                        }
+                    } else if let (Some(recv_match), Some(method_match)) =
+                        (caps.get(3), caps.get(4))
+                    {
+                        // `receiver.method(` — a METHOD call on a value. When the
+                        // receiver is LOWERCASE (a variable/field/`self`, not a
+                        // Type), emit a name-based `calls` edge to the method so the
+                        // resolver binds `ref::method` -> the `fn method` node by
+                        // label (mirrors typescript.rs). This is what surfaces
+                        // callers of e.g. `engine.propagate(` / `self.x.propagate(`.
+                        // Skip noise methods (`.clone()`, `.iter()`, …), keywords,
+                        // and 1-char names to avoid flooding the graph.
+                        let receiver = recv_match.as_str();
+                        let method = method_match.as_str();
+                        if receiver
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c == '_' || c.is_lowercase())
+                            && method.len() > 1
+                            && !Self::is_call_keyword(method)
+                            && !Self::is_noise_method(method)
+                        {
+                            let ref_id = format!("ref::{}", method);
+                            Self::push_unique_ref(&mut result, call_source, "calls", ref_id, 0.35);
                         }
                     }
                 }
@@ -1584,6 +1664,85 @@ mod tests {
         assert!(!result.edges.iter().any(|e| {
             e.relation == "calls" && e.source == "file::src/lib.rs::fn::a" && e.target == "ref::two"
         }));
+    }
+
+    #[test]
+    fn rust_lowercase_receiver_method_call_emits_function_sourced_calls_edge() {
+        // A method call on a LOWERCASE receiver (`x.propagate(`) — a variable, not
+        // a Type — must produce a name-based `calls` edge from the enclosing fn to
+        // `ref::propagate`, so impact/why can find callers of methods invoked via
+        // a variable (the gap that left `impact propagate` at 0 callers). Mirrors
+        // typescript.rs's receiver.method() handling.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"fn caller() {\n    x.propagate();\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        let caller_id = "file::src/lib.rs::fn::caller";
+        assert!(
+            result.edges.iter().any(|e| e.relation == "calls"
+                && e.source == caller_id
+                && e.target == "ref::propagate"),
+            "expected caller -> ref::propagate (function-sourced), got {:?}",
+            result
+                .edges
+                .iter()
+                .filter(|e| e.relation == "calls")
+                .map(|e| (&e.source, &e.target))
+                .collect::<Vec<_>>()
+        );
+        // It must be function-sourced, not file-sourced.
+        assert!(
+            !result.edges.iter().any(|e| {
+                e.relation == "calls"
+                    && e.source == "file::src/lib.rs"
+                    && e.target == "ref::propagate"
+            }),
+            "method-call edge must be function-sourced, not file-sourced"
+        );
+    }
+
+    #[test]
+    fn rust_method_call_skips_noise_and_keeps_type_assoc_calls() {
+        // `.clone()`/`.iter()` (noise) must NOT become calls; an UpperCamelCase
+        // `Type::assoc(` still depends on the Type (unchanged). This guards the
+        // denylist against flooding while keeping domain method edges.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"fn caller() {\n    let v = data.clone();\n    let it = items.iter();\n    let e = Engine::build();\n    cfg.propagate();\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        let calls: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.as_str())
+            .collect();
+        // Domain method on a lowercase receiver -> edge.
+        assert!(
+            calls.contains(&"ref::propagate"),
+            "expected ref::propagate, got {calls:?}"
+        );
+        // Noise methods -> no edge.
+        assert!(
+            !calls.contains(&"ref::clone"),
+            "`.clone()` must not be a call, got {calls:?}"
+        );
+        assert!(
+            !calls.contains(&"ref::iter"),
+            "`.iter()` must not be a call, got {calls:?}"
+        );
+        // UpperCamelCase Type::assoc still depends on the Type (existing behavior).
+        assert!(
+            calls.contains(&"ref::Engine"),
+            "expected ref::Engine (Type assoc call unchanged), got {calls:?}"
+        );
     }
 
     #[test]
