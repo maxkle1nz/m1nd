@@ -423,6 +423,68 @@ impl RustExtractor {
             .map(|node| node.id.clone())
     }
 
+    /// Scan the contiguous run of attribute lines (and blanks) immediately above
+    /// `idx` in `cleaned_lines` and return `(has_cfg_test, has_test_fn)` — whether
+    /// a `#[cfg(test)]` and/or a `#[…test]` runner attribute decorates the item at
+    /// `idx`. Mirrors [`cfg_tags_before_line`]'s backward walk (stop at the first
+    /// non-attribute, non-blank line) so the latch logic stays consistent with the
+    /// tree-sitter path and is immune to attribute ordering / interleaving.
+    fn test_attrs_before(cleaned_lines: &[String], idx: usize) -> (bool, bool) {
+        let mut has_cfg_test = false;
+        let mut has_test_fn = false;
+        let mut i = idx as isize - 1;
+        while i >= 0 {
+            let t = cleaned_lines[i as usize].trim();
+            if t.is_empty() {
+                i -= 1;
+                continue;
+            }
+            if Self::is_cfg_test_attr(t) {
+                has_cfg_test = true;
+                i -= 1;
+                continue;
+            }
+            if Self::is_test_fn_attr(t) {
+                has_test_fn = true;
+                i -= 1;
+                continue;
+            }
+            if t.starts_with("#[") || t.starts_with("#![") {
+                // Some other attribute (e.g. #[inline]) — keep scanning past it.
+                i -= 1;
+                continue;
+            }
+            break;
+        }
+        (has_cfg_test, has_test_fn)
+    }
+
+    /// True if a (trimmed, comment/string-stripped) line is a `#[cfg(test)]`
+    /// attribute — the gate that opens an in-file unit-test module. Matches the
+    /// bare attribute exactly (the only form that toggles a whole test module);
+    /// `#[cfg(all(test, …))]` and friends are deliberately NOT treated as the test
+    /// gate here to stay conservative.
+    fn is_cfg_test_attr(line: &str) -> bool {
+        let t = line.trim();
+        t == "#[cfg(test)]" || t == "#![cfg(test)]"
+    }
+
+    /// True if a (trimmed, comment/string-stripped) line is a test-runner
+    /// attribute on a function: `#[test]`, `#[tokio::test]`, `#[…::test]`
+    /// (e.g. `#[async_std::test]`, `#[rstest]`-style `::test` paths). The check is
+    /// the attribute body's final path segment being `test`, so any `…::test`
+    /// runner counts while ordinary attributes (`#[inline]`, `#[derive(...)]`) do
+    /// not.
+    fn is_test_fn_attr(line: &str) -> bool {
+        let t = line.trim();
+        let Some(inner) = t.strip_prefix("#[").and_then(|r| r.strip_suffix("]")) else {
+            return false;
+        };
+        // Drop any argument list (`#[tokio::test(flavor = "…")]`) — keep the path.
+        let path = inner.split('(').next().unwrap_or(inner).trim();
+        path == "test" || path.rsplit("::").next() == Some("test")
+    }
+
     /// True if `name` is a Rust keyword / control-flow construct / builtin macro-ish
     /// word that can appear as `name(` but is NOT a function call we want a `calls`
     /// edge for (e.g. `if (`, `while (`, `match (`, `return (`, `fn (`). Keeping
@@ -848,6 +910,16 @@ impl Extractor for RustExtractor {
         let mut impl_is_trait = false; // true when `impl Trait for Type`
         let mut brace_depth: i32 = 0;
         let mut block_start_depth: i32 = 0;
+        // Depth at which a `#[cfg(test)] mod …` body opened, when we are inside one
+        // (None otherwise). Tracked INDEPENDENTLY of block_start_depth (which enum/
+        // impl share) because a test module nests impls/enums of its own. Every fn
+        // defined while this is `Some` is an in-file unit test and gets tagged
+        // `"test"` — this is what catches `#[cfg(test)] mod tests` living in a
+        // non-test path (e.g. src/result_shaping.rs), which the path-only
+        // `is_test_source` misses. Popped when brace_depth falls back to/below it
+        // (same mechanism as fn_stack). A `#[cfg(test)] mod foo;` declaration (no
+        // body) never opens a block, so it never sets this.
+        let mut cfg_test_mod_depth: Option<i32> = None;
         // Stack of enclosing functions: (fn_node_id, brace_depth at which the fn
         // body opened). Call edges below are sourced from the top of this stack so
         // `calls` edges read FUNCTION -> ref::callee, not file -> ref::callee.
@@ -880,6 +952,12 @@ impl Extractor for RustExtractor {
             if in_impl_block && depth_after <= block_start_depth {
                 in_impl_block = false;
                 impl_is_trait = false;
+            }
+            // Exit the `#[cfg(test)]` module once its body closes.
+            if let Some(open_depth) = cfg_test_mod_depth {
+                if depth_after <= open_depth {
+                    cfg_test_mod_depth = None;
+                }
             }
             // Pop any enclosing functions whose body has now closed.
             while let Some((_, open_depth)) = fn_stack.last() {
@@ -945,6 +1023,13 @@ impl Extractor for RustExtractor {
                             tags: {
                                 let mut tags = Self::symbol_tags(module_path_ref, name);
                                 tags.push("impl_method".into());
+                                // A trait-impl method inside a `#[cfg(test)]` module
+                                // (or carrying a test attr) is also a test fn.
+                                let (_, has_test_attr) =
+                                    Self::test_attrs_before(&cleaned_lines, line_num);
+                                if cfg_test_mod_depth.is_some() || has_test_attr {
+                                    tags.push("test".into());
+                                }
                                 tags
                             },
                             line: ln,
@@ -1046,11 +1131,21 @@ impl Extractor for RustExtractor {
             } else if let Some(caps) = self.re_fn.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
                 let node_id = format!("{}::fn::{}", file_id, name);
+                let mut tags = Self::symbol_tags(module_path_ref, name);
+                // Tag unit-test functions so impact/ranking can deprioritize test
+                // callers: a fn is a test if it sits inside a `#[cfg(test)]` module
+                // OR carries a `#[test]`/`#[…::test]` runner attribute. This catches
+                // in-file `#[cfg(test)] mod tests` in NON-test paths that the
+                // path-only `is_test_source` cannot see.
+                let (_, has_test_attr) = Self::test_attrs_before(&cleaned_lines, line_num);
+                if cfg_test_mod_depth.is_some() || has_test_attr {
+                    tags.push("test".into());
+                }
                 result.nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
                     node_type: NodeType::Function,
-                    tags: Self::symbol_tags(module_path_ref, name),
+                    tags,
                     line: ln,
                     end_line: ln,
                 });
@@ -1088,6 +1183,15 @@ impl Extractor for RustExtractor {
                             relation: "declares_module".into(),
                             weight: 0.7,
                         });
+                    }
+                } else if line.contains('{') {
+                    // An inline `mod … { … }` decorated with `#[cfg(test)]` opens a
+                    // unit-test module: latch its body depth so every fn defined
+                    // inside is tagged `"test"` (see cfg_test_mod_depth). Only the
+                    // body form matters; the `;` declaration above never nests fns.
+                    let (has_cfg_test, _) = Self::test_attrs_before(&cleaned_lines, line_num);
+                    if has_cfg_test {
+                        cfg_test_mod_depth = Some(brace_depth);
                     }
                 }
             }
@@ -1480,6 +1584,74 @@ mod tests {
         assert!(!result.edges.iter().any(|e| {
             e.relation == "calls" && e.source == "file::src/lib.rs::fn::a" && e.target == "ref::two"
         }));
+    }
+
+    #[test]
+    fn rust_in_file_cfg_test_module_fns_are_tagged_test() {
+        // An in-file `#[cfg(test)] mod tests { fn t() {} }` lives in a NON-test
+        // path; its fns must still be tagged `"test"` (the path-only is_test_source
+        // can't see this), while a production fn in the same file must NOT be.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"pub fn prod() {}\n#[cfg(test)]\nmod tests {\n    fn helper() {}\n    #[test]\n    fn case_one() {}\n}\n",
+                "file::src/result_shaping.rs",
+            )
+            .unwrap();
+
+        let tagged = |label: &str| {
+            result
+                .nodes
+                .iter()
+                .find(|n| n.label == label && n.node_type == NodeType::Function)
+                .unwrap_or_else(|| panic!("missing fn {label}"))
+                .tags
+                .iter()
+                .any(|t| t == "test")
+        };
+
+        // Both the plain helper inside the cfg(test) module AND the #[test] fn are
+        // tagged test.
+        assert!(
+            tagged("helper"),
+            "fn inside #[cfg(test)] mod must be tagged"
+        );
+        assert!(tagged("case_one"), "#[test] fn must be tagged");
+        // The production fn outside the test module is NOT tagged.
+        assert!(!tagged("prod"), "production fn must NOT be tagged test");
+    }
+
+    #[test]
+    fn rust_test_attribute_fn_outside_cfg_module_is_tagged() {
+        // A `#[tokio::test]` (or `#[test]`) fn NOT wrapped in a cfg(test) module
+        // still gets tagged; a neighbouring production fn does not. Also guards the
+        // module-exit: a fn AFTER the test module closes is untagged.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"#[tokio::test]\nasync fn async_case() {}\n#[cfg(test)]\nmod tests {\n    fn inner() {}\n}\nfn after_mod() {}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        let tagged = |label: &str| {
+            result
+                .nodes
+                .iter()
+                .find(|n| n.label == label && n.node_type == NodeType::Function)
+                .unwrap_or_else(|| panic!("missing fn {label}"))
+                .tags
+                .iter()
+                .any(|t| t == "test")
+        };
+
+        assert!(tagged("async_case"), "#[tokio::test] fn must be tagged");
+        assert!(tagged("inner"), "fn inside #[cfg(test)] mod must be tagged");
+        // The module closed before `after_mod`: it is production code, untagged.
+        assert!(
+            !tagged("after_mod"),
+            "fn after the test module closes must NOT be tagged"
+        );
     }
 
     #[test]
