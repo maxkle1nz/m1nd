@@ -69,7 +69,10 @@ impl Extractor for GenericExtractor {
                 });
             } else if let Some(caps) = self.re_func.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                // Disambiguate same-named defs in one file (two `def save` under
+                // different blocks, a redefined top-level fn) so add_node does not
+                // drop the sibling. First keeps the clean id; later get `#2`/`#3`.
+                let node_id = super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -96,5 +99,43 @@ impl Extractor for GenericExtractor {
 
     fn extensions(&self) -> &[&str] {
         &[] // matches nothing by default; used as fallback
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generic_same_name_fns_in_one_file_get_distinct_ids() {
+        // Two same-named defs in one file. Both must survive as DISTINCT function
+        // nodes — without id disambiguation the second collides on `…::fn::save`
+        // and add_node drops it (the def vanishes from the graph).
+        let src = "class A\n    def save\nclass B\n    def save\n";
+        let result = GenericExtractor::new()
+            .extract(src.as_bytes(), "file::testfile.txt")
+            .unwrap();
+        let save_ids: Vec<&str> = result
+            .nodes
+            .iter()
+            .filter(|n| n.label == "save" && n.node_type == NodeType::Function)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(
+            save_ids.len(),
+            2,
+            "expected two distinct `save` fn nodes, got ids {:?}",
+            save_ids
+        );
+        assert!(
+            save_ids.contains(&"file::testfile.txt::fn::save"),
+            "first occurrence should keep the clean id: {:?}",
+            save_ids
+        );
+        assert!(
+            save_ids.contains(&"file::testfile.txt::fn::save#2"),
+            "second occurrence should be disambiguated to `#2`: {:?}",
+            save_ids
+        );
     }
 }
