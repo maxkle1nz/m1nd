@@ -55,7 +55,6 @@ pub fn source_path_bias(source_path: Option<&str>, query_tokens: &[String]) -> f
         || source_path.contains("m1nd-mcp")
         || source_path.contains("m1nd-ingest")
         || source_path.contains("m1nd-ui")
-        || source_path.contains("m1nd-viz")
     {
         bias += REPO_PATH_BONUS;
     }
