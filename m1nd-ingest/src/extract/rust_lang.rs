@@ -426,6 +426,28 @@ impl RustExtractor {
             .map(|node| node.id.clone())
     }
 
+    /// Make a function id unique within a single file's extraction. Same-named
+    /// functions in one file (e.g. the 4 `propagate` impls in activation.rs)
+    /// otherwise collide on one `file::…::fn::name` id, so `add_node` drops all
+    /// but the first and call edges/queries bind to the wrong node. The FIRST
+    /// occurrence keeps the clean id (back-compat: line-less `…::fn::name`
+    /// queries still resolve to it); later same-name siblings get a `#2`, `#3`,
+    /// … suffix so every distinct definition exists and is addressable. The
+    /// node `label` stays `name`, so search/seek still match by label.
+    fn unique_fn_id(result: &ExtractionResult, base_id: &str) -> String {
+        if !result.nodes.iter().any(|n| n.id == base_id) {
+            return base_id.to_string();
+        }
+        let mut n = 2u32;
+        loop {
+            let candidate = format!("{base_id}#{n}");
+            if !result.nodes.iter().any(|node| node.id == candidate) {
+                return candidate;
+            }
+            n += 1;
+        }
+    }
+
     /// Scan the contiguous run of attribute lines (and blanks) immediately above
     /// `idx` in `cleaned_lines` and return `(has_cfg_test, has_test_fn)` — whether
     /// a `#[cfg(test)]` and/or a `#[…test]` runner attribute decorates the item at
@@ -850,46 +872,48 @@ impl RustExtractor {
                         &extra_tags,
                     );
                     if node.kind() == "function_item" {
-                        let method_id =
-                            if let Some(existing) = Self::find_node_id(result, line, &name) {
-                                existing
-                            } else {
-                                let node_id = format!("{}::fn::{}", file_id, name);
-                                let mut tags = Self::symbol_tags(module_path.as_deref(), &name);
-                                for tag in &extra_tags {
-                                    Self::add_unique_tag(
-                                        &mut ExtractedNode {
-                                            id: String::new(),
-                                            label: String::new(),
-                                            node_type: NodeType::Function,
-                                            tags: tags.clone(),
-                                            line,
-                                            end_line: line,
-                                        },
-                                        tag.clone(),
-                                    );
+                        let method_id = if let Some(existing) =
+                            Self::find_node_id(result, line, &name)
+                        {
+                            existing
+                        } else {
+                            let node_id =
+                                Self::unique_fn_id(result, &format!("{}::fn::{}", file_id, name));
+                            let mut tags = Self::symbol_tags(module_path.as_deref(), &name);
+                            for tag in &extra_tags {
+                                Self::add_unique_tag(
+                                    &mut ExtractedNode {
+                                        id: String::new(),
+                                        label: String::new(),
+                                        node_type: NodeType::Function,
+                                        tags: tags.clone(),
+                                        line,
+                                        end_line: line,
+                                    },
+                                    tag.clone(),
+                                );
+                            }
+                            for tag in &extra_tags {
+                                if !tags.contains(tag) {
+                                    tags.push(tag.clone());
                                 }
-                                for tag in &extra_tags {
-                                    if !tags.contains(tag) {
-                                        tags.push(tag.clone());
-                                    }
-                                }
-                                result.nodes.push(ExtractedNode {
-                                    id: node_id.clone(),
-                                    label: name.clone(),
-                                    node_type: NodeType::Function,
-                                    tags,
-                                    line,
-                                    end_line: line,
-                                });
-                                result.edges.push(ExtractedEdge {
-                                    source: file_id.to_string(),
-                                    target: node_id.clone(),
-                                    relation: "contains".into(),
-                                    weight: 1.0,
-                                });
-                                node_id
-                            };
+                            }
+                            result.nodes.push(ExtractedNode {
+                                id: node_id.clone(),
+                                label: name.clone(),
+                                node_type: NodeType::Function,
+                                tags,
+                                line,
+                                end_line: line,
+                            });
+                            result.edges.push(ExtractedEdge {
+                                source: file_id.to_string(),
+                                target: node_id.clone(),
+                                relation: "contains".into(),
+                                weight: 1.0,
+                            });
+                            node_id
+                        };
                         if let Some(ctx) = impl_ctx {
                             if let Some(impl_node_id) = ctx.impl_node_id.as_ref() {
                                 Self::push_unique_ref(
@@ -1069,9 +1093,12 @@ impl Extractor for RustExtractor {
             if in_impl_block && impl_is_trait {
                 if let Some(caps) = self.re_fn.captures(line) {
                     let name = caps.get(1).unwrap().as_str();
-                    let node_id = format!("{}::fn::{}", file_id, name);
-                    // Only add if not already added by the general fn branch below
-                    if !result.nodes.iter().any(|n| n.id == node_id) {
+                    // Skip only a re-encounter of THIS exact method (same line+name);
+                    // a same-name method in another impl of the same file is a
+                    // distinct node and gets a `#N`-disambiguated id.
+                    if Self::find_node_id(&result, ln, name).is_none() {
+                        let node_id =
+                            Self::unique_fn_id(&result, &format!("{}::fn::{}", file_id, name));
                         result.nodes.push(ExtractedNode {
                             id: node_id.clone(),
                             label: name.to_string(),
@@ -1186,7 +1213,15 @@ impl Extractor for RustExtractor {
                 }
             } else if let Some(caps) = self.re_fn.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                // The trait-impl branch above may already have added THIS exact
+                // function (same line+name). Reuse that node id rather than mint a
+                // spurious `#2` sibling for one physical fn; only genuinely
+                // distinct same-name fns (different line) get disambiguated.
+                let node_id = match Self::find_node_id(&result, ln, name) {
+                    Some(existing) => existing,
+                    None => Self::unique_fn_id(&result, &format!("{}::fn::{}", file_id, name)),
+                };
+                let already_present = result.nodes.iter().any(|n| n.id == node_id);
                 let mut tags = Self::symbol_tags(module_path_ref, name);
                 // Tag unit-test functions so impact/ranking can deprioritize test
                 // callers: a fn is a test if it sits inside a `#[cfg(test)]` module
@@ -1197,20 +1232,22 @@ impl Extractor for RustExtractor {
                 if cfg_test_mod_depth.is_some() || has_test_attr {
                     tags.push("test".into());
                 }
-                result.nodes.push(ExtractedNode {
-                    id: node_id.clone(),
-                    label: name.to_string(),
-                    node_type: NodeType::Function,
-                    tags,
-                    line: ln,
-                    end_line: ln,
-                });
-                result.edges.push(ExtractedEdge {
-                    source: file_id.to_string(),
-                    target: node_id.clone(),
-                    relation: "contains".into(),
-                    weight: 1.0,
-                });
+                if !already_present {
+                    result.nodes.push(ExtractedNode {
+                        id: node_id.clone(),
+                        label: name.to_string(),
+                        node_type: NodeType::Function,
+                        tags,
+                        line: ln,
+                        end_line: ln,
+                    });
+                    result.edges.push(ExtractedEdge {
+                        source: file_id.to_string(),
+                        target: node_id.clone(),
+                        relation: "contains".into(),
+                        weight: 1.0,
+                    });
+                }
                 // Become the enclosing function once the body `{` opens. Baseline
                 // is the depth before this line; the body raises depth above it.
                 pending_fn = Some((node_id, brace_depth));
