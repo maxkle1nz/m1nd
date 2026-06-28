@@ -2,7 +2,8 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-06-28 ~06:15 CEST (call-graph improvement arc complete).
+> Last checkpoint: 2026-06-28 ~10:15 CEST (checkpoint 2 — 8 cycles merged, battery
+> hardened 12 → 20 @ 20/20, node-id + cross-file resolution-correctness fixes).
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
@@ -54,7 +55,13 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
 - MCP stdio client pattern: `scratchpad/focus_smoke.py` (Content-Length JSON-RPC).
 - Build: `cargo build -p m1nd-mcp --bin m1nd-mcp` → `./target/debug/m1nd-mcp`.
 - 360 vision: `docs/X360-RUNTIME-PRD.md`. Focus runtime: `docs/FOCUS-RUNTIME-PRD.md`.
-- gh active = `maxkle1nz`; git identity = Max Kle1nz <kleinz@cosmophonix.com>.
+- git identity = Max Kle1nz <kleinz@cosmophonix.com>. **gh GOTCHA: the active
+  account silently flips to `velvetside` mid-session → `gh pr create` fails with
+  "must be a collaborator". Run `gh auth switch --user maxkle1nz` before EVERY
+  push/PR.**
+- Battery is now 20 cases (JSON key `records`, each row has `m1nd_pass`); per-case
+  `check=lambda res,q,c:` hook + `has_direct_calls_edge` helper enable structural
+  cross-file assertions via the live client.
 
 ## Known Problems
 - **Same-name resolution still needs qualifier/type info — the #1 remaining gap.**
