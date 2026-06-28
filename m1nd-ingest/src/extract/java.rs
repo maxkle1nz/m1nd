@@ -166,7 +166,10 @@ impl Extractor for JavaExtractor {
                 true
             } else if let Some(caps) = self.re_method.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                // Disambiguate same-named defs in one file (Java overloads, or two
+                // classes each with a `run` method) so add_node does not drop the
+                // sibling. First keeps the clean id; later siblings get `#2`/`#3`.
+                let node_id = super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -526,6 +529,38 @@ public class Service {
             !has_edge(&result, "calls", "ref::this"),
             "Must NOT emit calls for `this` keyword. Edges: {:?}",
             result.edges
+        );
+    }
+
+    #[test]
+    fn java_same_name_methods_in_one_file_get_distinct_ids() {
+        // Two classes in one file each declare a `run` method. Both must survive as
+        // DISTINCT function nodes — without id disambiguation the second collides on
+        // `…::fn::run` and add_node drops it (the method vanishes from the graph).
+        let src = "public class A {\n    public void run() {}\n}\nclass B {\n    public void run() {}\n}\n";
+        let result = extract(src);
+        let run_ids: Vec<&str> = result
+            .nodes
+            .iter()
+            .filter(|n| n.label == "run" && n.node_type == NodeType::Function)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(
+            run_ids.len(),
+            2,
+            "expected two distinct `run` method nodes, got ids {:?}",
+            run_ids
+        );
+        // First keeps the clean (line-less) id for back-compat; the sibling is `#2`.
+        assert!(
+            run_ids.contains(&"file::testfile.java::fn::run"),
+            "first occurrence should keep the clean id: {:?}",
+            run_ids
+        );
+        assert!(
+            run_ids.contains(&"file::testfile.java::fn::run#2"),
+            "second occurrence should be disambiguated to `#2`: {:?}",
+            run_ids
         );
     }
 

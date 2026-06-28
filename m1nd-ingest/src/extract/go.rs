@@ -140,7 +140,10 @@ impl Extractor for GoExtractor {
                 true
             } else if let Some(caps) = self.re_method.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                // Disambiguate same-named defs in one file (a method named `Run` on
+                // two types, or a method sharing a free func's name) so add_node
+                // does not drop the sibling. First keeps the clean id.
+                let node_id = super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -160,7 +163,7 @@ impl Extractor for GoExtractor {
                 true
             } else if let Some(caps) = self.re_func.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                let node_id = super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -538,6 +541,37 @@ func processData(d []byte) []byte {
         assert!(result.edges.iter().any(|e| e.relation == "calls"));
         assert!(result.edges.iter().any(|e| e.relation == "imports"));
         assert!(result.edges.iter().any(|e| e.relation == "contains"));
+    }
+
+    #[test]
+    fn go_same_name_methods_in_one_file_get_distinct_ids() {
+        // A method named `Run` defined on two different types in one file. Both must
+        // survive as DISTINCT function nodes — without id disambiguation the second
+        // collides on `…::fn::Run` and add_node drops it.
+        let src = "package main\n\nfunc (a *A) Run() {}\nfunc (b *B) Run() {}\n";
+        let result = extract(src);
+        let run_ids: Vec<&str> = result
+            .nodes
+            .iter()
+            .filter(|n| n.label == "Run" && n.node_type == NodeType::Function)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(
+            run_ids.len(),
+            2,
+            "expected two distinct `Run` method nodes, got ids {:?}",
+            run_ids
+        );
+        assert!(
+            run_ids.contains(&"file::testfile.go::fn::Run"),
+            "first occurrence should keep the clean id: {:?}",
+            run_ids
+        );
+        assert!(
+            run_ids.contains(&"file::testfile.go::fn::Run#2"),
+            "second occurrence should be disambiguated to `#2`: {:?}",
+            run_ids
+        );
     }
 
     #[test]

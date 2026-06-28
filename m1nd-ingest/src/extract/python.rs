@@ -115,7 +115,10 @@ impl Extractor for PythonExtractor {
                 last_node_id = Some(node_id);
             } else if let Some(caps) = self.re_func.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                // Disambiguate same-named defs in one file (two class methods named
+                // `save`, a redefined top-level fn) so add_node does not drop the
+                // sibling. First keeps the clean id; later siblings get `#2`/`#3`.
+                let node_id = super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -289,5 +292,44 @@ impl Extractor for PythonExtractor {
 
     fn extensions(&self) -> &[&str] {
         &["py", "pyi"]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::extract::Extractor;
+
+    #[test]
+    fn python_same_name_methods_in_one_file_get_distinct_ids() {
+        // Two classes in one file each define a `save` method. Both must survive as
+        // DISTINCT function nodes — without id disambiguation the second collides on
+        // `…::fn::save` and add_node drops it (the method vanishes from the graph).
+        let src = "class A:\n    def save(self):\n        pass\nclass B:\n    def save(self):\n        pass\n";
+        let result = PythonExtractor::new()
+            .extract(src.as_bytes(), "file::testfile.py")
+            .unwrap();
+        let save_ids: Vec<&str> = result
+            .nodes
+            .iter()
+            .filter(|n| n.label == "save" && n.node_type == NodeType::Function)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(
+            save_ids.len(),
+            2,
+            "expected two distinct `save` method nodes, got ids {:?}",
+            save_ids
+        );
+        assert!(
+            save_ids.contains(&"file::testfile.py::fn::save"),
+            "first occurrence should keep the clean id: {:?}",
+            save_ids
+        );
+        assert!(
+            save_ids.contains(&"file::testfile.py::fn::save#2"),
+            "second occurrence should be disambiguated to `#2`: {:?}",
+            save_ids
+        );
     }
 }

@@ -371,6 +371,33 @@ pub struct ExtractionResult {
     pub unresolved_refs: Vec<String>,
 }
 
+/// Make a node id unique within a single file's extraction. Function/method ids
+/// are `file::…::fn::<name>` with NO line, so two same-named definitions in ONE
+/// file (TS overloads / two class methods named `process`, Java overloads, Go
+/// methods named `Run` on two types, Python methods named `save` in two classes)
+/// otherwise collide on one id. `Graph::add_node` keys on the id and returns
+/// `Err(DuplicateNode)`, and the ingest loader drops the duplicate — so the
+/// later same-named sibling silently vanishes from the graph (invisible to
+/// impact/why/seek). The FIRST occurrence keeps the clean id (back-compat:
+/// line-less `…::fn::name` queries still resolve to it); later siblings get a
+/// `#2`, `#3`, … suffix so every distinct definition exists and is addressable.
+/// The node `label` stays `name`, so search/seek still match by label. Mirrors
+/// `RustExtractor::unique_fn_id` but takes a node slice so the regex extractors
+/// (which build a bare `Vec<ExtractedNode>`) can share it.
+pub fn unique_node_id(nodes: &[ExtractedNode], base_id: &str) -> String {
+    if !nodes.iter().any(|n| n.id == base_id) {
+        return base_id.to_string();
+    }
+    let mut n = 2u32;
+    loop {
+        let candidate = format!("{base_id}#{n}");
+        if !nodes.iter().any(|node| node.id == candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 /// Max source lines folded into a code symbol's excerpt (signature + a few body
 /// lines) and the hard character budget on the joined result.
 pub const EXCERPT_MAX_LINES: usize = 4;

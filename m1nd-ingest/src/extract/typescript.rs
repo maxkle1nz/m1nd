@@ -168,7 +168,10 @@ impl Extractor for TypeScriptExtractor {
                 });
             } else if let Some(caps) = self.re_func.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                // Disambiguate same-named defs in one file (TS function overloads
+                // with bodies, or two class methods named `process`) so add_node
+                // does not drop the sibling. First keeps the clean id.
+                let node_id = super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -188,7 +191,7 @@ impl Extractor for TypeScriptExtractor {
                 pending_fn = Some((node_id, brace_depth));
             } else if let Some(caps) = self.re_arrow.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
-                let node_id = format!("{}::fn::{}", file_id, name);
+                let node_id = super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                 nodes.push(ExtractedNode {
                     id: node_id.clone(),
                     label: name.to_string(),
@@ -215,7 +218,8 @@ impl Extractor for TypeScriptExtractor {
                 // control-flow that also reads `kw (...) {` — those are NOT methods.
                 let name = caps.get(1).unwrap().as_str();
                 if !Self::is_control_keyword(name) {
-                    let node_id = format!("{}::fn::{}", file_id, name);
+                    let node_id =
+                        super::unique_node_id(&nodes, &format!("{}::fn::{}", file_id, name));
                     nodes.push(ExtractedNode {
                         id: node_id.clone(),
                         label: name.to_string(),
@@ -652,6 +656,43 @@ mod tests {
         assert!(
             calls.contains(&(caller_id, "ref::step")),
             "step should be caller-sourced: {calls:?}"
+        );
+    }
+
+    #[test]
+    fn ts_same_name_methods_in_one_file_get_distinct_ids() {
+        // Two classes in one file each declare a `process` method. Both must survive
+        // as DISTINCT function nodes — without id disambiguation the second collides
+        // on `…::fn::process` and add_node drops it (the method vanishes).
+        let ext = TypeScriptExtractor::new();
+        let result = ext
+            .extract(
+                b"class A {\n    process() {\n    }\n}\nclass B {\n    process() {\n    }\n}\n",
+                "file::src/dup.ts",
+            )
+            .unwrap();
+        let ids: Vec<&str> = result
+            .nodes
+            .iter()
+            .filter(|n| n.label == "process" && n.node_type == NodeType::Function)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(
+            ids.len(),
+            2,
+            "expected two distinct `process` method nodes, got ids {:?}",
+            ids
+        );
+        // First keeps the clean (line-less) id for back-compat; the sibling is `#2`.
+        assert!(
+            ids.contains(&"file::src/dup.ts::fn::process"),
+            "first occurrence should keep the clean id: {:?}",
+            ids
+        );
+        assert!(
+            ids.contains(&"file::src/dup.ts::fn::process#2"),
+            "second occurrence should be disambiguated to `#2`: {:?}",
+            ids
         );
     }
 
