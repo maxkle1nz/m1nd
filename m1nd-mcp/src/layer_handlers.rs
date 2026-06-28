@@ -1116,12 +1116,15 @@ pub fn handle_scan(
     // Phase 2: graph validation + severity filtering
     let neg_refs: Vec<&str> = negations.iter().map(|s| s.as_str()).collect();
     let mut findings: Vec<layers::ScanFinding> = Vec::new();
+    // Count EVERY validation survivor (passed severity filter), independent of the
+    // `limit` display cap. Using `findings.len()` here would conflate "returned"
+    // with "validated": when raw matches exceed `limit`, the truncated survivors
+    // would masquerade as validation rejections and fabricate the raw-vs-validated
+    // delta the field exists to report. So keep validating all raw matches (the set
+    // is already capped by Phase 1) and only cap the returned `findings` vector.
+    let mut total_validated = 0usize;
 
     for &node_idx in &raw_matches {
-        if findings.len() >= input.limit {
-            break;
-        }
-
         let nid = NodeId::new(node_idx as u32);
         let label = graph
             .strings
@@ -1141,6 +1144,13 @@ pub fn handle_scan(
             _ => base_severity,
         };
         if severity < input.severity_min {
+            continue;
+        }
+        total_validated += 1;
+
+        // The `limit` is a return cap, not a validation criterion: stop collecting
+        // findings once it's reached, but keep counting survivors above.
+        if findings.len() >= input.limit {
             continue;
         }
 
@@ -1169,7 +1179,6 @@ pub fn handle_scan(
         });
     }
 
-    let total_validated = findings.len();
     drop(graph);
 
     // Record each confirmed/mitigated finding as a per-agent ephemeral mark so a
@@ -11774,6 +11783,73 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             assert_eq!(output.findings.len(), 1);
             assert_eq!(output.findings[0].node_id, "file::src/core.rs");
         }
+    }
+
+    #[test]
+    fn scan_total_validated_counts_survivors_not_the_returned_limit() {
+        // Regression: `total_matches_validated` must report how many matches
+        // survived graph/severity validation, NOT how many were returned. When
+        // the raw-match pool exceeds `limit`, the old code broke out of the
+        // validation loop at the display cap and read `findings.len()`, so the
+        // truncated overflow masqueraded as validation rejections and the
+        // raw-vs-validated delta was fabricated.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        // Five distinct nodes whose labels all match the `error_handling`
+        // keyword `error`, so all five are raw matches that pass validation.
+        let mut graph = Graph::new();
+        for i in 0..5 {
+            graph
+                .add_node(
+                    &format!("file::src/m{i}.rs::fn::error_handler_{i}"),
+                    &format!("error_handler_{i}"),
+                    NodeType::Function,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .expect("add error node");
+        }
+        graph.finalize().expect("finalize graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+
+        // limit=2 is smaller than the 5 survivors. graph_validate=false so status
+        // is "confirmed" and severity (0.6) clears severity_min, isolating the
+        // limit cap as the only thing that can shrink the count.
+        let out = handle_scan(
+            &mut state,
+            ScanInput {
+                agent_id: "test".into(),
+                pattern: "error_handling".into(),
+                scope: None,
+                limit: 2,
+                severity_min: 0.0,
+                graph_validate: false,
+            },
+        )
+        .expect("scan should succeed");
+
+        assert_eq!(out.total_matches_raw, 5, "all five labels are raw matches");
+        assert_eq!(
+            out.total_matches_validated, 5,
+            "all five survive validation; the limit must not shrink the validated count"
+        );
+        assert_eq!(
+            out.findings.len(),
+            2,
+            "the limit still caps the returned findings vector"
+        );
     }
 
     #[test]
