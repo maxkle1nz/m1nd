@@ -24,6 +24,7 @@ pub struct RustExtractor {
     re_method_call: Regex,  // .method_name( or ::method_name(
     re_type_ref: Regex,     // UpperCamelCase identifiers (type references)
     re_fn_sig_types: Regex, // Type names in fn signatures: &Type, Type, Box<Type>
+    re_free_call: Regex,    // free-function call: bare `name(` not preceded by . or ::
     // Enum variant extraction
     re_variant: Regex, // Variant inside enum { } block
 }
@@ -50,6 +51,13 @@ impl RustExtractor {
             // FIX: was `->s*` (missing backslash), now `->\s*`
             re_fn_sig_types: Regex::new(r"(?::\s*&?(?:mut\s+)?|->\s*&?(?:mut\s+)?|<\s*)([A-Z]\w+)")
                 .unwrap(),
+            // Free-function calls: an identifier directly followed by `(`
+            // (optionally whitespace). Macro calls `foo!(` are naturally excluded
+            // because `!` sits between the ident and `(`. Method/path calls
+            // (`.foo(`, `Type::foo(`) are rejected by inspecting the char before
+            // the match (see the loop), which the regex crate (no lookbehind)
+            // cannot express. `\b` anchors the ident start.
+            re_free_call: Regex::new(r"\b([A-Za-z_]\w*)\s*\(").unwrap(),
             // Enum variants: identifiers at the start of a line (with optional whitespace)
             // inside an enum block, e.g. `    VariantName,` or `    VariantName(...)` or `    VariantName { ... }`
             re_variant: Regex::new(r"^\s+([A-Z]\w+)\s*(?:[,({]|$)").unwrap(),
@@ -413,6 +421,48 @@ impl RustExtractor {
             .iter()
             .find(|node| node.line == line && node.label == label)
             .map(|node| node.id.clone())
+    }
+
+    /// True if `name` is a Rust keyword / control-flow construct / builtin macro-ish
+    /// word that can appear as `name(` but is NOT a function call we want a `calls`
+    /// edge for (e.g. `if (`, `while (`, `match (`, `return (`, `fn (`). Keeping
+    /// this list conservative avoids spurious call edges; anything not listed is
+    /// treated as a real free-function call target.
+    fn is_call_keyword(name: &str) -> bool {
+        matches!(
+            name,
+            "if" | "for"
+                | "while"
+                | "loop"
+                | "match"
+                | "return"
+                | "fn"
+                | "let"
+                | "mut"
+                | "move"
+                | "as"
+                | "in"
+                | "where"
+                | "impl"
+                | "dyn"
+                | "ref"
+                | "else"
+                | "break"
+                | "continue"
+                | "await"
+                | "async"
+                | "unsafe"
+                | "const"
+                | "static"
+                | "type"
+                | "use"
+                | "mod"
+                | "pub"
+                | "struct"
+                | "enum"
+                | "trait"
+                | "union"
+        )
     }
 }
 
@@ -798,6 +848,17 @@ impl Extractor for RustExtractor {
         let mut impl_is_trait = false; // true when `impl Trait for Type`
         let mut brace_depth: i32 = 0;
         let mut block_start_depth: i32 = 0;
+        // Stack of enclosing functions: (fn_node_id, brace_depth at which the fn
+        // body opened). Call edges below are sourced from the top of this stack so
+        // `calls` edges read FUNCTION -> ref::callee, not file -> ref::callee.
+        // A stack (not a single slot) handles nested fns/closures and methods
+        // inside impl blocks. We pop when brace_depth falls back to/below the
+        // depth the body opened at (same mechanism as in_enum/in_impl_block).
+        let mut fn_stack: Vec<(String, i32)> = Vec::new();
+        // A function whose signature was seen but whose body `{` has not opened
+        // yet (handles multi-line signatures). (fn_node_id, baseline brace_depth).
+        // Pushed onto fn_stack on the line the body brace finally opens.
+        let mut pending_fn: Option<(String, i32)> = None;
 
         for (line_num, line) in cleaned_lines.iter().enumerate() {
             let ln = (line_num + 1) as u32;
@@ -808,13 +869,25 @@ impl Extractor for RustExtractor {
             let open_count = line.chars().filter(|&c| c == '{').count() as i32;
             let close_count = line.chars().filter(|&c| c == '}').count() as i32;
 
+            // Depth AFTER applying this line's braces — used for all block-exit
+            // checks so a closing `}` on this line correctly pops its block.
+            let depth_after = brace_depth + open_count - close_count;
+
             // Check if we're exiting the current enum or impl block
-            if in_enum.is_some() && brace_depth + open_count - close_count <= block_start_depth {
+            if in_enum.is_some() && depth_after <= block_start_depth {
                 in_enum = None;
             }
-            if in_impl_block && brace_depth + open_count - close_count <= block_start_depth {
+            if in_impl_block && depth_after <= block_start_depth {
                 in_impl_block = false;
                 impl_is_trait = false;
+            }
+            // Pop any enclosing functions whose body has now closed.
+            while let Some((_, open_depth)) = fn_stack.last() {
+                if depth_after <= *open_depth {
+                    fn_stack.pop();
+                } else {
+                    break;
+                }
             }
 
             // --- Enum variant extraction (Task #5) ---
@@ -983,10 +1056,13 @@ impl Extractor for RustExtractor {
                 });
                 result.edges.push(ExtractedEdge {
                     source: file_id.to_string(),
-                    target: node_id,
+                    target: node_id.clone(),
                     relation: "contains".into(),
                     weight: 1.0,
                 });
+                // Become the enclosing function once the body `{` opens. Baseline
+                // is the depth before this line; the body raises depth above it.
+                pending_fn = Some((node_id, brace_depth));
             } else if let Some(caps) = self.re_mod.captures(line) {
                 let name = caps.get(1).unwrap().as_str();
                 let node_id = format!("{}::mod::{}", file_id, name);
@@ -1038,17 +1114,88 @@ impl Extractor for RustExtractor {
                 && !line.trim_start().starts_with("use ")
                 && !line.trim_start().starts_with("mod ")
             {
-                // Type::method( calls -- create ref to Type
+                // Source for call edges: the enclosing function if we are inside
+                // one, else the file (top-level calls, e.g. const initializers).
+                // This is what makes `calls` edges FUNCTION -> ref::callee so
+                // impact/why can traverse the call graph at function granularity.
+                let call_source: &str = fn_stack
+                    .last()
+                    .map(|(id, _)| id.as_str())
+                    .unwrap_or(file_id);
+
+                // Path/method calls: `Qualifier::callee(` or `.method(`.
                 for caps in self.re_method_call.captures_iter(line) {
                     if let Some(type_match) = caps.get(1) {
-                        let type_name = type_match.as_str();
-                        // Only UpperCamelCase (likely a type, not a variable)
-                        if type_name.chars().next().is_some_and(|c| c.is_uppercase())
-                            && type_name.len() > 1
+                        let qualifier = type_match.as_str();
+                        // UpperCamelCase qualifier -> a Type associated call
+                        // (`Type::new(`): depend on the Type (existing behavior).
+                        if qualifier.chars().next().is_some_and(|c| c.is_uppercase())
+                            && qualifier.len() > 1
                         {
-                            let ref_id = format!("ref::{}", type_name);
-                            Self::push_unique_ref(&mut result, file_id, "calls", ref_id, 0.4);
+                            let ref_id = format!("ref::{}", qualifier);
+                            Self::push_unique_ref(&mut result, call_source, "calls", ref_id, 0.4);
+                        } else if let Some(callee_match) = caps.get(2) {
+                            // Lowercase qualifier -> a module/path-qualified FREE
+                            // FUNCTION call (`result_shaping::pack_to_budget(`,
+                            // `crate::a::b::func(`). re_method_call captures only
+                            // the final `qual::callee` pair, so group(2) is the
+                            // callee. Emit a call edge to the callee fn (the same
+                            // category as a bare free call, just namespaced) so the
+                            // resolver binds ref::callee -> the `fn callee` node.
+                            let callee = callee_match.as_str();
+                            if callee.len() > 1
+                                && callee
+                                    .chars()
+                                    .next()
+                                    .is_some_and(|c| c == '_' || c.is_lowercase())
+                                && !Self::is_call_keyword(callee)
+                            {
+                                let ref_id = format!("ref::{}", callee);
+                                Self::push_unique_ref(
+                                    &mut result,
+                                    call_source,
+                                    "calls",
+                                    ref_id,
+                                    0.35,
+                                );
+                            }
                         }
+                    }
+                }
+
+                // Free-function calls: `name(` not preceded by `.` or `::` (those
+                // are method / path calls handled above) and not a keyword.
+                // Sourced from the enclosing function so the resolver binds
+                // ref::name -> the `fn name` node, yielding a real caller -> callee
+                // edge. We inspect the byte before the ident to reject `.`/`:`
+                // (method/path call) since the regex crate has no lookbehind.
+                //
+                // Skip fn DEFINITION lines (incl. `async`/`unsafe`/`const fn`,
+                // which the prefix guard above misses): the `name(` there is the
+                // function being defined, not a call. The broad guard only covers
+                // bare `fn `/`pub`, so re-check with re_fn.
+                let bytes = line.as_bytes();
+                let is_fn_def_line = self.re_fn.is_match(line);
+                for m in self
+                    .re_free_call
+                    .captures_iter(line)
+                    .filter(|_| !is_fn_def_line)
+                {
+                    let whole = m.get(0).unwrap();
+                    let name = m.get(1).unwrap().as_str();
+                    let start = whole.start();
+                    let prev = if start == 0 {
+                        None
+                    } else {
+                        Some(bytes[start - 1])
+                    };
+                    // Reject method calls (`.name(`) and path calls (`::name(`).
+                    if matches!(prev, Some(b'.') | Some(b':')) {
+                        continue;
+                    }
+                    if name.len() > 1 && !Self::is_call_keyword(name) {
+                        let ref_id = format!("ref::{}", name);
+                        Self::push_unique_ref(&mut result, call_source, "calls", ref_id, 0.35);
                     }
                 }
 
@@ -1090,6 +1237,25 @@ impl Extractor for RustExtractor {
                         }
                     }
                 }
+            }
+
+            // Promote a pending function to the enclosing-function stack once its
+            // body brace has opened (depth rose above the signature baseline).
+            // Handles multi-line signatures: the `fn` keyword and the body `{`
+            // may be on different lines.
+            if let Some((id, baseline)) = pending_fn.take() {
+                if depth_after > baseline {
+                    // Body opened and is still open at end of line — this fn is now
+                    // the enclosing scope.
+                    fn_stack.push((id, baseline));
+                } else if !line.contains('{') && !line.trim_end().ends_with(';') {
+                    // Body not open yet (multi-line signature still inside `(...)`)
+                    // and not a `;`-terminated declaration — keep waiting.
+                    pending_fn = Some((id, baseline));
+                }
+                // Otherwise: a one-line body (`fn f() { .. }`, opened and closed
+                // on this line) or a `;`-terminated signature (trait method decl).
+                // Neither becomes a multi-line enclosing scope; drop the latch.
             }
 
             brace_depth += open_count - close_count;
@@ -1172,6 +1338,148 @@ mod tests {
                 .any(|edge| edge.relation == "reexports"
                     && edge.target == "ref::crate::graph::NodeId")
         );
+    }
+
+    #[test]
+    fn rust_free_function_call_emits_function_sourced_calls_edge() {
+        // A free-function call inside a function body must produce a `calls` edge
+        // sourced from the ENCLOSING FUNCTION node (not the file), targeting
+        // `ref::<callee>` so the resolver can bind it to the callee's fn node.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"fn callee() {}\nfn caller() {\n    let x = callee();\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        let caller_id = "file::src/lib.rs::fn::caller";
+        let calls_edge = result
+            .edges
+            .iter()
+            .find(|e| e.relation == "calls" && e.source == caller_id && e.target == "ref::callee");
+        assert!(
+            calls_edge.is_some(),
+            "expected `caller -> ref::callee` calls edge, got edges: {:?}",
+            result
+                .edges
+                .iter()
+                .filter(|e| e.relation == "calls")
+                .collect::<Vec<_>>()
+        );
+
+        // It must NOT be sourced from the file (the bug being fixed).
+        assert!(
+            !result.edges.iter().any(|e| {
+                e.relation == "calls" && e.source == "file::src/lib.rs" && e.target == "ref::callee"
+            }),
+            "calls edge should be function-sourced, not file-sourced"
+        );
+
+        // The callee fn node exists with label `callee`, so the resolver can bind
+        // ref::callee -> that node (label-based resolution).
+        assert!(result
+            .nodes
+            .iter()
+            .any(|n| n.label == "callee" && n.node_type == NodeType::Function));
+    }
+
+    #[test]
+    fn rust_free_call_skips_keywords_and_macros() {
+        // Control-flow `if (...)` / `while (...)` and macro `println!(...)` must
+        // NOT produce call edges; a genuine free call on the same lines must.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"fn caller() {\n    if (compute()) {\n        println!(\"hi\");\n    }\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        let calls: Vec<&str> = result
+            .edges
+            .iter()
+            .filter(|e| e.relation == "calls")
+            .map(|e| e.target.as_str())
+            .collect();
+        assert!(
+            calls.contains(&"ref::compute"),
+            "expected ref::compute, got {calls:?}"
+        );
+        assert!(!calls.contains(&"ref::if"), "must not emit `if` as a call");
+        assert!(
+            !calls.contains(&"ref::while"),
+            "must not emit `while` as a call"
+        );
+        // `println!` is a macro: `!` sits between ident and `(`, so it is never
+        // matched as a free call.
+        assert!(
+            !calls.contains(&"ref::println"),
+            "macros must not be calls, got {calls:?}"
+        );
+    }
+
+    #[test]
+    fn rust_path_qualified_free_call_emits_function_sourced_calls_edge() {
+        // `module::func(` and `crate::a::func(` are free-function calls reached via
+        // a path; they must produce a function-sourced `calls` edge to the callee
+        // (so e.g. handle_seek -> pack_to_budget links). A `Type::assoc(` call
+        // still depends on the Type (UpperCamelCase qualifier).
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"fn caller() {\n    let y = result_shaping::pack_to_budget(x);\n    let z = Helper::new();\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        let caller_id = "file::src/lib.rs::fn::caller";
+        // path-qualified free-fn call -> edge to the callee fn
+        assert!(
+            result.edges.iter().any(|e| e.relation == "calls"
+                && e.source == caller_id
+                && e.target == "ref::pack_to_budget"),
+            "expected caller -> ref::pack_to_budget, got {:?}",
+            result
+                .edges
+                .iter()
+                .filter(|e| e.relation == "calls")
+                .map(|e| (&e.source, &e.target))
+                .collect::<Vec<_>>()
+        );
+        // UpperCamelCase qualifier still depends on the Type (not the lowercase rule)
+        assert!(result
+            .edges
+            .iter()
+            .any(|e| e.relation == "calls" && e.source == caller_id && e.target == "ref::Helper"));
+        // and we did NOT emit a call to the (associated) `new` here.
+        assert!(!result
+            .edges
+            .iter()
+            .any(|e| e.relation == "calls" && e.target == "ref::new"));
+    }
+
+    #[test]
+    fn rust_free_call_attributed_to_nearest_enclosing_function() {
+        // Two functions; each call must be attributed to its OWN enclosing fn.
+        let ext = RustExtractor::new();
+        let result = ext
+            .extract(
+                b"fn a() {\n    one();\n}\nfn b() {\n    two();\n}\n",
+                "file::src/lib.rs",
+            )
+            .unwrap();
+
+        assert!(result.edges.iter().any(|e| {
+            e.relation == "calls" && e.source == "file::src/lib.rs::fn::a" && e.target == "ref::one"
+        }));
+        assert!(result.edges.iter().any(|e| {
+            e.relation == "calls" && e.source == "file::src/lib.rs::fn::b" && e.target == "ref::two"
+        }));
+        // No cross-attribution.
+        assert!(!result.edges.iter().any(|e| {
+            e.relation == "calls" && e.source == "file::src/lib.rs::fn::a" && e.target == "ref::two"
+        }));
     }
 
     #[test]
