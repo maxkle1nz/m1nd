@@ -46,6 +46,8 @@ Three things here exist together in no other tool:
 - **Self-verifying memory** — `memorize` anchors findings to real code nodes; `cross_verify` flags them stale when that code changes.
 - **A trust / recovery layer** — every result carries a trust mode; `trust_selftest` and `recovery_playbook` tell the agent when the workspace binding is wrong and how to recover.
 
+Plus an **attention runtime** — `focus` hands the agent the minimal, budget-bounded working set for a goal, with an honest tail of what it left out and a signal for whether that's *enough* context yet.
+
 <p align="center">
   <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>

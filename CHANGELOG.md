@@ -10,6 +10,60 @@ No unreleased changes.
 
 ---
 
+## [1.1.0] — 2026-06-28
+
+A code-intelligence correctness release: a new attention runtime (`focus`), the
+function-level call graph extended across languages, and the cross-file resolver
+hardened so `impact`/`why` bind to the right same-name target. The honest battery
+(m1nd vs `rg` on m1nd's own repo) went from 10/12 to **28/28 with 0 losses to
+grep** across this arc.
+
+### Added
+
+- **`focus(goal, token_budget)` — goal-conditioned attention runtime.** Returns
+  the minimal, budget-bounded working set ranked by goal salience, an honest
+  `ignored` tail (every relevance-clearing node left out is counted, never
+  silently dropped), and an answer-free `sufficiency` signal
+  (`sufficient`/`gathering`/`saturated` via a knee test). `seek` gained the same
+  `sufficiency` envelope.
+- **Conformance-aware attention.** When a ratified X-RAY manifest resolves,
+  `seek`/`focus` bias ranking by intent (erosion-source nodes down, proof-
+  exercised "bedrock" up). Off-by-absence and byte-identical without a manifest.
+
+### Fixed
+
+- **Call graph at function granularity (Rust + TypeScript).** Calls are sourced
+  from the enclosing function (not the file); free-function and lowercase-receiver
+  method calls are followed; `impact` ranks code symbols above containers and
+  production callers above test functions. `impact`/`why` no longer degrade to
+  file-containment noise on code.
+- **Same-name function ids no longer collide (all extractors).** Function nodes
+  used a line-less `file::…::fn::<name>` id, so same-named functions in one file
+  collided and ~6.3% of functions were silently dropped from the graph. Fixed for
+  Rust, TypeScript, Java, Go, Python, and the generic extractor.
+- **Cross-file call resolution.** Proximity prefers same-file > same-directory >
+  cross-crate, and `Type::method()` calls bind to the impl owner via the call
+  qualifier (qualifier-aware resolution) instead of an arbitrary same-name sibling.
+- **`scan` honesty.** `total_matches_validated` counts validation survivors rather
+  than the display `limit` (it was fabricating the raw-vs-validated delta), and
+  documented `mitigated` findings are now visible at the default `severity_min`.
+
+---
+
+## [1.0.0] — 2026-06-27
+
+First stable release.
+
+### Added
+
+- **Semantic recall on by default.** The shipped binary builds with the `embed`
+  feature, so `seek` matches by meaning out of the box (model2vec, ~29 MB
+  fetch-on-first-use, graceful fall-back to trigram if the model can't load). A
+  content-addressed embedding cache is persisted alongside the graph snapshot, and
+  behavioral excerpts (signature + body + doc-comments) feed the embeddings.
+
+---
+
 ## [0.9.0-beta.8] — 2026-06-10
 
 ### Fixed
