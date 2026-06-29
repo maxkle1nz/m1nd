@@ -68,6 +68,22 @@ pub enum TrustTier {
     Unknown,
 }
 
+/// Map a trust tier to its agent-facing, action-routable band token.
+///
+/// The `Unknown` (cold-start, no-evidence) tier maps to `"insufficient_evidence"`
+/// rather than a bare neutral number, so an agent reading the band is routed to
+/// ingest/learn/cross_verify instead of mistaking a meaningless 0.5 prior for
+/// "50% confidence". The risk vocabulary (`high`/`medium`/`low`) mirrors the
+/// mission verdict tokens. Every presenter must classify through this helper.
+pub fn trust_band(tier: TrustTier) -> &'static str {
+    match tier {
+        TrustTier::HighRisk => "high",
+        TrustTier::MediumRisk => "medium",
+        TrustTier::LowRisk => "low",
+        TrustTier::Unknown => "insufficient_evidence",
+    }
+}
+
 /// Trust score output for a single node in a trust report.
 #[derive(Clone, Debug, Serialize)]
 pub struct TrustNodeOutput {
@@ -822,5 +838,33 @@ mod tests {
         assert_eq!(score.trust_score, TRUST_COLD_START_DEFAULT);
         assert_eq!(score.tier, TrustTier::Unknown);
         assert_eq!(score.risk_multiplier, 1.0);
+        // The cold-start tier must surface as the action-routable band, never
+        // as the bare 0.5 number, so an agent is routed to learn/cross_verify.
+        assert_eq!(trust_band(score.tier), "insufficient_evidence");
+    }
+
+    // band: every tier maps to its agent-facing token (Unknown is NOT a number)
+    #[test]
+    fn trust_band_maps_every_tier() {
+        assert_eq!(trust_band(TrustTier::HighRisk), "high");
+        assert_eq!(trust_band(TrustTier::MediumRisk), "medium");
+        assert_eq!(trust_band(TrustTier::LowRisk), "low");
+        assert_eq!(trust_band(TrustTier::Unknown), "insufficient_evidence");
+    }
+
+    // band: an evidenced node lands in a risk band, never "insufficient_evidence"
+    #[test]
+    fn evidenced_node_gets_risk_band_not_insufficient() {
+        let mut ledger = make_ledger();
+        for i in 0..5 {
+            ledger.record_defect("file::buggy.py", NOW - i as f64);
+        }
+        let score = ledger.compute_trust("file::buggy.py", NOW);
+        let band = trust_band(score.tier);
+        assert!(
+            matches!(band, "high" | "medium" | "low"),
+            "evidenced node band {band} must be a risk band"
+        );
+        assert_ne!(band, "insufficient_evidence");
     }
 }

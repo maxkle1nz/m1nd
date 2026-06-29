@@ -203,8 +203,11 @@ struct RankedPrediction {
     confidence: f32,
     final_score: f32,
     heuristic_factor: f32,
-    trust_score: f32,
+    /// `None` on the no-evidence (cold-start) path so the bare 0.5 prior is never
+    /// surfaced; read `trust_band` instead.
+    trust_score: Option<f32>,
     trust_risk_multiplier: f32,
+    trust_band: String,
     trust_tier: String,
     tremor_magnitude: Option<f32>,
     tremor_observation_count: usize,
@@ -2042,8 +2045,13 @@ pub fn handle_predict(
                 confidence: final_score.clamp(0.0, 1.0),
                 final_score,
                 heuristic_factor,
-                trust_score: trust.trust_score,
+                trust_score: if trust.tier == m1nd_core::trust::TrustTier::Unknown {
+                    None
+                } else {
+                    Some(trust.trust_score)
+                },
                 trust_risk_multiplier: trust.risk_multiplier,
+                trust_band: m1nd_core::trust::trust_band(trust.tier).to_string(),
                 trust_tier: format!("{:?}", trust.tier),
                 tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
                 tremor_observation_count,
@@ -2085,6 +2093,7 @@ pub fn handle_predict(
                 "confidence": prediction.confidence,
                 "heuristic_factor": prediction.heuristic_factor,
                 "trust_score": prediction.trust_score,
+                "trust_band": prediction.trust_band,
                 "trust_risk_multiplier": prediction.trust_risk_multiplier,
                 "trust_tier": prediction.trust_tier,
                 "tremor_magnitude": prediction.tremor_magnitude,

@@ -137,7 +137,27 @@ fn build_proactive_insights(
             );
         }
 
-        if summary.heuristic_signals.trust_risk_multiplier > 1.1 || summary.risk_score >= 0.45 {
+        if summary.heuristic_signals.trust_band == "insufficient_evidence" {
+            // Cold-start: no defect history. This must NOT be treated as benign —
+            // an unproven file is indistinguishable from a verified-clean one only
+            // if we stay silent. Route the agent to populate the actuarial model.
+            push_proactive_insight(
+                &mut insights,
+                surgical::ProactiveInsight {
+                    severity: "warning".into(),
+                    kind: "trust_drop".into(),
+                    message:
+                        "No defect history for this file — trust is unproven (insufficient_evidence), not benign. Run learn/cross_verify to populate it."
+                            .into(),
+                    confidence: 0.5,
+                    evidence: vec!["trust_band=insufficient_evidence".into()],
+                    suggested_tool: Some("cross_verify".into()),
+                    suggested_target: Some(file_path.to_string()),
+                },
+            );
+        } else if summary.heuristic_signals.trust_risk_multiplier > 1.1
+            || summary.risk_score >= 0.45
+        {
             push_proactive_insight(
                 &mut insights,
                 surgical::ProactiveInsight {
@@ -148,13 +168,13 @@ fn build_proactive_insights(
                     },
                     kind: "trust_drop".into(),
                     message: format!(
-                        "This file sits in a low-trust zone (trust {:.2}, risk multiplier {:.2}).",
-                        summary.heuristic_signals.trust_score,
+                        "This file sits in a low-trust zone (band {}, risk multiplier {:.2}).",
+                        summary.heuristic_signals.trust_band,
                         summary.heuristic_signals.trust_risk_multiplier
                     ),
                     confidence: (summary.risk_score + 0.2).min(0.95),
                     evidence: vec![
-                        format!("trust_score={:.2}", summary.heuristic_signals.trust_score),
+                        format!("trust_band={}", summary.heuristic_signals.trust_band),
                         format!(
                             "trust_risk_multiplier={:.2}",
                             summary.heuristic_signals.trust_risk_multiplier
@@ -782,8 +802,13 @@ fn build_surgical_heuristic_summary_with_extra_paths(
         antibody_hits,
         heuristic_signals: crate::protocol::layers::HeuristicSignals {
             heuristic_factor,
-            trust_score: trust.trust_score,
+            trust_score: if trust.tier == m1nd_core::trust::TrustTier::Unknown {
+                None
+            } else {
+                Some(trust.trust_score)
+            },
             trust_risk_multiplier: trust.risk_multiplier,
+            trust_band: m1nd_core::trust::trust_band(trust.tier).to_string(),
             trust_tier: format!("{:?}", trust.tier),
             tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
             tremor_observation_count,
