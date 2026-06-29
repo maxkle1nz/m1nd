@@ -184,8 +184,15 @@ pub struct ConformanceSummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HeuristicSignals {
     pub heuristic_factor: f32,
-    pub trust_score: f32,
+    /// Numeric trust score — ABSENT on the no-evidence (cold-start) path so the
+    /// meaningless 0.5 neutral prior is never surfaced; read `trust_band` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_score: Option<f32>,
     pub trust_risk_multiplier: f32,
+    /// Action-routable trust band: `high`/`medium`/`low`, or
+    /// `insufficient_evidence` when there is no defect history yet.
+    #[serde(default)]
+    pub trust_band: String,
     pub trust_tier: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tremor_magnitude: Option<f32>,

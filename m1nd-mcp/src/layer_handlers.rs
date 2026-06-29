@@ -561,8 +561,13 @@ pub fn handle_seek(
                 trigram: entry.trigram,
                 heuristic_signals: layers::HeuristicSignals {
                     heuristic_factor,
-                    trust_score: trust.trust_score,
+                    trust_score: if trust.tier == m1nd_core::trust::TrustTier::Unknown {
+                        None
+                    } else {
+                        Some(trust.trust_score)
+                    },
                     trust_risk_multiplier: trust.risk_multiplier,
+                    trust_band: m1nd_core::trust::trust_band(trust.tier).to_string(),
                     trust_tier: format!("{:?}", trust.tier),
                     tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
                     tremor_observation_count,
@@ -5851,8 +5856,13 @@ fn l6_vp_build_heuristic_hotspot(
             proof_hint: l6_vp_proof_hint(file_path, role, &heuristic_reason, antibody_hits),
             heuristic_signals: layers::HeuristicSignals {
                 heuristic_factor,
-                trust_score: trust.trust_score,
+                trust_score: if trust.tier == m1nd_core::trust::TrustTier::Unknown {
+                    None
+                } else {
+                    Some(trust.trust_score)
+                },
                 trust_risk_multiplier: trust.risk_multiplier,
+                trust_band: m1nd_core::trust::trust_band(trust.tier).to_string(),
                 trust_tier: format!("{:?}", trust.tier),
                 tremor_magnitude: tremor_alert.as_ref().map(|alert| alert.magnitude),
                 tremor_observation_count,
@@ -8324,6 +8334,7 @@ pub fn handle_trust(
                 "node_id": entry.node_id,
                 "label": entry.label,
                 "trust_score": entry.trust_score,
+                "trust_band": m1nd_core::trust::trust_band(entry.tier),
                 "defect_density": entry.defect_density,
                 "risk_multiplier": entry.risk_multiplier,
                 "recency_factor": entry.recency_factor,
@@ -8337,6 +8348,15 @@ pub fn handle_trust(
         })
         .collect();
 
+    let has_history = result.summary.total_nodes_with_history > 0;
+    // On the no-evidence path the bare 0.5 cold-start prior must be ABSENT, not
+    // surfaced as a number: emit null + the action-routable band instead.
+    let (mean_trust_json, mean_trust_band) = if has_history {
+        (serde_json::json!(result.summary.mean_trust), "evidenced")
+    } else {
+        (serde_json::Value::Null, "insufficient_evidence")
+    };
+
     let mut trust_out = serde_json::json!({
         "trust_scores": scores_json,
         "summary": {
@@ -8345,17 +8365,18 @@ pub fn handle_trust(
             "medium_risk_count": result.summary.medium_risk_count,
             "low_risk_count": result.summary.low_risk_count,
             "unknown_count": result.summary.unknown_count,
-            "mean_trust": result.summary.mean_trust,
+            "mean_trust": mean_trust_json,
         },
+        "trust_band": mean_trust_band,
         "scope": result.scope,
         "elapsed_ms": result.elapsed_ms,
     });
     // Honest empty-state guidance: trust is a defect-history model, not churn.
-    if result.summary.total_nodes_with_history == 0 {
+    if !has_history {
         trust_out.as_object_mut().unwrap().insert(
             "note".into(),
             serde_json::json!(
-                "No defect history yet — trust is an actuarial model of CONFIRMED defects, populated by `learn` feedback (feedback='wrong'/'partial') and cross_verify findings, NOT by code churn. mean_trust 0.5 is the cold-start neutral prior, not a computed score."
+                "No defect history yet (insufficient_evidence) — trust is an actuarial model of CONFIRMED defects, populated by `learn` feedback (feedback='wrong'/'partial') and cross_verify findings, NOT by code churn. mean_trust is null because there is no computed score to report — run learn/cross_verify to populate, or ingest if the graph is empty."
             ),
         );
     }
