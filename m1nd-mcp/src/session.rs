@@ -1240,6 +1240,14 @@ impl SessionState {
                 "[m1nd] read-only attach: holding no lease; persistence disabled; mutation tools gated."
             );
         }
+        // Best-effort, non-blocking sweep of dead lease/instance entries at every
+        // boot. The daemon-tick GC only runs when the daemon is active, so dead
+        // entries otherwise leak unbounded (~25k observed live). Detached on its
+        // own thread so it can NEVER delay the `initialize`/`tools/list`
+        // handshake regardless of registry size; our own live-pid entry (just
+        // written by `acquire_with_mode`) is never touched. Handle dropped:
+        // fire-and-forget.
+        let _ = crate::instance_registry::spawn_boot_gc(instance.registry_root());
         let ingest_roots = Self::load_ingest_roots(&config.graph_source);
 
         Ok(Self {
