@@ -95,18 +95,28 @@ pack_to_budget)` ranks `handle_seek` above the `pack_to_budget_*` tests), zero
 regression. CI green on 3 OSes before merge.
 
 ## Next Agent Prompt / next seeds
-1. **Receiver-type inference for `x.method()`** (the hard, high-value fix): track
-   local/field/return types so unqualified same-name method calls bind to the
-   owner (resolves the `propagate` / `detector.detect()` ties #175 can't reach).
-   Design-first with a safety valve; battery-gate with a new `x.method()` tie case.
-2. **Method-call edges for TS/Java/Go/Python** (mirror Rust #166).
-3. **Auto-freshness** (`ingest` auto-starts the watcher, opt-out, robust, tested).
-4. Keep HARDENING the harness on still-under-measured tools (auto_ingest, coverage
-   sessions) → hunt+fix the next real defect.
-5. Post-release: regenerate the 7 i18n READMEs + wiki for v1.1.0 (`focus`).
+
+**→ NORTH IS NOW `docs/NEXTGEN-AGENT-PRD.md` (#179)** — a deep-research synthesis
+attacking m1nd's measured weak points agent-first, with a ranked impact×tractability
+roadmap + permissive importable refs (sysinfo/fs4/lcov/git2 + H2O/MemoryOS/Letta
+concepts). Read it first. (It carries an orchestrator grounding correction: the
+research grounded on the STALE `~/m1nd`/beta.8 — re-verify every file:line anchor
+against THIS tree, which is v1.1.0; the symbol is the contract.)
+
+**Ranked roadmap (from the PRD):**
+1. GC scaling `is_pid_live` → `sysinfo` (A/P0) — smallest, gated, zero behavior change. **FIRST l00p mission** (`instance_registry.rs:529`).
+2. Kill the cold-start `0.5`/Unknown trust lie → `risk` band + `insufficient_evidence` (B/P1) — highest honesty-per-line.
+3. Graph-closure sufficiency verdict, BLOCKED on dangling load-bearing edges (C/P1) — keystone moat extension; EXTENDS the existing `compute_sufficiency`/`proof_state`.
+4. Freshness signal for ReadOnly (A/P1) → 5. auto-attach ladder = multi-agent-by-default (A/P2).
+6. head/tail positioning + ambiguity non_claim, WP2 (C) · 7. risk churn/fanout/bus_factor (B) · 8. bounded working-set over existing heat (C) · 9. conformal abstention (C+B) · 10. Tier-2 learned models (deferred).
+
+**Open research gap:** the dedicated agent-MEMORY dimension (extend L1GHT for
+multi-agent / decay / cross-agent — Letta/Zep/mem0) failed in the workflow; re-run
+that deep research to complete the PRD.
+
 Each cycle: measure → fix+test → update THIS file → seed the next. Run parallel
-worktree-isolated Opus frentes on non-overlapping surfaces; go SOLO if
-rate-limited (a parallel burst tripped the API rate limit this session).
+worktree-isolated Opus frentes on non-overlapping surfaces; go SOLO if rate-limited
+(parallel bursts tripped the API rate limit this session — serialize then).
 
 ## Do Not Do
 - Don't edit/build m1nd source while a battery/subagent is building on the shared
