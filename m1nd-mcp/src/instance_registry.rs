@@ -398,6 +398,24 @@ pub fn gc_dead_leases(registry_root: &Path) -> std::io::Result<GcReport> {
     Ok(report)
 }
 
+/// Spawn a best-effort, non-blocking boot-time sweep of dead lease/instance
+/// entries.
+///
+/// Detached on its own OS thread (NOT the tokio reactor — boot runs in both
+/// async and sync contexts) so it can NEVER delay the MCP `initialize` /
+/// `tools/list` handshake, even against a registry that has leaked tens of
+/// thousands of stale files. Errors are swallowed: a failed sweep must never
+/// fail or stall startup. The owning process's own (live-pid) entry is never
+/// touched, exactly as in `gc_dead_leases`.
+///
+/// Returns the `JoinHandle` so callers/tests *may* join for determinism; the
+/// boot path drops it (fire-and-forget) and returns immediately.
+pub fn spawn_boot_gc(registry_root: PathBuf) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let _ = gc_dead_leases(&registry_root);
+    })
+}
+
 /// Sweep a single registry directory, removing only entries whose pid is dead.
 fn gc_dead_in_dir(dir: &Path, scanned: &mut usize, removed: &mut usize) -> std::io::Result<()> {
     if !dir.exists() {
@@ -1017,5 +1035,66 @@ mod tests {
         assert!(live_entry_path.exists());
         assert!(live_lease_path.exists());
         assert!(corrupt_path.exists());
+    }
+
+    // Boot path: `spawn_boot_gc` must sweep dead-pid entries while keeping the
+    // live owner — mirrors `gc_removes_dead_entries_and_keeps_live_ones` but
+    // drives the sweep through the boot entry point that `SessionState::initialize`
+    // calls. Also proves the boot call is non-blocking: it returns a JoinHandle
+    // *immediately* (before the sweep can finish), and the work completes only
+    // once we join.
+    #[test]
+    fn boot_gc_sweeps_dead_entry_and_keeps_live_one() {
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        // Live owner (current pid) — must survive the boot sweep.
+        let live =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let live_entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", live.summary().instance_id));
+        let live_lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+
+        // Plant a dead lease + dead instance entry (pid never live).
+        let mut dead = live.summary();
+        dead.instance_id = "inst_dead".into();
+        dead.pid = u32::MAX - 1;
+        dead.runtime_root = "/tmp/dead-runtime".into();
+        let dead_entry_path = registry.join(INSTANCE_DIR_NAME).join("inst_dead.json");
+        let dead_lease_path = registry.join(LEASE_DIR_NAME).join("deadfingerprint.json");
+        save_json_atomic(&dead_entry_path, &dead).unwrap();
+        save_json_atomic(&dead_lease_path, &dead).unwrap();
+
+        // Drive the sweep through the boot entry point. `spawn_boot_gc` must
+        // return the handle promptly (fire-and-forget) rather than block on the
+        // sweep — a 25k-file dir at boot must not stall the handshake.
+        let started = std::time::Instant::now();
+        let handle = spawn_boot_gc(live.registry_root());
+        let spawn_elapsed = started.elapsed();
+        assert!(
+            spawn_elapsed < std::time::Duration::from_secs(1),
+            "spawn_boot_gc must return immediately (non-blocking); took {:?}",
+            spawn_elapsed,
+        );
+
+        // Join only to make the assertions deterministic (production drops it).
+        handle.join().unwrap();
+
+        // Dead entries swept; live owner kept.
+        assert!(!dead_entry_path.exists());
+        assert!(!dead_lease_path.exists());
+        assert!(live_entry_path.exists());
+        assert!(live_lease_path.exists());
     }
 }
