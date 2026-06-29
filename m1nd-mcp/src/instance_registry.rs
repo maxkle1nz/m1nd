@@ -1,13 +1,13 @@
 use m1nd_core::error::{M1ndError, M1ndResult};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 
@@ -378,20 +378,29 @@ pub fn delete_instance_state(
 /// Garbage-collect dead lease and instance entries.
 ///
 /// Scans both `leases/` and `instances/` under `registry_root` and removes any
-/// JSON entry whose recorded `pid` is provably NOT live (via `is_pid_live`).
-/// Entries owned by a live pid are NEVER removed. Any entry that fails to read
-/// or parse is skipped (never deleted), so corrupt/foreign files are left
-/// untouched. Safe to call while a live instance is running — only
-/// provably-dead entries are removed.
+/// JSON entry whose recorded `pid` is provably NOT live (via the per-sweep
+/// live-pid snapshot). Entries owned by a live pid are NEVER removed. Any entry
+/// that fails to read or parse is skipped (never deleted), so corrupt/foreign
+/// files are left untouched. Safe to call while a live instance is running —
+/// only provably-dead entries are removed.
+///
+/// The OS process table is read exactly ONCE per sweep (one `LivePids::snapshot`)
+/// and the resulting live-pid set is reused for every entry across both
+/// directories — so a boot sweep over a registry that has leaked tens of
+/// thousands of stale files does a single process-table read, not one per entry.
 pub fn gc_dead_leases(registry_root: &Path) -> std::io::Result<GcReport> {
     let mut report = GcReport::default();
+    // One process-table read for the whole sweep.
+    let live = LivePids::snapshot();
     gc_dead_in_dir(
         &registry_root.join(LEASE_DIR_NAME),
+        &live,
         &mut report.scanned,
         &mut report.leases_removed,
     )?;
     gc_dead_in_dir(
         &registry_root.join(INSTANCE_DIR_NAME),
+        &live,
         &mut report.scanned,
         &mut report.instances_removed,
     )?;
@@ -416,8 +425,14 @@ pub fn spawn_boot_gc(registry_root: PathBuf) -> std::thread::JoinHandle<()> {
     })
 }
 
-/// Sweep a single registry directory, removing only entries whose pid is dead.
-fn gc_dead_in_dir(dir: &Path, scanned: &mut usize, removed: &mut usize) -> std::io::Result<()> {
+/// Sweep a single registry directory, removing only entries whose pid is dead
+/// according to the pre-built per-sweep live-pid snapshot.
+fn gc_dead_in_dir(
+    dir: &Path,
+    live: &LivePids,
+    scanned: &mut usize,
+    removed: &mut usize,
+) -> std::io::Result<()> {
     if !dir.exists() {
         return Ok(());
     }
@@ -438,7 +453,7 @@ fn gc_dead_in_dir(dir: &Path, scanned: &mut usize, removed: &mut usize) -> std::
         };
         *scanned += 1;
         // NEVER remove an entry whose owning process is still alive.
-        if is_pid_live(entry.pid) {
+        if live.is_live(entry.pid) {
             continue;
         }
         if fs::remove_file(&path).is_ok() {
@@ -526,43 +541,59 @@ fn is_stale(last_heartbeat_ms: u64) -> bool {
     now_ms().saturating_sub(last_heartbeat_ms) > STALE_AFTER_MS
 }
 
+/// A point-in-time snapshot of which PIDs are live, built from a SINGLE read of
+/// the OS process table. Construct once per sweep and reuse for every entry so
+/// the process table is not re-read per registry entry.
+///
+/// Conservative by construction: if the platform is unsupported, or the process
+/// refresh failed/returned an empty table, the snapshot is `Unknown` and every
+/// pid is reported LIVE — so a GC sweep never deletes an entry it cannot prove
+/// dead. Only a successfully-built `Known` set can ever report a pid as dead.
+enum LivePids {
+    /// Platform unsupported or the refresh failed/was empty -> treat every pid
+    /// as live (never delete).
+    Unknown,
+    /// Successfully read live PIDs; only these are live, everything else dead.
+    Known(HashSet<u32>),
+}
+
+impl LivePids {
+    /// Read the OS process table exactly once. No subprocess is spawned.
+    fn snapshot() -> Self {
+        if !sysinfo::IS_SUPPORTED_SYSTEM {
+            return LivePids::Unknown;
+        }
+
+        let mut system = System::new();
+        let refreshed = system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing().without_tasks(),
+        );
+
+        if refreshed == 0 && system.processes().is_empty() {
+            return LivePids::Unknown;
+        }
+
+        LivePids::Known(system.processes().keys().map(|pid| pid.as_u32()).collect())
+    }
+
+    /// Conservative membership: `Unknown` -> always live; `Known` -> only pids
+    /// present in the snapshot are live.
+    fn is_live(&self, pid: u32) -> bool {
+        match self {
+            LivePids::Unknown => true,
+            LivePids::Known(set) => set.contains(&pid),
+        }
+    }
+}
+
+/// Single-PID liveness for the non-sweep callers (lease-collision check,
+/// `list_instances`, `delete_instance_state`). Reads the process table once per
+/// call via a fresh [`LivePids`] snapshot — acceptable for these one-off checks.
+/// The GC sweep does NOT use this; it shares one snapshot across all entries.
 fn is_pid_live(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        Command::new("kill")
-            .arg("-0")
-            .arg(pid.to_string())
-            .output()
-            .map(|output| {
-                output.status.success()
-                    || String::from_utf8_lossy(&output.stderr)
-                        .to_ascii_lowercase()
-                        .contains("operation not permitted")
-            })
-            .unwrap_or(false)
-    }
-    #[cfg(not(unix))]
-    {
-        #[cfg(windows)]
-        {
-            Command::new("tasklist")
-                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-                .output()
-                .map(|output| {
-                    if !output.status.success() {
-                        return false;
-                    }
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
-                    stdout.contains(&pid.to_string()) && !stdout.contains("no tasks")
-                })
-                .unwrap_or(false)
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = pid;
-            false
-        }
-    }
+    LivePids::snapshot().is_live(pid)
 }
 
 fn canonicalish(path: &Path) -> std::io::Result<PathBuf> {
@@ -691,7 +722,7 @@ Start one with: m1nd-mcp --serve --no-gui"
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Child;
+    use std::process::{Child, Command};
     use tempfile::tempdir;
 
     fn spawn_live_pid_fixture() -> Child {
@@ -1094,6 +1125,68 @@ mod tests {
         // Dead entries swept; live owner kept.
         assert!(!dead_entry_path.exists());
         assert!(!dead_lease_path.exists());
+        assert!(live_entry_path.exists());
+        assert!(live_lease_path.exists());
+    }
+
+    // Regression for the once-per-sweep liveness design: a single
+    // `gc_dead_leases` sweep over K planted dead-pid entries removes all K while
+    // keeping the live owner — and spawns ZERO subprocesses for liveness.
+    //
+    // The no-subprocess property is guaranteed *by construction*: liveness now
+    // flows through `LivePids` (one in-process `sysinfo` read shared across the
+    // whole sweep), and the only `Command` spawns in this module are this test
+    // module's `spawn_live_pid_fixture` (for foreign-owner collision tests),
+    // which this test never calls. With K = many entries the old per-entry
+    // `kill -0` path would have spawned K subprocesses; the new path spawns none
+    // and reads the process table exactly once.
+    #[test]
+    fn gc_sweep_removes_k_dead_entries_keeps_live_without_subprocesses() {
+        const K: usize = 64;
+
+        let temp = tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let runtime = temp.path().join("runtime");
+        let graph = runtime.join("graph.json");
+        let plasticity = runtime.join("plasticity.json");
+        let registry = temp.path().join("registry");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&runtime).unwrap();
+
+        // Live owner (current pid) — must survive the sweep.
+        let live =
+            InstanceHandle::acquire(&workspace, &runtime, &graph, &plasticity, Some(&registry))
+                .unwrap();
+        let live_entry_path = registry
+            .join(INSTANCE_DIR_NAME)
+            .join(format!("{}.json", live.summary().instance_id));
+        let live_lease_path = registry.join(LEASE_DIR_NAME).join(format!(
+            "{}.json",
+            fingerprint_path(&canonicalish(&runtime).unwrap())
+        ));
+
+        // Plant K dead instance entries (each a never-live pid).
+        let mut dead_paths = Vec::with_capacity(K);
+        for i in 0..K {
+            let mut dead = live.summary();
+            dead.instance_id = format!("inst_dead_{i}");
+            dead.pid = u32::MAX - 1 - i as u32; // never live
+            dead.runtime_root = format!("/tmp/dead-runtime-{i}");
+            let path = registry
+                .join(INSTANCE_DIR_NAME)
+                .join(format!("inst_dead_{i}.json"));
+            save_json_atomic(&path, &dead).unwrap();
+            dead_paths.push(path);
+        }
+
+        // A single sweep: one process-table read, no per-entry subprocesses.
+        let report = gc_dead_leases(&registry).unwrap();
+
+        // All K dead entries gone; live owner (entry + lease) kept.
+        assert_eq!(report.instances_removed, K);
+        for path in &dead_paths {
+            assert!(!path.exists(), "dead entry should be swept: {path:?}");
+        }
         assert!(live_entry_path.exists());
         assert!(live_lease_path.exists());
     }
