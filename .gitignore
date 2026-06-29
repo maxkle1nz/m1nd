@@ -44,3 +44,9 @@ docs/benchmarks/**/operator-only/seeded-diff.patch
 
 # Locally installed agent pack (per-machine install artifact from `m1nd install-skills`)
 .m1nd/
+
+# Scratchpad: ephemeral working dir. Ignore everything EXCEPT the canonical
+# capability test battery, which is tracked in-repo so it can never silently
+# vanish again (it was previously gitignored and died with cleared scratchpads).
+scratchpad/*
+!scratchpad/m1nd_battery.py
