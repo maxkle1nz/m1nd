@@ -6,6 +6,7 @@ use crate::perspective::keys::{edge_content_key, normalize_bidi_endpoints};
 use crate::perspective::state::*;
 use crate::protocol::lock::*;
 use crate::session::SessionState;
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::EdgeIdx;
 use std::collections::{HashMap, HashSet};
@@ -13,13 +14,6 @@ use std::collections::{HashMap, HashSet};
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 /// Validate lock ownership and return reference, or error.
 fn require_lock<'a>(

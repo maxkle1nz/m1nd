@@ -1,3 +1,4 @@
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,6 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
@@ -635,13 +635,6 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
     fs::write(&temp, json)?;
     fs::rename(temp, path)?;
     Ok(())
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// Build the reachable base URL for a registry entry, applying the same rule the

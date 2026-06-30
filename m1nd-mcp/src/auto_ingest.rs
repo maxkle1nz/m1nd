@@ -6,6 +6,7 @@ use crate::protocol::auto_ingest::{
 use crate::scope::normalize_path_text;
 use crate::session::SessionState;
 use crate::universal_docs;
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_ingest::document_router::{DocumentFormat, DocumentRouter};
 use m1nd_ingest::merge::{collect_source_claims, prune_source_claims, SourceClaims};
@@ -203,13 +204,6 @@ impl AutoIngestState {
         Ok(normalized)
     }
 
-    fn now_ms() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_millis() as u64)
-            .unwrap_or(0)
-    }
-
     fn append_event(
         &mut self,
         runtime_root: &Path,
@@ -225,7 +219,7 @@ impl AutoIngestState {
             status: status.to_string(),
             format,
             detail,
-            timestamp_ms: Self::now_ms(),
+            timestamp_ms: now_ms(),
         };
         self.persistent.events_seen += 1;
         self.persistent.recent_events.push(event.clone());
@@ -256,7 +250,7 @@ impl AutoIngestState {
         path: String,
         kind: PendingChangeKind,
     ) {
-        let now_ms = Self::now_ms();
+        let now_ms = now_ms();
         let mut pending = pending.lock();
         pending
             .entry(path.clone())
@@ -478,7 +472,7 @@ impl AutoIngestState {
     }
 
     fn take_ready_changes(&mut self, force: bool) -> Vec<PendingChange> {
-        let now_ms = Self::now_ms();
+        let now_ms = now_ms();
         let debounce_ms = self.persistent.debounce_ms;
         let mut pending = self.pending.lock();
         let ready_keys: Vec<String> = pending
@@ -916,7 +910,7 @@ impl AutoIngestState {
                             namespace: self.persistent.namespace.clone(),
                             fingerprint,
                             claims,
-                            last_ingested_ms: Self::now_ms(),
+                            last_ingested_ms: now_ms(),
                         },
                     );
                     self.persistent.ingests_applied += 1;
@@ -939,7 +933,7 @@ impl AutoIngestState {
             state.notify_watchers(crate::perspective::state::WatchTrigger::Ingest);
         }
 
-        self.persistent.last_tick_ms = Some(Self::now_ms());
+        self.persistent.last_tick_ms = Some(now_ms());
         self.persist(&state.runtime_root)?;
 
         Ok(AutoIngestTickOutput {

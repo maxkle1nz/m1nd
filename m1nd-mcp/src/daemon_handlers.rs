@@ -1,20 +1,13 @@
 use crate::protocol::layers;
 use crate::scope::normalize_path_text;
 use crate::session::{DaemonAlert, DaemonTrackedFile, FileInventoryEntry, SessionState};
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde_json::json;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 fn simple_content_hash(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;

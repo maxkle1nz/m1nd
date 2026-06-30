@@ -1,8 +1,8 @@
 use crate::session::{BootMemoryEntry, SessionState};
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Deserialize)]
 pub struct BootMemoryInput {
@@ -111,13 +111,6 @@ fn status_payload(state: &SessionState) -> Value {
         "path": state.boot_memory_path.to_string_lossy(),
         "keys": keys,
     })
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

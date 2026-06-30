@@ -28,6 +28,7 @@ use crate::instance_registry::{
 };
 use crate::server::{all_tool_schemas, dispatch_tool, tool_schemas, McpConfig};
 use crate::session::{ApplyBatchProgressSink, SessionState};
+use crate::util::now_ms;
 
 // ---------------------------------------------------------------------------
 // Event log: append-only JSON lines file for cross-process SSE (Option B)
@@ -654,14 +655,6 @@ fn truncate_json(value: &serde_json::Value, max_chars: usize) -> serde_json::Val
     } else {
         serde_json::Value::String(format!("{}...(truncated)", &s[..max_chars]))
     }
-}
-
-/// Current timestamp in milliseconds since epoch.
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// Build a JSON error payload for tool execution timeouts.
