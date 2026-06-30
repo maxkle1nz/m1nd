@@ -5,21 +5,12 @@
 
 use crate::protocol::core::IngestInput;
 use crate::session::SessionState;
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/// Unix epoch milliseconds — same helper pattern as the sibling handler modules
-/// (`boot_memory_handlers::now_ms`, `lock_handlers::now_ms`, …).
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
 
 // ---------------------------------------------------------------------------
 // serde default helpers

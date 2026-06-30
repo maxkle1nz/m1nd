@@ -12,6 +12,7 @@ use crate::perspective::state::*;
 use crate::perspective::validation::*;
 use crate::protocol::perspective::*;
 use crate::session::SessionState;
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::types::EdgeIdx;
 use std::collections::HashSet;
@@ -19,13 +20,6 @@ use std::collections::HashSet;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 fn perspective_not_found_error(tool: &str, agent_id: &str, perspective_id: &str) -> M1ndError {
     M1ndError::InvalidParams {

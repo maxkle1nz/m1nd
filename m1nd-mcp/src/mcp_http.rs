@@ -37,6 +37,7 @@ use parking_lot::Mutex;
 use crate::http_server::{AppState, SseEvent};
 use crate::protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::server::handle_mcp_method;
+use crate::util::now_ms;
 
 /// Per-spec MCP session header name (case-insensitive on the wire).
 const MCP_SESSION_HEADER: &str = "mcp-session-id";
@@ -175,14 +176,6 @@ pub type McpSessionRegistry = Arc<Mutex<HashMap<String, McpTransportSession>>>;
 /// Build a fresh, empty MCP session registry.
 pub fn new_mcp_session_registry() -> McpSessionRegistry {
     Arc::new(Mutex::new(HashMap::new()))
-}
-
-/// Current timestamp in milliseconds since epoch.
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// Monotonic counter so two ids minted in the same millisecond differ.

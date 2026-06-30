@@ -5,6 +5,7 @@ use crate::protocol::auto_ingest::{
     DocumentResolveOutput,
 };
 use crate::session::SessionState;
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use m1nd_core::graph::{Graph, NodeProvenanceInput};
 use m1nd_core::types::NodeId;
@@ -846,13 +847,6 @@ fn compute_drift(
         findings,
         summary,
     })
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn expected_node_ids(document: &CanonicalDocument, namespace: &str) -> Vec<String> {

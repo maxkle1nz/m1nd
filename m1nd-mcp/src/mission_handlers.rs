@@ -3,13 +3,13 @@ use crate::protocol::layers::{
     MissionVerifyInput,
 };
 use crate::session::SessionState;
+use crate::util::now_ms;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const STATE_SCHEMA: &str = "m1nd-mission-control-state-v1";
 const START_SCHEMA: &str = "m1nd-mission-start-v0";
@@ -529,13 +529,6 @@ fn invalid_start<T>(detail: &str) -> M1ndResult<T> {
         tool: "mission_start".into(),
         detail: detail.to_string(),
     })
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 fn build_mission_id(now: u64, agent_id: &str, task: &str) -> String {

@@ -14,6 +14,7 @@ use crate::session::SessionState;
 use crate::surgical_handlers;
 use crate::tools;
 use crate::universal_docs;
+use crate::util::now_ms;
 use m1nd_core::domain::DomainConfig;
 use m1nd_core::error::{M1ndError, M1ndResult};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -24,7 +25,6 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // MCP protocol instructions — injected into initialize response so agents
@@ -3899,13 +3899,6 @@ fn dispatch_core_tool(
             name: tool_name.to_string(),
         }),
     }
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// MCP protocol version this server implements/prefers.

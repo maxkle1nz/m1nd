@@ -10,6 +10,7 @@ pub mod protocol;
 pub mod server;
 pub mod session;
 pub mod tools;
+pub mod util;
 
 // Perspective MCP — stateful navigation layer (12-PERSPECTIVE-SYNTHESIS)
 pub mod boot_memory_handlers;
