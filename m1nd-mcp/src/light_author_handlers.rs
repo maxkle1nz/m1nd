@@ -10,6 +10,16 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Unix epoch milliseconds — same helper pattern as the sibling handler modules
+/// (`boot_memory_handlers::now_ms`, `lock_handlers::now_ms`, …).
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 // ---------------------------------------------------------------------------
 // serde default helpers
@@ -187,6 +197,11 @@ pub fn render_light_markdown(input: &LightAuthorInput) -> String {
     out.push_str("Protocol: L1GHT/1.0\n");
     out.push_str(&format!("Node: {}\n", input.node_label));
     out.push_str(&format!("State: {}\n", state_val));
+    // Provenance: when this memory was written and which agent authored it.
+    // Missing on older `.light.md` files is honestly "unknown" — the parser
+    // ignores unknown frontmatter keys, so these are backward-compatible.
+    out.push_str(&format!("Created: {}\n", now_ms()));
+    out.push_str(&format!("Source-Agent: {}\n", input.agent_id));
     out.push_str("---\n");
     out.push('\n');
 
@@ -460,7 +475,108 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Test 3: slugify helper
+    // Test 3: provenance frontmatter (Created + Source-Agent) is stamped
+    // -----------------------------------------------------------------------
+    #[test]
+    fn memorize_stamps_created_and_source_agent() {
+        let before = now_ms();
+
+        let input = make_input(vec![LightClaim {
+            label: "TokenValidator".into(),
+            text: None,
+            kind: Some("entity".into()),
+            confidence: None,
+            ambiguity: None,
+            evidence: vec![],
+            depends_on: vec![],
+        }]);
+
+        let md = render_light_markdown(&input);
+        let after = now_ms();
+
+        // Source-Agent equals the input agent_id ("test-agent" from make_input).
+        assert!(
+            md.contains("Source-Agent: test-agent"),
+            "Source-Agent frontmatter missing or wrong, got:\n{}",
+            md
+        );
+
+        // Created is present with a plausible unix-millis value inside [before, after].
+        let created_line = md
+            .lines()
+            .find_map(|l| l.strip_prefix("Created: "))
+            .expect("Created frontmatter line missing");
+        let created: u64 = created_line
+            .trim()
+            .parse()
+            .expect("Created value is not unix millis");
+        assert!(
+            created >= before && created <= after,
+            "Created={} not within [{}, {}] — implausible timestamp",
+            created,
+            before,
+            after
+        );
+
+        // Provenance lives in frontmatter (before the closing `---`/title).
+        let created_pos = md.find("Created:").expect("Created pos");
+        let title_pos = md.find("# AuthSystem").expect("title pos");
+        assert!(
+            created_pos < title_pos,
+            "Created must be in frontmatter, before the title"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 4: backward compat — a legacy .light.md lacking the new fields
+    // still ingests cleanly (missing = unknown, never an error).
+    // -----------------------------------------------------------------------
+    #[test]
+    fn legacy_light_md_without_provenance_still_ingests() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(&proj).expect("proj dir");
+
+        // Hand-written legacy memory: only the pre-provenance frontmatter keys.
+        let legacy = "---\nProtocol: L1GHT/1.0\nNode: LegacyNode\nState: authored\n---\n\n# LegacyNode\n\n## LegacyNode\n\nA legacy claim with no provenance.\n\n[⍂ entity: LegacyClaim]\n[𝔻 confidence: 0.8]\n";
+        std::fs::write(proj.join("legacy.light.md"), legacy).expect("write legacy");
+
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        let ingest = IngestInput {
+            path: proj.to_string_lossy().to_string(),
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: "light".into(),
+            mode: "merge".into(),
+            namespace: Some("light".into()),
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+
+        // Must NOT error on the absent Created/Source-Agent keys.
+        let result = crate::tools::handle_ingest(&mut state, ingest)
+            .expect("legacy light .md must ingest without error");
+
+        let node_count = result["node_count"].as_u64().unwrap_or(0);
+        assert!(
+            node_count >= 1,
+            "legacy light .md should still produce nodes, got node_count={}",
+            node_count
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 5: slugify helper
     // -----------------------------------------------------------------------
     #[test]
     fn slugify_lowercases_and_replaces_non_alnum() {
