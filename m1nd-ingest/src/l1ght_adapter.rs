@@ -44,6 +44,11 @@ struct HeaderMeta {
     glyph: Option<String>,
     completeness: Option<String>,
     proof: Option<String>,
+    /// Provenance stamped by the `memorize` writer (Move 1): when this memory was
+    /// written (Unix millis) and which agent authored it. Absent on legacy files —
+    /// honestly "unknown", never faked.
+    created: Option<String>,
+    source_agent: Option<String>,
     depends_on: Vec<String>,
     next: Vec<String>,
 }
@@ -181,8 +186,14 @@ impl L1ghtIngestAdapter {
     fn push_node(
         nodes: &mut Vec<L1ghtNodeRecord>,
         seen: &mut HashSet<String>,
-        record: L1ghtNodeRecord,
+        mut record: L1ghtNodeRecord,
+        prov_tags: &[String],
     ) {
+        // Stamp the file's provenance (Created/Source-Agent, parsed from the
+        // frontmatter) onto every node from that file, so any recall hit — file,
+        // section, or claim node — carries the authored-age + source labels.
+        // Absent on legacy files: `prov_tags` is empty, so nothing is added.
+        record.tags.extend(prov_tags.iter().cloned());
         if seen.insert(record.id.clone()) {
             nodes.push(record);
         }
@@ -253,6 +264,12 @@ impl L1ghtIngestAdapter {
             } else if let Some(value) = trimmed.strip_prefix("Proof:") {
                 meta.proof = Some(value.trim().to_string());
                 current_list = None;
+            } else if let Some(value) = trimmed.strip_prefix("Created:") {
+                meta.created = Some(value.trim().to_string());
+                current_list = None;
+            } else if let Some(value) = trimmed.strip_prefix("Source-Agent:") {
+                meta.source_agent = Some(value.trim().to_string());
+                current_list = None;
             } else if trimmed == "Depends on:" {
                 current_list = Some("depends_on");
             } else if trimmed == "Next:" {
@@ -297,6 +314,20 @@ impl L1ghtIngestAdapter {
             .unwrap_or(&rel_path)
             .to_string();
 
+        let lines: Vec<&str> = text.lines().collect();
+        let header_meta = Self::parse_header(&lines[..lines.len().min(40)]);
+
+        // Provenance tags (Created/Source-Agent) parsed from the frontmatter, to
+        // be stamped on every node from this file so recall can label the hit.
+        // Mirrors how `light:confidence:<v>` is already encoded as a tag.
+        let mut prov_tags: Vec<String> = Vec::new();
+        if let Some(created) = &header_meta.created {
+            prov_tags.push(format!("light:created:{}", created.trim()));
+        }
+        if let Some(source_agent) = &header_meta.source_agent {
+            prov_tags.push(format!("light:source_agent:{}", source_agent.trim()));
+        }
+
         Self::push_node(
             nodes,
             node_seen,
@@ -314,10 +345,9 @@ impl L1ghtIngestAdapter {
                 namespace: self.namespace.clone(),
                 canonical: true,
             },
+            &prov_tags,
         );
 
-        let lines: Vec<&str> = text.lines().collect();
-        let header_meta = Self::parse_header(&lines[..lines.len().min(40)]);
         let section_re = Regex::new(r"^##\s+(.+?)\s*$").unwrap();
         let tag_re = Regex::new(r"\[(?P<tag>[^\]]+)\]").unwrap();
 
@@ -353,6 +383,7 @@ impl L1ghtIngestAdapter {
                         namespace: self.namespace.clone(),
                         canonical: true,
                     },
+                    &prov_tags,
                 );
                 let relation = match key {
                     "protocol" => "defines_protocol",
@@ -401,6 +432,7 @@ impl L1ghtIngestAdapter {
                     namespace: self.namespace.clone(),
                     canonical: true,
                 },
+                &prov_tags,
             );
             Self::push_edge(
                 edges,
@@ -441,6 +473,7 @@ impl L1ghtIngestAdapter {
                     namespace: self.namespace.clone(),
                     canonical: true,
                 },
+                &prov_tags,
             );
             Self::push_edge(
                 edges,
@@ -490,6 +523,7 @@ impl L1ghtIngestAdapter {
                         namespace: self.namespace.clone(),
                         canonical: true,
                     },
+                    &prov_tags,
                 );
                 Self::push_edge(
                     edges,
@@ -590,6 +624,7 @@ impl L1ghtIngestAdapter {
                         namespace: self.namespace.clone(),
                         canonical: true,
                     },
+                    &prov_tags,
                 );
 
                 // Epistemic markers attach to the preceding claim; others attach to
@@ -738,5 +773,42 @@ mod confidence_tests {
     #[test]
     fn unknown_confidence_is_neutral() {
         assert!((A::parse_confidence("banana") - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parses_created_and_source_agent_frontmatter() {
+        let lines = [
+            "---",
+            "Protocol: L1GHT/1.0",
+            "Node: AuthSystem",
+            "State: verified",
+            "Created: 1700000000000",
+            "Source-Agent: agent-B",
+            "---",
+        ];
+        let meta = A::parse_header(&lines);
+        assert_eq!(meta.created.as_deref(), Some("1700000000000"));
+        assert_eq!(meta.source_agent.as_deref(), Some("agent-B"));
+    }
+
+    #[test]
+    fn absent_provenance_frontmatter_is_none() {
+        // Legacy frontmatter: no Created / Source-Agent → honestly None, never faked.
+        let lines = [
+            "---",
+            "Protocol: L1GHT/1.0",
+            "Node: LegacyNode",
+            "State: authored",
+            "---",
+        ];
+        let meta = A::parse_header(&lines);
+        assert!(
+            meta.created.is_none(),
+            "Created must be None on legacy files"
+        );
+        assert!(
+            meta.source_agent.is_none(),
+            "Source-Agent must be None on legacy files"
+        );
     }
 }
