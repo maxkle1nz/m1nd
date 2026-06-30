@@ -8,6 +8,241 @@
 
 ---
 
+# m1nd-OMEGA — the v1.2 → v2.0 era
+
+> **Banner / codename, not a separate product (yet).** *m1nd-OMEGA* is the era spanning **v1.2.0 → v2.0** of this runtime, not a fork or a rewrite. Concretely: **v1.2.0 is cut the moment the first OMEGA verb ships** — Move 0 (the calibration harness) plus the Trust-Gated Envelope. OMEGA features then land **incrementally across 1.2.x → 1.9.x**, each one battery- and *calibration*-gated, reuse-first over what already ships. At roughly **v2.0 the era graduates** into a separately-named product. Everything below this banner is the umbrella vision; **Subsystems A–D (§3) are the first concrete OMEGA deliverables** that make it real. This section is held to the same honesty standard as the rest of the PRD: every claim is written to survive the adversarial critic, and the critic's corrections are baked in (not bolted on as caveats) — because for OMEGA, *honesty is the moat*, so the doc itself must model it.
+
+## O.1 Thesis
+
+m1nd-OMEGA is the **verifiable trust substrate that autonomous agents route every code decision through** — the content-addressed, file-incremental code graph m1nd already builds (fused with dataflow/taint and a non-optional honesty layer), where every answer ships with a *map* (what it reaches), a *receipt* (the re-derivable evidence behind it), and a *trust verdict* (`act` / `reverify` / `abstain` / `unprovable`). It is not a better search engine; it is the thing that lets an agent **mechanically decide how much to rely on an answer, when to stop spending, and when to refuse to act** — the properties that survive model churn, codebase drift, and oracle-poisoning over a 20-year horizon. The leap from m1nd to OMEGA is making **composition first-class**: an agent gets answer + map + trust in *one* round-trip instead of orchestrating N calls by hand, because the cost law (Σ turns × growing context) makes N round-trips the agent's dominant tax.
+
+## O.2 The questions only m1nd answers (the egregious census, deduped)
+
+These are questions no grep/LSP/RAG/CPG product answers today — each grounded in a tool that ships in m1nd's grounded catalog (the 119-tool census these signals are read off of). They are the raw signals OMEGA composes; OMEGA invents none of them.
+
+**Sufficiency & economics (agent-native, no human equivalent)**
+- *Do I already have ENOUGH context to act, or is there still-relevant code I haven't seen?* — `seek`/`focus` answer-free knee-test verdict (sufficient / gathering / saturated).
+- *Given a token budget, what is the MINIMAL set worth loading, and exactly what did you leave out and why?* — `focus` budget-bounded set + honest `ignored` count that **can never read zero while truncation happened**.
+- *In this session, which files have I actually visited vs. left as blind spots?* — `coverage_session` unvisited negative-space.
+
+**Reality reconciliation (time + disk, categorically outside snapshot tools)**
+- *Has anything in my working set changed on disk SINCE ingest, so my cached understanding is now lying?* — `am_i_stale` SHA256-vs-inventory proof.
+- *Which files change TOGETHER in git history despite having NO import/call edge?* — `ghost_edges` temporal coupling.
+- *Which modules are ACCELERATING in churn (second derivative) — imminent-bug precursors?* — `tremor`.
+- *How structurally divergent is the repo vs a baseline ref/date/last_session?* — `diverge` (1 − Jaccard) + `drift` (Hebbian edge-weight drift).
+
+**Transitive structure & flow (multi-hop, weighted, honest)**
+- *Full transitive blast radius of a change, ranked production-first, with causal chains — and is the answer honestly complete or resting on a dropped edge?* — `impact` + `why` closure verdict.
+- *If I DELETE these nodes, how much reachability is lost, and do they fail synergistically or redundantly?* — `counterfactual`.
+- *What else will I be forced to change, learned from git co-change, dampened by trust/tremor?* — `predict`.
+- *Does tainted data reach a sink WITHOUT crossing a validation boundary?* — `taint_trace` boundary_misses.
+- *Where do concurrent paths collide on shared state without a lock?* — `flow_simulate` turbulence points.
+- *Where SHOULD a connection exist but doesn't?* — `missing` structural holes (reasoning about **absence**, which grep structurally cannot).
+
+**Learned defect history (actuarial, decaying — no static analog)**
+- *Which modules are actuarially most likely buggy RIGHT NOW, by confirmed-defect density with recency half-life?* — `trust` (and it honestly emits **null, not a fake 0.5**, on empty history).
+- *How risky is editing THIS file, by accumulated operational history (trust × tremor × antibody × blast)?* — `heuristics_surface`.
+- *Does my planned edit reproduce a confirmed past bug pattern, including a NEGATIVE-edge "must NOT call the validator" shape?* — `antibody_scan`.
+
+**Self-trust (a server reasoning about its own honesty)**
+- *Am I bound to the m1nd I think I am — same process/binary/graph/generation, or split-brain/stale/wrong-workspace?* — `trust_selftest`/`session_handshake` binding_fingerprint.
+- *Is this empty result the truth, or a binding artifact — and what exact step repairs it?* — `recovery_playbook` deterministic state machine.
+- *Does the graph still match disk, and is every memorized claim's `grounded_in` evidence file still byte-identical?* — `cross_verify` evidence_freshness re-hashing.
+
+**Architecture conformance & proof-state (the code > intended-truth diff)**
+- *Does real code still obey the North Star, and which edges are eroding it?* — `xray_orient` + `xray_gate`.
+- *What is each node's structural proof-state (bedrock / unproven / overgrowth / erosion), with a repo-wide proof_coverage fraction?* — `xray_paint`.
+- *Which docs/specs have silently drifted from the code they describe?* — `document_drift`.
+- *Is this plain-English architectural claim true, with a Bayesian verdict + contradicting evidence?* — `hypothesize`.
+
+**Agent-process governance (proves HOW an agent investigated)**
+- *Given my recorded event stream, what is the ONE next move that advances PROOF, and what am I forbidden from doing?* — `mission_next`.
+- *Is THIS claim allowed to count as verified, or is my evidence merely graph-only?* — `mission_verify` (**structurally rejects graph-only evidence**).
+- *Hand my whole investigation to a successor: what's proven, open, dead, and NOT to re-claim.* — `mission_handoff`/`mission_close` proof packet.
+- *Which of my saved hypotheses are now stale because their supporting nodes vanished?* — `trail_resume` (auto-downgrades >50%-vanished hypotheses).
+
+**Runtime & cross-repo (reality beyond topology)**
+- *Where does real production heat (hot/slow/error OTel spans) land on the graph?* — `runtime_overlay` (honestly reports `spans_unmapped`).
+- *Which OTHER repos does this codebase point at, and can I federate them with typed cross-repo edges?* — `external_references` + `federate_auto`.
+
+The honest weak spots the census itself names — `report`'s token/CO₂ "savings" are heuristic constants, `trust`'s guidance string falsely claims `cross_verify` populates it (only `learn` does), perspective route-families are cosmetically `Structural`-only — are **load-bearing for OMEGA's credibility**: a tool that documents its own lies is the one agents trust. They stay documented and get *fixed*, never hidden.
+
+## O.3 The combinatorial superpowers (the heart)
+
+Independent design passes converged on the same small set of fusions. Deduped and sharpened, the durable winners cluster into **four families**, ranked by leverage. **Every composing tool ships today** — OMEGA is wiring, not a new engine.
+
+### ★ #1 — The Trust-Gated Answer Envelope (the universal receipt)
+
+Wrap *any* m1nd answer in a per-answer trust verdict.
+
+- **Composes:** `trust_selftest` (right/fresh binding, not split-brain) × `cross_verify` evidence_freshness (cited file re-hashed, still matches) × `am_i_stale` (working-set hash check) × the answer's own `why`/`seek` **closure** verdict (closed vs blocked-on-dangling-edge) × `mission_verify` evidence class (direct vs graph-only).
+- **New question:** *"Should I act on THIS specific answer at full confidence, or is the binding / evidence / closure / evidence-class underneath it rotten?"* → a verdict in `{act | reverify | abstain | unprovable}`, with the exact repair call named when not `act`.
+- **Why it matters for an agent:** an agent calling tools 1000×/session cannot hand-audit each answer. A composable receipt lets it *mechanically* decide reliance — the property that makes a tool trusted for 20 years instead of abandoned the first time it serves a stale answer over a split-brain binding.
+- **Honest novelty (critic-corrected — see §O.5):** the genuinely new thing is fusing **binding-identity + evidence-rehash + closure + evidence-class into one abstain signal over a re-derivable code graph**. It is **not** "nobody ever did this" — per-answer trust/faithfulness receipts are an active research line; OMEGA's contribution is the *self-falsifying code-graph substrate* the receipt rests on.
+- **The gate is a CALIBRATED WEIGHTING, not an any-red AND-fold (critic correction baked in).** A naïve `any-red ⇒ abstain` AND over 4–5 noisy probes yields **~23% spurious abstention on a churning repo**; agents learn the envelope "cries wolf" and route around it — and the moat dies. The default policy **must** be a calibrated weighting (per-probe reliability weights + an operator risk budget) tuned against ground truth *before* it is allowed to default on. `act` is not a syntactic conjunction; it is a calibrated decision the §O.6 Move 0 harness must certify.
+- **Build path:** a thin `envelope` wrapper every answer-emitting tool can opt into; the receipt is content-addressed (reuse `mission_event`'s `event_digest`) so a CI gate or future agent re-checks it. Ships **DARK** until the calibrator certifies its precision-at-coverage clears the budget.
+
+### ★ #2 — Provable-Edit Underwriting (the pre-commit regret gate)
+
+The most-converged-on edit-time fusion.
+
+- **Composes:** `validate_plan` (3-hop blast radius + untested-critical gaps + proof_state) × `predict`+`ghost_edges` (git co-change files I'll *also* touch) × `tremor`+`trust` (which are accelerating / defect-prone) × `xray_gate` (would my planned imports violate the ratified North Star?) × `antibody_scan` (does my edit reproduce a confirmed bug pattern?) × `am_i_stale` (is my picture even current?).
+- **New question:** *"Before I write one character: what is this edit's regret — its untested transitive dependents, the co-change tail I'll forget, the architecture rule I'd erode, the bug-shape I'd reopen, AND whether my model is already stale — fused into one go/insure/abort verdict plus the minimal co-change+test set that brings risk under my budget?"*
+- **Why it matters for an agent:** this is the direct answer to the SWE-CI regression collapse. A human eyeballs the diff and ships; an autonomous agent owning code for years needs a pre-commit actuarial gate that says "don't" *with a reason it is bound to honor*. Knowing the regret *before* writing lets the agent batch co-changes into ONE pass or abstain — instead of paying for three corrective loops.
+- **Honesty:** inherits each input's honesty marker, so it degrades to **UNPROVABLE** rather than a fake green light. The verdict emits `{proceed | require-human | abstain}` + the minimal-cover set. Like every OMEGA verb, it ships **calibration-gated**: `act`/`proceed` is only an allowed output once Move 0 certifies it empirically clears the regression-risk budget against a replayed-CI eval.
+
+### ★ #3 — Stale-Belief Quarantine on Resume (memory that expires on proof)
+
+The antidote to the frontier's named #1 trust-killer: temporal obsolescence.
+
+- **Composes:** `boot_memory`/`reload_agent_memory`/`trail_resume` (what a past me concluded) × `cross_verify` evidence_freshness (re-hash every `grounded_in` file behind a memorized claim) × `am_i_stale` (per-file SHA drift) × `diverge(last_session)` (structural drift) × `alerts_list` (what the daemon flagged while nobody watched).
+- **New question:** *"At session boot, partition everything I durably believe into STILL-TRUE / SOFT-STALE / DEAD — and re-inject only the still-true — before I touch anything. What is the minimal re-derivation set that restores correctness?"*
+- **Why it matters for an agent:** a human reopens an IDE with no memory; an agent reopens *with* compounding memory that may have silently rotted, and confidently acts on a function renamed three commits ago. Stale knowledge **expires loudly with proof** (a SHA mismatch, a missing-node count), never on a guess. It operationalizes the `code > PATHOS > memory` hierarchy as a boot-time sweep.
+- **Honest novelty + scoping correction (baked in — see §O.5):** bi-temporal belief quarantine is a known pattern (a port of Zep/Graphiti's invalidate-not-delete onto a *code* graph) — frame it as a port, not an invention. **Two grounding defects the critic found, corrected here:** (a) cross-session belief freshness **cannot** come from `am_i_stale` (it is empty at session boot and only sees THIS session's visited files) — it **must** come from `cross_verify` re-hashing each claim's `grounded_in`; (b) propagating staleness through the co-change matrix is **net-new logic**, not "85% exists" — `ghost_edges` exposes only **3 scalar counts**, not a caller-facing co-change matrix, so the matrix-propagation step has to be built. This directly grounds Subsystem D's Move 2/4 staleness work (§3).
+
+### ★ #4 — Round-Trip Solvency & Stop Gate (the economics arbiter)
+
+The decision a human never faces and an agent faces most.
+
+- **Composes:** `focus`/`seek` sufficiency verdict + honest `ignored` tail × `coverage_session` (what I've paid to load) × a real remaining-**token**-budget signal × `mission_next` do-not list × `am_i_stale` (how much of what I hold is already invalid).
+- **New question:** *"Given my remaining budget and what I've loaded, (a) is there a path to a PROVEN close or will I run dry mid-edit, and (b) is one more m1nd call worth it — 'saturated, you're paying to re-confirm what you know, STOP' — or should I re-scope / hand off NOW?"*
+- **Why it matters for an agent:** this is the cost law made actionable *before* the agent commits. Stopping too early ⇒ wrong action; too late ⇒ burn the budget. An agent that detects "I'll run dry 3 round-trips short" re-scopes to a provably-completable slice instead of dying with half the call-sites converted.
+- **Composition defect the critic found — corrected, not hidden (see §O.5):** the naïve formula *"diff `budget_consumed` against `relevance_clearing_total` minus `coverage_session`"* **composes incompatible units** and is wrong. `budget_consumed` is a **tool-CALL-count fraction** that requires an open mission; `relevance_clearing_total` is a **node count**; `coverage_session` is **visited-files** — they do not subtract. The Solvency Gate therefore needs a **real token-budget signal** wired in (or that signal is **net-new** and must be built), not an arithmetic of three mismatched scalars. The honesty floor still holds (`focus`'s `ignored_count` can't read zero under truncation; `mission_verify` refuses graph-only "verified"), so the gate cannot be talked into a false "enough" — but its budget arithmetic must be made unit-correct before it ships.
+
+### Strong secondary unlocks (sharpened, lower rank)
+
+- **#5 — Negative-Space Bug Localizer.** `missing` × `ghost_edges` × `taint_trace` boundary_misses × `antibody_scan` negative-edges × `tremor`. *"Where is the defect grep/RAG can NEVER surface because the evidence is an ABSENCE + a temporal coincidence?"* Every candidate carries WHY it's an absence (checkable).
+- **#6 — Reality-Weighted Blast Radius.** `runtime_overlay` (OTel heat) × `impact`/`epidemic` × `taint_trace` × `trust`/`tremor`. *"Of everything my change could break, what does REAL traffic actually hit?"* **Honest prior art (baked in):** runtime-heat-weighted blast is **Sourcegraph + OTel** territory — OMEGA's angle is doing it over the re-derivable graph with `spans_unmapped` honesty, highest external dependency (needs a span batch fed in).
+- **#7 — Counterfactual Sequencing Planner.** `counterfactual` (synergy matrix) × `epidemic` (diffusion order) × `predict`/`ghost_edges` × `refactor_plan` (min-cut safe-first seam) × `flow_simulate`. *"In what ORDER do I touch these nodes so I'm never in a broken intermediate state, and which edits are atomic vs order-free?"* The sequencing logic is real net-new work.
+- **#8 — Concurrent-Swarm Collision Forecast** (the only multi-agent unlock). `predict`+`ghost_edges` × `perspective_list`/`trail_list` (other live agents' cursors) × `daemon_status`/`alerts_list`. *"Is the seam I'm about to cut temporally coupled to a file another live agent currently has under its cursor?"* Turns m1nd into the **coordination substrate for an agent swarm** — and dovetails directly with Subsystem A's multi-agent-by-default (§3).
+- **#9 — Evidence-Graded Self-Handoff Receipt.** `mission_close`/`mission_handoff` × `mission_verify` (per-claim direct-vs-graph-only grade) × `cross_verify` (live freshness stamp) × `coverage_session` (blind-spot map) × `trail_save` × `xray_ledger`. *"Hand the next agent not my conclusions but re-runnable receipts, each tagged with evidence-grade + freshness + the blind spots I never touched."* Cures the SWE-CI continuity collapse and satisfies the NIST/EU-AI-Act audit-ledger requirement at once.
+
+## O.4 The OMEGA architecture — composition as a first-class citizen
+
+Each superpower is *several* m1nd calls an agent must orchestrate by hand, paying the cost law each round-trip. OMEGA's architectural leap is **making the composition the product**, reuse-first over what already exists.
+
+### O.4.1 The "north" contract — every answer is a triple
+
+Standardize one envelope that *every* answer-emitting tool returns, reusing fields that already exist (`proof_state`, `non_claims`, `closure`, `ignored`, `binding_fingerprint`, `event_digest`):
+
+```
+{
+  answer:  <the existing tool output, unchanged>,
+  map:     { blast_radius, co_change, reach — the structural neighborhood },
+  receipt: { evidence: [file:line@sha256], closure, evidence_class,
+             binding_fingerprint, event_digest, freshness_verdict },
+  trust:   { verdict: act|reverify|abstain|unprovable,
+             reasons[], next_repair_call }
+}
+```
+
+This is a content-addressed graph wrapped in a typed-relation evidence layer with explicit honesty states. **It is not optional and not a separate call** — answer + map + trust arrive together, collapsing the human "definition → references → callers → tests → is-this-fresh" click-chain into one batchable round-trip.
+
+### O.4.2 A signal-chaining planner (`north`), not a query DSL
+
+A consistent SOTA finding is that **LLMs hallucinate raw graph queries** — a DSL is a hallucination trap. So OMEGA exposes **fused cognitive verbs**, not a language. Reuse the orchestrator pattern m1nd already ships in `audit` (which fans health + panoramic + layers + scan_all + cross_verify + fingerprint + trust + tremor + ghost_edges into one report) and `orient`. Add a small set of **named compositions** as new verbs — `underwrite(edit_plan)` → #2, `envelope(any_answer)` → #1, `quarantine_on_boot()` → #3, `solvency(goal, budget)` → #4, `negative_space(topic)` → #5, `swarm_collision(node)` → #8, `handoff_receipt()` → #9. Each verb fans out the existing tools **in parallel**, dedupes into one budget-bounded bundle, and returns the §O.4.1 triple. The agent never sees the chaining; it sees one verb, one receipt.
+
+### O.4.3 Query the honesty signals, not the graph
+
+The composable layer agents actually need is a tiny **predicate surface over the receipt**, so a CI gate or a successor agent can mechanically filter (`trust(answer) == act`, `freshness(claim) == fresh@HEAD`, `closure(path) == closed`, `evidence_class(claim) == direct`). These are already computed by `trust_selftest`/`cross_verify`/`why`/`mission_verify`; OMEGA surfaces them as a stable, content-addressed schema — the M+N collapse (LSP's lesson): M producers emit receipts, N agents/gates consume them, standardized at the cheap-to-agree level (symbols, positions, edges, provenance), never at the impossible level (a universal AST).
+
+### O.4.4 Reuse-first discipline
+
+Nothing above invents a new engine. `event_digest` already content-addresses; `grounded_in` edges already anchor claims; `xray_ledger` is already append-only and reversible; `binding_fingerprint` already crosses host/stdio/HTTP. **OMEGA is wiring + one envelope schema + ~9 fused verbs**, each the smallest clear composer over signals that ship today.
+
+## O.5 Honesty about novelty (the critic's correction, stated plainly)
+
+OMEGA earns nothing by overclaiming, so this section is explicit rather than buried. **Drop the blanket "unprecedented."** What is *genuinely* new in OMEGA is narrow and defensible:
+
+1. **The answer + map + trust triple in ONE round-trip** — the composition itself, not any single signal.
+2. **The sufficiency / solvency economics** — *"do I have enough / can I afford to finish?"* — agent-native questions with no human-tool analog.
+3. **The re-derivable receipt over a CODE graph** — `file:line@sha256` anchors that resolve or don't, self-falsifying by construction.
+
+Equally explicit, the **prior art OMEGA stands on** (and does not pretend to have invented):
+
+- *Taint-to-sink-without-a-validation-boundary* IS **CodeQL's** core query shape.
+- *Transitive blast radius* is **Glean / Sourcegraph** territory.
+- *Bi-temporal belief quarantine* is a **port of Zep / Graphiti** invalidate-not-delete onto a code graph.
+- *Runtime-heat-weighted blast* is **Sourcegraph + OTel**.
+
+OMEGA's honest framing is **"first over a re-derivable, self-falsifying CODE graph,"** *not* "nobody ever did this." A vision that survives the critic is the only one worth banner-ing.
+
+## O.6 Move 0 is the keystone: calibration before any verb earns `act`
+
+**This is the single most important correction to the roadmap.** Structural honesty — evidence re-hash, null-not-0.5, reject-graph-only — proves self-**CONSISTENCY**, **never CORRECTNESS.** A receipt can be perfectly re-derivable and **confidently WRONG**: every probe green, every hash matching, and the underlying claim still false (e.g. a closure that looks "closed" because m1nd doesn't extract the one relation type that actually dangles). A consistency proof is not a correctness proof, and an agent that trusts `act` is trusting *correctness*.
+
+So the roadmap is **inverted**: the first thing OMEGA ships is not a verb, it is the **harness that decides when a verb is allowed to say `act`.**
+
+- **Move 0 = a conformal precision-at-coverage calibration harness.** Every OMEGA verb ships **DARK** and runs against a **standing eval set** — e.g. **CWE-Bench taint** (does the taint verdict match labeled vulnerabilities?), **SWE-CI regression replay** (did `underwrite`'s "proceed" actually avoid the regression the replayed CI caught?), and a **held-out co-change corpus** (did `predict`/quarantine's co-change propagation match ground-truth coupling?).
+- A verb only **earns `act` as an allowed output value** once the calibrator **certifies that `act` empirically clears a stated risk budget** (a measured precision at a measured coverage, against ground truth — not an asserted one). Until then the verb can emit `reverify` / `abstain` / `unprovable`, but **`act` is structurally withheld.**
+- **Reframe the whole sequencing rule:** what the rest of this PRD calls **"battery-gated"** becomes **"calibration-gated"** for OMEGA verbs. Battery tests prove the code does what it says (consistency); the calibrator proves the verdict is *right often enough to act on* (correctness-at-coverage). OMEGA needs **both**, in that order, and the calibrator is **Move 0** — it gates every verb after it.
+- This is the durable-maintenance bet stated as a build step: **recalibration, not retraining.** Standing eval harnesses wired to a conformal calibrator mean claimed error rates are continuously **re-measured** against ground truth. *Calibration asserted in a README rots; calibration measured endures.* `trust_selftest` must stay real, never cosmetic.
+
+## O.7 The honesty invariants (the non-negotiables that earn trust)
+
+These are the floor. Break any one and the 20-year thesis dies.
+
+1. **Re-derivability over recall.** Every claim is reconstructable on demand from primary reality (code AST + git), never served from a cached belief. Memory is an index/cache, **never** source of truth (`code > PATHOS > memory`).
+2. **Abstention is a first-class, rewarded output.** OMEGA must reliably say **UNPROVABLE / I won't answer this** under an explicit risk budget — and be rewarded for it. Agents pay for a *known* precision-at-coverage over a 100%-coverage tool of unknown reliability.
+3. **Structural refusal, not heuristic restraint.** `mission_verify` *structurally rejects* graph-only evidence; `focus`'s `ignored_count` *cannot* read zero while truncation happened; `trust` emits **null, not a fake 0.5**; `xray_gate` *only blocks on a RATIFIED manifest*. The honesty floor is in the data path, not a policy the composer could fudge. **But (per §O.6) structural refusal proves consistency, not correctness — calibration is the second, separate gate.**
+4. **Citations are graph anchors, not prose.** OMEGA's "citations" are `file:line@sha256` nodes that resolve or don't — verifiable by construction, in a different trust class than generated text.
+5. **Bi-temporal invalidation.** Knowledge carries validity intervals; superseded facts are marked invalid (re-hashed `grounded_in` mismatch), never silently overwritten.
+6. **Self-localizing failure.** When OMEGA is wrong, the provenance graph localizes the bad step and supports selective invalidation of exactly the affected claims — not a full reset.
+7. **Document the lies.** The census's own honest notes (`report`'s heuristic "savings," `trust`'s false guidance string, perspective's cosmetic route-families) stay documented and get *fixed*, not hidden.
+
+## O.8 Open RISK — the poisoned-oracle threat model (NOT yet solved)
+
+This is flagged as an **open design problem, not a solved invariant** — stating it as solved would itself violate the honesty moat.
+
+**If OMEGA becomes the thing agents trust 100%, it is the single highest-value attack surface in the toolchain.** The dangerous case is a **poisoned graph that passes its own self-test**: a malicious co-change history that poisons `predict`/`ghost_edges`, or planted evidence that re-hashes cleanly, so the receipt is internally consistent *and wrong by construction*. `trust_selftest` proves *binding* integrity (right process / binary / graph / generation) — it does **NOT** prove the *content* of that graph wasn't adversarially seeded. The append-only `xray_ledger` records *that* a bulk write happened, not whether the writer was honest.
+
+Concretely unaddressed today:
+- A poisoned co-change corpus makes `predict`/quarantine confidently propagate a *wrong* coupling — and §O.6's calibrator only catches it if the eval set is itself uncompromised (who calibrates the calibrator?).
+- A self-consistent-but-false receipt is exactly the §O.6 "consistent ≠ correct" failure, weaponized.
+
+**Open directions (not commitments):** signing the eval/ground-truth set; independent re-derivation by a second, differently-bound instance (quorum over `binding_fingerprint`); anomaly detection on co-change history before it feeds `predict`. **`trust_selftest` alone is not sufficient** to close this, and OMEGA must not be marketed as if it were. The threat model is named here so it is designed against, never assumed away.
+
+## O.9 20-year bets (what makes it durable like git / LSP / SQLite)
+
+The durable-moats recipe is not "be best" — it is **format + narrow interface + openness + verifiability.**
+
+- **Freeze the FORMAT, version the engine freely.** The durable asset is the **receipt/graph interchange format** (the §O.4.1 triple as a SCIP-style protobuf with human-readable symbol IDs), pledged backward-compatible for decades. An org's provenance-anchored memory graph must be re-readable in 20 years with zero migration.
+- **Content-addressed, deterministically re-derivable.** Any party re-indexes the same commit and gets a bit-identical graph; any single edge is verifiable by its path-hash. **Trust never requires trusting the vendor.**
+- **File-incremental + error-tolerant substrate.** Re-index only changed files per commit, stay valid mid-edit, answer in ~ms. `am_i_stale`/`diverge` become the live trust signal on top.
+- **Narrow, composable, hallucination-proof verbs over an open protocol** (§O.4.2), never a query DSL. Permissive license + broad language coverage is *why* the niche stays adoptable.
+- **Strict LLM/symbolic separation of duties.** The LLM is permanently confined to the SPEC/HEURISTIC layer; soundness *always* belongs to a deterministic certifier (graph traversal, Datalog closure, SMT, executed tests). This boundary survives model churn — swap the model **without re-earning trust**.
+- **Recalibration, not retraining, as maintenance** (the §O.6 Move 0 bet, made permanent): standing eval harnesses wired to a conformal calibrator keep claimed error rates continuously re-measured.
+- **Switching cost = earned, not hostage.** Lock-in comes from the deep, verified, code-anchored memory graph — but because the format is open and re-derivable, that lock-in is **earned trust.**
+
+## O.10 Ranked OMEGA roadmap (calibration-gated, reuse-first, honest)
+
+> **Sequencing note.** Move 0 is the keystone (§O.6) and gates `act` for every verb after it. Each later move ships **calibration-gated** (DARK until the calibrator certifies its `act`-at-coverage clears the budget), **reuse-first** (a composer over shipping tools, never a new engine), and **honest** (degrades to UNPROVABLE, never a fake green light). The "% exists" estimates from the source briefs are **deliberately dropped** here — they conflated "code present" with "calibrated and correct," which §O.6 forbids.
+
+- **Move 0 — The calibration harness (keystone, ships FIRST).** A conformal precision-at-coverage calibrator + standing eval sets (CWE-Bench taint, SWE-CI regression replay, held-out co-change corpus). No verb earns `act` until it certifies against a stated risk budget. Everything below is gated by this. **Cutting v1.2.0 requires Move 0 + Move 1.**
+- **Move 1 — The Envelope (`envelope` / the §O.4.1 triple).** Wrap existing answers in answer + map + trust by composing `trust_selftest` × `cross_verify` × `am_i_stale` × `why`-closure × `mission_verify`. **The gate is a calibrated weighting, not an any-red AND-fold** (§O.3 #1) — tuned against ground truth before defaulting on, to avoid the ~23% spurious-abstention failure. Substrate for every later move.
+- **Move 2 — Solvency & Stop Gate (`solvency`).** Arbiter over `focus` sufficiency + `coverage_session` + a **real token-budget signal** (the unit-mismatch fix from §O.3 #4 — `budget_consumed`/`relevance_clearing_total`/`coverage_session` do **not** subtract; wire a true token budget or build it net-new) + `am_i_stale`. Directly attacks the cost law.
+- **Move 3 — Stale-Belief Quarantine on Boot (`quarantine_on_boot`).** Boot-time fan-out of `cross_verify` (the real cross-session freshness source — **not** `am_i_stale`, §O.3 #3) × `diverge(last_session)` × `trail_resume` × `alerts_list` into a three-state partition + do-not-re-claim list. **Co-change-matrix propagation is net-new** (`ghost_edges` exposes 3 scalars, not a matrix). Grounds Subsystem D's staleness moves.
+- **Move 4 — Provable-Edit Underwriting (`underwrite`).** Fuse `validate_plan` × `predict`+`ghost_edges` × `xray_gate` × `antibody_scan` × `trust`/`tremor` × `am_i_stale` into `{proceed | require-human | abstain}` + minimal-cover set. `proceed` calibration-gated against SWE-CI regression replay. The single biggest correctness win.
+- **Move 5 — Evidence-Graded Self-Handoff (`handoff_receipt`).** Fold `coverage_session` blind-spots + `trail_save` contradictions + per-claim freshness into `mission_close`'s packet, threaded through `xray_ledger`. Satisfies the audit-ledger requirement; cures continuity collapse.
+- **Move 6 — Negative-Space Bug Localizer (`negative_space`).** Cross-rank `missing` ∩ `ghost_edges` ∩ `taint_trace` boundary_misses ∩ `antibody_scan` negative-edges, weighted by `tremor`.
+- **Move 7 — Reality-Weighted Blast Radius (`hot_blast`).** Re-rank `impact`/`epidemic` by `runtime_overlay` heat × `taint_trace` × `trust`. Ship the structural-only fallback first; light up runtime weighting when a span batch arrives (highest external dependency).
+- **Move 8 — Swarm Collision Forecast (`swarm_collision`).** Intersect `ghost_edges`/`predict` coupling with `perspective_list`/`trail_list` live footprints. Lands once Subsystem A's parallel-agent usage is real.
+- **Then — durability hardening (the §O.9 bets):** freeze the receipt/graph format + back-compat pledge; cut over to file-incremental re-index. At ~**v2.0** the era graduates into a separately-named product.
+
+## O.11 Manifesto
+
+**m1nd-OMEGA is the substrate an agent routes every code decision through and never has to second-guess.**
+
+Other tools answer *what the code is*. OMEGA answers the questions only an agent asks: *Do I have enough to act? Can I afford to finish? Did reality move under me? Is this answer's evidence still alive, or am I about to commit against a ghost? Should I do this, ask a human, or refuse?*
+
+It earns trust the only way trust survives twenty years — not by being confident, but by being **checkable** *and continuously re-measured against ground truth*. Every answer ships its map, its receipt, and its verdict in one round-trip. Every claim is a `file:line@sha256` an agent can re-open. Every belief expires the instant its evidence rots — loudly, on proof, never on a guess. When OMEGA doesn't know, it says **UNPROVABLE** and routes you to the call that would make it know. And because a re-derivable receipt proves consistency but not correctness, **no verb is allowed to say `act` until a standing calibrator has earned it that right** — and even then, the poisoned-oracle problem stays named and unfinished, not waved away.
+
+It is git's content-addressing, LSP's M+N collapse, and SQLite's frozen format — pointed at the one consumer that pays per round-trip, has no working memory, and abandons any tool that burns it once. The LLM proposes; the graph, the hashes, the solvers, and the calibrator certify; and the whole thing **refuses to lie**, including about itself.
+
+Honesty is not a feature of m1nd-OMEGA. **Honesty is the moat.** Everything else is wiring.
+
+---
+
 ## 1. North Star (agent-first)
 
 m1nd is the one always-reachable, always-live code-intelligence + memory runtime an autonomous coding agent talks to about a repo — and the only one that tells the agent **how much to trust what it just got, when it is blocked, and what it left out.** The next generation makes that honesty operational under the conditions agents actually run in: many concurrent sub-agents converging on **one live graph** instead of dying or drifting on private stale copies; per-node answers that say **"safe to edit / here is the de-risking move"** instead of a vacant `0.5`; and a context layer that decides **when to stop, what to keep, and what not to trust** by testing graph *closure* — never by guessing an answer. Every new signal is answer-free, carries its own evidence, and degrades to an explicit "insufficient_evidence" rather than a confident lie. We push the moat outward; we never weaken it.
