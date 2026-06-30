@@ -1299,6 +1299,21 @@ pub struct FederateCrossRepoEdge {
 // =========================================================================
 
 // ---------------------------------------------------------------------------
+// m1nd.calibrate_predict (OMEGA Move 0: conformal calibration of predict)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CalibratePredictInput {
+    pub agent_id: String,
+    /// Operator risk budget α (target miscoverage). Default: 0.1.
+    #[serde(default)]
+    pub alpha: Option<f32>,
+    /// Top-k predictions to score per held-out node. Default: 10.
+    #[serde(default)]
+    pub top_k: Option<usize>,
+}
+
+// ---------------------------------------------------------------------------
 // m1nd.ghost_edges (RB-01: 4D Git Graph)
 // ---------------------------------------------------------------------------
 

@@ -3,6 +3,7 @@
 pub mod activation;
 pub mod antibody;
 pub mod builder;
+pub mod calibration;
 pub mod counterfactual;
 pub mod domain;
 #[cfg(feature = "embed")]

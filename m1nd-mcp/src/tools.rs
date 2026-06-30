@@ -2174,15 +2174,32 @@ pub fn handle_predict(
         None
     };
 
+    // OMEGA Move 0: gate each prediction with a calibrated act|reverify|abstain
+    // verdict. The co-change model signal here is `coupling_strength`; we bin it
+    // against the stored conformal threshold τ for the "predict" signal.
+    //
+    // HONESTY INVARIANT: a band is NEVER quoted as a probability — only the
+    // binned verdict. With no calibration row, the gate is `uncalibrated` and
+    // EVERY verdict is honestly `abstain`, never a fake-high `act`.
+    let predict_calibration = state
+        .calibration_table
+        .get(m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT)
+        .cloned();
+
     let prediction_output: Vec<serde_json::Value> = ranked_predictions
         .iter()
         .map(|prediction| {
+            let verdict = match &predict_calibration {
+                Some(row) => row.verdict(prediction.coupling_strength),
+                None => m1nd_core::calibration::VERDICT_ABSTAIN,
+            };
             serde_json::json!({
                 "node_id": prediction.external_id,
                 "label": prediction.label,
                 "source": prediction.source.as_str(),
                 "coupling_strength": prediction.coupling_strength,
                 "confidence": prediction.confidence,
+                "verdict": verdict,
                 "heuristic_factor": prediction.heuristic_factor,
                 "trust_score": prediction.trust_score,
                 "trust_band": prediction.trust_band,
@@ -2200,6 +2217,27 @@ pub fn handle_predict(
         })
         .collect();
 
+    // Top-level calibration state for the gate, so the agent can see WHETHER the
+    // verdicts are measured or honestly uncalibrated.
+    let calibration_block = match &predict_calibration {
+        Some(row) => serde_json::json!({
+            "signal": "predict",
+            "calibrated": true,
+            "tau": row.tau,
+            "tau_reverify_floor": row.tau_low(),
+            "target_alpha": row.target_alpha,
+            "measured_precision": row.measured_precision,
+            "coverage": row.coverage,
+            "n": row.n,
+        }),
+        None => serde_json::json!({
+            "signal": "predict",
+            "calibrated": false,
+            "verdict": "abstain",
+            "note": "predict is not calibrated yet — run `calibrate_predict` to measure precision-at-coverage and a conformal τ from this repo's git history. Until then every verdict is honestly `abstain`, never `act`.",
+        }),
+    };
+
     let mut predict_out = serde_json::json!({
         "changed_node": input.changed_node,
         "predictions": prediction_output,
@@ -2207,6 +2245,7 @@ pub fn handle_predict(
         "structural_fallback_count": structural_fallback_count,
         "heuristic_reranked": true,
         "velocity": velocity,
+        "calibration": calibration_block,
     });
     // Honest empty-state guidance: co-change predictions need the git co-change
     // matrix, which `ghost_edges` builds. Without it predict falls back to
