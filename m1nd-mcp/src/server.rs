@@ -1464,6 +1464,19 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             {
+                "name": "calibrate_predict",
+                "description": "OMEGA Move 0: calibrate predict/co-change from this repo's own git history. Date-splits commits, measures precision-at-coverage on held-out commits, derives a split-conformal threshold τ against a risk budget α, and persists it so predict can gate each result with an act|reverify|abstain verdict.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "alpha": { "type": "number", "default": 0.1, "description": "Operator risk budget (target miscoverage), e.g. 0.1 = accept up to 10% error among act-gated predictions" },
+                        "top_k": { "type": "integer", "default": 10, "description": "Top-k predictions to score per held-out node" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
                 "name": "taint_trace",
                 "description": "Inject taint at entry points and trace propagation through the graph to detect missed validation, auth, or sanitization boundaries.",
                 "inputSchema": {
@@ -3658,6 +3671,11 @@ fn dispatch_core_tool(
             let input: layers::GhostEdgesInput =
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             layer_handlers::handle_ghost_edges(state, input)
+        }
+        "calibrate_predict" => {
+            let input: layers::CalibratePredictInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            layer_handlers::handle_calibrate_predict(state, input)
         }
         "taint_trace" => {
             let input: layers::TaintTraceInput =

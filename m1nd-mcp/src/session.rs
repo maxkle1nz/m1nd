@@ -377,6 +377,11 @@ pub struct SessionState {
     pub trust_ledger: TrustLedger,
     /// Path to trust_state.json persistence file.
     pub trust_path: PathBuf,
+    /// OMEGA Move 0: conformal calibration table (per-signal measured τ /
+    /// precision-at-coverage). Currently calibrates `predict`/co-change only.
+    pub calibration_table: m1nd_core::calibration::CalibrationTable,
+    /// Path to calibration_state.json persistence file.
+    pub calibration_path: PathBuf,
 
     // --- v0.4.0: Savings + Query Log ---
     /// Savings tracker (token economy).
@@ -1304,6 +1309,12 @@ impl SessionState {
                 m1nd_core::trust::load_trust_state(&tl_path).unwrap_or_else(|_| TrustLedger::new())
             },
             trust_path: runtime_root.join("trust_state.json"),
+            calibration_table: {
+                let cal_path = runtime_root.join("calibration_state.json");
+                m1nd_core::calibration::load_calibration_state(&cal_path)
+                    .unwrap_or_else(|_| m1nd_core::calibration::CalibrationTable::new())
+            },
+            calibration_path: runtime_root.join("calibration_state.json"),
             // v0.4.0: Savings + Query Log
             savings_tracker: SavingsTracker::new(),
             query_log: Vec::new(),
@@ -1437,6 +1448,13 @@ impl SessionState {
             eprintln!("[m1nd] WARNING: trust persist failed: {}", e);
         }
 
+        if let Err(e) = m1nd_core::calibration::save_calibration_state(
+            &self.calibration_table,
+            &self.calibration_path,
+        ) {
+            eprintln!("[m1nd] WARNING: calibration persist failed: {}", e);
+        }
+
         if let Err(e) =
             m1nd_core::tremor::save_tremor_state(&self.tremor_registry, &self.tremor_path)
         {
@@ -1556,6 +1574,9 @@ impl SessionState {
             .unwrap_or_else(|_| TremorRegistry::with_defaults());
         self.trust_ledger = m1nd_core::trust::load_trust_state(&self.trust_path)
             .unwrap_or_else(|_| TrustLedger::new());
+        self.calibration_table =
+            m1nd_core::calibration::load_calibration_state(&self.calibration_path)
+                .unwrap_or_else(|_| m1nd_core::calibration::CalibrationTable::new());
     }
 
     /// Rebuild all engines after graph replacement (e.g. after ingest).

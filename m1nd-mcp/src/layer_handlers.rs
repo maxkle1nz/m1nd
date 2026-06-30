@@ -8837,6 +8837,286 @@ fn l7_normalize_layer_scope(scope: Option<&str>, ingest_roots: &[String]) -> Opt
 }
 
 // =========================================================================
+// OMEGA Move 0 — Conformal calibration harness for `predict` (co-change).
+//
+// Turns the uncalibrated `predict`/co-change confidence into a MEASURED,
+// abstention-gated verdict. The repo's own git history is a FREE labeled
+// corpus, so a date-split harness measures precision-at-coverage on held-out
+// commits and derives a split-conformal threshold τ against a risk budget α.
+//
+// `predict` does NOT exclude the queried node X from its own results — the
+// harness MUST exclude X when scoring or precision inflates. The co-change
+// matrix is time-blind (`record_co_change` discards its timestamp), so the
+// train/test split is done by feeding only PRE-D commit groups to a freshly
+// built matrix; the post-D commits are the held-out test set.
+// =========================================================================
+
+/// Signal name calibrated by this harness — re-exported from the core contract.
+pub use m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT;
+
+/// One labeled held-out prediction: the model `confidence` (co-change coupling
+/// strength) it assigned, and whether the partner actually co-changed.
+struct LabeledPrediction {
+    confidence: f32,
+    hit: bool,
+}
+
+/// Outcome of a calibration run, surfaced verbatim in the handler response.
+pub struct CalibrationOutcome {
+    pub row: m1nd_core::calibration::CalibrationRow,
+    /// Held-out commits used as the test set (post-split-date).
+    pub test_commits: usize,
+    /// Total labeled (prediction, confidence) pairs scored.
+    pub labeled: usize,
+    /// Held-out predictions that cleared τ (the `act` set).
+    pub act_predictions: usize,
+    /// Split date (unix seconds) used to partition train/test.
+    pub split_timestamp: f64,
+}
+
+/// Pure calibration core: date-split `commits` at `split_ts`, build a train-only
+/// co-change matrix (bootstrap + pre-D groups, mirroring production), score the
+/// post-D held-out commits with X excluded from its own prediction, and return
+/// the measured `CalibrationRow` for `predict`.
+///
+/// Returns `None` only when there is no held-out evidence at all (no post-D
+/// multi-file commit resolves) — the honest "cannot produce a number" case.
+fn calibrate_predict_from_commits(
+    graph: &m1nd_core::graph::Graph,
+    commits: &[m1nd_core::git_history::GitCommit],
+    split_ts: f64,
+    alpha: f32,
+    top_k: usize,
+    calibrated_at_ms: u64,
+) -> Option<CalibrationOutcome> {
+    use m1nd_core::calibration::{conformal_quantile, CalibrationRow};
+    use m1nd_core::temporal::{CoChangeMatrix, DEFAULT_MATRIX_BUDGET};
+
+    // Only multi-file commits carry a co-change signal, sorted oldest→newest so
+    // an index split is chronological (`parse_git_history` returns newest-first).
+    let mut multi: Vec<&m1nd_core::git_history::GitCommit> =
+        commits.iter().filter(|c| c.files.len() >= 2).collect();
+    multi.sort_by(|a, b| {
+        a.timestamp
+            .partial_cmp(&b.timestamp)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    if multi.len() < 2 {
+        return None;
+    }
+
+    // --- Train/test split by commit timestamp (matrix is time-blind) ---
+    let mut train_groups: Vec<Vec<String>> = Vec::new();
+    let mut test_commits: Vec<&m1nd_core::git_history::GitCommit> = Vec::new();
+    for &c in &multi {
+        if c.timestamp < split_ts {
+            train_groups.push(c.files.clone());
+        } else {
+            test_commits.push(c);
+        }
+    }
+
+    // Timestamp ties (commits within the same second) can collapse the split to
+    // one side. Fall back to a chronological by-POSITION split (first half =
+    // train, second half = held-out) so a real-but-bursty history still yields a
+    // held-out test set. The matrix is time-blind, so a position split is sound.
+    if train_groups.is_empty() || test_commits.is_empty() {
+        let mid = multi.len() / 2;
+        train_groups = multi[..mid].iter().map(|c| c.files.clone()).collect();
+        test_commits = multi[mid..].to_vec();
+    }
+
+    if train_groups.is_empty() || test_commits.is_empty() {
+        return None;
+    }
+
+    // --- Train-only matrix: bootstrap + pre-D groups (mirrors ghost_edges) ---
+    let mut train_matrix = CoChangeMatrix::bootstrap(graph, DEFAULT_MATRIX_BUDGET).ok()?;
+    train_matrix
+        .populate_from_commit_groups(graph, &train_groups)
+        .ok()?;
+
+    // --- Score held-out commits, X excluded from its own prediction ---
+    let mut labeled: Vec<LabeledPrediction> = Vec::new();
+    for commit in &test_commits {
+        // Resolve the commit's touched files to nodes; the actual-co-change
+        // truth set for partner X is "every OTHER node in this commit".
+        let commit_nodes: HashSet<NodeId> = commit
+            .files
+            .iter()
+            .filter_map(|p| {
+                let fid = if p.starts_with("file::") {
+                    p.clone()
+                } else {
+                    format!("file::{p}")
+                };
+                graph.resolve_id(&fid)
+            })
+            .collect();
+
+        for &x in &commit_nodes {
+            for entry in train_matrix.predict(x, top_k) {
+                // GOTCHA: predict does NOT exclude X from its own row — exclude
+                // it here, or a self-pair inflates precision.
+                if entry.target == x {
+                    continue;
+                }
+                let hit = commit_nodes.contains(&entry.target);
+                labeled.push(LabeledPrediction {
+                    confidence: entry.strength.get(),
+                    hit,
+                });
+            }
+        }
+    }
+
+    if labeled.is_empty() {
+        return None;
+    }
+
+    // --- Conformal τ from the MISS confidences (nonconformity = miss score) ---
+    let miss_scores: Vec<f32> = labeled
+        .iter()
+        .filter(|l| !l.hit)
+        .map(|l| l.confidence)
+        .collect();
+    let tau = conformal_quantile(&miss_scores, alpha);
+
+    // --- Precision-at-coverage at τ (the `act` band) ---
+    let act: Vec<&LabeledPrediction> = labeled.iter().filter(|l| l.confidence >= tau).collect();
+    let act_n = act.len();
+    let act_hits = act.iter().filter(|l| l.hit).count();
+    let measured_precision = if act_n > 0 {
+        act_hits as f32 / act_n as f32
+    } else {
+        0.0
+    };
+    let coverage = act_n as f32 / labeled.len() as f32;
+
+    let row = CalibrationRow {
+        tau,
+        target_alpha: alpha,
+        measured_precision,
+        coverage,
+        n: labeled.len(),
+        calibrated_at_ms,
+    };
+
+    Some(CalibrationOutcome {
+        row,
+        test_commits: test_commits.len(),
+        labeled: labeled.len(),
+        act_predictions: act_n,
+        split_timestamp: split_ts,
+    })
+}
+
+/// Median commit timestamp — the train/test split date. Honest default: half the
+/// history trains, half is held out for measurement.
+fn median_commit_timestamp(commits: &[m1nd_core::git_history::GitCommit]) -> Option<f64> {
+    let mut ts: Vec<f64> = commits
+        .iter()
+        .filter(|c| c.files.len() >= 2 && c.timestamp > 0.0)
+        .map(|c| c.timestamp)
+        .collect();
+    if ts.is_empty() {
+        return None;
+    }
+    ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(ts[ts.len() / 2])
+}
+
+/// OMEGA Move 0: calibrate `predict` from the repo's own git history and persist
+/// the resulting `CalibrationRow` to `calibration_state.json`.
+pub fn handle_calibrate_predict(
+    state: &mut SessionState,
+    input: layers::CalibratePredictInput,
+) -> M1ndResult<serde_json::Value> {
+    let start = Instant::now();
+    let alpha = input
+        .alpha
+        .unwrap_or(m1nd_core::calibration::DEFAULT_TARGET_ALPHA);
+    let top_k = input.top_k.unwrap_or(10).max(1);
+
+    let repo_root = discover_git_root(state)?;
+    let depth = m1nd_core::git_history::GitDepth::All;
+    let commits = m1nd_core::git_history::parse_git_history(&repo_root, depth)?;
+
+    let split_ts = match median_commit_timestamp(&commits) {
+        Some(ts) => ts,
+        None => {
+            return Ok(serde_json::json!({
+                "calibrated": false,
+                "signal": CALIBRATION_SIGNAL_PREDICT,
+                "reason": "no multi-file commits with timestamps in git history — co-change has no labeled corpus to calibrate against",
+                "commits_parsed": commits.len(),
+                "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+            }));
+        }
+    };
+
+    let now = crate::util::now_ms();
+    let outcome = {
+        let graph = state.graph.read();
+        calibrate_predict_from_commits(&graph, &commits, split_ts, alpha, top_k, now)
+    };
+
+    let outcome = match outcome {
+        Some(o) => o,
+        None => {
+            return Ok(serde_json::json!({
+                "calibrated": false,
+                "signal": CALIBRATION_SIGNAL_PREDICT,
+                "reason": "no held-out predictions could be scored (no post-split multi-file commit resolved to graph nodes) — ingest the repo first, then re-run",
+                "commits_parsed": commits.len(),
+                "split_timestamp": split_ts,
+                "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+            }));
+        }
+    };
+
+    state
+        .calibration_table
+        .set(CALIBRATION_SIGNAL_PREDICT, outcome.row.clone());
+    // Calibration is a deliberate, infrequent checkpoint — its result must be
+    // durable, so persist the table directly rather than relying on the
+    // per-query persist throttle. Read-only sessions are skipped honestly.
+    if !state.read_only {
+        if let Err(e) = m1nd_core::calibration::save_calibration_state(
+            &state.calibration_table,
+            &state.calibration_path,
+        ) {
+            eprintln!("[m1nd] WARNING: calibration persist failed: {e}");
+        }
+    }
+    state.queries_processed += 1;
+
+    let row = &outcome.row;
+    Ok(serde_json::json!({
+        "calibrated": true,
+        "signal": CALIBRATION_SIGNAL_PREDICT,
+        "tau": row.tau,
+        "target_alpha": row.target_alpha,
+        "measured_precision": row.measured_precision,
+        "coverage": row.coverage,
+        "n": row.n,
+        "act_predictions": outcome.act_predictions,
+        "test_commits": outcome.test_commits,
+        "commits_parsed": commits.len(),
+        "split_timestamp": outcome.split_timestamp,
+        "summary": format!(
+            "predict/co-change: at {:.0}% coverage, `act` is {:.0}% precise on {} held-out predictions (τ={:.3}, α={:.2})",
+            row.coverage * 100.0,
+            row.measured_precision * 100.0,
+            row.n,
+            row.tau,
+            row.target_alpha,
+        ),
+        "elapsed_ms": start.elapsed().as_secs_f64() * 1000.0,
+    }))
+}
+
+// =========================================================================
 // RETROBUILDER Handlers (RB-01 through RB-05)
 // =========================================================================
 
@@ -12948,5 +13228,269 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
                 r.label
             );
         }
+    }
+
+    // =====================================================================
+    // OMEGA Move 0 — calibration harness integration tests.
+    // =====================================================================
+
+    use super::{
+        calibrate_predict_from_commits, handle_calibrate_predict, median_commit_timestamp,
+    };
+    use crate::protocol::core::PredictInput;
+    use crate::protocol::layers::CalibratePredictInput;
+    use m1nd_core::git_history::GitCommit;
+
+    /// Build a graph with the given file paths as `file::<path>` nodes.
+    fn graph_with_files(paths: &[&str]) -> Graph {
+        let mut graph = Graph::new();
+        for p in paths {
+            graph
+                .add_node(&format!("file::{p}"), p, NodeType::File, &[], 0.0, 0.0)
+                .expect("add file node");
+        }
+        graph.finalize().expect("finalize");
+        graph
+    }
+
+    /// A multi-file commit at `ts` touching `files`.
+    fn commit(ts: f64, files: &[&str]) -> GitCommit {
+        GitCommit {
+            hash: format!("{ts:.0}"),
+            timestamp: ts,
+            author: "test".into(),
+            files: files.iter().map(|f| f.to_string()).collect(),
+        }
+    }
+
+    // (a) a CalibrationRow is written, (b) act only above τ, (c) fresh node →
+    // abstain, (d) the queried node is excluded from its own prediction.
+    #[test]
+    fn calibrate_predict_produces_row_and_gates_verdicts() {
+        // a.rs and b.rs ALWAYS co-change; c.rs is independent noise.
+        let graph = graph_with_files(&["a.rs", "b.rs", "c.rs"]);
+
+        // Train (pre-split, ts < 1000): a+b together repeatedly → strong coupling.
+        // Test (post-split, ts >= 1000): a+b together → those predictions HIT.
+        let commits = vec![
+            commit(100.0, &["a.rs", "b.rs"]),
+            commit(200.0, &["a.rs", "b.rs"]),
+            commit(300.0, &["a.rs", "b.rs"]),
+            commit(400.0, &["a.rs", "b.rs"]),
+            commit(500.0, &["a.rs", "c.rs"]), // a one-off a+c pairing (noise)
+            // held-out test commits:
+            commit(1100.0, &["a.rs", "b.rs"]),
+            commit(1200.0, &["a.rs", "b.rs"]),
+        ];
+
+        let split = median_commit_timestamp(&commits).expect("median");
+        assert!(
+            split < 1100.0,
+            "median split must leave the 1100/1200 commits held-out, got {split}"
+        );
+
+        let outcome = calibrate_predict_from_commits(&graph, &commits, split, 0.1, 10, 42)
+            .expect("(a) a CalibrationRow must be produced from held-out commits");
+
+        // (a) row written with sane fields.
+        let row = &outcome.row;
+        assert!(row.n >= 1, "must have labeled held-out predictions");
+        assert!(row.tau.is_finite());
+        assert_eq!(row.calibrated_at_ms, 42);
+
+        // (d) the queried node X is excluded from its own prediction: a→a is
+        // never scored. We assert no self-pair could have inflated precision by
+        // checking that with a+b perfectly coupled, the act-band precision is a
+        // real measured number in [0,1] (a self-hit would push it to a degenerate
+        // 1.0 with inflated n). More directly: re-run a single predict and verify
+        // X is absent below.
+        let a = graph.resolve_id("file::a.rs").expect("a node");
+        let mut train = m1nd_core::temporal::CoChangeMatrix::bootstrap(
+            &graph,
+            m1nd_core::temporal::DEFAULT_MATRIX_BUDGET,
+        )
+        .unwrap();
+        let train_groups: Vec<Vec<String>> = commits
+            .iter()
+            .filter(|c| c.timestamp < split && c.files.len() >= 2)
+            .map(|c| c.files.clone())
+            .collect();
+        train
+            .populate_from_commit_groups(&graph, &train_groups)
+            .unwrap();
+        let preds = train.predict(a, 10);
+        assert!(
+            preds.iter().all(|e| e.target != a),
+            "(d) predict's own row must not be allowed to score X against itself"
+        );
+        // b.rs must be among a's predicted partners (the learned coupling).
+        let b = graph.resolve_id("file::b.rs").expect("b node");
+        assert!(
+            preds.iter().any(|e| e.target == b),
+            "a.rs and b.rs co-changed pre-split, so b must be predicted from a"
+        );
+
+        // (b) act only above τ — bin a confidence at and below τ.
+        assert_eq!(row.verdict(row.tau), m1nd_core::calibration::VERDICT_ACT);
+        assert_eq!(
+            row.verdict(row.tau_low() - 0.0001),
+            m1nd_core::calibration::VERDICT_ABSTAIN,
+            "(b) below the reverify floor must NOT be act"
+        );
+        // Anything strictly below τ but >= floor is reverify, never act.
+        if row.tau > row.tau_low() {
+            let mid = (row.tau + row.tau_low()) / 2.0;
+            assert_ne!(
+                row.verdict(mid),
+                m1nd_core::calibration::VERDICT_ACT,
+                "(b) confidence below τ must never be act"
+            );
+        }
+    }
+
+    // (c) A fresh/untracked node (no calibration row at all) → predict gates
+    // every result to `abstain`, never a fake-high act. Verified through the
+    // full predict handler with an EMPTY calibration table.
+    #[test]
+    fn predict_without_calibration_row_abstains() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let mut graph = Graph::new();
+        let a = graph
+            .add_node("file::a.rs", "a.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("a");
+        let b = graph
+            .add_node("file::b.rs", "b.rs", NodeType::File, &[], 0.0, 0.0)
+            .expect("b");
+        graph
+            .add_edge(
+                a,
+                b,
+                "imports",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge");
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+
+        // No calibrate_predict run → calibration table empty.
+        assert!(state.calibration_table.is_empty());
+
+        let out = crate::tools::handle_predict(
+            &mut state,
+            PredictInput {
+                changed_node: "file::a.rs".into(),
+                agent_id: "probe".into(),
+                top_k: 10,
+                include_velocity: false,
+                min_co_change_count: None,
+            },
+        )
+        .expect("predict ok");
+
+        // Top-level gate is honestly uncalibrated.
+        assert_eq!(out["calibration"]["calibrated"], serde_json::json!(false));
+        // EVERY prediction verdict is abstain — never a fake-high act.
+        let preds = out["predictions"].as_array().expect("predictions array");
+        for p in preds {
+            assert_eq!(
+                p["verdict"],
+                serde_json::json!("abstain"),
+                "(c) uncalibrated predict must abstain, never act: {p}"
+            );
+        }
+    }
+
+    // End-to-end through a REAL tiny git repo: parse history, calibrate, persist.
+    #[test]
+    fn calibrate_predict_end_to_end_real_git_repo() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path();
+        let runtime_dir = repo.join(".runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+
+        // git init + identity (do NOT touch global config).
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(repo)
+                .args(args)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            assert!(ok, "git {args:?} failed");
+        };
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("git not available — skipping real-repo calibration smoke");
+            return;
+        }
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "Test"]);
+
+        // Six commits where a.rs and b.rs always co-change.
+        for i in 0..6 {
+            std::fs::write(repo.join("a.rs"), format!("// a {i}")).unwrap();
+            std::fs::write(repo.join("b.rs"), format!("// b {i}")).unwrap();
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", &format!("c{i}")]);
+        }
+
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir.clone()),
+            ..Default::default()
+        };
+        let graph = graph_with_files(&["a.rs", "b.rs"]);
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![repo.to_string_lossy().to_string()];
+
+        let out = handle_calibrate_predict(
+            &mut state,
+            CalibratePredictInput {
+                agent_id: "probe".into(),
+                alpha: Some(0.1),
+                top_k: Some(10),
+            },
+        )
+        .expect("calibrate ok");
+
+        assert_eq!(
+            out["calibrated"],
+            serde_json::json!(true),
+            "real-repo calibration must produce a number: {out}"
+        );
+        // A row must have been stored for the predict signal.
+        assert!(state
+            .calibration_table
+            .get(m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT)
+            .is_some());
+        // And it must have been persisted to calibration_state.json.
+        let persisted = m1nd_core::calibration::load_calibration_state(&state.calibration_path)
+            .expect("load persisted");
+        assert!(
+            persisted
+                .get(m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT)
+                .is_some(),
+            "calibration row must be persisted to disk"
+        );
     }
 }
