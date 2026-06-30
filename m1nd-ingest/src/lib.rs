@@ -139,6 +139,7 @@ pub struct IngestStats {
     pub edges_created: u64,
     pub references_resolved: u64,
     pub references_unresolved: u64,
+    pub references_ambiguous: u64,
     pub label_collisions: u64,
     pub elapsed_ms: f64,
     pub commit_groups: Vec<Vec<String>>,
@@ -407,24 +408,34 @@ impl Ingestor {
                 continue;
             }
 
-            if let (Some(source), Some(target)) = (
-                graph.resolve_id(&edge.source),
-                graph.resolve_id(&edge.target),
-            ) {
-                if graph
-                    .add_edge(
-                        source,
-                        target,
-                        &edge.relation,
-                        FiniteF32::new(edge.weight),
-                        EdgeDirection::Forward,
-                        false,
-                        FiniteF32::new(0.0),
-                    )
-                    .is_ok()
-                {
-                    stats.edges_created += 1;
+            let source = graph.resolve_id(&edge.source);
+            let target = graph.resolve_id(&edge.target);
+            match (source, target) {
+                (Some(source), Some(target)) => {
+                    let added = graph
+                        .add_edge(
+                            source,
+                            target,
+                            &edge.relation,
+                            FiniteF32::new(edge.weight),
+                            EdgeDirection::Forward,
+                            false,
+                            FiniteF32::new(0.0),
+                        )
+                        .is_ok();
+                    if added {
+                        stats.edges_created += 1;
+                    }
                 }
+                // Source exists but its (non-ref) target does not resolve: the edge
+                // is silently dropped, leaving this source's outgoing picture
+                // incomplete. Record that on the source so `why` can flag a path
+                // resting on a node with a dropped edge. Behavior is otherwise
+                // unchanged — no edge is created either way.
+                (Some(source), None) => {
+                    graph.add_node_tags(source, &[resolve::EDGE_UNRESOLVED_TAG]);
+                }
+                _ => {}
             }
         }
 
@@ -435,6 +446,7 @@ impl Ingestor {
         )?;
         stats.references_resolved = resolution.resolved;
         stats.references_unresolved = resolution.unresolved;
+        stats.references_ambiguous = resolution.ambiguous;
         stats.edges_created += resolution.resolved;
 
         let cargo_stats = cargo_workspace::enrich_rust_workspace(&mut graph, &self.config.root)?;

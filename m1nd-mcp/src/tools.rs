@@ -1527,11 +1527,13 @@ pub fn handle_why(state: &mut SessionState, input: WhyInput) -> M1ndResult<serde
     let (source_node, target_node) = match (source, target) {
         (Some(s), Some(t)) => (s, t),
         _ => {
+            // No node pair, so no path and nothing to be incomplete: closed.
             return Ok(serde_json::json!({
                 "source": input.source,
                 "target": input.target,
                 "paths": [],
                 "reason": "One or both nodes not found",
+                "closure": closure_verdict(&[]),
             }));
         }
     };
@@ -1581,6 +1583,11 @@ pub fn handle_why(state: &mut SessionState, input: WhyInput) -> M1ndResult<serde
     }
 
     let mut paths = Vec::new();
+    // Load-bearing edges on the reconstructed answer path, each as
+    // (source_external_id, relation, reason) where `reason` is Some(..) iff the
+    // edge's SOURCE node carries an ambiguous/unresolved provenance tag. Only
+    // edges ON the path count — incidental graph edges are never inspected.
+    let mut load_bearing: Vec<(String, String, Option<String>)> = Vec::new();
     if found {
         // Reconstruct path
         let mut path_nodes = vec![target_node.as_usize()];
@@ -1592,6 +1599,18 @@ pub fn handle_why(state: &mut SessionState, input: WhyInput) -> M1ndResult<serde
                 .strings
                 .resolve(graph.csr.relations[edge_j])
                 .to_string();
+            // The CSR forward edge `edge_j` points at `targets[edge_j]`; its real
+            // SOURCE is the OTHER endpoint of {prev, current}. BFS is
+            // bidirectional, so `prev` may be either endpoint — disambiguate via
+            // the stored target.
+            let edge_target = graph.csr.targets[edge_j].as_usize();
+            let edge_source = if edge_target == current {
+                prev
+            } else {
+                current
+            };
+            let reason = closure_reason_for_source(&graph, edge_source);
+            load_bearing.push((edge_external_id(&graph, edge_source), rel.clone(), reason));
             path_relations.push(rel);
             current = prev;
             if current == source_node.as_usize() {
@@ -1600,6 +1619,7 @@ pub fn handle_why(state: &mut SessionState, input: WhyInput) -> M1ndResult<serde
         }
         path_nodes.reverse();
         path_relations.reverse();
+        load_bearing.reverse();
 
         let path_labels: Vec<String> = path_nodes
             .iter()
@@ -1636,13 +1656,85 @@ pub fn handle_why(state: &mut SessionState, input: WhyInput) -> M1ndResult<serde
         }
     };
 
+    let closure = closure_verdict(&load_bearing);
+
     Ok(serde_json::json!({
         "source": input.source,
         "target": input.target,
         "paths": paths,
         "same_community": same_community,
         "found": found,
+        "closure": closure,
     }))
+}
+
+/// External id (stable address) of a node, or a synthetic `node_<idx>` fallback.
+/// Mirrors the reverse lookup used elsewhere in this module.
+fn edge_external_id(graph: &m1nd_core::graph::Graph, node_idx: usize) -> String {
+    let nid = m1nd_core::types::NodeId::new(node_idx as u32);
+    for (interned, &candidate) in &graph.id_to_node {
+        if candidate == nid {
+            return graph.strings.resolve(*interned).to_string();
+        }
+    }
+    format!("node_{node_idx}")
+}
+
+/// Read the provenance reason carried by an edge's SOURCE node, if any. Returns
+/// `Some("ambiguous")`/`Some("unresolved")` when the node was tagged at ingest
+/// because one of its outgoing edges was a low-confidence fallback or a dropped
+/// reference; `None` for a cleanly-resolved source. Ambiguous (a wrong guess on
+/// a created edge) is reported in preference to unresolved (a dropped edge).
+fn closure_reason_for_source(graph: &m1nd_core::graph::Graph, node_idx: usize) -> Option<String> {
+    let tags = graph.node_tags(m1nd_core::types::NodeId::new(node_idx as u32));
+    if tags.contains(&m1nd_ingest::resolve::EDGE_AMBIGUOUS_TAG) {
+        Some("ambiguous".to_string())
+    } else if tags.contains(&m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG) {
+        Some("unresolved".to_string())
+    } else {
+        None
+    }
+}
+
+/// Pure path→verdict: given the load-bearing edges on a reconstructed `why`
+/// path (each as (source_id, relation, reason)), decide whether the answer is
+/// honestly `closed` or `blocked` by an edge m1nd could not cleanly resolve.
+///
+/// `state == "blocked"` iff at least one load-bearing edge's source is tagged
+/// (reason is `Some`); otherwise `closed`. An empty list (no path, or an
+/// all-clean path) is `closed` with no dangling edges — there is nothing to be
+/// incomplete. Only the edges PASSED IN are considered, so off-path tagged
+/// nodes never affect the verdict (load-bearing scoping is the caller's job).
+fn closure_verdict(load_bearing: &[(String, String, Option<String>)]) -> serde_json::Value {
+    let dangling: Vec<serde_json::Value> = load_bearing
+        .iter()
+        .filter_map(|(source, relation, reason)| {
+            reason.as_ref().map(|r| {
+                serde_json::json!({
+                    "source": source,
+                    "relation": relation,
+                    "reason": r,
+                })
+            })
+        })
+        .collect();
+
+    if dangling.is_empty() {
+        serde_json::json!({
+            "state": "closed",
+            "dangling_edges": [],
+            "why": "every load-bearing edge on the path resolved cleanly",
+        })
+    } else {
+        serde_json::json!({
+            "state": "blocked",
+            "dangling_edges": dangling,
+            "why": format!(
+                "{} load-bearing edge(s) on the path rest on a guessed or dropped reference",
+                dangling.len()
+            ),
+        })
+    }
 }
 
 /// Handle m1nd.warmup (03-MCP Section 2.5).
@@ -5034,5 +5126,54 @@ mod tests {
             edges_after_memorize >= edges_baseline,
             "edge count must not collapse after memorize: was {edges_baseline}, now {edges_after_memorize}"
         );
+    }
+
+    /// Pure-function coverage of the closure verdict across every branch,
+    /// deterministic and graph-free (mirrors `compute_sufficiency_covers_every_state`).
+    /// Proves: empty path -> closed; all-clean path -> closed; one tagged source
+    /// -> blocked with the offending edge listed; and that load-bearing scoping is
+    /// the caller's contract — an off-path tagged node is simply NOT in the list
+    /// passed in, so it cannot blocked the verdict.
+    #[test]
+    fn closure_verdict_covers_every_state() {
+        use super::closure_verdict as cv;
+
+        // Empty path (no path, or nothing to inspect) -> closed, empty list.
+        let empty: Vec<(String, String, Option<String>)> = vec![];
+        let v = cv(&empty);
+        assert_eq!(v["state"], "closed");
+        assert_eq!(v["dangling_edges"].as_array().unwrap().len(), 0);
+
+        // All-clean path (every reason None) -> closed.
+        let clean = vec![
+            ("a".to_string(), "calls".to_string(), None),
+            ("b".to_string(), "imports".to_string(), None),
+        ];
+        let v = cv(&clean);
+        assert_eq!(v["state"], "closed");
+        assert_eq!(v["dangling_edges"].as_array().unwrap().len(), 0);
+
+        // One tagged source -> blocked, the offending edge is listed with reason.
+        let blocked = vec![
+            ("a".to_string(), "calls".to_string(), None),
+            (
+                "b".to_string(),
+                "calls".to_string(),
+                Some("ambiguous".to_string()),
+            ),
+        ];
+        let v = cv(&blocked);
+        assert_eq!(v["state"], "blocked");
+        let dangling = v["dangling_edges"].as_array().unwrap();
+        assert_eq!(dangling.len(), 1, "only the tagged edge is reported");
+        assert_eq!(dangling[0]["source"], "b");
+        assert_eq!(dangling[0]["relation"], "calls");
+        assert_eq!(dangling[0]["reason"], "ambiguous");
+
+        // Load-bearing scoping: an off-path tagged node is never passed in, so a
+        // clean on-path edge list stays closed even though tagged nodes exist
+        // elsewhere in the graph (they simply aren't in `load_bearing`).
+        let on_path_only = vec![("a".to_string(), "calls".to_string(), None)];
+        assert_eq!(cv(&on_path_only)["state"], "closed");
     }
 }

@@ -33,6 +33,18 @@ pub struct ResolutionStats {
     pub ambiguous: u64,
 }
 
+/// Node tag marking a source node that has at least one outgoing edge which was
+/// resolved via a low-confidence fallback among same-name candidates (a guess).
+/// Provenance only — the edge IS created; the tag lets `why` flag a path that
+/// rests on it. Shared so the read side (`why` closure verdict) uses the same
+/// literal.
+pub const EDGE_AMBIGUOUS_TAG: &str = "m1nd:edge:ambiguous";
+
+/// Node tag marking a source node that had at least one outgoing reference m1nd
+/// could NOT resolve to any target (the edge was dropped, leaving the source's
+/// outgoing picture incomplete).
+pub const EDGE_UNRESOLVED_TAG: &str = "m1nd:edge:unresolved";
+
 impl ReferenceResolver {
     /// Resolve all unresolved references in the graph.
     /// Uses multi-value label index + proximity disambiguation (FM-ING-008).
@@ -120,10 +132,17 @@ impl ReferenceResolver {
                     }
                     if found.is_empty() {
                         stats.unresolved += 1;
+                        graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
                         continue;
                     }
                     if found.len() > 1 {
                         stats.ambiguous += 1;
+                        // Provenance: this source node has at least one outgoing
+                        // edge that resolved via a low-confidence fallback among
+                        // same-name candidates. The edge is still created (binding
+                        // unchanged) — the tag only makes the guess KNOWABLE so
+                        // `why` can flag a path that rests on it.
+                        graph.add_node_tags(source, &[EDGE_AMBIGUOUS_TAG]);
                     }
                     // Use first match (or disambiguate if multiple). A call-site
                     // qualifier (`ref::Type::method`) wins first — it pins the
@@ -162,10 +181,14 @@ impl ReferenceResolver {
             if let Some(candidates) = label_index.get(&label_interned) {
                 if candidates.is_empty() {
                     stats.unresolved += 1;
+                    graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
                     continue;
                 }
                 if candidates.len() > 1 {
                     stats.ambiguous += 1;
+                    // Provenance only — see the suffix-branch comment above. The
+                    // SAME `candidates[0]`/disambiguated edge is still created.
+                    graph.add_node_tags(source, &[EDGE_AMBIGUOUS_TAG]);
                 }
 
                 let target = if candidates.len() == 1 {
@@ -196,6 +219,7 @@ impl ReferenceResolver {
                 stats.resolved += 1;
             } else {
                 stats.unresolved += 1;
+                graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
             }
         }
 
@@ -567,6 +591,69 @@ mod tests {
         assert_ne!(
             bound, decoy,
             "must NOT bind to the same-name TremorEngine decoy"
+        );
+    }
+
+    /// Provenance regression: an ambiguous `ref::` that hits the same-name
+    /// fallback must (a) still create the SAME edge — binding unchanged — and
+    /// (b) tag the SOURCE node `m1nd:edge:ambiguous` while incrementing
+    /// `ResolutionStats.ambiguous`, so the guess is knowable. Two same-name
+    /// candidates make the resolution ambiguous; the edge is created regardless.
+    #[test]
+    fn ambiguous_ref_tags_source_and_counts_ambiguous() {
+        let mut graph = Graph::new();
+        let caller = fn_node(&mut graph, "file::crate_a/src/walker.rs::fn::walk", "walk");
+        // Two same-name targets in different crates -> ambiguous.
+        let _a = fn_node(&mut graph, "file::crate_a/src/x.rs::fn::helper", "helper");
+        let _b = fn_node(&mut graph, "file::crate_b/src/y.rs::fn::helper", "helper");
+
+        let unresolved = vec![(
+            "file::crate_a/src/walker.rs::fn::walk".to_string(),
+            "ref::helper".to_string(),
+            "calls".to_string(),
+        )];
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+
+        // Binding unchanged: an edge IS still created.
+        assert_eq!(stats.resolved, 1, "the ambiguous ref must still resolve");
+        assert!(
+            calls_target(&graph, caller).is_some(),
+            "the same edge must still be created (binding unchanged)"
+        );
+        // Provenance recorded.
+        assert_eq!(stats.ambiguous, 1, "ambiguous count must increment");
+        assert!(
+            graph.node_tags(caller).contains(&EDGE_AMBIGUOUS_TAG),
+            "source must carry the ambiguous provenance tag, got {:?}",
+            graph.node_tags(caller)
+        );
+    }
+
+    /// Provenance regression: a `ref::` that resolves to NOTHING drops the edge
+    /// (binding unchanged) AND tags the source `m1nd:edge:unresolved` while
+    /// incrementing `ResolutionStats.unresolved`.
+    #[test]
+    fn unresolved_ref_tags_source_and_counts_unresolved() {
+        let mut graph = Graph::new();
+        let caller = fn_node(&mut graph, "file::crate_a/src/walker.rs::fn::walk", "walk");
+
+        let unresolved = vec![(
+            "file::crate_a/src/walker.rs::fn::walk".to_string(),
+            "ref::DoesNotExistAnywhere".to_string(),
+            "calls".to_string(),
+        )];
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+
+        assert_eq!(stats.resolved, 0, "an unresolvable ref must not resolve");
+        assert_eq!(stats.unresolved, 1, "unresolved count must increment");
+        assert!(
+            calls_target(&graph, caller).is_none(),
+            "no edge is created for an unresolvable ref (binding unchanged)"
+        );
+        assert!(
+            graph.node_tags(caller).contains(&EDGE_UNRESOLVED_TAG),
+            "source must carry the unresolved provenance tag, got {:?}",
+            graph.node_tags(caller)
         );
     }
 
