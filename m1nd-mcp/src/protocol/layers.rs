@@ -224,6 +224,16 @@ pub struct SeekResultEntry {
     pub line_end: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub excerpt: Option<String>,
+    /// Honest recall labeling: for a memory (`.light.md`) hit, how long ago the
+    /// claim was authored, in milliseconds (now − the `Created` frontmatter the
+    /// `memorize` writer stamps). Absent on code nodes and on legacy memories
+    /// with no `Created` — an absent age reads as "unknown age", never as fresh.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authored_ms_ago: Option<u64>,
+    /// Honest recall labeling: which agent authored this memory (the
+    /// `Source-Agent` frontmatter). Absent on code nodes and legacy memories.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_agent: Option<String>,
     /// Connected nodes (callers, callees, importers).
     pub connections: Vec<SeekConnection>,
 }
