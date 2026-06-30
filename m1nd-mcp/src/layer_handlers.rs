@@ -611,9 +611,34 @@ pub fn handle_seek(
             let nt = l2_node_type_str(&graph.nodes.node_type[i]);
             let ext_id = &node_to_ext[i];
             let prov = graph.resolve_node_provenance(nid);
-            let tags: Vec<String> = graph.nodes.tags[i]
+            let all_tags: Vec<String> = graph.nodes.tags[i]
                 .iter()
                 .map(|&ti| graph.strings.resolve(ti).to_string())
+                .collect();
+
+            // Honest recall labeling: lift the provenance tags the light adapter
+            // stamps (`light:created:<ms>`, `light:source_agent:<id>`) out of the
+            // tag set so they surface as explicit hit fields instead of polluting
+            // the intent summary. `tags` (sans provenance) still feeds the summary.
+            let mut authored_ms_ago: Option<u64> = None;
+            let mut source_agent: Option<String> = None;
+            let tags: Vec<String> = all_tags
+                .into_iter()
+                .filter(|t| {
+                    if let Some(created) = t.strip_prefix("light:created:") {
+                        // Age = now − authored. A missing/unparsable Created leaves
+                        // the age absent (honest "unknown"), never faked to "now".
+                        if let Ok(created_ms) = created.trim().parse::<u64>() {
+                            authored_ms_ago = Some(trail_now_ms().saturating_sub(created_ms));
+                        }
+                        false
+                    } else if let Some(agent) = t.strip_prefix("light:source_agent:") {
+                        source_agent = Some(agent.trim().to_string());
+                        false
+                    } else {
+                        true
+                    }
+                })
                 .collect();
 
             // Gather connections (outgoing edges, capped at 5)
@@ -663,6 +688,8 @@ pub fn handle_seek(
                 line_start: prov.line_start,
                 line_end: prov.line_end,
                 excerpt: prov.excerpt,
+                authored_ms_ago,
+                source_agent,
                 connections,
             }
         })
@@ -12760,5 +12787,166 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // -----------------------------------------------------------------------
+    // HONEST RECALL LABELING (memory move 2): a memorized claim must recall
+    // with its authored-age + source-agent surfaced as explicit hit fields,
+    // derived from the `Created`/`Source-Agent` frontmatter the writer stamps.
+    // -----------------------------------------------------------------------
+
+    fn build_light_seek_session(root: &std::path::Path) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        SessionState::initialize(Graph::new(), &config, DomainConfig::code()).expect("init session")
+    }
+
+    fn ingest_light_dir(state: &mut SessionState, dir: &std::path::Path) {
+        let ingest = crate::protocol::core::IngestInput {
+            path: dir.to_string_lossy().to_string(),
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: "light".into(),
+            mode: "merge".into(),
+            namespace: Some("light".into()),
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+        crate::tools::handle_ingest(state, ingest).expect("light ingest");
+    }
+
+    #[test]
+    fn seek_surfaces_authored_age_and_source_agent_on_memory_hit() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let proj = temp.path().join("mem");
+        std::fs::create_dir_all(&proj).expect("mem dir");
+
+        // A memory authored 12 days ago by agent-B, with the exact frontmatter the
+        // `memorize` writer stamps (Move 1: Created + Source-Agent).
+        let now_ms = super::trail_now_ms();
+        let twelve_days_ms: u64 = 12 * 24 * 60 * 60 * 1000;
+        let created = now_ms - twelve_days_ms;
+        let md = format!(
+            "---\nProtocol: L1GHT/1.0\nNode: PaymentRetry\nState: verified\n\
+             Created: {created}\nSource-Agent: agent-B\n---\n\n\
+             # PaymentRetry\n\n## PaymentRetry\n\n\
+             The payment retry uses exponential backoff capped at five attempts.\n\n\
+             [⍂ entity: PaymentRetryBackoff]\n[𝔻 confidence: 0.9]\n"
+        );
+        std::fs::write(proj.join("payment.light.md"), md).expect("write memory");
+
+        let mut state = build_light_seek_session(temp.path());
+        ingest_light_dir(&mut state, &proj);
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "payment retry backoff".into(),
+                agent_id: "probe".into(),
+                top_k: 20,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: false,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        // At least one hit must carry BOTH provenance labels.
+        let labeled = out
+            .results
+            .iter()
+            .find(|r| r.authored_ms_ago.is_some() && r.source_agent.is_some())
+            .unwrap_or_else(|| {
+                panic!(
+                    "no memory hit carried authored_ms_ago + source_agent; got {:?}",
+                    out.results
+                        .iter()
+                        .map(|r| (&r.label, r.authored_ms_ago, &r.source_agent))
+                        .collect::<Vec<_>>()
+                )
+            });
+
+        // source_agent is exactly the authoring agent.
+        assert_eq!(
+            labeled.source_agent.as_deref(),
+            Some("agent-B"),
+            "source_agent must be the authoring agent"
+        );
+        // authored_ms_ago ≈ 12 days; allow a generous window for elapsed wall-clock.
+        let age = labeled.authored_ms_ago.expect("authored_ms_ago present");
+        assert!(
+            age >= twelve_days_ms && age < twelve_days_ms + 60_000,
+            "authored_ms_ago={age} must be ~12 days (>= {twelve_days_ms}, < +60s)"
+        );
+        // The provenance must NOT leak into the visible intent summary.
+        assert!(
+            !labeled.intent_summary.contains("light:created:")
+                && !labeled.intent_summary.contains("light:source_agent:"),
+            "provenance must not pollute intent_summary, got: {}",
+            labeled.intent_summary
+        );
+    }
+
+    #[test]
+    fn seek_labels_absent_on_legacy_memory_without_created() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let proj = temp.path().join("mem");
+        std::fs::create_dir_all(&proj).expect("mem dir");
+
+        // Legacy memory: no Created / Source-Agent. Age must read as unknown
+        // (absent), never faked to "now".
+        let legacy = "---\nProtocol: L1GHT/1.0\nNode: LegacyClaim\nState: authored\n---\n\n\
+             # LegacyClaim\n\n## LegacyClaim\n\n\
+             The cache eviction policy is least-recently-used.\n\n\
+             [⍂ entity: CacheEvictionLru]\n[𝔻 confidence: 0.8]\n";
+        std::fs::write(proj.join("legacy.light.md"), legacy).expect("write legacy");
+
+        let mut state = build_light_seek_session(temp.path());
+        ingest_light_dir(&mut state, &proj);
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "cache eviction lru policy".into(),
+                agent_id: "probe".into(),
+                top_k: 20,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: false,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        assert!(
+            !out.results.is_empty(),
+            "legacy memory must still recall fine"
+        );
+        // NO hit may carry faked provenance — absent means unknown, honestly.
+        for r in &out.results {
+            assert!(
+                r.authored_ms_ago.is_none(),
+                "legacy memory hit must have NO authored_ms_ago (got {:?} on {})",
+                r.authored_ms_ago,
+                r.label
+            );
+            assert!(
+                r.source_agent.is_none(),
+                "legacy memory hit must have NO source_agent (got {:?} on {})",
+                r.source_agent,
+                r.label
+            );
+        }
     }
 }
