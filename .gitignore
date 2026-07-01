@@ -45,6 +45,14 @@ docs/benchmarks/**/operator-only/seeded-diff.patch
 # Locally installed agent pack (per-machine install artifact from `m1nd install-skills`)
 .m1nd/
 
+# Supersession-on-rewrite runtime dot-dirs beside the live agent memories:
+#   .history/ — retained prior beliefs (audit trail), flipped to `State: outdated`
+#   .locks/   — per-slug flock files
+# Both are per-machine runtime state (the live `agent-memory/*.light.md` stay
+# tracked). The leading dot also makes the ingest walker skip them.
+agent-memory/.history/
+agent-memory/.locks/
+
 # Scratchpad: ephemeral working dir. Ignore everything EXCEPT the canonical
 # capability test battery, which is tracked in-repo so it can never silently
 # vanish again (it was previously gitignored and died with cleared scratchpads).

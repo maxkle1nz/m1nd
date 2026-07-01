@@ -423,6 +423,7 @@ fn try_write_light_memory(
         namespace: Some("light".into()),
         ingest_after: true,
         mode: "merge".into(),
+        supersedes: None,
     };
 
     let result = handle_light_author(state, light_input)
