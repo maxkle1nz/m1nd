@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use crate::activation::*;
 use crate::counterfactual::*;
+use crate::domain::DomainConfig;
 use crate::error::M1ndResult;
 use crate::graph::Graph;
 use crate::plasticity::*;
@@ -158,7 +159,12 @@ impl QueryOrchestrator {
     /// -> merge -> ghost edges -> structural holes -> plasticity update.
     /// Four dimensions run in parallel via rayon.
     /// Replaces: engine_v2.py ConnectomeEngine.query()
-    pub fn query(&mut self, graph: &mut Graph, config: &QueryConfig) -> M1ndResult<QueryResult> {
+    pub fn query(
+        &mut self,
+        graph: &mut Graph,
+        config: &QueryConfig,
+        domain: &DomainConfig,
+    ) -> M1ndResult<QueryResult> {
         let start = Instant::now();
 
         // Step 1: Find seeds
@@ -199,7 +205,7 @@ impl QueryOrchestrator {
         let d2 = activate_semantic(graph, &self.semantic, &config.query, config.top_k)?;
 
         // D3: Temporal
-        let d3 = activate_temporal(graph, &seeds, &TemporalWeights::default())?;
+        let d3 = activate_temporal(graph, &seeds, &TemporalWeights::default(), domain)?;
 
         // D4: Causal
         let d4 = activate_causal(graph, &seeds, &config.propagation)?;
@@ -321,7 +327,12 @@ impl QueryOrchestrator {
     /// The `plasticity` field is set to the same empty/zeroed
     /// [`PlasticityResult`] used by the empty-seeds early return in
     /// [`Self::query`].
-    pub fn query_readonly(&self, graph: &Graph, config: &QueryConfig) -> M1ndResult<QueryResult> {
+    pub fn query_readonly(
+        &self,
+        graph: &Graph,
+        config: &QueryConfig,
+        domain: &DomainConfig,
+    ) -> M1ndResult<QueryResult> {
         let start = Instant::now();
 
         // Zeroed plasticity result — Step 8 is intentionally skipped, so no
@@ -367,7 +378,7 @@ impl QueryOrchestrator {
         let d2 = activate_semantic(graph, &self.semantic, &config.query, config.top_k)?;
 
         // D3: Temporal
-        let d3 = activate_temporal(graph, &seeds, &TemporalWeights::default())?;
+        let d3 = activate_temporal(graph, &seeds, &TemporalWeights::default(), domain)?;
 
         // D4: Causal
         let d4 = activate_causal(graph, &seeds, &config.propagation)?;

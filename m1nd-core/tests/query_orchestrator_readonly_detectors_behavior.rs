@@ -11,6 +11,7 @@
 //!   the graph; an out-of-range id would be an out-of-bounds bug downstream.
 
 use m1nd_core::activation::{ActivatedNode, ActivationResult};
+use m1nd_core::domain::DomainConfig;
 use m1nd_core::graph::Graph;
 use m1nd_core::query::{QueryConfig, QueryOrchestrator};
 use m1nd_core::types::{EdgeDirection, FiniteF32, Generation, NodeId, NodeType};
@@ -132,7 +133,7 @@ fn query_readonly_does_not_mutate_the_graph() {
     // change that smuggles in interior mutation (atomics on edge weights, the
     // generation counter) is caught.
     let result = orchestrator
-        .query_readonly(&graph, &config)
+        .query_readonly(&graph, &config, &DomainConfig::code())
         .expect("query_readonly succeeds");
 
     let after = graph_fingerprint(&graph);
