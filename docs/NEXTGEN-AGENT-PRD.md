@@ -243,6 +243,126 @@ Honesty is not a feature of m1nd-OMEGA. **Honesty is the moat.** Everything else
 
 ---
 
+# Ω+1 — The Ambient Loop
+
+> **The next chapter, building on OMEGA — not a replacement.** OMEGA (§O.1–O.11) makes every *answer* carry its own trust receipt. **Ω+1 makes the answer arrive whether or not the agent remembers to ask** — it wires m1nd into the agent's hook lifecycle so orientation, staleness-guarding, and memory become *ambient* rather than called. Same honesty moat, one axis further: OMEGA hardened the verb; Ω+1 hardens the *loop the verbs run in*. This section is held to the identical standard — every claim written to survive the adversarial critic, and the critic's corrections **baked in, not bolted on**. The design is presented WITH its structural defects surfaced (four are load-bearing and corrected below), because a doc that hides its own broken keystone would itself violate the moat.
+
+## Ω+1.1 Thesis
+
+m1nd today is a **tool you call.** The agent must remember to `orient`, remember to `am_i_stale`, remember to `memorize`. Every one of those "remember to" is a leak — and the frontier now measures exactly what leaks through it: **EvoClaw drops the best agent from >80% on isolated tasks to 38% on continuous evolution**, and the collapse point *is* the agent failing to honestly build on its own prior state. The delegation gap (AI touches ~60% of work; humans fully delegate 0–20%) has the same root: an agent that boots cold, edits stale bytes, and forgets what it proved cannot be trusted over long horizons.
+
+The move is to stop making m1nd a node the agent *chooses* to visit and make it **the wire the agent's loop runs on**. Four beats, wired into the hook chokepoints every agent already passes through:
+
+> **pre-orient → act → post-capture → compound**
+
+- **Pre-orient** — before the agent acts, m1nd hands it an honest *north packet*: a trust verdict on its own binding, a ranked minimal context set, prior conclusions with age + author + staleness, and a sufficiency stop-signal. The agent never starts blind.
+- **Act** — the agent works. m1nd is dark. Silence is a feature.
+- **Post-capture** — after the action, m1nd folds the change back: re-ingests the delta, surfaces co-change the AST can't see, reweights trust/tremor from real test outcomes, and — the keystone — **memorizes what was proven, anchored to code.**
+- **Compound** — `Stop:memorize` writes exactly what the next `SessionStart:orient` reads. The loop tightens across sessions. **Leaving m1nd stops meaning "lose a feature" and starts meaning "lose institutional memory."** That is the LSP-of-agent-ground-truth moat: not smarter per fire, but *ambient, nearly-free, and compounding.*
+
+This is not new capability bolted on. It is **choreography of verbs that already ship** — the one primitive m1nd lacks is the wire itself. The hook is a thin `stdin-JSON → MCP-call → additionalContext/permissionDecision` shim (`session_id → agent_id`); no new engine.
+
+## Ω+1.2 The lifecycle map
+
+Every verb below is live in `mcp__m1nd__*`. **PRE** = orient before acting (draws from the retrieval + trust families). **POST** = capture after acting (draws from the memory-l1ght + temporal + xray families). `Stop:memorize` writes exactly what `SessionStart:orient` reads — the one loop grep/LSP/RAG structurally cannot close.
+
+| Hook moment | m1nd verb(s) that fire | PRE / POST | Payload in → returns to agent |
+|---|---|---|---|
+| **SessionStart** (`startup\|resume\|clear\|compact`) | `trust_selftest` → `orient(cwd/last-goal)` → `boot_memory(get)`; on `resume`: `+am_i_stale`(coverage set) `+trail_resume` | PRE | `session_id, cwd, source` → `additionalContext`: trust_mode + binding fingerprint, focus_nodes, memory_nearby (age+author+STALE flags), PageRank anchors, coverage, first move. **`orient` is heavy (PageRank) — see Correction 2: it must NOT block on `compact`.** |
+| **UserPromptSubmit** | `focus(goal, budget)` + `warmup(task)` | PRE | `prompt` → `additionalContext`: minimal `focus_set[]` (file:line + excerpt), `sufficiency` verdict (`sufficient\|gathering\|saturated`), honest `ignored{count,reason}` tail |
+| **PreToolUse** (Edit/Write/MultiEdit) | `am_i_stale(file)` → on stale `surgical_context_v2` + `memory_nearby`; `xray_gate` (ratified → `deny`); `validate_plan` (blast radius) | PRE (gate) | `tool_input.file_path` → `permissionDecision` or `additionalContext` **caution (see Correction 3 — caution by default, `ask` only on a file THIS agent read this session)** |
+| **PreToolUse** (Read/Grep/Glob) | `surgical_context_v2` / `seek` enrich | PRE | `tool_input` → `additionalContext`: real caller/callee/test neighborhood + risk read (never blocks) |
+| **PostToolUse** (Edit/Write) | `ghost_edges` → `predict(node)` gated by calibration verdict; `daemon_tick` / incremental `ingest` re-sync | POST (fire-and-forget) | `tool_input, tool_response` → `additionalContext`: co-change files you haven't touched (only when verdict = `act`; `abstain` on an uncalibrated graph — **Correction 3**) |
+| **PostToolUse** (Bash: test/build) | `learn(query, feedback: correct\|wrong\|partial, node_ids)` | POST | pass/fail from `tool_response` → side effect: trust + tremor + co-change ledger updated (silent on pass) |
+| **SubagentStop** | `mission_verify` (evidence-class gate) → `mission_handoff` | POST | transcript, last_msg → typed proof packet to parent; `decision:block` on graph-only evidence. **`mission_*` only fires when a mission is genuinely open — see Correction 1.** |
+| **Stop** | **`cross_verify(evidence_freshness)` → `memorize(claims, evidence)` DIRECTLY** (NOT `mission_verify`→`mission_close`) | POST (fire-and-forget) | turn conclusions → `.light.md` written, code-anchored + stale flags. **This is the rewired keystone — see Correction 1.** |
+| **PreCompact** | `memorize` (rescue durable findings) + `trail_save` | POST | `trigger` → durable findings + in-flight trail flushed before forgetting |
+| **SessionEnd** | `persist(save)` + `boot_memory(set)` + `alerts_ack` | POST | `reason` → side effect: snapshot learned weights |
+
+The through-line: **PRE hooks hand a ranked, trust-verdicted north packet; POST hooks fold the change back** (re-ingest, reweight via `learn`, surface co-change via `predict`, memorize anchored to code). Every hook is an MCP round-trip, so the map is only honest once the latency budget below (Correction 2) is met.
+
+## Ω+1.3 The four load-bearing corrections (baked in, not bolted on)
+
+The synthesis converged on a clean design — and the adversarial critic found four structural defects in it. They are surfaced here, not footnoted, because the ambient loop is a **verification tool that fires on every action**, and such a tool dies the instant it is slow, cries wolf, or launders a guess. Each correction is enforced in the data path, not asserted in prose.
+
+### Correction 1 — the keystone is structurally broken as a hook; rewire it (MANDATORY)
+
+The synthesis's keystone was `Stop → mission_verify → mission_close → memorize`. **This does not compose as a hook.** Grounded in source: `handle_mission_verify` (`m1nd-mcp/src/mission_handlers.rs:200`) and `handle_mission_close` (`:309`) both open with `load_mission(state, &input.mission_id)?` — they **require a `mission_id`** from a prior `mission_start`, and `load_mission` (`:454`) **hard-errors** (`InvalidParams`, `:458`) when no such mission file exists. But `Stop` fires on **every turn end**, and **almost none** carry an open mission. Wiring the keystone as written would make m1nd throw an error on the overwhelming majority of turns.
+
+**The composable keystone is `Stop → cross_verify(evidence_freshness) → memorize(claims, evidence)` DIRECTLY.** `memorize` (`handle_light_author`, `m1nd-mcp/src/light_author_handlers.rs`) takes **free-form structured claims with `evidence` paths and needs NO `mission_id`** (verified: its input is `{claims: [{claim, evidence[]}], …}`, no mission field). It writes a graph-native `.light.md`, ingests it, and anchors every evidence path to the real code node — exactly the compound-arc write we need, with none of the mission precondition. `cross_verify(check:["evidence_freshness"])` runs first so a born-stale claim is flagged born-stale at write time. **Reserve `mission_*` for `SubagentStop` and for the rare turn where a mission is genuinely open** — never as the default `Stop` path.
+
+### Correction 2 — latency is asserted, not measured; make it a budget
+
+Every PRE/POST hook is an MCP round-trip. A 12-edit refactor pays **12× `am_i_stale` + 12× `ghost_edges`→`predict`** at `PostToolUse` alone. And `orient` — which composes PageRank (the heaviest verb in the surface) — is wired to `SessionStart`, which fires on `compact` **mid-session**, potentially blocking the agent's own context-window recovery. "Sub-100ms, nearly-free" is a claim the synthesis **asserts**; nothing measures it. Requirements, enforced not asserted:
+
+1. **A stated per-hook latency budget** — a wall-clock ceiling per hook class (PRE-gate strictest, POST-capture loosest), MEASURED against real repos, published in the receipt, not a marketing "sub-100ms."
+2. **Caching keyed to `graph_generation`** for the common "nothing changed" path — the overwhelming majority of `am_i_stale` fires hit an unchanged file; those must return from cache in ~one hash compare, no graph traversal.
+3. **Fire-and-forget async for all post-capture** — `Stop:memorize`, `PostToolUse:predict`, and the re-ingest tick must NOT block the agent's next turn; they run detached and surface on the *next* PRE hook.
+4. **`orient` must NOT fire blocking on every `SessionStart`** — on `compact` especially, it either runs async or degrades to the cached North Packet from the last full orient. The heaviest verb never sits in the synchronous critical path.
+
+The moment a fire adds perceptible latency per turn, the operator `--no-verify`'s it out — and disabling is sticky in the wrong direction. **m1nd's ambient fire must behave like a pre-commit formatter, not a test suite.**
+
+### Correction 3 — `stale_guard → ask` is a wolf-cry; caution by default
+
+The synthesis wired `am_i_stale` mismatch → `permissionDecision: ask` (a hard block). This **cries wolf.** A proven hash mismatch fires on entirely benign churn: a formatter reflowing the file, a branch switch, a sibling session's write (Max's own documented multi-session worktree drift). Block on all of those and the agent learns the guard is noise and routes around it — the SOC 65%-ignored-alerts collapse, imported into the inner loop. Corrections:
+
+- **Stale is `additionalContext` CAUTION by default**, never a block. It tells the agent "this file changed on disk since ingest" and lets the agent decide.
+- **Blocking `permissionDecision: ask` fires ONLY on a mismatch to a file THIS agent actually READ this session** — i.e., the agent is about to edit against a picture it personally holds and that has since drifted. That is the one case worth interrupting for; every other mismatch is caution.
+- **The co-change / `predict` gate must auto-trigger `calibrate_predict`** or it is dead weight forever. On a fresh repo `predict` is honestly `abstain` (Move 0: uncalibrated ⇒ every verdict `abstain`), and it *never earns its way on* unless calibration runs against that repo's git history automatically. Without the auto-trigger, `cochange_nudge` ships silent and stays silent — a feature that never turns on.
+
+### Correction 4 — the one fabrication risk lives in the auto-memorize distiller
+
+`memorize`'s `direct`-evidence gate is right: a claim whose `evidence` paths don't resolve to a real code node is flagged `unresolved` (verified in `light_author_handlers.rs` — the handler counts `light_evidence_resolved`/`light_evidence_unresolved` and guides the agent to ingest). But the **extraction step feeding `memorize` at `Stop` is the soft spot.** If the distiller **free-LLM-summarizes the turn**, it can fabricate a memory — invent a conclusion the turn never actually reached, then persist it with authority. That is the single worst failure the ambient loop can have: a grounding tool that launders a hallucination into durable, auto-loading memory.
+
+**The distiller must anchor claims to evidence paths (source-of-truth), not paraphrase the transcript.** It extracts claims **only** where the turn touched real code nodes (edited/read `file:line`), cites those nodes as `evidence`, and lets `memorize`'s resolve-or-flag gate reject anything that doesn't anchor. A claim with no resolvable evidence is **not written** (or written `unresolved`, never silently grounded). The rule: *memorize what the turn proved against code, never what a summarizer thinks the turn meant.*
+
+## Ω+1.4 Ranked reuse-first roadmap (Waves)
+
+Mirror how OMEGA shipped: a small honest primitive, gated so it abstains until it earns the right to speak, wired then hardened. Each wave is independently shippable and leaves the loop honest. **ORGANIZE** = wire a verb that already does the work (`auto_ingest`, `daemon`, `focus`, `orient` already exist — the daemon self-wakes, the watcher captures FS events, `orient` already composes activate + memory_nearby + PageRank + coverage). **BUILD** = net-new logic.
+
+- **Wave 0 — the shim harness (enables everything, BUILD).** One tiny `stdin-JSON → m1nd-MCP → hook-output` client. No m1nd code. This is the wire; everything below is a config entry against it. Latency-budgeted (Correction 2) from line one.
+- **Wave 1 — pre-orient North Packet on SessionStart (ORGANIZE).** Wire `SessionStart → trust_selftest → orient → boot_memory`. Highest leverage-per-line because `orient` already aggregates. `trust_selftest` fires **first** — a split-brain/wrong-workspace binding injects `recovery_playbook`, not a confident lie. `orient` runs async on `compact` (Correction 2).
+- **Wave 2 — the fresh-context PreToolUse enrich + stale caution (ORGANIZE).** Wire `PreToolUse(Read/Grep) → surgical_context_v2` (never blocks) and `PreToolUse(Edit) → am_i_stale`. Stale = **caution by default**, `ask` only on a file this agent read this session (Correction 3). Surface `memory_nearby` at edit-intent so prior conclusions arrive unbidden.
+- **Wave 3 — the honest post-capture (ORGANIZE, fire-and-forget).** `PostToolUse(Edit) → daemon_tick`/incremental re-ingest + `PostToolUse(Bash:test) → learn(feedback)`. Silent on pass. This keeps the graph and trust model current without an agent call.
+- **Wave 4 — the keystone auto-memorize, REWIRED (BUILD).** `Stop → cross_verify(evidence_freshness) → memorize(claims, evidence)` **directly** (Correction 1 — never `mission_*`). Ship the distiller thin and **evidence-anchored** (Correction 4): extract claims only where the turn touched real code nodes, cite them, let `memorize`'s resolve-or-flag gate reject the rest. Pair with `PreCompact → memorize + trail_save`. After this wave, `Stop` writes what `SessionStart` reads — the flywheel turns.
+- **Wave 5 — the calibration-gated co-change nudge (ORGANIZE + auto-calibrate).** `PostToolUse(Edit) → ghost_edges → predict`. Ships **silent** on an uncalibrated graph (honest `abstain`), and **auto-triggers `calibrate_predict`** against the repo's git history (Correction 3) so it earns its way on. Becomes loud only after a measured precision-at-coverage receipt — the OMEGA discipline exactly.
+- **Wave 6 — the swarm handoff gate (BUILD).** `SubagentStop → mission_verify → decision:block` on graph-only evidence — the one place `mission_*` genuinely belongs (a subagent whose whole job was a scoped mission). Collapse `PostToolBatch` drift into one digest, never twenty flags.
+
+The ordering is deliberate: **ORGANIZE waves ship first** (nearly free, prove the wire), the **rewired keystone** (Wave 4) lands where the compound arc closes, and the **BUILD/swarm work** lands last where the honesty stakes are highest.
+
+## Ω+1.5 Honesty invariants for ambient operation
+
+An every-action verification tool dies four ways. Each invariant maps to a correction above, and each is enforced in the data path — the moat law: *be more conservative about your own "all clear" than about your alarms.*
+
+1. **Never slow the loop.** Latency-budgeted, cached to `graph_generation`, incremental (re-ingest deltas, not the world), fire-and-forget on post-capture, silent when nothing changed. Sub-100ms is **MEASURED, not asserted** (Correction 2). A formatter, never a test suite.
+2. **Never cry wolf.** `am_i_stale` fires **caution by default**; blocking `ask` only on a file this agent read this session. `xray_gate` hard-`deny`s **only** on a ratified manifest; unratified drift is caution. `cochange_nudge` surfaces only `act`-verdict candidates on a calibrated graph; `abstain` is suppressed; cascades collapse into one digest (Correction 3). One confidently-wrong alarm destroys the credibility of the next hundred right ones.
+3. **Pre-orient must be honest about what it does NOT know.** The north packet never fakes readiness. `trust_selftest` runs first — a split-brain binding injects `recovery_playbook`, not a confident orientation. `focus` states its `ignored{count,reason}` tail. Cold nodes carry `insufficient_evidence`, never a fake 0.5. A memory with unparseable age reads **"unknown," never "now."**
+4. **Post-capture must not fabricate.** The auto-memorize distiller anchors every claim to a resolvable `evidence` code path and **never free-summarizes the turn** (Correction 4). `cross_verify` at write-time flags a born-stale claim born-stale. Staleness is **represented data** — the agent is told "was true until file X changed," never silently served a superseded fact.
+
+The meta-invariant, inherited from OMEGA: **verify-before-assert applies to m1nd itself.** A grounding tool whose ground truth has drifted is worse than no tool, because it launders wrong information with authority. `code > PATHOS > memory` is what keeps the ambient loop from becoming the most dangerous liar in the loop over 20 years.
+
+## Ω+1.6 Manifesto
+
+**m1nd is not a tool you call. It is the nervous system your loop runs on.**
+
+Today an agent boots blind, gropes through a codebase it half-remembers, edits bytes that rotted while it was gone, proves something real — and then forgets it the moment the context window closes. Next session it starts over, cold, re-deriving what it already knew, confidently wrong about a file that moved underneath it. The frontier put a number on this: 80% on a task you hand it clean, **38%** on software that actually evolves. The gap is not intelligence. The gap is *continuity* — the agent cannot honestly build on its own past.
+
+So we stop asking the agent to remember. We wire remembering into the loop itself.
+
+Before it acts, m1nd hands it a north packet: *here is what you can trust, here are the five nodes that matter, here is what a prior agent proved here four days ago — and here is exactly what I do not know.* When it acts, m1nd goes dark; silence is the product. After it acts, m1nd folds the change back into the graph, whispers the one file git says it forgot, sharpens its own trust model on the test that just passed or failed — and when the agent has *proven* something, m1nd writes it down, **anchored to the real line of code**, so next session's first breath inhales exactly what this session exhaled.
+
+Every piece of this already exists. The daemon already wakes on its own. The watcher already sees every file change. `orient` already composes the whole boot packet in one call. `memorize` already turns a proof into anchored memory with no mission required. What was missing was never an engine — it was **the wire.** We are building the wire.
+
+And we build it honest, because a verification tool that cries wolf once is negative value forever. m1nd abstains before it lies. It says "unknown" before it says "now." It refuses to persist a guess as a fact, refuses to block on an architecture rule no human ratified, refuses to certify what it never read. It is more conservative about its own *all-clear* than about its alarms — because that is the only way an agent comes to *refuse to work without it*.
+
+That is the position: not the smartest thing in the loop, but the thing the loop cannot run without. The LSP of agent-to-repo ground truth — nearly free, nearly silent, wired into every chokepoint the agent already passes through, compounding memory so that leaving means amnesia. **Pre-orient, act, post-capture, compound.** The longer it runs, the more expensive it becomes to work without it.
+
+Close the cycle.
+
+> **Load-bearing verbs (all live in `mcp__m1nd__*`):** `trust_selftest`, `orient`, `boot_memory`, `am_i_stale`, `trail_resume`, `focus`, `warmup`, `surgical_context_v2`, `seek`, `xray_gate`, `validate_plan`, `ghost_edges`, `predict`, `calibrate_predict`, `learn`, `mission_verify`, `mission_handoff`, `memorize`, `cross_verify`, `trail_save`, `daemon_tick`, `ingest`, `persist`, `boot_memory`, `alerts_ack`, `recovery_playbook`. **Grounding for the corrections:** `m1nd-mcp/src/mission_handlers.rs:200,309,454,458` (mission_id hard-error — Correction 1) and `m1nd-mcp/src/light_author_handlers.rs` (`handle_light_author`: free-form claims + evidence, no mission_id; resolve-or-flag gate — Corrections 1 & 4).
+
+---
+
 ## 1. North Star (agent-first)
 
 m1nd is the one always-reachable, always-live code-intelligence + memory runtime an autonomous coding agent talks to about a repo — and the only one that tells the agent **how much to trust what it just got, when it is blocked, and what it left out.** The next generation makes that honesty operational under the conditions agents actually run in: many concurrent sub-agents converging on **one live graph** instead of dying or drifting on private stale copies; per-node answers that say **"safe to edit / here is the de-risking move"** instead of a vacant `0.5`; and a context layer that decides **when to stop, what to keep, and what not to trust** by testing graph *closure* — never by guessing an answer. Every new signal is answer-free, carries its own evidence, and degrades to an explicit "insufficient_evidence" rather than a confident lie. We push the moat outward; we never weaken it.
