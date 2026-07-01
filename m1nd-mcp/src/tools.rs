@@ -5163,6 +5163,7 @@ mod tests {
                 namespace: None,
                 ingest_after: true,
                 mode: "merge".into(),
+                supersedes: None,
             },
         )
         .expect("memorize");
@@ -5293,6 +5294,7 @@ mod tests {
                 namespace: None,
                 ingest_after: true,
                 mode: "merge".into(),
+                supersedes: None,
             },
         )
         .expect("memorize");

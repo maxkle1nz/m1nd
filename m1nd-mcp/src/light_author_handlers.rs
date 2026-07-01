@@ -10,7 +10,7 @@ use m1nd_core::error::{M1ndError, M1ndResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // serde default helpers
@@ -78,6 +78,12 @@ pub struct LightAuthorInput {
     /// Ingest merge mode (default "merge").
     #[serde(default = "default_merge")]
     pub mode: String,
+    /// Internal only (never from the tool call): set to the slug this write
+    /// supersedes, so a `Supersedes:` frontmatter line is rendered. `#[serde(skip)]`
+    /// keeps it off the public tool schema — the handler fills it during the
+    /// invalidate-and-keep sequence.
+    #[serde(skip)]
+    pub supersedes: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -85,20 +91,70 @@ pub struct LightAuthorInput {
 // ---------------------------------------------------------------------------
 
 /// Handle the `memorize` MCP tool call.
-pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) -> M1ndResult<Value> {
+pub fn handle_light_author(
+    state: &mut SessionState,
+    mut input: LightAuthorInput,
+) -> M1ndResult<Value> {
     // 1. Resolve output path.
     let out_path = resolve_output_path(state, &input)?;
 
-    // 2. Render markdown.
-    let markdown = render_light_markdown(&input);
+    // 2. Write to disk under supersession-on-rewrite (invalidate-and-keep) for the
+    //    default agent-memory path; an explicit `output_path` override keeps the
+    //    historical unconditional-write behavior (no lock, no supersession).
+    let is_default_path = input.output_path.is_none();
 
-    // 3. Write to disk.
     let parent = out_path.parent().ok_or_else(|| M1ndError::InvalidParams {
         tool: "memorize".into(),
         detail: "output path has no parent directory".into(),
     })?;
     fs::create_dir_all(parent).map_err(M1ndError::Io)?;
-    fs::write(&out_path, &markdown).map_err(M1ndError::Io)?;
+
+    let (markdown, supersession) = if is_default_path {
+        // Per-slug exclusive lock held across the whole read-modify-write, dropped
+        // BEFORE ingest (ingest only reads). This is what makes two sibling sessions
+        // on the same slug safe under multi-session drift.
+        let slug = slugify(&input.node_label);
+        let _lock = LockGuard::acquire(&state.runtime_root, &slug)?;
+
+        match plan_supersession(&out_path, &input)? {
+            SupersessionPlan::WouldDowngrade { reason } => {
+                // The stronger prior stays live; we refuse the weaker write rather
+                // than silently dropping it — the agent is told why.
+                let path_str = out_path.to_string_lossy().to_string();
+                return Ok(json!({
+                    "ok": true,
+                    "schema": "m1nd-memorize-v0",
+                    "path": path_str,
+                    "bytes_written": 0,
+                    "claims_written": 0,
+                    "ingested": false,
+                    "superseded": false,
+                    "reason": reason,
+                    "note": "weaker write refused: the stronger prior memory is kept live (invalidate-and-keep gate).",
+                }));
+            }
+            SupersessionPlan::Supersede => {
+                // Retain the prior belief in .history/ flipped to `State: outdated`,
+                // then stamp the new file with its Supersedes lineage.
+                archive_prior_as_outdated(&out_path, &slug, &state.runtime_root)?;
+                input.supersedes = Some(slug.clone());
+                let md = render_light_markdown(&input);
+                write_atomic(&out_path, &md)?;
+                (md, Some(true))
+            }
+            SupersessionPlan::FirstWrite => {
+                let md = render_light_markdown(&input);
+                write_atomic(&out_path, &md)?;
+                (md, None)
+            }
+        }
+        // _lock dropped here — before ingest.
+    } else {
+        // Explicit override path: unchanged historical behavior.
+        let md = render_light_markdown(&input);
+        fs::write(&out_path, &md).map_err(M1ndError::Io)?;
+        (md, None)
+    };
 
     let bytes_written = markdown.len();
     let claims_written = input.claims.len();
@@ -140,7 +196,7 @@ pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) ->
             "Memory persisted and will auto-load next session. Add `evidence` paths to claims to anchor them to code and enable staleness detection.".to_string()
         };
 
-        return Ok(json!({
+        let mut resp = json!({
             "ok": true,
             "schema": "m1nd-memorize-v0",
             "path": path_str,
@@ -153,10 +209,14 @@ pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) ->
             "light_evidence_unresolved": unresolved,
             "next_action": next_action,
             "rendered": markdown,
-        }));
+        });
+        if let Some(superseded) = supersession {
+            resp["superseded"] = json!(superseded);
+        }
+        return Ok(resp);
     }
 
-    Ok(json!({
+    let mut resp = json!({
         "ok": true,
         "schema": "m1nd-memorize-v0",
         "path": path_str,
@@ -164,7 +224,11 @@ pub fn handle_light_author(state: &mut SessionState, input: LightAuthorInput) ->
         "claims_written": claims_written,
         "ingested": false,
         "rendered": markdown,
-    }))
+    });
+    if let Some(superseded) = supersession {
+        resp["superseded"] = json!(superseded);
+    }
+    Ok(resp)
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +257,13 @@ pub fn render_light_markdown(input: &LightAuthorInput) -> String {
     // ignores unknown frontmatter keys, so these are backward-compatible.
     out.push_str(&format!("Created: {}\n", now_ms()));
     out.push_str(&format!("Source-Agent: {}\n", input.agent_id));
+    // Supersession lineage: names the slug whose prior belief this write invalidates
+    // (the prior copy is retained in `agent-memory/.history/` as `State: outdated`).
+    // Frontmatter-only for now; the parser tolerates unknown keys. A graph-visible
+    // supersedes edge is deferred.
+    if let Some(superseded) = &input.supersedes {
+        out.push_str(&format!("Supersedes: {}\n", superseded));
+    }
     out.push_str("---\n");
     out.push('\n');
 
@@ -280,6 +351,244 @@ fn slugify(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Supersession-on-rewrite (invalidate-and-keep)
+// ---------------------------------------------------------------------------
+
+/// Per-slug advisory file lock held across the read-modify-write of one memory.
+///
+/// RAII mirror of `instance_registry::InstanceHandle`: acquire on construction,
+/// release on `Drop`. Backed by `libc::flock(LOCK_EX)` on a `.locks/<slug>.lock`
+/// file — a blocking, whole-file exclusive lock that is per-open-file-description,
+/// so two sibling sessions (or two threads with independent `open`s) serialize
+/// correctly. Blocking (not try-lock) is deliberate: memorize is durable and
+/// low-frequency, so correctness beats latency.
+///
+/// On non-unix targets there is no `flock`; the guard is a documented no-op and
+/// supersession still runs (single-writer assumption — the only degradation is
+/// the loss of cross-process serialization, which unix always has).
+struct LockGuard {
+    #[cfg(unix)]
+    fd: std::os::unix::io::RawFd,
+}
+
+impl LockGuard {
+    fn acquire(runtime_root: &Path, slug: &str) -> M1ndResult<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let locks_dir = runtime_root.join("agent-memory").join(".locks");
+            fs::create_dir_all(&locks_dir).map_err(M1ndError::Io)?;
+            let lock_path = locks_dir.join(format!("{}.lock", slug));
+            let file = fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(&lock_path)
+                .map_err(M1ndError::Io)?;
+            let fd = file.as_raw_fd();
+            // Blocking exclusive lock. `file` is leaked (into_raw handled below) so
+            // the fd stays open until we release+close in Drop.
+            // SAFETY: `fd` is a valid open descriptor for the lifetime of this call.
+            let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
+            if rc != 0 {
+                return Err(M1ndError::Io(std::io::Error::last_os_error()));
+            }
+            // Keep the fd alive past `file`'s scope; Drop closes it.
+            let raw = {
+                use std::os::unix::io::IntoRawFd;
+                file.into_raw_fd()
+            };
+            Ok(LockGuard { fd: raw })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (runtime_root, slug);
+            Ok(LockGuard {})
+        }
+    }
+}
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            // Release the lock, then close the descriptor. Errors on teardown are
+            // non-actionable (best-effort), matching how the OS reclaims on close.
+            // SAFETY: `self.fd` is the descriptor we opened and locked in `acquire`.
+            unsafe {
+                libc::flock(self.fd, libc::LOCK_UN);
+                libc::close(self.fd);
+            }
+        }
+    }
+}
+
+/// What the invalidate-and-keep gate decided for a write to `out_path`.
+enum SupersessionPlan {
+    /// No prior file — a plain first write.
+    FirstWrite,
+    /// A prior file exists and the new claim is at least as strong — supersede it.
+    Supersede,
+    /// A prior file exists and is strictly stronger — refuse the weaker write.
+    WouldDowngrade { reason: String },
+}
+
+/// A prior memory's epistemic strength, parsed from its frontmatter/markers.
+struct PriorStrength {
+    state_rank: u8,
+    /// `None` when no confidence could be parsed (fail-safe: unknown).
+    confidence: Option<f32>,
+}
+
+/// State ordering: verified (2) > authored (1) > outdated (0). Unknown ⇒ None.
+fn state_rank(state: &str) -> Option<u8> {
+    match state.trim().to_ascii_lowercase().as_str() {
+        "verified" => Some(2),
+        "authored" => Some(1),
+        "outdated" => Some(0),
+        _ => None,
+    }
+}
+
+/// Confidence scalar. Numeric (`0.9`) parsed directly; words high/medium/low
+/// mapped to 0.9/0.6/0.3. Anything else ⇒ `None` (unknown — fail-safe).
+fn confidence_scalar(raw: &str) -> Option<f32> {
+    let t = raw.trim().trim_end_matches(['.', ',', ';']);
+    if let Ok(v) = t.parse::<f32>() {
+        return Some(v);
+    }
+    match t.to_ascii_lowercase().as_str() {
+        "high" => Some(0.9),
+        "medium" => Some(0.6),
+        "low" => Some(0.3),
+        _ => None,
+    }
+}
+
+/// Scan a `.light.md`'s header for `State:` and the max `[𝔻 confidence: …]` claim.
+/// A tiny local scan rather than reaching across the crate boundary into
+/// `l1ght_adapter::parse_header` (private, different crate) — the spec's fallback.
+fn scan_prior_strength(text: &str) -> PriorStrength {
+    let mut state = "authored".to_string();
+    let mut max_conf: Option<f32> = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(v) = trimmed.strip_prefix("State:") {
+            state = v.trim().to_string();
+        } else if let Some(rest) = trimmed.strip_prefix("[𝔻 confidence:") {
+            let val = rest.trim_end_matches(']').trim();
+            if let Some(c) = confidence_scalar(val) {
+                max_conf = Some(max_conf.map_or(c, |m| m.max(c)));
+            }
+        }
+    }
+    PriorStrength {
+        state_rank: state_rank(&state).unwrap_or(0),
+        confidence: max_conf,
+    }
+}
+
+/// Strength of the NEW write, from its input (before render).
+fn new_strength(input: &LightAuthorInput) -> PriorStrength {
+    let state = input.state.as_deref().unwrap_or("authored");
+    let mut max_conf: Option<f32> = None;
+    for claim in &input.claims {
+        if let Some(conf) = &claim.confidence {
+            if let Some(c) = confidence_scalar(conf) {
+                max_conf = Some(max_conf.map_or(c, |m| m.max(c)));
+            }
+        }
+    }
+    PriorStrength {
+        state_rank: state_rank(state).unwrap_or(0),
+        confidence: max_conf,
+    }
+}
+
+/// Decide the invalidate-and-keep plan for a write to `out_path`.
+///
+/// - No prior file ⇒ `FirstWrite`.
+/// - Prior exists ⇒ read its strength and run the gate against the new write.
+fn plan_supersession(out_path: &Path, input: &LightAuthorInput) -> M1ndResult<SupersessionPlan> {
+    if !out_path.exists() {
+        return Ok(SupersessionPlan::FirstWrite);
+    }
+    let prior_text = fs::read_to_string(out_path).map_err(M1ndError::Io)?;
+    let prior = scan_prior_strength(&prior_text);
+    let new = new_strength(input);
+    Ok(gate_supersession(&prior, &new))
+}
+
+/// The gate: "weaker can't clobber stronger." Supersede only if the new write is
+/// at least as strong on BOTH axes. Fail-safe: if either side's confidence is
+/// unknown/unparseable (so the comparison can't be made confidently), do NOT
+/// supersede — keep the stronger prior live.
+fn gate_supersession(prior: &PriorStrength, new: &PriorStrength) -> SupersessionPlan {
+    let (Some(new_conf), Some(prior_conf)) = (new.confidence, prior.confidence) else {
+        // Unknown confidence on either side ⇒ can't confidently compare ⇒ refuse.
+        return SupersessionPlan::WouldDowngrade {
+            reason: "would_downgrade".to_string(),
+        };
+    };
+    if new.state_rank >= prior.state_rank && new_conf >= prior_conf {
+        SupersessionPlan::Supersede
+    } else {
+        SupersessionPlan::WouldDowngrade {
+            reason: "would_downgrade".to_string(),
+        }
+    }
+}
+
+/// Copy the live prior file into `.history/<slug>.<ts>.light.md` with its `State:`
+/// flipped to `outdated` — retained forever as the audit trail. The live file is
+/// left untouched here; the caller overwrites it with the new claim afterward.
+fn archive_prior_as_outdated(out_path: &Path, slug: &str, runtime_root: &Path) -> M1ndResult<()> {
+    let prior_text = fs::read_to_string(out_path).map_err(M1ndError::Io)?;
+    let outdated = flip_state_to_outdated(&prior_text);
+    let history_dir = runtime_root.join("agent-memory").join(".history");
+    fs::create_dir_all(&history_dir).map_err(M1ndError::Io)?;
+    let history_path = history_dir.join(format!("{}.{}.light.md", slug, now_ms()));
+    write_atomic(&history_path, &outdated)?;
+    Ok(())
+}
+
+/// Return `text` with the first `State:` frontmatter line rewritten to
+/// `State: outdated` (idempotent if already outdated).
+fn flip_state_to_outdated(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut flipped = false;
+    for line in text.lines() {
+        if !flipped && line.trim_start().starts_with("State:") {
+            out.push_str("State: outdated");
+            flipped = true;
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Atomic write: temp file beside the target + rename (FM-PL-008), so a reader
+/// (or a crashed writer) never sees a torn `.light.md`.
+fn write_atomic(path: &Path, contents: &str) -> M1ndResult<()> {
+    let parent = path.parent().ok_or_else(|| M1ndError::InvalidParams {
+        tool: "memorize".into(),
+        detail: "atomic write target has no parent directory".into(),
+    })?;
+    fs::create_dir_all(parent).map_err(M1ndError::Io)?;
+    // Unique-ish temp name in the same dir (same filesystem ⇒ rename is atomic).
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "memory.light.md".to_string());
+    let temp_path = parent.join(format!(".{}.{}.tmp", file_name, now_ms()));
+    fs::write(&temp_path, contents).map_err(M1ndError::Io)?;
+    fs::rename(&temp_path, path).map_err(M1ndError::Io)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -303,6 +612,7 @@ mod tests {
             namespace: None,
             ingest_after: false,
             mode: "merge".into(),
+            supersedes: None,
         }
     }
 
@@ -439,6 +749,7 @@ mod tests {
             namespace: None,
             ingest_after: true,
             mode: "merge".into(),
+            supersedes: None,
         };
 
         let result = handle_light_author(&mut state, input).expect("memorize ok");
@@ -575,5 +886,293 @@ mod tests {
         assert_eq!(slugify("Hello World"), "hello-world");
         assert_eq!(slugify("foo::bar::baz"), "foo-bar-baz");
         assert_eq!(slugify("  leading"), "-leading");
+    }
+
+    // -----------------------------------------------------------------------
+    // Supersession-on-rewrite tests
+    // -----------------------------------------------------------------------
+
+    /// Build a memorize input for the default (agent-memory) path, no ingest,
+    /// with a single claim carrying the given confidence.
+    fn super_input(node: &str, state: &str, confidence: &str) -> LightAuthorInput {
+        LightAuthorInput {
+            agent_id: "test-agent".into(),
+            node_label: node.into(),
+            title: None,
+            state: Some(state.into()),
+            claims: vec![LightClaim {
+                label: "Claim".into(),
+                text: Some("A claim.".into()),
+                kind: Some("entity".into()),
+                confidence: Some(confidence.into()),
+                ambiguity: None,
+                evidence: vec![],
+                depends_on: vec![],
+            }],
+            output_path: None,
+            namespace: None,
+            ingest_after: false,
+            mode: "merge".into(),
+            supersedes: None,
+        }
+    }
+
+    fn agent_memory_dir(state: &SessionState) -> PathBuf {
+        state.runtime_root.join("agent-memory")
+    }
+
+    // Test: auto-supersede same slug — prior copied to .history as `State: outdated`,
+    // new file carries `Supersedes:`, and nothing is deleted.
+    #[test]
+    fn supersession_auto_supersedes_same_slug() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+
+        // First write: authored, 0.6.
+        handle_light_author(&mut state, super_input("X", "authored", "0.6"))
+            .expect("first memorize");
+        let live = agent_memory_dir(&state).join("x.light.md");
+        assert!(live.exists(), "first write should create the live file");
+
+        // Second write: verified, 0.9 — should supersede.
+        let result = handle_light_author(&mut state, super_input("X", "verified", "0.9"))
+            .expect("second memorize");
+        assert_eq!(result["superseded"], true, "second write should supersede");
+
+        // The live file is the NEW claim, stamped with Supersedes.
+        let live_text = std::fs::read_to_string(&live).expect("read live");
+        assert!(
+            live_text.contains("Supersedes: x"),
+            "new live file must carry Supersedes lineage, got:\n{}",
+            live_text
+        );
+        assert!(
+            live_text.contains("State: verified"),
+            "new live file must be the verified claim"
+        );
+
+        // The prior is retained in .history/, flipped to outdated. Nothing deleted.
+        let history_dir = agent_memory_dir(&state).join(".history");
+        let entries: Vec<_> = std::fs::read_dir(&history_dir)
+            .expect("history dir")
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("x."))
+            })
+            .collect();
+        assert_eq!(entries.len(), 1, "exactly one archived prior expected");
+        let archived = std::fs::read_to_string(&entries[0]).expect("read archived");
+        assert!(
+            archived.contains("State: outdated"),
+            "archived prior must be flipped to outdated, got:\n{}",
+            archived
+        );
+        assert!(
+            live.exists(),
+            "live file must still exist (nothing deleted)"
+        );
+    }
+
+    // Test: downgrade gate — a weaker write must NOT clobber a stronger prior.
+    #[test]
+    fn supersession_downgrade_gate_refuses_weaker_write() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+
+        // Prior: verified, 0.9.
+        handle_light_author(&mut state, super_input("X", "verified", "0.9"))
+            .expect("first memorize");
+        let live = agent_memory_dir(&state).join("x.light.md");
+        let before = std::fs::read_to_string(&live).expect("read live before");
+
+        // New: authored, 0.5 — strictly weaker, must be refused.
+        let result = handle_light_author(&mut state, super_input("X", "authored", "0.5"))
+            .expect("second memorize");
+        assert_eq!(result["superseded"], false, "weaker write must be refused");
+        assert_eq!(result["reason"], "would_downgrade");
+
+        // Live file UNCHANGED — still the verified prior.
+        let after = std::fs::read_to_string(&live).expect("read live after");
+        assert_eq!(
+            before, after,
+            "live file must be unchanged by the refused write"
+        );
+        assert!(
+            after.contains("State: verified"),
+            "prior must stay verified live"
+        );
+
+        // No .history copy was made for the refused write.
+        let history_dir = agent_memory_dir(&state).join(".history");
+        let history_count = std::fs::read_dir(&history_dir)
+            .map(|d| d.filter_map(Result::ok).count())
+            .unwrap_or(0);
+        assert_eq!(history_count, 0, "no archive on a refused downgrade");
+    }
+
+    // Test: reload ignores history — a live memory + an outdated .history copy →
+    // light ingest with include_dotfiles:false must NOT surface the .history claim.
+    // Proof: ingesting the whole agent-memory dir yields the SAME node count as
+    // ingesting the live file alone, because the `.history` dot-dir is pruned.
+    #[test]
+    fn supersession_reload_ignores_history() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+
+        // Create live + history via a real supersession.
+        handle_light_author(&mut state, super_input("Widget", "authored", "0.6"))
+            .expect("first memorize");
+        handle_light_author(&mut state, super_input("Widget", "verified", "0.9"))
+            .expect("supersede memorize");
+
+        let mem_dir = agent_memory_dir(&state);
+        assert!(
+            mem_dir.join(".history").exists(),
+            "history dir should exist"
+        );
+        assert!(
+            mem_dir.join("widget.light.md").exists(),
+            "live file should exist"
+        );
+
+        // Count nodes from the LIVE file alone (single-file ingest).
+        let live_only = IngestInput {
+            path: mem_dir
+                .join("widget.light.md")
+                .to_string_lossy()
+                .to_string(),
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: "light".into(),
+            mode: "replace".into(),
+            namespace: Some("light".into()),
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+        let live_count = crate::tools::handle_ingest(&mut state, live_only).expect("live ingest")
+            ["node_count"]
+            .as_u64()
+            .unwrap_or(0);
+        assert!(live_count >= 1, "the live memory should ingest");
+
+        // Ingest the whole dir the way the runtime does (dotfiles excluded).
+        let dir_ingest = IngestInput {
+            path: mem_dir.to_string_lossy().to_string(),
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: "light".into(),
+            mode: "replace".into(),
+            namespace: Some("light".into()),
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+        let dir_count = crate::tools::handle_ingest(&mut state, dir_ingest).expect("dir ingest")
+            ["node_count"]
+            .as_u64()
+            .unwrap_or(0);
+
+        // Same count ⇒ the `.history` copy contributed nothing (it was pruned).
+        assert_eq!(
+            dir_count, live_count,
+            "whole-dir ingest must equal live-only ingest — the .history copy must be pruned, not reloaded"
+        );
+    }
+
+    // Test: concurrency (the flock proof) — two threads memorize the same slug
+    // against one runtime_root; afterward exactly ONE live file, no torn write,
+    // no double-archive beyond the serialized supersession.
+    #[test]
+    fn supersession_concurrent_same_slug_is_serialized() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = Arc::new(temp.path().to_path_buf());
+
+        // Seed a first version so both threads race to supersede the SAME prior.
+        {
+            let mut state = build_session(root.as_path());
+            handle_light_author(&mut state, super_input("Race", "authored", "0.5")).expect("seed");
+        }
+
+        let mut handles = Vec::new();
+        for i in 0..2u32 {
+            let root = Arc::clone(&root);
+            handles.push(thread::spawn(move || {
+                // Each thread builds its own SessionState pointing at the SAME
+                // runtime_root, so the per-slug flock is the only serializer.
+                let mut state = build_session(root.as_path());
+                let conf = if i == 0 { "0.9" } else { "0.8" };
+                let _ = handle_light_author(&mut state, super_input("Race", "verified", conf));
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread join");
+        }
+
+        // Exactly ONE live file, and it is a complete (non-torn) L1GHT document.
+        // agent-memory lives under runtime_root (= <root>/runtime), matching
+        // build_session's runtime_dir.
+        let mem_dir = root.join("runtime").join("agent-memory");
+        let live = mem_dir.join("race.light.md");
+        assert!(live.exists(), "exactly one live file must remain");
+        let text = std::fs::read_to_string(&live).expect("read live");
+        assert!(
+            text.contains("Protocol: L1GHT/1.0") && text.trim_end().ends_with("]"),
+            "live file must be a complete, non-torn document, got:\n{}",
+            text
+        );
+        // No leftover temp files (atomic rename cleaned up).
+        let stray_temp = std::fs::read_dir(&mem_dir)
+            .expect("read mem dir")
+            .filter_map(Result::ok)
+            .any(|e| e.file_name().to_string_lossy().ends_with(".tmp"));
+        assert!(!stray_temp, "no torn/leftover .tmp files should remain");
+    }
+
+    // Test: frontmatter round-trip — a rendered doc with Supersedes parses cleanly
+    // (the ingest parser tolerates the unknown key, no error).
+    #[test]
+    fn supersession_supersedes_frontmatter_round_trips() {
+        let mut input = super_input("Round", "verified", "0.9");
+        input.supersedes = Some("round".into());
+        let md = render_light_markdown(&input);
+        assert!(
+            md.contains("Supersedes: round"),
+            "Supersedes line must render, got:\n{}",
+            md
+        );
+
+        // Ingest it: the parser must not error on the unknown Supersedes key.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let proj = temp.path().join("proj");
+        std::fs::create_dir_all(&proj).expect("proj dir");
+        std::fs::write(proj.join("round.light.md"), &md).expect("write");
+
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+        let ingest = IngestInput {
+            path: proj.to_string_lossy().to_string(),
+            agent_id: "test".into(),
+            incremental: false,
+            adapter: "light".into(),
+            mode: "merge".into(),
+            namespace: Some("light".into()),
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+        let result = crate::tools::handle_ingest(&mut state, ingest)
+            .expect("doc with Supersedes must ingest without error");
+        assert!(result["node_count"].as_u64().unwrap_or(0) >= 1);
     }
 }

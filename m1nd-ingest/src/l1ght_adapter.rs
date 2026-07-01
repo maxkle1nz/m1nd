@@ -114,8 +114,22 @@ impl L1ghtIngestAdapter {
             };
         }
 
+        // Prune hidden (dot-prefixed) directories and files below the root, mirroring
+        // the code walker's `.hidden(true)` pruning (walker.rs). This is what keeps
+        // supersession's retained `agent-memory/.history/` (outdated prior beliefs)
+        // and `.locks/` out of the reloaded graph — the leading dot is the mechanism.
+        // The root itself is never pruned (depth 0), so an explicitly-passed dotdir
+        // still ingests.
         WalkDir::new(root)
             .into_iter()
+            .filter_entry(|entry| {
+                entry.depth() == 0
+                    || !entry
+                        .file_name()
+                        .to_str()
+                        .map(|name| name.starts_with('.'))
+                        .unwrap_or(false)
+            })
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file() && Self::accepted_extension(entry.path()))
             .map(|entry| entry.into_path())
