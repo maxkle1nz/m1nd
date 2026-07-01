@@ -1405,10 +1405,11 @@ impl SessionState {
     ) -> M1ndResult<m1nd_core::query::QueryResult> {
         if self.read_only {
             let graph = self.graph.read();
-            self.orchestrator.query_readonly(&graph, config)
+            self.orchestrator
+                .query_readonly(&graph, config, &self.domain)
         } else {
             let mut graph = self.graph.write();
-            self.orchestrator.query(&mut graph, config)
+            self.orchestrator.query(&mut graph, config, &self.domain)
         }
     }
 
