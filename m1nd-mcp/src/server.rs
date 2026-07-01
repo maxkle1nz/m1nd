@@ -306,6 +306,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "trust_selftest",
     "session_handshake",
     "orient",
+    "north",
     "am_i_stale",
     "recovery_playbook",
     "health",
@@ -439,6 +440,20 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "task": { "type": "string", "description": "Free-form description of the task you are about to start. The graph spread-activates on this text to find your starting context." },
                         "top_k": { "type": "integer", "default": 8, "description": "How many focus nodes to return (ranked by activation from the task)" },
                         "scope": { "type": "string", "description": "Optional scope hint to bound orientation" }
+                    },
+                    "required": ["agent_id", "task"]
+                }
+            },
+            {
+                "name": "north",
+                "description": "Pre-orient in ONE call so you never start cold: the honest north packet. Composes binding trust (trust_mode + fingerprint + the repair when degraded), task context (focus nodes + PageRank anchors from orient), durable cross-session memory (each claim with its real age + author, absent when unknown — never faked to 'now'), an answer-free sufficiency signal, one suggested next_move, and honest_gaps (what m1nd does NOT yet know). On an empty/unbound graph it honestly returns needs_ingest + the repair, not a fabricated orientation. One round-trip instead of trust_selftest → orient → boot_memory → focus. Read-only safe.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "task": { "type": "string", "description": "Free-form description of the task you are about to start. The graph spread-activates on this text to find your starting context." },
+                        "top_k": { "type": "integer", "default": 8, "description": "How many focus nodes to return (ranked by activation from the task)" },
+                        "scope": { "type": "string", "description": "Optional scope hint to bound orientation and trust binding" }
                     },
                     "required": ["agent_id", "task"]
                 }
@@ -2850,6 +2865,298 @@ fn handle_orient(
     }))
 }
 
+/// The "north packet" — a single pre-orient handoff so an agent never starts
+/// cold (Ω+1 ambient loop, in-repo primitive).
+///
+/// This is PURE COMPOSITION: it fans out four handlers that already ship and
+/// assembles their honest outputs into ONE orientation packet — collapsing what
+/// is otherwise 4 separate round-trips (`trust_selftest` → `orient` →
+/// `boot_memory` → `focus`) into a SINGLE call. No graph logic, no new traversal.
+///
+/// The honesty signals pass straight through, never faked:
+///   - `binding` carries the `trust_selftest` verdict + fingerprint verbatim; a
+///     degraded/unbound binding keeps its attached `recovery_playbook` (the repair).
+///   - an EMPTY / unbound graph honestly returns `needs: "needs_ingest"` with the
+///     repair, NOT a fabricated orientation — `context`/`sufficiency` stay null.
+///   - each durable memory carries a REAL `age_ms` (now − `updated_at_ms`) and its
+///     `source_agent`; when a timestamp is somehow absent the age is ABSENT
+///     (honest "unknown"), never faked to "now" — mirroring the `seek` provenance rule.
+///   - `sufficiency` is the answer-free stop signal lifted from `focus`, or null
+///     when the graph can't answer yet.
+///   - `honest_gaps` names what m1nd does NOT yet know for this task.
+///
+/// Read-only safe: every composed handler is read-only (`trust_selftest`,
+/// `orient`→`activate`, `boot_memory action=list`, `focus`→`seek` all route
+/// through read-only-safe paths).
+fn handle_north(
+    state: &mut SessionState,
+    params: &serde_json::Value,
+) -> M1ndResult<serde_json::Value> {
+    let agent_id = params
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "north".into(),
+            detail: "north requires an `agent_id` string".into(),
+        })?
+        .to_string();
+    let task = params
+        .get("task")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| M1ndError::InvalidParams {
+            tool: "north".into(),
+            detail: "north requires a `task` string describing what the agent is about to do"
+                .into(),
+        })?
+        .to_string();
+    if task.trim().is_empty() {
+        return Err(M1ndError::InvalidParams {
+            tool: "north".into(),
+            detail: "north `task` must be non-empty".into(),
+        });
+    }
+    let top_k = params
+        .get("top_k")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(8)
+        .clamp(1, 50);
+    let scope = params
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // 1. BINDING — one trust_selftest gives the verdict + fingerprint + graph
+    //    state + (when not full) the attached recovery_playbook. Reuse wholesale;
+    //    it internally composes session_handshake + recovery_playbook already.
+    let trust = tools::handle_trust_selftest(
+        state,
+        TrustSelftestInput {
+            agent_id: agent_id.clone(),
+            observed_tool_count: None,
+            available_tools: Vec::new(),
+            missing_tools: Vec::new(),
+            observed_tool: None,
+            observed_proof_state: None,
+            observed_candidates: None,
+            scope: scope.clone(),
+            error_text: None,
+        },
+    )?;
+    let verdict = trust
+        .get("verdict")
+        .and_then(|v| v.as_str())
+        .unwrap_or("orientation_only")
+        .to_string();
+    let binding_ok = trust.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+    let graph_populated = trust
+        .get("checks")
+        .and_then(|c| c.get("graph_populated"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    // The graph can't ground context yet when it is empty/unbound. In that case
+    // we return the repair honestly rather than a fabricated orientation.
+    let needs_ingest = verdict == "needs_ingest"
+        || (!graph_populated && matches!(verdict.as_str(), "needs_ingest" | "orientation_only"));
+    let binding = serde_json::json!({
+        "trust_mode": verdict,
+        "fingerprint": trust.get("binding_fingerprint").cloned().unwrap_or(serde_json::Value::Null),
+        "ok": binding_ok,
+        "graph_populated": graph_populated,
+        "graph_state": trust.get("graph_state").cloned().unwrap_or(serde_json::Value::Null),
+    });
+    // The repair path travels with the packet whenever the binding is not full
+    // trust, so the agent gets the fix, not just the diagnosis.
+    let recovery_playbook = trust
+        .get("recovery_playbook")
+        .cloned()
+        .filter(|v| !v.is_null());
+
+    // 2. MEMORY — durable KV recall via boot_memory (action=list). Each entry
+    //    carries a REAL age (now − updated_at_ms) and its authoring agent. If a
+    //    timestamp is ever absent, the age is ABSENT (honest "unknown"), never
+    //    faked to "now" — the same rule seek's recall provenance follows.
+    let now = now_ms();
+    let stale_after_ms: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days
+    let memory: Vec<serde_json::Value> = {
+        let list = crate::boot_memory_handlers::handle_boot_memory(
+            state,
+            crate::boot_memory_handlers::BootMemoryInput {
+                agent_id: agent_id.clone(),
+                action: "list".into(),
+                key: None,
+                value: None,
+                tags: Vec::new(),
+                source_refs: Vec::new(),
+            },
+        )?;
+        list.get("entries")
+            .and_then(|e| e.as_array())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| {
+                        let updated_at_ms = entry.get("updated_at_ms").and_then(|v| v.as_u64());
+                        // age_ms: Some(now − updated) when the stamp is present and
+                        // sane; None (absent) when unknown — never fabricated.
+                        let age_ms = updated_at_ms
+                            .filter(|&ts| ts > 0 && ts <= now)
+                            .map(|ts| now.saturating_sub(ts));
+                        let stale = age_ms.map(|age| age > stale_after_ms);
+                        let mut obj = serde_json::Map::new();
+                        obj.insert(
+                            "claim".into(),
+                            entry.get("key").cloned().unwrap_or(serde_json::Value::Null),
+                        );
+                        if let Some(age) = age_ms {
+                            obj.insert("age_ms".into(), serde_json::json!(age));
+                        }
+                        obj.insert(
+                            "source_agent".into(),
+                            entry
+                                .get("updated_by_agent")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
+                        );
+                        if let Some(stale) = stale {
+                            obj.insert("stale".into(), serde_json::json!(stale));
+                        }
+                        obj.insert(
+                            "tags".into(),
+                            entry.get("tags").cloned().unwrap_or(serde_json::json!([])),
+                        );
+                        obj.insert(
+                            "source_refs".into(),
+                            entry
+                                .get("source_refs")
+                                .cloned()
+                                .unwrap_or(serde_json::json!([])),
+                        );
+                        serde_json::Value::Object(obj)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    // Honest gaps — what m1nd does NOT yet know for this task. A pre-orient MUST
+    // say what it can't see rather than imply omniscience.
+    let mut honest_gaps: Vec<String> = Vec::new();
+
+    // 3 + 4. CONTEXT + SUFFICIENCY — only meaningful once the graph is bound and
+    //    populated. When it isn't, we say so honestly (needs_ingest) instead of
+    //    running orient/focus over an empty graph and returning a fake packet.
+    let (context, sufficiency, next_move) = if needs_ingest || !graph_populated {
+        honest_gaps.push(
+            "The graph is empty or unbound — no codebase context is available until ingest runs."
+                .into(),
+        );
+        (
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+            "Run ingest for the intended repo, then call north again to get grounded context."
+                .to_string(),
+        )
+    } else {
+        // CONTEXT — reuse orient wholesale (focus_nodes + anchors + coverage +
+        // memory_nearby + suggested_first_calls). Zero reimplementation.
+        let orient = handle_orient(
+            state,
+            &serde_json::json!({
+                "agent_id": agent_id,
+                "task": task,
+                "top_k": top_k,
+            }),
+        )?;
+        let focus_nodes = orient
+            .get("focus_nodes")
+            .cloned()
+            .unwrap_or(serde_json::json!([]));
+        let anchors = orient
+            .get("anchors")
+            .cloned()
+            .unwrap_or(serde_json::json!([]));
+        let focus_empty = focus_nodes.as_array().map(|a| a.is_empty()).unwrap_or(true);
+        if focus_empty {
+            honest_gaps.push(
+                "No focus nodes activated for this task — the relevant area may not be ingested, or the task text may not match the graph."
+                    .into(),
+            );
+        }
+        let context = serde_json::json!({
+            "focus_nodes": focus_nodes,
+            "anchors": anchors,
+            "coverage": orient.get("coverage").cloned().unwrap_or(serde_json::Value::Null),
+            "memory_nearby": orient.get("memory_nearby").cloned().unwrap_or(serde_json::Value::Null),
+        });
+
+        // SUFFICIENCY — the answer-free stop signal, lifted from focus. focus wraps
+        // seek with budget packing and reports sufficient | gathering | saturated.
+        let focus_out = layer_handlers::handle_focus(
+            state,
+            layers::FocusInput {
+                goal: task.clone(),
+                agent_id: agent_id.clone(),
+                token_budget: 2000,
+                top_k: 60,
+                scope: scope.clone(),
+                node_types: Vec::new(),
+                min_score: 0.1,
+            },
+        )?;
+        let sufficiency =
+            serde_json::to_value(&focus_out.sufficiency).unwrap_or(serde_json::Value::Null);
+
+        // next_move — one honest suggested first action. Lead with the concrete
+        // grounded call orient already proposes (surgical_context on the top
+        // focus node); fall back to a re-scope hint when nothing activated.
+        let next_move = orient
+            .get("suggested_first_calls")
+            .and_then(|c| c.as_array())
+            .and_then(|calls| calls.first())
+            .map(|call| {
+                let tool = call.get("tool").and_then(|v| v.as_str()).unwrap_or("view");
+                format!("Call `{tool}` on the top focus node to ground the task before editing.")
+            })
+            .unwrap_or_else(|| {
+                "No focus nodes activated — refine the task text or ingest the relevant area, then call north again.".to_string()
+            });
+
+        (context, sufficiency, next_move)
+    };
+
+    if !binding_ok {
+        honest_gaps.push(format!(
+            "Binding is not full trust ({verdict}) — treat retrieval as orientation only and verify final truth against local files; see recovery_playbook for the repair."
+        ));
+    }
+    if memory.is_empty() {
+        honest_gaps.push(
+            "No durable boot memory yet — there are no prior cross-session claims to carry.".into(),
+        );
+    }
+
+    Ok(serde_json::json!({
+        "schema": "m1nd-north-packet-v0",
+        "task": task,
+        "binding": binding,
+        "context": context,
+        "memory": memory,
+        "sufficiency": sufficiency,
+        "next_move": next_move,
+        "honest_gaps": honest_gaps,
+        "needs": if needs_ingest { serde_json::json!("needs_ingest") } else { serde_json::Value::Null },
+        "recovery_playbook": recovery_playbook.unwrap_or(serde_json::Value::Null),
+        "proof_state": "triaging",
+        "non_claims": [
+            "north composes existing read-only verbs; it does not ingest, mutate, or repair the graph.",
+            "north does not refresh the host MCP binding.",
+            "north does not replace compiler, tests, or local file truth.",
+            "an absent memory age means unknown authored time, never freshly authored."
+        ],
+    }))
+}
+
 /// Resolve a node id to its absolute on-disk file path for `am_i_stale`.
 ///
 /// Two paths, both grounded in already-recorded state — no new traversal logic:
@@ -3339,6 +3646,7 @@ fn dispatch_core_tool(
 ) -> M1ndResult<serde_json::Value> {
     match tool_name {
         "orient" => handle_orient(state, params),
+        "north" => handle_north(state, params),
         "am_i_stale" => handle_am_i_stale(state, params),
         "activate" => {
             let input: ActivateInput =
@@ -6793,6 +7101,169 @@ mod tests {
             !out["focus_nodes"].as_array().unwrap().is_empty(),
             "orient must surface focus nodes on the real graph"
         );
+    }
+
+    // === north packet (pre-orient) ========================================
+
+    /// On an EMPTY / unbound graph, north must HONESTLY return needs_ingest plus
+    /// the repair — never a fabricated orientation. Mirrors
+    /// `trust_selftest_empty_graph_returns_needs_ingest_with_playbook`.
+    #[test]
+    fn north_empty_graph_returns_needs_ingest_not_fake_packet() {
+        let (_temp, mut state) = build_state();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed even on an empty graph");
+
+        assert_eq!(out["schema"], "m1nd-north-packet-v0");
+        // Honest empty-graph signal, not a fake context.
+        assert_eq!(
+            out["needs"], "needs_ingest",
+            "empty graph must say needs_ingest"
+        );
+        assert_eq!(out["binding"]["trust_mode"], "needs_ingest");
+        assert_eq!(out["binding"]["graph_populated"], false);
+        assert_eq!(out["binding"]["ok"], false);
+        assert!(
+            out["context"].is_null(),
+            "context must be null (no fabricated orientation) on an empty graph, got {}",
+            out["context"]
+        );
+        assert!(
+            out["sufficiency"].is_null(),
+            "sufficiency must be null when the graph cannot answer yet"
+        );
+        // The repair travels with the packet.
+        assert_eq!(
+            out["recovery_playbook"]["schema"], "m1nd-recovery-playbook-v0",
+            "the repair (recovery_playbook) must accompany a degraded binding"
+        );
+        // honest_gaps must name the missing graph.
+        let gaps = out["honest_gaps"].as_array().expect("honest_gaps array");
+        assert!(
+            gaps.iter()
+                .any(|g| g.as_str().unwrap_or("").contains("empty or unbound")),
+            "honest_gaps must state the graph is empty/unbound, got {gaps:?}"
+        );
+    }
+
+    /// On a bound + populated graph, north returns a full packet: binding
+    /// trust_mode, context focus nodes, an anchors backbone, and a sufficiency
+    /// signal. Mirrors `orient_returns_focus_nodes_on_populated_graph`.
+    #[test]
+    fn north_populated_graph_returns_full_packet() {
+        let (_temp, mut state) = build_state_populated(false);
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed on a populated graph");
+
+        assert_eq!(out["schema"], "m1nd-north-packet-v0");
+        assert_eq!(out["task"], "lease enforcement in the instance registry");
+        // Binding is full trust on a populated, bound graph.
+        assert_eq!(out["binding"]["trust_mode"], "full_trust");
+        assert_eq!(out["binding"]["graph_populated"], true);
+        assert_eq!(out["binding"]["ok"], true);
+        assert!(
+            out["needs"].is_null(),
+            "a populated graph must not signal needs_ingest"
+        );
+        // Fingerprint passes through verbatim from trust_selftest.
+        assert_eq!(
+            out["binding"]["fingerprint"]["schema"], "m1nd-binding-fingerprint-v0",
+            "binding fingerprint must pass through"
+        );
+        // Context is real, not null.
+        let focus = out["context"]["focus_nodes"]
+            .as_array()
+            .expect("context.focus_nodes array");
+        assert!(
+            !focus.is_empty(),
+            "focus_nodes must be non-empty on a populated graph"
+        );
+        assert!(
+            out["context"]["anchors"].is_array(),
+            "context.anchors must be present"
+        );
+        // Sufficiency is the answer-free stop signal lifted from focus.
+        let state_str = out["sufficiency"]["state"].as_str();
+        assert!(
+            matches!(state_str, Some("sufficient" | "gathering" | "saturated")),
+            "sufficiency.state must be one of sufficient|gathering|saturated, got {state_str:?}"
+        );
+        assert!(
+            out["next_move"].is_string() && !out["next_move"].as_str().unwrap().is_empty(),
+            "next_move must be a non-empty honest suggestion"
+        );
+    }
+
+    /// north carries durable boot memory with its REAL age (now − updated_at_ms)
+    /// and authoring agent — proving the provenance mapping and the honesty rule
+    /// (age present because the timestamp is present; source_agent carried).
+    #[test]
+    fn north_carries_boot_memory_with_age_and_author() {
+        let (_temp, mut state) = build_state_populated(false);
+
+        // Seed a durable memory via the real boot_memory verb.
+        super::dispatch_tool(
+            &mut state,
+            "boot_memory",
+            &serde_json::json!({
+                "agent_id": "jimi",
+                "action": "set",
+                "key": "lease_doctrine",
+                "value": {"rule": "leases expire after 30s"},
+                "tags": ["lease", "doctrine"],
+                "source_refs": ["src/lease.rs"],
+            }),
+        )
+        .expect("seed boot memory");
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "lease enforcement",
+            }),
+        )
+        .expect("north with seeded memory");
+
+        let memory = out["memory"].as_array().expect("memory array");
+        assert_eq!(memory.len(), 1, "the one seeded claim must be recalled");
+        let entry = &memory[0];
+        assert_eq!(entry["claim"], "lease_doctrine", "the claim key is carried");
+        assert_eq!(
+            entry["source_agent"], "jimi",
+            "the authoring agent is carried as source_agent"
+        );
+        // Age is PRESENT and honest (just-authored → small, non-negative).
+        let age = entry["age_ms"]
+            .as_u64()
+            .expect("age_ms present because updated_at_ms is present");
+        assert!(
+            age < 60_000,
+            "just-authored memory should have a small age, got {age}ms"
+        );
+        // Freshly authored → not stale.
+        assert_eq!(
+            entry["stale"], false,
+            "a fresh memory must not be flagged stale"
+        );
+        assert_eq!(entry["tags"], serde_json::json!(["lease", "doctrine"]));
     }
 
     /// REAL PROBE: load the repo's actual graph_snapshot.json (~5540 nodes) and
