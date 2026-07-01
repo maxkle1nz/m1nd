@@ -375,6 +375,45 @@ fn resolve_light_evidence(graph: &mut m1nd_core::graph::Graph) -> (usize, usize)
     (resolved, unresolved)
 }
 
+/// Recency cap for the agent-memory auto-load: at most this many `.light.md`
+/// files (the most recent by `Created`) re-enter always-on context each boot.
+///
+/// Read from `M1ND_MEMORY_LOAD_CAP`. **Default is unlimited (`usize::MAX`)** — a
+/// pure no-op that loads exactly what today's code loads. The cap is opt-in and
+/// only takes effect once the env var is set to a parseable positive integer;
+/// `0`, empty, or garbage values are ignored (treated as unlimited) rather than
+/// silently loading nothing.
+fn agent_memory_load_cap() -> usize {
+    std::env::var("M1ND_MEMORY_LOAD_CAP")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(usize::MAX)
+}
+
+/// Cheaply read the `Created: <epoch_ms>` frontmatter of a `.light.md` file
+/// WITHOUT ingesting it. Mirrors the `Created:` key the light adapter's
+/// `parse_header` recognises (frontmatter written by `render_light_markdown` as
+/// `Created: <now_ms()>`). Returns `None` for legacy files that predate the
+/// provenance stamp (#187) OR whose value is unparseable — those must be treated
+/// as "unknown age", never as epoch-0-oldest, so the recency cap never evicts
+/// the pre-existing corpus for merely lacking a `Created`.
+fn read_light_created_ms(path: &std::path::Path) -> Option<u64> {
+    let text = std::fs::read_to_string(path).ok()?;
+    // The stamp lives in the frontmatter; scanning the first handful of lines is
+    // enough and avoids reading large bodies.
+    for line in text.lines().take(40) {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("Created:") {
+            return value.trim().parse::<u64>().ok();
+        }
+    }
+    None
+}
+
 /// Ingest `<runtime_root>/agent-memory/*.light.md` (adapter=light, mode=merge) so
 /// agent-authored L1GHT memory is loaded into the live graph and its evidence
 /// re-anchors to the current code (`grounded_in`). Gated by env
@@ -383,6 +422,13 @@ fn resolve_light_evidence(graph: &mut m1nd_core::graph::Graph) -> (usize, usize)
 /// when there is no agent-memory directory yet. Called at boot AND after a
 /// `replace` ingest (which would otherwise wipe the memory). Honest: surfaces
 /// empty/zero with a note rather than fabricating.
+///
+/// Recency cap (`M1ND_MEMORY_LOAD_CAP`, default unlimited → no-op): when set and
+/// the file count exceeds it, only the K most-recent-by-`Created` files load;
+/// the rest are dropped and reported under `capped_out` so forgetting is
+/// provable, not silent. Files with NO parseable `Created` (legacy, pre-#187)
+/// are EXEMPT from eviction — always loaded — so setting a cap never evicts the
+/// pre-existing corpus for merely lacking a provenance stamp.
 pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value> {
     let enabled = std::env::var("M1ND_AUTO_LOAD_AGENT_MEMORY")
         .map(|v| v != "0" && v != "false")
@@ -397,12 +443,14 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
     if !dir.is_dir() {
         return None;
     }
-    let file_count = std::fs::read_dir(&dir)
+    let mut light_files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.path().to_string_lossy().ends_with(".light.md"))
-        .count();
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().ends_with(".light.md"))
+        .collect();
+    let file_count = light_files.len();
     let dir_str = dir.to_string_lossy().to_string();
     if file_count == 0 {
         return Some(serde_json::json!({
@@ -412,24 +460,114 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
             "skipped": "no .light.md files",
         }));
     }
+
+    // Recency cap. Default (unlimited, or file_count within budget) leaves the
+    // legacy single-directory ingest untouched — a pure no-op. Only when a cap is
+    // set AND exceeded do we select the survivors and record the drops.
+    let cap = agent_memory_load_cap();
+    let mut capped_out: Vec<String> = Vec::new();
+    let mut capped_names: Vec<String> = Vec::new();
+    if file_count > cap {
+        // Rank by `Created` DESC. Missing/unparseable `Created` (legacy corpus)
+        // is EXEMPT: rank it as `u64::MAX` so it always survives eviction rather
+        // than sinking to the oldest bucket.
+        let mut ranked: Vec<(u64, bool, std::path::PathBuf)> = light_files
+            .iter()
+            .map(|p| match read_light_created_ms(p) {
+                Some(ms) => (ms, false, p.clone()),
+                None => (u64::MAX, true, p.clone()),
+            })
+            .collect();
+        // Most recent first; among equal timestamps keep a stable-ish order by path.
+        ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+
+        // Everything with an unknown age (exempt) must survive even if it pushes
+        // past the cap — the guard is "never drop for lacking Created". So the
+        // effective budget is max(cap, #exempt).
+        let exempt = ranked.iter().filter(|(_, missing, _)| *missing).count();
+        let keep = cap.max(exempt);
+
+        let survivors: Vec<std::path::PathBuf> = ranked
+            .iter()
+            .take(keep)
+            .map(|(_, _, p)| p.clone())
+            .collect();
+        for (_, _, p) in ranked.iter().skip(keep) {
+            capped_out.push(p.to_string_lossy().to_string());
+            capped_names.push(
+                p.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| p.to_string_lossy().to_string()),
+            );
+        }
+        light_files = survivors;
+    }
+    let loaded_count = light_files.len();
+
     let nodes_before = state.graph.read().num_nodes();
-    let ingest_input = crate::protocol::core::IngestInput {
-        path: dir_str.clone(),
-        agent_id: "boot".to_string(),
-        incremental: false,
-        adapter: "light".to_string(),
-        mode: "merge".to_string(),
-        namespace: Some("light".to_string()),
-        include_dotfiles: false,
-        dotfile_patterns: vec![],
+    // Fast path (no cap active / within budget): ingest the whole directory in a
+    // single walker pass, exactly as before. Capped path: ingest the surviving
+    // files one at a time (merge accumulates), reusing the same light adapter.
+    let ingest_result: M1ndResult<serde_json::Value> = if capped_out.is_empty() {
+        let ingest_input = crate::protocol::core::IngestInput {
+            path: dir_str.clone(),
+            agent_id: "boot".to_string(),
+            incremental: false,
+            adapter: "light".to_string(),
+            mode: "merge".to_string(),
+            namespace: Some("light".to_string()),
+            include_dotfiles: false,
+            dotfile_patterns: vec![],
+        };
+        handle_ingest(state, ingest_input)
+    } else {
+        let mut last: serde_json::Value = serde_json::Value::Null;
+        let mut err: Option<m1nd_core::error::M1ndError> = None;
+        for f in &light_files {
+            let ingest_input = crate::protocol::core::IngestInput {
+                path: f.to_string_lossy().to_string(),
+                agent_id: "boot".to_string(),
+                incremental: false,
+                adapter: "light".to_string(),
+                mode: "merge".to_string(),
+                namespace: Some("light".to_string()),
+                include_dotfiles: false,
+                dotfile_patterns: vec![],
+            };
+            match handle_ingest(state, ingest_input) {
+                Ok(r) => last = r,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            }
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(last),
+        }
     };
-    match handle_ingest(state, ingest_input) {
+
+    match ingest_result {
         Ok(result) => {
             let nodes_added = state.graph.read().num_nodes().saturating_sub(nodes_before);
-            eprintln!(
-                "[m1nd] Loaded agent memory: {} file(s), +{} nodes from {}",
-                file_count, nodes_added, dir_str,
-            );
+            if capped_out.is_empty() {
+                eprintln!(
+                    "[m1nd] Loaded agent memory: {} file(s), +{} nodes from {}",
+                    loaded_count, nodes_added, dir_str,
+                );
+            } else {
+                eprintln!(
+                    "[m1nd] Loaded agent memory: {} of {} file(s) (M1ND_MEMORY_LOAD_CAP={}), +{} nodes from {}; capped out {} older file(s): {}",
+                    loaded_count,
+                    file_count,
+                    cap,
+                    nodes_added,
+                    dir_str,
+                    capped_out.len(),
+                    capped_names.join(", "),
+                );
+            }
 
             // Best-effort evidence freshness: report whatever cross_verify finds,
             // honestly noting when there is no recorded inventory to verify against.
@@ -464,6 +602,10 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
             Some(serde_json::json!({
                 "dir": dir_str,
                 "file_count": file_count,
+                "loaded_count": loaded_count,
+                "load_cap": if cap == usize::MAX { serde_json::Value::Null } else { serde_json::json!(cap) },
+                "capped_out_count": capped_out.len(),
+                "capped_out": capped_out,
                 "loaded": true,
                 "nodes_added": nodes_added,
                 "light_evidence_resolved": result.get("light_evidence_resolved").cloned().unwrap_or(serde_json::Value::Null),
@@ -478,6 +620,10 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
             Some(serde_json::json!({
                 "dir": dir_str,
                 "file_count": file_count,
+                "loaded_count": loaded_count,
+                "load_cap": if cap == usize::MAX { serde_json::Value::Null } else { serde_json::json!(cap) },
+                "capped_out_count": capped_out.len(),
+                "capped_out": capped_out,
                 "loaded": false,
                 "error": e.to_string(),
             }))
@@ -5214,5 +5360,233 @@ mod tests {
         // elsewhere in the graph (they simply aren't in `load_bearing`).
         let on_path_only = vec![("a".to_string(), "calls".to_string(), None)];
         assert_eq!(cv(&on_path_only)["state"], "closed");
+    }
+
+    // ---------------------------------------------------------------------
+    // Move 6 (Subsystem D): recency-cap the agent-memory auto-load.
+    // ---------------------------------------------------------------------
+
+    /// `M1ND_MEMORY_LOAD_CAP` is a process-global env var, so cap tests that
+    /// mutate it must serialize against one another. Mirrors the `LOCK` pattern
+    /// in `session.rs`.
+    fn cap_env_lock() -> &'static std::sync::Mutex<()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
+    /// Write a minimal-but-valid `.light.md` into `<runtime>/agent-memory`,
+    /// optionally stamping a `Created:` provenance line (None = legacy corpus).
+    fn write_memory(runtime_root: &std::path::Path, name: &str, created_ms: Option<u64>) {
+        let dir = runtime_root.join("agent-memory");
+        std::fs::create_dir_all(&dir).expect("agent-memory dir");
+        let created_line = created_ms
+            .map(|ms| format!("Created: {ms}\n"))
+            .unwrap_or_default();
+        let node = name.replace(".light.md", "");
+        let body = format!(
+            "---\nProtocol: L1GHT/1.0\nNode: {node}\n{created_line}---\n\n## Recall\n\nThe [⍂ entity: {node}] was learned. [𝔻 confidence: high]\n"
+        );
+        std::fs::write(dir.join(name), body).expect("write .light.md");
+    }
+
+    #[test]
+    fn reload_default_no_cap_loads_all_files() {
+        // Default (env unset) must be a pure no-op: N files in → all N loaded,
+        // exactly like the pre-cap behavior. Holds the lock and clears the env
+        // so a stray cap from another test cannot leak in.
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("M1ND_MEMORY_LOAD_CAP");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+        for i in 0..5 {
+            write_memory(
+                &state.runtime_root,
+                &format!("mem{i}.light.md"),
+                Some(1_700_000_000_000 + i as u64 * 1000),
+            );
+        }
+
+        let report = super::reload_agent_memory(&mut state).expect("report");
+        assert_eq!(report["loaded"], true, "should load: {report:?}");
+        assert_eq!(report["file_count"], 5);
+        assert_eq!(report["loaded_count"], 5, "all files load by default");
+        assert_eq!(report["capped_out_count"], 0, "nothing dropped by default");
+        assert!(
+            report["load_cap"].is_null(),
+            "cap is null (unlimited) by default"
+        );
+    }
+
+    #[test]
+    fn reload_cap_keeps_only_k_most_recent_and_reports_drops() {
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("M1ND_MEMORY_LOAD_CAP", "2");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+        // 4 stamped files, ascending recency. Cap=2 keeps the 2 newest.
+        write_memory(
+            &state.runtime_root,
+            "oldest.light.md",
+            Some(1_000_000_000_000),
+        );
+        write_memory(
+            &state.runtime_root,
+            "older.light.md",
+            Some(1_500_000_000_000),
+        );
+        write_memory(
+            &state.runtime_root,
+            "newer.light.md",
+            Some(1_700_000_000_000),
+        );
+        write_memory(
+            &state.runtime_root,
+            "newest.light.md",
+            Some(1_900_000_000_000),
+        );
+
+        let report = super::reload_agent_memory(&mut state).expect("report");
+        std::env::remove_var("M1ND_MEMORY_LOAD_CAP");
+
+        assert_eq!(report["loaded"], true, "should load: {report:?}");
+        assert_eq!(report["file_count"], 4);
+        assert_eq!(report["loaded_count"], 2, "only the 2 most recent load");
+        assert_eq!(report["load_cap"], 2);
+        assert_eq!(report["capped_out_count"], 2, "the 2 oldest are dropped");
+        let capped: Vec<String> = report["capped_out"]
+            .as_array()
+            .expect("capped_out array")
+            .iter()
+            .map(|v| v.as_str().unwrap_or("").to_string())
+            .collect();
+        assert!(
+            capped.iter().any(|p| p.ends_with("oldest.light.md")),
+            "oldest must be reported as capped out: {capped:?}"
+        );
+        assert!(
+            capped.iter().any(|p| p.ends_with("older.light.md")),
+            "older must be reported as capped out: {capped:?}"
+        );
+        assert!(
+            !capped.iter().any(|p| p.ends_with("newest.light.md")),
+            "newest must NOT be capped out: {capped:?}"
+        );
+    }
+
+    #[test]
+    fn reload_cap_exempts_files_without_created() {
+        // The legacy-corpus guard: a file with NO `Created` is EXEMPT from
+        // eviction even under a tight cap, and even when newer stamped files
+        // exist. Without the guard, the no-Created file would sort as oldest and
+        // be the first dropped — the whole point of the correction.
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("M1ND_MEMORY_LOAD_CAP", "1");
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+        // 1 legacy (no Created) + 2 recent stamped files, cap=1.
+        write_memory(&state.runtime_root, "legacy.light.md", None);
+        write_memory(
+            &state.runtime_root,
+            "recent-a.light.md",
+            Some(1_800_000_000_000),
+        );
+        write_memory(
+            &state.runtime_root,
+            "recent-b.light.md",
+            Some(1_900_000_000_000),
+        );
+
+        let report = super::reload_agent_memory(&mut state).expect("report");
+        std::env::remove_var("M1ND_MEMORY_LOAD_CAP");
+
+        assert_eq!(report["file_count"], 3);
+        let capped: Vec<String> = report["capped_out"]
+            .as_array()
+            .expect("capped_out array")
+            .iter()
+            .map(|v| v.as_str().unwrap_or("").to_string())
+            .collect();
+        // The legacy file is NEVER dropped for lacking Created.
+        assert!(
+            !capped.iter().any(|p| p.ends_with("legacy.light.md")),
+            "legacy (no Created) must be exempt from eviction: {capped:?}"
+        );
+        // Effective budget is max(cap, #exempt) = max(1, 1) = 1, so both stamped
+        // files exceed it and are dropped; the exempt file always survives.
+        assert!(
+            report["loaded_count"].as_u64().unwrap() >= 1,
+            "at least the exempt file loads: {report:?}"
+        );
+    }
+
+    #[test]
+    fn read_light_created_ms_handles_missing_and_unparsable() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let dir = temp.path();
+
+        // Stamped: parses to the millis value.
+        let good = dir.join("good.light.md");
+        std::fs::write(
+            &good,
+            "---\nProtocol: L1GHT/1.0\nNode: G\nCreated: 1700000000000\n---\n\n## X\n",
+        )
+        .unwrap();
+        assert_eq!(super::read_light_created_ms(&good), Some(1_700_000_000_000));
+
+        // Legacy (no Created line): None, NOT epoch-0.
+        let legacy = dir.join("legacy.light.md");
+        std::fs::write(&legacy, "---\nProtocol: L1GHT/1.0\nNode: L\n---\n\n## X\n").unwrap();
+        assert_eq!(
+            super::read_light_created_ms(&legacy),
+            None,
+            "missing Created is unknown age (None), never epoch-0"
+        );
+
+        // Unparsable Created value: None, NOT epoch-0.
+        let junk = dir.join("junk.light.md");
+        std::fs::write(
+            &junk,
+            "---\nProtocol: L1GHT/1.0\nNode: J\nCreated: not-a-number\n---\n\n## X\n",
+        )
+        .unwrap();
+        assert_eq!(
+            super::read_light_created_ms(&junk),
+            None,
+            "unparsable Created is unknown age (None), never epoch-0"
+        );
+
+        // Missing file: None.
+        assert_eq!(
+            super::read_light_created_ms(&dir.join("does-not-exist.light.md")),
+            None
+        );
+    }
+
+    #[test]
+    fn agent_memory_load_cap_defaults_to_unlimited() {
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("M1ND_MEMORY_LOAD_CAP");
+        assert_eq!(
+            super::agent_memory_load_cap(),
+            usize::MAX,
+            "default unlimited"
+        );
+
+        std::env::set_var("M1ND_MEMORY_LOAD_CAP", "3");
+        assert_eq!(super::agent_memory_load_cap(), 3);
+
+        // 0 / empty / garbage are ignored (treated as unlimited), never "load 0".
+        std::env::set_var("M1ND_MEMORY_LOAD_CAP", "0");
+        assert_eq!(super::agent_memory_load_cap(), usize::MAX, "0 → unlimited");
+        std::env::set_var("M1ND_MEMORY_LOAD_CAP", "nope");
+        assert_eq!(
+            super::agent_memory_load_cap(),
+            usize::MAX,
+            "garbage → unlimited"
+        );
+        std::env::remove_var("M1ND_MEMORY_LOAD_CAP");
     }
 }
