@@ -39,6 +39,13 @@ tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 futures = { version = "0.3", optional = true }
 reqwest = { version = "0.13", features = ["json", "stream"], optional = true }
 
+# Already present transitively (via sysinfo/tokio); declared directly ONLY to call
+# `libc::flock` for the per-slug supersession lock (see light_author_handlers.rs).
+# Reuses the exact already-locked version — no new crate enters the build graph or
+# Cargo.lock. Unix-only: on non-unix targets the lock/supersession path no-ops.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [[bin]]
 name = "m1nd-mcp"
 path = "src/main.rs"
