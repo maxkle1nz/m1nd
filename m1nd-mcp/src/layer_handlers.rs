@@ -204,6 +204,20 @@ pub fn handle_seek(
             input.scope.as_deref(),
             error_text,
         ));
+        // OMEGA Move 1 envelope on the empty/blocked path: no results ⇒ the
+        // trust_band factor is honestly known:false; only the cheap binding band
+        // is composed. With nothing provable, this degrades toward `unprovable`
+        // (or `reverify` if the binding band alone is known), never a fake `act`.
+        let binding_band = state.seek_binding_band();
+        let envelope_cal = state
+            .calibration_table
+            .get(m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE)
+            .cloned();
+        let trust_envelope = crate::trust_envelope::compose_seek_trust_envelope(
+            &[],
+            binding_band,
+            envelope_cal.as_ref(),
+        );
         return Ok(layers::SeekOutput {
             query: input.query,
             results: vec![],
@@ -227,6 +241,7 @@ pub fn handle_seek(
             agent_runtime_contract,
             budget: None,
             sufficiency: compute_sufficiency(0.0, 0.0, None, 0),
+            trust_envelope,
             conformance: None,
         });
     }
@@ -842,6 +857,28 @@ pub fn handle_seek(
         }
     });
 
+    // OMEGA Move 1 — the trust-gated answer envelope (ships DARK: advisory only).
+    // Compose ONLY the cheap/available factors here (worst-of-top trust_band +
+    // the cheap in-memory binding band); the rest are deferred honestly inside
+    // `compose_seek_trust_envelope`. The verdict bins the weighted score through
+    // the `envelope` calibration row — capped at `reverify` when uncalibrated.
+    let top_trust_bands: Vec<String> = results
+        .iter()
+        .take(3)
+        .filter_map(|entry| entry.heuristic_signals.as_ref())
+        .map(|hs| hs.trust_band.clone())
+        .collect();
+    let binding_band = state.seek_binding_band();
+    let envelope_cal = state
+        .calibration_table
+        .get(m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE)
+        .cloned();
+    let trust_envelope = crate::trust_envelope::compose_seek_trust_envelope(
+        &top_trust_bands,
+        binding_band,
+        envelope_cal.as_ref(),
+    );
+
     Ok(layers::SeekOutput {
         query: input.query,
         results,
@@ -864,6 +901,7 @@ pub fn handle_seek(
         agent_runtime_contract,
         budget,
         sufficiency,
+        trust_envelope,
         conformance: conformance_summary,
     })
 }
@@ -10682,6 +10720,161 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── OMEGA Move 1 — trust-gated answer envelope (integration) ──
+    //
+    // Seed an `envelope` calibration row so the weighted score can bin to `act`.
+    // Mirrors calibration.rs `sample_row`: tau=0.6 ⇒ act ≥ 0.6, reverify [0.3,0.6).
+    fn seed_envelope_calibration(state: &mut SessionState) {
+        state.calibration_table.set(
+            m1nd_core::calibration::CALIBRATION_SIGNAL_ENVELOPE,
+            m1nd_core::calibration::CalibrationRow {
+                tau: 0.6,
+                target_alpha: m1nd_core::calibration::DEFAULT_TARGET_ALPHA,
+                measured_precision: 0.85,
+                coverage: 0.4,
+                n: 100,
+                calibrated_at_ms: 1_700_000_000_000,
+            },
+        );
+    }
+
+    /// A clean bound+ingested graph with a real top result and a seeded `envelope`
+    /// calibration row → the trust envelope must reach `verdict == "act"` (the
+    /// binding factor is `full_trust` ⇒ reliability 1.0, cleanly above τ).
+    #[test]
+    fn seek_trust_envelope_acts_on_clean_bound_ingested_graph() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        seed_envelope_calibration(&mut state);
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        let env = &out.trust_envelope;
+        assert!(!out.results.is_empty(), "precondition: real results");
+        assert!(env.calibrated, "seeded envelope row ⇒ calibrated");
+        assert_eq!(
+            env.verdict, "act",
+            "clean binding + seeded calibration must reach `act`, got {:?} (score {})",
+            env.verdict, env.score
+        );
+        assert!(env.next_repair_call.is_none(), "act ⇒ no repair call");
+        // The binding factor must be present and known; trust_band is honestly
+        // deferred (cold-start nodes have no trust evidence → known:false).
+        assert!(env.factors.iter().any(|f| f.name == "binding" && f.known));
+    }
+
+    /// A degraded binding (empty/un-ingested graph → `needs_ingest`, reliability
+    /// 0.4) → the envelope must NOT say `act` and must name a repair call, even
+    /// with a seeded calibration row. Exercises the empty/blocked seek path's
+    /// envelope too (no results ⇒ trust_band deferred, only the binding factor
+    /// is known).
+    #[test]
+    fn seek_trust_envelope_degraded_binding_is_non_act_with_repair() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        // Empty but finalized graph → `needs_ingest` (reliability 0.4 < τ).
+        let mut graph = Graph::new();
+        graph.finalize().expect("finalize empty graph");
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![temp.path().to_string_lossy().to_string()];
+        state.workspace_root = Some(temp.path().to_string_lossy().to_string());
+        seed_envelope_calibration(&mut state);
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        let env = &out.trust_envelope;
+        assert!(env.calibrated, "seeded row ⇒ calibrated");
+        assert_ne!(
+            env.verdict, "act",
+            "a degraded binding must not reach `act`, got score {}",
+            env.score
+        );
+        assert!(
+            env.next_repair_call.is_some(),
+            "a non-act verdict must name a repair call"
+        );
+        // The binding factor is known and degraded; the trust_band factor is
+        // honestly deferred (no results to band).
+        assert!(env
+            .factors
+            .iter()
+            .any(|f| f.name == "binding" && f.known && f.band == "needs_ingest"));
+        assert!(env
+            .factors
+            .iter()
+            .any(|f| f.name == "trust_band" && !f.known));
+    }
+
+    /// No `envelope` calibration row (default table) → the envelope is honestly
+    /// UNCALIBRATED: `calibrated == false` and the verdict is capped at
+    /// `reverify` (never `act`), even on a clean graph.
+    #[test]
+    fn seek_trust_envelope_uncalibrated_caps_at_reverify() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_layer_state(temp.path());
+        // Deliberately do NOT seed an envelope calibration row.
+
+        let out = handle_seek(
+            &mut state,
+            SeekInput {
+                query: "core".into(),
+                agent_id: "jimi".into(),
+                top_k: 5,
+                scope: None,
+                node_types: vec![],
+                min_score: 0.0,
+                graph_rerank: true,
+                conformance_aware: true,
+                token_budget: None,
+            },
+        )
+        .expect("seek ok");
+
+        let env = &out.trust_envelope;
+        assert!(!env.calibrated, "no envelope row ⇒ calibrated:false");
+        assert_eq!(
+            env.verdict, "reverify",
+            "uncalibrated envelope must cap at `reverify`, never `act`"
+        );
+        assert_ne!(env.verdict, "act", "act is unreachable without calibration");
     }
 
     /// Build a state whose graph has many seek-matching file nodes, so that

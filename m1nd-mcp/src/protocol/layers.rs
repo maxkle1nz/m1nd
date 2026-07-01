@@ -116,6 +116,65 @@ pub struct Sufficiency {
     pub why: String,
 }
 
+/// Per-answer TRUST RECEIPT (OMEGA Move 1 — the trust-gated answer envelope).
+///
+/// Wraps a `seek` answer in a mechanically-actionable verdict so an agent can
+/// decide to ACT on it, re-verify it, abstain, or treat it as unprovable —
+/// without re-deriving the evidence by hand. The verdict is a CALIBRATED
+/// WEIGHTING over the available trust factors, **not an any-red AND-fold**: a
+/// single noisy red factor never forces abstention if the weighted majority is
+/// clean (the anti-AND property that keeps agents from routing around the gate).
+///
+/// HONESTY INVARIANTS (all enforced + tested):
+/// - Factors whose signal is structurally unavailable in `seek` are marked
+///   `known:false` and drop from BOTH the numerator and denominator — never
+///   counted as a pass OR a fail (honest UNPROVABLE-per-factor).
+/// - When no `envelope` calibration row has been measured, the verdict is capped
+///   at `reverify` (`act` is UNREACHABLE) and `calibrated` is `false`.
+/// - When every factor is unknown (or the weighted denominator is zero / the
+///   score would be non-finite), the verdict is `unprovable`, never a fake
+///   number and never `act`.
+///
+/// Ships DARK: this envelope is ADVISORY — present and populated so agents can
+/// read it, but it does not (yet) gate or alter any existing seek behavior.
+#[derive(Clone, Debug, Serialize)]
+pub struct TrustEnvelope {
+    /// "act" | "reverify" | "abstain" | "unprovable".
+    pub verdict: String,
+    /// Weighted score in [0,1] — a reliability WEIGHTING, NOT a probability.
+    /// Absent/meaningless when `verdict == "unprovable"` (reported as 0.0 then).
+    pub score: f32,
+    /// Whether an `envelope` calibration row backed the verdict. `false` ⇒ the
+    /// verdict is capped at `reverify` and `act` is unreachable.
+    pub calibrated: bool,
+    /// The per-factor breakdown the score was weighted from (known and unknown).
+    pub factors: Vec<TrustFactor>,
+    /// Plain-English reasons for the verdict, phrased for an agent reader.
+    pub reasons: Vec<String>,
+    /// A named repair call to make when `verdict != "act"` (e.g. "cross_verify",
+    /// "trust_selftest", "recovery_playbook"). `None` when the verdict is `act`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_repair_call: Option<String>,
+}
+
+/// One weighted trust factor inside a [`TrustEnvelope`].
+///
+/// `known:false` marks a factor whose signal is not available on this path — it
+/// contributes to neither the numerator nor the denominator of the weighted
+/// score, so it is never silently counted as a pass or a fail.
+#[derive(Clone, Debug, Serialize)]
+pub struct TrustFactor {
+    /// Stable factor name, e.g. "trust_band", "binding".
+    pub name: String,
+    /// The observed band for this factor (its own vocabulary), or a short
+    /// "deferred: <probe>" note when `known:false`.
+    pub band: String,
+    /// Per-factor weight in the calibrated weighting.
+    pub weight: f32,
+    /// Whether this factor's signal was actually available here.
+    pub known: bool,
+}
+
 /// Output for seek.
 #[derive(Clone, Debug, Serialize)]
 pub struct SeekOutput {
@@ -158,6 +217,11 @@ pub struct SeekOutput {
     /// Answer-free stop signal: is this enough context, is there more beyond the
     /// budget, or is the goal not represented here? Always present.
     pub sufficiency: Sufficiency,
+    /// Per-answer trust receipt (OMEGA Move 1). A calibrated weighting over the
+    /// available trust factors → `act` | `reverify` | `abstain` | `unprovable`,
+    /// so an agent can mechanically decide how much to rely on this answer.
+    /// Always present; ADVISORY only (ships dark — does not gate retrieval yet).
+    pub trust_envelope: TrustEnvelope,
     /// Present only when a manifesto biased this query: per-result conformance
     /// counts + how many returned hits are erosion sources (a drift warning).
     #[serde(skip_serializing_if = "Option::is_none")]
