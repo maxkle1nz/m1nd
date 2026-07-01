@@ -31,6 +31,7 @@ pub mod report_handlers;
 pub mod result_shaping;
 pub mod scope;
 pub mod search_handlers;
+pub mod trust_envelope;
 pub mod universal_docs;
 pub mod xray_handlers;
 

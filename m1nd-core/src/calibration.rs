@@ -32,6 +32,13 @@ pub const DEFAULT_TARGET_ALPHA: f32 = 0.1;
 /// `calibration_state.json` and the contract the harness + predict gate share.
 pub const CALIBRATION_SIGNAL_PREDICT: &str = "predict";
 
+/// Signal name for the calibrated trust-envelope verdict (OMEGA Move 1). Sibling
+/// of `CALIBRATION_SIGNAL_PREDICT`: the `envelope` row's τ/τ_low bins the
+/// weighted trust score into the final `act`/`reverify`/`abstain` decision. No
+/// `envelope` row ⇒ the envelope is honestly uncalibrated (capped at `reverify`,
+/// `act` unreachable).
+pub const CALIBRATION_SIGNAL_ENVELOPE: &str = "envelope";
+
 /// Verdict strings — house style is stringly-typed verdicts (mirrors
 /// `Sufficiency::state`, `xray_gate.verdict`, `proof_state`).
 pub const VERDICT_ACT: &str = "act";

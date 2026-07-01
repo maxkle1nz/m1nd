@@ -544,6 +544,23 @@ impl SessionState {
         })
     }
 
+    /// Lightweight trust-mode band for the OMEGA Move 1 trust envelope, derived
+    /// from the cheap in-memory binding reads only (no re-hash, no file scan).
+    /// The honest CHEAP SUBSET of the handshake's trust_mode — see
+    /// `trust_envelope::cheap_trust_mode_band` for the classification and what it
+    /// deliberately does NOT observe (host surface, workspace mismatch).
+    pub fn seek_binding_band(&self) -> &'static str {
+        let (node_count, edge_count, finalized) = {
+            let graph = self.graph.read();
+            (
+                graph.num_nodes() as u64,
+                graph.num_edges() as u64,
+                graph.finalized,
+            )
+        };
+        crate::trust_envelope::cheap_trust_mode_band(node_count, edge_count, finalized)
+    }
+
     pub fn mini_graph_state(&self) -> serde_json::Value {
         let graph = self.graph.read();
         serde_json::json!({
