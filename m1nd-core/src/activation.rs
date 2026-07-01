@@ -495,6 +495,7 @@ pub fn activate_temporal(
     graph: &Graph,
     seeds: &[(NodeId, FiniteF32)],
     weights: &TemporalWeights,
+    domain: &crate::domain::DomainConfig,
 ) -> M1ndResult<DimensionResult> {
     let start = Instant::now();
     let n = graph.num_nodes() as usize;
@@ -503,15 +504,17 @@ pub fn activate_temporal(
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
 
-    let half_life_secs = 168.0 * 3600.0; // 7 days in seconds
-    let k = std::f64::consts::LN_2 / half_life_secs;
-
     let mut scores = Vec::new();
     for &(node, seed_strength) in seeds {
         let idx = node.as_usize();
         if idx >= n {
             continue;
         }
+        // Per-node decay: read the declared half-life for this node's NodeType
+        // from the domain table (hours -> seconds). Types not in the table fall
+        // back to the domain's `default_half_life` via `half_life_for`.
+        let half_life_secs = domain.half_life_for(graph.nodes.node_type[idx]) as f64 * 3600.0;
+        let k = std::f64::consts::LN_2 / half_life_secs;
         let last_mod = graph.nodes.last_modified[idx];
         let age_secs = (now - last_mod).max(0.0);
         let recency = (-k * age_secs).exp() as f32;
