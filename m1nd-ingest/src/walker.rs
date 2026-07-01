@@ -93,7 +93,7 @@ impl DirectoryWalker {
     /// FM-ING-004 fix: checks first 8KB for NUL bytes to detect binary files.
     /// Replaces: ingest.py directory walking logic
     pub fn walk(&self, root: &Path) -> M1ndResult<WalkResult> {
-        use walkdir::WalkDir;
+        use ignore::WalkBuilder;
 
         if !root.exists() {
             return Err(M1ndError::Io(std::io::Error::new(
@@ -146,31 +146,48 @@ impl DirectoryWalker {
             });
         }
 
-        for entry in WalkDir::new(&root_canonical)
+        // Gitignore-aware walk (ignore crate — same walker ripgrep uses).
+        // standard_filters default keeps git_ignore/git_global/git_exclude/ignore/parents ON.
+        // hidden(!include_dotfiles) mirrors the old hidden-dir/file pruning while honoring the
+        // include_dotfiles escape hatch. The filter_entry below preserves the hardcoded
+        // skip_dirs + is_noise_dir_name pruning so noise dirs are dropped even in a repo with
+        // NO .gitignore.
+        let filter_root = root_canonical.clone();
+        let skip_dirs = self.skip_dirs.clone();
+        let include_dotfiles = self.include_dotfiles;
+        let dotfile_patterns = self.dotfile_patterns.clone();
+        let walk = WalkBuilder::new(&root_canonical)
             .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| {
-                if e.file_type().is_dir() {
+            .hidden(!self.include_dotfiles)
+            .filter_entry(move |e| {
+                if e.file_type().is_some_and(|ft| ft.is_dir()) {
                     let name = e.file_name().to_string_lossy();
-                    let rel_path = Self::normalize_rel_path(e.path(), &root_canonical);
+                    let rel_path = Self::normalize_rel_path(e.path(), &filter_root);
                     if is_noise_dir_name(&name) {
                         return false;
                     }
-                    // Skip hidden dirs and configured skip dirs
-                    if name.starts_with('.') && name != "." && !self.allow_hidden_path(&rel_path) {
+                    // Skip hidden dirs and configured skip dirs (mirrors old filter_entry).
+                    let allow_hidden = include_dotfiles
+                        && dotfile_patterns
+                            .iter()
+                            .any(|pattern| Self::dotfile_pattern_matches(pattern, &rel_path));
+                    if name.starts_with('.') && name != "." && !allow_hidden {
                         return false;
                     }
-                    return !self.skip_dirs.iter().any(|s| name == s.as_str());
+                    return !skip_dirs.iter().any(|s| name == s.as_str());
                 }
                 true
             })
-        {
+            .build();
+
+        for entry in walk {
             let entry = match entry {
                 Ok(e) => e,
                 Err(_) => continue, // permission error, broken symlink, etc.
             };
 
-            if !entry.file_type().is_file() {
+            // ignore::DirEntry::file_type is Option (None for stdin/errors) — skip non-files.
+            if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                 continue;
             }
 
@@ -351,6 +368,52 @@ mod tests {
             result.files[0].path,
             file.canonicalize().expect("canonical file")
         );
+        std::fs::remove_dir_all(temp).expect("cleanup tempdir");
+    }
+
+    #[test]
+    fn walk_respects_gitignore() {
+        let temp = std::env::temp_dir().join(format!(
+            "m1nd-walker-gitignore-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(temp.join("vendored")).expect("vendored dir");
+        std::fs::create_dir_all(temp.join("src")).expect("src dir");
+        std::fs::write(temp.join(".gitignore"), "vendored/\n").expect("gitignore");
+        std::fs::write(temp.join("vendored").join("junk.rs"), "pub fn junk() {}\n")
+            .expect("junk file");
+        std::fs::write(temp.join("src").join("real.rs"), "pub fn real() {}\n").expect("real file");
+
+        // `git init` makes the .gitignore deterministically honored by the ignore crate.
+        let status = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&temp)
+            .status()
+            .expect("git init");
+        assert!(status.success(), "git init failed");
+
+        let walker = DirectoryWalker::new(Vec::new(), Vec::new(), false, Vec::new());
+        let result = walker.walk(&temp).expect("walk gitignore tree");
+
+        let rels: Vec<&str> = result
+            .files
+            .iter()
+            .map(|f| f.relative_path.as_str())
+            .collect();
+
+        assert!(
+            rels.contains(&"src/real.rs"),
+            "expected src/real.rs to be discovered, got {rels:?}"
+        );
+        assert!(
+            !rels.contains(&"vendored/junk.rs"),
+            "expected vendored/junk.rs to be gitignored, got {rels:?}"
+        );
+
         std::fs::remove_dir_all(temp).expect("cleanup tempdir");
     }
 }
