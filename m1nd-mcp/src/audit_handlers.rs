@@ -839,10 +839,15 @@ pub fn handle_cross_verify(
     };
 
     // ── evidence_freshness check ───────────────────────────────────────────────
-    // Walk every `grounded_in` edge in the finalized CSR (marker → code file).
-    // For each code file node, re-hash the disk file and compare to the stored
-    // sha256 in file_inventory.  Report any code file whose content has changed
-    // since ingest (or is missing on disk) as a stale evidence item.
+    // Two ORTHOGONAL staleness signals, each labeled with its own cause:
+    //   1. sha-freshness (PRIMARY, reason `evidence_changed`/`evidence_file_missing`/
+    //      `unverifiable`): walk every `grounded_in` edge (marker → code file),
+    //      re-hash the disk file, compare to the stored sha256 in file_inventory.
+    //   2. age-staleness (ADDITIVE, reason `aged_out`): flag a memory node whose
+    //      `light:created` age exceeds the recency half-life, regardless of code
+    //      churn — so a memory with no evidence, or with frozen cited code, is no
+    //      longer "fresh forever".
+    // A claim can carry either, both, or neither. Age never replaces sha.
     let stale_evidence: Vec<serde_json::Value> = if checks.contains("evidence_freshness") {
         let graph = state.graph.read();
 
@@ -949,6 +954,54 @@ pub fn handle_cross_verify(
                         }
                     }
                 }
+            }
+        }
+
+        // ── age-staleness (aged_out) ──────────────────────────────────────────
+        // Orthogonal, ADDITIVE signal: a memory whose cited code never changed
+        // (or has no evidence at all) is still not "fresh forever" if the memory
+        // itself is OLD. Walk every memory (light) node carrying a
+        // `light:created:<ms>` provenance tag (stamped by the light adapter) and
+        // flag it `aged_out` when its authored-age exceeds the SAME recency
+        // half-life the trust model uses — no new half-life constant.
+        //
+        // Honesty: a node with NO `light:created` tag has UNKNOWN age and is
+        // never flagged (age is absent-not-faked, exactly as recall labeling
+        // leaves it). Only a present, parseable created that exceeds the
+        // half-life is flagged. This is independent of the sha walk above: a
+        // claim can be `evidence_changed`, `aged_out`, or both.
+        let now = crate::util::now_ms();
+        let half_life_ms: u64 =
+            (m1nd_core::trust::RECENCY_HALF_LIFE_HOURS as f64 * 60.0 * 60.0 * 1000.0) as u64;
+        let node_count = graph.nodes.count as usize;
+        for idx in 0..node_count {
+            // Find a `light:created:<ms>` tag on this node, if any. Missing or
+            // unparsable → unknown age → never flagged.
+            let created_ms = graph.nodes.tags[idx].iter().find_map(|&ti| {
+                graph
+                    .strings
+                    .resolve(ti)
+                    .strip_prefix("light:created:")
+                    .and_then(|ms| ms.trim().parse::<u64>().ok())
+            });
+            let Some(created_ms) = created_ms else {
+                continue;
+            };
+            // Only judge sane, past timestamps; a future/zero stamp is treated as
+            // unknown rather than fabricated staleness.
+            if created_ms == 0 || created_ms > now {
+                continue;
+            }
+            let age_ms = now - created_ms;
+            if age_ms > half_life_ms {
+                let marker_ext_id = nid_to_ext.get(&idx).cloned().unwrap_or_default();
+                let marker_label = graph.strings.resolve(graph.nodes.label[idx]).to_string();
+                items.push(json!({
+                    "marker": marker_ext_id,
+                    "claim": marker_label,
+                    "age_ms": age_ms,
+                    "reason": "aged_out",
+                }));
             }
         }
 
@@ -3337,6 +3390,114 @@ mod tests {
         assert_eq!(
             stale_item["reason"], "evidence_changed",
             "expected reason = evidence_changed"
+        );
+    }
+
+    #[test]
+    fn cross_verify_evidence_freshness_flags_aged_out_memory() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = crate::server::McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+
+        let now = crate::util::now_ms();
+        // > 720h ago (half-life) → must be flagged aged_out.
+        let old_ms =
+            now - (m1nd_core::trust::RECENCY_HALF_LIFE_HOURS as u64 * 60 * 60 * 1000 + 1_000);
+        // Recent (1h ago) → must NOT be flagged.
+        let recent_ms = now - (60 * 60 * 1000);
+
+        // Three memory (light) nodes: an OLD one, a RECENT one, and one with NO
+        // `light:created` tag (unknown age → never flagged). None has any
+        // grounded_in evidence edge — proving age is independent of the sha walk.
+        let mut graph = Graph::new();
+        graph
+            .add_node(
+                "light::default::claim::old",
+                "old claim",
+                NodeType::Reference,
+                &["light", &format!("light:created:{old_ms}")],
+                0.0,
+                0.0,
+            )
+            .expect("old node");
+        graph
+            .add_node(
+                "light::default::claim::recent",
+                "recent claim",
+                NodeType::Reference,
+                &["light", &format!("light:created:{recent_ms}")],
+                0.0,
+                0.0,
+            )
+            .expect("recent node");
+        graph
+            .add_node(
+                "light::default::claim::no_created",
+                "claim with no created tag",
+                NodeType::Reference,
+                &["light"],
+                0.0,
+                0.0,
+            )
+            .expect("no-created node");
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+
+        let output = handle_cross_verify(
+            &mut state,
+            layers::CrossVerifyInput {
+                agent_id: "test".into(),
+                scope: None,
+                check: vec!["evidence_freshness".into()],
+                include_dotfiles: false,
+                dotfile_patterns: Vec::new(),
+            },
+        )
+        .expect("cross_verify evidence_freshness");
+
+        let items = output["stale_evidence"]
+            .as_array()
+            .expect("stale_evidence is array");
+
+        let aged: Vec<&serde_json::Value> =
+            items.iter().filter(|i| i["reason"] == "aged_out").collect();
+        assert_eq!(
+            aged.len(),
+            1,
+            "exactly the OLD memory must be aged_out; recent + no-created must not, got {:?}",
+            items
+        );
+        let aged_item = aged[0];
+        assert_eq!(
+            aged_item["marker"], "light::default::claim::old",
+            "the aged_out item must be the old claim"
+        );
+        assert!(
+            aged_item["age_ms"].as_u64().is_some(),
+            "aged_out item must carry a concrete age_ms"
+        );
+        // The recent and no-created nodes must never appear (honest unknown).
+        assert!(
+            !items
+                .iter()
+                .any(|i| i["marker"] == "light::default::claim::recent"),
+            "a recent memory must not be flagged"
+        );
+        assert!(
+            !items
+                .iter()
+                .any(|i| i["marker"] == "light::default::claim::no_created"),
+            "a memory with no light:created tag has unknown age and must not be flagged"
         );
     }
 
