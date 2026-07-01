@@ -2,14 +2,19 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-01 (checkpoint 6 — OMEGA Move 1 (Trust-Gated Envelope,
-> #195) SHIPPED + verified (calibrated weighting not AND, ships dark, 14 tests incl.
-> the anti-AND); the cross-repo stress test proved m1nd generalizes across TS/Py/Rust
-> and surfaced the gitignore fix #194; and the emerging **Ω+1 ambient-loop**
-> direction — m1nd as the ambient nervous system of the agent loop — is now the fresh
-> strategic front, folded into the PRD (`docs/NEXTGEN-AGENT-PRD.md § Ω+1`),
-> critic-corrected. Prior: checkpoint 5 — OMEGA banner (#191) + Move 0 calibration
-> harness (#192, first real number: act-band precision 28.3% on m1nd's own history).
+> Last checkpoint: 2026-07-01 (checkpoint 7 — the MEMORY roadmap (PRD Subsystem D)
+> moves **#3-#6 all SHIPPED + orchestrator-verified** (age-staleness #198, the
+> `activate_temporal` per-type decay fix #199, supersession-on-rewrite with a per-slug
+> flock #200, recency-capped auto-load #201) — so memory moves #1-#6 are DONE; and the
+> **pre-flight A/B experiment** returned its first REAL verdict — the `north` pre-flight
+> packet (injected via a Claude Code hook into a real headless `claude -p` agent) HELPS
+> orientation (correct-file-first 3/3 vs 0/3 control) and does NOT confuse or hinder, BUT
+> compounding memory is an HONEST NULL, architecturally BLOCKED by the process-per-hook +
+> in-process-graph setup → the ambient loop's real prerequisite is `--serve`/`--attach`
+> (m1nd already has it, #157/#158), which becomes the FIRST ambient milestone before any
+> hook install (§Ω+1.3b). 11 PRs merged this session (#191-#201). Prior: checkpoint 6 —
+> OMEGA Move 1 (Trust-Gated Envelope #195) SHIPPED + verified; cross-repo stress test
+> (TS/Py/Rust) + gitignore fix #194; Ω+1 ambient-loop direction folded into the PRD.
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
@@ -17,7 +22,53 @@ m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
 
-## Current State (2026-07-01, checkpoint 6 — OMEGA Move 1 shipped, Ω+1 ambient loop is the fresh front)
+## Current State (2026-07-01, checkpoint 7 — memory roadmap #3-#6 shipped + the pre-flight A/B returned its first real verdict)
+- **MEMORY roadmap (PRD Subsystem D) — moves #3-#6 ALL SHIPPED + orchestrator-verified;
+  so #1-#6 are DONE.** Four new moves landed this session, each TDD-proven and verified on
+  the REAL diff (not the report):
+  - **#198 — age-staleness (`aged_out`).** `cross_verify` evidence_freshness now emits an
+    `aged_out` reason ORTHOGONAL to the code-sha `evidence_changed` signal: a memory older
+    than `RECENCY_HALF_LIFE_HOURS` with no recent use flags stale even when its cited code is
+    byte-identical (the "frozen-code reads fresh forever" gap). Missing-`Created` is EXEMPT.
+  - **#199 — the `activate_temporal` decay fix.** `activate_temporal` now reads `DomainConfig`
+    per-type half-lives, so the dead half-life table is LIVE — Module/Class decay slower than
+    File. TDD-proven the table was genuinely dead before (the decay kernels existed but never
+    touched stored memories; now they do).
+  - **#200 — supersession-on-rewrite (invalidate-and-keep).** A same-slug rewrite no longer
+    silently overwrites: it copies the prior `.light.md` to `agent-memory/.history/`
+    (`State:outdated`) and writes the new one with a `Supersedes:` header — gated so a WEAKER
+    claim can't clobber a stronger one. Serialized by a **per-slug `libc::flock` lock (no new
+    dep)** — directly closing the multi-session-worktree-drift concurrency risk the critic
+    flagged. The 2-thread concurrency flock test passes. This is the graph-native
+    `[SHIPPED/histórico]`.
+  - **#201 — recency-capped auto-load.** `reload_agent_memory` can now cap the auto-load by
+    recency (default **unlimited = no-op**, opt-in via `M1ND_MEMORY_LOAD_CAP`); missing-`Created`
+    is EXEMPT from eviction; a drop is observable. Kills the "every claim ever re-enters context
+    every boot" unbounded growth, without changing default behavior.
+- **THE PRE-FLIGHT A/B EXPERIMENT returned its first REAL verdict (isolated, honest).** An
+  isolated A/B tested whether the `north` pre-flight packet (injected via a Claude Code hook)
+  helps a real headless `claude -p` agent — full write-up folded into the PRD **§Ω+1.3b**.
+  Isolation held (Max's global config untouched). Verdict:
+  - **The wire EXISTS in headless.** Hooks FIRE in `claude -p` (proven with a canary); `north`
+    is delivered to the model VERBATIM; ~110ms/fire; fail-open (never blocks a turn).
+  - **HELPS orientation.** Arm B (north injected) opened the CORRECT file first — `config.py`,
+    the `pr=1.00` anchor north pointed at — in **3/3 runs vs 0/3 for control**. Directional
+    first-move retargeting is real.
+  - **Does NOT confuse or hinder.** No wrong turns; when north suggested a tool the agent
+    lacked, it IGNORED it without derailing (advisory, not over-obeyed). Mild cost: ~1.7 more
+    tool-calls (more reading).
+  - **HONEST NULL #1: both arms succeeded 3/3** — the task was too easy to show north
+    *rescuing* a run. A harder "rescue" task is still untested.
+  - **HONEST NULL #2 (load-bearing): COMPOUNDING MEMORY is architecturally BLOCKED.** north's
+    graph is in-process + each hook fire is a separate short-lived process → a post-capture
+    `memorize` writes to a graph the NEXT fire never reloads, and each fire re-ingests the repo
+    (72ms here; would DOMINATE latency at scale). **The compounding loop CANNOT close in the
+    process-per-hook setup.** → **THE INSIGHT:** the ambient loop's real prerequisite is NOT
+    the hooks, it is the **`--serve`/`--attach` mode m1nd already has (#157/#158)** — a
+    persistent live graph the hook ATTACHES to instead of re-ingesting. That kills per-fire
+    ingest latency AND enables cross-fire compounding. **Recommendation: do NOT install hooks
+    in the live env yet — wire the hook to a served m1nd FIRST, then re-test compounding +
+    latency-at-scale + a harder rescue task.** This is now the FIRST ambient milestone.
 - **OMEGA Move 1 — the Trust-Gated Envelope — SHIPPED + verified (PR #195).** Every
   answer can now ship as the §O.4.1 triple (**answer + map + trust verdict**). The gate
   is a **CALIBRATED WEIGHTING, not an any-red AND-fold** (§O.3 #1) — per-probe reliability
@@ -98,10 +149,13 @@ real defect → checkpoint → seed the next cycle. Never sugarcoat results.
   `impact_propagate` proxy (matched a mis-bound sibling). Hardening the harness caught
   it; the number that means anything is the **28-case battery with rigorous
   `xfile_*`/qualified assertions**, not the old headline.
-- **Memory track moved while OMEGA was framed (checkpoint-4 → now):** Subsystem D
-  moves #1-#2 SHIPPED — `Created`+`Source-Agent` stamped on every memorized claim
-  (#187) and surfaced as authored-age + source-agent on recall (#189). Moves #3-#8
-  (staleness/eviction/decay/consolidation) remain PENDING.
+- **Memory track — moves #1-#6 now DONE (checkpoint-4 #1-#2 → checkpoint-7 #3-#6):**
+  Subsystem D moves #1-#2 SHIPPED at ckpt 4 (`Created`+`Source-Agent` stamped #187, surfaced
+  as authored-age + source-agent on recall #189); moves **#3-#6 SHIPPED this session** (age-
+  staleness #198, `activate_temporal` per-type decay #199, supersession-on-rewrite+flock #200,
+  recency-capped auto-load #201 — detailed above). **Remaining: #7 reinforce-on-use is BLOCKED**
+  (no `last_used`/`memory_used` signal exists — needs a design decision), **#8 daemon
+  reflect/consolidate is the largest** (leans on #7).
 - **Still true from checkpoint 3 (the v1.1.0 arc):** `focus` attention runtime
   (#157/#158: goal-conditioned working set + honest `ignored` tail + answer-free
   `sufficiency`); Rust+TS function→function `calls` graph (#161-#163/#165/#166;
@@ -165,6 +219,17 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
     default (block only on a file THIS agent read this session) — a hard `ask` on every hash
     mismatch cries wolf on formatter/branch-switch/sibling-session churn (our own documented
     multi-session worktree drift).
+- **The ambient loop needs `--serve`/`--attach` BEFORE any hook install (proven by the A/B,
+  §Ω+1.3b).** The first pre-flight A/B measured it: in the **process-per-hook + in-process-graph**
+  setup, (a) each hook fire re-ingests the whole repo (72ms on this small repo; would DOMINATE
+  latency on a large one), and (b) **compounding cannot work** — each fire is a separate
+  short-lived process, so a `Stop:memorize` writes to a graph the next fire never reloads. Both
+  are architectural, not tunable. The fix is known: the hook must ATTACH to a persistent
+  `--serve` graph (m1nd already ships this at #157/#158), which kills the per-fire ingest AND
+  enables cross-fire compounding. **Until the served-attach variant is stood up and re-tested,
+  the compounding beat is unvalidated.** Also still untested: a **harder "rescue" task** —
+  the A/B's task was too easy (both arms 3/3), so it proved pre-orient HELPS orientation + does
+  no harm, but NOT that north rescues a run that would otherwise fail.
 - **`x.method()` receiver-variable resolution still needs type inference — the #1
   remaining gap.** #175 fixed QUALIFIED calls (`Type::method()`, `module::func()`)
   via the call qualifier, and #170 fixed cross-file proximity (same-file > same-dir
@@ -193,21 +258,28 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
   "who calibrates the calibrator?". A self-consistent-but-false receipt is the
   "consistent ≠ correct" failure weaponized. Logged as unsolved; eval-set integrity is
   a hard prerequisite before any verb defaults on.
-- **OMEGA memory roadmap moves #3-#8 still PENDING** (staleness/eviction/decay/
-  supersession/consolidation; cross-cutting concurrency-lock + missing-`Created`
-  eviction-exemption + audit-observability risks must be designed in — see PRD § D).
+- **Memory roadmap: #1-#6 DONE, but #7 is BLOCKED and #8 is the largest remaining.**
+  Moves #3-#6 shipped this session (#198-#201, all TDD-proven). **#7 reinforce-on-use is
+  BLOCKED — there is NO `last_used`/`memory_used` signal in the system** (nothing records
+  that a recalled memory was actually USED), so reinforcement has no input to strengthen on;
+  this needs a **design decision** (where does the use-signal come from — a `learn`-style
+  feedback verb on recall? an auto-stamp on `activate` touch?) before it can be built.
+  **#8 daemon reflect/consolidate is the largest remaining move and LEANS ON #7** (it
+  consolidates by usage/reinforcement), so #8 is effectively gated behind the #7 decision.
+  The cross-cutting concurrency-lock risk is now RESOLVED for supersession (#200's per-slug
+  `flock`); missing-`Created` eviction-exemption is honored (#201); audit-observability holds
+  (#201 drop is observable) — see PRD § D.
 - Method-call EDGES exist for Rust (#166) but not TS/Java/Go/Python.
-- **Agent-memory subsystem gaps (verified in source by the critic — full detail in
-  `docs/NEXTGEN-AGENT-PRD.md` § Subsystem D, gaps G1-G6).** A recalled memory cannot
-  yet self-describe its epistemic standing: a memorized `.light.md` carries NO
-  `created_at`/`last_used`/`source_agent` (the keystone field lands with move #1, in
-  flight); staleness is **code-sha-only** (`cross_verify` keyed on cited code's hash —
-  frozen-code reads "fresh forever", no age/disuse/contradiction signal); auto-load
-  (`reload_agent_memory`) is **unranked and uncapped** (every claim ever written
-  re-enters context every boot); re-memorizing a slug **silently overwrites** with no
-  supersession history; and there is **no cross-agent sharing/attribution**. The decay
-  kernels (`activate_temporal`, `domain.rs` half_lives, `trust.rs` recency-decay) all
-  exist but don't touch stored memories.
+- **Agent-memory subsystem gaps (G1-G6, `docs/NEXTGEN-AGENT-PRD.md` § Subsystem D) — MOSTLY
+  CLOSED as of checkpoint 7; residue is the `last_used`/reinforce gap.** Fixed this era:
+  `.light.md` now carries `Created`/`Source-Agent` (#187/#189, move #1-#2); staleness is no
+  longer code-sha-only — the `aged_out` age/disuse signal ships (#198); auto-load is now
+  recency-CAPPABLE, not unbounded (#201); re-memorizing a slug no longer silently overwrites —
+  it invalidates-and-keeps with supersession history + a per-slug flock (#200); and the decay
+  kernels that "existed but didn't touch stored memories" now DO (`activate_temporal` reads
+  per-type half-lives, #199). **Residue: `last_used` is still ABSENT** — no signal records
+  that a recalled memory was used, which is exactly what blocks move #7 (reinforce-on-use);
+  and there is still **no cross-agent sharing/attribution** (source is stamped but not shared).
 - `scan.mitigated` is now visible at default `severity_min` (#172) — note this
   CHANGED default output (callers see `mitigated` findings; `false_positive` still
   suppressed). Revertible if undesired.
@@ -258,30 +330,50 @@ ships DARK, and earns `act` only once Move 0's calibrator certifies it.
   WEIGHTING, not an any-red AND-fold** (§O.3 #1); ships DARK until the calibrator
   certifies it; **14 tests incl. the anti-AND**. Cross-repo stress test PASSED (TS/Py/Rust)
   and surfaced the gitignore fix **#194**. **v1.2.0 = Move 0 + Move 1, both landed.**
-- **Move 2 — NEXT: Solvency & Stop Gate (`solvency`).** Arbiter over `focus` sufficiency
-  + `coverage_session` + a **real token-budget signal** (the §O.3 #4 unit-mismatch fix —
-  `budget_consumed`/`relevance_clearing_total`/`coverage_session` do NOT subtract; wire a
-  true token budget or build it net-new) + `am_i_stale`. Then Moves 3–9 (§O.10), each
-  calibration-gated, composer-over-shipping-tools, degrading to UNPROVABLE not a fake green.
+- **Move 2 — Solvency & Stop Gate (`solvency`) — STILL NEEDS A RE-GROUND before building.**
+  Arbiter over `focus` sufficiency + `coverage_session` + a **real token-budget signal** (the
+  §O.3 #4 unit-mismatch fix — `budget_consumed`/`relevance_clearing_total`/`coverage_session`
+  do NOT subtract; wire a true token budget or build it net-new) + `am_i_stale`. **Re-verify
+  the `file:line` anchors against current `main` before coding** (the PRD anchors carry a
+  known v1.1.0 re-ground caveat; symbol is the contract, line is a hint). Then Moves 3–9
+  (§O.10), each calibration-gated, composer-over-shipping-tools, degrading to UNPROVABLE not
+  a fake green.
 
 **→ FRESH STRATEGIC FRONT — Ω+1, THE AMBIENT LOOP (`docs/NEXTGEN-AGENT-PRD.md § Ω+1`).**
 The next chapter after OMEGA: m1nd as the ambient nervous system of the agent loop
 (`pre-orient → act → post-capture → compound`), wired into the hook lifecycle. The PRD
-section is written and critic-corrected (four load-bearing corrections in § Ω+1.3). **It
-AWAITS Max's green-light before any wiring — installing hooks into the live Claude Code /
-Codex environment CHANGES Max's workflow, so it is a decision, not an autonomous ship.**
-The reuse-first Wave roadmap (§ Ω+1.4) is ordered ORGANIZE-first (Waves 1–3 nearly free),
-rewired keystone (Wave 4: `Stop → cross_verify → memorize` directly), swarm last.
+section is written, critic-corrected (four load-bearing corrections in § Ω+1.3), and now
+**EMPIRICALLY GROUNDED by the first A/B (§Ω+1.3b)** — pre-orient HELPS orientation + does no
+harm, but compounding is architecturally BLOCKED in the naïve hook setup.
+- **THE NEXT AMBIENT MILESTONE = the serve/attach experiment.** The A/B proved the compounding
+  beat cannot close in process-per-hook + in-process-graph (each fire re-ingests + can't see
+  the prior fire's `memorize`). So the next move is: **stand up a served m1nd (`--serve`,
+  #157/#158), attach the hook to it instead of re-ingesting per fire, and re-run the A/B to
+  validate (a) cross-fire compounding, (b) latency-at-scale on a large repo, (c) a harder
+  RESCUE task** (the last A/B was too easy — both arms 3/3). Only after that validation does
+  the live wiring earn a green-light.
+- **DO NOT install hooks in Max's live env without his green-light AND the serve/attach
+  validation.** Installing hooks into the live Claude Code / Codex environment CHANGES Max's
+  workflow (a decision, not an autonomous ship), and the naïve shim pays re-ingest latency +
+  can't compound — the served-attach variant is the prerequisite.
+The reuse-first Wave roadmap (§ Ω+1.4) is now re-anchored on serve/attach at Wave 0, then
+ORGANIZE-first (Waves 1–3 nearly free), rewired keystone (Wave 4: `Stop → cross_verify →
+memorize` directly), swarm last.
 
 **AUTONOMOUS OVERNIGHT MANDATE (2026-06-30):** run the OMEGA roadmap (PRD §O.10) to
 completion — tested + cross-repo stress-tested — UNATTENDED; stop only when complete.
 Honor the universal doc gate at each move (docs/PATHOS current before "done").
 
-**MEMORY track (Subsystem D) — moves #1-#2 SHIPPED, #3-#8 PENDING.** `Created`+
-`Source-Agent` are now stamped (#187) and surfaced on recall as authored-age +
-source-agent (#189). Remaining order: age/disuse staleness, supersession-on-rewrite,
-the `activate_temporal` decay fix, ranked+capped auto-load, reinforce-on-use, daemon
-consolidate (full detail + gaps G1-G6 + critic corrections in the PRD § D).
+**MEMORY track (Subsystem D) — moves #1-#6 DONE, #7 BLOCKED, #8 largest.** #1-#2
+(`Created`/`Source-Agent` #187/#189) + **#3-#6 SHIPPED this session** (age-staleness #198,
+`activate_temporal` decay fix #199, supersession-on-rewrite+flock #200, recency-capped
+auto-load #201). **What's left NEEDS DECISIONS, not just execution:**
+- **#7 reinforce-on-use is BLOCKED on a design decision** — there is no `last_used`/
+  `memory_used` signal in the system, so reinforcement has no input. First move: DECIDE where
+  the use-signal comes from (a `learn`-style feedback on recall? an auto-stamp on `activate`
+  touch?), then build. Don't ship a reinforce that strengthens on nothing.
+- **#8 daemon reflect/consolidate is the largest move and leans on #7** — gated behind the #7
+  decision. (Full detail + gaps G1-G6 + critic corrections in the PRD § D.)
 - **Critic's cross-cutting memory risks (must design in before the related move ships):**
   - **Concurrency / locking on `agent-memory/` writes** — biggest unhandled correctness
     risk. `reload_agent_memory` + `memorize` both `fs::write` the same dir, and move #4's
