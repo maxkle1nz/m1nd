@@ -45,6 +45,7 @@ m1nd-core = { path = "../m1nd-core", version = "1.1.0" }
 serde = { workspace = true }
 regex = "1"
 walkdir = "2"
+ignore = "0.4"
 rayon = "1.10"
 serde_json = { workspace = true }
 cargo_metadata = { workspace = true }
