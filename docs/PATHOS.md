@@ -2,10 +2,14 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-01 (checkpoint 5 — m1nd-OMEGA is the v1.2→v2.0 banner
-> (PR #191); OMEGA Move 0 — the conformal calibration harness — SHIPPED (PR #192,
-> `570cb23`) with the FIRST real measured number (act-band precision 28.3% on
-> m1nd's own git history); battery 28/28 + a grounded tie analysis).
+> Last checkpoint: 2026-07-01 (checkpoint 6 — OMEGA Move 1 (Trust-Gated Envelope,
+> #195) SHIPPED + verified (calibrated weighting not AND, ships dark, 14 tests incl.
+> the anti-AND); the cross-repo stress test proved m1nd generalizes across TS/Py/Rust
+> and surfaced the gitignore fix #194; and the emerging **Ω+1 ambient-loop**
+> direction — m1nd as the ambient nervous system of the agent loop — is now the fresh
+> strategic front, folded into the PRD (`docs/NEXTGEN-AGENT-PRD.md § Ω+1`),
+> critic-corrected. Prior: checkpoint 5 — OMEGA banner (#191) + Move 0 calibration
+> harness (#192, first real number: act-band precision 28.3% on m1nd's own history).
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
@@ -13,12 +17,36 @@ m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
 
-## Current State (2026-07-01, checkpoint 5 — m1nd-OMEGA era live, Move 0 shipped)
+## Current State (2026-07-01, checkpoint 6 — OMEGA Move 1 shipped, Ω+1 ambient loop is the fresh front)
+- **OMEGA Move 1 — the Trust-Gated Envelope — SHIPPED + verified (PR #195).** Every
+  answer can now ship as the §O.4.1 triple (**answer + map + trust verdict**). The gate
+  is a **CALIBRATED WEIGHTING, not an any-red AND-fold** (§O.3 #1) — per-probe reliability
+  weights + a risk budget, tuned before defaulting on, to avoid the ~23% spurious-abstention
+  failure. **Ships DARK** until the calibrator certifies its precision-at-coverage. **14
+  tests** incl. an explicit **anti-AND** test proving a single red probe does NOT force
+  `abstain`. Verified on the REAL diff (not the report). **v1.2.0 = Move 0 + Move 1 —
+  both now landed.**
+- **Cross-repo stress test PASSED — m1nd generalizes beyond its own history.** The OMEGA
+  verbs were run against real foreign repos across **TS / Python / Rust**, not just m1nd's
+  own git history — the precondition before any verb defaults on. It surfaced and forced a
+  **`.gitignore` fix (#194)** (a battery/harness artifact that would have mis-scoped ingest
+  on foreign trees). Generalization is now evidenced, not assumed.
+- **Ω+1 — the AMBIENT LOOP — is the emerging strategic front (new PRD section).**
+  `docs/NEXTGEN-AGENT-PRD.md § Ω+1` frames the next chapter after OMEGA: m1nd stops being a
+  **tool-you-call** and becomes **the wire the loop runs on** — `pre-orient → act →
+  post-capture → compound`, wired into the Claude Code / Codex hook lifecycle
+  (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStop/Stop/PreCompact/
+  SessionEnd) via a thin `stdin-JSON → MCP → additionalContext/permissionDecision` shim.
+  Grounded in the frontier (EvoClaw: best agent >80% isolated → **38% continuous**; the
+  collapse point IS failing to build on prior state). The moat shifts: leaving m1nd stops
+  meaning "lose a feature" and starts meaning **"lose institutional memory."** Four critic
+  corrections are BAKED IN (see Known Problems) — the doc models the honesty moat, does not
+  present the design as flawless.
 - **v1.1.0 is the released base.** main carries 1.1.0 (core/ingest/mcp + npm;
   openclaw stays 0.1.0); the tag + crates.io/npm publish landed at checkpoint 3.
   Everything below this is on top of v1.1.0 on main, UNRELEASED on crates/npm
-  (no new tag — these merges are docs/feat, no version bump). **v1.2.0 is cut the
-  moment the first OMEGA verb ships: Move 0 (calibration, DONE) + Move 1 (Envelope).**
+  (no new tag — these merges are docs/feat, no version bump). **v1.2.0 = Move 0
+  (calibration) + Move 1 (Envelope) — BOTH DONE as of checkpoint 6.**
 - **m1nd-OMEGA is now the BANNER for the v1.2 → v2.0 era (PR #191, `docs`).**
   `docs/NEXTGEN-AGENT-PRD.md` §O.1–O.11 frames the vision: a **verifiable trust
   substrate** where every answer ships as a triple — **answer + map + trust verdict**
@@ -109,6 +137,34 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
   cross-file assertions via the live client.
 
 ## Known Problems
+- **Ω+1 ambient-loop OPEN RISKS (the four critic corrections, baked into the PRD § Ω+1.3
+  — this design is NOT shipped, it is a direction awaiting Max's green-light on hook
+  install).**
+  - **Hook latency must be MEASURED, not asserted.** Every PRE/POST hook is an MCP
+    round-trip; a 12-edit refactor pays 12× `am_i_stale` + 12× `ghost_edges`→`predict`,
+    and `orient` (PageRank, heaviest verb) must NOT fire blocking on `SessionStart`
+    (esp. `compact`). Needs a per-hook latency budget, caching keyed to `graph_generation`
+    for the "nothing changed" path, and fire-and-forget async on post-capture. "Sub-100ms"
+    is a claim until benchmarked.
+  - **The keystone is `Stop → cross_verify → memorize` DIRECTLY, NOT `mission_*`.** The
+    synthesis's `Stop → mission_verify → mission_close → memorize` is structurally broken as
+    a hook: `mission_verify`/`mission_close` require a `mission_id` and hard-error without
+    one (`mission_handlers.rs:200,309,454,458`), but `Stop` fires on every turn end (almost
+    none with an open mission). `memorize` takes free-form claims + evidence and needs no
+    `mission_id` (`light_author_handlers.rs`), so it is the composable keystone. `mission_*`
+    is reserved for `SubagentStop` / genuinely-open missions.
+  - **Auto-memorize fabrication risk (the one honesty soft spot).** The distiller feeding
+    `Stop:memorize` must anchor claims to resolvable `evidence` code paths, NOT
+    free-LLM-summarize the turn (which could fabricate a memory and persist it with
+    authority). `memorize`'s resolve-or-flag gate rejects unresolved evidence; the
+    extraction step is where the guard must hold.
+  - **Calibration auto-trigger is MISSING.** `predict`/co-change is honestly `abstain` on an
+    uncalibrated graph (Move 0) and never earns its way on unless `calibrate_predict` runs
+    against the repo's git history automatically. Without the auto-trigger, the co-change
+    nudge ships silent and stays silent forever. Also: `am_i_stale → ask` must be CAUTION by
+    default (block only on a file THIS agent read this session) — a hard `ask` on every hash
+    mismatch cries wolf on formatter/branch-switch/sibling-session churn (our own documented
+    multi-session worktree drift).
 - **`x.method()` receiver-variable resolution still needs type inference — the #1
   remaining gap.** #175 fixed QUALIFIED calls (`Type::method()`, `module::func()`)
   via the call qualifier, and #170 fixed cross-file proximity (same-file > same-dir
@@ -193,21 +249,29 @@ in, and the open poisoned-oracle risk. The verb plan: each OMEGA verb is a thin
 composer over shipping tools (a fan-out + dedupe over `audit`/`orient`-style chaining),
 ships DARK, and earns `act` only once Move 0's calibrator certifies it.
 
-**OMEGA roadmap (§O.10) — Move 0 DONE, Move 1 next:**
+**OMEGA roadmap (§O.10) — Move 0 + Move 1 DONE, Move 2 next; Ω+1 is the fresh front:**
 - **Move 0 — conformal calibration harness (keystone).** ✅ **DONE (PR #192).** First
   real number measured (predict: 28.3% act-precision @ 14.6% coverage). Gates `act`
   for every verb after it.
-- **Move 1 — NEXT: the Trust-Gated Envelope (`envelope` / the §O.4.1 triple).** Wrap
-  existing answers in answer + map + trust by composing `trust_selftest` ×
-  `cross_verify` × `am_i_stale` × `why`-closure × `mission_verify`. **The gate is a
-  CALIBRATED WEIGHTING, not an any-red AND-fold** (§O.3 #1) — tuned against ground
-  truth before defaulting on, to avoid the ~23% spurious-abstention failure. Cutting
-  v1.2.0 = Move 0 + Move 1. Substrate for every later move.
-- Then the remaining verbs (§O.10): Move 2 Solvency/Stop gate, Move 3 Stale-Belief
-  Quarantine on boot, … through Move 9 handoff receipt — each calibration-gated,
-  composer-over-shipping-tools, degrading to UNPROVABLE not a fake green light.
-- **Cross-repo stress-test is IN FLIGHT** (run the OMEGA verbs against real foreign
-  repos, not just m1nd's own history, before any verb defaults on).
+- **Move 1 — the Trust-Gated Envelope (`envelope` / the §O.4.1 triple).** ✅ **DONE +
+  VERIFIED (PR #195).** answer + map + trust in one round-trip. **Gate = CALIBRATED
+  WEIGHTING, not an any-red AND-fold** (§O.3 #1); ships DARK until the calibrator
+  certifies it; **14 tests incl. the anti-AND**. Cross-repo stress test PASSED (TS/Py/Rust)
+  and surfaced the gitignore fix **#194**. **v1.2.0 = Move 0 + Move 1, both landed.**
+- **Move 2 — NEXT: Solvency & Stop Gate (`solvency`).** Arbiter over `focus` sufficiency
+  + `coverage_session` + a **real token-budget signal** (the §O.3 #4 unit-mismatch fix —
+  `budget_consumed`/`relevance_clearing_total`/`coverage_session` do NOT subtract; wire a
+  true token budget or build it net-new) + `am_i_stale`. Then Moves 3–9 (§O.10), each
+  calibration-gated, composer-over-shipping-tools, degrading to UNPROVABLE not a fake green.
+
+**→ FRESH STRATEGIC FRONT — Ω+1, THE AMBIENT LOOP (`docs/NEXTGEN-AGENT-PRD.md § Ω+1`).**
+The next chapter after OMEGA: m1nd as the ambient nervous system of the agent loop
+(`pre-orient → act → post-capture → compound`), wired into the hook lifecycle. The PRD
+section is written and critic-corrected (four load-bearing corrections in § Ω+1.3). **It
+AWAITS Max's green-light before any wiring — installing hooks into the live Claude Code /
+Codex environment CHANGES Max's workflow, so it is a decision, not an autonomous ship.**
+The reuse-first Wave roadmap (§ Ω+1.4) is ordered ORGANIZE-first (Waves 1–3 nearly free),
+rewired keystone (Wave 4: `Stop → cross_verify → memorize` directly), swarm last.
 
 **AUTONOMOUS OVERNIGHT MANDATE (2026-06-30):** run the OMEGA roadmap (PRD §O.10) to
 completion — tested + cross-repo stress-tested — UNATTENDED; stop only when complete.
