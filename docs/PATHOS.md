@@ -2,9 +2,10 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-06-30 (checkpoint 4 — NEXTGEN roadmap moves #1-#3 shipped:
-> GC once-per-sweep + cold-start trust band + graph-closure verdict; battery
-> re-armed in-repo @ 28/28; the memory frontier, Subsystem D, is now active).
+> Last checkpoint: 2026-07-01 (checkpoint 5 — m1nd-OMEGA is the v1.2→v2.0 banner
+> (PR #191); OMEGA Move 0 — the conformal calibration harness — SHIPPED (PR #192,
+> `570cb23`) with the FIRST real measured number (act-band precision 28.3% on
+> m1nd's own git history); battery 28/28 + a grounded tie analysis).
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
@@ -12,42 +13,67 @@ m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
 
-## Current State (2026-06-30, checkpoint 4 — v1.1.0 + NEXTGEN moves #1-#3)
+## Current State (2026-07-01, checkpoint 5 — m1nd-OMEGA era live, Move 0 shipped)
 - **v1.1.0 is the released base.** main carries 1.1.0 (core/ingest/mcp + npm;
   openclaw stays 0.1.0); the tag + crates.io/npm publish landed at checkpoint 3.
   Everything below this is on top of v1.1.0 on main, UNRELEASED on crates/npm
-  (no version bump tonight — all five merges are perf/fix/feat/docs, no new tag).
-- **NEXTGEN roadmap code moves #1-#3 SHIPPED tonight (all merged to main):**
-  - **Move #1 — GC reads the OS process table ONCE per sweep (#181, `perf`).**
-    `is_pid_live` no longer re-reads the process table per registry entry; a single
-    `LivePids::snapshot` (`m1nd-mcp/src/instance_registry.rs`, via `sysinfo` 0.39,
-    no subprocess) is built once per sweep and reused. Gated, zero behavior change.
-    Built on the #178 boot-time dead-lease GC.
-  - **Move #2 — killed the cold-start `0.5`/`Unknown` trust LIE (#182, `fix`).**
-    On the no-evidence path the bare numeric trust is now ABSENT; every agent-facing
-    surface carries `trust_band: "insufficient_evidence"` instead of a fake-confident
-    0.5/Unknown. Symbol: `m1nd_core::trust::trust_band` (`m1nd-core/src/trust.rs:78`).
-    Highest honesty-per-line move.
-  - **Move #3 — graph-closure verdict on `why` (#185, `feat`).** `why` now emits
-    `closure: {state: closed|blocked, dangling_edges, why}` so an answer resting on
-    an unresolved/ambiguous edge READS as blocked. Provenance tags
-    (`m1nd:edge:ambiguous` / `m1nd:edge:unresolved`) are recorded ADDITIVELY at the
-    `resolve.rs` fallback/drop sites (the binding itself is unchanged). Logic in
-    `closure_reason_for_source` (`m1nd-mcp/src/tools.rs:1688`). Keystone moat extension.
-- **Battery re-armed and TRACKED in-repo (#183, `chore`).** The canonical capability
-  battery (`scratchpad/m1nd_battery.py`, 34 cases = 28 m1nd + 6 ts) had silently
-  VANISHED from disk (it was gitignored and died with the cleared scratchpads). It is
-  now committed and protected by a `.gitignore` negation (`!scratchpad/m1nd_battery.py`,
-  line 52) so it can't vanish again. Re-run is green: **28/28 on the m1nd suite,
-  16 wins / 12 ties / 0 grep-losses, embeddings active.**
-- **NEXTGEN PRD now carries the MEMORY frontier (#184, `docs`).** `docs/NEXTGEN-AGENT-PRD.md`
-  gained **Subsystem D — Agent-Native Memory**: the deep-research roadmap (8 ranked,
-  honesty-preserving, reuse-first moves, critic-approved GO) that fills the PRD's
-  former open agent-memory gap. This is now the active research frontier.
+  (no new tag — these merges are docs/feat, no version bump). **v1.2.0 is cut the
+  moment the first OMEGA verb ships: Move 0 (calibration, DONE) + Move 1 (Envelope).**
+- **m1nd-OMEGA is now the BANNER for the v1.2 → v2.0 era (PR #191, `docs`).**
+  `docs/NEXTGEN-AGENT-PRD.md` §O.1–O.11 frames the vision: a **verifiable trust
+  substrate** where every answer ships as a triple — **answer + map + trust verdict**
+  (a re-derivable receipt over a code graph) — so agents mechanically decide reliance /
+  when to stop / when to refuse. The critic's corrections are BAKED IN, not bolted on:
+  - **Calibration is the keystone — consistency ≠ correctness.** Battery tests prove
+    the code does what it says; the calibrator proves the verdict is *right often
+    enough to act on*. OMEGA needs both, calibrator second (§O.6).
+  - **The receipt is a CALIBRATED WEIGHTING, not an any-red AND-fold** (§O.3 #1).
+    A naïve `any-red ⇒ abstain` over noisy probes ≈ 23% spurious abstention; agents
+    learn to route around it and the moat dies. The gate must be a calibrated
+    weighting tuned against ground truth before it defaults on.
+  - **Honest novelty (§O.5):** taint = CodeQL, blast = Glean/Sourcegraph, quarantine =
+    a Zep/Graphiti bi-temporal port — OMEGA's TRUE novelty is **answer + map + trust in
+    one round-trip**, plus sufficiency/solvency economics, over a re-derivable receipt
+    on a code graph. Framed as a port where it is one, not an invention.
+  - **The poisoned-oracle threat model is an OPEN risk (§O.7):** a poisoned eval/
+    co-change corpus makes the calibrator certify a wrong verdict — "who calibrates the
+    calibrator?" — explicitly logged as unsolved, not papered over.
+- **OMEGA Move 0 SHIPPED (PR #192, `570cb23`, `feat`) — a conformal calibration
+  harness, and the FIRST real measured number.**
+  - `m1nd-core/src/calibration.rs`: a `CalibrationTable` (clones the trust-ledger
+    persistence pattern: atomic temp+rename, empty-on-absent) + `conformal_quantile`
+    (hand-rolled split-conformal τ at risk α) + a `verdict_for` binner.
+  - `calibrate_predict` harness: **date-splits the repo's OWN git history** — train-only
+    `CoChangeMatrix` → score held-out commits → precision-at-coverage curve + conformal
+    τ → persisted to `calibration_state.json`.
+  - `predict` now emits a calibrated verdict **`act | reverify | abstain`** gated on
+    that τ (`m1nd-mcp/src/tools.rs:2177`); uncalibrated ⇒ EVERY verdict is honestly
+    `abstain`, never a fake-high `act`.
+  - **THE FIRST REAL NUMBER (m1nd's own history):** 563 commits → 360 train / 203
+    held-out, **9,825 scored predictions**, at α=0.10 → **τ=0.60, coverage 14.6%,
+    act-band precision 28.3%.** HONEST: precision tops ~28% because predict's strength
+    model is coarse (`0.1·N`) — calibration's JOB is to SURFACE that the model is weak,
+    and it did. **Honesty invariant: never quote a band as a probability; uncalibrated
+    ⇒ abstain.**
+- **Battery 28/28, tracked in-repo (#183) — with a grounded TIE ANALYSIS.** The
+  canonical capability battery (`scratchpad/m1nd_battery.py`) is committed and
+  `.gitignore`-negation-protected (`!scratchpad/m1nd_battery.py`, line 52). Re-run:
+  **28/28 on the m1nd suite, 16 wins / 12 ties / 0 grep-losses, embeddings active.**
+  Grounded analysis of the win/tie line: it is dominated by an **`rg_lines>8` scoring
+  artifact** — twin scan cases (identical capability, opposite verdict purely by grep
+  pattern volume). Of the 12 ties: only ~2-3 are convertible by a REAL capability
+  (canonical-definition-over-synonym semantic ranking), ~5 are the battery
+  UNDER-crediting structural tools (trace/scan/am_i_stale/xray_orient measured against
+  a meaningless grep), ~4 are honest permanent ties. The headline is real, but the
+  win/tie ratio is partly a measurement artifact, not pure capability.
 - **HONESTY NOTE (preserved):** an earlier "12/12" leaned on a LOOSE
   `impact_propagate` proxy (matched a mis-bound sibling). Hardening the harness caught
   it; the number that means anything is the **28-case battery with rigorous
   `xfile_*`/qualified assertions**, not the old headline.
+- **Memory track moved while OMEGA was framed (checkpoint-4 → now):** Subsystem D
+  moves #1-#2 SHIPPED — `Created`+`Source-Agent` stamped on every memorized claim
+  (#187) and surfaced as authored-age + source-agent on recall (#189). Moves #3-#8
+  (staleness/eviction/decay/consolidation) remain PENDING.
 - **Still true from checkpoint 3 (the v1.1.0 arc):** `focus` attention runtime
   (#157/#158: goal-conditioned working set + honest `ignored` tail + answer-free
   `sufficiency`); Rust+TS function→function `calls` graph (#161-#163/#165/#166;
@@ -93,6 +119,27 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
   / field types / fn return types) — a dedicated, harder cycle. Cross-crate calls
   whose correct target is in ANOTHER crate (`graph.strings.resolve` → m1nd-core)
   are the same class.
+- **`predict`'s signal is COARSE — calibration just measured how coarse (Move 0).**
+  Predict's strength model is `0.1·N` (linear in co-change neighbor count); calibrated
+  against m1nd's own history it tops out at **~28.3% act-band precision** (τ=0.60,
+  14.6% coverage). The calibrator is honest — `act` is structurally withheld until the
+  number clears a risk budget — but the underlying strength model needs a real upgrade
+  (proper conformal score / learned weighting) before `predict` can `act` at useful
+  coverage. Calibration's job was to surface this; it did.
+- **Battery `rg_lines>8` scoring artifact (5 ties under-credit structural tools).**
+  The win/tie verdict partly tracks grep PATTERN VOLUME, not capability — twin scan
+  cases get opposite verdicts purely by how many lines `rg` printed, and trace/scan/
+  am_i_stale/xray_orient lose "ties" to a meaningless grep. Fix = score by ANSWER
+  correctness, not match-line count. (Of 12 ties: ~5 are this artifact, ~2-3 are real
+  convertible capability, ~4 honest permanent ties.)
+- **Poisoned-oracle threat model is OPEN (OMEGA §O.7).** A poisoned eval set or
+  co-change corpus makes Move 0's calibrator certify a WRONG verdict with confidence —
+  "who calibrates the calibrator?". A self-consistent-but-false receipt is the
+  "consistent ≠ correct" failure weaponized. Logged as unsolved; eval-set integrity is
+  a hard prerequisite before any verb defaults on.
+- **OMEGA memory roadmap moves #3-#8 still PENDING** (staleness/eviction/decay/
+  supersession/consolidation; cross-cutting concurrency-lock + missing-`Created`
+  eviction-exemption + audit-observability risks must be designed in — see PRD § D).
 - Method-call EDGES exist for Rust (#166) but not TS/Java/Go/Python.
 - **Agent-memory subsystem gaps (verified in source by the critic — full detail in
   `docs/NEXTGEN-AGENT-PRD.md` § Subsystem D, gaps G1-G6).** A recalled memory cannot
@@ -124,37 +171,53 @@ the BATTERY (`scratchpad/m1nd_battery.py`, tracked) at **28/28** on the m1nd sui
 showing the targeted tool improved with a concrete example (e.g. `impact(reverse,
 pack_to_budget)` ranks `handle_seek` above the `pack_to_budget_*` tests), zero
 regression. CI green on 3 OSes before merge.
-Engine cadence (proof-grown): delegate deep changes to a worktree-isolated Opus
-subagent with a tight source-grounded spec + battery gate → verify the REAL diff
-yourself (targeted re-run, never trust the report) → PR with auto-merge as Max.
+**For OMEGA verbs, "calibration-gated" now JOINS battery-gated (§O.6).** Battery
+tests prove the code does what it says (consistency); the calibrator proves the
+verdict is right often enough to act on (correctness-at-coverage). A verb earns `act`
+as an allowed output ONLY when measured precision-at-coverage clears the stated risk
+budget — until then `act` is structurally withheld and the verb emits
+`reverify`/`abstain`/`unprovable`. Both gates, in that order. Recalibration, not
+retraining: the number is re-measured against ground truth, never asserted in a README.
+Engine cadence (proof-grown): delegate each move to a worktree-isolated Opus subagent
+with a tight source-grounded spec + battery gate → the orchestrator verifies the gate
++ battery itself on the REAL diff (targeted re-run, never trust the report) →
+commit/PR/auto-merge as Max → the UNIVERSAL DOC GATE (docs/wiki/README/PATHOS current
+before "done" — now a standing CLAUDE.md rule) → seed the next move.
 
 ## Next Agent Prompt / next seeds
 
-**→ NORTH IS `docs/NEXTGEN-AGENT-PRD.md` (#179, + Subsystem D #184)** — a deep-research
-synthesis attacking m1nd's measured weak points agent-first, with a ranked
-impact×tractability roadmap + permissive importable refs (sysinfo/fs4/lcov/git2 +
-H2O/MemoryOS/Letta concepts). Read it first. (It carries an orchestrator grounding
-correction: the research grounded on the STALE `~/m1nd`/beta.8 — re-verify every
-file:line anchor against THIS tree, which is v1.1.0; the symbol is the contract.)
+**→ ACTIVE NORTH IS m1nd-OMEGA: `docs/NEXTGEN-AGENT-PRD.md` §O.10 (the ranked OMEGA
+roadmap, calibration-gated, reuse-first, honest).** Read §O.1–O.11 first — the vision
+(answer + map + trust receipt), the calibration keystone, the critic corrections baked
+in, and the open poisoned-oracle risk. The verb plan: each OMEGA verb is a thin
+composer over shipping tools (a fan-out + dedupe over `audit`/`orient`-style chaining),
+ships DARK, and earns `act` only once Move 0's calibrator certifies it.
 
-**Core (engine) roadmap — moves #1/#2/#3 DONE tonight:**
-1. ~~GC scaling `is_pid_live` → `sysinfo` (A/P0)~~ **DONE #181.**
-2. ~~Kill the cold-start `0.5`/Unknown trust lie → `insufficient_evidence` band (B/P1)~~ **DONE #182.**
-3. ~~Graph-closure verdict, BLOCKED on dangling load-bearing edges (C/P1)~~ **DONE #185.**
-4. **NEXT — Freshness signal for ReadOnly (A/P1).** → 5. auto-attach ladder = multi-agent-by-default (A/P2).
-6. head/tail positioning + ambiguity non_claim, WP2 (C) · 7. risk churn/fanout/bus_factor (B) · 8. bounded working-set over existing heat (C) · 9. conformal abstention (C+B) · 10. Tier-2 learned models (deferred).
+**OMEGA roadmap (§O.10) — Move 0 DONE, Move 1 next:**
+- **Move 0 — conformal calibration harness (keystone).** ✅ **DONE (PR #192).** First
+  real number measured (predict: 28.3% act-precision @ 14.6% coverage). Gates `act`
+  for every verb after it.
+- **Move 1 — NEXT: the Trust-Gated Envelope (`envelope` / the §O.4.1 triple).** Wrap
+  existing answers in answer + map + trust by composing `trust_selftest` ×
+  `cross_verify` × `am_i_stale` × `why`-closure × `mission_verify`. **The gate is a
+  CALIBRATED WEIGHTING, not an any-red AND-fold** (§O.3 #1) — tuned against ground
+  truth before defaulting on, to avoid the ~23% spurious-abstention failure. Cutting
+  v1.2.0 = Move 0 + Move 1. Substrate for every later move.
+- Then the remaining verbs (§O.10): Move 2 Solvency/Stop gate, Move 3 Stale-Belief
+  Quarantine on boot, … through Move 9 handoff receipt — each calibration-gated,
+  composer-over-shipping-tools, degrading to UNPROVABLE not a fake green light.
+- **Cross-repo stress-test is IN FLIGHT** (run the OMEGA verbs against real foreign
+  repos, not just m1nd's own history, before any verb defaults on).
 
-**MEMORY track — now ACTIVE (Subsystem D, #184). Keystone = move #1 IN FLIGHT.**
-The agent-MEMORY research gap is closed by Subsystem D's 8 ranked moves (full detail +
-gaps G1-G6 + critic corrections in the PRD). Order: keystone `Created`+`Source-Agent`
-field first, then honest recall labeling, age/disuse staleness, supersession-on-rewrite,
+**AUTONOMOUS OVERNIGHT MANDATE (2026-06-30):** run the OMEGA roadmap (PRD §O.10) to
+completion — tested + cross-repo stress-tested — UNATTENDED; stop only when complete.
+Honor the universal doc gate at each move (docs/PATHOS current before "done").
+
+**MEMORY track (Subsystem D) — moves #1-#2 SHIPPED, #3-#8 PENDING.** `Created`+
+`Source-Agent` are now stamped (#187) and surfaced on recall as authored-age +
+source-agent (#189). Remaining order: age/disuse staleness, supersession-on-rewrite,
 the `activate_temporal` decay fix, ranked+capped auto-load, reinforce-on-use, daemon
-consolidate.
-- **Move #1 (keystone) IN FLIGHT on branch `l00p/mem-created-at`:** stamp `Created`
-  (`unix_ts`) + `Source-Agent` (`agent_id`) frontmatter in `memorize`'s
-  `render_light_markdown`, reusing `now_ms()` (`boot_memory_handlers.rs:116`); a legacy
-  file with no `Created` must recall as "unknown age", never "fresh". ~6 lines, no
-  migration. Unblocks moves 2/3/5/7.
+consolidate (full detail + gaps G1-G6 + critic corrections in the PRD § D).
 - **Critic's cross-cutting memory risks (must design in before the related move ships):**
   - **Concurrency / locking on `agent-memory/` writes** — biggest unhandled correctness
     risk. `reload_agent_memory` + `memorize` both `fs::write` the same dir, and move #4's
