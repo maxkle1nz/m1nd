@@ -92,6 +92,22 @@ fn resolve_attach_auto(cli: &Cli) -> Result<String, String> {
     Ok(url)
 }
 
+/// Resolve the graph-source path, honoring the `temp` sentinel.
+///
+/// The bare value `temp` means "ephemeral graph, I never read the snapshot
+/// back" — it is NOT a relative path. Treating it literally made
+/// `save_graph` write a multi-MB file named `temp` into the current
+/// directory (see field-triage #2). We resolve it to a per-process file
+/// under the OS temp dir so persistence keeps working without ever
+/// littering the CWD / repo root.
+fn resolve_graph_source(path: PathBuf) -> PathBuf {
+    if path.as_os_str() == "temp" {
+        std::env::temp_dir().join(format!("m1nd-graph-{}.snapshot", std::process::id()))
+    } else {
+        path
+    }
+}
+
 fn load_config_from_cli(cli: &Cli) -> McpConfig {
     // Priority: --config file > --graph/--plasticity/--domain flags > env vars > defaults
 
@@ -121,6 +137,7 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         .map(PathBuf::from)
         .or_else(|| std::env::var("M1ND_GRAPH_SOURCE").ok().map(PathBuf::from))
         .or_else(|| std::env::var("GRAPH_SNAPSHOT_PATH").ok().map(PathBuf::from))
+        .map(resolve_graph_source)
         .unwrap_or_else(|| PathBuf::from("./graph_snapshot.json"));
 
     let plasticity_state = cli
@@ -389,7 +406,54 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::strict_version_verdict;
+    use super::{resolve_graph_source, strict_version_verdict};
+    use std::path::PathBuf;
+
+    // --- field-triage #2: the `temp` graph-source sentinel must not litter CWD ---
+
+    #[test]
+    fn temp_sentinel_never_resolves_to_a_cwd_relative_temp_path() {
+        // BUG (field report): `M1ND_GRAPH_SOURCE=temp` was taken literally, so
+        // save_graph wrote an ~8.5MB file named `temp` into the CWD/repo root.
+        let resolved = resolve_graph_source(PathBuf::from("temp"));
+
+        // Must NOT be the bare relative `temp` (which lands in the CWD).
+        assert_ne!(
+            resolved,
+            PathBuf::from("temp"),
+            "temp sentinel still resolves to CWD `temp`"
+        );
+        assert!(
+            resolved.is_absolute(),
+            "resolved temp graph path must be absolute, got {resolved:?}"
+        );
+
+        // It must live under the OS temp dir, not the working directory.
+        assert!(
+            resolved.starts_with(std::env::temp_dir()),
+            "temp graph snapshot must live under the OS temp dir, got {resolved:?}"
+        );
+        // Sanity: it keeps a snapshot-ish name so persistence still works.
+        assert!(
+            resolved
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("m1nd-graph-")),
+            "temp graph snapshot filename should be process-scoped, got {resolved:?}"
+        );
+    }
+
+    #[test]
+    fn non_sentinel_graph_source_passes_through_unchanged() {
+        // Any other value is a real path and must be left exactly as given.
+        let explicit = PathBuf::from("/some/where/graph_snapshot.json");
+        assert_eq!(resolve_graph_source(explicit.clone()), explicit);
+        // A literal relative path that merely contains "temp" is NOT the sentinel.
+        let looks_like = PathBuf::from("temp.json");
+        assert_eq!(resolve_graph_source(looks_like.clone()), looks_like);
+        let nested = PathBuf::from("./temp/graph.json");
+        assert_eq!(resolve_graph_source(nested.clone()), nested);
+    }
 
     #[test]
     fn strict_off_never_refuses_even_on_mismatch() {
