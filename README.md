@@ -56,7 +56,7 @@ Plus an **attention runtime** — `focus` hands the agent the minimal, budget-bo
 
 1.2.0 turns the loop from "retrieve, then hope" into **pre-orient → act on calibrated verdicts → capture what you learned**. The theme is the same as the trust layer: an honest *no* beats a confident guess.
 
-- **`north(task)` — pre-orient in one call.** The new front door composes trust, task context (focus nodes + PageRank anchors), prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know). `needs_ingest` is a real answer for an empty graph.
+- **`north(task)` — pre-orient in one call.** The new front door composes trust, task context (focus nodes + PageRank anchors), prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know). `needs_ingest` is a real answer for an empty graph. (The L1GHT-recall composition that folds prior memory into the packet landed on `main` just after the 1.2.0 tag — it is not in the 1.2.0 binary.)
 - **Conformal calibration on prediction.** `calibrate_predict` arms a per-repo gate; verdicts then read `act` / `reverify` / `abstain`, where `abstain` means *uncalibrated or insufficient* — a signal to stop, not a weak yes. Ships dark: until you calibrate, verdicts cap at `reverify`.
 - **`trust_envelope` on `seek`** (ships dark) and a **`closure` verdict on `why`** — `blocked` means the path rests on an unresolved/guessed edge. **`trust_band: insufficient_evidence`** is now distinct from a risk band: it means *no evidence*, the honest cold-start answer, not "medium risk".
 - **Memory grew a provenance spine** — claims carry real age + author, supersede older claims, age out, and respect a recency cap, so remembered knowledge states its own freshness instead of quietly going stale.
@@ -107,6 +107,22 @@ Inside an MCP session, the doctrine is this trust loop — establish trust *befo
 ```
 
 **First-session loop, in four moves:** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` the durable finding so the next session starts ahead.
+
+### Serve one graph, attach many agents
+
+Quick Start above wires a stdio server per host — fine for one agent, but each process loads its own graph and holds its own lease. The deployment m1nd is built for is one owner, many attached agents. One owner process holds the live graph:
+
+```bash
+m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
+```
+
+Every agent then attaches as a thin stdio↔HTTP bridge — it loads **no** graph, builds no engines, and takes **no** lease:
+
+```bash
+m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
+```
+
+Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
 
 ## What m1nd Is Not
 
@@ -164,6 +180,8 @@ This is the most defensible thing m1nd does, and no competitor ships it. The doc
 - **`recovery_playbook`** returns a deterministic, ordered step list to repair the binding.
 
 The proof of the commitment is what was killed for it: `savings` and `resonate` were pulled from the advertised surface in beta.7 because a tool that always claims to win is not credible. No competitor — not mem0, Zep, Letta, Sourcegraph, or any code-graph MCP — ships a layer that tells the agent what *not* to trust and how to recover.
+
+**The field-triage loop closes on itself.** The session telemetry agents leave in `~/.m1nd/field-reports.jsonl` (local-only — m1nd never phones home) is not a passive log: reports get triaged, and a *confirmed* field bug becomes a red battery case **before** the fix, so the regression is proven, not just described. That loop has already run once end-to-end: two field-reported bugs turned into failing battery cases and then merged fixes — `north` now composes L1GHT recall into its memory packet, and the `temp` graph sentinel resolves to a real tempdir instead of littering the working directory.
 
 ## Language Coverage
 
@@ -230,6 +248,8 @@ Every row is hedged to exactly what was measured. m1nd does not lead with saving
 | Post-write validation sample | 12/12 classified correctly | Internal runtime check. |
 | Seeded bug-hunt | 16/20 in the first accepted `humanize` seeded-defect round (m1nd-trained); `m1nd-basic` and direct each 8/15 | Internal product evidence, `public_claim_worthy=false` — not a universal benchmark. |
 | Memory self-verification | proven live end-to-end | `memorize` → `grounded_in` → freshness flag on edited file → survives replace → boot auto-load. |
+| Capability battery vs grep | 37/37 pass; head-to-head 16 m1nd-wins / 12 ties / **0 grep-wins** | In-repo harness `scratchpad/m1nd_battery.py` (37 cases, fresh ingest + ground-truth PASS/FAIL + `rg` head-to-head). **Reproduce: `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`.** Hedge: one repo (m1nd itself), self-authored cases; ~5 of the ties are structural tools scored against a literal-grep proxy that can't express what they answer. |
+| Conformal calibration (`predict`) | act-band ≈32% precision @ ≈13.5% coverage (α=0.10) | On m1nd's own git history (n≈9.2k held-out predictions), +3pts over raw counts after the smoothed-Jaccard change. Hedge: one repo, a coarse count-based signal — the gate mostly abstains today, **by design**: abstention is the honest output of a weak signal, not a failure. |
 
 ## Limits
 
