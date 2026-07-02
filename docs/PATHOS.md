@@ -2,25 +2,95 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-01 (checkpoint 7 — the MEMORY roadmap (PRD Subsystem D)
-> moves **#3-#6 all SHIPPED + orchestrator-verified** (age-staleness #198, the
-> `activate_temporal` per-type decay fix #199, supersession-on-rewrite with a per-slug
-> flock #200, recency-capped auto-load #201) — so memory moves #1-#6 are DONE; and the
-> **pre-flight A/B experiment** returned its first REAL verdict — the `north` pre-flight
-> packet (injected via a Claude Code hook into a real headless `claude -p` agent) HELPS
-> orientation (correct-file-first 3/3 vs 0/3 control) and does NOT confuse or hinder, BUT
-> compounding memory is an HONEST NULL, architecturally BLOCKED by the process-per-hook +
-> in-process-graph setup → the ambient loop's real prerequisite is `--serve`/`--attach`
-> (m1nd already has it, #157/#158), which becomes the FIRST ambient milestone before any
-> hook install (§Ω+1.3b). 11 PRs merged this session (#191-#201). Prior: checkpoint 6 —
-> OMEGA Move 1 (Trust-Gated Envelope #195) SHIPPED + verified; cross-repo stress test
-> (TS/Py/Rust) + gitignore fix #194; Ω+1 ambient-loop direction folded into the PRD.
+> Last checkpoint: 2026-07-02 (**checkpoint 8 — v1.2.0 CUT: the first OMEGA-era release**).
+> Tagged `v1.2.0`, published to crates.io + npm, GitHub Release cut, and Max's live
+> `:1338` owner upgraded to the 1.2.0 binary. The era content shipped since v1.1.0:
+> OMEGA Moves 0 (calibration) + 1 (Envelope) + the Move-2 honest reframe; `north`
+> pre-orient; memory moves #1-#6; the root-`.gitignore` fix (#194); smoothed-Jaccard
+> co-change (#206, calibration-proven **+3pts** over raw counts); binary version+sha
+> honesty (#205, `M1ND_EXPECTED_*`/`M1ND_STRICT_VERSION`); battery grown to **36/36**
+> (#204); and the **agent-native MCP `initialize` instructions** (#208) — the loop now
+> ships in the wire every host reads. This checkpoint also establishes the **UNIVERSAL
+> FIELD-TELEMETRY DOCTRINE** (see below) with **4 seeded reports awaiting first triage**.
+> Prior: checkpoint 7 — memory moves #3-#6 SHIPPED + the pre-flight A/B returned its
+> first REAL verdict (north HELPS orientation 3/3 vs 0/3; compounding memory an HONEST
+> NULL, blocked by process-per-hook → prerequisite is `--serve`/`--attach`, §Ω+1.3b).
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 `rg`/Read in the inner loop, measured honestly — not tie, not "feels useful".
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
+
+## Current State (2026-07-02, checkpoint 8 — v1.2.0 CUT, the first OMEGA-era release)
+
+**v1.2.0 IS RELEASED.** Tag `v1.2.0` on the merge commit, `release.yml` published
+`m1nd-core` / `m1nd-ingest` / `m1nd-mcp` to crates.io + `@maxkle1nz/m1nd` to npm (the
+v1.1.0 precedent), a GitHub Release was cut with real era notes, and Max's live `:1338`
+owner was rebuilt on the tagged binary (`--version` → `1.2.0 (<sha>)`). `m1nd-openclaw`
+stays `0.1.0` (versioned independently).
+
+**What the era shipped (v1.1.0 → v1.2.0), the honest ledger:**
+- **OMEGA Move 0 — the calibration harness (keystone).** Conformal precision-at-coverage
+  calibrator; `calibrate_predict` date-splits the repo's OWN git history; `predict` emits
+  `act | reverify | abstain`, uncalibrated ⇒ honestly `abstain`. First real number on m1nd's
+  own history: τ=0.60, coverage 14.6%, act-band precision 28.3% — the calibrator's JOB was to
+  surface that the strength model is coarse, and it did.
+- **OMEGA Move 1 — the Trust-Gated Envelope (#195).** Answer + map + trust verdict composed
+  from `trust_selftest` × `cross_verify` × `am_i_stale` × `why`-closure × `mission_verify`.
+- **OMEGA Move 2 — the HONEST REFRAME (#203).** The token-economics claim was DROPPED (m1nd
+  has no token ledger and cannot source consumption); `stop_gate` stays **roadmap-only** — it
+  is NOT referenced by the shipped instructions.
+- **`north` pre-orient.** The composing front door (trust + focus/anchors + prior memory +
+  sufficiency + one `next_move` + `honest_gaps`; `needs_ingest` is a real answer).
+- **Memory moves #1-#6 DONE** — `Created`/`Source-Agent` provenance, authored-age + source on
+  recall, `aged_out` age-staleness (#198), `activate_temporal` per-type decay fix (#199),
+  supersession-on-rewrite + per-slug flock (#200), recency-capped auto-load (#201).
+- **Root-`.gitignore` directory-entry fix (#194)** — ingest now honours root `.gitignore`
+  directory entries (folded in with the cross-repo stress test).
+- **Smoothed-Jaccard co-change (#206)** — `ghost_edges`/`predict` normalize coupling instead
+  of raw co-commit counts; **calibration-proven +3 points** over raw.
+- **Binary version-honesty (#205)** — `--version` = `1.2.0 (<sha>)`; `M1ND_EXPECTED_VERSION`/
+  `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) detect and (strict) refuse a drifted binary.
+- **Battery grown to 36/36 (#204)** — the OMEGA/memory surface (closure, trust_band,
+  calibration, envelope, north, provenance/supersession/aged_out) is now covered; the m1nd
+  suite passes 36/36 on the release binary.
+- **Agent-native MCP `initialize` instructions (#208)** — the `M1ND_INSTRUCTIONS` string every
+  host receives is now the operating loop itself: **pre-orient (`north`-first) → act on
+  calibrated verdicts → post-capture (`memorize` + one field-telemetry signal)**. Every
+  referenced verb was verified against the live dispatcher; roadmap-only `stop_gate` is NOT
+  referenced. Replaces the old flat WORKFLOWS catalogue.
+
+### THE UNIVERSAL FIELD-TELEMETRY DOCTRINE (new this checkpoint)
+**Every agent, every repo, is a sensor.** When m1nd misbehaves during ANY mission — even on
+another repo — the agent REPORTS, it does not fix: append **one JSON line** to the single
+machine-global mailbox `~/.m1nd/field-reports.jsonl`
+(`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) and keep
+working. **Report-never-fix mid-mission** is the rule — never detour into m1nd surgery while
+on task; note the workaround, report, move on. The **`honesty` class is the most valuable**:
+it is calibration ground truth (m1nd overclaimed — said fresh/closed/act and was wrong). When
+retrieval was simply right/wrong, prefer the built-in `learn` verb (correct/wrong/partial).
+**Triage closes the loop: every m1nd improvement session STARTS by sweeping the mailbox
+(+ `seek` for field memories); a confirmed field bug becomes a battery case/test BEFORE the
+fix.** The mailbox is **local-only — m1nd never phones home**; the roadmap `m1nd feedback`
+verb (opt-in, redacted, one-click GitHub issue) is the ONLY path upstream, and always the
+human's explicit call.
+
+**4 seeded reports awaiting first triage** (the next improvement session sweeps these first):
+1. **closure cry-wolf** — `why`-closure over-reports `blocked` on paths that are actually fine
+   (honesty class; the calibration-ground-truth kind).
+2. **`memorize` unanchored on a live runtime** — evidence paths didn't anchor to code nodes
+   against the running owner (friction/bug on the live `:1338` runtime).
+3. **the `temp` artifact bug** — a stray `temp` file dropped in cwd by a battery/tool path
+   (bug; the battery already `rm -f temp`s around it, but the source drop is unfixed).
+4. **stale instructions = FIXED** — the old flat WORKFLOWS instructions string; closed by #208
+   this checkpoint (kept as a `win`/closed marker for the triage sweep).
+
+### Runtime carry-over (post-upgrade honesty)
+Max's live owner was upgraded to the 1.2.0 binary, so **any calibration rows scaled against the
+OLD binary are now stale — re-run `calibrate_predict` once per ingested repo** on the live
+runtime to refresh them (done at upgrade if the graph had an ingested repo; noted honestly if
+the graph was empty).
 
 ## Current State (2026-07-01, checkpoint 7 — memory roadmap #3-#6 shipped + the pre-flight A/B returned its first real verdict)
 - **MEMORY roadmap (PRD Subsystem D) — moves #3-#6 ALL SHIPPED + orchestrator-verified;
@@ -93,11 +163,11 @@ real defect → checkpoint → seed the next cycle. Never sugarcoat results.
   meaning "lose a feature" and starts meaning **"lose institutional memory."** Four critic
   corrections are BAKED IN (see Known Problems) — the doc models the honesty moat, does not
   present the design as flawless.
-- **v1.1.0 is the released base.** main carries 1.1.0 (core/ingest/mcp + npm;
-  openclaw stays 0.1.0); the tag + crates.io/npm publish landed at checkpoint 3.
-  Everything below this is on top of v1.1.0 on main, UNRELEASED on crates/npm
-  (no new tag — these merges are docs/feat, no version bump). **v1.2.0 = Move 0
-  (calibration) + Move 1 (Envelope) — BOTH DONE as of checkpoint 6.**
+- **v1.1.0 WAS the released base (superseded by checkpoint 8 → v1.2.0 is now
+  released).** At checkpoint 7 main carried 1.1.0 (core/ingest/mcp + npm; openclaw
+  0.1.0), with the OMEGA/memory era UNRELEASED on top. **Checkpoint 8 cut v1.2.0** —
+  the tag + crates.io/npm publish + GitHub Release landed; see the checkpoint-8 Current
+  State above. **v1.2.0 = Move 0 (calibration) + Move 1 (Envelope) + the era ledger.**
 - **m1nd-OMEGA is now the BANNER for the v1.2 → v2.0 era (PR #191, `docs`).**
   `docs/NEXTGEN-AGENT-PRD.md` §O.1–O.11 frames the vision: a **verifiable trust
   substrate** where every answer ships as a triple — **answer + map + trust verdict**
@@ -177,8 +247,9 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
 - Battery harness: `scratchpad/m1nd_battery.py` — **now TRACKED in-repo** (#183;
   protected by the `.gitignore` negation `!scratchpad/m1nd_battery.py` at line 52, so
   it survives scratchpad clears). Fresh ingest + ground-truth PASS/FAIL + `rg`
-  head-to-head; 34 cases (28 m1nd + 6 ts), m1nd suite green at 28/28. Probes:
-  `impact_probe.py`, `edge_proof.py`. Reports: `M1ND_BATTERY_REPORT.md`, `battery_FINAL.txt`.
+  head-to-head; the m1nd suite is now **36 cases, green at 36/36** on the release binary
+  (grown to cover the OMEGA/memory surface, #204). Probes: `impact_probe.py`, `edge_proof.py`.
+  Reports: `M1ND_BATTERY_REPORT.md`, `battery_FINAL.txt`.
 - MCP stdio client pattern: `scratchpad/focus_smoke.py` (Content-Length JSON-RPC).
 - Build: `cargo build -p m1nd-mcp --bin m1nd-mcp` → `./target/debug/m1nd-mcp`.
 - 360 vision: `docs/X360-RUNTIME-PRD.md`. Focus runtime: `docs/FOCUS-RUNTIME-PRD.md`.
@@ -186,11 +257,27 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
   account silently flips to `velvetside` mid-session → `gh pr create` fails with
   "must be a collaborator". Run `gh auth switch --user maxkle1nz` before EVERY
   push/PR.**
-- Battery is now 28 cases (JSON key `records`, each row has `m1nd_pass`); per-case
-  `check=lambda res,q,c:` hook + `has_direct_calls_edge` helper enable structural
-  cross-file assertions via the live client.
+- Battery is now 36 cases (JSON key `records`, each row has `m1nd_pass`; summary carries
+  `m1nd_pass`/`m1nd_pass_rate`); per-case `check=lambda res,q,c:` hook + `has_direct_calls_edge`
+  helper enable structural cross-file assertions via the live client.
 
 ## Known Problems
+- **Checkpoint-8 carry-over (open into the v1.2.x cycle — sweep the field-report mailbox
+  first, then these):**
+  - **`why`-closure CRY-WOLF (seeded field report #1, honesty class).** Closure over-reports
+    `blocked` on paths that are actually fine — an honesty miss (m1nd says the path rests on an
+    unresolved edge when it doesn't). Highest-value to fix: it is calibration ground truth.
+    Next session turns this into a battery case BEFORE the fix.
+  - **`memorize` unanchored on the live runtime (seeded field report #2).** Evidence paths
+    didn't anchor to code nodes against the running `:1338` owner — friction/bug on the live
+    runtime specifically. Reproduce against a served-attach graph, then fix.
+  - **the `temp` artifact drop (seeded field report #3).** A stray `temp` file lands in cwd via
+    a battery/tool path; the battery works around it (`rm -f temp`) but the SOURCE drop is
+    unfixed. Trace which tool writes `temp` and stop it at source.
+  - **Memory roadmap remainder: #7 reinforce-on-use BLOCKED, #8 daemon reflect/consolidate
+    PENDING.** #7 needs a `last_used`/`memory_used` signal that does not yet exist (a design
+    decision — feedback verb on recall? auto-stamp on `activate` touch?); #8 is the largest and
+    leans on #7. Both carry forward unchanged.
 - **Ω+1 ambient-loop OPEN RISKS (the four critic corrections, baked into the PRD § Ω+1.3
   — this design is NOT shipped, it is a direction awaiting Max's green-light on hook
   install).**
