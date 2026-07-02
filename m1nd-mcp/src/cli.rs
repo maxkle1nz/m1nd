@@ -5,8 +5,19 @@
 
 use clap::Parser;
 
+/// `--version` string: semantic version + embedded git sha, e.g. `1.1.0 (50385cd)`.
+/// The sha is `unknown` on builds without a `.git` (crates.io / vendored). This
+/// makes the binary declare exactly what it is — the first layer of the
+/// version-honesty moat (see `build.rs` / `session::binary_version_info`).
+const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("M1ND_GIT_SHA"), ")");
+
 #[derive(Parser, Debug)]
-#[command(name = "m1nd-mcp", about = "Neuro-symbolic connectome engine", version)]
+#[command(
+    name = "m1nd-mcp",
+    about = "Neuro-symbolic connectome engine",
+    version,
+    long_version = LONG_VERSION
+)]
 pub struct Cli {
     /// Start HTTP server with embedded web UI
     #[arg(long)]

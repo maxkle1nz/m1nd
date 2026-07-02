@@ -502,13 +502,180 @@ const MANAGED_RUNTIME_PATH_MARKERS: &[&str] = &[
     "\\sessions\\ppid-",
 ];
 
+/// The running binary's semantic version, from Cargo at compile time.
+pub const BINARY_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The running binary's git short sha (+`-dirty`), embedded by `build.rs`.
+/// `"unknown"` on builds without a `.git` (crates.io / vendored).
+pub const BINARY_GIT_SHA: &str = env!("M1ND_GIT_SHA");
+
+/// Parse the `version = "x.y.z"` value from a `Cargo.toml`'s `[package]` table
+/// using only std. Returns the first `version = "..."` at zero indentation
+/// (package-level, not a dependency's nested version) — good enough for the
+/// warn-only self-repo lag heuristic. `None` if no such line is found.
+pub(crate) fn parse_cargo_package_version(cargo_toml: &str) -> Option<String> {
+    for line in cargo_toml.lines() {
+        // Package-level keys sit at column 0; a dependency's inline `version =`
+        // is always indented or on a `dep = { version = ... }` line.
+        if !line.starts_with("version") {
+            continue;
+        }
+        let rest = line["version".len()..].trim_start();
+        let Some(rest) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let rest = rest.trim();
+        // Strip surrounding quotes (single or double).
+        let value = rest
+            .strip_prefix('"')
+            .and_then(|s| s.split('"').next())
+            .or_else(|| rest.strip_prefix('\'').and_then(|s| s.split('\'').next()));
+        if let Some(value) = value {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
 impl SessionState {
+    /// The version the bound repo's own `m1nd-mcp/Cargo.toml` declares, if a
+    /// bound root (workspace_root, else any ingest root) actually contains one.
+    /// This is the "am I testing against an old m1nd binary?" signal: the repo
+    /// on disk says version X but this running binary is version Y. String
+    /// compare only, warn-only — see [`SessionState::binary_version_info`].
+    fn self_repo_declared_version(&self) -> Option<String> {
+        let mut roots: Vec<&str> = Vec::new();
+        if let Some(ws) = self.workspace_root.as_deref() {
+            roots.push(ws);
+        }
+        for root in &self.ingest_roots {
+            roots.push(root.as_str());
+        }
+        for root in roots {
+            let manifest = PathBuf::from(root).join("m1nd-mcp").join("Cargo.toml");
+            if let Ok(contents) = std::fs::read_to_string(&manifest) {
+                if let Some(version) = parse_cargo_package_version(&contents) {
+                    return Some(version);
+                }
+            }
+        }
+        None
+    }
+
+    /// Honest binary identity + drift detection, the core of the version-honesty
+    /// moat. Always returns `binary_version` + `binary_git_sha`. When any drift
+    /// signal fires it adds a `binary_drift` block; otherwise `binary_drift` is
+    /// `null`. Three warn-first signals, all additive, none flips a verdict:
+    ///
+    ///   1. `M1ND_EXPECTED_VERSION` set and != running version.
+    ///   2. `M1ND_EXPECTED_SHA` set and != running sha.
+    ///   3. self-repo lag: the bound repo's `m1nd-mcp/Cargo.toml` declares a
+    ///      version different from the running binary (`binary_lags_repo`) —
+    ///      catches "experiment ran against a stale m1nd binary".
+    ///
+    /// Returns `(identity_json, drift_summary)` where `drift_summary` is a short
+    /// one-line human warning when any signal fired, else `None`. Callers splice
+    /// `drift_summary` into their honest notes/non_claims without changing the
+    /// trust verdict.
+    pub fn binary_version_info(&self) -> (serde_json::Value, Option<String>) {
+        let running_version = BINARY_VERSION;
+        let running_sha = BINARY_GIT_SHA;
+
+        let expected_version = std::env::var("M1ND_EXPECTED_VERSION")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let expected_sha = std::env::var("M1ND_EXPECTED_SHA")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+
+        let version_mismatch = expected_version
+            .as_deref()
+            .map(|expected| expected.trim() != running_version)
+            .unwrap_or(false);
+        let sha_mismatch = expected_sha
+            .as_deref()
+            .map(|expected| expected.trim() != running_sha)
+            .unwrap_or(false);
+
+        let repo_version = self.self_repo_declared_version();
+        let repo_lags = repo_version
+            .as_deref()
+            .map(|repo| repo != running_version)
+            .unwrap_or(false);
+
+        let drift = version_mismatch || sha_mismatch || repo_lags;
+
+        let identity = if drift {
+            let mut warnings: Vec<String> = Vec::new();
+            if version_mismatch {
+                warnings.push(format!(
+                    "expected version {} but running {}",
+                    expected_version.as_deref().unwrap_or(""),
+                    running_version
+                ));
+            }
+            if sha_mismatch {
+                warnings.push(format!(
+                    "expected sha {} but running {}",
+                    expected_sha.as_deref().unwrap_or(""),
+                    running_sha
+                ));
+            }
+            if repo_lags {
+                warnings.push(format!(
+                    "bound repo m1nd-mcp/Cargo.toml declares {} but running {} (binary_lags_repo — likely testing against a stale binary)",
+                    repo_version.as_deref().unwrap_or(""),
+                    running_version
+                ));
+            }
+            serde_json::json!({
+                "binary_version": running_version,
+                "binary_git_sha": running_sha,
+                "binary_drift": {
+                    "schema": "m1nd-binary-drift-v0",
+                    "drift_detected": true,
+                    "expected_version": expected_version,
+                    "expected_sha": expected_sha,
+                    "running_version": running_version,
+                    "running_sha": running_sha,
+                    "version_mismatch": version_mismatch,
+                    "sha_mismatch": sha_mismatch,
+                    "binary_lags_repo": repo_lags,
+                    "repo_declared_version": repo_version,
+                    "warning": warnings.join("; "),
+                },
+            })
+        } else {
+            serde_json::json!({
+                "binary_version": running_version,
+                "binary_git_sha": running_sha,
+                "binary_drift": serde_json::Value::Null,
+            })
+        };
+
+        let summary = if drift {
+            Some(format!(
+                "binary_drift: this m1nd-mcp is {running_version} ({running_sha}) which does not match the expected/repo binary — verify you are not testing against a stale binary"
+            ))
+        } else {
+            None
+        };
+
+        (identity, summary)
+    }
+
     pub fn binding_fingerprint(&self) -> serde_json::Value {
+        let (binary_info, _drift_summary) = self.binary_version_info();
         let graph = self.graph.read();
         serde_json::json!({
             "schema": "m1nd-binding-fingerprint-v0",
             "process_id": std::process::id(),
             "current_exe": std::env::current_exe().ok().map(|path| path.to_string_lossy().to_string()),
+            "binary_version": binary_info["binary_version"],
+            "binary_git_sha": binary_info["binary_git_sha"],
+            "binary_drift": binary_info["binary_drift"],
             "runtime_root": self.runtime_root.to_string_lossy(),
             "graph_path": self.graph_path.to_string_lossy(),
             "plasticity_path": self.plasticity_path.to_string_lossy(),
@@ -1037,7 +1204,8 @@ impl SessionState {
                 "process_id": std::process::id(),
                 "binary": {
                     "name": "m1nd-mcp",
-                    "version": env!("CARGO_PKG_VERSION"),
+                    "version": BINARY_VERSION,
+                    "git_sha": BINARY_GIT_SHA,
                 },
                 "current_exe": std::env::current_exe().ok().map(|path| path.to_string_lossy().to_string()),
                 "runtime_root": self.runtime_root.to_string_lossy(),
