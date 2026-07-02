@@ -41,20 +41,28 @@ fn predict_is_sorted_descending_excludes_self_and_caps_at_k() {
         "fresh bootstrap on an edgeless graph must yield no co-change partners"
     );
 
-    // Drive deterministic couplings from alpha. record_co_change uses a 0.1 base
-    // strength and strengthens existing pairs by +0.1, so repeating an
-    // observation makes that partner rank higher.
-    // gamma observed 3x (strongest), beta 2x, delta 1x (weakest).
+    // Drive deterministic couplings from alpha, simulating six co-change
+    // events (commits): 3x {alpha,gamma}, 2x {alpha,beta}, 1x {alpha,delta}.
+    // Each event notes both participants' appearances (the smoothed-Jaccard
+    // marginal counts), then records the pair. More joint observations mean
+    // a higher smoothed-Jaccard strength, so gamma (3x) ranks above beta
+    // (2x) above delta (1x).
     for _ in 0..3 {
+        matrix.note_node_appearance(alpha);
+        matrix.note_node_appearance(gamma);
         matrix
             .record_co_change(alpha, gamma, 0.0)
             .expect("record alpha->gamma");
     }
     for _ in 0..2 {
+        matrix.note_node_appearance(alpha);
+        matrix.note_node_appearance(beta);
         matrix
             .record_co_change(alpha, beta, 0.0)
             .expect("record alpha->beta");
     }
+    matrix.note_node_appearance(alpha);
+    matrix.note_node_appearance(delta);
     matrix
         .record_co_change(alpha, delta, 0.0)
         .expect("record alpha->delta");
@@ -182,4 +190,107 @@ fn populate_from_commit_groups_resolves_ids_and_feeds_predictions() {
         beta_top, alpha,
         "the partner co-changed most often must rank first for beta"
     );
+}
+
+// ── Smoothed-Jaccard strength: deterministic oracles (hand-computed) ──
+//
+// strength = co / (count(A) + count(B) − co + 2), the additive smoothing
+// keeping one-off coincidences from saturating at 1.0 while the union term
+// punishes promiscuous files.
+
+#[test]
+fn smoothed_jaccard_punishes_promiscuity_and_damps_one_offs() {
+    let (graph, ids) = isolated_graph(&[
+        "file::core.rs",
+        "file::exclusive.rs",
+        "file::promiscuous.rs",
+        "file::noise1.rs",
+        "file::noise2.rs",
+        "file::noise3.rs",
+        "file::lonely1.rs",
+        "file::lonely2.rs",
+    ]);
+    let (core, exclusive, promiscuous) = (ids[0], ids[1], ids[2]);
+    let (lonely1, lonely2) = (ids[6], ids[7]);
+
+    let mut matrix = CoChangeMatrix::bootstrap(&graph, 500_000).expect("bootstrap");
+
+    // exclusive: 2 commits, both with core. promiscuous: 5 commits, 2 with
+    // core and 3 with noise files. lonely1+lonely2: one joint commit only.
+    let groups: Vec<Vec<String>> = vec![
+        vec!["core.rs".into(), "exclusive.rs".into()],
+        vec!["core.rs".into(), "exclusive.rs".into()],
+        vec!["core.rs".into(), "promiscuous.rs".into()],
+        vec!["core.rs".into(), "promiscuous.rs".into()],
+        vec!["promiscuous.rs".into(), "noise1.rs".into()],
+        vec!["promiscuous.rs".into(), "noise2.rs".into()],
+        vec!["promiscuous.rs".into(), "noise3.rs".into()],
+        vec!["lonely1.rs".into(), "lonely2.rs".into()],
+    ];
+    matrix
+        .populate_from_commit_groups(&graph, &groups)
+        .expect("populate");
+
+    // core appears in 4 commits, exclusive in 2, promiscuous in 5.
+    // J(core, exclusive)   = 2 / (4 + 2 − 2 + 2) = 2/6  EXACT
+    // J(core, promiscuous) = 2 / (4 + 5 − 2 + 2) = 2/9  EXACT
+    let ranked = matrix.predict(core, 10);
+    let strength_of = |target| {
+        ranked
+            .iter()
+            .find(|e| e.target == target)
+            .map(|e| e.strength.get())
+    };
+    let s_exclusive = strength_of(exclusive).expect("exclusive must be predicted");
+    let s_promiscuous = strength_of(promiscuous).expect("promiscuous must be predicted");
+    assert!(
+        (s_exclusive - 2.0 / 6.0).abs() < 1e-6,
+        "J(core,exclusive) must be 2/6, got {s_exclusive}"
+    );
+    assert!(
+        (s_promiscuous - 2.0 / 9.0).abs() < 1e-6,
+        "J(core,promiscuous) must be 2/9, got {s_promiscuous}"
+    );
+    assert!(
+        s_exclusive > s_promiscuous,
+        "equal joint counts: the partner with the bigger union must score lower"
+    );
+
+    // One-off pair must NOT saturate at 1.0 (the raw-Jaccard failure mode the
+    // smoothing exists to prevent): J = 1 / (1 + 1 − 1 + 2) = 1/3 EXACT.
+    let lonely_ranked = matrix.predict(lonely1, 10);
+    assert_eq!(lonely_ranked.len(), 1);
+    assert_eq!(lonely_ranked[0].target, lonely2);
+    assert!(
+        (lonely_ranked[0].strength.get() - 1.0 / 3.0).abs() < 1e-6,
+        "one-off pair must score 1/3, got {}",
+        lonely_ranked[0].strength.get()
+    );
+    // The raw support is carried for consumers that filter on it.
+    assert_eq!(lonely_ranked[0].co_count, 1);
+}
+
+#[test]
+fn direct_record_without_appearances_stays_bounded() {
+    // Callers that record pairs without noting appearances (the legacy direct
+    // path) must still get a valid, bounded strength: the union saturates to
+    // the joint count, so strength = co / (co + 2) — never 1.0, never a
+    // degenerate denominator.
+    let (graph, ids) = isolated_graph(&["file::a.rs", "file::b.rs"]);
+    let (a, b) = (ids[0], ids[1]);
+
+    let mut matrix = CoChangeMatrix::bootstrap(&graph, 500_000).expect("bootstrap");
+    for _ in 0..3 {
+        matrix.record_co_change(a, b, 0.0).expect("record a->b");
+    }
+
+    let ranked = matrix.predict(a, 10);
+    assert_eq!(ranked.len(), 1);
+    // 3 / (3 + 2) = 0.6 EXACT.
+    assert!(
+        (ranked[0].strength.get() - 0.6).abs() < 1e-6,
+        "count-only evidence must score co/(co+2), got {}",
+        ranked[0].strength.get()
+    );
+    assert_eq!(ranked[0].co_count, 3);
 }

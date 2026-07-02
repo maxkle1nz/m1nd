@@ -8899,6 +8899,17 @@ struct LabeledPrediction {
     hit: bool,
 }
 
+/// One operating point of the held-out precision-coverage tradeoff: keeping
+/// every prediction with confidence ≥ `threshold` covers `coverage` of the
+/// labeled set at `precision`. A signal change is only an improvement if its
+/// curve dominates at comparable coverage — the single conformal-τ point
+/// cannot show that, so the harness measures the curve too.
+pub struct PrecisionCoveragePoint {
+    pub threshold: f32,
+    pub coverage: f32,
+    pub precision: f32,
+}
+
 /// Outcome of a calibration run, surfaced verbatim in the handler response.
 pub struct CalibrationOutcome {
     pub row: m1nd_core::calibration::CalibrationRow,
@@ -8910,6 +8921,51 @@ pub struct CalibrationOutcome {
     pub act_predictions: usize,
     /// Split date (unix seconds) used to partition train/test.
     pub split_timestamp: f64,
+    /// Precision-coverage tradeoff at ~5% coverage steps (confidence-ranked).
+    pub curve: Vec<PrecisionCoveragePoint>,
+}
+
+/// Measure the held-out precision-coverage curve: sort predictions by
+/// confidence descending and report (threshold, coverage, precision) at
+/// roughly 5% coverage steps. Ties share a confidence value, so each step
+/// extends to the last prediction with that confidence (a threshold rule can
+/// never split ties).
+fn precision_coverage_curve(labeled: &[LabeledPrediction]) -> Vec<PrecisionCoveragePoint> {
+    let n = labeled.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut by_confidence: Vec<&LabeledPrediction> = labeled.iter().collect();
+    by_confidence.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let step = (n as f32 * 0.05).ceil().max(1.0) as usize;
+    let mut points = Vec::new();
+    let mut hits = 0usize;
+    let mut kept = 0usize;
+    let mut next_report = step;
+    while kept < n {
+        let threshold = by_confidence[kept].confidence;
+        // Consume the whole tie-block: a threshold rule keeps all or none.
+        while kept < n && by_confidence[kept].confidence == threshold {
+            hits += usize::from(by_confidence[kept].hit);
+            kept += 1;
+        }
+        if kept >= next_report || kept == n {
+            points.push(PrecisionCoveragePoint {
+                threshold,
+                coverage: kept as f32 / n as f32,
+                precision: hits as f32 / kept as f32,
+            });
+            while next_report <= kept {
+                next_report += step;
+            }
+        }
+    }
+    points
 }
 
 /// Pure calibration core: date-split `commits` at `split_ts`, build a train-only
@@ -9046,6 +9102,7 @@ fn calibrate_predict_from_commits(
         labeled: labeled.len(),
         act_predictions: act_n,
         split_timestamp: split_ts,
+        curve: precision_coverage_curve(&labeled),
     })
 }
 
@@ -9142,6 +9199,17 @@ pub fn handle_calibrate_predict(
         "test_commits": outcome.test_commits,
         "commits_parsed": commits.len(),
         "split_timestamp": outcome.split_timestamp,
+        "precision_coverage_curve": outcome
+            .curve
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "threshold": p.threshold,
+                    "coverage": p.coverage,
+                    "precision": p.precision,
+                })
+            })
+            .collect::<Vec<_>>(),
         "summary": format!(
             "predict/co-change: at {:.0}% coverage, `act` is {:.0}% precise on {} held-out predictions (τ={:.3}, α={:.2})",
             row.coverage * 100.0,
@@ -12976,7 +13044,18 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
         state.workspace_root = Some(root.to_string_lossy().to_string());
 
         // Directly inject a co-change entry into the orchestrator's temporal matrix
-        // (this is what ghost_edges does after parsing git history).
+        // (this is what ghost_edges does after parsing git history): one
+        // commit-appearance per node, then the pair in both directions.
+        state
+            .orchestrator
+            .temporal
+            .co_change
+            .note_node_appearance(a);
+        state
+            .orchestrator
+            .temporal
+            .co_change
+            .note_node_appearance(b);
         let _ = state
             .orchestrator
             .temporal

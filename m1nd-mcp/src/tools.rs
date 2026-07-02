@@ -2089,14 +2089,12 @@ pub fn handle_predict(
     // --- Git-derived co-change fallback (Fix 3) ---
     // ghost_edges writes real git co-change into state.orchestrator.temporal.co_change.
     // If the bootstrap matrix has no entry for this node, merge git-derived entries.
-    // Apply min_co_change_count filter (default 2, ~strength >= 0.2) to suppress
-    // one-off coincidental pairs.
-    let min_strength = {
-        let count = input.min_co_change_count.unwrap_or(2).max(1);
-        // Each co-change observation adds 0.1 to strength starting from 0.1,
-        // so N observations ≈ strength 0.1 * N (capped at 1.0).
-        (count as f32 * 0.1).min(1.0)
-    };
+    // Apply min_co_change_count directly on the raw observation count carried by
+    // each entry (default 2) to suppress one-off coincidental pairs — the
+    // coupling strength itself is a smoothed-Jaccard association now, not a
+    // count proxy. Structural seeds (co_count == 0) never pass this filter,
+    // matching the old behavior where the floor sat above the 0.1 base.
+    let min_co_count = input.min_co_change_count.unwrap_or(2).max(1);
     let git_co_change_predictions: Vec<m1nd_core::temporal::CoChangeEntry> = {
         let git_preds = state
             .orchestrator
@@ -2105,7 +2103,7 @@ pub fn handle_predict(
             .predict(node, input.top_k);
         git_preds
             .into_iter()
-            .filter(|e| e.strength.get() >= min_strength)
+            .filter(|e| e.co_count >= min_co_count)
             .collect()
     };
 
@@ -2155,6 +2153,7 @@ pub fn handle_predict(
                 structural_predictions.push(m1nd_core::temporal::CoChangeEntry {
                     target,
                     strength: weight,
+                    co_count: 0,
                 });
                 seen.insert(target);
             }
@@ -2175,6 +2174,7 @@ pub fn handle_predict(
                 structural_predictions.push(m1nd_core::temporal::CoChangeEntry {
                     target: source,
                     strength: weight,
+                    co_count: 0,
                 });
                 seen.insert(source);
             }
@@ -2875,6 +2875,11 @@ pub fn handle_learn(state: &mut SessionState, input: LearnInput) -> M1ndResult<s
     drop(graph);
 
     // Record co-change for all pairs of input nodes (feeds the predict tool).
+    // The learned node set is one co-change event: note each node's appearance
+    // once (the smoothed-Jaccard marginal count), then record the pairs.
+    for &node in &nodes {
+        state.temporal.co_change.note_node_appearance(node);
+    }
     for i in 0..nodes.len() {
         for j in (i + 1)..nodes.len() {
             let _ = state
