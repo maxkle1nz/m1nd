@@ -355,6 +355,62 @@ def aged_out_after_planting(c):
                   f"age_ms present; stale_evidence_count={cv.get('stale_evidence_count')}")
 
 
+def north_recalls_memorized_claim(c):
+    """north must COMPOSE prior L1GHT agent-memory (written by `memorize`, the PRIMARY
+    memory system) into its `memory` block — not just the boot_memory KV store.
+
+    Field-triage #1 (the reproduced bug): `north`'s memory beat read ONLY boot_memory,
+    so a memorized claim never surfaced in `packet.memory` — memorize-at-close did NOT
+    compound into the next agent's north. This drives the whole sequence via the live
+    client:
+
+    1. memorize a distinctive authored claim (node_label 'battery-north-recall',
+       claim label 'north-recall-canary', one evidence path).
+    2. north(agent_id, task) with a task querying that topic.
+    3. assert `packet.memory` contains the memorized claim (label/claim text present),
+       with provenance (`source_agent`) surfaced when available.
+
+    Structure-based, not exact-string-brittle: we match the canary slug/label as a
+    substring across the memory entry's fields. Returns (passed, detail).
+    """
+    import time as _t
+    slug = "battery-north-recall"
+    claim_label = "north-recall-canary"
+    claim_txt = ("The north-recall canary doctrine: north must compose L1GHT agent "
+                 "memory recall into its packet memory block.")
+    m1, _ = c.tool("memorize", dict(
+        agent_id="scout-north-recall", node_label=slug,
+        claims=[dict(label=claim_label, text=claim_txt,
+                     confidence="0.9", evidence=["m1nd-mcp/src/server.rs"])]))
+    if not m1.get("ok"):
+        return False, f"memorize of the north-recall canary did not succeed: ok={m1.get('ok')}"
+
+    _t.sleep(0.15)
+    nr, _ = c.tool("north", dict(agent_id="battery",
+                                 task="recall the north-recall canary doctrine before editing north"))
+    mem = nr.get("memory")
+    if not isinstance(mem, list):
+        return False, f"north packet memory is not a list: {type(mem).__name__}"
+    # Match the memorized claim in ANY memory entry by slug/label/claim text — a
+    # memorized L1GHT claim that surfaces proves north now composes L1GHT recall.
+    needles = (slug, claim_label, "north-recall canary", "north_recall_canary")
+    matches = []
+    for e in mem:
+        blob = json.dumps(e, default=str).lower()
+        if any(n.lower() in blob for n in needles):
+            matches.append(e)
+    if not matches:
+        labels = [str((e or {}).get("claim") or (e or {}).get("label") or "") for e in mem]
+        return False, (f"memorized L1GHT claim did NOT surface in north.memory "
+                       f"(len={len(mem)}); entries={labels}")
+    hit = matches[0]
+    prov = hit.get("source_agent")
+    prov_note = (f"source_agent={prov!r}" if prov else
+                 "source_agent absent (honest — provenance not stamped)")
+    return True, (f"north.memory carries the memorized L1GHT claim "
+                  f"({len(matches)}/{len(mem)} entr(y/ies)); {prov_note}")
+
+
 # --------------------------------------------------------------------------- #
 # Query suites (each: id, intent, tool, args, expect_symbol, rg_pattern, rg_extra) #
 # Cross-file / relationship-correctness cases also carry a `check` callable.     #
@@ -918,6 +974,20 @@ def suite_m1nd(repo):
                  and res.get("needs") is None,  # not needs_ingest — the graph is populated
                  "packet has binding.trust_mode (str), grounded context object with focus_nodes, and honest_gaps list",
              )),
+
+        # ---- north composes L1GHT agent-memory recall (field-triage #1) ----
+        # THE BUG: north's memory beat read ONLY boot_memory (KV), so a claim written
+        # by `memorize` (the PRIMARY memory system, a L1GHT node) never surfaced in
+        # packet.memory — memorize-at-close did NOT compound into the next north.
+        # The `check` memorizes a canary claim, calls north with a task querying that
+        # topic, and asserts the memorized L1GHT claim surfaces in packet.memory with
+        # provenance. RED on main (memory carried boot_memory only); GREEN after the fix.
+        dict(id="north_recalls_memorized_claim",
+             intent="north composes a memorized L1GHT claim into packet.memory (not just boot_memory KV)",
+             tool="session_handshake", args=dict(agent_id=aid),
+             expect=None, expect_file="server.rs",
+             rg_pat=r"fn handle_north", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: north_recalls_memorized_claim(c)),
 
         # ---- memory provenance + supersession (#187/#189/#200) ----
         # memorize a claim -> seek returns the hit with source_agent + a fresh
