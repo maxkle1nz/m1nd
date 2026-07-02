@@ -3469,6 +3469,16 @@ pub fn handle_session_handshake(
         )
     };
 
+    // Binary version-honesty: a drift warning rides ALONGSIDE the verdict — it
+    // never changes trust_mode (a stale binary is a warning, not a proof
+    // failure). When drift fires, prepend the one-line warning to next_action so
+    // the honest surface can never silently run a wrong/old binary.
+    let (_binary_info, binary_drift_summary) = state.binary_version_info();
+    let next_action: String = match &binary_drift_summary {
+        Some(warning) => format!("{warning}. Then: {next_action}"),
+        None => next_action.to_string(),
+    };
+
     let doctor_recovery = if degraded_host_tool_surface {
         Some(serde_json::json!({
             "suggested_tool": if can_recover { "recovery_playbook" } else if can_diagnose { "doctor" } else { "" },
@@ -3513,6 +3523,11 @@ pub fn handle_session_handshake(
         "schema": "m1nd-session-handshake-v0",
         "trust_mode": trust_mode,
         "binding_fingerprint": state.binding_fingerprint(),
+        // Version-honesty: the running binary's identity + any drift. Additive,
+        // warn-only — the drift block is null when nothing mismatches. The same
+        // block also lives inside binding_fingerprint; surfaced here at top level
+        // so drift is impossible to miss when reading the handshake verdict.
+        "binary_drift": _binary_info.get("binary_drift").cloned().unwrap_or(serde_json::Value::Null),
         "can_ingest": can_ingest,
         "can_retrieve": can_retrieve,
         "can_recover": can_recover,
@@ -3653,6 +3668,25 @@ pub fn handle_trust_selftest(
         .and_then(|value| value.as_str())
         .unwrap_or(default_next_action);
 
+    // Binary version-honesty. Warn-only: a drifted/stale binary does NOT flip
+    // `ok`/`status`/`verdict` (those stay as the trust machinery decided) — the
+    // warning rides in `binary_drift`, `next_action`, and `non_claims` so the
+    // honest surface can never quietly run an old binary.
+    let (binary_info, binary_drift_summary) = state.binary_version_info();
+    let next_action: String = match &binary_drift_summary {
+        Some(warning) => format!("{warning}. Then: {next_action}"),
+        None => next_action.to_string(),
+    };
+    let mut non_claims: Vec<String> = vec![
+        "trust_selftest does not ingest or mutate the graph.".into(),
+        "trust_selftest does not refresh the host MCP binding.".into(),
+        "trust_selftest does not run a retrieval probe automatically.".into(),
+        "trust_selftest does not replace compiler, tests, or local file truth.".into(),
+    ];
+    if let Some(warning) = &binary_drift_summary {
+        non_claims.push(warning.clone());
+    }
+
     Ok(serde_json::json!({
         "schema": "m1nd-trust-selftest-v0",
         "ok": ok,
@@ -3660,6 +3694,7 @@ pub fn handle_trust_selftest(
         "verdict": verdict,
         "next_action": next_action,
         "binding_fingerprint": state.binding_fingerprint(),
+        "binary_drift": binary_info.get("binary_drift").cloned().unwrap_or(serde_json::Value::Null),
         "graph_state": graph_state,
         "session_handshake": handshake,
         "recovery_playbook": recovery_playbook.unwrap_or(serde_json::Value::Null),
@@ -3670,15 +3705,11 @@ pub fn handle_trust_selftest(
             "needs_ingest": verdict == "needs_ingest",
             "wrong_workspace_binding": verdict == "wrong_workspace_binding",
             "stale_binding_suspected": verdict == "stale_binding_suspected",
+            "binary_drift_detected": binary_drift_summary.is_some(),
             "suspicious_retrieval_evidence": suspicious_retrieval,
             "recovery_playbook_attached": !ok || suspicious_retrieval,
         },
-        "non_claims": [
-            "trust_selftest does not ingest or mutate the graph.",
-            "trust_selftest does not refresh the host MCP binding.",
-            "trust_selftest does not run a retrieval probe automatically.",
-            "trust_selftest does not replace compiler, tests, or local file truth."
-        ],
+        "non_claims": non_claims,
     }))
 }
 
@@ -5590,5 +5621,216 @@ mod tests {
             "garbage → unlimited"
         );
         std::env::remove_var("M1ND_MEMORY_LOAD_CAP");
+    }
+
+    // ---------------------------------------------------------------------
+    // Binary version-honesty: the fingerprint carries version+sha, drift warns
+    // (env-expected + self-repo lag), and strict mode refuses at startup.
+    // ---------------------------------------------------------------------
+
+    /// Clear the version-expectation env so a test starts from a known clean
+    /// slate regardless of what the outer harness set. Caller holds the env lock.
+    fn clear_version_env() {
+        std::env::remove_var("M1ND_EXPECTED_VERSION");
+        std::env::remove_var("M1ND_EXPECTED_SHA");
+    }
+
+    #[test]
+    fn binding_fingerprint_carries_binary_version_and_sha() {
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        clear_version_env();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = build_runtime_state(temp.path());
+
+        let fp = state.binding_fingerprint();
+        // Version is the compile-time crate version, verbatim.
+        assert_eq!(fp["binary_version"], env!("CARGO_PKG_VERSION"));
+        // Sha is the embedded build-time sha; on a git build it is a real short
+        // sha (optionally `-dirty`), on a vendored build it is exactly "unknown".
+        let sha = fp["binary_git_sha"].as_str().expect("sha string");
+        assert!(!sha.is_empty(), "sha never empty");
+        assert_eq!(sha, env!("M1ND_GIT_SHA"));
+        // No expectation set + no self-repo manifest => no drift.
+        assert_eq!(fp["binary_drift"], serde_json::Value::Null);
+        clear_version_env();
+    }
+
+    #[test]
+    fn binary_version_info_no_drift_when_expectation_matches() {
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        clear_version_env();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = build_runtime_state(temp.path());
+
+        // Expectation matches the running binary exactly => no drift, no warning.
+        std::env::set_var("M1ND_EXPECTED_VERSION", env!("CARGO_PKG_VERSION"));
+        std::env::set_var("M1ND_EXPECTED_SHA", env!("M1ND_GIT_SHA"));
+        let (info, summary) = state.binary_version_info();
+        assert_eq!(info["binary_drift"], serde_json::Value::Null);
+        assert!(summary.is_none(), "matched expectation => no warning");
+        clear_version_env();
+    }
+
+    #[test]
+    fn binary_version_info_drifts_when_expected_version_mismatches() {
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        clear_version_env();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let state = build_runtime_state(temp.path());
+
+        // An old expectation (e.g. the beta.8 incident) => drift block + warning.
+        std::env::set_var("M1ND_EXPECTED_VERSION", "0.0.0-beta.8");
+        let (info, summary) = state.binary_version_info();
+        let drift = &info["binary_drift"];
+        assert_ne!(*drift, serde_json::Value::Null, "drift block present");
+        assert_eq!(drift["drift_detected"], true);
+        assert_eq!(drift["version_mismatch"], true);
+        assert_eq!(drift["sha_mismatch"], false);
+        assert_eq!(drift["expected_version"], "0.0.0-beta.8");
+        assert_eq!(drift["running_version"], env!("CARGO_PKG_VERSION"));
+        assert!(summary.is_some(), "mismatch => human warning");
+        assert!(summary.unwrap().contains("binary_drift"));
+        clear_version_env();
+    }
+
+    #[test]
+    fn trust_selftest_surfaces_binary_drift_without_flipping_verdict() {
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        clear_version_env();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+
+        std::env::set_var("M1ND_EXPECTED_VERSION", "0.0.0-beta.8");
+        let output = handle_trust_selftest(
+            &mut state,
+            TrustSelftestInput {
+                agent_id: "jimi".into(),
+                observed_tool_count: Some(HOST_BINDING_REQUIRED_TOOLS.len() as u64),
+                available_tools: HOST_BINDING_REQUIRED_TOOLS
+                    .iter()
+                    .map(|tool| (*tool).to_string())
+                    .collect(),
+                missing_tools: vec![],
+                observed_tool: Some("seek".into()),
+                observed_proof_state: Some("triaging".into()),
+                observed_candidates: Some(0),
+                scope: None,
+                error_text: None,
+            },
+        )
+        .expect("trust selftest output");
+
+        // Verdict is UNCHANGED — a stale binary is a warning, not a failure.
+        assert_eq!(output["verdict"], "full_trust");
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["ok"], true);
+        // But the drift is loud: top-level block, a check flag, warning in
+        // next_action, and an appended non_claim.
+        assert_eq!(output["checks"]["binary_drift_detected"], true);
+        assert_ne!(output["binary_drift"], serde_json::Value::Null);
+        assert_eq!(output["binary_drift"]["version_mismatch"], true);
+        assert!(output["next_action"]
+            .as_str()
+            .expect("next_action string")
+            .contains("binary_drift"));
+        let non_claims = output["non_claims"].as_array().expect("non_claims array");
+        assert!(
+            non_claims.iter().any(|c| c
+                .as_str()
+                .map(|s| s.contains("binary_drift"))
+                .unwrap_or(false)),
+            "drift warning appended to non_claims"
+        );
+        // And it propagates through the embedded handshake too.
+        assert_ne!(
+            output["session_handshake"]["binary_drift"],
+            serde_json::Value::Null
+        );
+        clear_version_env();
+    }
+
+    #[test]
+    fn trust_selftest_no_drift_when_binary_matches() {
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        clear_version_env();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+
+        let output = handle_trust_selftest(
+            &mut state,
+            TrustSelftestInput {
+                agent_id: "jimi".into(),
+                observed_tool_count: Some(HOST_BINDING_REQUIRED_TOOLS.len() as u64),
+                available_tools: HOST_BINDING_REQUIRED_TOOLS
+                    .iter()
+                    .map(|tool| (*tool).to_string())
+                    .collect(),
+                missing_tools: vec![],
+                observed_tool: Some("seek".into()),
+                observed_proof_state: Some("triaging".into()),
+                observed_candidates: Some(0),
+                scope: None,
+                error_text: None,
+            },
+        )
+        .expect("trust selftest output");
+
+        assert_eq!(output["checks"]["binary_drift_detected"], false);
+        assert_eq!(output["binary_drift"], serde_json::Value::Null);
+        // next_action is the clean full-trust guidance (no drift prefix).
+        assert!(!output["next_action"]
+            .as_str()
+            .expect("next_action string")
+            .contains("binary_drift"));
+        clear_version_env();
+    }
+
+    #[test]
+    fn self_repo_higher_version_flags_binary_lags_repo() {
+        // No env expectation — this signal is purely the bound repo's own
+        // m1nd-mcp/Cargo.toml declaring a version newer than the running binary.
+        let _g = cap_env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        clear_version_env();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_runtime_state(temp.path());
+
+        // Fake a checked-out m1nd repo whose manifest is AHEAD of this binary.
+        let repo_mcp = temp.path().join("m1nd-mcp");
+        std::fs::create_dir_all(&repo_mcp).expect("mkdir m1nd-mcp");
+        std::fs::write(
+            repo_mcp.join("Cargo.toml"),
+            "[package]\nname = \"m1nd-mcp\"\nversion = \"999.0.0\"\nedition = \"2021\"\n",
+        )
+        .expect("write fake Cargo.toml");
+        // Bind the workspace to that repo root (build_runtime_state already set
+        // workspace_root to temp.path(); make it explicit for clarity).
+        state.workspace_root = Some(temp.path().to_string_lossy().to_string());
+
+        let (info, summary) = state.binary_version_info();
+        let drift = &info["binary_drift"];
+        assert_ne!(*drift, serde_json::Value::Null, "lag => drift block");
+        assert_eq!(drift["binary_lags_repo"], true);
+        assert_eq!(drift["repo_declared_version"], "999.0.0");
+        assert_eq!(drift["running_version"], env!("CARGO_PKG_VERSION"));
+        // Not an env mismatch, purely the repo-lag signal.
+        assert_eq!(drift["version_mismatch"], false);
+        assert!(summary.expect("warning").contains("binary_drift"));
+        clear_version_env();
+    }
+
+    #[test]
+    fn parse_cargo_package_version_reads_package_level_only() {
+        // Package version at column 0 is read; an indented dependency version is
+        // NOT mistaken for it (the package `version` line wins by appearing first
+        // at zero indentation).
+        let manifest = "[package]\nname = \"m1nd-mcp\"\nversion = \"1.2.3\"\n\n[dependencies]\nserde = { version = \"1\" }\n";
+        assert_eq!(
+            crate::session::parse_cargo_package_version(manifest),
+            Some("1.2.3".to_string())
+        );
+        assert_eq!(
+            crate::session::parse_cargo_package_version("[package]\nname = \"x\"\n"),
+            None
+        );
     }
 }

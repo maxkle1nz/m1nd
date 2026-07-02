@@ -232,10 +232,82 @@ async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: 
     }
 }
 
+/// Pure strict-version decision (no I/O, no exit) so it is unit-testable in
+/// both directions. Returns `Some(one_line_error)` when the process MUST refuse
+/// to start, else `None`.
+///
+/// Refuse iff strict mode is on AND an explicit expectation
+/// (`expected_version` / `expected_sha`) is set and differs from the running
+/// identity. Only the explicit env expectations are consulted here — no graph,
+/// no bound repo — because this runs before any session exists.
+fn strict_version_verdict(
+    strict: bool,
+    running_version: &str,
+    running_sha: &str,
+    expected_version: Option<&str>,
+    expected_sha: Option<&str>,
+) -> Option<String> {
+    if !strict {
+        return None;
+    }
+    let version_mismatch = expected_version
+        .map(|expected| expected.trim() != running_version)
+        .unwrap_or(false);
+    let sha_mismatch = expected_sha
+        .map(|expected| expected.trim() != running_sha)
+        .unwrap_or(false);
+    if version_mismatch || sha_mismatch {
+        Some(format!(
+            "[m1nd-mcp] STRICT VERSION REFUSAL: running {running_version} ({running_sha}) but expected version={} sha={} (M1ND_STRICT_VERSION=1). Refusing to start against a mismatched binary.",
+            expected_version.unwrap_or("<unset>"),
+            expected_sha.unwrap_or("<unset>"),
+        ))
+    } else {
+        None
+    }
+}
+
+/// Strict version-honesty gate (the hardest layer of the honesty moat).
+///
+/// When `M1ND_STRICT_VERSION` is truthy AND an explicit expectation
+/// (`M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA`) does not match this running
+/// binary, REFUSE to start with a one-line error and a nonzero exit. This is for
+/// harnesses/experiments that must NEVER run the wrong binary (the exact
+/// incident: an old beta.8 binary silently used in an experiment). Uses only the
+/// compile-time identity — no graph, no session, no lease — so it is safe to run
+/// before anything else. Non-strict callers get warnings instead (in the
+/// handshake/selftest honest surface); this only bites when opted in.
+fn enforce_strict_version() {
+    let strict = std::env::var("M1ND_STRICT_VERSION")
+        .map(|v| v != "0" && v != "false" && !v.trim().is_empty())
+        .unwrap_or(false);
+    let expected_version = std::env::var("M1ND_EXPECTED_VERSION")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let expected_sha = std::env::var("M1ND_EXPECTED_SHA")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+
+    if let Some(error) = strict_version_verdict(
+        strict,
+        m1nd_mcp::session::BINARY_VERSION,
+        m1nd_mcp::session::BINARY_GIT_SHA,
+        expected_version.as_deref(),
+        expected_sha.as_deref(),
+    ) {
+        eprintln!("{error}");
+        std::process::exit(2);
+    }
+}
+
 #[tokio::main]
 async fn main() {
     #[cfg(unix)]
     ensure_bwrap_compat_wrapper();
+
+    // Version-honesty strict gate — refuse a mismatched binary before doing any
+    // work (see `enforce_strict_version`). No-op unless M1ND_STRICT_VERSION is set.
+    enforce_strict_version();
 
     let cli = Cli::parse();
 
@@ -312,5 +384,46 @@ async fn main() {
         }
     } else {
         run_stdio_server(config, event_log, cli.no_gui, cli.port).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strict_version_verdict;
+
+    #[test]
+    fn strict_off_never_refuses_even_on_mismatch() {
+        // Strict disabled => warn-only elsewhere, never a startup refusal.
+        assert!(strict_version_verdict(false, "1.1.0", "abc", Some("0.0.1"), None).is_none());
+    }
+
+    #[test]
+    fn strict_on_refuses_version_mismatch() {
+        let verdict = strict_version_verdict(true, "1.1.0", "abc123", Some("0.0.0-beta.8"), None);
+        let msg = verdict.expect("strict + mismatch must refuse");
+        assert!(msg.contains("STRICT VERSION REFUSAL"));
+        assert!(msg.contains("1.1.0"));
+        assert!(msg.contains("0.0.0-beta.8"));
+    }
+
+    #[test]
+    fn strict_on_refuses_sha_mismatch() {
+        let verdict = strict_version_verdict(true, "1.1.0", "abc123", None, Some("deadbee"));
+        assert!(verdict.expect("sha mismatch refuses").contains("deadbee"));
+    }
+
+    #[test]
+    fn strict_on_allows_exact_match() {
+        // Strict but everything matches => no refusal.
+        assert!(
+            strict_version_verdict(true, "1.1.0", "abc123", Some("1.1.0"), Some("abc123"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn strict_on_with_no_expectation_allows() {
+        // Strict on but no expectation set => nothing to compare, allow start.
+        assert!(strict_version_verdict(true, "1.1.0", "abc123", None, None).is_none());
     }
 }
