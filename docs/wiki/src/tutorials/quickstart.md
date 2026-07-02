@@ -213,7 +213,35 @@ What happened:
 - references were resolved
 - the graph was finalized for querying
 
-### Step 2: run the agent trust selftest
+### Step 2: pre-orient with `north` (the in-session front door)
+
+Once the graph is ingested, call `north(task)` **before reading or editing
+anything**. It is the in-session front door: one round-trip that composes
+binding trust, task context, prior cross-session memory, a sufficiency signal,
+one `next_move`, and `honest_gaps` (what m1nd does not yet know).
+
+```jsonc
+{
+  "method": "tools/call",
+  "params": {
+    "name": "north",
+    "arguments": {
+      "agent_id": "dev",
+      "task": "harden authentication token validation"
+    }
+  }
+}
+```
+
+`north` composes `trust_selftest` + `orient` + `boot_memory` + `focus` — reach
+for those pieces directly only when you need just one. If `north` returns
+`needs_ingest` (empty or unbound graph), `ingest` the repo and call `north`
+again. `needs_ingest` is a real answer, not a failure.
+
+If trust looks off — retrieval blocked, `wrong_workspace_binding`, or a
+`Transport closed` error — drop to the degraded/recovery path with
+`trust_selftest`, `session_handshake`, and `recovery_playbook`. Those are the
+recovery lane, not the default front door.
 
 ```jsonc
 {
@@ -227,29 +255,14 @@ What happened:
 }
 ```
 
-The response returns a single `verdict`: `full_trust`, `needs_ingest`,
-`orientation_only`, `degraded_host_tool_surface`, or
-`stale_binding_suspected`. It also includes a binding fingerprint, graph state,
-an embedded `session_handshake`, and an optional recovery playbook. It does not
-ingest, repair, refresh host bindings, mutate files, or run retrieval probes.
-
-If the live surface does not expose `trust_selftest`, use `session_handshake`
-as the cheaper sub-check. If the verdict or trust mode is not `full_trust`, ask
-m1nd for the deterministic recovery path:
-
-```jsonc
-{
-  "method": "tools/call",
-  "params": {
-    "name": "recovery_playbook",
-    "arguments": {
-      "agent_id": "dev"
-    }
-  }
-}
-```
-
-That response returns ordered steps without performing the repair for you.
+`trust_selftest` returns a single `verdict` (`full_trust`, `needs_ingest`,
+`orientation_only`, `degraded_host_tool_surface`, `wrong_workspace_binding`, or
+`stale_binding_suspected`) plus a binding fingerprint, graph state, an embedded
+`session_handshake`, and an optional recovery playbook. It is diagnostic-only:
+it does not ingest, repair, refresh host bindings, mutate files, or run
+retrieval probes. If the verdict or trust mode is not `full_trust`, ask m1nd for
+the deterministic recovery path with `recovery_playbook`, which returns ordered
+steps without performing the repair for you.
 
 ### Step 3: check server health
 
@@ -346,7 +359,9 @@ them, and falls back to the local harness implementation for older builds. Add
 
 ### Step 4: run a first structural audit
 
-`audit` is the fastest one-call orientation pass, and it requires the repo root path:
+`north` is the front door for in-session orientation; `audit` is the deeper
+one-call structural pass over topology, scans, and verification. It requires the
+repo root path:
 
 ```jsonc
 {
@@ -469,6 +484,31 @@ After the first `activate`, these are the most useful next steps:
 - `impact` before touching a central file
 - `surgical_context_v2` before multi-file edits
 - `validate_plan` when you already know the files you want to touch
+
+### Read the verdicts, don't override them
+
+Retrieval and prediction return a calibrated verdict — obey it instead of
+guessing past it:
+
+- **`act` / `reverify` / `abstain`** on retrieval and prediction. `abstain`
+  means uncalibrated or insufficient evidence: a STOP, not a weak yes. The
+  prediction gate is armed per-repo by running `calibrate_predict` once; until
+  then verdicts cap at `reverify`.
+- **`why` carries a `closure` verdict** — `blocked` means the path rests on an
+  unresolved edge; verify that edge before relying on the path.
+- **`seek` carries a `trust_envelope` + a sufficiency stop-signal** —
+  `sufficient` means stop gathering; `gathering` / `saturated` mean widen or
+  refine.
+- **`trust_band: insufficient_evidence` means NO evidence**, not medium risk —
+  the honest cold-start answer.
+
+### Before you finish, leave the graph warmer
+
+Call `memorize` on every durable finding (a decision, a verified fact, why code
+is the way it is, an open design point). Pass structured claims with
+`confidence` and repo-relative `evidence` paths so each claim anchors to the
+real code node and self-flags stale when that code changes. Closing a mission?
+`mission_close(write_light_memory:true)` persists verified claims in one step.
 
 ## Troubleshooting
 

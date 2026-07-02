@@ -51,12 +51,21 @@ schemas and this file for operating strategy.
 
 Use one stable `agent_id` for one investigation.
 
-1. `trust_selftest` with `agent_id` and `scope` when available.
-2. If unavailable, `session_handshake` with `scope`.
-3. If trust is not full, follow `recovery_playbook`.
-4. If the graph is empty or stale for the intended repo, run `ingest`.
-5. Re-run `session_handshake`.
-6. Only then use retrieval or risk tools as evidence.
+1. `north(task)` FIRST, before reading or editing anything — the in-session
+   front door. One round-trip returns binding trust (`trust_mode`; repair
+   travels with it when degraded), task context (focus + PageRank anchors),
+   prior cross-session memory (each claim with real age + author), a sufficiency
+   signal, one `next_move`, and `honest_gaps`. It composes `trust_selftest` +
+   `orient` + `boot_memory` + `focus`.
+2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the
+   intended repo, then `north` again. `needs_ingest` is a REAL answer.
+3. Act on the verdicts (see "Verdict Discipline" below); then use retrieval or
+   risk tools as evidence.
+
+Degraded/recovery front door only: `trust_selftest` / `session_handshake` (with
+`scope`) / `recovery_playbook` when `north` degrades, trust is not full, or
+retrieval returns `blocked`/empty unexpectedly — compare binding fingerprints
+and follow the playbook before trusting retrieval.
 
 For local helper use:
 
@@ -71,6 +80,21 @@ m1nd agent orient \
 Use `--repo` whenever the process is launched from a director repo but the
 inspected repo is somewhere else. The older `probe_m1nd.py` helper remains
 available for custom multi-tool sequences.
+
+## Verdict Discipline
+
+Retrieval and prediction return a calibrated verdict; obey it, do not override.
+
+- **`act` / `reverify` / `abstain`** on retrieval and prediction. `abstain` =
+  uncalibrated OR insufficient evidence: a STOP, not a weak yes. The gate is
+  armed per-repo by running `calibrate_predict` ONCE; until then verdicts cap at
+  `reverify`, never `act`.
+- **`why` carries a `closure` verdict** — `blocked` means the path rests on an
+  unresolved (guessed/dropped) edge; verify that edge before relying on the path.
+- **`seek` carries a `trust_envelope` + a sufficiency stop-signal** —
+  `sufficient` = stop gathering; `gathering`/`saturated` = widen or refine.
+- **`trust_band: insufficient_evidence` = NO evidence, not medium risk** — the
+  honest cold-start answer, distinct from low/medium/high risk.
 
 ## Tool Families At A Glance
 
@@ -143,11 +167,13 @@ Deep risk and architecture:
 
 Tiny localized audit:
 
-- `trust_selftest` or scoped `session_handshake`
+- `north(task)` (front door); `needs_ingest` -> `ingest` -> `north`. Drop to
+  `trust_selftest`/scoped `session_handshake` only if trust looks off
 - one bounded recovery/ingest pass if needed
-- one or two cheap orientation calls: `audit`, `search`, `seek`, or `activate`
-- then stop graph exploration and prove with direct files, git diff, tests,
-  compiler/runtime output, and focused probes
+- one or two cheap orientation calls when `north`'s anchors are not enough:
+  `search`, `seek`, or `activate` (or `audit` for a wider sweep)
+- then stop graph exploration (obey the verdicts) and prove with direct files,
+  git diff, tests, compiler/runtime output, and focused probes
 - record `short_audit_orientation` or `recovery_overhead`
 
 Broad review, bug hunt, refactor, or proof-sensitive investigation:
@@ -184,7 +210,8 @@ Path or file shape:
 
 Unknown repo:
 
-- `trust_selftest` -> `ingest` -> `audit` -> `panoramic`
+- `north(task)` -> `ingest` (only on `needs_ingest`) -> `north` -> `audit` ->
+  `panoramic`
 - add `layers` for architecture
 - add `diagram` when the user needs a map
 
@@ -300,9 +327,9 @@ Runtime/host confusion:
 Use when entering a repo cold.
 
 ```text
-trust_selftest(scope)
-ingest(path)
-audit(path/profile=auto)
+north(task)                       # front door; needs_ingest -> ingest -> north
+ingest(path)                      # only if north returned needs_ingest
+audit(path/profile=auto)          # wider sweep beyond north's anchors
 panoramic()
 layers()
 diagram(format=mermaid)
@@ -332,8 +359,7 @@ Deliverable: exact files/functions, route rationale, and confidence boundary.
 Use when searching for defects without editing.
 
 ```text
-trust_selftest(scope)
-ingest(path)
+north(task)                       # front door; needs_ingest -> ingest -> north
 audit()
 panoramic()
 search(edge-case terms)
@@ -481,6 +507,24 @@ Every serious m1nd-assisted answer should preserve:
 
 For benchmark lanes, write events as you go. A final answer without event
 evidence is weaker than a messy but timestamped investigation.
+
+## Post-Capture — Leave The Graph Warmer
+
+Before ending, close the loop:
+
+- `memorize` every durable finding (a decision, a verified fact, why code is the
+  way it is, an open design point) with `confidence` and repo-relative
+  `evidence` paths, so it lives in the same activation space as code and
+  self-flags stale via `cross_verify(check:["evidence_freshness"])`. Closing a
+  mission? `mission_close(write_light_memory:true)` persists verified claims in
+  one step.
+- Then ONE field-telemetry signal, keep working (report, never detour): when a
+  retrieval was right/wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF
+  misbehaves (bug, friction, or honesty miss — claimed fresh/closed/act and was
+  wrong), append ONE JSON line to `~/.m1nd/field-reports.jsonl`
+  (`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`)
+  — LOCAL-ONLY, never phones home. NEVER fix m1nd mid-mission; work around, note
+  the workaround, report.
 
 ## Anti-Patterns
 

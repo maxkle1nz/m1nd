@@ -13,12 +13,22 @@ Skip the first pass only when the user gave exact file/line truth, when compiler
 or runtime output is the only source of truth, or when the task is a trivial
 local file action.
 
-## Startup Trust Loop
+## Startup: north First
+
+In a live MCP session the front door is one call: `north(task)`. It returns
+binding trust, task context (focus nodes + PageRank anchors), prior
+cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps`
+in a single packet, before any query. If it returns `needs_ingest` (empty/unbound
+graph), `ingest` the repo, then `north` again — that is a real answer, not a
+failure. `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
+
+Drop to the trust-only sub-checks when the binding looks degraded and you need
+just the trust verdict:
 
 0. If a tool call fails with `Transport closed`, stop treating it as graph
    staleness. The MCP transport died before m1nd could run. Verify the binary
    with a local smoke, restart/rebind the host MCP client or open a fresh
-   thread, then continue with this loop.
+   thread, then continue.
 1. Call `trust_selftest` if the host exposes it.
 2. If unavailable, call `session_handshake`.
 3. If only `health` is exposed, inspect `tool_surface_contract` and
@@ -66,13 +76,21 @@ Upgrade the binding to repo root or record
 For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, use
 this loop by default:
 
-1. Establish trust with `trust_selftest`, or `session_handshake` with the
-   intended repo/workspace as `scope`.
-2. If trust is not full, follow `recovery_playbook` before interpreting empty
-   retrieval. `wrong_workspace_binding` means rebind, intentional ingest, or
-   real federation; it is not stale graph proof.
-3. Orient with `audit` for unfamiliar repos, or route focused questions through
-   `search`, `seek`, or `activate`.
+1. Orient with `north(task)`. One round-trip returns binding trust, task
+   context, prior cross-session memory, a sufficiency signal, one `next_move`,
+   and `honest_gaps`. `needs_ingest` → `ingest` → `north` again.
+2. If trust is degraded or retrieval comes back `blocked`/empty unexpectedly,
+   drop to `recovery_playbook` before interpreting absence.
+   `wrong_workspace_binding` means rebind, intentional ingest, or real
+   federation; it is not stale graph proof.
+3. Follow the `next_move`, or route focused questions through `search`, `seek`,
+   or `activate`. Obey the calibrated verdict — do not override it:
+   `act`/`reverify`/`abstain` (abstain = STOP, not a weak yes; the gate is armed
+   by running `calibrate_predict` once, else verdicts cap at `reverify`); `why`
+   carries a `closure` verdict (`blocked` = the path rests on an unresolved
+   edge); `seek` carries a `trust_envelope` + a sufficiency signal (`sufficient`
+   = stop gathering); `trust_band: insufficient_evidence` means NO evidence, not
+   medium risk.
 4. Read the runtime envelope on retrieval responses. Empty result arrays are
    not final truth until workspace binding, graph identity, and recovery state
    are coherent.
@@ -81,8 +99,12 @@ this loop by default:
    repo.
 6. Before edits or reviews, run `impact`, `validate_plan`, and usually
    `surgical_context_v2`.
-7. Record what happened: m1nd calls, recovery path, files inspected, commands
-   run, and fallback reasons.
+7. Close warmer than you found it: `memorize` every durable finding (with
+   `confidence` and repo-relative `evidence` paths), then leave one
+   field-telemetry signal — `learn(correct|wrong|partial)` on a retrieval, or one
+   JSON line in `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves
+   (local-only; never fix m1nd mid-mission — report). Record the investigation
+   path: m1nd calls, recovery path, files inspected, commands run.
 
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
@@ -123,13 +145,14 @@ async/concurrency behavior, and helper/exported APIs. Record it as
 For tiny repos, localized bug hunts, or narrow reviews, use m1nd as a bounded
 orientation pass instead of a long graph investigation:
 
-1. Establish trust with `trust_selftest` or scoped `session_handshake`.
-2. If trust is not full, run one recovery/ingest pass.
-3. Run one or two cheap orientation calls: `audit`, `search`, `seek`, or
-   `activate`.
-4. When suspect files or behaviors are visible, switch to direct source reads,
+1. Orient with one `north(task)` call (trust + context in the same round-trip);
+   `needs_ingest` → one bounded ingest → re-`north`. Drop to `trust_selftest` /
+   scoped `session_handshake` only if the binding looks degraded.
+2. Run at most one or two cheap follow-up calls: `search`, `seek`, or
+   `activate` (or `audit` for the structural map).
+3. When suspect files or behaviors are visible, switch to direct source reads,
    git diff, tests, compiler/runtime output, and focused probes.
-5. Record `short_audit_orientation` if this helped, or `recovery_overhead` if
+4. Record `short_audit_orientation` if this helped, or `recovery_overhead` if
    m1nd state repair consumed meaningful time.
 
 Prefer the host-neutral agent CLI for this route:
@@ -152,8 +175,9 @@ m1nd agent orient \
   --json
 ```
 
-Use `agent first-minute` for first contact, broad architecture/audit requests,
-or when the host has not loaded this pack yet. It scopes, trusts, ingests when
+Use `agent first-minute` when the live MCP session is stale, bound to the wrong
+repo, or has not loaded this pack yet — it is the host-neutral CLI escape hatch,
+not the in-session front door (`north` is). It scopes, trusts, ingests when
 needed, runs one bounded orientation pass, returns anchors, and hands control
 back to direct proof.
 
@@ -224,11 +248,12 @@ situation.
 
 ## Tool Routing
 
+- In-session front door -> `north(task)` (trust + task context + memory + sufficiency + next_move)
 - Exact text -> `search`
 - Path pattern -> `glob`
 - Known purpose, unknown location -> `seek`
 - Topic, subsystem, or neighborhood -> `activate`
-- Unfamiliar repo -> `audit`
+- Unfamiliar repo -> `north` (or `audit` for the structural map alone)
 - Stacktrace or runtime error text -> `trace`
 - Risky change -> `impact`, `predict`, `validate_plan`, then usually
   `surgical_context_v2`

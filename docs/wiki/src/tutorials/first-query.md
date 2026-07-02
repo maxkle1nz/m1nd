@@ -387,4 +387,18 @@ Additional tools layer on top of this foundation:
 | `predict` | After modifying a file -- which other files probably need changes too |
 | `trace` | When an error occurs -- map stacktraces to structural root causes |
 
+### Two habits that wrap the loop
+
+The learning loop above sits inside a larger operating loop:
+
+- **Pre-orient first.** Before this whole cycle, call `north(task)` — the
+  in-session front door that returns binding trust, task context, prior
+  cross-session memory, and `honest_gaps` in one round-trip. Ingest first only
+  when `north` reports `needs_ingest`.
+- **Read the verdicts, then capture.** Retrieval and prediction carry calibrated
+  verdicts — `act` / `reverify` / `abstain` (`abstain` = insufficient evidence,
+  a STOP), `closure` on `why`, a `trust_envelope` on `seek`. Obey them instead
+  of guessing. When you finish, `memorize` durable findings with `confidence`
+  and repo-relative `evidence` paths so the next agent inherits what you proved.
+
 Next: [Multi-Agent Tutorial](multi-agent.md) -- how multiple agents share one graph.

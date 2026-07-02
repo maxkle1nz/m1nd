@@ -13,6 +13,8 @@ Several tools now do more than return raw results. On the main structural flows 
 
 That matters for how you integrate m1nd into an agent loop: treat many responses as workflow guidance, not just data blobs.
 
+Two doctrine points frame the whole surface. First, [`north`](lifecycle.md#m1ndnorth) is the in-session front door — call it before reading or editing to pre-orient in one round-trip; it composes `trust_selftest` + `orient` + `boot_memory` + `focus`, and the `trust_selftest` / `session_handshake` / `recovery_playbook` trio is the degraded/recovery lane, not the default entry. Second, retrieval and prediction return calibrated verdicts you should obey rather than override: `act` / `reverify` / `abstain` (`abstain` = uncalibrated or insufficient — a STOP), `why` carries a `closure` verdict (`blocked` = the path rests on an unresolved edge), `seek` carries a `trust_envelope` + sufficiency stop-signal, and `trust_band: insufficient_evidence` means no evidence, not medium risk.
+
 ## Tool Index
 
 ### Core Activation
@@ -80,6 +82,7 @@ That matters for how you integrate m1nd into an agent loop: treat many responses
 
 | Tool | Description |
 |------|-------------|
+| [`north`](lifecycle.md#m1ndnorth) | In-session front door: composed pre-orient (trust + task context + prior memory + sufficiency + `next_move` + `honest_gaps`) |
 | [`ingest`](lifecycle.md#m1ndingest) | Ingest or re-ingest a codebase, descriptor, or memory corpus |
 | [`document_resolve`](lifecycle.md#m1nddocument_resolve) | Resolve canonical local artifacts for a universal document |
 | [`document_provider_health`](lifecycle.md#m1nddocument_provider_health) | Report optional document provider availability and install hints |
@@ -233,7 +236,7 @@ Response:
   "id": 0,
   "result": {
     "protocolVersion": "2024-11-05",
-    "serverInfo": { "name": "m1nd-mcp", "version": "0.9.0-beta.8" },
+    "serverInfo": { "name": "m1nd-mcp", "version": "1.2.0" },
     "capabilities": { "tools": {} }
   }
 }

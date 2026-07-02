@@ -4,7 +4,16 @@ This file is the operational map: which `m1nd` tools to choose for each kind of 
 
 ## Decision Rules
 
-- Start with `m1nd` unless the task is obviously outside its lane.
+- Start with `north(task)` — the in-session front door — unless the task is
+  obviously outside m1nd's lane. It composes trust + orient + boot_memory +
+  focus in one round-trip; `needs_ingest` -> `ingest` -> `north` again.
+  `trust_selftest`/`session_handshake`/`recovery_playbook` are the
+  degraded/recovery route, not the default first move.
+- Obey verdicts: retrieval/prediction return `act`/`reverify`/`abstain`
+  (`abstain` = stop, not weak-yes; gate caps at `reverify` until
+  `calibrate_predict` runs once); `why` carries `closure` (`blocked` = unresolved
+  edge); `seek` carries `trust_envelope` + sufficiency; `insufficient_evidence` =
+  NO evidence, not medium risk.
 - Use `search` when the user already knows the string or regex.
 - Use `glob` when the user knows the path shape but not the contents.
 - Use `view` when the file is already known and bounded reading is enough.
@@ -18,14 +27,17 @@ This file is the operational map: which `m1nd` tools to choose for each kind of 
 
 ## Workflow 1: First Contact With An Unfamiliar Repo
 
-1. `health`
-2. `ingest`
-3. `audit`
+1. `north(task)` — one round-trip trust + context + prior memory + sufficiency +
+   `next_move`
+2. `ingest` then `north` again if step 1 returned `needs_ingest`
+3. `audit` for a wider high-level sweep when `north`'s anchors are not enough
 4. `search`, `seek`, or `activate`
 5. `batch_view` or `view`
 6. `coverage_session` if the investigation is getting wide
 
-Choose `audit` when you want the fastest high-level orientation. Choose `activate` after `audit` when the next question is subsystem-shaped. Choose `seek` after `audit` when the next question is intent-shaped.
+`north` is the fastest orientation and carries the anchors most first questions
+need. Reach for `audit` for a wider sweep, `activate` when the next question is
+subsystem-shaped, and `seek` when it is intent-shaped.
 
 ## Workflow 2: Find The Code That Does X
 

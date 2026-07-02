@@ -72,9 +72,17 @@
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .
 m1nd doctor
-m1nd install-skills codex          # or: claude / gemini / antigravity / generic
-m1nd mcp-config codex --project /your/project
 ```
+
+然后连接你的宿主——每个宿主使用相同的两条命令（`codex`、`claude`、`gemini`、`antigravity`、`generic`）：
+
+| 宿主 | 安装智能体包 | 连接 MCP 配置 |
+|---|---|---|
+| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
+| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
+| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
+| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
+| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
 或通过 npm：`npm install -g @maxkle1nz/m1nd`。
 
@@ -82,15 +90,7 @@ m1nd mcp-config codex --project /your/project
 
 ### 智能体入口点
 
-智能体会解析此 README。当宿主 MCP 会话过期、绑定到错误仓库或尚未加载时，使用宿主中立的 CLI——它会启动一个隔离的运行时、将其绑定到仓库，并返回一个机器可读的信封：
-
-```bash
-m1nd agent first-minute --repo /your/project --query "understand this system" --json
-```
-
-`m1nd agent first-minute` 是接触新仓库最安全的第一步。它会界定仓库范围、建立信任、按需摄入、运行一次有界的定向扫描、返回候选锚点，然后告知智能体直接从源码、测试、编译器/运行时输出、日志或探针来验证。
-
-在 MCP 会话内，教义是如下信任循环——在相信任何检索结果*之前*先建立信任：
+智能体会解析此 README。在 MCP 会话内，前门是一次调用——`north(task)` 将信任、任务上下文、先前的跨会话记忆、一个充分性信号、一个 `next_move` 以及 `honest_gaps`（m1nd *尚不*知道的内容）整合成一个数据包。如果它报告 `needs_ingest`（空图），或者你使用的是较旧的二进制文件，则退回到显式的信任循环——在相信任何检索结果*之前*先建立信任：
 
 ```jsonc
 // 0. Trust the binding in one call (verdict before retrieval)
@@ -106,7 +106,13 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
-**首次会话循环，四步完成：** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` 持久化发现，让下次会话提前起跑。
+**首次会话循环，四步完成：** `north`（或 `trust_selftest` → `ingest`）→ `seek`/`audit` → `memorize` 持久化发现，让下次会话提前起跑。
+
+当没有可供调用 `north` 的活跃 MCP 会话时——它已过期、绑定到错误仓库，或尚未加载——请转而使用宿主中立的 CLI 作为应急出口。它会启动一个隔离的运行时、将其绑定到仓库，并返回一个机器可读的信封，完成界定范围、建立信任、按需摄入、返回锚点，并交接给直接证明：
+
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
 
 ### 服务一张图，附着多个智能体
 

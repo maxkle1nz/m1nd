@@ -119,7 +119,7 @@ Weight and structural drift analysis. Compares the current graph state against a
 
 ### When to Use
 
-- **Session start** -- first tool to call after `health` to recover context
+- **Session start** -- after `north` pre-orients, `drift` recovers what changed since last session
 - **After ingest** -- see what the new ingest changed
 - **After extended learning** -- track cumulative drift from feedback
 

@@ -72,9 +72,17 @@ El camino mínimo feliz — instala desde el fuente (siempre actualizado), verif
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .
 m1nd doctor
-m1nd install-skills codex          # or: claude / gemini / antigravity / generic
-m1nd mcp-config codex --project /your/project
 ```
+
+Luego conecta tu host — los mismos dos comandos, uno por host (`codex`, `claude`, `gemini`, `antigravity`, `generic`):
+
+| Host | Instalar el paquete de agente | Conectar la config MCP |
+|---|---|---|
+| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
+| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
+| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
+| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
+| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
 O desde npm: `npm install -g @maxkle1nz/m1nd`.
 
@@ -82,15 +90,7 @@ Mapa completo de instalación, paquetes de host, build nativo del runtime y flag
 
 ### Punto de Entrada del Agente
 
-Los agentes analizan este README. Cuando la sesión MCP del host está obsoleta, vinculada al repositorio equivocado o aún no cargada, usa el CLI neutro de host — lanza un runtime aislado, lo vincula al repositorio y devuelve un único sobre legible por máquina:
-
-```bash
-m1nd agent first-minute --repo /your/project --query "understand this system" --json
-```
-
-`m1nd agent first-minute` es el primer contacto más seguro para un repositorio nuevo. Delimita el alcance del repositorio, establece confianza, ingiere si es necesario, ejecuta una única pasada de orientación acotada, devuelve anclas candidatas y luego le dice al agente que pruebe directamente desde el fuente, tests, salida del compilador/runtime, logs o sondas.
-
-Dentro de una sesión MCP, la doctrina es este loop de confianza — establece confianza *antes* de creer cualquier recuperación:
+Los agentes analizan este README. Dentro de una sesión MCP, la puerta de entrada es una sola llamada — `north(task)` compone confianza, contexto de tarea, memoria previa entre sesiones, una señal de suficiencia, un `next_move` y `honest_gaps` (lo que m1nd *todavía* no sabe) en un único paquete. Si reporta `needs_ingest` (grafo vacío), o estás en un binario más antiguo, recurre al loop explícito de confianza — establece confianza *antes* de creer cualquier recuperación:
 
 ```jsonc
 // 0. Trust the binding in one call (verdict before retrieval)
@@ -106,7 +106,13 @@ Dentro de una sesión MCP, la doctrina es este loop de confianza — establece c
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
-**Loop de primera sesión, en cuatro movimientos:** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` el hallazgo duradero para que la próxima sesión empiece adelantada.
+**Loop de primera sesión, en cuatro movimientos:** `north` (o `trust_selftest` → `ingest`) → `seek`/`audit` → `memorize` el hallazgo duradero para que la próxima sesión empiece adelantada.
+
+Cuando no hay una sesión MCP activa en la que llamar a `north` — está obsoleta, vinculada al repositorio equivocado, o aún no cargada — recurre en su lugar al CLI neutro de host como vía de escape. Lanza un runtime aislado, lo vincula al repositorio, y devuelve un único sobre legible por máquina que delimita el alcance, establece confianza, ingiere si es necesario, devuelve anclas, y hace el handoff a la prueba directa:
+
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
 
 ### Sirve un grafo, adjunta muchos agentes
 

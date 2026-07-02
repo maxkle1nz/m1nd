@@ -26,23 +26,45 @@ Only skip the `m1nd` first pass when:
 ## Trained Agent Loop
 
 For unfamiliar repo work, audits, bug hunts, reviews, and risky changes, the
-measured high-signal pattern is:
+measured high-signal pattern starts by never starting cold:
 
-1. Establish trust: `trust_selftest`, or `session_handshake` with `scope` set to
-   the intended repo/workspace.
-2. Recover before interpreting absence: if trust is not full or retrieval is
-   `blocked`/empty unexpectedly, follow `recovery_playbook`.
-3. Classify workspace issues precisely: `wrong_workspace_binding` means rebind,
-   intentional ingest, or federation; it is not graph staleness.
-4. Orient cheaply: `audit` for unfamiliar repos, `search` for exact text,
-   `seek` for purpose, `activate` for connected neighborhoods.
-5. Read the runtime contract/envelope before trusting results.
-6. Prove final truth with direct source reads, tests, compiler/runtime output,
+1. Call `north(task)` FIRST, before reading or editing anything. It is the
+   in-session front door. One round-trip returns binding trust (`trust_mode`;
+   repair travels with it when degraded), task context (focus nodes + PageRank
+   anchors), prior cross-session memory (each claim with real age + author —
+   absent, never faked, when unknown), a sufficiency signal, one `next_move`,
+   and `honest_gaps` (what m1nd does NOT know). `north` composes
+   `trust_selftest` + `orient` + `boot_memory` + `focus`; reach for the pieces
+   directly only when you need just one.
+2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
+   then `north` again. `needs_ingest` is a REAL answer, not a failure.
+3. Act on verdicts, do not override them (see below).
+4. Prove final truth with direct source reads, tests, compiler/runtime output,
    and focused probes.
-7. Before edits/reviews, run `impact`, `validate_plan`, and usually
+5. Before edits/reviews, run `impact`, `validate_plan`, and usually
    `surgical_context_v2`.
-8. Record the investigation path: m1nd calls, recovery decisions, files
+6. Record the investigation path: m1nd calls, recovery decisions, files
    inspected, commands run, and fallback reason.
+
+Degraded path only: `trust_selftest` / `session_handshake` / `recovery_playbook`
+are the DEGRADED/RECOVERY front door, not the default — reach for them when
+trust looks off, retrieval is `blocked`/empty unexpectedly, a
+`wrong_workspace_binding` is reported, or the transport is closed. Classify
+`wrong_workspace_binding` as rebind/intentional-ingest/federation, never as
+graph staleness.
+
+Verdict semantics — trust the calibration:
+
+- Retrieval and prediction return **`act` / `reverify` / `abstain`**. `abstain`
+  = uncalibrated OR insufficient evidence: a STOP, not a weak yes — do not guess
+  past it. The gate is armed per-repo by running `calibrate_predict` ONCE; until
+  then verdicts cap at `reverify`, never `act`.
+- `why` carries a `closure` verdict — `blocked` means the path rests on an
+  unresolved (guessed/dropped) edge: verify that edge before relying on the path.
+- `seek` carries a `trust_envelope` + a sufficiency stop-signal — `sufficient` =
+  stop gathering; `gathering`/`saturated` = widen or refine.
+- `trust_band: insufficient_evidence` = NO evidence, not medium risk — the
+  honest cold-start answer, distinct from low/medium/high risk.
 
 Internal bug-hunt rounds call this `m1nd-trained`: graph plus operating
 doctrine. A visible MCP surface without this loop is only `m1nd-basic`.
@@ -117,11 +139,15 @@ graph navigation.
 
 The route is:
 
-1. Establish trust with `trust_selftest` or scoped `session_handshake`.
+1. Call `north(task)` for the one-round-trip orient (trust + context + memory +
+   sufficiency + `next_move`); `needs_ingest` -> `ingest` -> `north` again. Drop
+   to `trust_selftest`/scoped `session_handshake` + `recovery_playbook` only if
+   trust looks off or retrieval is blocked.
 2. If needed, perform one bounded recovery/ingest pass.
-3. Run one or two cheap orientation calls: `audit`, `search`, `seek`, or
-   `activate`.
-4. Stop graph exploration once suspect files and behaviors are visible.
+3. Run one or two cheap orientation calls when `north`'s anchors are not enough:
+   `search`, `seek`, or `activate` (or `audit` for a wider sweep).
+4. Stop graph exploration once suspect files and behaviors are visible, obeying
+   the verdicts (`abstain` = stop, not weak-yes).
 5. Prove with direct source reads, git diff, tests, compiler/runtime output, and
    focused probes.
 6. Record `m1nd_usage_mode=short_audit_orientation` when it helped, or
@@ -147,9 +173,12 @@ m1nd agent orient \
   --json
 ```
 
-Use `agent first-minute` for first contact, broad architecture/audit requests,
-or when an agent has not yet loaded the m1nd operating doctrine. It scopes the
-repo, establishes trust, ingests when needed, runs one bounded orientation pass,
+`agent first-minute` is the HOST-NEUTRAL CLI escape hatch for stale, unbound, or
+not-yet-loaded sessions — an out-of-session isolated-runtime entry, not the
+in-session front door (`north` is). Reach for it for first contact from a stale
+MCP client, broad architecture/audit requests outside a live binding, or when an
+agent has not yet loaded the m1nd operating doctrine. It scopes the repo,
+establishes trust, ingests when needed, runs one bounded orientation pass,
 returns anchors, and emits `do_not` guardrails plus a direct-proof handoff.
 
 `agent next` emits an `m1nd-agent-action-envelope-v0` with the first safe move,
@@ -249,15 +278,17 @@ source reads, tests, runtime probes, or CI evidence.
   agent-pack files and write canonical MCP config snippets for known hosts, but
   it does not prove rebind, refresh cached host tool lists, repair graph state,
   or remove the manual config step for generic hosts.
-- If the live MCP surface exposes `trust_selftest`, call it first and route by
-  `verdict` before relying on retrieval. `full_trust` means proceed with
-  m1nd-first; `needs_ingest` means ingest the intended repo; `orientation_only`
-  or `degraded_host_tool_surface` means use m1nd only for orientation and
-  verify final truth with local files until the binding is refreshed;
-  `wrong_workspace_binding` means the active graph is healthy but bound to the
-  wrong repo for the requested scope; `stale_binding_suspected` means compare
-  binding fingerprints and follow the recovery playbook before trusting
-  retrieval.
+- The default front door is `north(task)` (it composes `trust_selftest` +
+  orient + boot_memory + focus in one round-trip). Call `trust_selftest`
+  directly as a RECOVERY route — when trust looks off, `north` degrades, or you
+  need just the binding sub-check — and route by `verdict` before relying on
+  retrieval. `full_trust` means proceed with m1nd-first; `needs_ingest` means
+  ingest the intended repo; `orientation_only` or `degraded_host_tool_surface`
+  means use m1nd only for orientation and verify final truth with local files
+  until the binding is refreshed; `wrong_workspace_binding` means the active
+  graph is healthy but bound to the wrong repo for the requested scope;
+  `stale_binding_suspected` means compare binding fingerprints and follow the
+  recovery playbook before trusting retrieval.
 - If `trust_selftest` is not exposed but `session_handshake` is, call the
   handshake and route by `trust_mode` as the cheaper sub-check. When the task
   names a target repo or absolute path, pass it as `scope` so Context Guard can
@@ -340,14 +371,20 @@ source reads, tests, runtime probes, or CI evidence.
 
 ## Fast Routing
 
-- Unfamiliar repo or need a one-call orientation: use `audit`, then `batch_view`, `coverage_session`, or `cross_verify` as needed.
+- Unfamiliar repo or need a one-call orientation: start with `north(task)`
+  (`needs_ingest` -> `ingest` -> `north`), then `audit` for a wider sweep and
+  `batch_view`, `coverage_session`, or `cross_verify` as needed.
 - Need a subsystem map: use `activate`.
-- Need code by intent: use `seek`.
-- Need why A connects to B: use `why`.
+- Need code by intent: use `seek` — obey its `trust_envelope` + sufficiency
+  signal (`sufficient` = stop; `gathering`/`saturated` = widen/refine).
+- Need why A connects to B: use `why` — a `closure: blocked` verdict means the
+  path rests on an unresolved edge; verify that edge before relying on it.
 - Smells like missing validation, abstraction, cleanup, or lock: use `missing`.
 - Have a stacktrace or runtime error text: use `trace`.
 - Need blast radius before editing: use `impact`.
-- Need co-change follow-through after editing: use `predict`.
+- Need co-change follow-through after editing: use `predict` — obey
+  `act`/`reverify`/`abstain` (`abstain` = stop; verdicts cap at `reverify` until
+  `calibrate_predict` has armed the gate once).
 - Need plan completeness and missing tests before implementation or review: use `validate_plan`.
 - Need graph-native specs, design notes, or KB docs authored in `L1GHT`: ingest with `adapter: "light"` and usually `mode: "merge"`.
 - Need regular spec/wiki/PDF/doc alignment with code: ingest with `adapter: "universal"` or `auto`, then use `document_resolve`, `document_bindings`, and `document_drift`.
@@ -374,6 +411,10 @@ When you conclude something durable — a verified finding, a design decision, w
 4. On the next session start, m1nd auto-loads all agent-memory files (reported in `session_handshake.agent_memory`). Past findings are in the graph immediately.
 5. After code changes, check freshness: `cross_verify(check:["evidence_freshness"])` names which memorized claims cite code that has since changed. The ingest result itself also includes `memory_freshness` after a merge re-ingest.
 6. For mission-driven work, `mission_close(write_light_memory:true)` persists verified claims as L1GHT memory in one step.
+
+`memorize` is the POST-CAPTURE close: before ending, memorize every durable finding with `confidence` + repo-relative `evidence` paths so it lives in the same activation space as code and self-flags stale via `cross_verify(check:["evidence_freshness"])`.
+
+Then one field-telemetry signal, keep working (report, never detour): when a retrieval was right/wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF misbehaves (bug, friction, or honesty miss — claimed fresh/closed/act and was wrong), append ONE JSON line to `~/.m1nd/field-reports.jsonl` (`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) — LOCAL-ONLY, never phones home. NEVER fix m1nd mid-mission; work around, note the workaround, report.
 
 Caveat: `ingest mode:replace` wipes light memory nodes. Prefer `mode:merge` when re-ingesting code to preserve agent memory.
 

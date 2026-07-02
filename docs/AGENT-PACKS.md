@@ -60,27 +60,41 @@ Internal bug-hunt evidence showed the important distinction: `m1nd` works best
 when the agent receives the operating loop, not merely a graph endpoint. The
 portable pack therefore teaches every host this default sequence:
 
-1. Establish trust with `trust_selftest`, or `session_handshake` scoped to the
-   intended repo.
-2. Follow `recovery_playbook` before interpreting blocked or empty retrieval.
-3. Treat `wrong_workspace_binding` as a binding/scope problem, not as stale
-   graph truth. If the host cannot be rebound immediately, use an isolated
-   `m1nd agent orient --repo /path/to/intended/repo --mode short --json` before
-   raw shell search.
-4. Classify partial bindings: `nested_workspace_binding` means subtree-only
+1. Orient with `north(task)` — the in-session front door. One round-trip returns
+   binding trust, task context (focus nodes + anchors), prior cross-session
+   memory, a sufficiency signal, one `next_move`, and `honest_gaps`. If it
+   returns `needs_ingest`, `ingest` the repo, then `north` again. `north`
+   composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
+2. If trust is degraded or retrieval is blocked/empty unexpectedly, drop to
+   `recovery_playbook`. Treat `wrong_workspace_binding` as a binding/scope
+   problem, not as stale graph truth. If the host cannot be rebound immediately,
+   use an isolated `m1nd agent orient --repo /path/to/intended/repo --mode short
+   --json` before raw shell search.
+3. Classify partial bindings: `nested_workspace_binding` means subtree-only
    truth, and `file_level_binding` means docs/PRD/L1GHT truth only.
-5. Orient with `audit`, then use `search`, `seek`, or `activate` for focused
-   discovery.
-6. Read runtime envelopes before trusting empty results.
-7. Verify final truth with source files, tests, compiler/runtime output, and
+4. Follow the `next_move`, or use `search`, `seek`, or `activate` for focused
+   discovery. Obey the calibrated verdict: `act`/`reverify`/`abstain` (abstain =
+   STOP, not a weak yes; the gate is armed by `calibrate_predict` once, else caps
+   at `reverify`); `why` carries a `closure` verdict (`blocked` = the path rests
+   on an unresolved edge); `seek` carries a `trust_envelope` + sufficiency signal;
+   `trust_band: insufficient_evidence` means NO evidence, not medium risk.
+5. Read runtime envelopes before trusting empty results.
+6. Verify final truth with source files, tests, compiler/runtime output, and
    focused probes.
-8. Use `impact`, `validate_plan`, and `surgical_context_v2` before risky edits
+7. Use `impact`, `validate_plan`, and `surgical_context_v2` before risky edits
    or reviews.
-9. Record tool calls, recovery paths, files inspected, commands run, and
-   fallback reasons.
+8. Close warmer than you found it: `memorize` every durable finding (with
+   `confidence` and repo-relative `evidence` paths), then leave one
+   field-telemetry signal — `learn(correct|wrong|partial)`, or one JSON line in
+   `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves (local-only; never
+   fix m1nd mid-mission — report). Record tool calls, recovery paths, files
+   inspected, and commands run.
 
 That loop is what `m1nd-trained` means in benchmark artifacts. It is part of
-the agent pack contract.
+the agent pack contract. The installed skills (`m1nd-first`, `m1nd-operator`,
+and the portable `m1nd-universal-agent-pack`) all teach this same OMEGA loop —
+`north`-first orientation, calibrated verdicts, and memorize-at-close — so every
+door an agent enters by teaches one doctrine.
 
 When the live runtime exposes Mission Control, broad reviews, bug hunts, and
 risky refactors can make the trained loop explicit with mission tools:
@@ -127,8 +141,10 @@ m1nd agent orient \
   --json
 ```
 
-The outer JSON schema is `m1nd-agent-cli-v0`. `agent first-minute` is the safe
-first contact for broad "understand/audit/map this repo" tasks: it scopes,
+The outer JSON schema is `m1nd-agent-cli-v0`. `agent first-minute` is the
+host-neutral CLI escape hatch when the live MCP session is stale, wrong-bound, or
+not loaded yet — not the in-session front door (`north` is). For broad
+"understand/audit/map this repo" tasks in that out-of-session case it scopes,
 trusts, ingests when needed, returns anchors, and emits `do_not` guardrails
 before handing the agent to direct proof. `agent next`/`agent auto` emits an
 inner `m1nd-agent-action-envelope-v0` so an agent can choose the first safe move
@@ -338,7 +354,17 @@ The universal Windows lane is `m1nd-core` + `m1nd-ingest` + `m1nd-mcp`. The
 `m1nd-openclaw` native fast path uses Unix sockets today, so Windows hosts
 should use plain MCP until a Windows-native fast lane is introduced.
 
-## Trust Loop For Every Host
+## Front Door For Every Host
+
+In a live MCP session, call `north(task)` first — one round-trip for trust, task
+context, prior memory, sufficiency, one `next_move`, and `honest_gaps`. If it
+returns `needs_ingest`, `ingest` the target repo or docs, then `north` again.
+Then use `search`, `glob`, `seek`, `activate`, `trace`, `impact`,
+`validate_plan`, and `surgical_context_v2` before broad manual search — obeying
+the calibrated verdicts (`act`/`reverify`/`abstain`, `closure`, `trust_envelope`,
+`insufficient_evidence`).
+
+Drop to the trust-only recovery sub-checks when the binding looks degraded:
 
 0. If the host returns `Transport closed`, restart/rebind the host MCP client
    first. The transport died before m1nd could run a recovery tool.
@@ -346,8 +372,5 @@ should use plain MCP until a Windows-native fast lane is introduced.
 2. If unavailable, call `session_handshake`.
 3. If only `health` is visible, inspect `tool_surface_contract`.
 4. If trust is not full, follow `recovery_playbook`.
-5. Ingest the target repo or docs.
-6. Use `search`, `glob`, `seek`, `activate`, `audit`, `trace`, `impact`,
-   `validate_plan`, and `surgical_context_v2` before broad manual search.
 
 The doctrine is portable because the MCP tool surface is portable.
