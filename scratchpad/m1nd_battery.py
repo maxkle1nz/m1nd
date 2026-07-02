@@ -220,6 +220,141 @@ def trace_top_suspect_file(res):
     return s[0].get("file_path") if s else None
 
 
+def runtime_root(c):
+    """Discover the live server's runtime_root via session_handshake.
+
+    session_handshake echoes the binding_fingerprint, which carries the resolved
+    runtime_root. The memory cases plant/inspect files under <runtime_root>/
+    agent-memory, so they read the REAL path rather than assuming the harness env.
+    """
+    hs, _ = c.tool("session_handshake", dict(agent_id="battery"))
+    return (hs.get("binding_fingerprint") or {}).get("runtime_root")
+
+
+def calibrate_predict_once(c, alpha=0.1):
+    """Run calibrate_predict on the ingested repo's own git history (idempotent —
+    it re-derives τ each call and persists it). Returns the calibration result so a
+    check can both assert its structure AND rely on `predict` being calibrated after.
+    """
+    cal, _ = c.tool("calibrate_predict", dict(agent_id="battery", alpha=alpha))
+    return cal
+
+
+def predict_verdicts(c, changed_node, top_k=8):
+    """(calibration_block, set_of_verdicts) for a predict call on `changed_node`."""
+    pr, _ = c.tool("predict", dict(agent_id="battery", changed_node=changed_node, top_k=top_k))
+    cal = pr.get("calibration") or {}
+    verdicts = {p.get("verdict") for p in (pr.get("predictions") or [])}
+    return cal, verdicts
+
+
+def memory_provenance_and_supersession(c):
+    """End-to-end memory-provenance + supersession probe via the live client.
+
+    1. memorize a canary claim (agent_id=scout-battery, one evidence path).
+    2. seek it back: the hit must carry `source_agent == scout-battery`, a fresh
+       `authored_ms_ago` (small, >=0), and NO aged flag key on the seek result.
+    3. memorize the SAME node_label again at higher confidence: the response must
+       report `superseded == true` AND a `.history/<slug>.<ts>.light.md` copy of the
+       prior belief must exist under <runtime_root>/agent-memory/.history.
+
+    Returns (passed, detail). Uses a unique slug so re-runs in the same runtime dir
+    (should not happen — fresh tempdir per run — but be safe) still supersede cleanly.
+    """
+    import time as _t
+    root = runtime_root(c)
+    if not root:
+        return False, "could not resolve runtime_root via session_handshake"
+    slug = "battery_omega_canary"
+    claim_txt = "Battery omega canary claim about the token budget packer"
+    m1, _ = c.tool("memorize", dict(
+        agent_id="scout-battery", node_label=slug,
+        claims=[dict(label="battery omega canary", text=claim_txt,
+                     confidence="0.9", evidence=["m1nd-mcp/src/result_shaping.rs"])]))
+    if not m1.get("ok") or m1.get("superseded"):
+        return False, f"first memorize not a clean first write: ok={m1.get('ok')} superseded={m1.get('superseded')}"
+
+    _t.sleep(0.15)
+    sm, _ = c.tool("seek", dict(query="battery omega canary token budget packer claim",
+                                agent_id="battery", top_k=10))
+    hits = [r for r in (sm.get("results") or [])
+            if "battery_omega_canary" == r.get("label") or "canary" in str(r.get("label", "")).lower()]
+    if not hits:
+        return False, "memorized canary claim did not surface in seek recall"
+    h = hits[0]
+    if h.get("source_agent") != "scout-battery":
+        return False, f"recall missing/incorrect source_agent: {h.get('source_agent')!r}"
+    age = h.get("authored_ms_ago")
+    if not (isinstance(age, int) and age >= 0):
+        return False, f"recall missing a concrete non-negative authored_ms_ago: {age!r}"
+    if any("aged" in str(k).lower() for k in h.keys()):
+        return False, f"fresh recall must NOT carry an aged flag; keys={sorted(h.keys())}"
+
+    m2, _ = c.tool("memorize", dict(
+        agent_id="scout-battery", node_label=slug,
+        claims=[dict(label="battery omega canary", text="REVISED canary claim, higher confidence",
+                     confidence="0.98", evidence=["m1nd-mcp/src/result_shaping.rs"])]))
+    if m2.get("superseded") is not True:
+        return False, f"re-memorize at higher confidence did not report superseded=true (got {m2.get('superseded')!r})"
+    hist_dir = os.path.join(root, "agent-memory", ".history")
+    hist = [f for f in (os.listdir(hist_dir) if os.path.isdir(hist_dir) else [])
+            if f.endswith(".light.md")]
+    if not hist:
+        return False, f"no retained prior belief in {hist_dir}"
+    return True, (f"source_agent=scout-battery, authored_ms_ago={age}, no aged flag; "
+                  f"superseded=true; .history has {len(hist)} retained copy(ies)")
+
+
+def aged_out_after_planting(c):
+    """Plant a `.light.md` with a Created timestamp older than the recency half-life
+    directly into <runtime_root>/agent-memory, ingest it (adapter=light), then
+    cross_verify(check=['evidence_freshness']) — the planted node MUST be flagged
+    `aged_out` (age-staleness, orthogonal to evidence-sha freshness).
+
+    Ground truth (audit_handlers::cross_verify + m1nd_core::trust::RECENCY_HALF_LIFE
+    _HOURS = 720): a light node whose `light:created:<ms>` is older than the half-life
+    is aged_out, carrying a `marker` and a concrete `age_ms`. Returns (passed, detail).
+    """
+    import time as _t
+    root = runtime_root(c)
+    if not root:
+        return False, "could not resolve runtime_root via session_handshake"
+    half_life_hours = 720  # m1nd_core::trust::RECENCY_HALF_LIFE_HOURS
+    now_ms = int(_t.time() * 1000)
+    old_ms = now_ms - (half_life_hours * 3600 * 1000 + 5000)  # just over the half-life
+    mem_dir = os.path.join(root, "agent-memory")
+    os.makedirs(mem_dir, exist_ok=True)
+    slug = "battery_aged_canary"
+    aged_path = os.path.join(mem_dir, slug + ".light.md")
+    # Same frontmatter shape memorize renders (Protocol/Node/State/Created/Source-Agent),
+    # but with an OLD Created so the age-staleness signal must fire.
+    md = (
+        "---\nProtocol: L1GHT/1.0\nNode: %s\nState: authored\n"
+        "Created: %d\nSource-Agent: ancient-scribe\n---\n\n# %s\n\n## %s\n\n"
+        "An ancient canary memory that must age out.\n\n"
+        "[⍂ entity: battery aged canary]\n[\U0001D53B confidence: 0.8]\n\n"
+    ) % (slug, old_ms, slug, slug)
+    with open(aged_path, "w") as f:
+        f.write(md)
+    ci, _ = c.tool("ingest", dict(agent_id="battery", path=aged_path,
+                                  adapter="light", mode="merge", namespace="light"))
+    if (ci.get("nodes_created") or 0) < 1:
+        return False, f"planted aged light file ingested no nodes (nodes_created={ci.get('nodes_created')})"
+    cv, _ = c.tool("cross_verify", dict(agent_id="battery", check=["evidence_freshness"]))
+    stale = cv.get("stale_evidence") or []
+    aged = [i for i in stale if i.get("reason") == "aged_out"]
+    # The planted OLD node must be among the aged_out items; each aged_out item must
+    # carry a concrete age_ms. (Fresh sibling memories must not be aged_out — they
+    # aren't planted old, so their absence is the honest-unknown default.)
+    planted = [i for i in aged if "battery-aged-canary" in str(i.get("marker", ""))]
+    if not planted:
+        return False, f"planted old memory not flagged aged_out; aged markers={[i.get('marker') for i in aged]}"
+    if not all(isinstance(i.get("age_ms"), int) for i in planted):
+        return False, f"aged_out item missing a concrete age_ms: {planted[:1]}"
+    return True, (f"planted memory flagged aged_out ({len(planted)} node(s)), "
+                  f"age_ms present; stale_evidence_count={cv.get('stale_evidence_count')}")
+
+
 # --------------------------------------------------------------------------- #
 # Query suites (each: id, intent, tool, args, expect_symbol, rg_pattern, rg_extra) #
 # Cross-file / relationship-correctness cases also carry a `check` callable.     #
@@ -635,6 +770,178 @@ def suite_m1nd(repo):
                  and len(res.get("existence") or []) >= 1,
                  "file manifest, real crate modules present, every require_exists is BEDROCK",
              )),
+
+        # =================================================================== #
+        # NEW (OMEGA/memory surface, this cycle): closure verdict, trust cold- #
+        # start honesty, calibration + gated predict, seek trust envelope,     #
+        # north packet, and memory provenance/supersession/aged_out. Ground    #
+        # truth read from the handlers AND probed live before asserting; each   #
+        # `check(res,q,c)` owns its verdict. STRUCTURE-first (no pinned τ).     #
+        # =================================================================== #
+
+        # ---- closure verdict on `why` (#185) ----
+        # `why` attaches a top-level `closure` block: state ∈ {closed, blocked},
+        # a non-empty `why` string, and `dangling_edges` (empty iff closed, non-
+        # empty iff blocked). MEASURED stable: handle_seek->pack_to_budget is
+        # `blocked` because handle_seek's outbound `calls` edge is ambiguous (many
+        # same-name fns in-repo), surfacing one dangling `calls` edge sourced at
+        # handle_seek. We assert the well-formed invariant AND that the ambiguity
+        # is actually DETECTED here (state=blocked with that dangling edge) — proof
+        # the verdict reflects real resolution, not just a field that exists.
+        dict(id="closure_verdict_wellformed_blocked",
+             intent="why must carry a well-formed closure verdict and flag the ambiguous edge as blocked",
+             tool="why",
+             args=dict(source="file::m1nd-mcp/src/layer_handlers.rs::fn::handle_seek",
+                       target="file::m1nd-mcp/src/result_shaping.rs::fn::pack_to_budget", agent_id=aid, max_hops=3),
+             expect=None, expect_file="tools.rs",
+             rg_pat=r"fn closure_verdict", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: (
+                 (lambda cl: (
+                     isinstance(cl, dict)
+                     and cl.get("state") in ("closed", "blocked")
+                     and isinstance(cl.get("why"), str) and len(cl.get("why")) > 0
+                     and isinstance(cl.get("dangling_edges"), list)
+                     and (cl.get("dangling_edges") == []) == (cl.get("state") == "closed")
+                     # measured-stable specifics for this path: blocked, and the
+                     # dangling edge is a `calls` edge sourced at handle_seek.
+                     and cl.get("state") == "blocked"
+                     and any(d.get("relation") == "calls"
+                             and str(d.get("source", "")).endswith("::fn::handle_seek")
+                             and isinstance(d.get("reason"), str)
+                             for d in (cl.get("dangling_edges") or []))
+                 ))(res.get("closure")),
+                 "closure well-formed (state/why/dangling coherent) and blocked on the ambiguous handle_seek calls edge",
+             )),
+
+        # ---- trust cold-start honesty (#182) ----
+        # A FRESH ingest has no defect history, so `trust` must be honest: top-level
+        # trust_band == "insufficient_evidence", summary.mean_trust is null, and the
+        # serialized output carries NO bare 0.5 verdict masquerading as a score.
+        dict(id="trust_cold_start_insufficient_evidence",
+             intent="trust on a fresh graph must return insufficient_evidence with null mean_trust and no bare 0.5",
+             tool="trust", args=dict(agent_id=aid),
+             expect=None, expect_file="trust.rs",
+             rg_pat=r"insufficient_evidence", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: (
+                 res.get("trust_band") == "insufficient_evidence"
+                 and (res.get("summary") or {}).get("mean_trust", "MISSING") is None
+                 and (res.get("trust_scores") == [] or res.get("trust_scores") is None)
+                 # no fabricated 0.5 verdict anywhere in the serialized trust output
+                 and '"verdict":0.5' not in json.dumps(res, separators=(",", ":"))
+                 and '"mean_trust":0.5' not in json.dumps(res, separators=(",", ":")),
+                 "trust_band=insufficient_evidence, mean_trust=null, no bare 0.5 verdict/score",
+             )),
+
+        # ---- gated predict BEFORE calibration (#192a) ----
+        # With no calibration row, predict must gate honestly: the top-level
+        # calibration block says calibrated=false and EVERY prediction verdict is
+        # `abstain` — never a fabricated high-confidence `act`.
+        dict(id="predict_uncalibrated_all_abstain",
+             intent="predict before calibration must report calibrated=false and abstain on every prediction",
+             tool="predict",
+             args=dict(agent_id=aid, changed_node="file::m1nd-mcp/src/result_shaping.rs::fn::pack_to_budget", top_k=8),
+             expect=None, expect_file="tools.rs",
+             rg_pat=r"VERDICT_ABSTAIN", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: (
+                 (res.get("calibration") or {}).get("calibrated") is False
+                 and len(res.get("predictions") or []) > 0
+                 and {p.get("verdict") for p in (res.get("predictions") or [])} == {"abstain"},
+                 "calibration.calibrated=false and every prediction verdict is abstain",
+             )),
+
+        # ---- calibration harness + gated predict AFTER calibration (#192b+c) ----
+        # calibrate_predict on THIS repo's own git history must return calibrated=true
+        # with numeric tau/coverage/measured_precision and n>0 held-out predictions;
+        # a subsequent predict must then read calibrated=true and gate each result
+        # with a verdict ∈ {act, reverify, abstain}. STRUCTURE only — τ/coverage
+        # numbers are not pinned (the signal model may change). The `check` drives
+        # calibrate_predict itself, then re-probes predict in the same session.
+        dict(id="calibrate_then_predict_gated",
+             intent="calibrate_predict yields a real conformal row and predict then gates verdicts in {act,reverify,abstain}",
+             tool="calibrate_predict", args=dict(agent_id=aid, alpha=0.1),
+             expect=None, expect_file="layer_handlers.rs",
+             rg_pat=r"fn handle_calibrate_predict", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: (
+                 (lambda cal, verdicts: (
+                     cal.get("calibrated") is True
+                     and isinstance(cal.get("tau"), (int, float))
+                     and isinstance(cal.get("coverage"), (int, float))
+                     and isinstance(cal.get("measured_precision"), (int, float))
+                     and isinstance(cal.get("n"), int) and cal.get("n") > 0
+                     # after calibration, predict's block flips to calibrated=true …
+                     and verdicts[0].get("calibrated") is True
+                     # … and every emitted verdict is one of the three legal gates
+                     and len(verdicts[1]) > 0
+                     and verdicts[1] <= {"act", "reverify", "abstain"}
+                 ))(res, predict_verdicts(c, "file::m1nd-mcp/src/result_shaping.rs::fn::pack_to_budget")),
+                 "calibrated=true with numeric tau/coverage/precision + n>0; post-calibration predict gates in {act,reverify,abstain}",
+             )),
+
+        # ---- trust envelope on seek (#195) ----
+        # seek carries a `trust_envelope` with verdict ∈ {act,reverify,abstain,
+        # unprovable} and a `calibrated` bool. On an UNCALIBRATED fresh graph the
+        # envelope signal is uncalibrated, so `act` is unreachable — the verdict is
+        # capped (MEASURED: reverify) and must NOT be `act`.
+        dict(id="seek_trust_envelope_capped_uncalibrated",
+             intent="seek's trust_envelope must be well-formed and, uncalibrated, cap the verdict below act",
+             tool="seek", args=dict(query="spreading activation propagate wavefront", agent_id=aid, top_k=5),
+             expect=None, expect_file="trust_envelope.rs",
+             rg_pat=r"trust_envelope", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: (
+                 (lambda env: (
+                     isinstance(env, dict)
+                     and env.get("verdict") in ("act", "reverify", "abstain", "unprovable")
+                     and isinstance(env.get("calibrated"), bool)
+                     and env.get("calibrated") is False
+                     and env.get("verdict") != "act"  # act unreachable while uncalibrated
+                 ))(res.get("trust_envelope")),
+                 "trust_envelope well-formed; uncalibrated => calibrated=false and verdict capped (not act)",
+             )),
+
+        # ---- north packet (#197) ----
+        # north composes a pre-orient packet: `binding` carrying a trust_mode, a
+        # grounded `context` object (focus_nodes/anchors) on a populated graph, and
+        # an `honest_gaps` list (what m1nd does NOT know). Assert honest structure.
+        dict(id="north_packet_binding_context_gaps",
+             intent="north returns a packet with binding.trust_mode, a grounded context object, and an honest_gaps list",
+             tool="north", args=dict(agent_id=aid, task="modify pack_to_budget token budget packing"),
+             expect=None, expect_file="server.rs",
+             rg_pat=r"m1nd-north-packet-v0", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: (
+                 res.get("schema") == "m1nd-north-packet-v0"
+                 and isinstance(res.get("binding"), dict)
+                 and isinstance((res.get("binding") or {}).get("trust_mode"), str)
+                 and isinstance(res.get("honest_gaps"), list)
+                 # graph is freshly ingested + bound, so context is a grounded object
+                 and isinstance(res.get("context"), dict)
+                 and "focus_nodes" in (res.get("context") or {})
+                 and res.get("needs") is None,  # not needs_ingest — the graph is populated
+                 "packet has binding.trust_mode (str), grounded context object with focus_nodes, and honest_gaps list",
+             )),
+
+        # ---- memory provenance + supersession (#187/#189/#200) ----
+        # memorize a claim -> seek returns the hit with source_agent + a fresh
+        # authored_ms_ago and NO aged flag; re-memorize the same slug at higher
+        # confidence -> superseded=true and a retained .history/ copy. The `check`
+        # drives the whole sequence via the live client and inspects the runtime dir.
+        dict(id="memory_provenance_and_supersession",
+             intent="memorize->seek surfaces source_agent + fresh age; re-memorize supersedes and retains history",
+             tool="session_handshake", args=dict(agent_id=aid),
+             expect=None, expect_file="light_author_handlers.rs",
+             rg_pat=r"fn archive_prior_as_outdated", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: memory_provenance_and_supersession(c)),
+
+        # ---- age-staleness aged_out (#198) ----
+        # Plant a .light.md with a Created older than the recency half-life directly
+        # into agent-memory, ingest it, then cross_verify(evidence_freshness) — the
+        # planted node must be flagged `aged_out` with a concrete age_ms (age-stale,
+        # orthogonal to evidence-sha freshness). Driven by the `check` via the client.
+        dict(id="memory_aged_out_signal",
+             intent="an old planted memory must be flagged aged_out by cross_verify(evidence_freshness)",
+             tool="session_handshake", args=dict(agent_id=aid),
+             expect=None, expect_file="audit_handlers.rs",
+             rg_pat=r"\"aged_out\"", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: aged_out_after_planting(c)),
     ]
 
 
@@ -687,6 +994,12 @@ def run_battery(bin_path, repo, suite_name):
     env["M1ND_GRAPH_SOURCE"] = "temp"  # FRESH temp graph as instructed
     # also point plasticity to a temp file so nothing persists
     env["M1ND_PLASTICITY_STATE"] = os.path.join(tmp, "plast.json")
+    # Isolate ALL sidecar state (agent-memory/, .history/, trust_state, …) into the
+    # throwaway tempdir. Without this, runtime_root defaults to graph_source.parent
+    # (= cwd, next to the `temp` file), so `memorize` would write agent-memory/ into
+    # the repo and two parallel runs would collide. Pinning it here makes the memory
+    # cases' filesystem assertions deterministic and leaves the repo untouched.
+    env["M1ND_RUNTIME_DIR"] = tmp
     env["M1ND_TOOL_TIER"] = "full"
     errlog = os.path.join(tmp, "stderr.log")
     errf = open(errlog, "wb")
