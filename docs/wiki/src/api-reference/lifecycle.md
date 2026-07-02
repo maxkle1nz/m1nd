@@ -1,6 +1,43 @@
 # Lifecycle, Document & Lock Tools
 
-This page covers graph ingestion, document runtime operations, health monitoring, plan validation, persistence, and subgraph locking with change detection.
+This page covers the in-session front door, graph ingestion, document runtime operations, health monitoring, plan validation, persistence, and subgraph locking with change detection.
+
+---
+
+<a id="m1ndnorth"></a>
+
+## `north`
+The in-session front door. Call `north(task)` **before reading or editing
+anything**. In one round-trip it composes binding trust, task context (focus
+nodes + PageRank anchors), prior cross-session memory (each claim with its real
+age and author — absent, never faked, when unknown), a sufficiency signal, one
+`next_move`, and `honest_gaps` (what m1nd does not yet know).
+
+`north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`. Reach
+for those pieces directly only when you need just one. The
+`trust_selftest` / `session_handshake` / `recovery_playbook` trio is the
+degraded/recovery lane — use it when trust looks off, retrieval is blocked, or a
+binding is stale — not the default front door.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `agent_id` | `string` | Yes | -- | Calling agent identifier. |
+| `task` | `string` | No | -- | Natural-language description of what you are about to do. Focuses task context and the `next_move`. |
+
+### When to Use
+
+- **Session start** -- the first call before any read or edit, to pre-orient
+- **Task switch** -- re-orient when the goal changes
+- **After `needs_ingest`** -- `ingest` the repo, then call `north` again;
+  `needs_ingest` is a real answer for an empty or unbound graph, not a failure
+
+### Related Tools
+
+- [`ingest`](#m1ndingest) -- run after `north` returns `needs_ingest`
+- [`trust_selftest`](#m1ndtrust_selftest) -- the degraded/recovery entry when trust looks off
+- [`seek`](exploration.md#m1ndseek) -- first retrieval pass after orientation
 
 ---
 
@@ -395,14 +432,15 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 
 ### When to Use
 
-- **Session start** -- first tool to call; verify the server is alive and the graph is loaded
+- **Session start** -- verify the server is alive and the graph is loaded (prefer `north` to pre-orient; `health` is the raw liveness check)
 - **Monitoring** -- periodic health checks in long sessions
 - **Debugging** -- check memory usage and query counts
 
 ### Related Tools
 
+- [`north`](#m1ndnorth) -- composed in-session front door for orientation
 - [`ingest`](#m1ndingest) -- load data if the graph is empty
-- [`trust_selftest`](#m1ndtrust_selftest) -- one-call startup verdict for agents
+- [`trust_selftest`](#m1ndtrust_selftest) -- one-call startup verdict for the degraded/recovery lane
 - [`session_handshake`](#m1ndsession_handshake) -- classify whether this binding is trustworthy
 - [`recovery_playbook`](#m1ndrecovery_playbook) -- return ordered recovery steps
 - [`doctor`](#m1nddoctor) -- explain empty graphs, blocked retrieval, and binding/session continuity
@@ -413,9 +451,15 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
 <a id="m1ndtrust_selftest"></a>
 
 ## `trust_selftest`
-Returns a one-call startup verdict for agents. It composes the current binding
+Returns a one-call trust verdict for agents. It composes the current binding
 fingerprint, graph state, host-visible tool evidence, `session_handshake`, and
 an optional `recovery_playbook`.
+
+This is the degraded/recovery entry, not the default front door — reach for it
+when trust looks off (blocked retrieval, `wrong_workspace_binding`, a
+`Transport closed` error) or when you only need the trust layer. For normal
+in-session orientation, call [`north`](#m1ndnorth), which composes this check
+with `orient`, `boot_memory`, and `focus`.
 
 The tool is diagnostic-only: it does not ingest, repair, run shell commands,
 mutate files, refresh host bindings, or probe retrieval automatically.

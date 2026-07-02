@@ -72,9 +72,17 @@ Le chemin minimal fonctionnel — installer depuis les sources (toujours à jour
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .
 m1nd doctor
-m1nd install-skills codex          # or: claude / gemini / antigravity / generic
-m1nd mcp-config codex --project /your/project
 ```
+
+Ensuite, câblez votre hôte — les deux mêmes commandes, une par hôte (`codex`, `claude`, `gemini`, `antigravity`, `generic`) :
+
+| Hôte | Installer le pack d'agent | Câbler la config MCP |
+|---|---|---|
+| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
+| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
+| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
+| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
+| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
 Ou depuis npm : `npm install -g @maxkle1nz/m1nd`.
 
@@ -82,15 +90,7 @@ Carte d'installation complète, packs d'hôtes, build du runtime natif et flags 
 
 ### Point d'Entrée des Agents
 
-Les agents analysent ce README. Quand la session MCP hôte est obsolète, liée au mauvais dépôt, ou pas encore chargée, utilisez la CLI host-neutral — elle lance un runtime isolé, le lie au dépôt, et retourne une seule enveloppe lisible par machine :
-
-```bash
-m1nd agent first-minute --repo /your/project --query "understand this system" --json
-```
-
-`m1nd agent first-minute` est le premier contact le plus sûr pour un nouveau dépôt. Il délimite le dépôt, établit le trust, ingère si nécessaire, effectue un passage d'orientation borné, retourne des ancres candidates, puis dit à l'agent de prouver directement depuis la source, les tests, la sortie compilateur/runtime, les logs ou des sondes.
-
-Dans une session MCP, la doctrine est cette boucle de trust — établir le trust *avant* de faire confiance à tout retrieval :
+Les agents analysent ce README. Dans une session MCP, la porte d'entrée est un seul appel — `north(task)` compose le trust, le contexte de tâche, la mémoire inter-sessions antérieure, un signal de suffisance, un `next_move`, et `honest_gaps` (ce que m1nd ne sait *pas* encore) en un seul paquet. S'il rapporte `needs_ingest` (graphe vide), ou si vous êtes sur un binaire plus ancien, repliez-vous sur la boucle de trust explicite — établir le trust *avant* de faire confiance à tout retrieval :
 
 ```jsonc
 // 0. Trust the binding in one call (verdict before retrieval)
@@ -106,7 +106,13 @@ Dans une session MCP, la doctrine est cette boucle de trust — établir le trus
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
-**Boucle première session, en quatre mouvements :** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` le résultat durable pour que la prochaine session parte en avance.
+**Boucle première session, en quatre mouvements :** `north` (ou `trust_selftest` → `ingest`) → `seek`/`audit` → `memorize` le résultat durable pour que la prochaine session parte en avance.
+
+Quand il n'y a pas de session MCP vivante où appeler `north` — elle est obsolète, liée au mauvais dépôt, ou pas encore chargée — utilisez plutôt la CLI host-neutral comme échappatoire. Elle lance un runtime isolé, le lie au dépôt, et retourne une seule enveloppe lisible par machine qui délimite le périmètre, établit le trust, ingère si nécessaire, retourne des ancres, et fait le handoff vers la preuve directe :
+
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
 
 ### Servir un seul graphe, attacher plusieurs agents
 

@@ -434,8 +434,12 @@ One m1nd instance serves 19 agents. The graph covers a 335-file Python backend (
 When JIMI (the orchestrator) starts a session:
 
 ```jsonc
-// Step 1: Check m1nd health
-{"method":"tools/call","params":{"name":"health","arguments":{"agent_id":"jimi"}}}
+// Step 1: Pre-orient with the in-session front door
+// north composes trust + task context + prior memory + sufficiency + next_move + honest_gaps.
+// If it returns needs_ingest, ingest the repo and call north again.
+{"method":"tools/call","params":{"name":"north","arguments":{
+  "agent_id":"jimi","task":"resume orchestration for the backend"
+}}}
 
 // Step 2: Check what changed since last session
 {"method":"tools/call","params":{"name":"drift","arguments":{"agent_id":"jimi","since":"last_session"}}}
@@ -525,3 +529,7 @@ When Agent A finds something that Agent B needs to investigate:
 6. **Warm up before focused tasks.** `warmup` primes the graph for a specific task, boosting relevant regions before the agent starts querying.
 
 7. **Use `drift` at session start.** After any period of inactivity, check what changed. This recovers context efficiently.
+
+8. **Pre-orient every agent with `north`.** Each agent (orchestrator and workers alike) should call `north(task)` before its first read or edit — it returns binding trust, task context, prior cross-session memory, and `honest_gaps` in one round-trip. Since the graph and its memory are shared, one agent's `memorize` becomes another's prior memory.
+
+9. **`memorize` durable findings before handing off.** When an agent confirms a decision or verified fact, `memorize` it with `confidence` and repo-relative `evidence` paths so the next agent reads it (and it self-flags stale when that code changes). Closing a mission? `mission_close(write_light_memory:true)` persists verified claims in one step.

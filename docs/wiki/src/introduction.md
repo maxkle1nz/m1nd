@@ -80,6 +80,23 @@ Not every scenario is a token win. Some wins are continuity, recovery, or execut
 
 The graph is still the foundation. Activation, semantic retrieval, path search, temporal history, and blast-radius analysis all sit on top of a shared structural model rather than a stateless grep loop.
 
+### The operating loop
+
+m1nd is meant to be used in a loop, not as one-shot search:
+
+1. **Pre-orient** — call `north(task)` first, before reading or editing. It is
+   the in-session front door: one round-trip returning binding trust, task
+   context, prior cross-session memory, a sufficiency signal, one `next_move`,
+   and `honest_gaps`. `north` composes `trust_selftest` + `orient` +
+   `boot_memory` + `focus`.
+2. **Act on verdicts** — retrieval and prediction carry calibrated verdicts
+   (`act` / `reverify` / `abstain`; `why` carries `closure`; `seek` carries a
+   `trust_envelope`). `abstain` and `insufficient_evidence` are honest STOPs,
+   not weak yeses — do not guess past them.
+3. **Post-capture** — before ending, `memorize` durable findings with
+   `confidence` and repo-relative `evidence` paths so knowledge lives in the
+   same activation space as code and self-flags stale when that code changes.
+
 ### Guided handoff
 
 Several high-value tools now return more than raw results. They can expose:
@@ -129,4 +146,4 @@ m1nd is not a compiler, debugger, or test runner replacement. It is best when th
 
 **[Tutorials](tutorials/quickstart.md)** walks through the main workflows from first ingest to connected edit prep.
 
-The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history from `v0.6.x` through the current `v0.9` beta line.
+The **[Benchmarks](benchmarks.md)** page is the current product-truth layer for token proxy, false starts, guided follow-through, and recovery loops. The **[Changelog](changelog.md)** tracks the release history through the current `1.2.0` OMEGA-era line.

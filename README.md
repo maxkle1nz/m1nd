@@ -72,9 +72,17 @@ The minimal happy path — install from source (always current), check health, w
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .
 m1nd doctor
-m1nd install-skills codex          # or: claude / gemini / antigravity / generic
-m1nd mcp-config codex --project /your/project
 ```
+
+Then wire your host — the same two commands, one per host (`codex`, `claude`, `gemini`, `antigravity`, `generic`):
+
+| Host | Install the agent pack | Wire the MCP config |
+|---|---|---|
+| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
+| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
+| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
+| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
+| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
 Or from npm: `npm install -g @maxkle1nz/m1nd`.
 
@@ -82,15 +90,7 @@ Full install map, host packs, native runtime build, and update flags: [docs/AGEN
 
 ### Agent Entry Point
 
-Agents parse this README. When the host MCP session is stale, bound to the wrong repo, or not loaded yet, use the host-neutral CLI — it launches an isolated runtime, binds it to the repo, and returns one machine-readable envelope:
-
-```bash
-m1nd agent first-minute --repo /your/project --query "understand this system" --json
-```
-
-`m1nd agent first-minute` is the safest first contact for a new repo. It scopes the repo, establishes trust, ingests if needed, runs one bounded orientation pass, returns candidate anchors, and then tells the agent to prove directly from source, tests, compiler/runtime output, logs, or probes.
-
-Inside an MCP session, the taught front door is one call — `north(task)` composes trust, task context, prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know) into a single packet:
+Agents parse this README. Inside an MCP session, the front door is one call — `north(task)` composes trust, task context, prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know) into a single packet, before any query:
 
 ```jsonc
 {"method":"tools/call","params":{"name":"north",
@@ -130,6 +130,12 @@ If `north` reports `needs: "needs_ingest"` (empty graph), or you are on an older
 ```
 
 **First-session loop, in four moves:** `north` (or `trust_selftest` → `ingest`) → `seek`/`audit` → `memorize` the durable finding so the next session starts ahead.
+
+When there is no live MCP session to call `north` in — it is stale, bound to the wrong repo, or not loaded yet — reach for the host-neutral CLI escape hatch instead. It launches an isolated runtime, binds it to the repo, and returns one machine-readable envelope that scopes, trusts, ingests if needed, returns anchors, and hands off to direct proof:
+
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
 
 ### Serve one graph, attach many agents
 

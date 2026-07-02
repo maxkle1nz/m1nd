@@ -72,9 +72,17 @@
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .
 m1nd doctor
-m1nd install-skills codex          # or: claude / gemini / antigravity / generic
-m1nd mcp-config codex --project /your/project
 ```
+
+次にホストを接続する——ホストごとに同じ二つのコマンド（`codex`、`claude`、`gemini`、`antigravity`、`generic`）：
+
+| ホスト | エージェントパックをインストール | MCP 設定を接続 |
+|---|---|---|
+| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
+| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
+| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
+| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
+| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
 または npm から：`npm install -g @maxkle1nz/m1nd`。
 
@@ -82,15 +90,7 @@ m1nd mcp-config codex --project /your/project
 
 ### エージェントエントリーポイント
 
-エージェントはこの README をパースする。ホスト MCP セッションが古くなっているとき、間違ったリポジトリにバインドされているとき、またはまだロードされていないときは、ホスト中立 CLI を使用する——これは独立したランタイムを起動し、リポジトリにバインドし、機械可読なエンベロープを一つ返す：
-
-```bash
-m1nd agent first-minute --repo /your/project --query "understand this system" --json
-```
-
-`m1nd agent first-minute` は新しいリポジトリへの最も安全な最初の接触だ。リポジトリのスコープを定め、トラストを確立し、必要に応じてインジェストし、一回の有界な定向パスを実行し、候補アンカーを返し、そしてエージェントにソース、テスト、コンパイラ／ランタイム出力、ログ、またはプローブから直接証明するよう伝える。
-
-MCP セッション内での教義はこのトラストループ——検索結果を信じる*前に*トラストを確立する：
+エージェントはこの README をパースする。MCP セッション内では、フロントドアは一回の呼び出しだ——`north(task)` はトラスト、タスクコンテキスト、以前のクロスセッションメモリ、十分性シグナル、一つの `next_move`、そして `honest_gaps`（m1nd が*まだ*知らないこと）を一つのパケットに合成する。`needs_ingest`（空のグラフ）が報告された場合、または古いバイナリを使っている場合は、明示的なトラストループにフォールバックする——検索結果を信じる*前に*トラストを確立する：
 
 ```jsonc
 // 0. Trust the binding in one call (verdict before retrieval)
@@ -106,7 +106,13 @@ MCP セッション内での教義はこのトラストループ——検索結�
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
-**初回セッションループ、四ステップで：** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` で永続的な発見を残し、次のセッションを先行スタートさせる。
+**初回セッションループ、四ステップで：** `north`（または `trust_selftest` → `ingest`）→ `seek`/`audit` → `memorize` で永続的な発見を残し、次のセッションを先行スタートさせる。
+
+`north` を呼べるライブ MCP セッションがない場合——古くなっている、間違ったリポジトリにバインドされている、またはまだロードされていない場合——代わりにホスト中立 CLI をエスケープハッチとして使う。これは独立したランタイムを起動し、リポジトリにバインドし、スコープを定め、トラストを確立し、必要に応じてインジェストし、アンカーを返し、直接証明へとハンドオフする、機械可読な単一のエンベロープを返す：
+
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
 
 ### 一つのグラフをサーブし、多数のエージェントをアタッチする
 
