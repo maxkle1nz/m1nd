@@ -10,6 +10,73 @@ No unreleased changes.
 
 ---
 
+## [1.2.0] — 2026-07-02
+
+The first OMEGA-era release. The loop shifts from "retrieve, then hope" to
+**pre-orient → act on calibrated verdicts → capture what you learned** — an honest
+*no* over a confident guess.
+
+### Added
+
+- **`north(task)` — pre-orient in one call.** Composes binding trust, task context
+  (focus nodes + PageRank anchors), prior cross-session memory (with real age +
+  author), a sufficiency signal, one `next_move`, and `honest_gaps`. `needs_ingest`
+  is a real answer for an empty graph.
+- **Conformal calibration on prediction.** `calibrate_predict` arms a per-repo gate;
+  `predict` verdicts then read `act` / `reverify` / `abstain` (`abstain` =
+  uncalibrated or insufficient). Ships dark — until calibrated, verdicts cap at
+  `reverify`.
+- **`trust_envelope` on `seek`** (ships dark) and a **`closure` verdict on `why`**
+  (`blocked` = the path rests on an unresolved edge). **`trust_band:
+  insufficient_evidence`** now means *no evidence* — the honest cold-start answer,
+  distinct from a risk band.
+- **Memory provenance spine** — claims carry real age + author, supersede older
+  claims, age out, and respect a recency cap.
+- **Binary version + sha fingerprint** — `--version` prints `1.2.0 (<sha>)`;
+  `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) detect and
+  refuse a drifted binary.
+- **Agent-native MCP `initialize` instructions** — the instructions every host
+  receives now *are* the operating loop. Plus a local-only field-report mailbox
+  (`~/.m1nd/field-reports.jsonl`) — m1nd never phones home.
+
+### Changed
+
+- **Smoothed-Jaccard co-change** — `ghost_edges` / `predict` normalize coupling
+  instead of counting raw co-commits (calibration-proven +3 points over raw counts).
+
+### Fixed
+
+- Ingest now honours root `.gitignore` directory entries.
+
+---
+
+## [1.1.0] — 2026-06-28
+
+### Added
+
+- **`focus` attention runtime** — goal-conditioned minimal working set with an
+  honest `ignored` tail and an answer-free `sufficiency` verdict.
+- Rust + TypeScript function→function `calls` graph and cross-file import
+  resolution (same-file > same-dir > cross-crate proximity; qualified
+  `Type::method()` / `module::func()` bind to the impl owner).
+
+### Fixed
+
+- Node-id collisions across all six extractors (`unique_node_id` disambiguator).
+- `scan` honesty — `total_matches_validated` counts survivors; mitigated matches
+  stay visible.
+
+---
+
+## [1.0.0] — 2026-06-27
+
+First stable release. Froze the public tool surface and dropped dead read-only
+stubs; established the trust / honesty layer (`trust_selftest`,
+`recovery_playbook`, `agent_runtime_contract`, `non_claims`, graph-only evidence
+rejected by `mission_verify`) as the core doctrine.
+
+---
+
 ## [0.9.0-beta.6] — 2026-05-26
 
 ### Changed
