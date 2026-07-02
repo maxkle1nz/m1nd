@@ -2203,8 +2203,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                                     "label": { "type": "string", "description": "Entity name for the marker" },
                                     "text": { "type": "string", "description": "Prose line above the marker (defaults to label)" },
                                     "kind": { "type": "string", "enum": ["entity", "state", "event"], "default": "entity", "description": "Claim kind — controls the glyph (⍂/⍐/⍌)" },
-                                    "confidence": { "type": "string", "description": "Confidence value or word, e.g. '0.7' or 'high'" },
-                                    "ambiguity": { "type": "string", "description": "Ambiguity descriptor" },
+                                    "confidence": { "type": ["string", "number"], "description": "Confidence value or word, e.g. 0.7, '0.7', or 'high' (a number is coerced to its string form)" },
+                                    "ambiguity": { "type": ["string", "number"], "description": "Ambiguity descriptor (a number is coerced to its string form)" },
                                     "evidence": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Repo-relative code paths (one [𝔻 evidence:] per path)" },
                                     "depends_on": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Dependency labels (one [⟁ depends_on:] per entry)" }
                                 },

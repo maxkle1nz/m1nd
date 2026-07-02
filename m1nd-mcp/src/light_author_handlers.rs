@@ -24,6 +24,69 @@ fn default_merge() -> String {
     "merge".to_string()
 }
 
+/// Deserialize a field that may arrive as a JSON **string, number, or null**,
+/// always yielding `Option<String>`.
+///
+/// Agents naturally send `confidence` (and `ambiguity`) as a bare number
+/// (`0.9`, `1`) rather than a string (`"0.9"`); the string-only schema used to
+/// reject the number with `invalid type: floating point 0.9, expected a string`
+/// (field report L8). Numbers are coerced to their own JSON textual form
+/// (`0.9` → `"0.9"`, `1` → `"1"` — no float noise), strings pass through
+/// unchanged, and null/absent stays `None`. Downstream consumers already treat
+/// the value as a free-form string (rendered as `[𝔻 confidence: {}]`, parsed by
+/// the supersession gate), so coercion preserves every existing behavior.
+fn de_string_or_number<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct StringOrNumber;
+
+    impl<'de> Visitor<'de> for StringOrNumber {
+        type Value = Option<String>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a string, a number, or null")
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+        fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
+            Ok(Some(v))
+        }
+        // serde_json hands numbers to the widest matching visitor; `to_string`
+        // on the integer/float preserves the value's own textual form.
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        // `#[serde(default)]` + a present value routes through `Some(_)`.
+        fn visit_some<D2>(self, deserializer: D2) -> Result<Self::Value, D2::Error>
+        where
+            D2: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_any(self)
+        }
+    }
+
+    deserializer.deserialize_option(StringOrNumber)
+}
+
 // ---------------------------------------------------------------------------
 // Input structs
 // ---------------------------------------------------------------------------
@@ -39,11 +102,12 @@ pub struct LightClaim {
     /// "entity" | "state" | "event" — controls the glyph used.
     #[serde(default)]
     pub kind: Option<String>,
-    /// Confidence value or word ("0.7", "high", "medium", ...).
-    #[serde(default)]
+    /// Confidence value or word ("0.7", "high", "medium", ...). Accepts a JSON
+    /// number too (`0.9` → `"0.9"`) — agents send it either way (field L8).
+    #[serde(default, deserialize_with = "de_string_or_number")]
     pub confidence: Option<String>,
-    /// Ambiguity descriptor.
-    #[serde(default)]
+    /// Ambiguity descriptor. Also accepts a JSON number (same coercion).
+    #[serde(default, deserialize_with = "de_string_or_number")]
     pub ambiguity: Option<String>,
     /// Repo-relative code paths that serve as evidence (one `[𝔻 evidence:]` per entry).
     #[serde(default)]
@@ -1182,5 +1246,109 @@ mod tests {
         let result = crate::tools::handle_ingest(&mut state, ingest)
             .expect("doc with Supersedes must ingest without error");
         assert!(result["node_count"].as_u64().unwrap_or(0) >= 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // Field-triage #3 (field report L8): agents naturally send `confidence`
+    // as a JSON number (0.9), not a string ("0.9"). The schema used to demand
+    // a string and serde rejected the number with
+    // `invalid type: floating point 0.9, expected a string`.
+    // A number-or-string deserializer must coerce numbers to their textual
+    // form while passing strings through unchanged. `ambiguity` shares the trap.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn memorize_accepts_numeric_confidence() {
+        // Float confidence sent as a JSON NUMBER (the reported friction).
+        let input: LightAuthorInput = serde_json::from_value(json!({
+            "agent_id": "test",
+            "node_label": "NumericConf",
+            "claims": [ { "label": "C", "confidence": 0.9 } ]
+        }))
+        .expect("numeric float confidence must deserialize (coerced to string)");
+        assert_eq!(
+            input.claims[0].confidence.as_deref(),
+            Some("0.9"),
+            "float 0.9 must coerce to the string \"0.9\" (no float noise)"
+        );
+
+        // Integer confidence sent as a JSON NUMBER.
+        let input: LightAuthorInput = serde_json::from_value(json!({
+            "agent_id": "test",
+            "node_label": "IntConf",
+            "claims": [ { "label": "C", "confidence": 1 } ]
+        }))
+        .expect("integer confidence must deserialize");
+        assert_eq!(
+            input.claims[0].confidence.as_deref(),
+            Some("1"),
+            "integer 1 must coerce to the string \"1\""
+        );
+
+        // Word confidence sent as a STRING passes through unchanged.
+        let input: LightAuthorInput = serde_json::from_value(json!({
+            "agent_id": "test",
+            "node_label": "WordConf",
+            "claims": [ { "label": "C", "confidence": "high" } ]
+        }))
+        .expect("string confidence must still deserialize");
+        assert_eq!(
+            input.claims[0].confidence.as_deref(),
+            Some("high"),
+            "string \"high\" must pass through unchanged"
+        );
+
+        // Absent confidence stays None.
+        let input: LightAuthorInput = serde_json::from_value(json!({
+            "agent_id": "test",
+            "node_label": "NoConf",
+            "claims": [ { "label": "C" } ]
+        }))
+        .expect("absent confidence must deserialize");
+        assert_eq!(
+            input.claims[0].confidence, None,
+            "absent confidence must stay None"
+        );
+    }
+
+    #[test]
+    fn memorize_accepts_numeric_ambiguity() {
+        // ambiguity shares the exact string-only trap; a number must coerce.
+        let input: LightAuthorInput = serde_json::from_value(json!({
+            "agent_id": "test",
+            "node_label": "NumericAmb",
+            "claims": [ { "label": "C", "ambiguity": 0.5 } ]
+        }))
+        .expect("numeric ambiguity must deserialize (coerced to string)");
+        assert_eq!(
+            input.claims[0].ambiguity.as_deref(),
+            Some("0.5"),
+            "float 0.5 ambiguity must coerce to the string \"0.5\""
+        );
+
+        // String ambiguity passes through unchanged; absent stays None.
+        let input: LightAuthorInput = serde_json::from_value(json!({
+            "agent_id": "test",
+            "node_label": "WordAmb",
+            "claims": [ { "label": "C", "ambiguity": "high" } ]
+        }))
+        .expect("string ambiguity must still deserialize");
+        assert_eq!(input.claims[0].ambiguity.as_deref(), Some("high"));
+    }
+
+    /// End-to-end: a numeric-confidence claim renders the free-form
+    /// `[𝔻 confidence: 0.9]` marker downstream consumers expect.
+    #[test]
+    fn memorize_renders_numeric_confidence_marker() {
+        let input: LightAuthorInput = serde_json::from_value(json!({
+            "agent_id": "test",
+            "node_label": "RenderNumeric",
+            "claims": [ { "label": "C", "text": "a claim", "confidence": 0.9 } ]
+        }))
+        .expect("numeric confidence must deserialize");
+        let md = render_light_markdown(&input);
+        assert!(
+            md.contains("[𝔻 confidence: 0.9]"),
+            "rendered markdown must carry the coerced confidence marker, got:\n{md}"
+        );
     }
 }
