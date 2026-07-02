@@ -38,6 +38,8 @@
 
 **m1nd はコーディングエージェントのためのオペレーショナルインテリジェンスであり、単なる検索ではなく操作ループを統括する。**
 
+<p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="散らばったファイルの山が、何が何につながるかを示す接続されたグラフになる" /></p>
+
 > `grep` はテキストを見つける。ベクトル検索は類似チャンクを見つける。`m1nd` はエージェントに、何が繋がっていて、何が変わって、何が壊れて、何がドリフトして、どこから再開すべきかを示すローカルグラフを与える。
 
 以下の三つは他のどのツールにも同時には存在しない：
@@ -90,6 +92,8 @@ m1nd doctor
 
 ### エージェントエントリーポイント
 
+<p align="center"><img src="../docs/assets/visuals/02-north-one-call.png" width="520" alt="north(task)：一度の入口呼び出しで、方向づけられたパケット全体が返る" /></p>
+
 エージェントはこの README をパースする。MCP セッション内では、フロントドアは一回の呼び出しだ——`north(task)` はトラスト、タスクコンテキスト、以前のクロスセッションメモリ、十分性シグナル、一つの `next_move`、そして `honest_gaps`（m1nd が*まだ*知らないこと）を一つのパケットに合成する。`needs_ingest`（空のグラフ）が報告された場合、または古いバイナリを使っている場合は、明示的なトラストループにフォールバックする——検索結果を信じる*前に*トラストを確立する：
 
 ```jsonc
@@ -115,6 +119,8 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 ```
 
 ### 一つのグラフをサーブし、多数のエージェントをアタッチする
+
+<p align="center"><img src="../docs/assets/visuals/10-attach-core.png" width="520" alt="一つのオーナープロセスが生きたグラフを保持し、多数のエージェントが同じコアにアタッチする" /></p>
 
 上記のクイックスタートはホストごとに stdio サーバーを接続する——一つのエージェントには十分だが、各プロセスは自身のグラフをロードし、自身のリースを保持する。m1nd が本来向けて作られているデプロイは、一人のオーナーと多数のアタッチされたエージェントだ。一つのオーナープロセスがライブグラフを保持する：
 
@@ -152,6 +158,8 @@ m1nd がなければ、すべてのセッションは grep ループと手動の
 
 ## 複利メモリ（L1GHT）
 
+<p align="center"><img src="../docs/assets/visuals/06-l1ght-anchored.png" width="520" alt="メモリは実コードに固定される。コードが変われば、メモリ自身がフラグを立てる" /></p>
+
 ほとんどのツールはエージェントにより良い*検索*を与える。`m1nd` はエージェントが**永続的で機械可読な知識を著述**できるようにし、その知識はセッションをまたいで複利し、コードに対して誠実であり続ける。L1GHT は著述された知識をグラフネイティブな構造に変換し、引用しているコードが変更されると自動でフラグを立てる——高確信度の主張はより多くの活性化を伝播する。
 
 エンドツーエンドのループ：
@@ -176,6 +184,8 @@ memorize({
 このループはエンドツーエンドでライブ実証されている：`memorize` → `grounded_in` エッジ → 編集されたファイルのフレッシュネスフラグ → `mode=replace` を生き延びる → 起動時の自動ロード。有界ミッションを閉じるとき？`write_light_memory: true` を `mission_close` に渡すと、その検証済みの主張を同じ方法で永続化できる。この習慣は、すべての MCP クライアントが `initialize` 時に受け取るサーバーの `instructions` に文書化されている——ホスト非依存、クライアント固有のプラグイン不要。
 
 ## トラスト／誠実性レイヤー
+
+<p align="center"><img src="../docs/assets/visuals/03-verdicts-doors.png" width="520" alt="すべての結果は裁定——act、reverify、abstain——エージェントが選ぶ扉のようなもの" /></p>
 
 これは m1nd が行う最も防御力の高いことであり、競合他社は誰も提供していない。教義：**信頼性は誠実さから来る、常に勝つことからではない。**
 
@@ -212,6 +222,8 @@ memorize({
 
 ## ケイパビリティマップ
 
+<p align="center"><img src="../docs/assets/visuals/04-impact-web.png" width="520" alt="編集する前に、impact が接続されたコードの網を通じて影響半径を辿る" /></p>
+
 ライブ MCP サーフェスはリリースとともに進化する。現在のビルドにおける正確なツール数と名前は `tools/list` を使って確認すること。
 
 | エリア | 有効にすること | 代表的なツール |
@@ -245,6 +257,8 @@ Mission Control は証明の規律であり、機能リストではない。`mis
 
 ## 証拠
 
+<p align="center"><img src="../docs/assets/visuals/12-battery-arches.png" width="520" alt="すべての主張は自らの証明された拱に立つ——ケイパビリティバッテリー、再現可能" /></p>
+
 各行は正確に測定されたものにヘッジされている。m1nd は節約や ROI の数値を先頭に置かない——それこそが要点だ。
 
 | 主張 | 結果 | ソース／ヘッジ |
@@ -256,6 +270,22 @@ Mission Control は証明の規律であり、機能リストではない。`mis
 | メモリの自己検証 | エンドツーエンドでライブ実証済み | `memorize` → `grounded_in` → 編集されたファイルのフレッシュネスフラグ → replace を生き延びる → 起動時の自動ロード。 |
 | ケイパビリティバッテリー vs grep | 37/37 パス；直接対決 16 m1nd 勝ち / 12 引き分け / **0 grep 勝ち** | リポジトリ内ハーネス `scratchpad/m1nd_battery.py`（37 ケース、フレッシュインジェスト + グラウンドトゥルース PASS/FAIL + `rg` 直接対決）。**再現：`python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`。** ヘッジ：一つのリポジトリ（m1nd 自身）、自己著述のケース；引き分けのうち約 5 件は、答えを表現できないリテラル grep プロキシに対してスコアされた構造ツールだ。 |
 | コンフォーマルキャリブレーション（`predict`） | act バンド ≈32% 精度 @ ≈13.5% カバレッジ（α=0.10） | m1nd 自身の git 履歴上（n≈9.2k のホールドアウト予測）、平滑化 Jaccard 変更後に生の数え上げに対して +3pts。ヘッジ：一つのリポジトリ、粗い数え上げベースのシグナル——ゲートは今日ほとんど棄権する、**設計どおりに**：棄権は弱いシグナルの誠実な出力であって、失敗ではない。 |
+
+<details>
+<summary><strong>さらなるビジュアル — 完全なメカニズムシリーズ</strong></summary>
+<br/>
+<p align="center">
+  <img src="../docs/assets/visuals/05-one-graph-fountain.png" width="380" alt="一つの共有グラフが、共通の噴水のようにアタッチされた各エージェントを養う" />
+  <img src="../docs/assets/visuals/07-supersede-shelf.png" width="380" alt="置き換えられた知識は削除されず棚に上げられる——より新しい主張が優先される" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/08-calibration-earned.png" width="380" alt="裁定が act を読めるようになる前に、キャリブレーションはリポジトリごとに獲得される" />
+  <img src="../docs/assets/visuals/09-closure-bridge.png" width="380" alt="主張は、証拠が隙間に橋を架けたときにのみ閉じる——ファイル読み取り、テスト、またはプローブ" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/11-triage-loop.png" width="380" alt="フィールドレポートはトリアージループに流れ込み、修正の前に不具合をテストへ変える" />
+</p>
+</details>
 
 ## 制限事項
 

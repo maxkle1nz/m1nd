@@ -38,6 +38,8 @@
 
 **m1nd ist Operational Intelligence für Coding-Agenten — es steuert die Betriebsschleife, nicht nur den Retrieval.**
 
+<p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="Ein Stapel loser Dateien wird zu einem verbundenen Graphen dessen, was womit verknüpft ist" /></p>
+
 > grep findet Text. Vektorsuche findet ähnliche Chunks. `m1nd` gibt Agenten einen lokalen Graphen davon, was verbunden ist, was sich geändert hat, was bricht, was gedriftet ist, und wo weiterzumachen ist.
 
 Drei Dinge koexistieren hier, die kein anderes Tool vereint:
@@ -90,6 +92,8 @@ Vollständige Installationskarte, Host-Packs, nativer Runtime-Build und Update-F
 
 ### Agent-Einstiegspunkt
 
+<p align="center"><img src="../docs/assets/visuals/02-north-one-call.png" width="520" alt="north(task): ein einziger Eingangsaufruf liefert das ganze orientierte Paket" /></p>
+
 Agenten parsen dieses README. Innerhalb einer MCP-Session ist die Eingangstür ein einziger Aufruf — `north(task)` komponiert Trust, Task-Kontext, vorheriges Cross-Session-Gedächtnis, ein Suffizienz-Signal, einen `next_move` und `honest_gaps` (was m1nd noch *nicht* weiß) zu einem einzigen Paket. Meldet es `needs_ingest` (leerer Graph), oder läufst du auf einem älteren Binary, greife auf die explizite Trust-Schleife zurück — Trust *vor* dem Vertrauen in irgendein Retrieval herstellen:
 
 ```jsonc
@@ -115,6 +119,8 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 ```
 
 ### Einen Graphen servieren, viele Agenten attachen
+
+<p align="center"><img src="../docs/assets/visuals/10-attach-core.png" width="520" alt="Ein Owner-Prozess hält den lebenden Graphen; viele Agenten attachen an denselben Kern" /></p>
 
 Der Schnellstart oben verdrahtet einen stdio-Server pro Host — in Ordnung für einen Agenten, aber jeder Prozess lädt seinen eigenen Graphen und hält seinen eigenen Lease. Das Deployment, für das m1nd gebaut ist, ist ein Eigentümer, viele attachte Agenten. Ein Eigentümer-Prozess hält den Live-Graphen:
 
@@ -152,6 +158,8 @@ Das funktioniert für kleine Codebasen. Es bricht zusammen, wenn das Projekt gen
 
 ## Zusammengesetztes Gedächtnis (L1GHT)
 
+<p align="center"><img src="../docs/assets/visuals/06-l1ght-anchored.png" width="520" alt="Das Gedächtnis ist an echten Code verankert; ändert sich der Code, meldet sich das Gedächtnis selbst" /></p>
+
 Die meisten Tools geben einem Agenten besseres *Retrieval*. `m1nd` erlaubt einem Agenten auch, **dauerhafte, maschinenlesbare Erkenntnisse zu verfassen**, die sich über Sessions hinweg aufbauen und gegenüber dem Code ehrlich bleiben. L1GHT verwandelt verfasstes Wissen in graph-native Struktur, die sich selbst markiert, wenn sich der Code ändert, den es zitiert — sichere Behauptungen verbreiten mehr Aktivierung als unsichere.
 
 Die Schleife, von Anfang bis Ende:
@@ -176,6 +184,8 @@ memorize({
 Diese Schleife wurde live von Ende zu Ende bewiesen: `memorize` → `grounded_in`-Kante → Freshness-Flag auf bearbeiteter Datei → überlebt `mode=replace` → Boot-Auto-Load. Schließt du eine begrenzte Mission? Übergib `write_light_memory: true` an `mission_close`, um seine verifizierten Behauptungen auf dieselbe Weise zu persistieren. Die Gewohnheit ist in den Server-`instructions` dokumentiert, die jeder MCP-Client bei `initialize` erhält — host-agnostic, kein client-spezifisches Plugin erforderlich.
 
 ## Der Trust- / Ehrlichkeits-Layer
+
+<p align="center"><img src="../docs/assets/visuals/03-verdicts-doors.png" width="520" alt="Jedes Ergebnis ist ein Verdikt — act, reverify oder abstain — wie Türen, die der Agent wählt" /></p>
 
 Das ist das Verteidigungswürdigste, was m1nd tut, und kein Konkurrent liefert es. Die Doktrin: **Glaubwürdigkeit kommt von Ehrlichkeit, nicht davon, immer zu gewinnen.**
 
@@ -212,6 +222,8 @@ Alle ✅-Zeilen sind von Ende zu Ende verifiziert (ein `caller`→`callee`-Impor
 
 ## Fähigkeiten-Karte
 
+<p align="center"><img src="../docs/assets/visuals/04-impact-web.png" width="520" alt="impact verfolgt den Wirkungsradius durch das Netz aus verbundenem Code, bevor du editierst" /></p>
+
 Die Live-MCP-Oberfläche entwickelt sich mit den Releases. Verwende `tools/list` für die genaue Tool-Anzahl und Namen in deinem aktuellen Build.
 
 | Bereich | Was es ermöglicht | Repräsentative Tools |
@@ -245,6 +257,8 @@ Mission Control ist Beweisdisziplin, keine Feature-Liste. `mission_next` gibt ge
 
 ## Nachweise
 
+<p align="center"><img src="../docs/assets/visuals/12-battery-arches.png" width="520" alt="Jede Behauptung ruht auf ihrem eigenen bewiesenen Bogen — die Fähigkeiten-Batterie, reproduzierbar" /></p>
+
 Jede Zeile ist genau auf das kalibriert, was gemessen wurde. m1nd führt keine Einsparungs- oder ROI-Zahlen an — das ist der Punkt.
 
 | Behauptung | Ergebnis | Quelle / Einschränkung |
@@ -256,6 +270,22 @@ Jede Zeile ist genau auf das kalibriert, was gemessen wurde. m1nd führt keine E
 | Gedächtnis-Selbstverifizierung | live von Ende zu Ende bewiesen | `memorize` → `grounded_in` → Freshness-Flag auf bearbeiteter Datei → überlebt replace → Boot-Auto-Load. |
 | Fähigkeiten-Battery vs. grep | 37/37 bestanden; head-to-head 16 m1nd-Siege / 12 Unentschieden / **0 grep-Siege** | In-Repo-Harness `scratchpad/m1nd_battery.py` (37 Fälle, frischer Ingest + Ground-Truth-PASS/FAIL + `rg`-head-to-head). **Reproduziere: `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`.** Einschränkung: ein Repo (m1nd selbst), selbst verfasste Fälle; ~5 der Unentschieden sind strukturelle Tools, gewertet gegen einen Literal-grep-Proxy, der nicht ausdrücken kann, was sie beantworten. |
 | Konforme Kalibrierung (`predict`) | act-Band ≈32% Präzision @ ≈13.5% Coverage (α=0.10) | Auf m1nds eigener Git-Historie (n≈9.2k held-out Prädiktionen), +3pts gegenüber rohen Zählungen nach der Geglättetes-Jaccard-Änderung. Einschränkung: ein Repo, ein grobes zählbasiertes Signal — das Gate abstiniert heute meist, **by design**: Abstinenz ist die ehrliche Ausgabe eines schwachen Signals, kein Fehler. |
+
+<details>
+<summary><strong>Weitere Visuals — die vollständige Mechanismus-Serie</strong></summary>
+<br/>
+<p align="center">
+  <img src="../docs/assets/visuals/05-one-graph-fountain.png" width="380" alt="Ein geteilter Graph speist jeden angehängten Agenten, wie ein gemeinsamer Brunnen" />
+  <img src="../docs/assets/visuals/07-supersede-shelf.png" width="380" alt="Ersetztes Wissen wird ins Regal gestellt, nicht gelöscht — die neuere Behauptung hat Vorrang" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/08-calibration-earned.png" width="380" alt="Kalibrierung wird pro Repo verdient, bevor Verdikte act lesen können" />
+  <img src="../docs/assets/visuals/09-closure-bridge.png" width="380" alt="Eine Behauptung schließt erst, wenn Evidenz die Lücke überbrückt — ein Datei-Read, Test oder Probe" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/11-triage-loop.png" width="380" alt="Feldberichte speisen eine Triage-Schleife, die Fehlverhalten vor dem Fix in einen Test verwandelt" />
+</p>
+</details>
 
 ## Einschränkungen
 

@@ -38,6 +38,8 @@
 
 **m1nd is operational intelligence for coding agents — it governs the operating loop, not just retrieval.**
 
+<p align="center"><img src="docs/assets/visuals/01-code-to-graph.png" width="520" alt="A stack of loose files becomes a connected graph of what links to what" /></p>
+
 > grep finds text. Vector search finds similar chunks. `m1nd` gives agents a local graph of what connects, what changed, what breaks, what drifted, and where to resume.
 
 Three things here exist together in no other tool:
@@ -90,6 +92,8 @@ Full install map, host packs, native runtime build, and update flags: [docs/AGEN
 
 ### Agent Entry Point
 
+<p align="center"><img src="docs/assets/visuals/02-north-one-call.png" width="520" alt="north(task): one front-door call returns the whole oriented packet" /></p>
+
 Agents parse this README. Inside an MCP session, the front door is one call — `north(task)` composes trust, task context, prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know) into a single packet, before any query:
 
 ```jsonc
@@ -139,6 +143,8 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 
 ### Serve one graph, attach many agents
 
+<p align="center"><img src="docs/assets/visuals/10-attach-core.png" width="520" alt="One owner process holds the live graph; many agents attach to the same core" /></p>
+
 Quick Start above wires a stdio server per host — fine for one agent, but each process loads its own graph and holds its own lease. The deployment m1nd is built for is one owner, many attached agents. One owner process holds the live graph:
 
 ```bash
@@ -174,6 +180,8 @@ Agents on real codebases do not fail because they cannot search. They fail becau
 That works for small codebases. It falls apart when the project has generated artifacts, specs, docs, hidden co-change history, multiple agents, and long handoffs. The problem is not only the agent's reasoning — the agent has no durable model of the codebase's structure. `m1nd` gives it one: a causal code graph with spreading activation across structural, semantic, temporal, and causal dimensions, plus Hebbian plasticity that compounds per-agent across sessions.
 
 ## Compounding Memory (L1GHT)
+
+<p align="center"><img src="docs/assets/visuals/06-l1ght-anchored.png" width="520" alt="Memory is anchored to real code; when the code changes, the memory flags itself" /></p>
 
 Most tools give an agent better *retrieval*. `m1nd` also lets an agent **author durable, machine-legible knowledge** that compounds across sessions and stays honest against the code. L1GHT turns authored knowledge into graph-native structure that self-flags when the code it cites changes — confident claims spread more activation than uncertain ones.
 
@@ -228,6 +236,8 @@ The compounding is the point: kill that process, start a **fresh** one against t
 This loop has been proven live end-to-end: `memorize` → `grounded_in` edge → freshness flag on an edited file → survives `mode=replace` → boot auto-load. Closing a bounded mission? Pass `write_light_memory: true` to `mission_close` to persist its verified claims the same way. The habit is documented in the server `instructions` every MCP client receives at `initialize` — host-agnostic, no client-specific plugin required.
 
 ## The Trust / Honesty Layer
+
+<p align="center"><img src="docs/assets/visuals/03-verdicts-doors.png" width="520" alt="Every result is a verdict — act, reverify, or abstain — like doors the agent must choose" /></p>
 
 This is the most defensible thing m1nd does, and no competitor ships it. The doctrine: **credibility comes from honesty, not from always winning.**
 
@@ -298,6 +308,8 @@ All ✅ rows are verified end-to-end (a `caller`→`callee` import resolves and 
 
 ## Capability Map
 
+<p align="center"><img src="docs/assets/visuals/04-impact-web.png" width="520" alt="impact traces the blast radius across the web of connected code before you edit" /></p>
+
 The live MCP surface evolves with releases. Use `tools/list` for the exact tool count and names in your current build.
 
 | Area | What it enables | Representative tools |
@@ -331,6 +343,8 @@ Mission Control is proof discipline, not a feature list. `mission_next` returns 
 
 ## Evidence
 
+<p align="center"><img src="docs/assets/visuals/12-battery-arches.png" width="520" alt="Every claim stands on its own proven arch — the capability battery, reproducible" /></p>
+
 Every row is hedged to exactly what was measured. m1nd does not lead with savings or ROI numbers — that is the point.
 
 | Claim | Result | Source / hedge |
@@ -342,6 +356,22 @@ Every row is hedged to exactly what was measured. m1nd does not lead with saving
 | Memory self-verification | proven live end-to-end | `memorize` → `grounded_in` → freshness flag on edited file → survives replace → boot auto-load. |
 | Capability battery vs grep | 37/37 pass; head-to-head 16 m1nd-wins / 12 ties / **0 grep-wins** | In-repo harness `scratchpad/m1nd_battery.py` (37 cases, fresh ingest + ground-truth PASS/FAIL + `rg` head-to-head). **Reproduce: `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`.** Hedge: one repo (m1nd itself), self-authored cases; ~5 of the ties are structural tools scored against a literal-grep proxy that can't express what they answer. |
 | Conformal calibration (`predict`) | act-band ≈32% precision @ ≈13.5% coverage (α=0.10) | On m1nd's own git history (n≈9.2k held-out predictions), +3pts over raw counts after the smoothed-Jaccard change. Hedge: one repo, a coarse count-based signal — the gate mostly abstains today, **by design**: abstention is the honest output of a weak signal, not a failure. |
+
+<details>
+<summary><strong>More visuals — the full mechanism series</strong></summary>
+<br/>
+<p align="center">
+  <img src="docs/assets/visuals/05-one-graph-fountain.png" width="380" alt="One shared graph feeds every attached agent, like a common fountain" />
+  <img src="docs/assets/visuals/07-supersede-shelf.png" width="380" alt="Superseded knowledge is shelved, not deleted — the newer claim takes precedence" />
+</p>
+<p align="center">
+  <img src="docs/assets/visuals/08-calibration-earned.png" width="380" alt="Calibration is earned per repo before verdicts can read act" />
+  <img src="docs/assets/visuals/09-closure-bridge.png" width="380" alt="A claim only closes when evidence bridges the gap — a file read, test, or probe" />
+</p>
+<p align="center">
+  <img src="docs/assets/visuals/11-triage-loop.png" width="380" alt="Field reports feed a triage loop that turns misbehavior into a test before a fix" />
+</p>
+</details>
 
 ## Limits
 
