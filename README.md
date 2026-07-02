@@ -52,6 +52,18 @@ Plus an **attention runtime** — `focus` hands the agent the minimal, budget-bo
   <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>
 
+## New in 1.2.0 — the first OMEGA-era release
+
+1.2.0 turns the loop from "retrieve, then hope" into **pre-orient → act on calibrated verdicts → capture what you learned**. The theme is the same as the trust layer: an honest *no* beats a confident guess.
+
+- **`north(task)` — pre-orient in one call.** The new front door composes trust, task context (focus nodes + PageRank anchors), prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know). `needs_ingest` is a real answer for an empty graph.
+- **Conformal calibration on prediction.** `calibrate_predict` arms a per-repo gate; verdicts then read `act` / `reverify` / `abstain`, where `abstain` means *uncalibrated or insufficient* — a signal to stop, not a weak yes. Ships dark: until you calibrate, verdicts cap at `reverify`.
+- **`trust_envelope` on `seek`** (ships dark) and a **`closure` verdict on `why`** — `blocked` means the path rests on an unresolved/guessed edge. **`trust_band: insufficient_evidence`** is now distinct from a risk band: it means *no evidence*, the honest cold-start answer, not "medium risk".
+- **Memory grew a provenance spine** — claims carry real age + author, supersede older claims, age out, and respect a recency cap, so remembered knowledge states its own freshness instead of quietly going stale.
+- **Smoothed-Jaccard co-change** — `ghost_edges` / `predict` now normalize coupling instead of counting raw co-commits (calibration-proven +3 points over raw counts).
+- **Binary version + sha fingerprint** — `--version` prints `1.2.0 (<sha>)`; `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
+- **Agent-native MCP instructions + local-only field reports.** The `initialize` instructions every host receives now *are* the operating loop above. Agents can leave one telemetry signal per session — `learn` on a retrieval verdict, or a line in `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves. That file is local-only; **m1nd never phones home.**
+
 ## Quick Start
 
 The minimal happy path — install from source (always current), check health, wire your host:
@@ -240,7 +252,7 @@ Three core Rust crates plus one auxiliary bridge:
 - **`m1nd-ingest`** — extraction, routing, and graph construction adapters (code, universal docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliary OpenClaw bridge (Unix-socket lane, independently versioned).
 
-Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.0.0`.
+Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.2.0` (`m1nd-openclaw` is versioned independently at `0.1.0`).
 
 <p align="center">
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />

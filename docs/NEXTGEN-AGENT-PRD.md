@@ -230,6 +230,7 @@ The durable-moats recipe is not "be best" — it is **format + narrow interface 
 - **Move 6 — Negative-Space Bug Localizer (`negative_space`).** Cross-rank `missing` ∩ `ghost_edges` ∩ `taint_trace` boundary_misses ∩ `antibody_scan` negative-edges, weighted by `tremor`.
 - **Move 7 — Reality-Weighted Blast Radius (`hot_blast`).** Re-rank `impact`/`epidemic` by `runtime_overlay` heat × `taint_trace` × `trust`. Ship the structural-only fallback first; light up runtime weighting when a span batch arrives (highest external dependency).
 - **Move 8 — Swarm Collision Forecast (`swarm_collision`).** Intersect `ghost_edges`/`predict` coupling with `perspective_list`/`trail_list` live footprints. Lands once Subsystem A's parallel-agent usage is real.
+- **`m1nd feedback` — opt-in, redacted, one-click field-report submission.** The local field-report mailbox (`~/.m1nd/field-reports.jsonl`, shipped in 1.2.0) stays local by default. This roadmap verb lets a user *choose* to file the local reports upstream as a redacted GitHub issue in one command — **never automatic, never a phone-home.** Local-first is the trust brand: the reports exist to make m1nd honest with itself first; sharing them is always the human's explicit call.
 - **Then — durability hardening (the §O.9 bets):** freeze the receipt/graph format + back-compat pledge; cut over to file-incremental re-index. At ~**v2.0** the era graduates into a separately-named product.
 
 ## O.11 Manifesto
