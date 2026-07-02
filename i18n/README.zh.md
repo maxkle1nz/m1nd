@@ -38,6 +38,8 @@
 
 **m1nd 是面向代码智能体的操作智能——它掌管的是操作循环，而不仅仅是检索。**
 
+<p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="一堆散乱的文件变成一张相互连接的图，展示什么与什么相连" /></p>
+
 > grep 能找到文本。向量搜索能找到相似片段。`m1nd` 给智能体一张本地图，显示什么与什么相连、什么发生了变化、什么会崩溃、什么产生了漂移，以及从哪里恢复。
 
 以下三点在任何其他工具中都不同时存在：
@@ -90,6 +92,8 @@ m1nd doctor
 
 ### 智能体入口点
 
+<p align="center"><img src="../docs/assets/visuals/02-north-one-call.png" width="520" alt="north(task)：一次入口调用即返回完整的定向数据包" /></p>
+
 智能体会解析此 README。在 MCP 会话内，前门是一次调用——`north(task)` 将信任、任务上下文、先前的跨会话记忆、一个充分性信号、一个 `next_move` 以及 `honest_gaps`（m1nd *尚不*知道的内容）整合成一个数据包。如果它报告 `needs_ingest`（空图），或者你使用的是较旧的二进制文件，则退回到显式的信任循环——在相信任何检索结果*之前*先建立信任：
 
 ```jsonc
@@ -115,6 +119,8 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 ```
 
 ### 服务一张图，附着多个智能体
+
+<p align="center"><img src="../docs/assets/visuals/10-attach-core.png" width="520" alt="一个属主进程持有活的图；许多智能体附着到同一内核" /></p>
 
 上面的快速开始为每个宿主连接了一个 stdio 服务器——对单个智能体来说没问题，但每个进程都加载自己的图并持有自己的租约。m1nd 为之而生的部署形态是一个所有者、多个附着的智能体。一个所有者进程持有活图：
 
@@ -152,6 +158,8 @@ m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and 
 
 ## 复利记忆（L1GHT）
 
+<p align="center"><img src="../docs/assets/visuals/06-l1ght-anchored.png" width="520" alt="记忆锚定在真实代码上；代码一旦变化，记忆会自我标记" /></p>
+
 大多数工具给智能体更好的*检索*。`m1nd` 还让智能体能够**撰写持久的、机器可读的知识**，这些知识跨会话复利，并对代码保持诚实。L1GHT 将撰写的知识转化为图原生结构，当其所引用的代码发生变化时自动标记——高置信度的声明比不确定的声明传播更多激活。
 
 端到端的完整循环：
@@ -176,6 +184,8 @@ memorize({
 这个循环已被端到端实时验证：`memorize` → `grounded_in` 边 → 编辑文件上的新鲜度标志 → 在 `mode=replace` 后存活 → 启动自动加载。关闭一个有界任务？向 `mission_close` 传入 `write_light_memory: true`，以同样方式持久化其经过验证的声明。该习惯记录在每个 MCP 客户端在 `initialize` 时收到的服务器 `instructions` 中——与宿主无关，无需特定客户端插件。
 
 ## 信任 / 诚实层
+
+<p align="center"><img src="../docs/assets/visuals/03-verdicts-doors.png" width="520" alt="每个结果都是一个裁决——act、reverify 或 abstain——如同智能体必须选择的门" /></p>
 
 这是 m1nd 最无可替代的事情，没有竞争对手提供它。教义：**可信度来自诚实，而非永远获胜。**
 
@@ -212,6 +222,8 @@ memorize({
 
 ## 能力图
 
+<p align="center"><img src="../docs/assets/visuals/04-impact-web.png" width="520" alt="在你编辑之前，impact 沿着相互连接的代码之网追踪影响半径" /></p>
+
 Live MCP 界面随版本更新。使用 `tools/list` 获取当前构建中确切的工具数量和名称。
 
 | 领域 | 功能 | 代表性工具 |
@@ -245,6 +257,8 @@ Mission Control 是证明纪律，而不是功能列表。`mission_next` 恰好�
 
 ## 证据
 
+<p align="center"><img src="../docs/assets/visuals/12-battery-arches.png" width="520" alt="每条主张都立于自己被证明的拱上——能力电池，可复现" /></p>
+
 每一行的对冲范围恰好是所测量的内容。m1nd 不以节省或 ROI 数字作为引导——这正是要点所在。
 
 | 声明 | 结果 | 来源 / 对冲 |
@@ -256,6 +270,22 @@ Mission Control 是证明纪律，而不是功能列表。`mission_next` 恰好�
 | 记忆自我验证 | 端到端实时验证 | `memorize` → `grounded_in` → 编辑文件上的新鲜度标志 → 在 replace 后存活 → 启动自动加载。 |
 | 能力电池 vs grep | 37/37 通过；正面交锋 16 个 m1nd 胜 / 12 个平局 / **0 个 grep 胜** | 仓库内测试框架 `scratchpad/m1nd_battery.py`（37 个用例，全新摄入 + 真值 PASS/FAIL + 与 `rg` 正面交锋）。**复现：`python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`。** 对冲：单个仓库（m1nd 自身）、自撰用例；约 5 个平局是结构性工具，被拿来与一个无法表达它们所回答内容的字面 grep 代理评分。 |
 | 保形校准（`predict`） | act 等级 ≈32% 精确率 @ ≈13.5% 覆盖率（α=0.10） | 在 m1nd 自己的 git 历史上（n≈9.2k 个留出预测），在平滑化 Jaccard 变更后比原始计数高出 +3pts。对冲：单个仓库、一个粗糙的基于计数的信号——这道闸门如今大多选择弃权，**这是有意为之**：弃权是弱信号的诚实输出，而非失败。 |
+
+<details>
+<summary><strong>更多视觉图——完整的机制系列</strong></summary>
+<br/>
+<p align="center">
+  <img src="../docs/assets/visuals/05-one-graph-fountain.png" width="380" alt="一张共享的图供养每个附着的智能体，如同共用的喷泉" />
+  <img src="../docs/assets/visuals/07-supersede-shelf.png" width="380" alt="被取代的知识被搁置，而非删除——较新的主张优先" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/08-calibration-earned.png" width="380" alt="校准需按仓库赢得，裁决才能读到 act" />
+  <img src="../docs/assets/visuals/09-closure-bridge.png" width="380" alt="只有当证据架起桥梁——一次文件读取、测试或探针——主张才会闭合" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/11-triage-loop.png" width="380" alt="现场报告喂入一个分诊循环，在修复之前先把异常变成测试" />
+</p>
+</details>
 
 ## 局限性
 

@@ -38,6 +38,8 @@
 
 **m1nd est une intelligence opérationnelle pour agents de coding — il gouverne la boucle opérationnelle, pas seulement le retrieval.**
 
+<p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="Une pile de fichiers épars devient un graphe connecté de ce qui relie quoi" /></p>
+
 > grep trouve du texte. La recherche vectorielle trouve des chunks similaires. `m1nd` donne aux agents un graphe local de ce qui est connecté, ce qui a changé, ce qui casse, ce qui a dérivé, et où reprendre.
 
 Trois choses coexistent ici qu'aucun autre outil ne réunit :
@@ -90,6 +92,8 @@ Carte d'installation complète, packs d'hôtes, build du runtime natif et flags 
 
 ### Point d'Entrée des Agents
 
+<p align="center"><img src="../docs/assets/visuals/02-north-one-call.png" width="520" alt="north(task) : un seul appel d'entrée renvoie tout le paquet orienté" /></p>
+
 Les agents analysent ce README. Dans une session MCP, la porte d'entrée est un seul appel — `north(task)` compose le trust, le contexte de tâche, la mémoire inter-sessions antérieure, un signal de suffisance, un `next_move`, et `honest_gaps` (ce que m1nd ne sait *pas* encore) en un seul paquet. S'il rapporte `needs_ingest` (graphe vide), ou si vous êtes sur un binaire plus ancien, repliez-vous sur la boucle de trust explicite — établir le trust *avant* de faire confiance à tout retrieval :
 
 ```jsonc
@@ -115,6 +119,8 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 ```
 
 ### Servir un seul graphe, attacher plusieurs agents
+
+<p align="center"><img src="../docs/assets/visuals/10-attach-core.png" width="520" alt="Un processus propriétaire détient le graphe vivant ; de nombreux agents s'attachent au même cœur" /></p>
 
 Le Démarrage Rapide ci-dessus câble un serveur stdio par hôte — parfait pour un seul agent, mais chaque processus charge son propre graphe et détient sa propre lease. Le déploiement pour lequel m1nd est conçu, c'est un seul propriétaire, plusieurs agents attachés. Un seul processus propriétaire détient le graphe vivant :
 
@@ -152,6 +158,8 @@ Les agents sur de vraies bases de code n'échouent pas parce qu'ils ne savent pa
 
 ## Mémoire Composée (L1GHT)
 
+<p align="center"><img src="../docs/assets/visuals/06-l1ght-anchored.png" width="520" alt="La mémoire est ancrée au code réel ; quand le code change, la mémoire se signale d'elle-même" /></p>
+
 La plupart des outils donnent à l'agent un meilleur *retrieval*. `m1nd` permet aussi à un agent de **créer des connaissances durables et lisibles par machine** qui se composent à travers les sessions et restent honnêtes par rapport au code. L1GHT transforme les connaissances créées en structure graph-native qui s'auto-signale quand le code qu'elle cite change — les affirmations confiantes diffusent plus d'activation que les incertaines.
 
 La boucle, du début à la fin :
@@ -176,6 +184,8 @@ memorize({
 Cette boucle a été prouvée en direct de bout en bout : `memorize` → edge `grounded_in` → signal de freshness sur fichier modifié → survit à `mode=replace` → boot auto-load. Vous fermez une mission bornée ? Passez `write_light_memory: true` à `mission_close` pour persister ses affirmations vérifiées de la même façon. L'habitude est documentée dans les `instructions` du serveur que chaque client MCP reçoit à l'`initialize` — host-agnostic, aucun plugin client-spécifique requis.
 
 ## Le Layer de Trust / Honnêteté
+
+<p align="center"><img src="../docs/assets/visuals/03-verdicts-doors.png" width="520" alt="Chaque résultat est un verdict — act, reverify ou abstain — comme des portes que l'agent choisit" /></p>
 
 C'est la chose la plus défendable que m1nd fait, et aucun concurrent ne la propose. La doctrine : **la crédibilité vient de l'honnêteté, pas de toujours gagner.**
 
@@ -212,6 +222,8 @@ Toutes les lignes ✅ sont vérifiées de bout en bout (un import `caller`→`ca
 
 ## Carte des Capacités
 
+<p align="center"><img src="../docs/assets/visuals/04-impact-web.png" width="520" alt="impact trace le rayon d'impact à travers la toile de code connecté avant que vous n'éditiez" /></p>
+
 La surface MCP live évolue avec les versions. Utilisez `tools/list` pour le nombre exact d'outils et les noms dans votre build actuelle.
 
 | Domaine | Ce qu'il permet | Outils représentatifs |
@@ -245,6 +257,8 @@ Mission Control est de la discipline de preuve, pas une liste de fonctionnalité
 
 ## Preuves
 
+<p align="center"><img src="../docs/assets/visuals/12-battery-arches.png" width="520" alt="Chaque affirmation repose sur son propre arc prouvé — la batterie de capacités, reproductible" /></p>
+
 Chaque ligne est calibrée exactement à ce qui a été mesuré. m1nd ne met pas en avant des chiffres d'économies ou de ROI — c'est le principe.
 
 | Affirmation | Résultat | Source / calibration |
@@ -256,6 +270,22 @@ Chaque ligne est calibrée exactement à ce qui a été mesuré. m1nd ne met pas
 | Auto-vérification de la mémoire | prouvée en direct de bout en bout | `memorize` → `grounded_in` → signal de freshness sur fichier modifié → survit à replace → boot auto-load. |
 | Batterie de capacités vs grep | 37/37 passent ; en face-à-face 16 victoires m1nd / 12 égalités / **0 victoire grep** | Harness in-repo `scratchpad/m1nd_battery.py` (37 cas, ingest frais + vérité-terrain PASS/FAIL + face-à-face `rg`). **Reproduire : `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`.** Calibration : un seul dépôt (m1nd lui-même), cas auto-rédigés ; ~5 des égalités sont des outils structurels notés face à un proxy grep littéral qui ne peut pas exprimer ce à quoi ils répondent. |
 | Calibration conforme (`predict`) | act-band ≈32% de précision @ ≈13.5% de couverture (α=0.10) | Sur l'historique git propre de m1nd (n≈9.2k prédictions held-out), +3pts face aux comptes bruts après le passage au Jaccard lissé. Calibration : un seul dépôt, un signal grossier basé sur des comptes — la gate s'abstient surtout aujourd'hui, **par design** : l'abstention est la sortie honnête d'un signal faible, pas un échec. |
+
+<details>
+<summary><strong>Plus de visuels — la série complète des mécanismes</strong></summary>
+<br/>
+<p align="center">
+  <img src="../docs/assets/visuals/05-one-graph-fountain.png" width="380" alt="Un graphe partagé alimente chaque agent attaché, comme une fontaine commune" />
+  <img src="../docs/assets/visuals/07-supersede-shelf.png" width="380" alt="Le savoir remplacé est mis de côté, pas supprimé — l'affirmation la plus récente prime" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/08-calibration-earned.png" width="380" alt="La calibration se gagne par dépôt avant que les verdicts puissent lire act" />
+  <img src="../docs/assets/visuals/09-closure-bridge.png" width="380" alt="Une affirmation ne se ferme que lorsque la preuve fait le pont — une lecture de fichier, un test ou une sonde" />
+</p>
+<p align="center">
+  <img src="../docs/assets/visuals/11-triage-loop.png" width="380" alt="Les rapports de terrain alimentent une boucle de triage qui transforme le défaut en test avant le correctif" />
+</p>
+</details>
 
 ## Limites
 
