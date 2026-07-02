@@ -90,7 +90,30 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 
 `m1nd agent first-minute` is the safest first contact for a new repo. It scopes the repo, establishes trust, ingests if needed, runs one bounded orientation pass, returns candidate anchors, and then tells the agent to prove directly from source, tests, compiler/runtime output, logs, or probes.
 
-Inside an MCP session, the doctrine is this trust loop — establish trust *before* believing any retrieval:
+Inside an MCP session, the taught front door is one call — `north(task)` composes trust, task context, prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know) into a single packet:
+
+```jsonc
+{"method":"tools/call","params":{"name":"north",
+  "arguments":{"agent_id":"dev","task":"harden the JWT auth token validation flow"}}}
+```
+
+The response is one oriented packet — trust verdict, memory the last session left, and an honest gap list, before any query. A real capture from the `main` binary, lightly trimmed:
+
+```jsonc
+{
+  "binding": { "trust_mode": "full_trust", "ok": true },      // verdict before retrieval
+  "memory": [                                                 // recalled from a PRIOR session
+    { "claim": "AuthTokenFlow", "source_agent": "authbot", "age_ms": 221, "stale": false }
+    // …other claims from the same authored note, trimmed…
+  ],
+  "sufficiency": { "state": "gathering", "top_score": 0.64,
+    "why": "the strongest match left out still scores 0.30 — relevant context did not fit …" },
+  "next_move": "Call `surgical_context` on the top focus node to ground the task before editing.",
+  "honest_gaps": []                                           // nothing withheld on this graph
+}
+```
+
+If `north` reports `needs: "needs_ingest"` (empty graph), or you are on an older binary without the L1GHT-recall composition, fall back to the explicit trust loop — establish trust *before* believing any retrieval:
 
 ```jsonc
 // 0. Trust the binding in one call (verdict before retrieval)
@@ -106,7 +129,7 @@ Inside an MCP session, the doctrine is this trust loop — establish trust *befo
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
-**First-session loop, in four moves:** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` the durable finding so the next session starts ahead.
+**First-session loop, in four moves:** `north` (or `trust_selftest` → `ingest`) → `seek`/`audit` → `memorize` the durable finding so the next session starts ahead.
 
 ### Serve one graph, attach many agents
 
@@ -154,17 +177,46 @@ The loop, end to end:
 
 ```jsonc
 memorize({
-  "agent_id": "dev",
+  "agent_id": "authbot",
   "node_label": "AuthTokenFlow",
   "claims": [
-    { "label": "TokenValidator", "text": "validates JWTs via HMAC",
+    { "label": "TokenValidator",
+      "text": "TokenValidator validates JWTs via HMAC — rotate keys via KMS only",
       "confidence": "high", "evidence": ["src/auth/token.rs"] }
   ]
 })
 ```
 
+The call returns proof it landed — this is a real captured response, trimmed:
+
+```jsonc
+{
+  "ok": true,
+  "claims_written": 1,
+  "light_evidence_resolved": 1, "light_evidence_unresolved": 0,   // the evidence path bound to a real code node
+  "path": ".../agent-memory/authtokenflow.light.md",
+  "next_action": "Memory anchored to code and will auto-load next session; cross_verify(check:[\"evidence_freshness\"]) flags it if the cited code changes."
+}
+```
+
 2. **Anchor** — m1nd writes a graph-native `.light.md` under `<runtime>/agent-memory/`, ingests it (`adapter=light mode=merge`), and resolves each `evidence` path to the real code node via a `grounded_in` edge — so the knowledge lives in the same activation space as code and surfaces in `seek` / `activate` / `impact`.
 3. **Auto-load** — on every future session start, `m1nd` ingests `agent-memory/` automatically and reports it in `session_handshake.agent_memory`. Past findings survive a `mode=replace` ingest and are just *there*.
+
+The compounding is the point: kill that process, start a **fresh** one against the same runtime, and its first `north(task)` already carries the earlier session's claim — this is a real captured exchange (the two calls above ran in separate processes), trimmed:
+
+```jsonc
+// north.memory, from a process that never called memorize itself:
+"memory": [
+  { "claim": "AuthTokenFlow",                   "source_agent": "authbot", "age_ms": 221, "stale": false },
+  { "claim": "𝔻 evidence: src/auth/token.rs",   "source_agent": "authbot", "age_ms": 221, "stale": false },
+  { "claim": "⍂ entity: TokenValidator",        "source_agent": "authbot", "age_ms": 221, "stale": false },
+  { "claim": "𝔻 confidence: high",              "source_agent": "authbot", "age_ms": 221, "stale": false }
+  // …the authored-note file node, trimmed…
+]
+```
+
+`source_agent` names who authored it and `stale` re-checks the cited code — the next session inherits the knowledge *and* its provenance, not a bare string.
+
 4. **Self-flag staleness** — `cross_verify(check: ["evidence_freshness"])` re-hashes every cited file and names which claims have gone stale because their code changed — so memory tells you when it lies instead of misleading you.
 
 This loop has been proven live end-to-end: `memorize` → `grounded_in` edge → freshness flag on an edited file → survives `mode=replace` → boot auto-load. Closing a bounded mission? Pass `write_light_memory: true` to `mission_close` to persist its verified claims the same way. The habit is documented in the server `instructions` every MCP client receives at `initialize` — host-agnostic, no client-specific plugin required.
@@ -178,6 +230,40 @@ This is the most defensible thing m1nd does, and no competitor ships it. The doc
 - **`non_claims` arrays** ship on every mission tool. m1nd tells the agent what it did *not* prove.
 - **`mission_verify` can say no — and does, in tested code.** It rejects graph-only evidence: a claim cannot close without a file read, a test run, or a runtime probe. The test is literally named `graph_only_evidence_is_not_enough`.
 - **`recovery_playbook`** returns a deterministic, ordered step list to repair the binding.
+
+Shown, not told. Call `trust_selftest` on an unbound runtime and the verdict *is* the repair instruction — a real capture, trimmed:
+
+```jsonc
+{
+  "ok": false,
+  "status": "blocked",
+  "verdict": "needs_ingest",          // not "no results" — it says why
+  "next_action": "call_ingest",
+  "checks": { "graph_populated": false, "needs_ingest": true, "recovery_playbook_attached": true },
+  "recovery_playbook": {
+    "recovery_goal": "Populate this binding's active graph for the intended repository.",
+    "steps": [ { "action": "Call ingest for the intended repository on this same binding." } /* …trimmed… */ ]
+  }
+}
+```
+
+The same honesty rides on retrieval. A `seek` hit carries a `sufficiency` readout and a `trust_envelope` — and when the envelope has no calibration row measured yet, it caps its own verdict instead of overclaiming. A real capture, trimmed (the top hit is a memory the last session authored):
+
+```jsonc
+{
+  "results": [
+    { "label": "AuthTokenFlow", "source_agent": "authbot", "authored_ms_ago": 101161, "score": 0.48 }
+    // …code-node hits, trimmed…
+  ],
+  "sufficiency": { "state": "gathering", "top_score": 0.48,
+    "why": "the strongest match left out still scores 0.25 — relevant context did not fit …" },
+  "trust_envelope": {
+    "calibrated": false,               // no calibration row measured
+    "verdict": "reverify",             // …so the verdict is capped below `act`
+    "next_repair_call": "trust_selftest"
+  }
+}
+```
 
 The proof of the commitment is what was killed for it: `savings` and `resonate` were pulled from the advertised surface in beta.7 because a tool that always claims to win is not credible. No competitor — not mem0, Zep, Letta, Sourcegraph, or any code-graph MCP — ships a layer that tells the agent what *not* to trust and how to recover.
 
