@@ -371,8 +371,11 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
   CHANGED default output (callers see `mitigated` findings; `false_positive` still
   suppressed). Revertible if undesired.
 - `#[cfg(all(test, …))]` compound predicates aren't tagged via the module path.
-- i18n READMEs (7 langs) + wiki lag the v1.1.0 README (`focus` not yet
-  translated) — post-release follow-up.
+- ~~i18n READMEs (7 langs) + wiki lag the v1.1.0 README~~ RESOLVED (PR #216):
+  i18n regenerated at 1.2.0, and the era-coherence sweep brought wiki, skills,
+  and agent packs to the OMEGA loop (north-first → verdicts → memorize-at-close
+  → field-reports) — every agent door now teaches the same doctrine as the MCP
+  `initialize` instructions (#208).
 - Auto-freshness: `ingest` doesn't auto-start the watcher (it exists —
   notify + `maybe_tick` — but is opt-in); seeded fix.
 - Multi-session: an X-RAY/Codex guardian also touches this repo — `git fetch`
