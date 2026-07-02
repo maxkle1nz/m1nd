@@ -2945,13 +2945,17 @@ fn handle_north(
         .cloned()
         .filter(|v| !v.is_null());
 
-    // 2. MEMORY — durable KV recall via boot_memory (action=list). Each entry
-    //    carries a REAL age (now − updated_at_ms) and its authoring agent. If a
-    //    timestamp is ever absent, the age is ABSENT (honest "unknown"), never
-    //    faked to "now" — the same rule seek's recall provenance follows.
+    // 2. MEMORY — durable cross-session recall from BOTH memory systems, merged:
+    //    (a) boot_memory KV (action=list), and (b) L1GHT agent-memory written by
+    //    `memorize` (the primary memory system). Each entry carries a REAL age and
+    //    its authoring agent when known. If a timestamp is ever absent, the age is
+    //    ABSENT (honest "unknown"), never faked to "now" — the same rule seek's
+    //    recall provenance follows. The two feeds are concatenated so a cold agent
+    //    sees the durable KV facts AND the memorized L1GHT claims for its task.
     let now = now_ms();
     let stale_after_ms: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days
-    let memory: Vec<serde_json::Value> = {
+                                                        // (a) boot_memory KV entries.
+    let boot_entries: Vec<serde_json::Value> = {
         let list = crate::boot_memory_handlers::handle_boot_memory(
             state,
             crate::boot_memory_handlers::BootMemoryInput {
@@ -2977,6 +2981,7 @@ fn handle_north(
                             .map(|ts| now.saturating_sub(ts));
                         let stale = age_ms.map(|age| age > stale_after_ms);
                         let mut obj = serde_json::Map::new();
+                        obj.insert("kind".into(), serde_json::json!("boot_memory"));
                         obj.insert(
                             "claim".into(),
                             entry.get("key").cloned().unwrap_or(serde_json::Value::Null),
@@ -3011,6 +3016,94 @@ fn handle_north(
             })
             .unwrap_or_default()
     };
+
+    // (b) L1GHT agent-memory recall — the fix. `memorize` (the primary memory
+    //     system) writes graph-native `.light.md` claims that the runtime auto-loads
+    //     and that `seek` already surfaces WITH provenance (`source_agent`,
+    //     `authored_ms_ago` — stamped only on `.light.md` hits, never on code nodes).
+    //     Compose that recall INTO the packet so a memorized-at-close claim compounds
+    //     into the next agent's north. We reuse `seek` wholesale (no new retrieval),
+    //     scoped to the task, and keep only the memory hits — a seek result is a
+    //     L1GHT memory iff it carries light provenance (source_agent or authored age).
+    //     Judgment call (stated in the PR): when the task-scoped seek surfaces no
+    //     memory hit, we fall back to a broad recall so a cold agent still sees that
+    //     institutional memory EXISTS, rather than implying there is none.
+    let light_limit = 5usize;
+    let is_light_hit = |r: &layers::SeekResultEntry| -> bool {
+        r.source_agent.is_some() || r.authored_ms_ago.is_some()
+    };
+    let map_light = |r: &layers::SeekResultEntry| -> serde_json::Value {
+        // age_ms is the authored age seek already computed (now − Created); absent
+        // stays absent — never fabricated. staleness uses the same 30-day rule.
+        let age_ms = r.authored_ms_ago;
+        let stale = age_ms.map(|age| age > stale_after_ms);
+        let mut obj = serde_json::Map::new();
+        obj.insert("kind".into(), serde_json::json!("light"));
+        obj.insert("claim".into(), serde_json::json!(r.label));
+        if let Some(age) = age_ms {
+            obj.insert("age_ms".into(), serde_json::json!(age));
+        }
+        obj.insert(
+            "source_agent".into(),
+            r.source_agent
+                .clone()
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        if let Some(stale) = stale {
+            obj.insert("stale".into(), serde_json::json!(stale));
+        }
+        obj.insert("node_id".into(), serde_json::json!(r.node_id));
+        serde_json::Value::Object(obj)
+    };
+    let light_entries: Vec<serde_json::Value> = if graph_populated {
+        let mut seek_light = |query: &str, k: usize| -> Vec<layers::SeekResultEntry> {
+            layer_handlers::handle_seek(
+                state,
+                layers::SeekInput {
+                    query: query.to_string(),
+                    agent_id: agent_id.clone(),
+                    top_k: k,
+                    scope: scope.clone(),
+                    node_types: Vec::new(),
+                    min_score: 0.1,
+                    graph_rerank: true,
+                    conformance_aware: true,
+                    token_budget: None,
+                },
+            )
+            .map(|o| o.results.into_iter().filter(|r| is_light_hit(r)).collect())
+            .unwrap_or_default()
+        };
+        // Task-scoped recall first: the memories most relevant to what the agent is
+        // about to do. Ask for a wider top_k since light nodes compete with code.
+        let mut hits = seek_light(&task, 24);
+        if hits.is_empty() {
+            // No task-relevant memory surfaced — fall back to a broad memory recall so
+            // a cold agent still sees that institutional memory EXISTS (honest: this is
+            // "memory exists, not necessarily about your task", surfaced most-recent).
+            hits = seek_light("memory decision finding note claim", 24);
+            // Prefer the freshest few when the recall is not task-scoped.
+            hits.sort_by_key(|r| r.authored_ms_ago);
+        }
+        // De-dup by node_id (a memory can surface under both label and evidence path)
+        // and cap at light_limit.
+        let mut seen = std::collections::HashSet::new();
+        hits.into_iter()
+            .filter(|r| seen.insert(r.node_id.clone()))
+            .take(light_limit)
+            .map(|r| map_light(&r))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Merge both feeds: durable KV facts first, then the memorized L1GHT claims.
+    let memory: Vec<serde_json::Value> = boot_entries
+        .iter()
+        .cloned()
+        .chain(light_entries.iter().cloned())
+        .collect();
 
     // Honest gaps — what m1nd does NOT yet know for this task. A pre-orient MUST
     // say what it can't see rather than imply omniscience.
@@ -3105,7 +3198,13 @@ fn handle_north(
     }
     if memory.is_empty() {
         honest_gaps.push(
-            "No durable boot memory yet — there are no prior cross-session claims to carry.".into(),
+            "No durable memory yet — neither boot_memory nor L1GHT agent-memory holds a prior cross-session claim to carry.".into(),
+        );
+    } else if light_entries.is_empty() && graph_populated {
+        // Boot KV facts exist but no memorized L1GHT claim surfaced — say so, so the
+        // agent knows the primary (memorize) memory had nothing to add for this task.
+        honest_gaps.push(
+            "No L1GHT agent-memory claim surfaced for this task — only durable boot_memory facts are carried; `memorize` findings, if any, did not match.".into(),
         );
     }
 
@@ -7276,6 +7375,92 @@ mod tests {
             "a fresh memory must not be flagged stale"
         );
         assert_eq!(entry["tags"], serde_json::json!(["lease", "doctrine"]));
+    }
+
+    /// Field-triage #1: north must COMPOSE L1GHT agent-memory (written by
+    /// `memorize`, the primary memory system) into its `memory` block — not only
+    /// boot_memory. We plant a `.light.md` with the exact frontmatter the memorize
+    /// writer stamps, ingest it (light adapter) into the same graph, then call north
+    /// with a task matching that memory. The memorized claim must surface in
+    /// `packet.memory` tagged `kind:"light"`, carrying its `source_agent` and a
+    /// concrete authored `age_ms` (both lifted from seek's light provenance).
+    #[test]
+    fn north_composes_light_memory_recall() {
+        let (temp, mut state) = build_state_populated(false);
+
+        // A memorized claim about lease leadership, authored just now by agent-mem,
+        // with the frontmatter shape `memorize` renders (Created + Source-Agent).
+        let now_ms = super::now_ms();
+        let mem_dir = temp.path().join("light-mem");
+        std::fs::create_dir_all(&mem_dir).expect("light mem dir");
+        let md = format!(
+            "---\nProtocol: L1GHT/1.0\nNode: LeaseLeadership\nState: verified\n\
+             Created: {now_ms}\nSource-Agent: agent-mem\n---\n\n\
+             # LeaseLeadership\n\n## LeaseLeadership\n\n\
+             The lease leadership handoff must renew the registry lease before takeover.\n\n\
+             [⍂ entity: lease enforcement leadership handoff]\n[𝔻 confidence: 0.9]\n"
+        );
+        std::fs::write(mem_dir.join("lease_leadership.light.md"), md).expect("write memory");
+
+        // Merge the light memory INTO the populated code graph (adapter=light).
+        super::dispatch_tool(
+            &mut state,
+            "ingest",
+            &serde_json::json!({
+                "agent_id": "agent-mem",
+                "path": mem_dir.to_string_lossy(),
+                "adapter": "light",
+                "mode": "merge",
+                "namespace": "light",
+            }),
+        )
+        .expect("ingest light memory");
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "lease enforcement leadership handoff",
+            }),
+        )
+        .expect("north with a memorized L1GHT claim present");
+
+        let memory = out["memory"].as_array().expect("memory array");
+        let light: Vec<&serde_json::Value> = memory
+            .iter()
+            .filter(|e| e.get("kind").and_then(|k| k.as_str()) == Some("light"))
+            .collect();
+        assert!(
+            !light.is_empty(),
+            "north.memory must compose at least one L1GHT claim, got {memory:?}"
+        );
+        // The memorized claim's provenance is carried honestly.
+        let hit = light
+            .iter()
+            .find(|e| {
+                e["source_agent"].as_str() == Some("agent-mem")
+                    || e["claim"]
+                        .as_str()
+                        .map(|c| c.to_lowercase().contains("lease"))
+                        .unwrap_or(false)
+            })
+            .unwrap_or(&light[0]);
+        assert_eq!(
+            hit["source_agent"], "agent-mem",
+            "the memorized claim carries its authoring agent as source_agent"
+        );
+        let age = hit["age_ms"]
+            .as_u64()
+            .expect("age_ms present — the light hit carries an authored age");
+        assert!(
+            age < 60_000,
+            "a just-authored memory should have a small age, got {age}ms"
+        );
+        assert_eq!(
+            hit["stale"], false,
+            "a fresh memory must not be flagged stale"
+        );
     }
 
     /// REAL PROBE: load the repo's actual graph_snapshot.json (~5540 nodes) and
