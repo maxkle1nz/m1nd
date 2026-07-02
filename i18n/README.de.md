@@ -4,7 +4,7 @@
   <img src="../.github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h1 align="center">Eine Lokale Mission Runtime für Coding-Agenten</h1>
+<h1 align="center">Operational Intelligence für Coding-Agenten</h1>
 
 <p align="center">
   <strong>Dein Coding-Agent hört auf, blind zu starten.</strong><br/>
@@ -36,7 +36,7 @@
 
 ---
 
-**m1nd ist eine lokale Mission Runtime für Coding-Agenten — sie steuert die Betriebsschleife, nicht nur den Retrieval.**
+**m1nd ist Operational Intelligence für Coding-Agenten — es steuert die Betriebsschleife, nicht nur den Retrieval.**
 
 > grep findet Text. Vektorsuche findet ähnliche Chunks. `m1nd` gibt Agenten einen lokalen Graphen davon, was verbunden ist, was sich geändert hat, was bricht, was gedriftet ist, und wo weiterzumachen ist.
 
@@ -46,9 +46,23 @@ Drei Dinge koexistieren hier, die kein anderes Tool vereint:
 - **Selbstverifizierendes Gedächtnis** — `memorize` verankert Erkenntnisse an echten Code-Knoten; `cross_verify` markiert sie als veraltet, wenn dieser Code sich ändert.
 - **Ein Trust- / Recovery-Layer** — jedes Ergebnis trägt einen Trust-Mode; `trust_selftest` und `recovery_playbook` teilen dem Agenten mit, wann das Workspace-Binding falsch ist und wie er es repariert.
 
+Dazu eine **Attention-Runtime** — `focus` reicht dem Agenten das minimale, budget-begrenzte Working Set für ein Ziel, mit einem ehrlichen Rest dessen, was es weggelassen hat, und einem Signal dafür, ob das *genug* Kontext ist.
+
 <p align="center">
   <img src="../.github/m1nd-agent-first-map-v2.jpeg" alt="Traditionelle Agentenschleife vs. m1nd-grounded-Schleife" width="960" />
 </p>
+
+## Neu in 1.2.0 — das erste Release der OMEGA-Ära
+
+1.2.0 verwandelt die Schleife von „abrufen, dann hoffen" in **vor-orientieren → auf kalibrierte Urteile handeln → festhalten, was du gelernt hast**. Das Motto ist dasselbe wie beim Trust-Layer: ein ehrliches *Nein* schlägt eine selbstbewusste Vermutung.
+
+- **`north(task)` — Vor-Orientierung in einem Aufruf.** Die neue Eingangstür komponiert Trust, Task-Kontext (Focus-Knoten + PageRank-Anker), vorheriges Cross-Session-Gedächtnis, ein Suffizienz-Signal, einen `next_move` und `honest_gaps` (was m1nd noch *nicht* weiß). `needs_ingest` ist eine echte Antwort für einen leeren Graphen. (Die L1GHT-Recall-Komposition, die vorheriges Gedächtnis in das Paket einfaltet, landete auf `main` kurz nach dem 1.2.0-Tag — sie ist nicht im 1.2.0-Binary.)
+- **Konforme Kalibrierung bei der Prädiktion.** `calibrate_predict` scharft ein Pro-Repo-Gate; Urteile lesen sich dann als `act` / `reverify` / `abstain`, wobei `abstain` *unkalibriert oder unzureichend* bedeutet — ein Signal zum Anhalten, kein schwaches Ja. Wird dunkel ausgeliefert: bis du kalibrierst, deckeln Urteile bei `reverify`.
+- **`trust_envelope` bei `seek`** (wird dunkel ausgeliefert) und ein **`closure`-Urteil bei `why`** — `blocked` bedeutet, der Pfad ruht auf einer unaufgelösten/geratenen Kante. **`trust_band: insufficient_evidence`** ist jetzt von einem Risiko-Band verschieden: es bedeutet *keine Evidenz*, die ehrliche Cold-Start-Antwort, nicht „mittleres Risiko".
+- **Das Gedächtnis bekam ein Provenienz-Rückgrat** — Behauptungen tragen echtes Alter + Autor, lösen ältere Behauptungen ab, altern aus und respektieren einen Recency-Cap, sodass erinnertes Wissen seine eigene Frische angibt, anstatt still zu veralten.
+- **Geglättetes-Jaccard-Co-Change** — `ghost_edges` / `predict` normalisieren jetzt die Kopplung, anstatt rohe Co-Commits zu zählen (kalibrierungsbewiesen +3 Punkte gegenüber rohen Zählungen).
+- **Binary-Version + SHA-Fingerprint** — `--version` gibt `1.2.0 (<sha>)` aus; `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) lassen einen Host ein gedriftetes Binary erkennen und ablehnen.
+- **Agent-native MCP-Instructions + rein lokale Field-Reports.** Die `initialize`-Instructions, die jeder Host erhält, *sind* jetzt die obige Betriebsschleife. Agenten können ein Telemetrie-Signal pro Session hinterlassen — `learn` auf einem Retrieval-Urteil, oder eine Zeile in `~/.m1nd/field-reports.jsonl`, wenn m1nd sich selbst fehlverhält. Diese Datei ist rein lokal; **m1nd telefoniert niemals nach Hause.**
 
 ## Schnellstart
 
@@ -58,11 +72,11 @@ Der minimale Happy-Path — aus den Quellen installieren (immer aktuell), Gesund
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .
 m1nd doctor
-m1nd install-skills codex          # oder: claude / gemini / antigravity / generic
+m1nd install-skills codex          # or: claude / gemini / antigravity / generic
 m1nd mcp-config codex --project /your/project
 ```
 
-Oder aus dem npm-Beta-Kanal: `npm install -g @maxkle1nz/m1nd@beta`.
+Oder aus npm: `npm install -g @maxkle1nz/m1nd`.
 
 Vollständige Installationskarte, Host-Packs, nativer Runtime-Build und Update-Flags: [docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) · Client-für-Client-Einrichtung: [Integrationsmatrix](../docs/IDE-INTEGRATIONS.md).
 
@@ -79,20 +93,36 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 Innerhalb einer MCP-Session ist die Doktrin diese Trust-Schleife — Trust *vor* dem Vertrauen in irgendwelchen Retrieval herstellen:
 
 ```jsonc
-// 0. Binding in einem Aufruf prüfen (Urteil vor dem Retrieval)
+// 0. Trust the binding in one call (verdict before retrieval)
 {"method":"tools/call","params":{"name":"trust_selftest","arguments":{"agent_id":"dev"}}}
 
-// 1. Wenn das Urteil nicht full_trust ist, den deterministischen Recovery-Pfad anfordern
+// 1. If the verdict is not full_trust, ask for the deterministic recovery path
 {"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
 
-// 2. Graph-Wahrheit aufbauen
+// 2. Build graph truth
 {"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 
-// 3. Eine strukturelle Frage stellen — leere Ergebnisse sagen *warum*, niemals nur "keine Ergebnisse"
+// 3. Ask a structural question — empty results say *why*, never just "no results"
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
 **Erste-Session-Schleife, in vier Zügen:** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` das dauerhafte Ergebnis, damit die nächste Session voraus startet.
+
+### Einen Graphen servieren, viele Agenten attachen
+
+Der Schnellstart oben verdrahtet einen stdio-Server pro Host — in Ordnung für einen Agenten, aber jeder Prozess lädt seinen eigenen Graphen und hält seinen eigenen Lease. Das Deployment, für das m1nd gebaut ist, ist ein Eigentümer, viele attachte Agenten. Ein Eigentümer-Prozess hält den Live-Graphen:
+
+```bash
+m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
+```
+
+Jeder Agent attacht dann als dünne stdio↔HTTP-Bridge — er lädt **keinen** Graphen, baut keine Engines und nimmt **keinen** Lease:
+
+```bash
+m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
+```
+
+Beliebig viele Bridges zeigen auf den einen Eigentümer und teilen sich seinen einzigen Live-Graphen, sodass das, was ein Agent `memorize`t, ein anderer sofort abruft — kein Reingest, keine Pro-Agent-Kopie. Queries laufen über localhost, sodass es local-first bleibt (`bind` bleibt `127.0.0.1`, außer du entscheidest dich für `--bind 0.0.0.0`). Ein warmes `seek` über die Bridge maß ≈0.7ms auf einem kleinen Graphen auf einer Maschine — Größenordnung, keine Garantie: Attach fügt einen localhost-Roundtrip hinzu, und die Latenz skaliert mit Graphgröße und Last.
 
 ## Was m1nd Nicht Ist
 
@@ -108,7 +138,7 @@ Es ist der Layer, der diese Oberflächen in ein operatives System verwandelt, ü
 
 ## Warum Agenten es Brauchen
 
-Ohne m1nd beginnt jede Session mit grep-Schleifen und manuelle Reorientierung; die Erkenntnisse der letzten Woche sind weg, und ein leeres Suchergebnis ist nicht von einem falschen Workspace-Binding zu unterscheiden. Mit m1nd beginnt die Session mit einem Trust-Urteil, vergangene Erkenntnisse laden automatisch bereits verankert an dem Code, der sie unterstützt, und leere Ergebnisse sagen *warum*.
+Ohne m1nd beginnt jede Session mit grep-Schleifen und manueller Reorientierung; die Erkenntnisse der letzten Woche sind weg, und ein leeres Suchergebnis ist nicht von einem falschen Workspace-Binding zu unterscheiden. Mit m1nd beginnt die Session mit einem Trust-Urteil, vergangene Erkenntnisse laden automatisch bereits verankert an dem Code, der sie unterstützt, und leere Ergebnisse sagen *warum*.
 
 Agenten auf echten Codebasen scheitern nicht, weil sie nicht suchen können. Sie scheitern, weil sie kein operatives Modell haben. Sie bauen Kontext jede Session von Grund auf neu auf, editieren ohne den Blast Radius zu kennen, und können ein leeres Ergebnis, das „nichts existiert" bedeutet, nicht von einem unterscheiden, das „falsches Repo" bedeutet.
 
@@ -144,12 +174,14 @@ Diese Schleife wurde live von Ende zu Ende bewiesen: `memorize` → `grounded_in
 Das ist das Verteidigungswürdigste, was m1nd tut, und kein Konkurrent liefert es. Die Doktrin: **Glaubwürdigkeit kommt von Ehrlichkeit, nicht davon, immer zu gewinnen.**
 
 - **`trust_selftest`** gibt ein Urteil *vor* jedem Retrieval zurück: `full_trust`, `needs_ingest`, `wrong_workspace_binding`, `stale_binding_suspected`, oder `degraded_host_tool_surface`. Der Agent weiß, ob er fortfahren, ingestieren, rebinden oder zurückfallen soll.
-- **`agent_runtime_contract`** begleitet jede Retrieve-Antwort und trägt einen `trust_mode`. Ein leeres Ergebnis wird disambiguiert — an falsches Repo gebunden vs. genuinement nichts vorhanden — niemals still als „keine Ergebnisse" gemeldet.
+- **`agent_runtime_contract`** begleitet jede Retrieve-Antwort und trägt einen `trust_mode`. Ein leeres Ergebnis wird disambiguiert — an falsches Repo gebunden vs. tatsächlich nichts vorhanden — niemals still als „keine Ergebnisse" gemeldet.
 - **`non_claims`-Arrays** werden bei jedem Mission-Tool geliefert. m1nd teilt dem Agenten mit, was es *nicht* bewiesen hat.
 - **`mission_verify` kann Nein sagen — und tut es, in getestetem Code.** Es lehnt Graph-only-Beweise ab: eine Behauptung kann sich nicht schließen ohne einen Dateilesevorgang, einen Testlauf oder eine Runtime-Probe. Der Test heißt buchstäblich `graph_only_evidence_is_not_enough`.
 - **`recovery_playbook`** gibt eine deterministische, geordnete Schritt-Liste zurück, um das Binding zu reparieren.
 
 Der Beweis für das Engagement ist das, was dafür gestrichen wurde: `savings` und `resonate` wurden in beta.7 aus der beworbenen Oberfläche entfernt, weil ein Tool, das immer behauptet zu gewinnen, nicht glaubwürdig ist. Kein Konkurrent — weder mem0, Zep, Letta, Sourcegraph, noch irgendein Code-Graph-MCP — liefert einen Layer, der dem Agenten sagt, was er *nicht* vertrauen soll und wie er sich erholt.
+
+**Die Field-Triage-Schleife schließt sich auf sich selbst.** Die Session-Telemetrie, die Agenten in `~/.m1nd/field-reports.jsonl` hinterlassen (rein lokal — m1nd telefoniert niemals nach Hause), ist kein passives Log: Reports werden triagiert, und ein *bestätigter* Field-Bug wird zu einem roten Battery-Case **vor** dem Fix, sodass die Regression bewiesen und nicht nur beschrieben ist. Diese Schleife ist bereits einmal von Ende zu Ende gelaufen: zwei im Feld gemeldete Bugs wurden zu fehlschlagenden Battery-Cases und dann gemergten Fixes — `north` komponiert jetzt L1GHT-Recall in sein Gedächtnis-Paket, und der `temp`-Graph-Sentinel löst zu einem echten Tempdir auf, anstatt das Arbeitsverzeichnis zu vermüllen.
 
 ## Sprachabdeckung
 
@@ -201,7 +233,7 @@ Das Agent-Pack ist Teil des Produkts, keine dekorative Dokumentation. m1nd ist a
 - **Tiefenanalyse** — `fingerprint`, `diverge`, `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, `runtime_overlay` (die RETROBUILDER-Linse) für versteckte Kopplung, Sicherheitspfade, strukturelle Duplikate und Runtime-Wärme.
 - **Gedächtnis** — dauerhafte Schlussfolgerungen mit `memorize` persistieren, mit `confidence` und `evidence`-Pfaden.
 
-Mission Control ist Beweisdisziplin, keine Feature-Liste. `mission_next` gibt genau einen Zug plus `do_not`-Guardrails zurück; `mission_verify` lehnt Graph-only-Behauptungen ab; `mission_close` drängt den Agenten immer, verifizietes Wissen zu persistieren, und zeichnet Lücken und Non-Claims auf. Im `bug_hunt`-Modus erfordert MC0 einen abschließenden `direct_sweep` nach verifizierten Erkenntnissen vor dem Schließen, damit Agenten den Negativraum prüfen.
+Mission Control ist Beweisdisziplin, keine Feature-Liste. `mission_next` gibt genau einen Zug plus `do_not`-Guardrails zurück; `mission_verify` lehnt Graph-only-Behauptungen ab; `mission_close` drängt den Agenten immer, verifiziertes Wissen zu persistieren, und zeichnet Lücken und Non-Claims auf. Im `bug_hunt`-Modus erfordert MC0 einen abschließenden direkten `direct_sweep` nach verifizierten Erkenntnissen vor dem Schließen, damit Agenten den Negativraum prüfen.
 
 **Vorbehalt:** `predict` hat **nur strukturellen Fallback** bis `ghost_edges` die Git-Co-Change-Matrix lädt — führe `ghost_edges` zuerst aus, wenn du echte Co-Change-Wahrscheinlichkeit brauchst.
 
@@ -211,11 +243,13 @@ Jede Zeile ist genau auf das kalibriert, was gemessen wurde. m1nd führt keine E
 
 | Behauptung | Ergebnis | Quelle / Einschränkung |
 |---|---|---|
-| `activate` / `impact`-Latenz | sub-µs `activate`, sub-ms `impact` | Criterion-Benchmarks in `m1nd-core/benches/` auf einem synthetischen 1K-Knoten-Graph — [Methodik](https://m1nd.world/wiki/benchmarks.html); als Größenordnung behandeln. |
+| `activate` / `impact`-Latenz | ~1µs `activate`, sub-µs `impact` auf einem synthetischen 1K-Knoten-Graph | Criterion-Benchmarks — **reproduziere es selbst: `cargo bench -p m1nd-core`** (gemessen `activate_1k_nodes` ≈1.4µs, `impact_depth3` ≈0.5µs auf einem Apple-Silicon-Mac); [Methodik](https://m1nd.world/wiki/benchmarks.html); Größenordnung, hardware-abhängig. |
 | Sprachmatrix | Calls + Cross-File-Imports für 10 Sprachen (+ Ruby Cross-File) | Von Ende zu Ende in einem einzelnen polyglottes Ingest verifiziert; sprachspezifische Tests in `m1nd-ingest`. Siehe [Sprachabdeckung](#sprachabdeckung). |
 | Post-Write-Validierungsstichprobe | 12/12 korrekt klassifiziert | Interner Runtime-Check. |
 | Geseedeter Bug-Hunt | 16/20 in der ersten akzeptierten `humanize`-Seed-Defekt-Runde (m1nd-trained); `m1nd-basic` und direkt je 8/15 | Interne Produktnachweise, `public_claim_worthy=false` — kein universeller Benchmark. |
 | Gedächtnis-Selbstverifizierung | live von Ende zu Ende bewiesen | `memorize` → `grounded_in` → Freshness-Flag auf bearbeiteter Datei → überlebt replace → Boot-Auto-Load. |
+| Fähigkeiten-Battery vs. grep | 37/37 bestanden; head-to-head 16 m1nd-Siege / 12 Unentschieden / **0 grep-Siege** | In-Repo-Harness `scratchpad/m1nd_battery.py` (37 Fälle, frischer Ingest + Ground-Truth-PASS/FAIL + `rg`-head-to-head). **Reproduziere: `python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`.** Einschränkung: ein Repo (m1nd selbst), selbst verfasste Fälle; ~5 der Unentschieden sind strukturelle Tools, gewertet gegen einen Literal-grep-Proxy, der nicht ausdrücken kann, was sie beantworten. |
+| Konforme Kalibrierung (`predict`) | act-Band ≈32% Präzision @ ≈13.5% Coverage (α=0.10) | Auf m1nds eigener Git-Historie (n≈9.2k held-out Prädiktionen), +3pts gegenüber rohen Zählungen nach der Geglättetes-Jaccard-Änderung. Einschränkung: ein Repo, ein grobes zählbasiertes Signal — das Gate abstiniert heute meist, **by design**: Abstinenz ist die ehrliche Ausgabe eines schwachen Signals, kein Fehler. |
 
 ## Einschränkungen
 
@@ -238,7 +272,7 @@ Drei Kern-Rust-Crates plus eine auxiliäre Bridge:
 - **`m1nd-ingest`** — Extraktions-, Routing- und Graph-Konstruktions-Adapter (Code, universelle Docs, L1GHT).
 - **`m1nd-openclaw`** — auxiliäre OpenClaw-Bridge (Unix-Socket-Lane, unabhängig versioniert).
 
-Aktuelle Crate-Versionen: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` alle `0.9.0-beta.8`.
+Aktuelle Crate-Versionen: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` alle `1.2.0` (`m1nd-openclaw` ist unabhängig bei `0.1.0` versioniert).
 
 <p align="center">
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd Architektur-Übersicht" width="960" />

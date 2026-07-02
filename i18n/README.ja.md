@@ -4,7 +4,7 @@
   <img src="../.github/m1nd-logo.svg" alt="m1nd" width="400" />
 </p>
 
-<h1 align="center">コーディングエージェントのためのローカルミッションランタイム</h1>
+<h1 align="center">コーディングエージェントのためのオペレーショナルインテリジェンス</h1>
 
 <p align="center">
   <strong>あなたのコーディングエージェントは盲目でのスタートを卒業する。</strong><br/>
@@ -36,19 +36,33 @@
 
 ---
 
-**m1nd はコーディングエージェントのためのローカルミッションランタイムであり、単なる検索ではなく操作ループ全体を統括する。**
+**m1nd はコーディングエージェントのためのオペレーショナルインテリジェンスであり、単なる検索ではなく操作ループを統括する。**
 
 > `grep` はテキストを見つける。ベクトル検索は類似チャンクを見つける。`m1nd` はエージェントに、何が繋がっていて、何が変わって、何が壊れて、何がドリフトして、どこから再開すべきかを示すローカルグラフを与える。
 
 以下の三つは他のどのツールにも同時には存在しない：
 
-- **因果コードグラフ** — 編集前に `impact` を呼ぶと、見落としていた爆発半径が分かる；`ghost_edges` は import 関係がないのに常に一緒に変更されるファイルを浮かび上がらせる。
+- **因果コードグラフ** — 編集前に `impact` を呼ぶと、読んでいなかった爆発半径が分かる；`ghost_edges` は import 関係がないのに常に一緒に変更されるファイルを浮かび上がらせる。
 - **自己検証メモリ** — `memorize` は発見を実際のコードノードに固定する；コードが変更されると `cross_verify` がそれを古いものとして警告する。
 - **トラスト／リカバリレイヤー** — すべての結果はトラストモードを持つ；`trust_selftest` と `recovery_playbook` は、ワークスペースバインディングが間違っているときとその回復方法をエージェントに伝える。
+
+加えて**アテンションランタイム** — `focus` はゴールに対する最小限で予算に制限された作業セットをエージェントに渡し、切り捨てたものの誠実なテールと、それが*十分な*コンテキストかどうかのシグナルを添える。
 
 <p align="center">
   <img src="../.github/m1nd-agent-first-map-v2.jpeg" alt="従来のエージェントループ vs m1ndグラウンドループ" width="960" />
 </p>
+
+## 1.2.0 の新機能 — 最初の OMEGA 期リリース
+
+1.2.0 はループを「取得して、あとは祈る」から**事前定向 → キャリブレーション済みの判定に基づいて行動する → 学んだことを取り込む**へと変える。テーマはトラストレイヤーと同じ：誠実な*ノー*は自信ありげな推測に勝る。
+
+- **`north(task)` — 一回の呼び出しで事前定向。** 新しいフロントドアは、トラスト、タスクコンテキスト（focus ノード + PageRank アンカー）、以前のクロスセッションメモリ、十分性シグナル、一つの `next_move`、そして `honest_gaps`（m1nd が*まだ*知らないこと）を合成する。`needs_ingest` は空のグラフに対する本物の答えだ。（以前のメモリをパケットに畳み込む L1GHT リコール合成は 1.2.0 タグの直後に `main` に着地した——1.2.0 のバイナリには含まれていない。）
+- **予測に対するコンフォーマルキャリブレーション。** `calibrate_predict` はリポジトリごとのゲートを起動する；その後、判定は `act` / `reverify` / `abstain` を読み、`abstain` は*キャリブレーションされていないか不十分*を意味する——弱い「イエス」ではなく、止まれというシグナルだ。ダークで出荷される：キャリブレーションするまで、判定は `reverify` で頭打ちになる。
+- **`seek` の `trust_envelope`**（ダークで出荷）と **`why` の `closure` 判定** — `blocked` は、パスが未解決／推測されたエッジに依存していることを意味する。**`trust_band: insufficient_evidence`** はいまやリスクバンドとは別物だ：それは*証拠なし*、誠実なコールドスタートの答えを意味し、「中リスク」ではない。
+- **メモリはプロヴェナンスの背骨を得た** — 主張は本物の経過時間 + 著者を持ち、古い主張を上書きし、時とともに失効し、リーセンシー上限を尊重する——だから記憶された知識は、静かに古びていくのではなく、自分自身のフレッシュネスを表明する。
+- **平滑化 Jaccard 共変更** — `ghost_edges` / `predict` はいまや生の共コミット数を数えるのではなく、結合を正規化する（キャリブレーションで生の数え上げに対して +3 ポイントが実証された）。
+- **バイナリバージョン + sha フィンガープリント** — `--version` は `1.2.0 (<sha>)` を印字する；`M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA`（+ `M1ND_STRICT_VERSION`）により、ホストはドリフトしたバイナリを検出して拒否できる。
+- **エージェントネイティブな MCP instructions + ローカル限定のフィールドレポート。** すべてのホストが受け取る `initialize` instructions は、いまや上記の操作ループそのものだ。エージェントはセッションごとに一つのテレメトリシグナルを残せる——検索判定に対する `learn`、または m1nd 自身が誤動作したときの `~/.m1nd/field-reports.jsonl` への一行。そのファイルはローカル限定だ；**m1nd は決して外部に通信しない。**
 
 ## クイックスタート
 
@@ -58,11 +72,11 @@
 git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
 npm install -g .
 m1nd doctor
-m1nd install-skills codex          # または: claude / gemini / antigravity / generic
+m1nd install-skills codex          # or: claude / gemini / antigravity / generic
 m1nd mcp-config codex --project /your/project
 ```
 
-npm ベータチャンネルからのインストール：`npm install -g @maxkle1nz/m1nd@beta`。
+または npm から：`npm install -g @maxkle1nz/m1nd`。
 
 完全なインストールマップ、ホストパック、ネイティブランタイムビルド、更新フラグ：[docs/AGENT-PACKS.md](../docs/AGENT-PACKS.md) · クライアント別セットアップ：[統合マトリクス](../docs/IDE-INTEGRATIONS.md)。
 
@@ -79,20 +93,36 @@ m1nd agent first-minute --repo /your/project --query "understand this system" --
 MCP セッション内での教義はこのトラストループ——検索結果を信じる*前に*トラストを確立する：
 
 ```jsonc
-// 0. 一回の呼び出しでバインディングを信頼（検索前に判定を得る）
+// 0. Trust the binding in one call (verdict before retrieval)
 {"method":"tools/call","params":{"name":"trust_selftest","arguments":{"agent_id":"dev"}}}
 
-// 1. 判定が full_trust でない場合、決定論的リカバリパスを要求する
+// 1. If the verdict is not full_trust, ask for the deterministic recovery path
 {"method":"tools/call","params":{"name":"recovery_playbook","arguments":{"agent_id":"dev"}}}
 
-// 2. グラフの真実を構築する
+// 2. Build graph truth
 {"method":"tools/call","params":{"name":"ingest","arguments":{"path":"/your/project","agent_id":"dev"}}}
 
-// 3. 構造的な質問をする——空の結果は「なぜ」を言う、決して「結果なし」とだけ言わない
+// 3. Ask a structural question — empty results say *why*, never just "no results"
 {"method":"tools/call","params":{"name":"activate","arguments":{"query":"authentication flow","agent_id":"dev"}}}
 ```
 
 **初回セッションループ、四ステップで：** `trust_selftest` → `ingest` → `seek`/`audit` → `memorize` で永続的な発見を残し、次のセッションを先行スタートさせる。
+
+### 一つのグラフをサーブし、多数のエージェントをアタッチする
+
+上記のクイックスタートはホストごとに stdio サーバーを接続する——一つのエージェントには十分だが、各プロセスは自身のグラフをロードし、自身のリースを保持する。m1nd が本来向けて作られているデプロイは、一人のオーナーと多数のアタッチされたエージェントだ。一つのオーナープロセスがライブグラフを保持する：
+
+```bash
+m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
+```
+
+その後、各エージェントは薄い stdio↔HTTP ブリッジとしてアタッチする——グラフを**一切**ロードせず、エンジンを構築せず、リースを**一切**取らない：
+
+```bash
+m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
+```
+
+任意の数のブリッジが一つのオーナーを指し、その単一のライブグラフを共有する。だから、あるエージェントが `memorize` したものを別のエージェントが即座にリコールする——再インジェストなし、エージェントごとのコピーなし。クエリは localhost を経由するので、ローカルファーストを保つ（`--bind 0.0.0.0` をオプトインしない限り、bind は `127.0.0.1` のままだ）。ブリッジ越しのウォームな `seek` は、一台のマシンの小さなグラフで ≈0.7ms を計測した——桁のオーダーであり、保証ではない：アタッチは localhost のラウンドトリップを加え、レイテンシはグラフサイズと負荷に応じてスケールする。
 
 ## m1nd ではないもの
 
@@ -134,10 +164,10 @@ memorize({
 ```
 
 2. **固定する** — m1nd は `<runtime>/agent-memory/` 下にグラフネイティブな `.light.md` を書き、インジェストし（`adapter=light mode=merge`）、`grounded_in` エッジで各 `evidence` パスを実際のコードノードに解決する——知識がコードと同じ活性化空間に存在し、`seek` / `activate` / `impact` でサーフェスされるようになる。
-3. **自動ロード** — すべての将来のセッション開始時に、`m1nd` は `agent-memory/` を自動的にインジェストし、`session_handshake.agent_memory` で報告する。過去の発見は `mode=replace` インジェストを生き延び、そこに*存在する*。
-4. **古さの自己フラグ立て** — `cross_verify(check: ["evidence_freshness"])` はすべての引用ファイルを再ハッシュし、コードが変更されたために古くなった主張を名指しする——メモリが嘘をつくときに教えてくれる、誤解させるのではなく。
+3. **自動ロード** — すべての将来のセッション開始時に、`m1nd` は `agent-memory/` を自動的にインジェストし、`session_handshake.agent_memory` で報告する。過去の発見は `mode=replace` インジェストを生き延び、ただそこに*存在する*。
+4. **古さの自己フラグ立て** — `cross_verify(check: ["evidence_freshness"])` はすべての引用ファイルを再ハッシュし、コードが変更されたために古くなった主張を名指しする——だからメモリは、誤解させるのではなく、嘘をつくときに教えてくれる。
 
-このループはエンドツーエンドで実証されている：`memorize` → `grounded_in` エッジ → 編集されたファイルのフレッシュネスフラグ → `mode=replace` を生き延びる → 起動時の自動ロード。有界ミッションを閉じるとき？`write_light_memory: true` を `mission_close` に渡すと、その検証済みの主張を同じ方法で永続化できる。この習慣は、すべての MCP クライアントが `initialize` 時に受け取るサーバーの `instructions` に文書化されている——ホスト非依存、クライアント固有のプラグイン不要。
+このループはエンドツーエンドでライブ実証されている：`memorize` → `grounded_in` エッジ → 編集されたファイルのフレッシュネスフラグ → `mode=replace` を生き延びる → 起動時の自動ロード。有界ミッションを閉じるとき？`write_light_memory: true` を `mission_close` に渡すと、その検証済みの主張を同じ方法で永続化できる。この習慣は、すべての MCP クライアントが `initialize` 時に受け取るサーバーの `instructions` に文書化されている——ホスト非依存、クライアント固有のプラグイン不要。
 
 ## トラスト／誠実性レイヤー
 
@@ -151,9 +181,11 @@ memorize({
 
 この約束の証明は、そのために犠牲にしたもの：`savings` と `resonate` は beta.7 で公告サーフェスから削除された、なぜなら常に勝つと主張するツールは信頼できないからだ。競合他社——mem0、Zep、Letta、Sourcegraph、またはいかなるコードグラフ MCP も——エージェントに何を*信頼しないべきか*そして回復方法を伝えるレイヤーを提供していない。
 
+**フィールドトリアージのループはそれ自身の上で閉じる。** エージェントが `~/.m1nd/field-reports.jsonl` に残すセッションテレメトリ（ローカル限定——m1nd は決して外部に通信しない）は受動的なログではない：レポートはトリアージされ、*確認された*フィールドバグは修正の**前に**赤いバッテリーケースになる——だからリグレッションは記述されるだけでなく、証明される。そのループはすでにエンドツーエンドで一度回った：二つのフィールド報告バグが失敗するバッテリーケースになり、その後マージされた修正になった——`north` はいまや L1GHT リコールをそのメモリパケットに合成し、`temp` グラフのセンチネルは作業ディレクトリを散らかす代わりに本物の tempdir に解決される。
+
 ## 言語カバレッジ
 
-グラフ推論（`impact`、`why`、`predict`、`trace`、`taint_trace`）はエクストラクターの品質に依存する。m1nd は言語ごとに **`calls` エッジ**（コールグラフ）と**クロスファイル `imports`**（ファイル→ファイルの依存解決）を解決する。以下のマトリクスは単一のポリグロットインジェストで実証された：
+グラフ推論（`impact`、`why`、`predict`、`trace`、`taint_trace`）はエクストラクターの品質に依存する。m1nd は言語ごとに **`calls` エッジ**（コールグラフ）と**クロスファイル `imports`**（ファイル→ファイルの依存解決）の両方を解決する。以下のマトリクスは単一のポリグロットインジェストでライブ実証された：
 
 | 言語 | `calls` | クロスファイル imports |
 |---|:---:|:---:|
@@ -180,16 +212,16 @@ memorize({
 |---|---|---|
 | グラフ基盤 | コードのインジェスト、グラフ状態の維持、セッション継続性の診断、有用なパスの強化、クロスセッションの重みドリフト検出 | `trust_selftest`、`session_handshake`、`recovery_playbook`、`ingest`、`health`、`doctor`、`learn`、`warmup`、`drift` |
 | 検索と定向 | 手動ファイル読み取りの前にテキスト、パス、意図、構造、または関係で検索 | `audit`、`search`、`glob`、`seek`、`activate`、`why`、`trace` |
-| ドキュメントと知識バインディング | ユニバーサルドキュメントまたはグラフネイティブ `L1GHT` をインジェストし、コンセプトをコードにリンクする | `ingest(adapter="universal"\|"light")`、`document_resolve`、`document_provider_health`、`document_bindings`、`document_drift`、`auto_ingest_*` |
+| ドキュメントと知識バインディング | ユニバーサルドキュメントまたはグラフネイティブ `L1GHT` をインジェストし、コンセプトをコードにリンクバックする | `ingest(adapter="universal"\|"light")`、`document_resolve`、`document_provider_health`、`document_bindings`、`document_drift`、`auto_ingest_*` |
 | ナビゲーションと継続性 | セッションをまたいでステートフルなルート、引き継ぎ、ベースライン、調査メモリを維持する | `perspective_*`、`trail_*`、`coverage_session`、`boot_memory`、`persist` |
-| Mission Control と証明の規律 | 有界ルートを維持し、イベントを記録し、グラフ定向から直接証明に切り替え、明示的なギャップでクローズする | `mission_start`、`mission_event`、`mission_next`、`mission_verify`、`mission_handoff`、`mission_close` |
+| Mission Control と証明の規律 | 有界ルートを維持し、イベントを記録し、グラフ定向から直接証明に切り替え、引き継ぎ、明示的なギャップでクローズする | `mission_start`、`mission_event`、`mission_next`、`mission_verify`、`mission_handoff`、`mission_close` |
 | 変更計画と証明 | 影響、共変更、欠落ステップ、失敗パス、構造的主張について推論する | `impact`、`predict`、`validate_plan`、`missing`、`hypothesize`、`counterfactual`、`differential` |
 | 品質、セキュリティ、アーキテクチャ | パターン、汚染パス、トラスト境界、重複、レイヤー違反、型フロー、リファクタリング対象を検出する | `scan`、`scan_all`、`heuristics_surface`、`antibody_*`、`taint_trace`、`type_trace`、`trust`、`layers`、`layer_inspect`、`twins`、`fingerprint`、`flow_simulate`、`epidemic`、`tremor`、`refactor_plan` |
 | 時間、ランタイム、マルチリポジトリ作業 | git 履歴、ドリフト、隠れた共変更エッジ、ランタイムオーバーレイ、クロスリポジトリ参照を検査する | `timeline`、`diverge`、`ghost_edges`、`runtime_overlay`、`external_references`、`federate`、`federate_auto` |
 | 運用と監視 | リポジトリの状態を監査し、グラフとディスクの真実を検証し、デーモン監視を実行し、状態を永続化し、永続アラートを浮かび上がらせる | `audit`、`cross_verify`、`daemon_*`、`alerts_*`、`panoramic`、`metrics`、`report`、`persist`、`diagram`、`help` |
 | サージカル編集の準備と実行 | コンパクトな接続済みコンテキストを取得し、書き込みをプレビューし、グラフ対応編集を適用する | `surgical_context`、`surgical_context_v2`、`view`、`batch_view`、`edit_preview`、`edit_commit`、`apply`、`apply_batch` |
 
-**ティアリング：** デフォルトでは 27 のエッセンシャルツールが公告され、ツール選択コストを削減する；`M1ND_TOOL_TIER=full` を設定するとフルサーフェス（100 以上のツール：RETROBUILDER、perspectives、federation、daemon）が公告される。いくつかのツール（`resonate`、`savings`、`lock_*`）は名前で呼び出せるが公告サーフェスには載っていない。隠されたツールは常に `tools/call` で呼び出せる——ティアリングは `tools/list` がサーフェスするものだけを制御する。
+**ティアリング：** ツール選択コストを削減するため、デフォルトでは 27 のエッセンシャルツールが公告される；`M1ND_TOOL_TIER=full` を設定するとフルサーフェス（100 以上のツール：RETROBUILDER、perspectives、federation、daemon）が公告される。いくつかのツール（`resonate`、`savings`、`lock_*`）は名前で呼び出せるが公告サーフェスには載っていない。隠されたツールは常に `tools/call` で呼び出せる——ティアリングは `tools/list` がサーフェスするものだけを制御する。
 
 ## 操作ループ
 
@@ -201,7 +233,7 @@ memorize({
 - **深い分析** — `fingerprint`、`diverge`、`ghost_edges`、`taint_trace`、`twins`、`refactor_plan`、`runtime_overlay`（RETROBUILDER レンズ）、隠れた結合、セキュリティパス、構造的重複、ランタイムヒートのために。
 - **メモリ** — `confidence` と `evidence` パスを持って `memorize` で永続的な結論を残す。
 
-Mission Control は証明の規律であり、機能リストではない。`mission_next` はちょうど一つのアクションと `do_not` ガードレールを返す；`mission_verify` はグラフのみの主張を拒否する；`mission_close` は常にエージェントが検証済みの知識を永続化し、ギャップと非主張を記録するよう促す。`bug_hunt` モードでは、MC0 は検証済みの発見の後にクローズ前の最終 `direct_sweep` を要求し、エージェントが負の空間を確認するようにする。
+Mission Control は証明の規律であり、機能リストではない。`mission_next` はちょうど一つのアクションと `do_not` ガードレールを返す；`mission_verify` はグラフのみの主張を拒否する；`mission_close` は常にエージェントが検証済みの知識を永続化するよう促し、ギャップと非主張を記録する。`bug_hunt` モードでは、MC0 は検証済みの発見の後にクローズ前の最終 `direct_sweep` を要求し、エージェントが負の空間を確認するようにする。
 
 **注意：** `predict` は `ghost_edges` が git 共変更マトリクスをロードするまで**構造的フォールバックのみ**——本当の共変更可能性が必要なときは先に `ghost_edges` を実行すること。
 
@@ -211,11 +243,13 @@ Mission Control は証明の規律であり、機能リストではない。`mis
 
 | 主張 | 結果 | ソース／ヘッジ |
 |---|---|---|
-| `activate` / `impact` レイテンシ | `activate` サブマイクロ秒、`impact` サブミリ秒 | `m1nd-core/benches/` の 1K ノード合成グラフでの Criterion ベンチマーク——[方法論](https://m1nd.world/wiki/benchmarks.html)；桁の参考として扱うこと。 |
+| `activate` / `impact` レイテンシ | 1K ノード合成グラフで `activate` ~1µs、`impact` サブマイクロ秒 | Criterion ベンチマーク——**自分で再現せよ：`cargo bench -p m1nd-core`**（Apple シリコン Mac で `activate_1k_nodes` ≈1.4µs、`impact_depth3` ≈0.5µs を計測）；[方法論](https://m1nd.world/wiki/benchmarks.html)；桁のオーダー、ハードウェア依存。 |
 | 言語マトリクス | 10 言語の calls + クロスファイル imports（+ Ruby クロスファイル） | 単一のポリグロットインジェストでエンドツーエンド検証；言語ごとのテストは `m1nd-ingest` にある。[言語カバレッジ](#言語カバレッジ)参照。 |
 | 書き込み後検証サンプル | 12/12 を正しく分類 | 内部ランタイムチェック。 |
 | シードされたバグハント | 最初に受け入れられた `humanize` シード欠陥ラウンドで 16/20（m1nd 訓練済み）；`m1nd-basic` と直接はそれぞれ 8/15 | 内部製品証拠、`public_claim_worthy=false`——ユニバーサルベンチマークではない。 |
-| メモリの自己検証 | エンドツーエンドで実証済み | `memorize` → `grounded_in` → 編集されたファイルのフレッシュネスフラグ → replace を生き延びる → 起動時の自動ロード。 |
+| メモリの自己検証 | エンドツーエンドでライブ実証済み | `memorize` → `grounded_in` → 編集されたファイルのフレッシュネスフラグ → replace を生き延びる → 起動時の自動ロード。 |
+| ケイパビリティバッテリー vs grep | 37/37 パス；直接対決 16 m1nd 勝ち / 12 引き分け / **0 grep 勝ち** | リポジトリ内ハーネス `scratchpad/m1nd_battery.py`（37 ケース、フレッシュインジェスト + グラウンドトゥルース PASS/FAIL + `rg` 直接対決）。**再現：`python3 scratchpad/m1nd_battery.py ./target/release/m1nd-mcp . --suite m1nd`。** ヘッジ：一つのリポジトリ（m1nd 自身）、自己著述のケース；引き分けのうち約 5 件は、答えを表現できないリテラル grep プロキシに対してスコアされた構造ツールだ。 |
+| コンフォーマルキャリブレーション（`predict`） | act バンド ≈32% 精度 @ ≈13.5% カバレッジ（α=0.10） | m1nd 自身の git 履歴上（n≈9.2k のホールドアウト予測）、平滑化 Jaccard 変更後に生の数え上げに対して +3pts。ヘッジ：一つのリポジトリ、粗い数え上げベースのシグナル——ゲートは今日ほとんど棄権する、**設計どおりに**：棄権は弱いシグナルの誠実な出力であって、失敗ではない。 |
 
 ## 制限事項
 
@@ -227,7 +261,7 @@ Mission Control は証明の規律であり、機能リストではない。`mis
 - コンパイラまたはランタイムの真実だけが必要な場合
 - 構造的な不確実性のない単純なローカルファイル操作の場合
 
-**フィーディングが必要：** `trust` と `tremor` は `learn` フィードバック / `ghost_edges` データが蓄積されるまで中立的な事前分布から始まり、`predict` は共変更シグナルが意味を持つ前に `ghost_edges` のロードが必要だ。これらは使うほど改善する；起動時に情報がないことについて誠実だ。
+**フィーディングが必要：** `trust` と `tremor` は `learn` フィードバック / `ghost_edges` データが蓄積されるまで中立的な事前分布から始まり、`predict` はその共変更シグナルが意味を持つ前にまず `ghost_edges` のロードが必要だ。これらは使うほど改善する；起動時に情報がないことについて誠実だ。
 
 ## アーキテクチャ概観
 
@@ -238,7 +272,7 @@ Mission Control は証明の規律であり、機能リストではない。`mis
 - **`m1nd-ingest`** — 抽出、ルーティング、グラフ構築アダプター（コード、ユニバーサルドキュメント、L1GHT）。
 - **`m1nd-openclaw`** — 補助 OpenClaw ブリッジ（Unix ソケットレーン、独立バージョニング）。
 
-現在のクレートバージョン：`m1nd-core`、`m1nd-ingest`、`m1nd-mcp` はすべて `0.9.0-beta.8`。
+現在のクレートバージョン：`m1nd-core`、`m1nd-ingest`、`m1nd-mcp` はすべて `1.2.0`（`m1nd-openclaw` は `0.1.0` で独立にバージョニングされている）。
 
 <p align="center">
   <img src="../.github/m1nd-architecture-overview-v2.jpeg" alt="m1nd アーキテクチャ概観" width="960" />
