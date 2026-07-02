@@ -1097,13 +1097,21 @@ mod tests {
             handle_light_author(&mut state, super_input("Race", "authored", "0.5")).expect("seed");
         }
 
+        // Build BOTH sessions SEQUENTIALLY, before spawning any thread. Each is an
+        // independent SessionState pointing at the SAME runtime_root — the real
+        // multi-session-drift shape — but session INITIALIZATION is not what this
+        // test proves and is not concurrent-safe (two same-pid ReadWrite acquirers
+        // race the shared instance-lease write in instance_registry). Initializing
+        // here, off the hot path, isolates the property under test: the per-slug
+        // flock in handle_light_author is the ONLY serializer of the concurrent
+        // read-modify-write, exactly as it is across two live sibling processes.
+        let sessions: Vec<SessionState> =
+            (0..2u32).map(|_| build_session(root.as_path())).collect();
+
         let mut handles = Vec::new();
-        for i in 0..2u32 {
-            let root = Arc::clone(&root);
+        for (i, mut state) in sessions.into_iter().enumerate() {
             handles.push(thread::spawn(move || {
-                // Each thread builds its own SessionState pointing at the SAME
-                // runtime_root, so the per-slug flock is the only serializer.
-                let mut state = build_session(root.as_path());
+                // Race ONLY the memorize RMW; the flock must serialize it.
                 let conf = if i == 0 { "0.9" } else { "0.8" };
                 let _ = handle_light_author(&mut state, super_input("Race", "verified", conf));
             }));
