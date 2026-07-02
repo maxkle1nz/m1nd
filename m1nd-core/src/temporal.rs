@@ -30,6 +30,16 @@ pub const CO_CHANGE_DECAY_FACTOR: f32 = 0.95;
 pub const BOOTSTRAP_WEIGHT: f32 = 0.3;
 /// Max entries per row in co-change matrix.
 pub const CO_CHANGE_MAX_ROW: usize = 100;
+/// Additive (Laplace-style) smoothing for the Jaccard co-change strength:
+/// strength = co / (|A ∪ B| + k). Keeps the measure in (0, 1) while damping
+/// tiny-support coincidences — a pair seen exactly once scores 1/3 instead of
+/// saturating at 1.0, and well-supported exclusive couples approach 1.0.
+/// k = 2 is calibration-proven on m1nd's own history: unsmoothed Jaccard
+/// (k = 0) collapsed the act band to one-off pairs, k = 1 left the top
+/// confidence band less precise than the middle, and k = 2 restored a
+/// monotone precision-in-confidence curve while beating raw counts at the
+/// conformal act point.
+pub const CO_CHANGE_JACCARD_SMOOTHING: f32 = 2.0;
 /// Dormant hours threshold.
 pub const DORMANT_HOURS: f64 = 720.0;
 /// Resurrection additive floor.
@@ -50,6 +60,10 @@ pub const RAW_DECAY_FLOOR: f32 = 1e-6;
 pub struct CoChangeEntry {
     pub target: NodeId,
     pub strength: FiniteF32,
+    /// Raw co-change observations behind this entry. Zero for structural
+    /// bootstrap seeds (BFS guesses, not observations); positive once the
+    /// pair has been seen changing together.
+    pub co_count: u32,
 }
 
 /// Sparse co-change matrix with bounded entry count.
@@ -59,6 +73,9 @@ pub struct CoChangeEntry {
 pub struct CoChangeMatrix {
     /// Per-node sorted list of co-change entries.
     rows: Vec<Vec<CoChangeEntry>>,
+    /// Per-node co-change event appearances (commits the node changed in) —
+    /// the marginal counts of the smoothed-Jaccard association.
+    node_counts: Vec<u32>,
     /// Total entries across all rows (for budget enforcement).
     total_entries: u64,
     /// Maximum total entries allowed.
@@ -110,6 +127,7 @@ impl CoChangeMatrix {
                         entries.push(CoChangeEntry {
                             target: tgt,
                             strength: FiniteF32::new(new_strength),
+                            co_count: 0,
                         });
                     }
 
@@ -125,14 +143,56 @@ impl CoChangeMatrix {
 
         Ok(Self {
             rows,
+            node_counts: vec![0; n],
             total_entries,
             budget,
             is_learned: false,
         })
     }
 
+    /// Register one co-change event appearance of `node` (one commit it
+    /// changed in). This is the marginal count of the smoothed-Jaccard
+    /// strength: callers recording pairs outside
+    /// `populate_from_commit_groups` should note each participating node
+    /// once per event, then record the pairs.
+    pub fn note_node_appearance(&mut self, node: NodeId) {
+        let idx = node.as_usize();
+        if idx < self.node_counts.len() {
+            self.node_counts[idx] = self.node_counts[idx].saturating_add(1);
+        }
+    }
+
+    /// Effective coupling strength of an entry in `row_idx`'s row.
+    ///
+    /// Learned entries (`co_count > 0`) get a smoothed-Jaccard association:
+    /// `co / (count(A) + count(B) − co + CO_CHANGE_JACCARD_SMOOTHING)` —
+    /// bounded (0, 1), punishing promiscuous files (large union) and
+    /// tiny-support coincidences (the smoothing dominates small `co`).
+    /// Structural bootstrap seeds (`co_count == 0`) pass their BFS strength
+    /// through unchanged. If appearance counts were never registered (direct
+    /// `record_co_change` without `note_node_appearance`), the union
+    /// saturates to `co` so the denominator stays valid — Jaccard on the
+    /// evidence available.
+    fn entry_strength(&self, row_idx: usize, entry: &CoChangeEntry) -> FiniteF32 {
+        if entry.co_count == 0 {
+            return entry.strength;
+        }
+        let count_a = self.node_counts.get(row_idx).copied().unwrap_or(0) as u64;
+        let count_b = self
+            .node_counts
+            .get(entry.target.as_usize())
+            .copied()
+            .unwrap_or(0) as u64;
+        let co = entry.co_count as u64;
+        let union = (count_a + count_b).saturating_sub(co).max(co);
+        let smoothed = co as f32 / (union as f32 + CO_CHANGE_JACCARD_SMOOTHING);
+        FiniteF32::new(smoothed.clamp(0.0, 1.0))
+    }
+
     /// Record an observed co-change between two nodes.
-    /// Updates coupling strength. Respects budget cap (FM-TMP-001).
+    /// Accumulates the raw pair co-count; the smoothed-Jaccard coupling
+    /// strength is computed on read (`predict`), so it never goes stale as
+    /// the marginal counts grow. Respects budget cap (FM-TMP-001).
     /// Replaces: temporal_v2.py CoChangeMatrix.record_co_change()
     pub fn record_co_change(
         &mut self,
@@ -147,8 +207,8 @@ impl CoChangeMatrix {
 
         // Check if entry already exists
         if let Some(entry) = self.rows[src_idx].iter_mut().find(|e| e.target == target) {
-            // Strengthen existing
-            entry.strength = FiniteF32::new((entry.strength.get() + 0.1).min(1.0));
+            // Strengthen existing: one more joint observation.
+            entry.co_count = entry.co_count.saturating_add(1);
             self.is_learned = true;
             return Ok(());
         }
@@ -160,25 +220,29 @@ impl CoChangeMatrix {
             });
         }
 
+        let new_entry = CoChangeEntry {
+            target,
+            strength: FiniteF32::ZERO,
+            co_count: 1,
+        };
+
         // Row capacity check
         if self.rows[src_idx].len() >= CO_CHANGE_MAX_ROW {
-            // Replace weakest entry
-            if let Some(weakest) = self.rows[src_idx]
+            // Replace the weakest entry — compared by effective strength so
+            // structural seeds and learned pairs compete in the same units.
+            let weakest = self.rows[src_idx]
                 .iter()
                 .enumerate()
-                .min_by(|a, b| a.1.strength.cmp(&b.1.strength))
-                .map(|(i, _)| i)
-            {
-                self.rows[src_idx][weakest] = CoChangeEntry {
-                    target,
-                    strength: FiniteF32::new(0.1),
-                };
+                .min_by(|a, b| {
+                    self.entry_strength(src_idx, a.1)
+                        .cmp(&self.entry_strength(src_idx, b.1))
+                })
+                .map(|(i, _)| i);
+            if let Some(weakest) = weakest {
+                self.rows[src_idx][weakest] = new_entry;
             }
         } else {
-            self.rows[src_idx].push(CoChangeEntry {
-                target,
-                strength: FiniteF32::new(0.1),
-            });
+            self.rows[src_idx].push(new_entry);
             self.total_entries += 1;
         }
 
@@ -187,13 +251,22 @@ impl CoChangeMatrix {
     }
 
     /// Predict co-change partners for a changed node, sorted by coupling strength.
+    /// Learned entries carry the smoothed-Jaccard strength computed against
+    /// the current marginal counts; structural bootstrap seeds keep their
+    /// BFS strength.
     /// Replaces: temporal_v2.py CoChangeMatrix.predict()
     pub fn predict(&self, changed_node: NodeId, top_k: usize) -> Vec<CoChangeEntry> {
         let idx = changed_node.as_usize();
         if idx >= self.rows.len() {
             return Vec::new();
         }
-        let mut entries = self.rows[idx].clone();
+        let mut entries: Vec<CoChangeEntry> = self.rows[idx]
+            .iter()
+            .map(|entry| CoChangeEntry {
+                strength: self.entry_strength(idx, entry),
+                ..*entry
+            })
+            .collect();
         entries.sort_by_key(|entry| std::cmp::Reverse(entry.strength));
         entries.truncate(top_k);
         entries
@@ -214,7 +287,7 @@ impl CoChangeMatrix {
     ) -> M1ndResult<()> {
         for group in commit_groups {
             // Resolve external IDs to NodeIds
-            let node_ids: Vec<NodeId> = group
+            let mut node_ids: Vec<NodeId> = group
                 .iter()
                 .filter_map(|path| {
                     let file_id = if path.starts_with("file::") {
@@ -225,6 +298,14 @@ impl CoChangeMatrix {
                     graph.resolve_id(&file_id)
                 })
                 .collect();
+            node_ids.sort_unstable();
+            node_ids.dedup();
+
+            // One commit appearance per participating node — the marginal
+            // counts of the smoothed-Jaccard strength.
+            for &node in &node_ids {
+                self.note_node_appearance(node);
+            }
 
             // Record co-change for each pair in the group
             for i in 0..node_ids.len() {
