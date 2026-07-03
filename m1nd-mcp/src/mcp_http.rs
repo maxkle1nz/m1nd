@@ -152,6 +152,19 @@ fn graph_changed_notification(event: &SseEvent) -> Option<serde_json::Value> {
     }))
 }
 
+/// Does this broadcast event originate from wire session `viewer`? True only when
+/// the event carries an [`ORIGIN_SESSION_FIELD`] equal to `viewer`. Used by the
+/// GET/SSE relay to suppress a client's own mutation (field-triage L21) — an event
+/// with no origin stamp (older/other producers) is NOT anyone's own, so it is never
+/// suppressed and relays to everyone exactly as before.
+fn event_origin_is(event: &SseEvent, viewer: &str) -> bool {
+    event
+        .data
+        .get(ORIGIN_SESSION_FIELD)
+        .and_then(|v| v.as_str())
+        == Some(viewer)
+}
+
 /// An MCP *wire* session (Streamable-HTTP transport session).
 ///
 /// This is distinct from:
@@ -450,10 +463,22 @@ pub async fn handle_mcp_post(
     // forwards `notifications/m1nd/graph_changed` to every attached client. Reads
     // and failed calls publish nothing (`graph_changed_notification` filters to
     // GRAPH_MUTATION_TOOLS + success).
+    //
+    // The event is stamped with THIS request's originating wire session id so the
+    // GET/SSE relay can suppress a client's own mutation (field-triage L21): the
+    // push stream is a CROSS-session notifier — an agent must never see an echo of
+    // its own write, which through the `--attach` bridge races the real response
+    // into the host's stdout and is read as a literal `null`.
     let mutation_meta = mutation_event_meta(&request);
     let response = run_mcp_method(app.clone(), request).await;
     if let Some((tool, agent_id)) = mutation_meta {
-        publish_graph_mutation_event(&app, &tool, agent_id.as_deref(), response.error.is_none());
+        publish_graph_mutation_event(
+            &app,
+            &tool,
+            agent_id.as_deref(),
+            Some(session_id.as_str()),
+            response.error.is_none(),
+        );
     }
     jsonrpc_ok_response(&response, None)
 }
@@ -478,25 +503,49 @@ fn mutation_event_meta(request: &JsonRpcRequest) -> Option<(String, Option<Strin
     Some((tool.to_string(), agent_id))
 }
 
+/// Field key under which a broadcast mutation event carries the wire
+/// `mcp-session-id` of the session that CAUSED it. The GET/SSE relay reads this to
+/// suppress a client's own mutation (see [`graph_changed_notification`]).
+const ORIGIN_SESSION_FIELD: &str = "origin_mcp_session";
+
 /// Publish a `tool_result` SseEvent for a finished mutation onto the broadcast
 /// bus. The shape mirrors the stdio server's `tool_result` event so the shared
 /// [`graph_changed_notification`] relay logic forwards it identically. A failed
 /// call carries `success:false` and is suppressed downstream.
+///
+/// `origin_session` is the wire `mcp-session-id` that made this call; it is stamped
+/// into the event so the GET/SSE stream can skip echoing the mutation back to that
+/// same session (field-triage L21). It is `None` only for producers with no wire
+/// session (none today on this path); such an event is relayed to everyone as
+/// before.
 fn publish_graph_mutation_event(
     app: &Arc<AppState>,
     tool: &str,
     agent_id: Option<&str>,
+    origin_session: Option<&str>,
     success: bool,
 ) {
+    let mut data = serde_json::json!({
+        "tool": tool,
+        "source": "mcp_http",
+        "agent_id": agent_id,
+        "success": success,
+        "timestamp_ms": now_ms(),
+    });
+    // Stamp the originating wire session under the const key (a non-literal key can't
+    // go in the `json!` body). Absent when there is no wire session.
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert(
+            ORIGIN_SESSION_FIELD.to_string(),
+            match origin_session {
+                Some(sid) => serde_json::Value::String(sid.to_string()),
+                None => serde_json::Value::Null,
+            },
+        );
+    }
     let sse_event = SseEvent {
         event_type: "tool_result".to_string(),
-        data: serde_json::json!({
-            "tool": tool,
-            "source": "mcp_http",
-            "agent_id": agent_id,
-            "success": success,
-            "timestamp_ms": now_ms(),
-        }),
+        data,
     };
     // Best-effort: a send error only means there are no subscribers right now.
     let _ = app.event_tx.send(sse_event);
@@ -549,7 +598,11 @@ fn validate_session(app: &Arc<AppState>, headers: &HeaderMap) -> Result<String, 
 /// kind of message — a `notifications/m1nd/graph_changed` notification — emitted
 /// whenever ANOTHER agent mutates the shared graph. It is intentionally
 /// low-noise (see [`graph_changed_notification`]): read-only tool results are
-/// never relayed.
+/// never relayed, and — enforced here (field-triage L21) — a client never sees an
+/// echo of its OWN mutation: an event stamped with this stream's own wire
+/// `mcp-session-id` is skipped. Without that skip the caller's own write comes
+/// back through the `--attach` bridge and races the real tool response into the
+/// host's stdout, where it is read as a literal `null`.
 ///
 /// Each frame gets an incrementing SSE `id:` (cheap; enables future
 /// `Last-Event-ID` resumability — replay itself is NOT implemented in this
@@ -558,10 +611,12 @@ pub async fn handle_mcp_get(
     axum::extract::State(app): axum::extract::State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Response {
-    // Validate before opening the stream (no lock held across `.await`).
-    if let Err(resp) = validate_session(&app, &headers) {
-        return resp;
-    }
+    // Validate before opening the stream (no lock held across `.await`). Retain the
+    // validated session id: the relay must suppress THIS session's own mutations.
+    let own_session = match validate_session(&app, &headers) {
+        Ok(sid) => sid,
+        Err(resp) => return resp,
+    };
 
     let rx = app.event_tx.subscribe();
     let mut next_id: u64 = 0;
@@ -569,6 +624,9 @@ pub async fn handle_mcp_get(
         // Synchronous mapping closure → no `.await`, so the session mutex is
         // never touched here and tool dispatch is never blocked by a slow client.
         let frame = match event {
+            // Suppress a client's own mutation: an event carrying this stream's own
+            // originating wire session id must NEVER be echoed back to it (L21).
+            Ok(ref e) if event_origin_is(e, &own_session) => None,
             Ok(e) => graph_changed_notification(&e),
             // Lagged (slow consumer dropped messages) or closed → skip; the
             // keepalive and subsequent live events keep the stream useful.
@@ -660,6 +718,45 @@ mod tests {
         assert_eq!(frame["params"]["event"], "memorize");
         assert_eq!(frame["params"]["detail"]["agent_id"], "agent-b");
         assert_eq!(frame["params"]["detail"]["kind"], "tool_result");
+    }
+
+    // ---- Origin-session self-echo suppression (field-triage L21) -----------
+
+    #[test]
+    fn event_from_own_session_is_recognized_as_self() {
+        // An event stamped with the viewer's own wire session id is the viewer's own
+        // mutation → the GET/SSE relay must suppress it (this is the frame that,
+        // through the --attach bridge, races the response and shows as `null`).
+        let e = ev(
+            "tool_result",
+            serde_json::json!({
+                "tool": "ingest", "success": true, "origin_mcp_session": "sess-A",
+            }),
+        );
+        assert!(
+            event_origin_is(&e, "sess-A"),
+            "own session must be detected"
+        );
+        // But it is a genuine, relayable mutation for ANY OTHER session (agent B).
+        assert!(
+            !event_origin_is(&e, "sess-B"),
+            "another session must NOT see it as its own"
+        );
+        assert!(
+            graph_changed_notification(&e).is_some(),
+            "the event itself is still a real graph change (relayed to others)"
+        );
+    }
+
+    #[test]
+    fn event_without_origin_stamp_is_never_self() {
+        // No origin stamp (older/other producers) → not anyone's own → relayed to all.
+        let e = ev(
+            "tool_result",
+            serde_json::json!({"tool": "memorize", "success": true}),
+        );
+        assert!(!event_origin_is(&e, "sess-A"));
+        assert!(!event_origin_is(&e, ""));
     }
 
     #[test]
