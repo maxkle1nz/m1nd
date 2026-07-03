@@ -375,6 +375,10 @@ Measure first, tune later, never tune blind — `predict`'s exact pattern (`tool
 - **The registry is advisory and file-based:** a crashed subagent leaves a `live` record until TTL (4h); collision warnings can be stale within that window.
 - **m1nd's own MCP session friction is live:** two of the three design seats hit `-32001 Unknown or expired Mcp-Session-Id` during grounding (field-reported). Invariant 6 — fail-open — is not decorative; it is the difference between an unhelpful appendix and a broken spawn path.
 
+## O.13 The Two-Tier Brain — per-project brains + a shared medulla (full PRD: `docs/TWO-TIER-BRAIN-PRD.md`)
+
+The runtime topology under everything above: **one brain per repo** (`<repo>/.m1nd/` — the code graph, the project's agent-memory, and its own calibration state; the memory **travels with git**, so a fresh clone answers *why* before it has parsed a line of code) plus **exactly one medulla** per founder/machine (doctrine, preferences, cross-project findings — code graphs verb-gated off), resolved by a cwd walk-up bridge (`--attach auto`) that spawns owners on miss over the *existing* lease/registry machinery. Process-per-repo is the namespace mechanism — chosen over the single-brain-plus-namespaces steelman because the OS delivers the isolation the whole verb surface would otherwise have to be rewritten for, and the verdict is stated explicitly (adopted/rejected per axis) in the PRD. Dovetails here: §O.12's packet gains dual-tier sourcing (project anchors + medulla doctrine, footer-stamped), and Ω+1's hook becomes the composed two-call north (project beat + doctrine beat, fail-open). Official and proof-grown — slices 0–8 with red→green gates, a reversible migration runbook with a mechanized equivalence gate, and a binding adversarial review baked in (secret-scan inside the `memorize` write path, conflict-marker guard on committed memory, morning-cold honesty). Topology, schemas, failure-mode UX, and open risks live in **`docs/TWO-TIER-BRAIN-PRD.md`**.
+
 ---
 
 # Ω+1 — The Ambient Loop
