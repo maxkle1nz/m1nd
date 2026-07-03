@@ -3022,12 +3022,27 @@ fn handle_north(
     //     and that `seek` already surfaces WITH provenance (`source_agent`,
     //     `authored_ms_ago` — stamped only on `.light.md` hits, never on code nodes).
     //     Compose that recall INTO the packet so a memorized-at-close claim compounds
-    //     into the next agent's north. We reuse `seek` wholesale (no new retrieval),
-    //     scoped to the task, and keep only the memory hits — a seek result is a
-    //     L1GHT memory iff it carries light provenance (source_agent or authored age).
-    //     Judgment call (stated in the PR): when the task-scoped seek surfaces no
-    //     memory hit, we fall back to a broad recall so a cold agent still sees that
-    //     institutional memory EXISTS, rather than implying there is none.
+    //     into the next agent's north.
+    //
+    //     ROBUST ON A MIXED GRAPH (field-triage #6). Every L1GHT node's external id
+    //     is `light::<namespace>::…` (l1ght_adapter), so we scope the recall seek to
+    //     the `light::` id prefix. seek's own scope filter matches the node-id prefix
+    //     (layer_handlers, `ext.starts_with(scope)`), so CODE nodes are structurally
+    //     excluded from the recall pass BEFORE scoring — the note surfaces regardless
+    //     of how a large code corpus ranks. This replaces the previous approach of
+    //     post-filtering a task-scoped top-K to light provenance, which silently
+    //     returned empty once code nodes dominated the window (the live bug: north.
+    //     memory=[] / "No durable memory yet" while a direct seek found the note at
+    //     rank #2). We reuse seek's existing `scope` parameter wholesale — no new
+    //     retrieval, and seek's behavior for normal callers is unchanged.
+    //
+    //     Note the caller's own `scope` (a CODE-context filter) is deliberately NOT
+    //     applied here: memory is cross-cutting, so a north scoped to one code area
+    //     must still recall the memories relevant to its task. We still keep only the
+    //     light-provenance hits as a belt-and-suspenders guard, and when the task-
+    //     scoped recall is empty we fall back to a broad recall so a cold agent still
+    //     sees that institutional memory EXISTS rather than implying there is none.
+    const LIGHT_RECALL_SCOPE: &str = "light::";
     let light_limit = 5usize;
     let is_light_hit = |r: &layers::SeekResultEntry| -> bool {
         r.source_agent.is_some() || r.authored_ms_ago.is_some()
@@ -3064,7 +3079,9 @@ fn handle_north(
                     query: query.to_string(),
                     agent_id: agent_id.clone(),
                     top_k: k,
-                    scope: scope.clone(),
+                    // Scope the recall to the L1GHT id namespace so code nodes never
+                    // compete for the window — deterministic on any graph mix.
+                    scope: Some(LIGHT_RECALL_SCOPE.to_string()),
                     node_types: Vec::new(),
                     min_score: 0.1,
                     graph_rerank: true,
@@ -3076,7 +3093,8 @@ fn handle_north(
             .unwrap_or_default()
         };
         // Task-scoped recall first: the memories most relevant to what the agent is
-        // about to do. Ask for a wider top_k since light nodes compete with code.
+        // about to do. The scope above already excludes code, so this ranks light
+        // nodes against each other only.
         let mut hits = seek_light(&task, 24);
         if hits.is_empty() {
             // No task-relevant memory surfaced — fall back to a broad memory recall so
@@ -7464,6 +7482,133 @@ mod tests {
         assert_eq!(
             hit["stale"], false,
             "a fresh memory must not be flagged stale"
+        );
+    }
+
+    /// FIELD-TRIAGE #6 (RED→GREEN): L1GHT recall must be robust on a MIXED graph.
+    ///
+    /// The live failure: on a graph carrying agent-memory L1GHT notes AND a large
+    /// code corpus, `north.memory` returned empty and `honest_gaps` said "No durable
+    /// memory yet" — while a direct `seek` found the note at rank #2 WITH full
+    /// provenance. Root cause: the memory beat asked `seek` for a task-scoped top-K
+    /// and then POST-FILTERED to light-provenance hits; once code nodes dominate
+    /// ranking, the top-K contains no light hit and the filter yields empty.
+    ///
+    /// This test reproduces that exactly: a synthetic code corpus whose labels are
+    /// saturated with the SAME task keywords (so code outranks the note across the
+    /// whole top-K), plus one memorized `.light.md` claim. On the pre-fix code the
+    /// note is crowded past the recall window and `memory` is empty (RED). The fix
+    /// scopes the recall seek to the `light::` node-id namespace so code nodes are
+    /// structurally invisible to the recall pass — the note surfaces regardless of
+    /// how the mixed graph ranks (GREEN).
+    #[test]
+    fn north_recalls_light_memory_on_mixed_graph() {
+        use m1nd_core::types::{EdgeDirection, FiniteF32, NodeId, NodeType};
+
+        let (temp, mut state) = build_state_populated(false);
+
+        // 1. Flood the graph with a large code corpus whose labels carry the exact
+        //    task tokens, so on a keyword query these code File nodes all score high
+        //    and crowd any single memory node out of the top-K. This is what drowns
+        //    the light note on a real repo (6k+ nodes) — reproduced deterministically.
+        {
+            let mut graph = state.graph.write();
+            for i in 0..400 {
+                let ext = format!("file::src/generated/handoff_{i}.rs");
+                let label = format!("lease enforcement leadership handoff registry impl {i}");
+                let node = graph
+                    .add_node(&ext, &label, NodeType::File, &[], 0.0, 0.0)
+                    .expect("add synthetic code node");
+                // A little connectivity so PageRank/graph-rerank treats them as real.
+                if i > 0 {
+                    let prev = NodeId::new(node.as_usize() as u32 - 1);
+                    let _ = graph.add_edge(
+                        prev,
+                        node,
+                        "imports",
+                        FiniteF32::new(1.0),
+                        EdgeDirection::Forward,
+                        false,
+                        FiniteF32::new(0.5),
+                    );
+                }
+            }
+            graph.finalize().expect("re-finalize mixed graph");
+        }
+
+        // 2. Plant one memorized claim (exact `memorize` frontmatter) and merge it
+        //    into the SAME graph via the light adapter under the `light` namespace —
+        //    the identical path `reload_agent_memory` uses for real agent-memory.
+        let now_ms = super::now_ms();
+        let mem_dir = temp.path().join("light-mem-mixed");
+        std::fs::create_dir_all(&mem_dir).expect("light mem dir");
+        let md = format!(
+            "---\nProtocol: L1GHT/1.0\nNode: LeaseLeadershipMixed\nState: verified\n\
+             Created: {now_ms}\nSource-Agent: agent-mem\n---\n\n\
+             # LeaseLeadershipMixed\n\n## LeaseLeadershipMixed\n\n\
+             The lease leadership handoff must renew the registry lease before takeover.\n\n\
+             [⍂ entity: lease enforcement leadership handoff]\n[𝔻 confidence: 0.9]\n"
+        );
+        std::fs::write(mem_dir.join("lease_leadership.light.md"), md).expect("write memory");
+        super::dispatch_tool(
+            &mut state,
+            "ingest",
+            &serde_json::json!({
+                "agent_id": "agent-mem",
+                "path": mem_dir.to_string_lossy(),
+                "adapter": "light",
+                "mode": "merge",
+                "namespace": "light",
+            }),
+        )
+        .expect("ingest light memory into mixed graph");
+
+        // 3. north on a task matching the memory — the code corpus matches it too.
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "lease enforcement leadership handoff",
+            }),
+        )
+        .expect("north on the mixed graph");
+
+        let memory = out["memory"].as_array().expect("memory array");
+        let light: Vec<&serde_json::Value> = memory
+            .iter()
+            .filter(|e| e.get("kind").and_then(|k| k.as_str()) == Some("light"))
+            .collect();
+        assert!(
+            !light.is_empty(),
+            "north.memory must recall the memorized L1GHT claim even when a large code \
+             corpus dominates ranking — got memory={memory:?}"
+        );
+        let hit = light
+            .iter()
+            .find(|e| e["source_agent"].as_str() == Some("agent-mem"))
+            .expect("the memorized claim surfaces carrying its authoring agent");
+        assert_eq!(
+            hit["source_agent"], "agent-mem",
+            "the recalled claim carries its authoring agent as source_agent"
+        );
+        assert!(
+            hit["age_ms"].as_u64().is_some(),
+            "the light hit carries an authored age lifted from its provenance"
+        );
+
+        // And the honest gap line must NOT claim there is no memory — that was the
+        // exact live lie ("No durable memory yet" while the note existed).
+        let gaps = out["honest_gaps"].as_array().cloned().unwrap_or_default();
+        let claims_no_memory = gaps.iter().any(|g| {
+            g.as_str()
+                .map(|s| s.contains("No durable memory yet"))
+                .unwrap_or(false)
+        });
+        assert!(
+            !claims_no_memory,
+            "honest_gaps must not claim 'No durable memory yet' when a memorized claim was \
+             recalled — gaps={gaps:?}"
         );
     }
 
