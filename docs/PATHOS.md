@@ -76,9 +76,17 @@ fix.** The mailbox is **local-only — m1nd never phones home**; the roadmap `m1
 verb (opt-in, redacted, one-click GitHub issue) is the ONLY path upstream, and always the
 human's explicit call.
 
-**4 seeded reports awaiting first triage** (the next improvement session sweeps these first):
-1. **closure cry-wolf** — `why`-closure over-reports `blocked` on paths that are actually fine
-   (honesty class; the calibration-ground-truth kind).
+**Seeded reports triage status** (the improvement session sweeps these first):
+1. **closure cry-wolf (AMBIGUOUS portion) = FIXED (field-triage #4).** The `m1nd:edge:ambiguous`
+   tag fired on nearly every load-bearing path because it (a) tagged whenever a same-name fallback
+   had >1 candidates even when proximity/qualifier picked a DECISIVE winner, and (b) was read
+   node-level, so any node with ONE ambiguous edge poisoned EVERY clean path through it. Fix: tag
+   only GENUINE coin-flips (decisive binds no longer tag), and read a targeted
+   `m1nd:edge:ambiguous:<target>` tag PER-EDGE. Measured on the m1nd repo itself: ambiguous-blocked
+   dropped **9/11 → 0/11** connected pairs; the honesty guard (a true 2-way tie still yields
+   `blocked`+`ambiguous`) is proven end-to-end. NOTE: a SEPARATE node-granularity over-fire remains
+   for the `unresolved` tag (explicitly out of scope — unresolved semantics unchanged); see Known
+   Problems → "closure UNRESOLVED node-granularity".
 2. **`memorize` unanchored on a live runtime** — evidence paths didn't anchor to code nodes
    against the running owner (friction/bug on the live `:1338` runtime).
 3. **the `temp` artifact bug** — a stray `temp` file dropped in cwd by a battery/tool path
@@ -264,10 +272,23 @@ battery gate; orchestrate + verify. Update this file at big checkpoints.
 ## Known Problems
 - **Checkpoint-8 carry-over (open into the v1.2.x cycle — sweep the field-report mailbox
   first, then these):**
-  - **`why`-closure CRY-WOLF (seeded field report #1, honesty class).** Closure over-reports
-    `blocked` on paths that are actually fine — an honesty miss (m1nd says the path rests on an
-    unresolved edge when it doesn't). Highest-value to fix: it is calibration ground truth.
-    Next session turns this into a battery case BEFORE the fix.
+  - **`why`-closure CRY-WOLF — AMBIGUOUS portion = FIXED (field-triage #4, PR pending).** The
+    `m1nd:edge:ambiguous` over-fire is closed: the tag now fires only on a genuine coin-flip
+    (decisive proximity/qualifier binds no longer tag) and is read edge-specifically via a targeted
+    `m1nd:edge:ambiguous:<target>` tag. Ambiguous-blocked dropped 9/11 → 0/11 on the m1nd repo;
+    battery case `closure_verdict_wellformed_blocked` updated to assert (well-formed contract) +
+    (no `ambiguous` dangling on the clean handle_seek→pack_to_budget path) + (honesty guard: a real
+    tie STILL blocks). Binding behavior itself is UNCHANGED — only the tag precision/read granularity.
+  - **`why`-closure UNRESOLVED node-granularity (NEW, discovered during field-triage #4; OPEN).**
+    The `m1nd:edge:unresolved` tag has the SAME node-granularity over-fire the ambiguous tag had:
+    it is set per-source-node whenever a node drops ANY outbound ref (e.g. a call to a std/external
+    fn), and `closure_reason_for_edge` reads it node-level — so a clean path leaving such a node
+    (e.g. handle_seek→pack_to_budget, a unique-name target) still reads `blocked` on `unresolved`.
+    Left UNTOUCHED by triage #4 because "EDGE_UNRESOLVED_TAG semantics stay unchanged" was explicit
+    scope, AND it needs a DESIGN DECISION (a dropped ref has no target node to key an edge-specific
+    tag against; and the contract test `why_reports_blocked_when_path_rests_on_dangling_edge`
+    encodes the current intent). Measured residue: 8/11 connected pairs still blocked, now all on
+    `unresolved`. Follow-up task spawned.
   - **`memorize` unanchored on the live runtime (seeded field report #2).** Evidence paths
     didn't anchor to code nodes against the running `:1338` owner — friction/bug on the live
     runtime specifically. Reproduce against a served-attach graph, then fix.

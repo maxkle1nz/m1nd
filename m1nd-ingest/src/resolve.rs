@@ -34,11 +34,37 @@ pub struct ResolutionStats {
 }
 
 /// Node tag marking a source node that has at least one outgoing edge which was
-/// resolved via a low-confidence fallback among same-name candidates (a guess).
-/// Provenance only — the edge IS created; the tag lets `why` flag a path that
-/// rests on it. Shared so the read side (`why` closure verdict) uses the same
-/// literal.
+/// resolved via a genuine coin-flip among same-name candidates (a guess no
+/// qualifier/hint/proximity signal could decide). Provenance only — the edge IS
+/// created; the tag lets `why` flag a path that rests on it. Shared so the read
+/// side (`why` closure verdict) uses the same literal.
+///
+/// This BARE tag is node-level ("this node has SOME ambiguous outbound edge").
+/// It is intentionally coarse and drives the `ResolutionStats.ambiguous` count.
+/// For a PER-PATH honest verdict the resolver ALSO emits a TARGETED variant,
+/// `m1nd:edge:ambiguous:<target_external_id>` (see [`ambiguous_edge_tag`]), that
+/// names the specific ambiguous edge. `why` reads the targeted tag so a CLEAN
+/// edge leaving a node that happens to have an unrelated ambiguous edge is NOT
+/// falsely reported blocked — killing the closure cry-wolf.
 pub const EDGE_AMBIGUOUS_TAG: &str = "m1nd:edge:ambiguous";
+
+/// Build the TARGETED ambiguity tag for an edge whose binding to `target_ext_id`
+/// was a genuine coin-flip: `m1nd:edge:ambiguous:<target_external_id>`. Placed on
+/// the SOURCE node so the read side can tell WHICH outgoing edge was the guess
+/// (the bare [`EDGE_AMBIGUOUS_TAG`] only says the node has one somewhere). Kept
+/// here so the tagger and the `why` reader share one literal scheme.
+pub fn ambiguous_edge_tag(target_ext_id: &str) -> String {
+    format!("{EDGE_AMBIGUOUS_TAG}:{target_ext_id}")
+}
+
+/// Read side: does `source` carry the TARGETED ambiguity tag for the specific
+/// edge to `target_ext_id`? True iff THAT edge was a genuine coin-flip at ingest.
+/// Used by `why` to make the closure verdict edge-specific instead of blaming a
+/// clean edge for an unrelated ambiguous sibling on the same source node.
+pub fn source_has_ambiguous_edge_to(graph: &Graph, source: NodeId, target_ext_id: &str) -> bool {
+    let needle = ambiguous_edge_tag(target_ext_id);
+    graph.node_tags(source).iter().any(|t| *t == needle)
+}
 
 /// Node tag marking a source node that had at least one outgoing reference m1nd
 /// could NOT resolve to any target (the edge was dropped, leaving the source's
@@ -135,31 +161,28 @@ impl ReferenceResolver {
                         graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
                         continue;
                     }
-                    if found.len() > 1 {
-                        stats.ambiguous += 1;
-                        // Provenance: this source node has at least one outgoing
-                        // edge that resolved via a low-confidence fallback among
-                        // same-name candidates. The edge is still created (binding
-                        // unchanged) — the tag only makes the guess KNOWABLE so
-                        // `why` can flag a path that rests on it.
-                        graph.add_node_tags(source, &[EDGE_AMBIGUOUS_TAG]);
-                    }
                     // Use first match (or disambiguate if multiple). A call-site
                     // qualifier (`ref::Type::method`) wins first — it pins the
                     // owner among same-name candidates; then the import hint; then
-                    // proximity.
-                    let target = if found.len() == 1 {
-                        found[0]
+                    // proximity. `pick_candidate` also reports whether the choice
+                    // was a GENUINE tie (a coin-flip) so the provenance tag fires
+                    // only on real ambiguity, not merely "same name existed".
+                    let (target, is_tie) = if found.len() == 1 {
+                        (found[0], false)
                     } else {
-                        Self::disambiguate_with_qualifier(graph, &found, qualifier)
-                            .or_else(|| {
-                                import_hint.and_then(|hint| {
-                                    Self::disambiguate_with_hint(graph, source, &found, hint)
-                                })
-                            })
-                            .or_else(|| Self::disambiguate(graph, source, &found))
-                            .unwrap_or(found[0])
+                        Self::pick_candidate(graph, source, &found, qualifier, import_hint)
                     };
+                    if is_tie {
+                        stats.ambiguous += 1;
+                        // Provenance: this source node's outgoing edge resolved via
+                        // a genuine coin-flip among same-name candidates that no
+                        // qualifier/hint/proximity signal could decide. The edge is
+                        // still created (binding unchanged) — the tags only make the
+                        // guess KNOWABLE so `why` can flag a path that rests on it.
+                        // Both the bare (node-level count) and targeted (per-edge,
+                        // read by `why`) tags are added.
+                        Self::tag_ambiguous_edge(graph, source, target);
+                    }
 
                     // Add edge
                     let rel = relation.as_str();
@@ -184,27 +207,22 @@ impl ReferenceResolver {
                     graph.add_node_tags(source, &[EDGE_UNRESOLVED_TAG]);
                     continue;
                 }
-                if candidates.len() > 1 {
+                // Qualifier (`ref::Type::method`) first, then import hint, then
+                // proximity — same precedence as the suffix branch above.
+                // `pick_candidate` reports whether the choice was a genuine tie so
+                // the provenance tag fires only on real ambiguity.
+                let (target, is_tie) = if candidates.len() == 1 {
+                    (candidates[0], false)
+                } else {
+                    Self::pick_candidate(graph, source, candidates, qualifier, import_hint)
+                };
+                if is_tie {
                     stats.ambiguous += 1;
                     // Provenance only — see the suffix-branch comment above. The
-                    // SAME `candidates[0]`/disambiguated edge is still created.
-                    graph.add_node_tags(source, &[EDGE_AMBIGUOUS_TAG]);
+                    // SAME disambiguated edge is still created; the tags mark a
+                    // genuine coin-flip so `why` can flag a path that rests on it.
+                    Self::tag_ambiguous_edge(graph, source, target);
                 }
-
-                let target = if candidates.len() == 1 {
-                    candidates[0]
-                } else {
-                    // Qualifier (`ref::Type::method`) first, then import hint, then
-                    // proximity — same precedence as the suffix branch above.
-                    Self::disambiguate_with_qualifier(graph, candidates, qualifier)
-                        .or_else(|| {
-                            import_hint.and_then(|hint| {
-                                Self::disambiguate_with_hint(graph, source, candidates, hint)
-                            })
-                        })
-                        .or_else(|| Self::disambiguate(graph, source, candidates))
-                        .unwrap_or(candidates[0])
-                };
 
                 let rel = relation.as_str();
                 let _ = graph.add_edge(
@@ -238,31 +256,109 @@ impl ReferenceResolver {
         index
     }
 
-    /// Disambiguate among multiple candidates using proximity.
-    /// Priority: same file > same directory > same module > first match.
-    fn disambiguate(graph: &Graph, source: NodeId, candidates: &[NodeId]) -> Option<NodeId> {
+    /// Record provenance for a genuinely-ambiguous edge `source -> target`: the
+    /// bare node-level [`EDGE_AMBIGUOUS_TAG`] (drives the count / back-compat) AND
+    /// the TARGETED `m1nd:edge:ambiguous:<target_ext_id>` tag that names THIS edge
+    /// so `why` can report it per-path (not blame clean siblings). If the target
+    /// has no resolvable external id (should not happen for a real bind), only the
+    /// bare tag is added.
+    fn tag_ambiguous_edge(graph: &mut Graph, source: NodeId, target: NodeId) {
+        graph.add_node_tags(source, &[EDGE_AMBIGUOUS_TAG]);
+        if let Some(target_ext_id) = Self::find_external_id(graph, target) {
+            let targeted = ambiguous_edge_tag(&target_ext_id);
+            graph.add_node_tags(source, &[targeted.as_str()]);
+        }
+    }
+
+    /// Pick the winning candidate AND report whether the choice was a GENUINE
+    /// tie (a coin-flip). Runs the same precedence as the call sites — qualifier
+    /// (`ref::Type::method`) → import hint → proximity → first-match fallback —
+    /// but returns `(winner, is_tie)`:
+    ///   * a qualifier or import-hint match is DECISIVE → `is_tie == false`;
+    ///   * proximity is decisive only when ONE candidate holds the strict best
+    ///     score → `is_tie == false`;
+    ///   * when nothing above decided it (≥2 candidates share the best proximity
+    ///     rank, or no signal applied) the bind is a coin-flip on `candidates[0]`
+    ///     → `is_tie == true`.
+    ///
+    /// This is what tightens the `m1nd:edge:ambiguous` provenance tag from
+    /// "same-name existed" to "the resolution was actually ambiguous", killing
+    /// the closure cry-wolf while still flagging real ties. Callers pass ≥2
+    /// candidates; a single candidate never reaches here (handled inline).
+    fn pick_candidate(
+        graph: &Graph,
+        source: NodeId,
+        candidates: &[NodeId],
+        qualifier: Option<&str>,
+        import_hint: Option<&str>,
+    ) -> (NodeId, bool) {
+        // 1) Call-site qualifier decides the owner — decisive.
+        if let Some(t) = Self::disambiguate_with_qualifier(graph, candidates, qualifier) {
+            return (t, false);
+        }
+        // 2) Import-path hint decides the module — decisive.
+        if let Some(hint) = import_hint {
+            if let Some(t) = Self::disambiguate_with_hint(graph, source, candidates, hint) {
+                return (t, false);
+            }
+        }
+        // 3) Proximity: decisive only when the best score is uniquely held.
+        if let Some((t, unique_best)) = Self::disambiguate_decisive(graph, source, candidates) {
+            return (t, !unique_best);
+        }
+        // 4) No signal applied at all (e.g. source has no external id): coin-flip.
+        (candidates[0], true)
+    }
+
+    /// Proximity disambiguation that also reports whether the winning score is
+    /// held by a UNIQUE candidate. Returns `(best, unique_best)` where
+    /// `unique_best` is true iff exactly one candidate achieves the maximum
+    /// proximity score — i.e. proximity genuinely decided it. When ≥2 candidates
+    /// tie for the top score (including the degenerate all-zero case where no
+    /// candidate shares any prefix), `unique_best` is false and the caller treats
+    /// the pick as a coin-flip. The winning node is exactly the highest-proximity
+    /// candidate (`proximity_score`, same-file > same-dir > cross-crate); this
+    /// only adds the strict-uniqueness (tie) signal on top of that choice.
+    fn disambiguate_decisive(
+        graph: &Graph,
+        source: NodeId,
+        candidates: &[NodeId],
+    ) -> Option<(NodeId, bool)> {
         if candidates.is_empty() {
             return None;
         }
-
-        // Get source's external ID to compute proximity
         let source_ext_id = Self::find_external_id(graph, source)?;
 
-        // Score each candidate by proximity to source
-        let mut best = candidates[0];
+        // Only candidates that actually have an external id can be scored; seed
+        // `best`/`best_score` on the FIRST scored candidate so an unscorable
+        // `candidates[0]` never masquerades as the winner. If NONE is scorable,
+        // fall back to `candidates[0]` as a non-unique (coin-flip) pick.
+        let mut best: Option<NodeId> = None;
         let mut best_score = 0u32;
-
+        let mut best_count = 0usize; // how many scored candidates hold `best_score`
         for &candidate in candidates {
             if let Some(cand_ext_id) = Self::find_external_id(graph, candidate) {
                 let score = Self::proximity_score(&source_ext_id, &cand_ext_id);
-                if score > best_score {
-                    best_score = score;
-                    best = candidate;
+                match best {
+                    Some(_) if score > best_score => {
+                        best_score = score;
+                        best = Some(candidate);
+                        best_count = 1;
+                    }
+                    Some(_) if score == best_score => best_count += 1,
+                    Some(_) => {}
+                    None => {
+                        best_score = score;
+                        best = Some(candidate);
+                        best_count = 1;
+                    }
                 }
             }
         }
-
-        Some(best)
+        match best {
+            Some(b) => Some((b, best_count == 1)),
+            None => Some((candidates[0], false)),
+        }
     }
 
     /// Find external ID string for a node.
@@ -594,18 +690,21 @@ mod tests {
         );
     }
 
-    /// Provenance regression: an ambiguous `ref::` that hits the same-name
-    /// fallback must (a) still create the SAME edge — binding unchanged — and
-    /// (b) tag the SOURCE node `m1nd:edge:ambiguous` while incrementing
-    /// `ResolutionStats.ambiguous`, so the guess is knowable. Two same-name
-    /// candidates make the resolution ambiguous; the edge is created regardless.
+    /// Provenance (GENUINE TIE): an ambiguous `ref::` whose same-name candidates
+    /// are a real coin-flip — two `helper`s in the SAME directory, so proximity
+    /// scores them identically, with NO qualifier to decide — must (a) still
+    /// create the SAME edge (binding unchanged) and (b) tag the SOURCE node
+    /// `m1nd:edge:ambiguous` while incrementing `ResolutionStats.ambiguous`, so
+    /// the guess is knowable. This is the honesty guard for the cry-wolf fix: a
+    /// true tie MUST still flag (and yield `blocked` on paths crossing it).
     #[test]
-    fn ambiguous_ref_tags_source_and_counts_ambiguous() {
+    fn genuine_tie_tags_source_and_counts_ambiguous() {
         let mut graph = Graph::new();
         let caller = fn_node(&mut graph, "file::crate_a/src/walker.rs::fn::walk", "walk");
-        // Two same-name targets in different crates -> ambiguous.
-        let _a = fn_node(&mut graph, "file::crate_a/src/x.rs::fn::helper", "helper");
-        let _b = fn_node(&mut graph, "file::crate_b/src/y.rs::fn::helper", "helper");
+        // Two same-name targets in the SAME directory -> identical proximity, no
+        // qualifier -> genuine coin-flip.
+        let _a = fn_node(&mut graph, "file::crate_a/src/one.rs::fn::helper", "helper");
+        let _b = fn_node(&mut graph, "file::crate_a/src/two.rs::fn::helper", "helper");
 
         let unresolved = vec![(
             "file::crate_a/src/walker.rs::fn::walk".to_string(),
@@ -620,11 +719,178 @@ mod tests {
             calls_target(&graph, caller).is_some(),
             "the same edge must still be created (binding unchanged)"
         );
-        // Provenance recorded.
-        assert_eq!(stats.ambiguous, 1, "ambiguous count must increment");
+        // Provenance recorded — a genuine tie still flags.
+        assert_eq!(
+            stats.ambiguous, 1,
+            "ambiguous count must increment on a true tie"
+        );
         assert!(
             graph.node_tags(caller).contains(&EDGE_AMBIGUOUS_TAG),
-            "source must carry the ambiguous provenance tag, got {:?}",
+            "source must carry the bare ambiguous provenance tag on a true tie, got {:?}",
+            graph.node_tags(caller)
+        );
+        // And the TARGETED tag names the specific edge that was picked, so `why`
+        // can flag exactly this edge per-path.
+        let picked = calls_target(&graph, caller).expect("edge exists");
+        let picked_ext = ReferenceResolver::find_external_id(&graph, picked).expect("ext id");
+        assert!(
+            source_has_ambiguous_edge_to(&graph, caller, &picked_ext),
+            "source must carry the TARGETED ambiguous tag for the picked edge, got {:?}",
+            graph.node_tags(caller)
+        );
+    }
+
+    /// Cry-wolf killer: a source with ONE genuinely-ambiguous outbound edge must
+    /// NOT taint a DIFFERENT, cleanly-resolved outbound edge. This is the exact
+    /// failure the field report describes — a clean path (e.g. handle_seek ->
+    /// pack_to_budget) reported `blocked` only because the source also calls some
+    /// common-named fn. The targeted tag is per-edge, so `source_has_ambiguous_
+    /// edge_to` is TRUE for the tied target and FALSE for the clean (unique) one.
+    #[test]
+    fn one_ambiguous_edge_does_not_taint_a_clean_sibling_edge() {
+        let mut graph = Graph::new();
+        let caller = fn_node(
+            &mut graph,
+            "file::crate_a/src/handler.rs::fn::handle",
+            "handle",
+        );
+        // A genuinely-ambiguous target: two same-name `get` in the same dir.
+        let _g1 = fn_node(&mut graph, "file::crate_a/src/one.rs::fn::get", "get");
+        let _g2 = fn_node(&mut graph, "file::crate_a/src/two.rs::fn::get", "get");
+        // A cleanly-resolvable UNIQUE target.
+        let unique = fn_node(
+            &mut graph,
+            "file::crate_a/src/pack.rs::fn::pack_to_budget",
+            "pack_to_budget",
+        );
+
+        let unresolved = vec![
+            (
+                "file::crate_a/src/handler.rs::fn::handle".to_string(),
+                "ref::get".to_string(),
+                "calls".to_string(),
+            ),
+            (
+                "file::crate_a/src/handler.rs::fn::handle".to_string(),
+                "ref::pack_to_budget".to_string(),
+                "calls".to_string(),
+            ),
+        ];
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+        assert_eq!(stats.resolved, 2, "both refs resolve");
+        assert_eq!(stats.ambiguous, 1, "only the `get` tie is ambiguous");
+
+        // The clean unique edge must NOT be reported ambiguous …
+        let unique_ext = ReferenceResolver::find_external_id(&graph, unique).expect("ext id");
+        assert!(
+            !source_has_ambiguous_edge_to(&graph, caller, &unique_ext),
+            "the clean pack_to_budget edge must NOT carry a targeted ambiguous tag"
+        );
+        // … even though the SAME source node is (bare) tagged because of `get`.
+        assert!(
+            graph.node_tags(caller).contains(&EDGE_AMBIGUOUS_TAG),
+            "the source is still bare-tagged due to its ambiguous `get` edge"
+        );
+    }
+
+    /// Cry-wolf fix (a): same-name candidates in DIFFERENT directories where
+    /// proximity picks a UNIQUE same-directory winner is a CONFIDENT bind, not a
+    /// coin-flip — it must NOT tag `m1nd:edge:ambiguous` nor increment the count,
+    /// even though a same-name candidate existed elsewhere. (Pre-fix this tagged
+    /// ambiguous purely because `found.len() > 1`, which is the cry-wolf.) The
+    /// edge still binds to the closer candidate.
+    #[test]
+    fn decisive_by_proximity_does_not_tag_ambiguous() {
+        let mut graph = Graph::new();
+        let caller = fn_node(&mut graph, "file::crate_a/src/walker.rs::fn::walk", "walk");
+        // Same-directory winner (shares crate_a/src prefix) …
+        let correct = fn_node(
+            &mut graph,
+            "file::crate_a/src/policy.rs::fn::helper",
+            "helper",
+        );
+        // … vs a cross-crate same-name candidate (proximity-disfavored).
+        let _far = fn_node(
+            &mut graph,
+            "file::crate_b/src/other.rs::fn::helper",
+            "helper",
+        );
+
+        let unresolved = vec![(
+            "file::crate_a/src/walker.rs::fn::walk".to_string(),
+            "ref::helper".to_string(),
+            "calls".to_string(),
+        )];
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+
+        assert_eq!(stats.resolved, 1, "the ref must resolve");
+        assert_eq!(
+            calls_target(&graph, caller),
+            Some(correct),
+            "must bind to the same-directory helper"
+        );
+        assert_eq!(
+            stats.ambiguous, 0,
+            "a unique proximity winner is decisive — no ambiguous count"
+        );
+        assert!(
+            !graph.node_tags(caller).contains(&EDGE_AMBIGUOUS_TAG),
+            "decisive proximity bind must NOT carry the ambiguous tag, got {:?}",
+            graph.node_tags(caller)
+        );
+    }
+
+    /// Cry-wolf fix (b): a `Type::method()` call whose qualifier resolves the
+    /// owner among same-name candidates is a CONFIDENT bind — it must NOT tag
+    /// `m1nd:edge:ambiguous`, even with two same-name `analyze` candidates. The
+    /// qualifier decided it; that is not a coin-flip.
+    #[test]
+    fn decisive_by_qualifier_does_not_tag_ambiguous() {
+        let mut graph = Graph::new();
+        let caller = fn_node(&mut graph, "file::crate_b/src/api.rs::fn::handle", "handle");
+        // Owned by TaintEngine (the qualifier target) …
+        let correct = graph
+            .add_node(
+                "file::crate_a/src/taint.rs::fn::analyze",
+                "analyze",
+                NodeType::Function,
+                &["rust:impl:self:TaintEngine"],
+                0.0,
+                0.0,
+            )
+            .expect("add correct");
+        // … vs a same-name decoy owned by a different type.
+        let _decoy = graph
+            .add_node(
+                "file::crate_b/src/tremor.rs::fn::analyze",
+                "analyze",
+                NodeType::Function,
+                &["rust:impl:self:TremorEngine"],
+                0.0,
+                0.0,
+            )
+            .expect("add decoy");
+
+        let unresolved = vec![(
+            "file::crate_b/src/api.rs::fn::handle".to_string(),
+            "ref::TaintEngine::analyze".to_string(),
+            "calls".to_string(),
+        )];
+        let stats = ReferenceResolver::resolve(&mut graph, &unresolved).expect("resolve");
+
+        assert_eq!(stats.resolved, 1, "the qualified ref must resolve");
+        assert_eq!(
+            calls_target(&graph, caller),
+            Some(correct),
+            "must bind to the TaintEngine-owned analyze"
+        );
+        assert_eq!(
+            stats.ambiguous, 0,
+            "a qualifier-resolved bind is decisive — no ambiguous count"
+        );
+        assert!(
+            !graph.node_tags(caller).contains(&EDGE_AMBIGUOUS_TAG),
+            "qualifier-decided bind must NOT carry the ambiguous tag, got {:?}",
             graph.node_tags(caller)
         );
     }
