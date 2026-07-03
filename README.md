@@ -36,72 +36,65 @@
 
 ---
 
-**m1nd is operational intelligence for coding agents — it governs the operating loop, not just retrieval.**
+**m1nd is the shell around your coding agent — the operating loop it lives inside: oriented before it acts, honest verdicts while it works, memory with evidence after it finishes, compounding across sessions.**
 
 <p align="center"><img src="docs/assets/visuals/01-code-to-graph.png" width="520" alt="A stack of loose files becomes a connected graph of what links to what" /></p>
 
 > grep finds text. Vector search finds similar chunks. `m1nd` gives agents a local graph of what connects, what changed, what breaks, what drifted, and where to resume.
 
-Three things here exist together in no other tool:
+## What m1nd is: the shell around your agent
 
-- **Causal code graph** — `impact` before you edit shows the blast radius you didn't read; `ghost_edges` surfaces files that always change together but share no import.
-- **Self-verifying memory** — `memorize` anchors findings to real code nodes; `cross_verify` flags them stale when that code changes.
-- **A trust / recovery layer** — every result carries a trust mode; `trust_selftest` and `recovery_playbook` tell the agent when the workspace binding is wrong and how to recover.
+*m1nd wraps your coding agent in a loop that briefs it before it acts, keeps it honest while it works, and remembers what it learned when it's done.*
 
-Plus an **attention runtime** — `focus` hands the agent the minimal, budget-bounded working set for a goal, with an honest tail of what it left out and a signal for whether that's *enough* context yet.
+- **If you build with agents** — nothing new to learn: install once, keep talking to your agent. It stops guessing, starts remembering, and says "I don't know" when that is the truth.
+- **If you're an engineer** — a local-first Rust graph engine behind an MCP server: a causal code graph (structural, semantic, temporal, and causal edges), conformally calibrated verdicts, and memory anchored to code nodes with provenance. Nothing leaves your machine.
+
+Agents on real codebases do not fail because they cannot search — they fail because they have no operating model. Each session rebuilds context from scratch, edits without knowing the blast radius, and cannot tell an empty result that means "nothing exists" from one that means "wrong repo". m1nd gives the agent a durable model of the codebase — a causal graph with spreading activation and Hebbian plasticity — and wraps the agent's whole loop around it. Features are not a catalog here; they are the stations of that shell:
+
+```mermaid
+flowchart LR
+    B["<b>BEFORE</b><br/>born oriented<br/>map + memory + trust + honest gaps"]
+    D["<b>DURING</b><br/>verdicts worn while working<br/>impact before touching · act / reverify / abstain"]
+    A["<b>AFTER</b><br/>memorized with evidence<br/>the graph gets warmer"]
+    C["<b>COMPOUND</b><br/>the next session starts ahead<br/>any host, any agent"]
+    B --> D --> A --> C --> B
+```
+
+**m1nd is operated by your agent, not by you.** Every tool below is called by the agent itself — automatically, before and after it works. A human never runs them in normal use; you install once ([Quick Start](#quick-start)) and keep talking to your agent as always.
+
+**One shell, three readers.** The same oriented packet is rendered for whoever is about to act: the **main agent** reads it as `north` (shipped — the front door below); a **subagent** will receive it as the Delegation Packet, the retrieval half of its spawn spec (designed — [docs/NEXTGEN-AGENT-PRD.md](docs/NEXTGEN-AGENT-PRD.md), §O.12); the **human** will see it as the Pre-Flight Card on the Living Tree — your project as a navigable tree with memory post-its, showing what the agent verified vs. guessed before an edit lands (designed, in development — [docs/HUMAN-LAYER-PRD.md](docs/HUMAN-LAYER-PRD.md)). One truth, computed once.
+
+<p align="center"><img src="docs/assets/plates/p6.png" width="560" alt="One truth, two readers — the same packet rendered for the agent and for the human" /></p>
 
 <p align="center">
   <img src=".github/m1nd-agent-first-map-v2.jpeg" alt="Traditional agent loop vs m1nd-grounded loop" width="960" />
 </p>
 
-## New in 1.2.0 — the first OMEGA-era release
+### What happens when you send a message
 
-1.2.0 turns the loop from "retrieve, then hope" into **pre-orient → act on calibrated verdicts → capture what you learned**. The theme is the same as the trust layer: an honest *no* beats a confident guess.
+You ask your agent to fix something. Here is what the shell does around that message:
 
-- **`north(task)` — pre-orient in one call.** The new front door composes trust, task context (focus nodes + PageRank anchors), prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know). `needs_ingest` is a real answer for an empty graph. (The L1GHT-recall composition that folds prior memory into the packet shipped in **1.2.1** — it landed on `main` just after the 1.2.0 tag, so it is not in the 1.2.0 binary.)
-- **Conformal calibration on prediction.** `calibrate_predict` arms a per-repo gate; verdicts then read `act` / `reverify` / `abstain`, where `abstain` means *uncalibrated or insufficient* — a signal to stop, not a weak yes. Ships dark: until you calibrate, verdicts cap at `reverify`.
-- **`trust_envelope` on `seek`** (ships dark) and a **`closure` verdict on `why`** — `blocked` means the path rests on an unresolved/guessed edge. **`trust_band: insufficient_evidence`** is now distinct from a risk band: it means *no evidence*, the honest cold-start answer, not "medium risk".
-- **Memory grew a provenance spine** — claims carry real age + author, supersede older claims, age out, and respect a recency cap, so remembered knowledge states its own freshness instead of quietly going stale.
-- **Smoothed-Jaccard co-change** — `ghost_edges` / `predict` now normalize coupling instead of counting raw co-commits (calibration-proven +3 points over raw counts).
-- **Binary version + sha fingerprint** — `--version` prints `1.2.0 (<sha>)`; `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
-- **Agent-native MCP instructions + local-only field reports.** The `initialize` instructions every host receives now *are* the operating loop above. Agents can leave one telemetry signal per session — `learn` on a retrieval verdict, or a line in `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves. That file is local-only; **m1nd never phones home.**
+1. **Before your agent acts**, m1nd hands it the live map of your project, what past sessions learned, how much to trust each piece — and what it does *not* know (`north`).
+2. **While it works**, it wears verdicts: it checks what an edit would break *before* touching the code (`impact`), and where evidence is thin it gets an honest "I don't know" instead of a confident guess (`abstain`).
+3. It can ask why two pieces of code are connected and be told when the answer rests on a guess (`why`), and it is warned before crossing an architecture boundary (`xray_gate`).
+4. **When it finishes**, the decision is written down with the evidence that backs it (`memorize`).
+5. That memory is anchored to the real code — if the code later changes, the memory flags itself stale instead of quietly lying (`cross_verify`).
+6. **Your next session starts already knowing** — any agent, any tool: Claude Code, Codex, Cursor, Gemini. What one agent learns, the next inherits.
 
-## Quick Start
+## BEFORE — born oriented
 
-The minimal happy path — install from source (always current), check health, wire your host:
-
-```bash
-git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
-npm install -g .
-m1nd doctor
-```
-
-Then wire your host — the same two commands, one per host (`codex`, `claude`, `gemini`, `antigravity`, `generic`):
-
-| Host | Install the agent pack | Wire the MCP config |
-|---|---|---|
-| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
-| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
-| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
-| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
-| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
-
-Or from npm: `npm install -g @maxkle1nz/m1nd`.
-
-Full install map, host packs, native runtime build, and update flags: [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) · client-by-client setup: [integration matrix](docs/IDE-INTEGRATIONS.md).
-
-### Agent Entry Point
+*Your agent starts every session already knowing your project — and knowing what it doesn't know.*
 
 <p align="center"><img src="docs/assets/visuals/02-north-one-call.png" width="520" alt="north(task): one front-door call returns the whole oriented packet" /></p>
 
-Agents parse this README. Inside an MCP session, the front door is one call — `north(task)` composes trust, task context, prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know) into a single packet, before any query:
+Inside an MCP session, the front door is one call — `north(task)` composes trust, task context (focus nodes + PageRank anchors), prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know) into a single packet, before any query:
 
 ```jsonc
 {"method":"tools/call","params":{"name":"north",
   "arguments":{"agent_id":"dev","task":"harden the JWT auth token validation flow"}}}
 ```
 
-The response is one oriented packet — trust verdict, memory the last session left, and an honest gap list, before any query. A real capture from the `main` binary, lightly trimmed:
+The response is one oriented packet — trust verdict, memory the last session left, and an honest gap list. A real capture from the `main` binary, lightly trimmed:
 
 ```jsonc
 {
@@ -117,7 +110,9 @@ The response is one oriented packet — trust verdict, memory the last session l
 }
 ```
 
-If `north` reports `needs: "needs_ingest"` (empty graph), or you are on a pre-1.2.1 binary without the L1GHT-recall composition, fall back to the explicit trust loop — establish trust *before* believing any retrieval:
+`north` composes `trust_selftest` + `orient` + `boot_memory` + `focus` — the agent reaches for a piece directly only when it needs just one. `focus` is this station's attention runtime: the minimal, budget-bounded working set for a goal, with an honest tail of what it left out and a signal for whether that's *enough* context yet. `needs_ingest` is a real answer for an empty graph.
+
+If `north` reports `needs: "needs_ingest"`, or you are on a pre-1.2.1 binary without the L1GHT-recall composition, the agent falls back to the explicit trust loop — establish trust *before* believing any retrieval:
 
 ```jsonc
 // 0. Trust the binding in one call (verdict before retrieval)
@@ -135,57 +130,47 @@ If `north` reports `needs: "needs_ingest"` (empty graph), or you are on a pre-1.
 
 **First-session loop, in four moves:** `north` (or `trust_selftest` → `ingest`) → `seek`/`audit` → `memorize` the durable finding so the next session starts ahead.
 
-When there is no live MCP session to call `north` in — it is stale, bound to the wrong repo, or not loaded yet — reach for the host-neutral CLI escape hatch instead. It launches an isolated runtime, binds it to the repo, and returns one machine-readable envelope that scopes, trusts, ingests if needed, returns anchors, and hands off to direct proof:
+## DURING — verdicts worn while working
 
-```bash
-m1nd agent first-minute --repo /your/project --query "understand this system" --json
+*While it works, every answer arrives with how much to trust it — and "I don't know" is a real answer.*
+
+<p align="center"><img src="docs/assets/visuals/03-verdicts-doors.png" width="520" alt="Every result is a verdict — act, reverify, or abstain — like doors the agent must choose" /></p>
+
+The agent does not consult m1nd; it wears it. Every mid-work answer is a calibrated verdict, not a vibe:
+
+- **`impact` before touching** shows the blast radius you didn't read; `ghost_edges` surfaces files that always change together but share no import.
+- **`why` carries a `closure` verdict** — `blocked` means the path rests on an unresolved or guessed edge: verify that edge before relying on the path.
+- **`predict` is conformally calibrated** — `calibrate_predict` arms a per-repo gate; verdicts then read `act` / `reverify` / `abstain`, where `abstain` means *uncalibrated or insufficient* — a signal to stop, not a weak yes. Ships dark: until you calibrate, verdicts cap at `reverify`. Co-change coupling is smoothed-Jaccard normalized, not raw commit counts (calibration-proven +3 points). *Caveat:* `predict` has structural fallback only until `ghost_edges` loads the git co-change matrix — run it first for real co-change likelihood.
+- **`xray_gate` guards architecture boundaries** — called before an edit, it answers "does this change cross a forbidden module boundary?" with `clear` / `caution` / `blocked`; only a ratified manifest can block (anti-guardrail-fatigue).
+- **Mission Control is proof discipline** — `mission_next` returns exactly one move plus `do_not` guardrails; in `bug_hunt` mode a final direct sweep is required before close, so agents check negative space.
+
+The same honesty rides on retrieval. A `seek` hit carries a `sufficiency` readout and a `trust_envelope` — and when the envelope has no calibration row measured yet, it caps its own verdict instead of overclaiming. A real capture, trimmed (the top hit is a memory the last session authored):
+
+```jsonc
+{
+  "results": [
+    { "label": "AuthTokenFlow", "source_agent": "authbot", "authored_ms_ago": 101161, "score": 0.48 }
+    // …code-node hits, trimmed…
+  ],
+  "sufficiency": { "state": "gathering", "top_score": 0.48,
+    "why": "the strongest match left out still scores 0.25 — relevant context did not fit …" },
+  "trust_envelope": {
+    "calibrated": false,               // no calibration row measured
+    "verdict": "reverify",             // …so the verdict is capped below `act`
+    "next_repair_call": "trust_selftest"
+  }
+}
 ```
 
-### Serve one graph, attach many agents
+<p align="center"><img src="docs/assets/visuals/04-impact-web.png" width="520" alt="impact traces the blast radius across the web of connected code before you edit" /></p>
 
-<p align="center"><img src="docs/assets/visuals/10-attach-core.png" width="520" alt="One owner process holds the live graph; many agents attach to the same core" /></p>
+## AFTER — the graph gets warmer
 
-Quick Start above wires a stdio server per host — fine for one agent, but each process loads its own graph and holds its own lease. The deployment m1nd is built for is one owner, many attached agents. One owner process holds the live graph:
-
-```bash
-m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
-```
-
-Every agent then attaches as a thin stdio↔HTTP bridge — it loads **no** graph, builds no engines, and takes **no** lease:
-
-```bash
-m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
-```
-
-Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
-
-## What m1nd Is Not
-
-`m1nd` is not just:
-
-- a code search tool with a larger index
-- a repo RAG layer that only retrieves files or chunks
-- a graph database that leaves workflow decisions to the client
-- a static analysis replacement for the compiler, tests, or security tooling
-- an MCP bundle of unrelated utilities
-
-It is the layer that turns those surfaces into an operational system an agent can reason over and act through. Not for one-file lookups, simple grep, or compiler truth — use plain tools there.
-
-## Why Agents Need It
-
-Without m1nd, every session starts with grep loops and manual re-orientation; last week's findings are gone, and an empty search result is indistinguishable from a wrong-workspace bind. With m1nd, the session starts with a trust verdict, past findings auto-load already anchored to the code that backs them, and empty results say *why*.
-
-Agents on real codebases do not fail because they cannot search. They fail because they have no operating model. They rebuild context from scratch every session, edit without knowing the blast radius, and cannot tell an empty result that means "nothing exists" from one that means "wrong repo."
-
-That works for small codebases. It falls apart when the project has generated artifacts, specs, docs, hidden co-change history, multiple agents, and long handoffs. The problem is not only the agent's reasoning — the agent has no durable model of the codebase's structure. `m1nd` gives it one: a causal code graph with spreading activation across structural, semantic, temporal, and causal dimensions, plus Hebbian plasticity that compounds per-agent across sessions.
-
-## Compounding Memory (L1GHT)
+*When the work lands, what was learned is written down with the evidence that backs it — and it stays honest when the code moves on.*
 
 <p align="center"><img src="docs/assets/visuals/06-l1ght-anchored.png" width="520" alt="Memory is anchored to real code; when the code changes, the memory flags itself" /></p>
 
-Most tools give an agent better *retrieval*. `m1nd` also lets an agent **author durable, machine-legible knowledge** that compounds across sessions and stays honest against the code. L1GHT turns authored knowledge into graph-native structure that self-flags when the code it cites changes — confident claims spread more activation than uncertain ones.
-
-The loop, end to end:
+Most tools give an agent better *retrieval*. At this station the agent **authors durable, machine-legible knowledge** that compounds across sessions and stays honest against the code. L1GHT turns authored knowledge into graph-native structure that self-flags when the code it cites changes — confident claims spread more activation than uncertain ones.
 
 1. **Conclude** — the agent reaches something durable (a decision, a verified finding, why code is the way it is) and calls `memorize` with structured claims and `evidence` paths.
 
@@ -215,8 +200,11 @@ The call returns proof it landed — this is a real captured response, trimmed:
 
 2. **Anchor** — m1nd writes a graph-native `.light.md` under `<runtime>/agent-memory/`, ingests it (`adapter=light mode=merge`), and resolves each `evidence` path to the real code node via a `grounded_in` edge — so the knowledge lives in the same activation space as code and surfaces in `seek` / `activate` / `impact`.
 3. **Auto-load** — on every future session start, `m1nd` ingests `agent-memory/` automatically and reports it in `session_handshake.agent_memory`. Past findings survive a `mode=replace` ingest and are just *there*.
+4. **Self-flag staleness** — `cross_verify(check: ["evidence_freshness"])` re-hashes every cited file and names which claims have gone stale because their code changed — so memory tells you when it lies instead of misleading you. Memory carries a provenance spine: claims state real age + author, supersede older claims, age out, and respect a recency cap — remembered knowledge states its own freshness instead of quietly going stale.
 
-The compounding is the point: kill that process, start a **fresh** one against the same runtime, and its first `north(task)` already carries the earlier session's claim — this is a real captured exchange (the two calls above ran in separate processes), trimmed:
+This loop has been proven live end-to-end: `memorize` → `grounded_in` edge → freshness flag on an edited file → survives `mode=replace` → boot auto-load. Closing a bounded mission? Pass `write_light_memory: true` to `mission_close` to persist its verified claims the same way.
+
+**COMPOUND — the next session is born inside the warmed shell.** Kill that process, start a **fresh** one against the same runtime, and its first `north(task)` already carries the earlier session's claim — this is a real captured exchange (the two calls above ran in separate processes), trimmed:
 
 ```jsonc
 // north.memory, from a process that never called memorize itself:
@@ -231,18 +219,33 @@ The compounding is the point: kill that process, start a **fresh** one against t
 
 `source_agent` names who authored it and `stale` re-checks the cited code — the next session inherits the knowledge *and* its provenance, not a bare string.
 
-4. **Self-flag staleness** — `cross_verify(check: ["evidence_freshness"])` re-hashes every cited file and names which claims have gone stale because their code changed — so memory tells you when it lies instead of misleading you.
+### One graph, many agents
 
-This loop has been proven live end-to-end: `memorize` → `grounded_in` edge → freshness flag on an edited file → survives `mode=replace` → boot auto-load. Closing a bounded mission? Pass `write_light_memory: true` to `mission_close` to persist its verified claims the same way. The habit is documented in the server `instructions` every MCP client receives at `initialize` — host-agnostic, no client-specific plugin required.
+<p align="center"><img src="docs/assets/visuals/10-attach-core.png" width="520" alt="One owner process holds the live graph; many agents attach to the same core" /></p>
 
-## The Trust / Honesty Layer
+Quick Start below wires a stdio server per host — fine for one agent, but each process loads its own graph and holds its own lease. The deployment m1nd is built for is one owner, many attached agents. One owner process holds the live graph:
 
-<p align="center"><img src="docs/assets/visuals/03-verdicts-doors.png" width="520" alt="Every result is a verdict — act, reverify, or abstain — like doors the agent must choose" /></p>
+```bash
+m1nd-mcp --serve --no-gui --port 1337 --runtime-dir /your/project/.m1nd
+```
 
-This is the most defensible thing m1nd does, and no competitor ships it. The doctrine: **credibility comes from honesty, not from always winning.**
+Every agent then attaches as a thin stdio↔HTTP bridge — it loads **no** graph, builds no engines, and takes **no** lease:
+
+```bash
+m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and omit the flag
+```
+
+Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
+
+## The material: honesty
+
+*The whole shell is built from one material — m1nd would rather tell your agent "don't trust this" than let it guess.*
+
+This is the most defensible thing m1nd does, and no competitor ships it. The doctrine: **credibility comes from honesty, not from always winning.** An honest *no* beats a confident guess — every station above is made of that.
 
 - **`trust_selftest`** returns a verdict *before* any retrieval: `full_trust`, `needs_ingest`, `wrong_workspace_binding`, `stale_binding_suspected`, or `degraded_host_tool_surface`. The agent knows whether to proceed, ingest, rebind, or fall back.
 - **`agent_runtime_contract`** rides on every retrieve response, carrying a `trust_mode`. An empty result is disambiguated — bound to the wrong repo vs. genuinely nothing there — never silently reported as "no results."
+- **`trust_band: insufficient_evidence` means NO evidence — not medium risk.** The honest cold-start answer, distinct from low/medium/high.
 - **`non_claims` arrays** ship on every mission tool. m1nd tells the agent what it did *not* prove.
 - **`mission_verify` can say no — and does, in tested code.** It rejects graph-only evidence: a claim cannot close without a file read, a test run, or a runtime probe. The test is literally named `graph_only_evidence_is_not_enough`.
 - **`recovery_playbook`** returns a deterministic, ordered step list to repair the binding.
@@ -263,83 +266,43 @@ Shown, not told. Call `trust_selftest` on an unbound runtime and the verdict *is
 }
 ```
 
-The same honesty rides on retrieval. A `seek` hit carries a `sufficiency` readout and a `trust_envelope` — and when the envelope has no calibration row measured yet, it caps its own verdict instead of overclaiming. A real capture, trimmed (the top hit is a memory the last session authored):
-
-```jsonc
-{
-  "results": [
-    { "label": "AuthTokenFlow", "source_agent": "authbot", "authored_ms_ago": 101161, "score": 0.48 }
-    // …code-node hits, trimmed…
-  ],
-  "sufficiency": { "state": "gathering", "top_score": 0.48,
-    "why": "the strongest match left out still scores 0.25 — relevant context did not fit …" },
-  "trust_envelope": {
-    "calibrated": false,               // no calibration row measured
-    "verdict": "reverify",             // …so the verdict is capped below `act`
-    "next_repair_call": "trust_selftest"
-  }
-}
-```
-
 The proof of the commitment is what was killed for it: `savings` and `resonate` were pulled from the advertised surface in beta.7 because a tool that always claims to win is not credible. No competitor — not mem0, Zep, Letta, Sourcegraph, or any code-graph MCP — ships a layer that tells the agent what *not* to trust and how to recover.
+
+<p align="center"><img src="docs/assets/visuals/11-triage-loop.png" width="520" alt="Field reports feed a triage loop that turns misbehavior into a test before a fix" /></p>
 
 **The field-triage loop closes on itself.** The session telemetry agents leave in `~/.m1nd/field-reports.jsonl` (local-only — m1nd never phones home) is not a passive log: reports get triaged, and a *confirmed* field bug becomes a red battery case **before** the fix, so the regression is proven, not just described. That loop has already run end-to-end through a full field-triage sweep: four field-reported bugs turned into failing battery cases and then merged fixes, all shipped in **1.2.1** — `north` now composes L1GHT recall into its memory packet, the `temp` graph sentinel resolves to a real tempdir instead of littering the working directory, `memorize` accepts a numeric `confidence`, and the closure ambiguity tag now fires only on genuine ties (the cry-wolf: ambiguous-blocked fell 9/11 → 0/11).
 
-## Language Coverage
+## Quick Start
 
-Graph reasoning (`impact`, `why`, `predict`, `trace`, `taint_trace`) is only as good as the extractor. m1nd resolves both **`calls` edges** (call graph) and **cross-file `imports`** (file→file dependency resolution) per language. The matrix below was proven live in a single polyglot ingest:
+*Install once, wire your agent's host, and get out of the way — from here on, your agent does the driving.*
 
-| Language | `calls` | cross-file imports |
-|---|:---:|:---:|
-| Rust | ✅ | ✅ (`mod`/`use crate::`) |
-| Python | ✅ | ✅ |
-| JavaScript / TypeScript | ✅ | ✅ |
-| Go | ✅ | ✅ (package) |
-| Java | ✅ | ✅ (FQCN + wildcard) |
-| C / C++ | ✅ | ✅ (`#include "..."`) |
-| Kotlin | ✅ | ✅ (package) |
-| PHP | ✅ | ✅ (PSR-4) |
-| Scala | ✅ | ✅ (package) |
-| Ruby | ⏳ | ✅ (`require_relative`) |
-| C# | ✅ | — (namespaces don't map 1:1 to files) |
-| Swift | ✅ | — |
+```bash
+git clone https://github.com/maxkle1nz/m1nd.git && cd m1nd
+npm install -g .
+m1nd doctor
+```
 
-All ✅ rows are verified end-to-end (a `caller`→`callee` import resolves and the caller emits call edges). Other languages fall back to the generic extractor (`contains` only). Unresolvable imports (external packages, gems, stdlib, system headers) are honestly left unresolved rather than guessed.
+Then wire your host — the same two commands, one per host (`codex`, `claude`, `gemini`, `antigravity`, `generic`):
 
-## Capability Map
-
-<p align="center"><img src="docs/assets/visuals/04-impact-web.png" width="520" alt="impact traces the blast radius across the web of connected code before you edit" /></p>
-
-The live MCP surface evolves with releases. Use `tools/list` for the exact tool count and names in your current build.
-
-| Area | What it enables | Representative tools |
+| Host | Install the agent pack | Wire the MCP config |
 |---|---|---|
-| Graph foundation | ingest code, maintain graph state, diagnose session continuity, reinforce useful paths, and detect cross-session weight drift | `trust_selftest`, `session_handshake`, `recovery_playbook`, `ingest`, `health`, `doctor`, `learn`, `warmup`, `drift` |
-| Retrieval and orientation | search by text, path, intent, structure, or relationship before manual file reads | `audit`, `search`, `glob`, `seek`, `activate`, `why`, `trace` |
-| Docs and knowledge binding | ingest universal docs or graph-native `L1GHT`, then link concepts back to code | `ingest(adapter="universal"\|"light")`, `document_resolve`, `document_provider_health`, `document_bindings`, `document_drift`, `auto_ingest_*` |
-| Navigation and continuity | keep stateful routes, handoffs, baselines, and investigation memory across sessions | `perspective_*`, `trail_*`, `coverage_session`, `boot_memory`, `persist` |
-| Mission control and proof discipline | keep a bounded route, record events, switch from graph orientation to direct proof, hand off, and close with explicit gaps | `mission_start`, `mission_event`, `mission_next`, `mission_verify`, `mission_handoff`, `mission_close` |
-| Change planning and proof | reason about impact, co-change, missing steps, failure paths, and structural claims | `impact`, `predict`, `validate_plan`, `missing`, `hypothesize`, `counterfactual`, `differential` |
-| Quality, security, and architecture | detect patterns, taint paths, trust boundaries, duplication, layer violations, type flows, and refactor targets | `scan`, `scan_all`, `heuristics_surface`, `antibody_*`, `taint_trace`, `type_trace`, `trust`, `layers`, `layer_inspect`, `twins`, `fingerprint`, `flow_simulate`, `epidemic`, `tremor`, `refactor_plan` |
-| Time, runtime, and multi-repo work | inspect git history, drift, hidden co-change edges, runtime overlays, and cross-repo references | `timeline`, `diverge`, `ghost_edges`, `runtime_overlay`, `external_references`, `federate`, `federate_auto` |
-| Operations and monitoring | audit repo state, verify graph-vs-disk truth, run daemon watches, persist state, and surface durable alerts | `audit`, `cross_verify`, `daemon_*`, `alerts_*`, `panoramic`, `metrics`, `report`, `persist`, `diagram`, `help` |
-| Surgical edit prep and execution | pull compact connected context, preview writes, and apply graph-aware edits | `surgical_context`, `surgical_context_v2`, `view`, `batch_view`, `edit_preview`, `edit_commit`, `apply`, `apply_batch` |
+| Codex | `m1nd install-skills codex` | `m1nd mcp-config codex --project /your/project` |
+| Claude Code | `m1nd install-skills claude --project /your/project` | `m1nd mcp-config claude --project /your/project` |
+| Gemini | `m1nd install-skills gemini --project /your/project` | `m1nd mcp-config gemini --project /your/project` |
+| Antigravity | `m1nd install-skills antigravity --project /your/project` | `m1nd mcp-config antigravity --project /your/project` |
+| Generic | `m1nd install-skills generic --project /your/project` | `m1nd mcp-config generic --project /your/project` |
 
-**Tiering:** 27 essential tools are advertised by default to reduce tool-selection cost; set `M1ND_TOOL_TIER=full` to advertise the full surface (100+ tools: RETROBUILDER, perspectives, federation, daemon). A few tools (`resonate`, `savings`, `lock_*`) remain callable by name but are not on the advertised surface. Hidden tools are always callable via `tools/call` — tiering only controls what `tools/list` surfaces.
+Or from npm: `npm install -g @maxkle1nz/m1nd`. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
 
-## The Operating Loops
+**The operator surface is this CLI; the agent's surface is MCP.** A human occasionally runs `m1nd doctor`, `install-skills`, `mcp-config` — the agent runs everything else. One host-neutral escape hatch exists for when there is no live MCP session to call `north` in (stale, bound to the wrong repo, or not loaded yet): it launches an isolated runtime, binds it to the repo, and returns one machine-readable envelope that scopes, trusts, ingests if needed, returns anchors, and hands off to direct proof:
 
-The agent pack is part of the product, not decorative documentation. m1nd is strongest when the agent receives the *operating loop*, not merely a graph endpoint. Five named protocols ship in the pack:
+```bash
+m1nd agent first-minute --repo /your/project --query "understand this system" --json
+```
 
-- **Session Start** — `trust_selftest` → `recovery_playbook` if trust is not full → `ingest` if needed → `seek`/`audit`.
-- **Research** — `ingest` → `activate(query)` → `why(source, target)` → `missing(topic)` → `learn(feedback)` → `memorize` any durable finding.
-- **Code Change** — `impact(node)` for blast radius → `predict(node)` → `counterfactual(nodes)` → `surgical_context_v2` → `memorize` the decision and why.
-- **Deep Analysis** — `fingerprint`, `diverge`, `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, `runtime_overlay` (the RETROBUILDER lens) for hidden coupling, security paths, structural duplicates, and runtime heat.
-- **Memory** — persist durable conclusions with `memorize`, carrying `confidence` and `evidence` paths.
+Pin the binary if you need to: `--version` prints `1.2.x (<sha>)`, and `M1ND_EXPECTED_VERSION` / `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) let a host detect and refuse a drifted binary.
 
-Mission Control is proof discipline, not a feature list. `mission_next` returns exactly one move plus `do_not` guardrails; `mission_verify` rejects graph-only claims; `mission_close` always nudges the agent to persist verified knowledge and records gaps and non-claims. In `bug_hunt` mode, MC0 requires a final direct `direct_sweep` after verified findings before close, so agents check negative space.
-
-**Caveat:** `predict` has **structural fallback only** until `ghost_edges` loads the git co-change matrix — run `ghost_edges` first when you need real co-change likelihood.
+Full install map, host packs, native runtime build, and update flags: [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md) · client-by-client setup: [integration matrix](docs/IDE-INTEGRATIONS.md).
 
 ## Evidence
 
@@ -368,9 +331,6 @@ Every row is hedged to exactly what was measured. m1nd does not lead with saving
   <img src="docs/assets/visuals/08-calibration-earned.png" width="380" alt="Calibration is earned per repo before verdicts can read act" />
   <img src="docs/assets/visuals/09-closure-bridge.png" width="380" alt="A claim only closes when evidence bridges the gap — a file read, test, or probe" />
 </p>
-<p align="center">
-  <img src="docs/assets/visuals/11-triage-loop.png" width="380" alt="Field reports feed a triage loop that turns misbehavior into a test before a fix" />
-</p>
 </details>
 
 ## Limits
@@ -384,6 +344,40 @@ It is **less useful** when:
 - the task is a trivial local file action with no structural uncertainty
 
 **Needs feeding:** `trust` and `tremor` start with neutral priors until `learn` feedback / `ghost_edges` data accumulates, and `predict` needs `ghost_edges` loaded first before its co-change signal is meaningful. These improve with use; they are honest about being uninformed at boot.
+
+## What m1nd Is Not
+
+`m1nd` is not just:
+
+- a code search tool with a larger index
+- a repo RAG layer that only retrieves files or chunks
+- a graph database that leaves workflow decisions to the client
+- a static analysis replacement for the compiler, tests, or security tooling
+- an MCP bundle of unrelated utilities
+- a tool surface the human must learn — the verbs are the agent's; yours is the small [setup CLI](#quick-start)
+
+It is the layer that turns those surfaces into an operational system an agent can reason over and act through. Not for one-file lookups, simple grep, or compiler truth — use plain tools there.
+
+## Language Coverage
+
+Graph reasoning (`impact`, `why`, `predict`, `trace`, `taint_trace`) is only as good as the extractor. m1nd resolves both **`calls` edges** (call graph) and **cross-file `imports`** (file→file dependency resolution) per language. The matrix below was proven live in a single polyglot ingest:
+
+| Language | `calls` | cross-file imports |
+|---|:---:|:---:|
+| Rust | ✅ | ✅ (`mod`/`use crate::`) |
+| Python | ✅ | ✅ |
+| JavaScript / TypeScript | ✅ | ✅ |
+| Go | ✅ | ✅ (package) |
+| Java | ✅ | ✅ (FQCN + wildcard) |
+| C / C++ | ✅ | ✅ (`#include "..."`) |
+| Kotlin | ✅ | ✅ (package) |
+| PHP | ✅ | ✅ (PSR-4) |
+| Scala | ✅ | ✅ (package) |
+| Ruby | ⏳ | ✅ (`require_relative`) |
+| C# | ✅ | — (namespaces don't map 1:1 to files) |
+| Swift | ✅ | — |
+
+All ✅ rows are verified end-to-end (a `caller`→`callee` import resolves and the caller emits call edges). Other languages fall back to the generic extractor (`contains` only). Unresolvable imports (external packages, gems, stdlib, system headers) are honestly left unresolved rather than guessed.
 
 ## Architecture At A Glance
 
@@ -400,7 +394,7 @@ Current crate versions: `m1nd-core`, `m1nd-ingest`, `m1nd-mcp` all `1.2.0` (`m1n
   <img src=".github/m1nd-architecture-overview-v2.jpeg" alt="m1nd architecture overview" width="960" />
 </p>
 
-For federation, perspectives, RETROBUILDER, multi-agent coordination, and the full agent-pack and operator reference, see the [canonical wiki](https://m1nd.world/wiki/), [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md), and [EXAMPLES.md](EXAMPLES.md).
+The live MCP surface evolves with releases — use `tools/list` for the exact tool count and names in your build. **Tiering:** 27 essential tools are advertised by default to reduce tool-selection cost; set `M1ND_TOOL_TIER=full` to advertise the full surface (100+ tools: RETROBUILDER, perspectives, federation, daemon). Hidden tools are always callable via `tools/call` — tiering only controls what `tools/list` surfaces. The tool-by-tool catalog does not live in this README: see the [canonical wiki](https://m1nd.world/wiki/), [docs/AGENT-PACKS.md](docs/AGENT-PACKS.md), and [EXAMPLES.md](EXAMPLES.md) for depth, and [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Contributing
 
