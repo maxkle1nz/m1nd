@@ -3,6 +3,58 @@
 @tailwind utilities;
 
 /*
+ * Self-hosted fonts (HUMAN-LAYER-PRD §6.5): "All self-hosted (the served UI must
+ * work air-gapped; no CDN fonts)." The woff2 live in public/fonts/ (OFL-licensed,
+ * license text alongside them) and are served from loopback — ZERO external
+ * requests. Faces are scoped to exactly what the design system uses:
+ * Instrument Sans 400/500/600 (UI + body), IBM Plex Mono 400/500 (every number,
+ * verdict chip, claim id — §6.4), Fraunces 400 italic (the hedge voice, §6.5).
+ * font-display: swap so first paint never blocks on a font fetch.
+ */
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/instrument-sans-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/instrument-sans-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/instrument-sans-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/fraunces-latin-400-italic.woff2') format('woff2');
+}
+
+/*
  * SOFT PROOF design tokens (HUMAN-LAYER-PRD §6.1).
  * The abstain wears the brand color (Iris violet #7C3AED) and NOTHING else does
  * — the violet family is QUARANTINED to the abstain/unknown token names below and

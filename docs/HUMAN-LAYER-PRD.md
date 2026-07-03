@@ -255,7 +255,7 @@ the stdio transport uses, `:1014`) and the graph endpoints (`:709-712`).
 | Post-it staleness (evidence drift) | `POST /api/tools/cross_verify` (`evidence_freshness`, `audit_handlers.rs:841`) on drawer open | Bulk hash-check across all memories is deferred (perf unknown — measure first) |
 | Coverage emphasis | `orient.coverage` (`server.rs:2703`) / `coverage_session` | — |
 | Blast whisper | `POST /api/tools/impact` (`tools.rs:1302`) | Hover cache keyed by graph generation |
-| Liveness | SSE `/api/events` (`:712`, handler `:1383`) — today `activation \| learn \| ingest \| persist` only (`m1nd-ui/src/types.ts:144-147`) | **`graph_changed` SSE event class** (§5.3) — the one genuinely new backend piece |
+| Liveness | SSE `/api/events` (`:712`, handler `:1383`) — `activation \| learn \| ingest \| persist \| graph_changed` (`m1nd-ui/src/types.ts`) | **`graph_changed` SSE event class** (§5.3) — the one genuinely new backend piece; **SHIPPED** (browser relay `browser_graph_changed_event`, reusing `mcp_http::graph_mutation_event_name`) |
 | Tree at repo scale | snapshot is the whole graph in one payload | An aggregated `/api/tree` endpoint **only if** snapshot proves heavy on large repos — measure before building (§9) |
 
 The honest summary: the Living Tree is **mostly a rendering job**. The only net-new backend
@@ -450,14 +450,21 @@ sequenceDiagram
     U-->>U: re-render touched rows + post-its (a quiet toast: "map updated — 4 nodes")
 ```
 
-- Today's SSE union is `activation | learn | ingest | persist`
-  (`m1nd-ui/src/types.ts:144-147`; handler `http_server.rs:1383`). **`graph_changed` is the
-  one net-new backend piece**: emitted when the graph mutates under the UI (ingest completes,
-  `edit_commit` re-ingests, `memorize` ingests), carrying `updated_node_ids` so the tree
-  re-renders rows surgically. `EditCommitOutput.updated_node_ids` (`surgical.rs:272`) already
-  computes exactly this list — the event is a relay, not new analysis.
-- Degradation is honest: without SSE the tree polls `/api/graph/stats` (`:709`) and shows
-  "live updates unavailable — refreshing every N s", never silently stale.
+- The SSE union is now `activation | learn | ingest | persist | graph_changed`
+  (`m1nd-ui/src/types.ts`; handler `http_server.rs`). **`graph_changed` is the
+  one net-new backend piece** (SHIPPED, Slice-0 live-refresh follow-up): emitted when the
+  graph mutates under the UI (ingest completes, `edit_commit` re-ingests, `memorize` ingests,
+  `apply`/`learn` land). The browser relay `browser_graph_changed_event` derives it from the
+  broadcast mutation event via the shared predicate `mcp_http::graph_mutation_event_name` — a
+  relay, not new analysis. **Honest v0 scope:** the browser event carries `{ event, agent_id?,
+  source?, batch_id?, timestamp_ms? }` and the tree **refetches the snapshot** on it (debounced
+  ~500 ms) rather than patching by `updated_node_ids` — the summarized browser `tool_result`
+  does not reliably carry that list, so a whole-snapshot refetch is the correct, honest first
+  cut. Surgical per-node patching (using `EditCommitOutput.updated_node_ids`, `surgical.rs:272`)
+  is a measured follow-up if snapshot refetch proves heavy (§5.4, §9.4).
+- Degradation is honest: without SSE the tree polls `/api/graph/stats` (`:709`) and refreshes
+  when the node/edge counts change, never silently stale. (Once SSE delivers even one event,
+  the poll stands down — the live path has proven itself.)
 - Multi-instance: the existing `/api/instances` + `InstancesPanel` conflict surface stays as
   the orchestrator's fleet view.
 
@@ -588,12 +595,31 @@ green, claims scoped).
 > in `m1nd-ui/src/__fixtures__/` (dogfooded from a live `--serve` of m1nd's own graph).
 > Verified live in-browser: cream porcelain ground, violet only on the unknown dot, the
 > `GraphSnapshotEndpoint` post-it rendering fresh on `http_server.rs`. `cargo build -p
-> m1nd-mcp` still compiles with the new embedded dist. **Deferred (honest):** self-hosted
-> Instrument Sans / IBM Plex Mono woff2 (falls back to system/JetBrains stacks until vendored,
-> §6.5); the `graph_changed` SSE live-refresh (§5.3 — the tree refreshes on reload, not yet
-> surgically); tremor breath is wired but the repo currently reports no active tremors; the
-> stale-flipped post-it path is code- and test-covered but needs a real evidence-drift case
-> to exercise end-to-end. Slices 1–3 below remain spec'd.
+> m1nd-mcp` still compiles with the new embedded dist.
+>
+> **Slice-0 deferrals — status update 2026-07-03 (`feat/living-tree-live`):**
+> - ✅ **SHIPPED — the `graph_changed` SSE live-refresh (§5.3).** The browser SSE
+>   `/api/events` now emits a `graph_changed` event class whenever the shared graph
+>   actually mutates (`http_server::browser_graph_changed_event` reuses the ONE mutation
+>   predicate `mcp_http::graph_mutation_event_name` — a read result never masquerades as a
+>   change). The Living Tree subscribes via `useLiveRefresh` (`m1nd-ui/src/hooks/`), debounces
+>   bursts ~500 ms, refetches the snapshot, and updates rows in place — CALM (an `info` toast,
+>   no flash, no glow). Graceful fallback: a low-frequency `/api/graph/stats` poll when SSE is
+>   unavailable. Proofs: 2 Rust relay tests (mutation relays / reads+failures suppressed) +
+>   533 `m1nd-mcp` tests green; 5 UI debounce/trigger tests + the 23 existing tests green;
+>   live smoke confirmed `/api/events` streams a real `tool_result` mutation frame. *(A
+>   kickstart of the served owner is required to activate the server-side relay — the running
+>   binary predates this change.)*
+> - ✅ **SHIPPED — self-hosted fonts (§6.5).** Instrument Sans (400/500/600), IBM Plex Mono
+>   (400/500) and Fraunces (400 italic) woff2 are vendored into `m1nd-ui/public/fonts/`
+>   (OFL-licensed, license text alongside) with local `@font-face` in `index.css`;
+>   `index.html` no longer hardcodes JetBrains Mono or the blue-black substrate. The UI renders
+>   fully air-gapped: grep of the built `dist/` for external font hosts is **zero**.
+> - ⏳ **Still open (honest):** the stale-flipped post-it path is code- and test-covered but
+>   needs a real evidence-drift case to exercise end-to-end (the stale-flip e2e). Tremor breath
+>   is wired but the repo currently reports no active tremors.
+>
+> Slices 1–3 below remain spec'd.
 
 | Slice | Ships | Proof gates (all must be green) |
 |---|---|---|
