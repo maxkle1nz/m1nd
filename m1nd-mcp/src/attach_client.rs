@@ -147,9 +147,21 @@ impl AttachSession {
 
 /// JSON-RPC error code the owner returns when a forwarded request carries an
 /// `Mcp-Session-Id` it no longer knows (e.g. after an owner restart). Per the MCP
-/// spec the owner also answers HTTP 404, but the JSON-RPC code is the
-/// authoritative, transport-independent signal we key the re-init on.
+/// spec the owner also answers HTTP 404; we treat BOTH shapes as the
+/// session-expired signal (see [`SESSION_EXPIRED_STATUS`] and
+/// [`PostOutcome::signals_session_expired`]) so the re-init trigger does not
+/// depend on the owner always delivering a parseable JSON-RPC frame.
 const SESSION_EXPIRED_CODE: i64 = -32001;
+
+/// HTTP status the owner returns for an unknown/expired `Mcp-Session-Id` (per the
+/// MCP Streamable-HTTP spec: "re-initialize"). The owner's `POST /mcp` currently
+/// pairs this with a JSON body carrying the `-32001` frame, but its `GET /mcp`
+/// (SSE relay) answers 404 with a PLAIN-TEXT body and NO JSON-RPC frame — and an
+/// intermediary/proxy could strip the body on either path. Keying re-init on this
+/// status too (not only the frame) makes recovery robust to every unknown-session
+/// SHAPE the transport can present. Locked against owner drift by
+/// `tests/attach_reinit.rs::owner_unknown_session_wire_shape_is_recoverable`.
+const SESSION_EXPIRED_STATUS: u16 = 404;
 
 /// Outcome of one POST to the owner's `/mcp`, demuxed to a single JSON-RPC value.
 ///
@@ -166,9 +178,27 @@ pub struct PostOutcome {
     pub status: u16,
 }
 
+impl PostOutcome {
+    /// Does this outcome mean the owner no longer knows our session (restart)?
+    ///
+    /// True if EITHER the demuxed response frame carries the `-32001` error code
+    /// OR the owner answered the session-expired HTTP status (`404`). Covering
+    /// both shapes is the field-triage batch-C hardening: #225 keyed re-init only
+    /// on the parseable `-32001` frame, so an unknown-session response delivered
+    /// WITHOUT a JSON-RPC frame (the owner's own SSE/GET path already does this
+    /// with a plain-text 404 body; a proxy could do it on POST) slipped past the
+    /// trigger and the bridge failed with "no JSON-RPC response frame" instead of
+    /// recovering. The status check closes that.
+    pub fn signals_session_expired(&self) -> bool {
+        self.status == SESSION_EXPIRED_STATUS || self.value.as_ref().is_some_and(is_session_expired)
+    }
+}
+
 /// Does this response frame carry the owner's "session unknown/expired" error?
 /// Keyed on the JSON-RPC error `code == -32001` so it works whether the owner
-/// delivered the error as `application/json` or inside an SSE frame.
+/// delivered the error as `application/json` or inside an SSE frame. This is the
+/// FRAME-level check; the transport-level shape (HTTP 404 with or without a frame)
+/// is handled by [`PostOutcome::signals_session_expired`].
 fn is_session_expired(value: &serde_json::Value) -> bool {
     value
         .get("error")
@@ -333,15 +363,19 @@ pub async fn reinitialize(
 }
 
 /// Forward one JSON-RPC `payload` to the owner, transparently recovering from an
-/// owner restart. If the owner answers with `-32001` (session unknown/expired),
-/// re-initialize ONCE (replaying the retained host params) and retry the original
-/// request under the fresh session, returning that result to the host as if
-/// nothing happened. Guarded to a single re-init attempt per call: if re-init or
-/// the retry still yields `-32001`, the honest error is returned rather than
-/// looping. `session` is updated in place across a successful re-init.
+/// owner restart. If the owner signals an unknown/expired session — in ANY shape:
+/// the `-32001` JSON-RPC frame OR a bare HTTP `404` with no usable body (see
+/// [`PostOutcome::signals_session_expired`]) — re-initialize ONCE (replaying the
+/// retained host params) and retry the original request under the fresh session,
+/// returning that result to the host as if nothing happened. Guarded to a single
+/// re-init attempt per call: if re-init or the retry still signals expiry, the
+/// honest error is returned rather than looping. `session` is updated in place
+/// across a successful re-init.
 ///
-/// This is the field-triage #5 fix. It is exercised end-to-end (real owner
-/// restart, red→green) by `tests/attach_reinit.rs`.
+/// This is the field-triage #5 fix, hardened in field-triage batch-C to key on
+/// the unknown-session HTTP status (not only the frame) so recovery is robust to
+/// every transport shape. Exercised end-to-end (real owner restart, incl. a
+/// double-restart / binary-swap cycle, red→green) by `tests/attach_reinit.rs`.
 pub async fn forward_with_reinit(
     client: &reqwest::Client,
     endpoint: &str,
@@ -349,28 +383,52 @@ pub async fn forward_with_reinit(
     payload: &str,
 ) -> Result<serde_json::Value, String> {
     let outcome = post_and_demux(client, endpoint, session, payload).await?;
-    let value = outcome
-        .value
-        .ok_or_else(|| "owner returned no JSON-RPC response frame".to_string())?;
 
-    if !is_session_expired(&value) {
-        return Ok(value);
+    // Decide expiry from the WHOLE outcome (HTTP status + optional frame), not
+    // just a parsed frame — the owner may signal an unknown session at the
+    // transport layer (HTTP 404) with no usable JSON-RPC body (its SSE/GET path
+    // already does exactly that; a proxy could do it on POST). Reading `value`
+    // first would fail with "no response frame" and never reach re-init.
+    if !outcome.signals_session_expired() {
+        // Not a session-expiry outcome: return the frame, or surface the honest
+        // "no frame" transport error for anything else.
+        return outcome
+            .value
+            .ok_or_else(|| "owner returned no JSON-RPC response frame".to_string());
     }
+
+    // Preserve the exact session-expired error to pass through honestly if re-init
+    // or the retry cannot recover. Synthesize one when the owner sent no frame
+    // (e.g. a plain-text 404) so double-failure still yields a well-formed error.
+    let want_id = serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|v| v.get("id").cloned())
+        .filter(|v| !v.is_null())
+        .unwrap_or(serde_json::Value::Null);
+    let expired_error = outcome.value.clone().unwrap_or_else(|| {
+        serde_json::to_value(jsonrpc_error(
+            want_id,
+            SESSION_EXPIRED_CODE as i32,
+            "Unknown or expired Mcp-Session-Id; re-initialize".to_string(),
+        ))
+        .unwrap_or(serde_json::Value::Null)
+    });
 
     // Owner-side session is gone (restart). Re-initialize once, then retry.
     eprintln!("[m1nd-mcp][attach] owner session expired — re-initialized");
     match reinitialize(client, endpoint, session).await {
         Ok(_) => {
+            // Single-retry guard: exactly one re-init + retry per call. Whatever
+            // the retry returns is final — its real result on success, or (if it
+            // STILL signals expiry / carried no frame) the preserved honest error,
+            // never a second re-init loop.
             let retry = post_and_demux(client, endpoint, session, payload).await?;
-            match retry.value {
-                Some(v) => Ok(v),
-                None => Ok(value), // no fresh frame — return the original -32001 honestly
-            }
+            Ok(retry.value.unwrap_or(expired_error))
         }
         Err(e) => {
             eprintln!("[m1nd-mcp][attach] re-init failed ({e}); passing error through");
             // Honest passthrough of the original session-expired error.
-            Ok(value)
+            Ok(expired_error)
         }
     }
 }
@@ -946,6 +1004,62 @@ mod tests {
         let got = extract_sse_response(body, Some(&want), TransportMode::Line, &sink)
             .expect("falls back to first response");
         assert_eq!(got["id"], 99);
+    }
+
+    #[test]
+    fn signals_session_expired_covers_frame_and_status_shapes() {
+        // Frame carries -32001 (owner's POST shape) → expired, whatever the status.
+        let frame = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1,
+            "error": { "code": -32001, "message": "Unknown or expired Mcp-Session-Id" }
+        });
+        let with_frame = PostOutcome {
+            value: Some(frame),
+            session_id_header: None,
+            status: 404,
+        };
+        assert!(with_frame.signals_session_expired());
+
+        // 404 with NO frame (owner's SSE/GET shape, or a proxy stripping the body)
+        // → STILL expired, driven by the status alone. This is the batch-C fix.
+        let frameless = PostOutcome {
+            value: None,
+            session_id_header: None,
+            status: 404,
+        };
+        assert!(frameless.signals_session_expired());
+
+        // A 404 whose body happens to be some OTHER error is still treated as an
+        // unknown-session outcome (the owner only ever 404s for that reason on
+        // /mcp) — status is authoritative.
+        let other_404 = PostOutcome {
+            value: Some(
+                serde_json::json!({"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"x"}}),
+            ),
+            session_id_header: None,
+            status: 404,
+        };
+        assert!(other_404.signals_session_expired());
+
+        // A normal 200 result must NOT be treated as expired.
+        let ok = PostOutcome {
+            value: Some(serde_json::json!({"jsonrpc":"2.0","id":1,"result":{"ok":true}})),
+            session_id_header: None,
+            status: 200,
+        };
+        assert!(!ok.signals_session_expired());
+
+        // A non-404 error frame that is NOT -32001 must NOT be treated as expired
+        // (e.g. a genuine tool error under HTTP 200) — otherwise we'd re-init on
+        // ordinary failures.
+        let other_error = PostOutcome {
+            value: Some(
+                serde_json::json!({"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}),
+            ),
+            session_id_header: None,
+            status: 200,
+        };
+        assert!(!other_error.signals_session_expired());
     }
 
     #[test]
