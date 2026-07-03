@@ -558,7 +558,7 @@ stateDiagram-v2
 
 | # | Failure | Detection | Automatic behavior | Founder sees | THE one action |
 |---|---|---|---|---|---|
-| 1 | Project owner down (idle-exit/crash) | discovery miss; mid-session `-32001` | respawn warm; live bridges ride #225 re-init (see risk §21.14) | nothing, or one `warming` beat | none |
+| 1 | Project owner down (idle-exit/crash) | discovery miss; mid-session `-32001` | respawn warm; live bridges ride #225 re-init (PROVEN by #233's restart tests — see risk §21.14) | nothing, or one `warming` beat | none |
 | 2 | Owner **wedged** (alive, lease held, heartbeat stale) | spawn loses lease AND discovery filters stale; retry window expires | degrade to medulla + `gaps:[project_owner_wedged{pid}]` | `trust=degraded · project owner wedged (pid N)` | `m1nd doctor --repo .` → prints the verified `kill -TERM N`; **founder approves** (B7) |
 | 3 | Spawn race (two sessions, one brain) | lease arbitration | loser exits 0; bridge re-discovers, attaches winner | nothing — invisible by design | none (Slice 2 gate proves ×20) |
 | 4 | Registry stale entry | `owner_live && !stale` filter; boot GC | filtered; post-wake heartbeat refreshes ≤5 s | nothing | none |
@@ -579,7 +579,7 @@ The founder's view of any failure is always the same shape: **one calm line in t
 
 Install replaces `~/.m1nd/bin/m1nd-mcp` keeping ONE `.bak` (today's 6 baks/~350 MB *(measured)* get reclaimed at M8; doctor flags the excess).
 
-1. **Medulla first:** `launchctl kickstart -k` — restarts on the new binary; attached sessions are *supposed* to ride #225's transparent re-init (one `-32001` re-handshake) — **this claim now has a battery case before cutover leans on it** (risk §21.14).
+1. **Medulla first:** `launchctl kickstart -k` — restarts on the new binary; attached sessions ride #225's transparent re-init (one `-32001` re-handshake) — **PROVEN by #233's `bridge_survives_two_restarts_including_binary_swap` before cutover leans on it** (risk §21.14).
 2. **Project brains converge lazily:** owners are ephemeral — idle-exit retires the old binary; the next spawn *is* the upgrade. Zero fleet orchestration (the Nx model). Immediate convergence in v1: `m1nd brain stop <repo>` + next call. (`doctor --bounce` is V2.)
 3. **Skew, worn honestly:** bridge↔owner skew surfaces in the binding (`owner_version_skew`), tolerated while the MCP handshake succeeds. Owner↔medulla skew rides the stable `seek`/`boot_memory` verb contract; every composed north carries both tiers' fingerprints. **Snapshots are caches, never contracts:** version mismatch at load takes the corruption branch — re-ingest, never a format migration, never a crash.
 4. **Pins:** advisory by default; `strict_binary:true` for determinism-demanding repos (CI battery repos) — refuse-to-spawn is fail-closed and never redirects. A heterogeneous fleet (repo A pinned old, repo B newest) is a *supported state*: that is precisely what per-brain runtimes buy.
@@ -642,7 +642,7 @@ Install replaces `~/.m1nd/bin/m1nd-mcp` keeping ONE `.bak` (today's 6 baks/~350 
 11. **Hosts without SessionStart** (Gemini/Antigravity): north-on-first-tool-call only; north-before-first-token stays an honest gap on those hosts.
 12. **The medulla claim set grows daily** (8 at write time). M4 triage must enumerate at cutover — this document's inventory is already stale by design.
 13. **Nested-brain edge cases:** nearest-wins is the rule; symlinked/worktree layouts can still surprise — the binding guard backstop and the `--project` pin are the escape valves.
-14. **The #225 transparent-re-init claim needs its own gate.** During this PRD's own writing session, two `north` calls against the live `:1338` returned `-32001 Unknown or expired Mcp-Session-Id` with **no transparent recovery at the tool surface** (the session's MCP handle predated today's 16:44 medulla restart; retry did not recover; field-reported — mailbox line 30). Slices 6/V2-5 carry a bounce-under-live-session battery case; until it is green, "sessions ride #225" is a budgeted claim, not a fact (TT-INV-5 applied to a resilience claim).
+14. **The #225 transparent-re-init claim now has its gate — PROVEN.** During this PRD's own writing session, two `north` calls against the live `:1338` returned `-32001 Unknown or expired Mcp-Session-Id` with **no transparent recovery at the tool surface** (the session's MCP handle predated that day's 16:44 medulla restart; retry did not recover; field-reported — mailbox line 30). PR #233 closed it: `tests/attach_reinit.rs::bridge_survives_two_restarts_including_binary_swap` drives the SAME bridge session through two consecutive owner restarts (incl. a full kill / binary-swap) and asserts transparent recovery + a fresh session id each time, and `owner_unknown_session_wire_shape_is_recoverable` locks the owner's unknown-session wire shape to the re-init trigger. "Sessions ride #225" is now a PROVEN fact under those tests, no longer a budgeted claim (TT-INV-5 discharged for this resilience claim).
 
 ---
 
