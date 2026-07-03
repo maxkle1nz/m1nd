@@ -133,6 +133,20 @@ human's explicit call.
    (bug; the battery already `rm -f temp`s around it, but the source drop is unfixed).
 4. **stale instructions = FIXED** — the old flat WORKFLOWS instructions string; closed by #208
    this checkpoint (kept as a `win`/closed marker for the triage sweep).
+5. **north marker-fragment slot waste = FIXED (field-triage batch A, mailbox L28).** north's
+   memory beat AND its anchor/focus surfaces spent slots on L1GHT MARKER FRAGMENTS — the
+   annotation nodes the l1ght_adapter mints per marker line (`𝔻 confidence: …`, `𝔻 evidence: …`,
+   `⟁ depends_on: …`, `⍂/⍐/⍌` declarations). Live founder SessionStart hook evidence: 2/5 memory
+   slots + 4/4 anchor slots wasted on `𝔻 confidence: …` rows instead of real claims/code. Root
+   cause: marker nodes inherit their file's `source_agent`/`authored_ms_ago` prov-tags, so the
+   memory recall's provenance test kept them; and on a memory-heavy graph they rank into the
+   PageRank/activation windows. Fix: a shared `is_marker_fragment(node_id, label)` — STRUCTURAL
+   discriminator (the `::tag::` node-id segment the adapter stamps only on marker nodes; a leading
+   marker glyph as the id-less fallback) — excludes markers from all four north surfaces
+   (`memory`, `anchors`, `focus_nodes`, and the `memory_nearby` claim resolution). Markers stay
+   in the graph (they are data); they just never take a slot. Red→green proven live and in-tree
+   (a memorized note's markers leaked pre-fix, gone post-fix, real claim still recalls); battery
+   case `north_recalls_memorized_claim` extended to assert no memory/anchor row is a marker.
 
 ### Runtime carry-over (post-upgrade honesty)
 Max's live owner was upgraded to the 1.2.0 binary, so **any calibration rows scaled against the
