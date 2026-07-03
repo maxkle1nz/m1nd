@@ -78,3 +78,25 @@ jobs:
         run: cargo build --release --workspace
       - if: runner.os == 'Windows'
         run: cargo build --release -p m1nd-core -p m1nd-ingest -p m1nd-mcp
+
+  # Fails a PR that changes agent-workflow surfaces (MCP instructions/schemas,
+  # verb dispatch, skills/, the npm host installer) without also updating the
+  # agent-facing docs in the SAME PR. Anti-cry-wolf: arms only on those surfaces;
+  # satisfied by any skills//docs/ change, an instructions-only edit, or the
+  # `agent-docs-exempt` label. PR-only (not run on push). See
+  # scripts/agent_docs_gate.py.
+  agent-docs-gate:
+    name: Agent Docs Gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Ensure base ref is present
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+      - name: Check agent-workflow docs coupling
+        run: |
+          python3 scripts/agent_docs_gate.py \
+            --base-ref "${{ github.base_ref }}" \
+            --event-path "${{ github.event_path }}"

@@ -172,6 +172,22 @@ If your tool returns a complex struct, add request/response types in
 Add unit tests in the handler file and, if the tool touches core logic, integration
 tests in `m1nd-core/src/` next to the module it exercises.
 
+### Step 6: Update the agent-facing docs (CI-enforced)
+
+Adding or changing a tool changes what agents can do, so CI's **agent-docs gate**
+(`scripts/agent_docs_gate.py`, the `agent-docs-gate` job) requires your PR to ALSO
+touch at least one agent-facing doc surface: `skills/` (the packs installed into
+Claude/Codex/Gemini/Antigravity hosts), `docs/` (including the wiki under
+`docs/wiki/`), `README.md`, or `CONTRIBUTING.md`. The gate arms only when the diff
+touches an agent-workflow surface (the MCP instructions string / schemas / verb
+dispatch, `protocol/`, `help_guidance.rs`, `universal_docs.rs`, `skills/`, or the
+npm host installer under `npm/`), so unrelated internal changes are never blocked.
+An edit that only touches the `M1ND_INSTRUCTIONS` string self-satisfies. If a
+surface change genuinely has **no** agent-visible behavior (a pure refactor), add
+the `agent-docs-exempt` label to the PR to skip the gate. This exists because a
+surface change without a doc change once taught hosts a stale contract for two
+weeks (PR #216).
+
 ---
 
 ## Adding Language Extractors
