@@ -20,6 +20,10 @@ m1nd-ui/node_modules/
 # X-RAY North Star manifest — an intentional, human-authored config artifact
 # (NOT a runtime-regenerated snapshot), so it is tracked despite the *.json rule.
 !xray.manifest.json
+# MCP Registry manifest (registry.modelcontextprotocol.io) — intentional,
+# human-authored publish artifact at the repo root only; runtime dirs may
+# legitimately contain their own untracked server.json.
+!/server.json
 graph_snapshot.json
 plasticity_state.json
 antibodies.json

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.maxkle1nz/m1nd",
+  "description": "The shell around your coding agent: a neuro-symbolic code graph with calibrated trust. North orients before work, verdicts guard during, memory compounds after — via MCP.",
+  "repository": {
+    "url": "https://github.com/maxkle1nz/m1nd",
+    "source": "github"
+  },
+  "version": "1.2.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@maxkle1nz/m1nd",
+      "version": "1.2.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Workspace root to bind the graph to (defaults to the current working directory)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "M1ND_WORKSPACE_ROOT"
+        }
+      ]
+    }
+  ]
+}
