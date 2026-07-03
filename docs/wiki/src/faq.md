@@ -142,6 +142,8 @@ Yes. Pass `"incremental": true` to the `ingest` tool. Incremental ingest only re
 
 In memory during runtime. Optionally persisted to JSON files on disk via the `M1ND_GRAPH_SOURCE` and `M1ND_PLASTICITY_STATE` environment variables.
 
+A relative persist path (the defaults are `./graph_snapshot.json` / `./plasticity_state.json`) is anchored on the configured runtime dir (`--runtime-dir` / `M1ND_RUNTIME_DIR`) when one is set, so a managed owner persists into its always-writable runtime dir regardless of its working directory — never against `cwd`. An explicit absolute path is used exactly as given.
+
 Without persistence configured, the graph is lost when the process exits. Always configure persistence for production use.
 
 ### How often does it persist?
