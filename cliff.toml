@@ -1,0 +1,44 @@
+# git-cliff — gera um changelog markdown limpo a partir dos Conventional Commits.
+# É o motor da seção auto-changelog do PATHOS.md (injetada por pathos-autorefresh.mjs
+# APENAS entre as âncoras <!-- BEGIN:auto-changelog --> / <!-- END:auto-changelog -->).
+# Genérico: sem nada específico de projeto. Conventional Commits -> grupos legíveis.
+#
+# Uso direto: git-cliff --config cliff.toml --unreleased   (ou sem flag p/ histórico todo)
+
+[changelog]
+# Cabeçalho vazio: a saída é um FRAGMENTO embutido no PATHOS, não um CHANGELOG.md completo.
+header = ""
+body = """
+{% if version %}### {{ version }} — {{ timestamp | date(format="%Y-%m-%d") }}{% else %}### Unreleased{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+**{{ group | upper_first }}**
+{% for commit in commits %}
+- {{ commit.message | split(pat="\n") | first | upper_first }}{% if commit.breaking %} — **BREAKING**{% endif %}
+{%- endfor %}
+{% endfor %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+# Mapeia tipos de commit -> grupos legíveis no changelog.
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Fixes" },
+  { message = "^docs", group = "Docs" },
+  { message = "^refactor", group = "Refactors" },
+  { message = "^perf", group = "Performance" },
+  { message = "^test", group = "Tests" },
+  { message = "^(build|ci|chore)", group = "Chores & infra" },
+  { message = "^revert", group = "Reverts" },
+  { message = ".*", group = "Other" },
+]
+protect_breaking_commits = true
+filter_commits = false
+# Reconhece tags de versão (vX.Y.Z) como marcos. Sem tags, --unreleased = histórico todo.
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "newest"

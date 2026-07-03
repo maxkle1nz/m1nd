@@ -1,0 +1,60 @@
+# Auto-refresh do PATHOS.md no push da main.
+# Copie para .github/workflows/pathos-autorefresh.yml do repo alvo.
+#
+# O que faz: regenera as seções auto-* do PATHOS.md (changelog via git-cliff + overview)
+# e, se o arquivo mudou, commita de volta como Max Kle1nz com [skip ci] (evita loop).
+# Sem secrets: usa o GITHUB_TOKEN default.
+
+name: pathos-autorefresh
+
+on:
+  push:
+    branches: [main]
+    # Evita re-disparar no commit que a própria Action faz (o [skip ci] já cobre,
+    # isto é cinto-e-suspensório) e em mudanças irrelevantes ao norte.
+    paths-ignore:
+      - 'docs/internal/PATHOS.md'
+      - 'docs/PATHOS.md'
+      - 'PATHOS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pathos-autorefresh-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git-cliff precisa do histórico completo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instala git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Regenera as seções auto-* do PATHOS
+        # Ajuste o caminho se você não usar .github/scripts/
+        run: node .github/scripts/pathos-autorefresh.mjs
+
+      - name: Commita o PATHOS (se mudou) como Max Kle1nz
+        run: |
+          git config user.name "Max Kle1nz"
+          git config user.email "kleinz@cosmophonix.com"
+          # Tenta os 3 caminhos suportados; ignora os que não existem.
+          git add docs/internal/PATHOS.md docs/PATHOS.md PATHOS.md 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Nada para commitar (PATHOS já alinhado)."
+          else
+            git commit -m "docs(norte): auto-refresh PATHOS [skip ci]"
+            git push
+          fi
