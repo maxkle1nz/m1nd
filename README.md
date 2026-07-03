@@ -294,6 +294,8 @@ Then wire your host — the same two commands, one per host (`codex`, `claude`, 
 
 Or from npm: `npm install -g @maxkle1nz/m1nd`. `install-skills` ships the agent pack — the operating loop itself as five named protocols, not decorative documentation.
 
+Beyond skills and MCP config, `m1nd hosts plan` / `m1nd hosts apply` now learn per-host **ambient recipes**: the SessionStart-family hook (`SessionStart` / `agentSpawn` / `TaskStart`, routed through the `m1nd-north-shim` command that injects the orientation packet as `additionalContext`) plus a per-host doctrine file, for the TIER-A and TIER-B hosts. `plan` is pure print; `apply --yes` merges owned hook JSON without clobbering existing hooks and prints the blocks for host-managed configs (Claude / Cline / Kiro) rather than writing them.
+
 **The operator surface is this CLI; the agent's surface is MCP.** A human occasionally runs `m1nd doctor`, `install-skills`, `mcp-config` — the agent runs everything else. One host-neutral escape hatch exists for when there is no live MCP session to call `north` in (stale, bound to the wrong repo, or not loaded yet): it launches an isolated runtime, binds it to the repo, and returns one machine-readable envelope that scopes, trusts, ingests if needed, returns anchors, and hands off to direct proof:
 
 ```bash

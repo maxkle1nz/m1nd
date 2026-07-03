@@ -16,7 +16,12 @@ const HOST_REBIND_PLAN_SCHEMA = "m1nd-host-rebind-plan-v0";
 const HOST_APPLY_SCHEMA = "m1nd-host-apply-v0";
 const PACK_ROUTING_CHECK_SCHEMA = "m1nd-agent-pack-routing-check-v0";
 
-const HOST_LIST = ["codex", "claude", "gemini", "antigravity", "generic"];
+const HOST_LIST = [
+  "codex", "claude", "gemini", "antigravity", "generic",
+  "qwen", "kiro", "cline", "continue", "grok",
+  "cursor", "windsurf", "zed", "vscode", "opencode",
+  "warp", "trae", "jetbrains", "amp", "goose", "crush", "aider",
+];
 const HOSTS = new Set([...HOST_LIST, "all"]);
 
 function usage() {
@@ -28,7 +33,7 @@ Usage:
   m1nd mcp-config <host> [--binary <path>] [--project <dir>]
   m1nd hosts status [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
   m1nd hosts plan [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
-  m1nd hosts apply [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--yes] [--no-skills] [--no-config] [--json]
+  m1nd hosts apply [--host codex|claude|gemini|antigravity|generic|qwen|kiro|cline|continue|grok|...|all] [--project <dir>] [--binary <path>] [--yes] [--no-skills] [--no-config] [--no-hooks] [--json]
   m1nd doctor [--json]
   m1nd restart [--source <dir>] [--binary <path>] [--yes] [--json]
   m1nd update check [--channel beta|latest] [--json]
@@ -115,6 +120,7 @@ function parseArgs(args) {
         "kill",
         "no-build",
         "no-config",
+        "no-hooks",
         "no-install",
         "no-kill",
         "no-npm",
@@ -800,6 +806,7 @@ function hostPlanNonClaims() {
     "m1nd hosts plan does not restart or rebind any active MCP host.",
     "m1nd hosts plan does not refresh a host's cached MCP tool list.",
     "m1nd hosts plan does not ingest workspaces, repair graph contents, or fix semantic retrieval.",
+    "m1nd hosts plan does not write hook or doctrine files; apply --yes does.",
   ];
 }
 
@@ -810,6 +817,7 @@ function hostApplyNonClaims() {
     "m1nd hosts apply does not repair graph contents, ingest roots, or semantic retrieval.",
     "m1nd hosts apply does not align system PATH or update root-owned runtime binaries.",
     "m1nd hosts apply does not know every possible generic host config path.",
+    "m1nd hosts apply does not write a host's settings.json hooks section; it prints the block for you to confirm.",
     "m1nd hosts apply is not production-grade unattended host management.",
   ];
 }
@@ -817,6 +825,325 @@ function hostApplyNonClaims() {
 function hostInstallCommand(host, projectDir) {
   if (host === "codex") return "m1nd install-skills codex";
   return `m1nd install-skills ${host} --project ${projectDir}`;
+}
+
+const SHIM_BIN = "m1nd-north-shim";
+const DOCTRINE_FENCE_BEGIN = "<!-- BEGIN m1nd-orient (managed) -->";
+const DOCTRINE_FENCE_END = "<!-- END m1nd-orient (managed) -->";
+
+function doctrineGateBody() {
+  return [
+    "# m1nd — orient before you act",
+    "",
+    "BEFORE responding to the first user message or reading/editing any file, call the",
+    "m1nd MCP tool `north` with the current task and treat the returned packet (binding",
+    "trust, task anchors, prior memory, honest gaps) as ground truth for this session.",
+    "If m1nd is not connected, run: m1nd agent first-minute --repo . --query \"orient\" --json",
+    "Direct proof (source, tests, compiler/runtime) remains the final truth for behavior.",
+    "",
+  ].join("\n");
+}
+
+function doctrineManagedBlock() {
+  return `${DOCTRINE_FENCE_BEGIN}\n${doctrineGateBody()}${DOCTRINE_FENCE_END}\n`;
+}
+
+function doctrineFileContent(host) {
+  if (host === "cursor") {
+    return `---\nalwaysApply: true\n---\n\n${doctrineGateBody()}`;
+  }
+  return doctrineGateBody();
+}
+
+function osGateOk(osGate, platform = process.platform) {
+  return !osGate || osGate.includes(platform);
+}
+
+function hostRecipe(host, projectDir) {
+  const home = homeDir();
+  const doctrineHook = (event, configPath, matcher, owned, command, gotcha) => ({
+    event,
+    config_path: configPath,
+    config_kind: "json",
+    matcher: matcher || null,
+    owned,
+    command,
+    gotcha: gotcha || null,
+  });
+
+  switch (host) {
+    case "claude":
+      return {
+        tier: "A",
+        matrix_section: "§3.1",
+        os_gate: null,
+        hook: doctrineHook(
+          "SessionStart",
+          path.join(home, ".claude", "settings.json"),
+          "startup|resume",
+          false,
+          `${SHIM_BIN} --repo "$CLAUDE_PROJECT_DIR" --query "orient"`,
+          "apply PRINTS the settings block; it never writes settings.json"
+        ),
+        doctrine: { path: path.join(projectDir, ".claude", "CLAUDE.md"), note: null },
+        extra_note: null,
+      };
+    case "codex":
+      return {
+        tier: "A",
+        matrix_section: "§3.2",
+        os_gate: null,
+        hook: doctrineHook(
+          "SessionStart",
+          path.join(home, ".codex", "hooks.json"),
+          "startup|resume",
+          true,
+          `${SHIM_BIN} --repo "$CODEX_CWD" --query "orient"`,
+          "also set [features] hooks=true in ~/.codex/config.toml; approve hooks once, never use --dangerously-bypass-hook-trust"
+        ),
+        doctrine: { path: path.join(projectDir, "AGENTS.md"), note: null },
+        extra_note: null,
+      };
+    case "qwen":
+      return {
+        tier: "A",
+        matrix_section: "§3.3",
+        os_gate: null,
+        hook: doctrineHook(
+          "SessionStart",
+          path.join(home, ".qwen", "settings.json"),
+          null,
+          true,
+          `${SHIM_BIN} --repo "$PWD" --query "orient"`,
+          "do not rename QWEN.md to AGENTS.md (bug #727); instructions field [unverified]"
+        ),
+        doctrine: { path: path.join(projectDir, "QWEN.md"), note: null },
+        extra_note: null,
+      };
+    case "kiro":
+      return {
+        tier: "A",
+        matrix_section: "§3.4",
+        os_gate: null,
+        hook: doctrineHook(
+          "agentSpawn",
+          path.join(projectDir, ".kiro", "hooks", "agentSpawn.json"),
+          null,
+          false,
+          `m1nd agent first-minute --repo "$PWD" --query "orient" --json`,
+          "render-bug #5372: injection works, display may not; agentSpawn hook lives in the host agent config"
+        ),
+        doctrine: { path: path.join(projectDir, ".kiro", "steering", "m1nd.md"), note: null },
+        extra_note: null,
+      };
+    case "cline":
+      return {
+        tier: "A",
+        matrix_section: "§3.4",
+        os_gate: ["darwin", "linux"],
+        hook: doctrineHook(
+          "TaskStart",
+          path.join(projectDir, ".clinerules"),
+          null,
+          false,
+          `${SHIM_BIN} --repo "$PWD" --query "orient" --event TaskStart`,
+          "macOS/Linux only; the TaskStart hook is host-managed, so it is printed to add by hand"
+        ),
+        doctrine: { path: path.join(projectDir, ".clinerules"), note: "the .clinerules file is the doctrine surface" },
+        extra_note: null,
+      };
+    case "continue":
+      return {
+        tier: "A",
+        matrix_section: "§3.5",
+        os_gate: null,
+        hook: doctrineHook(
+          "SessionStart",
+          path.join(projectDir, ".continue", "hooks.json"),
+          null,
+          true,
+          `${SHIM_BIN} --repo "$PWD" --query "orient"`,
+          "Continue does not auto-read AGENTS.md; additionalContext field name [unverified]"
+        ),
+        doctrine: { path: path.join(projectDir, ".continue", "rules", "00-m1nd.md"), note: null },
+        extra_note: null,
+      };
+    case "grok":
+      return {
+        tier: "A",
+        matrix_section: "§3.7",
+        os_gate: null,
+        hook: doctrineHook(
+          "SessionStart",
+          path.join(home, ".grok", "user-settings.json"),
+          null,
+          true,
+          `${SHIM_BIN} --repo "$PWD" --query "orient"`,
+          "official Grok Build has NO SessionStart — confirm the superagent-ai fork; .override.md wins"
+        ),
+        doctrine: { path: path.join(projectDir, "AGENTS.md"), note: null },
+        extra_note: null,
+      };
+    case "gemini":
+      return tierBRecipe("§4", path.join(projectDir, "GEMINI.md"), "instructions is the primary channel (rendered); doctrine reinforces");
+    case "antigravity":
+      return tierBRecipe("§4", path.join(home, ".gemini", "GEMINI.md"), "collision WARNING: Gemini CLI shares ~/.gemini/GEMINI.md (#16058); doctrine leaks between the two tools");
+    case "cursor":
+      return tierBRecipe("§4", path.join(projectDir, ".cursor", "rules", "00-m1nd-orient.mdc"), "alwaysApply:true; keep ASCII paths, do not mix globs with alwaysApply; sessionStart additional_context bug (no fix)");
+    case "windsurf":
+      return tierBRecipe("§4", path.join(projectDir, ".windsurf", "rules", "m1nd.md"), "also global_rules.md; Devin Desktop rebrand prefers .devin/rules/");
+    case "zed":
+      return tierBRecipe("§4", path.join(projectDir, "AGENTS.md"), "first-match-wins — ship exactly one; context_servers in settings.json");
+    case "vscode":
+      return tierBRecipe("§4", path.join(projectDir, ".github", "copilot-instructions.md"), ".vscode/mcp.json for MCP");
+    case "opencode":
+      return tierBRecipe("§4", path.join(projectDir, "AGENTS.md"), "opencode.json \"mcp\" for MCP");
+    case "warp":
+      return tierBRecipe("§4", path.join(projectDir, "WARP.md"), "ALL-CAPS; ~/.warp/.mcp.json for MCP; wins over AGENTS.md");
+    case "trae":
+      return tierBRecipe("§4", path.join(projectDir, ".trae", "project_rules.md"), ".trae/mcp.json for MCP");
+    case "jetbrains":
+      return tierBRecipe("§4", path.join(projectDir, ".junie", "AGENTS.md"), ".junie/mcp/mcp.json for MCP");
+    case "amp":
+      return tierBRecipe("§4", path.join(projectDir, "AGENTS.md"), "amp.mcpServers for MCP");
+    case "goose":
+      return tierBRecipe("§4", path.join(projectDir, ".goosehints"), "extensions for MCP");
+    case "crush":
+      return tierBRecipe("§4", path.join(projectDir, "CRUSH.md"), "MCP config; PreToolUse context is the D channel");
+    case "aider":
+      return tierBRecipe("§4", path.join(projectDir, "CONVENTIONS.md"), "via --read; no native MCP so B+D");
+    default:
+      return null;
+  }
+}
+
+function tierBRecipe(matrixSection, doctrinePath, note) {
+  return {
+    tier: "B",
+    matrix_section: matrixSection,
+    os_gate: null,
+    hook: null,
+    doctrine: { path: doctrinePath, note: note || null },
+    extra_note: note || null,
+  };
+}
+
+function renderHookSnippet(recipe) {
+  if (!recipe || !recipe.hook) return null;
+  const hook = recipe.hook;
+  const commandEntry = { type: "command", command: hook.command };
+  if (recipe.matrix_section === "§3.2") {
+    // codex hooks.json: top-level event array.
+    const entry = { hooks: [commandEntry] };
+    if (hook.matcher) entry.matcher = hook.matcher;
+    return JSON.stringify({ [hook.event]: [entry] }, null, 2);
+  }
+  if (recipe.doctrine && recipe.hook.event === "agentSpawn") {
+    // kiro: agentSpawn config shape.
+    return JSON.stringify({ hooks: { [hook.event]: [{ command: hook.command }] } }, null, 2);
+  }
+  const entry = { hooks: [commandEntry] };
+  if (hook.matcher) entry.matcher = hook.matcher;
+  return JSON.stringify({ hooks: { [hook.event]: [entry] } }, null, 2);
+}
+
+function claudeSettingsBlock(command) {
+  return JSON.stringify(
+    {
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "startup|resume",
+            hooks: [{ type: "command", command }],
+          },
+        ],
+      },
+    },
+    null,
+    2
+  );
+}
+
+function writeDoctrineFile(file, host) {
+  ensureDir(path.dirname(file));
+  const before = readText(file);
+  if (!before.trim()) {
+    fs.writeFileSync(file, doctrineFileContent(host));
+    return { changed: true, file };
+  }
+  const block = doctrineManagedBlock();
+  if (before.includes(DOCTRINE_FENCE_BEGIN) && before.includes(DOCTRINE_FENCE_END)) {
+    const pattern = new RegExp(
+      `${escapeRegExp(DOCTRINE_FENCE_BEGIN)}[\\s\\S]*?${escapeRegExp(DOCTRINE_FENCE_END)}\\n?`
+    );
+    if (before.includes(block)) return { changed: false, file };
+    const after = before.replace(pattern, block);
+    if (before === after) return { changed: false, file };
+    fs.writeFileSync(file, after);
+    return { changed: true, file };
+  }
+  if (/m1nd/i.test(before)) {
+    // File already mentions m1nd but has no managed fence (e.g. our own body written
+    // directly). Stay conservative and do not duplicate.
+    return { changed: false, file };
+  }
+  // Foreign content: append a clearly-fenced managed block, preserving the original.
+  const separator = before.endsWith("\n") ? "\n" : "\n\n";
+  fs.writeFileSync(file, `${before}${separator}${block}`);
+  return { changed: true, file };
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function writeHookConfig(recipe, host) {
+  const file = recipe.hook.config_path;
+  const before = readText(file);
+  const parsed = before.trim() ? safeJsonParse(before) : {};
+  if (before.trim() && !parsed) {
+    throw new Error(`cannot safely update invalid JSON hook config at ${file}`);
+  }
+  const config = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  const command = recipe.hook.command;
+  const commandEntry = { type: "command", command };
+  const isM1ndEntry = (entry) =>
+    entry &&
+    Array.isArray(entry.hooks) &&
+    entry.hooks.some(
+      (inner) =>
+        inner &&
+        typeof inner.command === "string" &&
+        (inner.command.includes(SHIM_BIN) || inner.command.includes("m1nd agent first-minute"))
+    );
+
+  if (recipe.matrix_section === "§3.2") {
+    // codex: top-level SessionStart array.
+    const event = recipe.hook.event;
+    const existing = Array.isArray(config[event]) ? config[event] : [];
+    const kept = existing.filter((entry) => !isM1ndEntry(entry));
+    const entry = { hooks: [commandEntry] };
+    if (recipe.hook.matcher) entry.matcher = recipe.hook.matcher;
+    kept.push(entry);
+    config[event] = kept;
+  } else {
+    // qwen / continue / grok: nested config.hooks[event] array.
+    const event = recipe.hook.event;
+    config.hooks =
+      config.hooks && typeof config.hooks === "object" && !Array.isArray(config.hooks) ? config.hooks : {};
+    const existing = Array.isArray(config.hooks[event]) ? config.hooks[event] : [];
+    const kept = existing.filter((entry) => !isM1ndEntry(entry));
+    const entry = { hooks: [commandEntry] };
+    if (recipe.hook.matcher) entry.matcher = recipe.hook.matcher;
+    kept.push(entry);
+    config.hooks[event] = kept;
+  }
+
+  const after = `${JSON.stringify(config, null, 2)}\n`;
+  ensureDir(path.dirname(file));
+  if (before === after) return { changed: false, file };
+  fs.writeFileSync(file, after);
+  return { changed: true, file };
 }
 
 function hostStatus(args) {
@@ -932,10 +1259,44 @@ function hostPlan(args) {
   const binary = args.binary ? path.resolve(args.binary) : status.runtime.binary || defaultRuntimePath();
   const plans = status.hosts.map((host) => {
     const configCandidateFiles = host.config.candidates.map((candidate) => candidate.file);
+    const recipe = hostRecipe(host.host, projectDir);
+    const hook = recipe && recipe.hook
+      ? {
+          tier: recipe.tier,
+          event: recipe.hook.event,
+          config_path: recipe.hook.config_path,
+          config_kind: recipe.hook.config_kind,
+          matcher: recipe.hook.matcher,
+          matrix_section: recipe.matrix_section,
+          owned: recipe.hook.owned,
+          snippet: renderHookSnippet(recipe),
+          os_supported: osGateOk(recipe.os_gate),
+          gotcha: recipe.hook.gotcha,
+        }
+      : {
+          tier: recipe ? recipe.tier : "B",
+          reason: "no session-start hook on this host",
+          matrix_section: recipe ? recipe.matrix_section : null,
+        };
+    const doctrine = recipe
+      ? {
+          path: recipe.doctrine.path,
+          matrix_section: recipe.matrix_section,
+          note: recipe.doctrine.note,
+          content_preview: doctrineGateBody().split("\n").slice(0, 3).join("\n"),
+        }
+      : null;
+    const settingsBlock =
+      recipe && recipe.hook && recipe.hook.owned === false && host.host === "claude"
+        ? claudeSettingsBlock(recipe.hook.command)
+        : null;
     return {
       host: host.host,
       readiness: host.readiness,
       read_only: true,
+      hook,
+      doctrine,
+      settings_block: settingsBlock,
       install_agent_pack: {
         needed: !host.agent_pack.installed,
         command: hostInstallCommand(host.host, projectDir),
@@ -1083,6 +1444,7 @@ function hostApply(args) {
   const yes = Boolean(args.yes);
   const noSkills = Boolean(args["no-skills"]);
   const noConfig = Boolean(args["no-config"]);
+  const noHooks = Boolean(args["no-hooks"]);
   const statusBefore = hostStatus({ ...args, host: hostSelection, project: projectDir, binary });
   const plannedActions = [];
   const appliedActions = [];
@@ -1193,6 +1555,113 @@ function hostApply(args) {
           hostResult.blocked_actions.push(blocked);
         }
       }
+    }
+
+    const recipe = hostRecipe(hostName, projectDir);
+    if (recipe) {
+      const doctrineAction = action("write-doctrine", "doctrine", `write ${hostName} doctrine ${recipe.doctrine.path}`, {
+        host: hostName,
+        file: recipe.doctrine.path,
+      });
+      plannedActions.push(doctrineAction);
+      hostResult.planned_actions.push(doctrineAction);
+      if (yes) {
+        try {
+          const writeResult = writeDoctrineFile(recipe.doctrine.path, hostName);
+          const applied = {
+            id: doctrineAction.id,
+            kind: doctrineAction.kind,
+            host: hostName,
+            ok: true,
+            file: writeResult.file,
+            changed: writeResult.changed,
+          };
+          appliedActions.push(applied);
+          hostResult.applied_actions.push(applied);
+          if (writeResult.changed) {
+            if (!changedFiles.includes(writeResult.file)) changedFiles.push(writeResult.file);
+            if (!hostResult.changed_files.includes(writeResult.file)) hostResult.changed_files.push(writeResult.file);
+          }
+        } catch (error) {
+          const blocked = action("write-doctrine-failed", "doctrine", `failed to write ${hostName} doctrine`, {
+            host: hostName,
+            file: recipe.doctrine.path,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          blockedActions.push(blocked);
+          hostResult.blocked_actions.push(blocked);
+        }
+      }
+    }
+
+    if (recipe && recipe.hook && !noHooks) {
+      if (!osGateOk(recipe.os_gate)) {
+        const blocked = action("hook-unsupported-os", "hook", `${hostName} hook unsupported on ${process.platform}`, {
+          host: hostName,
+          os_gate: recipe.os_gate,
+          config_path: recipe.hook.config_path,
+        });
+        blockedActions.push(blocked);
+        hostResult.blocked_actions.push(blocked);
+      } else if (recipe.hook.owned === false) {
+        const printAction = action("print-hook-block", "hook", `${hostName} hook must be added by hand`, {
+          host: hostName,
+          config_path: recipe.hook.config_path,
+          event: recipe.hook.event,
+          snippet: renderHookSnippet(recipe),
+          settings_block: hostName === "claude" ? claudeSettingsBlock(recipe.hook.command) : null,
+          note:
+            hostName === "claude"
+              ? "add this to your settings.json hooks section"
+              : "add this to your host agent/hook config",
+        });
+        plannedActions.push(printAction);
+        hostResult.planned_actions.push(printAction);
+        if (yes) {
+          appliedActions.push(printAction);
+          hostResult.applied_actions.push(printAction);
+        }
+      } else {
+        const hookAction = action("write-hook-config", "hook", `write ${hostName} ${recipe.hook.event} hook ${recipe.hook.config_path}`, {
+          host: hostName,
+          file: recipe.hook.config_path,
+          event: recipe.hook.event,
+        });
+        plannedActions.push(hookAction);
+        hostResult.planned_actions.push(hookAction);
+        if (yes) {
+          try {
+            const writeResult = writeHookConfig(recipe, hostName);
+            const applied = {
+              id: hookAction.id,
+              kind: hookAction.kind,
+              host: hostName,
+              ok: true,
+              file: writeResult.file,
+              changed: writeResult.changed,
+              event: recipe.hook.event,
+            };
+            appliedActions.push(applied);
+            hostResult.applied_actions.push(applied);
+            if (writeResult.changed) {
+              if (!changedFiles.includes(writeResult.file)) changedFiles.push(writeResult.file);
+              if (!hostResult.changed_files.includes(writeResult.file)) hostResult.changed_files.push(writeResult.file);
+            }
+          } catch (error) {
+            const blocked = action("write-hook-config-failed", "hook", `failed to write ${hostName} hook config`, {
+              host: hostName,
+              file: recipe.hook.config_path,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            blockedActions.push(blocked);
+            hostResult.blocked_actions.push(blocked);
+          }
+        }
+      }
+    } else if (recipe && recipe.hook && noHooks) {
+      const blocked = action("hook-disabled", "hook", "hook write disabled by --no-hooks", { host: hostName });
+      blockedActions.push(blocked);
+      hostResult.blocked_actions.push(blocked);
     }
 
     hostResults.push(hostResult);
@@ -2362,6 +2831,13 @@ function print(value, asJson) {
       console.log(`  install: ${plan.install_agent_pack.needed ? plan.install_agent_pack.command : "already installed"}`);
       console.log(`  config: ${plan.configure_mcp.command}`);
       console.log(`  workspace: M1ND_WORKSPACE_ROOT=${plan.workspace_binding.env.M1ND_WORKSPACE_ROOT}`);
+      if (plan.hook && plan.hook.event) {
+        console.log(`  hook: ${plan.hook.event} -> ${plan.hook.config_path}${plan.hook.os_supported === false ? " (unsupported on this OS)" : ""}`);
+      } else if (plan.hook && plan.hook.reason) {
+        console.log(`  hook: none (${plan.hook.reason})`);
+      }
+      if (plan.doctrine) console.log(`  doctrine: ${plan.doctrine.path}`);
+      if (plan.settings_block) console.log("  settings block: (printed; paste into settings.json hooks)");
       console.log("  verify:");
       for (const check of plan.verification) console.log(`    - ${check}`);
     }
@@ -2379,6 +2855,12 @@ function print(value, asJson) {
     if (value.changed_files.length > 0) {
       console.log("changed:");
       for (const file of value.changed_files) console.log(`  - ${file}`);
+    }
+    for (const h of value.hosts || []) {
+      const doc = [...(h.applied_actions || []), ...(h.planned_actions || [])].find((a) => a.kind === "doctrine");
+      if (doc) console.log(`  ${h.host} doctrine: ${doc.file}`);
+      const hk = [...(h.applied_actions || []), ...(h.blocked_actions || []), ...(h.planned_actions || [])].find((a) => a.kind === "hook");
+      if (hk) console.log(`  ${h.host} hook: ${hk.id}`);
     }
     if (value.next_actions.length > 0) {
       console.log("next:");
@@ -2545,6 +3027,10 @@ module.exports = {
   hostPlan,
   hostApply,
   hostStatus,
+  hostRecipe,
+  osGateOk,
+  renderHookSnippet,
+  claudeSettingsBlock,
   installSkills,
   packRoutingCheck,
   restart,

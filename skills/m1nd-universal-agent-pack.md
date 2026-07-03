@@ -175,11 +175,18 @@ m1nd agent orient \
   --json
 ```
 
-Use `agent first-minute` when the live MCP session is stale, bound to the wrong
-repo, or has not loaded this pack yet — it is the host-neutral CLI escape hatch,
-not the in-session front door (`north` is). It scopes, trusts, ingests when
-needed, runs one bounded orientation pass, returns anchors, and hands control
-back to direct proof.
+Use `m1nd agent first-minute` when the live MCP session is stale, bound to the
+wrong repo, or has not loaded this pack yet — it is the host-neutral CLI escape
+hatch for first contact, not the in-session front door (`north` is). It scopes,
+trusts, ingests when needed, runs one bounded orientation pass, returns anchors,
+and hands control back to direct proof.
+
+`m1nd hosts plan`/`m1nd hosts apply` now emit SessionStart-family hook recipes
+(`SessionStart`/`agentSpawn`/`TaskStart`) plus a per-host doctrine file for every
+TIER-A and TIER-B host, all routed through the `m1nd-north-shim` command so the
+orientation packet is injected as `additionalContext` at session start. `apply`
+merges owned hook JSON without clobbering existing hooks and PRINTS the blocks
+for host-managed configs (Claude/Cline/Kiro) instead of writing them.
 
 `agent next` emits an `m1nd-agent-action-envelope-v0` with the first safe move.
 Use it when choosing between scope, trust, orient, context, recover, or direct

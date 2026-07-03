@@ -431,19 +431,20 @@ Straight from the research, stated as **built / unbuilt / unverified** — never
 
 ### 6a. The `m1nd-north-shim` + teach `m1nd hosts` the TIER-A recipes  *(the gap, named plainly)*
 
-**Built today:** `m1nd agent first-minute … --json` (the host-neutral orientation CLI). **Not
-built:**
+**Built today:** `m1nd agent first-minute … --json` (the host-neutral orientation CLI).
 
-1. **A canonical `m1nd-north-shim` script** — the thin wrapper that runs `agent
-   first-minute`, extracts the packet, and prints the exact
-   `{"hookSpecificOutput":{…,"additionalContext":…}}` envelope every TIER-A hook needs.
-   Right now **every recipe in §3 asks the operator to write this two-liner by hand.** Ship
-   it once, reference it everywhere.
-2. **Teach `m1nd hosts plan/apply` the TIER-A recipes.** **As built, `m1nd hosts` only knows
-   `codex` by name and emits no hook snippets** (`ide-hosts.md` "GAP DO PRÓPRIO M1ND"). It
-   should generate the **Kiro `agentSpawn`**, **Qwen `SessionStart`**, **Codex
-   `SessionStart`**, **Cline `TaskStart`**, **Continue-CLI**, and **Grok-fork** recipes —
-   turning this document's §3 into `m1nd hosts apply <host>`.
+1. **A canonical `m1nd-north-shim` script — SHIPPED 2026-07-03.** `npm/bin/m1nd-north-shim.js`
+   is the thin, fail-open wrapper that runs `agent first-minute`, renders the packet to
+   compact text, and prints the exact `{"hookSpecificOutput":{…,"additionalContext":…}}`
+   envelope every TIER-A hook needs. Registered as the `m1nd-north-shim` bin; every §3 recipe
+   now references it instead of asking the operator to write the two-liner by hand.
+2. **Teach `m1nd hosts plan/apply` the TIER-A recipes — SHIPPED 2026-07-03.** `m1nd hosts`
+   now resolves every covered host by name and, via `m1nd hosts plan`/`m1nd hosts apply`,
+   emits the **Kiro `agentSpawn`**, **Qwen `SessionStart`**, **Codex `SessionStart`**,
+   **Cline `TaskStart`**, **Continue-CLI**, and **Grok-fork** hook recipes plus per-host
+   doctrine files — turning this document's §3 into `m1nd hosts apply <host>`. `plan` is pure
+   print; `apply --yes` writes owned hook JSON (merge, never-clobber) and doctrine files, and
+   PRINTS the Claude/Cline/Kiro host-managed hook blocks rather than writing them.
 
 ### 6b. Publish `server.json` to the official registry
 

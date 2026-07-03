@@ -141,9 +141,10 @@ m1nd agent orient \
   --json
 ```
 
-The outer JSON schema is `m1nd-agent-cli-v0`. `agent first-minute` is the
-host-neutral CLI escape hatch when the live MCP session is stale, wrong-bound, or
-not loaded yet — not the in-session front door (`north` is). For broad
+The outer JSON schema is `m1nd-agent-cli-v0`. `m1nd agent first-minute` is the
+host-neutral CLI escape hatch for first contact when the live MCP session is
+stale, wrong-bound, or not loaded yet — not the in-session front door (`north`
+is). For broad
 "understand/audit/map this repo" tasks in that out-of-session case it scopes,
 trusts, ingests when needed, returns anchors, and emits `do_not` guardrails
 before handing the agent to direct proof. `agent next`/`agent auto` emits an
@@ -262,7 +263,10 @@ Use `m1nd hosts plan` when the status is red or workspace binding is unclear.
 It emits per-host install, MCP snippet, `M1ND_WORKSPACE_ROOT`, rebind, and
 verification recipes without mutating host files. The generated
 `m1nd mcp-config <host> --project /path/to/project` snippets include the
-workspace env explicitly.
+workspace env explicitly. `plan`/`apply` now also cover the ambient layer:
+per-host SessionStart-family hooks (`SessionStart`/`agentSpawn`/`TaskStart`,
+routed through the `m1nd-north-shim` command) and per-host doctrine files for
+the TIER-A and TIER-B hosts.
 
 Use `m1nd hosts apply` only as the local mutating follow-through after
 `hosts status` or `hosts plan`. Without `--yes` it remains a dry-run preview.

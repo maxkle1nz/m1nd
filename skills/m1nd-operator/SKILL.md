@@ -277,7 +277,9 @@ source reads, tests, runtime probes, or CI evidence.
   it is still a dry-run preview. With `--yes`, it can install or refresh
   agent-pack files and write canonical MCP config snippets for known hosts, but
   it does not prove rebind, refresh cached host tool lists, repair graph state,
-  or remove the manual config step for generic hosts.
+  or remove the manual config step for generic hosts. `plan`/`apply` also emit
+  each host's SessionStart-family hook (routed through `m1nd-north-shim`) and a
+  per-host doctrine file for the TIER-A and TIER-B hosts.
 - The default front door is `north(task)` (it composes `trust_selftest` +
   orient + boot_memory + focus in one round-trip). Call `trust_selftest`
   directly as a RECOVERY route — when trust looks off, `north` degrades, or you
