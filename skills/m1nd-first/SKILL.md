@@ -153,11 +153,11 @@ probes than by extended graph navigation.
      --json
    ```
 
-   `first-minute` is the out-of-session first-contact CLI for a brand-new repo or
-   a broad "understand/audit/map this" request when no live `north` is available.
-   It returns anchors, `do_not` guardrails, and the direct-proof handoff without
-   requiring the agent to read this skill first. In a healthy session, `north` is
-   the front door; this CLI is the recovery entry.
+   `m1nd agent first-minute` is the out-of-session first contact CLI for a
+   brand-new repo or a broad "understand/audit/map this" request when no live
+   `north` is available. It returns anchors, `do_not` guardrails, and the
+   direct-proof handoff without requiring the agent to read this skill first. In a
+   healthy session, `north` is the front door; this CLI is the recovery entry.
 
    It returns an `m1nd-agent-action-envelope-v0`; follow the emitted command or
    recovery path instead of spending calls guessing the tool family.
@@ -319,6 +319,8 @@ Use `m1nd hosts apply` only for the local mutation step after `status` or
 install or refresh agent-pack files and write canonical MCP config snippets for
 known hosts, but it does not prove rebind, refresh cached tool lists, repair
 graph state, or automate generic-host config paths.
+`plan`/`apply` also emit each host's SessionStart-family hook (routed through the
+`m1nd-north-shim` command) and a per-host doctrine file.
 
 For local m1nd repo work, prefer the cheap trust selftest path before a full smoke:
 

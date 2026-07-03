@@ -13,6 +13,8 @@ const {
   hostApply,
   hostPlan,
   hostStatus,
+  hostRecipe,
+  osGateOk,
   installSkills,
   mcpConfig,
   packRoutingCheck,
@@ -23,6 +25,24 @@ const {
 const { classifyScopeBinding } = require("../lib/agent-cli");
 
 const cli = path.resolve(__dirname, "../bin/m1nd.js");
+
+// Version fixtures track the real package version so the self-update tests keep
+// asserting current==package and stale<package as package.json advances.
+const CURRENT_VERSION = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf8")
+).version;
+function versionBelow(version) {
+  const match = String(version).match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return "0.0.0";
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (patch > 0) return `${major}.${minor}.${patch - 1}`;
+  if (minor > 0) return `${major}.${minor - 1}.0`;
+  if (major > 0) return `${major - 1}.0.0`;
+  return "0.0.0";
+}
+const STALE_VERSION = versionBelow(CURRENT_VERSION);
 
 assert.strictEqual(runtimeBinaryName("win32"), "m1nd-mcp.exe");
 assert.strictEqual(runtimeBinaryName("darwin"), "m1nd-mcp");
@@ -167,7 +187,7 @@ function writeFakeMcpRuntime(file) {
     file,
     `#!/usr/bin/env node
 if (process.argv.includes("--version")) {
-  console.log("m1nd-mcp 0.9.0-beta.7");
+  console.log("m1nd-mcp ${CURRENT_VERSION}");
   process.exit(0);
 }
 const readline = require("readline");
@@ -256,20 +276,20 @@ function realpathOrSame(file) {
 }
 
 const registryCurrent = JSON.stringify({
-  "dist-tags": { beta: "0.9.0-beta.7", latest: "0.9.0-beta.7" },
-  version: "0.9.0-beta.7",
+  "dist-tags": { beta: CURRENT_VERSION, latest: CURRENT_VERSION },
+  version: CURRENT_VERSION,
 });
 
 const fakeEnvBase = {
   M1ND_TEST_NPM_VIEW_JSON: registryCurrent,
-  M1ND_TEST_CRATE_VERSION: "0.9.0-beta.7",
+  M1ND_TEST_CRATE_VERSION: CURRENT_VERSION,
   M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "true",
 };
 
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
   () => {
     const current = selfUpdate({
@@ -289,7 +309,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
   () => {
     const status = selfUpdate({
@@ -315,7 +335,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.8.0",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
   },
   () => {
     const stale = selfUpdate({
@@ -344,7 +364,7 @@ withEnv(fakeEnvBase, () => {
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.8.0",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
   },
   () => {
     const dryRun = selfUpdate({
@@ -362,7 +382,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.8.0",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
   },
   () => {
     const statePath = path.join(mkTmpDir(), "update-state.json");
@@ -393,7 +413,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.8.0",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${STALE_VERSION}`,
   },
   () => {
     const tmp = mkTmpDir();
@@ -450,7 +470,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
     // Use an isolated home dir so that a real ~/.claude.json does not affect
     // the "missing" assertion below.
     M1ND_TEST_HOME: mkTmpDir(),
@@ -536,10 +556,10 @@ withEnv(fakeEnvBase, () => {
     {
       PATH: `${pathRuntimeDir}${path.delimiter}${process.env.PATH || ""}`,
       M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
-        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.7",
-        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.7",
-        [pathRuntime]: "m1nd-mcp 0.8.0",
-        [realpathOrSame(pathRuntime)]: "m1nd-mcp 0.8.0",
+        [selectedRuntime]: `m1nd-mcp ${CURRENT_VERSION}`,
+        [realpathOrSame(selectedRuntime)]: `m1nd-mcp ${CURRENT_VERSION}`,
+        [pathRuntime]: `m1nd-mcp ${STALE_VERSION}`,
+        [realpathOrSame(pathRuntime)]: `m1nd-mcp ${STALE_VERSION}`,
       }),
     },
     () =>
@@ -564,10 +584,10 @@ withEnv(fakeEnvBase, () => {
     {
       PATH: `${pathRuntimeDir}${path.delimiter}${process.env.PATH || ""}`,
       M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
-        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.7",
-        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.7",
-        [pathRuntime]: "m1nd-mcp 0.8.0",
-        [realpathOrSame(pathRuntime)]: "m1nd-mcp 0.8.0",
+        [selectedRuntime]: `m1nd-mcp ${CURRENT_VERSION}`,
+        [realpathOrSame(selectedRuntime)]: `m1nd-mcp ${CURRENT_VERSION}`,
+        [pathRuntime]: `m1nd-mcp ${STALE_VERSION}`,
+        [realpathOrSame(pathRuntime)]: `m1nd-mcp ${STALE_VERSION}`,
       }),
     },
     () =>
@@ -603,10 +623,10 @@ M1ND_MCP_BINARY = "${foreignRuntime}"
     {
       M1ND_TEST_HOME: testHome,
       M1ND_TEST_RUNTIME_VERSION_BY_PATH: JSON.stringify({
-        [selectedRuntime]: "m1nd-mcp 0.9.0-beta.7",
-        [realpathOrSame(selectedRuntime)]: "m1nd-mcp 0.9.0-beta.7",
-        [foreignRuntime]: "m1nd-mcp 0.8.0",
-        [realpathOrSame(foreignRuntime)]: "m1nd-mcp 0.8.0",
+        [selectedRuntime]: `m1nd-mcp ${CURRENT_VERSION}`,
+        [realpathOrSame(selectedRuntime)]: `m1nd-mcp ${CURRENT_VERSION}`,
+        [foreignRuntime]: `m1nd-mcp ${STALE_VERSION}`,
+        [realpathOrSame(foreignRuntime)]: `m1nd-mcp ${STALE_VERSION}`,
       }),
     },
     () =>
@@ -626,7 +646,7 @@ M1ND_MCP_BINARY = "${foreignRuntime}"
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
   () => {
     const tmp = mkTmpDir();
@@ -676,7 +696,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
   () => {
     const tmp = mkTmpDir();
@@ -700,7 +720,10 @@ withEnv(
       "no-skills": true,
       "no-config": true,
     });
-    assert.strictEqual(disabled.applied_actions.length, 0);
+    // --no-skills / --no-config disable ONLY the agent-pack and MCP-config writes;
+    // doctrine and hook recipes have their own gating (--no-hooks) and still run.
+    assert(!disabled.applied_actions.some((entry) => entry.id === "install-agent-pack"));
+    assert(!disabled.applied_actions.some((entry) => entry.id === "write-mcp-config"));
     assert(disabled.blocked_actions.some((entry) => entry.id === "agent-pack-disabled"));
     assert(disabled.blocked_actions.some((entry) => entry.id === "config-disabled"));
   }
@@ -709,7 +732,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
   () => {
     const testHome = mkTmpDir();
@@ -742,7 +765,7 @@ withEnv(
 withEnv(
   {
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
   () => {
     const testHome = mkTmpDir();
@@ -776,7 +799,7 @@ const updateCheck = spawnSync(process.execPath, [cli, "update", "check", "--json
   env: {
     ...process.env,
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
 });
 assert.strictEqual(updateCheck.status, 0, updateCheck.stderr);
@@ -787,7 +810,7 @@ const updateStatus = spawnSync(process.execPath, [cli, "update", "status", "--js
   env: {
     ...process.env,
     ...fakeEnvBase,
-    M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
   },
 });
 assert.strictEqual(updateStatus.status, 0, updateStatus.stderr);
@@ -806,7 +829,7 @@ const hostsStatus = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
     },
   }
 );
@@ -825,7 +848,7 @@ const hostsPlan = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
     },
   }
 );
@@ -844,7 +867,7 @@ const hostApplyCli = spawnSync(
     env: {
       ...process.env,
       ...fakeEnvBase,
-      M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+      M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
     },
   }
 );
@@ -872,7 +895,7 @@ writeFakeMcpRuntime(fakeMcp);
 const agentEnv = {
   ...process.env,
   ...fakeEnvBase,
-  M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.7",
+  M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
 };
 const agentScopeRepo = mkTmpDir();
 const agentScope = spawnSync(
@@ -1270,5 +1293,159 @@ assert.strictEqual(kickstartJson.node_count, 12);
 assert.strictEqual(kickstartJson.edge_count, 21);
 assert.strictEqual(kickstartJson.ok, true);
 assert.strictEqual(kickstartJson.next_action, "ready_to_query");
+
+// --- ambient recipes: hooks + doctrine per host --------------------------------
+
+// 1. plan carries hook/doctrine per host and writes nothing to disk.
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const tierA = new Set(["claude", "codex", "qwen", "kiro", "cline", "continue", "grok"]);
+    const tierB = ["gemini", "antigravity", "cursor"];
+    for (const host of [...tierA, ...tierB]) {
+      const project = mkTmpDir();
+      const plan = hostPlan({ _: ["hosts", "plan"], host, project, binary: process.execPath });
+      const p = plan.plans[0];
+      assert(p, `plan for ${host}`);
+      assert(typeof p.doctrine.path === "string", `${host} doctrine path`);
+      if (tierA.has(host)) {
+        assert(p.hook && p.hook.event, `${host} tier-A hook`);
+      } else {
+        assert(p.hook && p.hook.reason, `${host} tier-B no-hook marker`);
+      }
+      if (host === "claude") {
+        assert(typeof p.settings_block === "string" && p.settings_block.includes("SessionStart"), "claude settings_block");
+      }
+      // plan is pure print: nothing written.
+      assert.strictEqual(fs.existsSync(p.doctrine.path), false, `${host} doctrine not written by plan`);
+      if (p.hook && p.hook.config_path) {
+        assert.strictEqual(fs.existsSync(p.hook.config_path), false, `${host} hook not written by plan`);
+      }
+    }
+  }
+);
+
+// 2. apply idempotency for an owned-hook + doctrine host (codex).
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const applyArgs = { _: ["hosts", "apply"], host: "codex", project, binary: process.execPath, yes: true };
+    const applied = hostApply(applyArgs);
+    assert(applied.applied_actions.some((a) => a.id === "write-doctrine" && a.ok), "codex doctrine applied");
+    assert(applied.applied_actions.some((a) => a.id === "write-hook-config" && a.ok), "codex hook applied");
+    const idem = hostApply(applyArgs);
+    assert(idem.applied_actions.some((a) => a.id === "write-hook-config" && a.changed === false), "codex hook idempotent");
+    assert(idem.applied_actions.some((a) => a.id === "write-doctrine" && a.changed === false), "codex doctrine idempotent");
+  }
+);
+
+// 3. never-clobber doctrine: foreign content preserved, managed block appended.
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const doctrinePath = path.join(project, "AGENTS.md");
+    fs.mkdirSync(path.dirname(doctrinePath), { recursive: true });
+    fs.writeFileSync(doctrinePath, "# my rules\nkeep this\n");
+    hostApply({ _: ["hosts", "apply"], host: "codex", project, binary: process.execPath, yes: true });
+    const text = fs.readFileSync(doctrinePath, "utf8");
+    assert(text.includes("keep this"), "foreign doctrine content preserved");
+    assert(text.includes("north"), "m1nd managed block appended");
+  }
+);
+
+// 4. never-clobber hook: unrelated codex hook preserved, m1nd entry added.
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const hooksPath = path.join(homeForTest(), ".codex", "hooks.json");
+    fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+    fs.writeFileSync(
+      hooksPath,
+      JSON.stringify({ SessionStart: [{ matcher: "x", hooks: [{ type: "command", command: "echo other" }] }] }, null, 2)
+    );
+    hostApply({ _: ["hosts", "apply"], host: "codex", project, binary: process.execPath, yes: true });
+    const parsed = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+    const commands = parsed.SessionStart.flatMap((entry) => entry.hooks.map((h) => h.command));
+    assert(commands.some((c) => c.includes("echo other")), "foreign hook preserved");
+    assert(commands.some((c) => c.includes("m1nd-north-shim")), "m1nd hook added");
+  }
+);
+
+// 5. claude settings surgical: apply must NOT write settings.json; block is carried.
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const applied = hostApply({ _: ["hosts", "apply"], host: "claude", project, binary: process.execPath, yes: true });
+    assert.strictEqual(fs.existsSync(path.join(homeForTest(), ".claude", "settings.json")), false, "claude settings.json not written");
+    const host = applied.hosts.find((h) => h.host === "claude");
+    const hookAction = [...host.applied_actions, ...host.planned_actions].find((a) => a.kind === "hook");
+    assert(hookAction, "claude hook action present");
+    const block = hookAction.settings_block || hookAction.snippet || "";
+    assert(block.includes("SessionStart"), "claude hook block includes SessionStart");
+  }
+);
+
+// 6. codex TOML MCP config: exactly one [mcp_servers.m1nd] after apply (regression).
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const configPath = path.join(homeForTest(), ".codex", "config.toml");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, '[mcp_servers.m1nd]\ncommand = "old"\nargs = ["--stdio"]\n');
+    hostApply({ _: ["hosts", "apply"], host: "codex", project, binary: process.execPath, yes: true });
+    const config = fs.readFileSync(configPath, "utf8");
+    assert.strictEqual((config.match(/\[mcp_servers\.m1nd\]/g) || []).length, 1, "exactly one mcp_servers.m1nd section");
+  }
+);
+
+// 7. cline OS gate (platform-independent, helper-level).
+withEnv(
+  {
+    ...fakeEnvBase,
+    M1ND_TEST_RUNTIME_VERSION: `m1nd-mcp ${CURRENT_VERSION}`,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    const project = mkTmpDir();
+    const r = hostRecipe("cline", project);
+    assert.deepStrictEqual(r.os_gate, ["darwin", "linux"], "cline declares os_gate");
+    assert.strictEqual(osGateOk(r.os_gate, "win32"), false, "cline unsupported on win32");
+    assert.strictEqual(osGateOk(r.os_gate, "darwin"), true, "cline supported on darwin");
+    assert.strictEqual(osGateOk(null, "win32"), true, "null os_gate allows all");
+  }
+);
+
+function homeForTest() {
+  return process.env.M1ND_TEST_HOME || os.homedir();
+}
 
 console.log("npm cli tests ok");

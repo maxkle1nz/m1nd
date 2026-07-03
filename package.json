@@ -14,7 +14,8 @@
   },
   "type": "commonjs",
   "bin": {
-    "m1nd": "npm/bin/m1nd.js"
+    "m1nd": "npm/bin/m1nd.js",
+    "m1nd-north-shim": "npm/bin/m1nd-north-shim.js"
   },
   "files": [
     "npm/bin/",
