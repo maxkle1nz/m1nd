@@ -1,11 +1,15 @@
 // === m1nd-mcp/src/report_handlers.rs ===
 //
-// v0.4.0: Handlers for m1nd.report, m1nd.panoramic, m1nd.savings.
+// v0.4.0: Handlers for m1nd.report and m1nd.panoramic.
+//
+// Brand gate G1.5 (founder decision 2026-07-03): the opt-in `savings` tool and
+// every tokens-saved / CO2 field it emitted were removed as unmeasured claims.
+// `report` keeps its honest content (query counts, elapsed, heuristic hotspots,
+// graph size) — the savings/tokens sections were stripped.
 
-use crate::personality;
 use crate::protocol::layers::{
     PanoramicAlert, PanoramicInput, PanoramicModule, PanoramicOutput, ReportHeuristicHotspot,
-    ReportInput, ReportOutput, ReportQueryEntry, SavingsInput, SavingsOutput, SavingsSessionRecord,
+    ReportInput, ReportOutput, ReportQueryEntry,
 };
 use crate::scope::normalize_scope_path;
 use crate::session::SessionState;
@@ -30,11 +34,6 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
     let session_queries = agent_queries.len() as u32;
     let session_elapsed_ms: f64 = agent_queries.iter().map(|q| q.elapsed_ms).sum();
     let queries_answered = session_queries; // All m1nd queries are "answered"
-
-    // Savings from tracker
-    let tokens_saved_session = state.savings_tracker.tokens_saved;
-    let tokens_saved_global = state.global_savings.total_tokens_saved + tokens_saved_session;
-    let co2_saved_grams = (tokens_saved_global as f64) * 0.0002;
 
     // Recent queries (last 10)
     let recent_queries: Vec<ReportQueryEntry> = agent_queries
@@ -107,9 +106,6 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
          | Uptime | {:.0}s |\n\
          | Queries (this agent) | {} |\n\
          | Total elapsed | {:.0}ms |\n\
-         | Tokens saved (session) | {} |\n\
-         | Tokens saved (global) | {} |\n\
-         | CO2 saved | {:.2}g |\n\
          | Graph nodes | {} |\n\
          | Graph edges | {} |\n\n\
          ### Recent Queries\n{}\n\
@@ -117,9 +113,6 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
         uptime,
         session_queries,
         session_elapsed_ms,
-        tokens_saved_session,
-        tokens_saved_global,
-        co2_saved_grams,
         node_count,
         edge_count,
         recent_queries
@@ -164,9 +157,6 @@ pub fn handle_report(state: &mut SessionState, input: ReportInput) -> M1ndResult
         session_queries,
         session_elapsed_ms,
         queries_answered,
-        tokens_saved_session,
-        tokens_saved_global,
-        co2_saved_grams,
         recent_queries,
         heuristic_hotspots,
         markdown_summary,
@@ -367,66 +357,6 @@ pub fn handle_panoramic(
 
 fn normalize_panoramic_scope(scope: Option<&str>, ingest_roots: &[String]) -> Option<String> {
     normalize_scope_path(scope, ingest_roots).map(|scope| format!("file::{}", scope))
-}
-
-// ---------------------------------------------------------------------------
-// m1nd.savings
-// ---------------------------------------------------------------------------
-
-pub fn handle_savings(state: &mut SessionState, input: SavingsInput) -> M1ndResult<SavingsOutput> {
-    let start = Instant::now();
-
-    let session_tokens_saved = state.savings_tracker.tokens_saved;
-    let global_tokens_saved = state.global_savings.total_tokens_saved + session_tokens_saved;
-    let global_co2_grams = (global_tokens_saved as f64) * 0.0002;
-    let cost_saved_usd = (global_tokens_saved as f64) * 0.000003; // $0.003/1K tokens
-
-    let session_queries: u32 = state.savings_tracker.queries_by_tool.values().sum::<u64>() as u32;
-
-    let session_start_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-        - (state.uptime_seconds() * 1000.0) as u64;
-
-    let recent_sessions = vec![SavingsSessionRecord {
-        agent_id: input.agent_id.clone(),
-        session_start_ms,
-        queries: session_queries,
-        tokens_saved: session_tokens_saved,
-        co2_grams: (session_tokens_saved as f64) * 0.0002,
-    }];
-
-    // Formatted summary with visual identity
-    let formatted_summary = format!(
-        "{}{} m1nd efficiency report{}\n\n\
-         {}session:{} {} queries, {} tokens saved\n\
-         {}global:{}  {} tokens saved, ${:.4} USD, {:.2}g CO2\n\n\
-         {}every query that didn't burn tokens is a gift to the planet.{}\n",
-        personality::ANSI_BOLD,
-        personality::ANSI_GREEN,
-        personality::ANSI_RESET,
-        personality::ANSI_CYAN,
-        personality::ANSI_RESET,
-        session_queries,
-        session_tokens_saved,
-        personality::ANSI_GOLD,
-        personality::ANSI_RESET,
-        global_tokens_saved,
-        cost_saved_usd,
-        global_co2_grams,
-        personality::ANSI_DIM,
-        personality::ANSI_RESET,
-    );
-
-    Ok(SavingsOutput {
-        session_tokens_saved,
-        global_tokens_saved,
-        global_co2_grams,
-        cost_saved_usd,
-        recent_sessions,
-        formatted_summary,
-    })
 }
 
 #[cfg(test)]

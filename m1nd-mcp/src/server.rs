@@ -1681,7 +1681,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             // =================================================================
-            // v0.4.0: search, help, report, panoramic, savings
+            // v0.4.0: search, help, report, panoramic
             // =================================================================
             {
                 "name": "search",
@@ -1981,7 +1981,7 @@ fn all_tool_schemas_inner() -> serde_json::Value {
             },
             {
                 "name": "report",
-                "description": "Session intelligence report: queries, bugs, graph evolution, and estimated savings.",
+                "description": "Session intelligence report: query counts, elapsed time, graph size, and the highest-risk heuristic hotspots in the current graph.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -3746,7 +3746,9 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
         other => other,
     });
 
-    // Post-dispatch: track savings + log query + add _m1nd metadata
+    // Post-dispatch: log query + add _m1nd metadata.
+    // Brand gate G1.5: the savings tracker was removed — nothing tallies
+    // unmeasured tokens-saved here anymore.
     let mut result = result;
     if let Ok(ref mut value) = result {
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -3754,28 +3756,6 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
             .get("results")
             .and_then(|v| v.as_array())
             .map_or(0, |a| a.len());
-
-        // Track savings (skip meta tools)
-        if !matches!(
-            normalized.as_str(),
-            "health"
-                | "session_handshake"
-                | "trust_selftest"
-                | "recovery_playbook"
-                | "doctor"
-                | "help"
-                | "mission_start"
-                | "mission_event"
-                | "mission_next"
-                | "mission_verify"
-                | "mission_handoff"
-                | "mission_close"
-                | "savings"
-                | "report"
-        ) {
-            state.savings_tracker.record(&normalized, result_count);
-            state.global_savings.total_queries += 1;
-        }
 
         // Log query
         state.log_query(
@@ -4187,7 +4167,7 @@ fn dispatch_core_tool(
             layer_handlers::handle_runtime_overlay(state, input)
         }
         // -----------------------------------------------------------------
-        // v0.4.0: search, help, panoramic, savings, report
+        // v0.4.0: search, help, panoramic, report
         // -----------------------------------------------------------------
         "search" => {
             let input: layers::SearchInput =
@@ -4279,12 +4259,8 @@ fn dispatch_core_tool(
             let output = report_handlers::handle_panoramic(state, input)?;
             serde_json::to_value(output).map_err(M1ndError::Serde)
         }
-        "savings" => {
-            let input: layers::SavingsInput =
-                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
-            let output = report_handlers::handle_savings(state, input)?;
-            serde_json::to_value(output).map_err(M1ndError::Serde)
-        }
+        // Brand gate G1.5: the `savings` tool (unmeasured token-economy claims)
+        // was removed — it falls through to the unknown-tool arm below.
         // -----------------------------------------------------------------
         // Surgical: context + apply
         // -----------------------------------------------------------------
@@ -5469,6 +5445,74 @@ mod tests {
         assert!(meta.get("gaia").is_none(), "gaia block must be gone");
         // Additive: the original results field is still there.
         assert!(obj.contains_key("results"), "results field preserved");
+    }
+
+    #[test]
+    fn savings_tool_is_removed_and_report_carries_no_unmeasured_claims() {
+        // Brand gate G1.5 (founder decision 2026-07-03, mailbox L16): the opt-in
+        // `savings`/`report` unmeasured-claims surface is killed. G1 removed the
+        // per-response envelope; the standalone tools were "a living remnant of the
+        // confident guess behind an explicit call". The brand cannot say it killed
+        // the unmeasured claim while a tool named `savings` still emits it.
+        //
+        // Verdict: `savings` is savings-flavored throughout -> removed entirely.
+        // `report` keeps its honest content (queries, elapsed, heuristic hotspots,
+        // graph counts) but is STRIPPED of every tokens-saved / CO2 field.
+
+        // (a) `savings` no longer appears in the full tool registry (any tier).
+        let schema = all_tool_schemas();
+        let names: Vec<String> = schema["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()))
+            .map(|value| value.to_string())
+            .collect();
+        assert!(
+            !names.contains(&"savings".to_string()),
+            "the `savings` tool must be removed from the registry (unmeasured token-claims surface)"
+        );
+        // `report` survives (honest remainder), so it stays advertised.
+        assert!(
+            names.contains(&"report".to_string()),
+            "`report` should remain — it keeps honest counts after the savings strip"
+        );
+
+        // (b) `savings` is not dispatchable either — handler is gone.
+        let (_temp, mut state) = build_state();
+        let savings =
+            super::dispatch_tool(&mut state, "savings", &serde_json::json!({"agent_id": "t"}));
+        assert!(
+            savings.is_err(),
+            "the `savings` tool must no longer dispatch to a handler"
+        );
+
+        // (c) `report`'s output carries NO unmeasured token/CO2 keys anywhere.
+        let out = super::dispatch_tool(&mut state, "report", &serde_json::json!({"agent_id": "t"}))
+            .expect("report ok");
+        let json = serde_json::to_string(&out).expect("report serializes");
+        for banned in [
+            "tokens_saved_session",
+            "tokens_saved_global",
+            "co2_saved_grams",
+            "tokens_saved",
+            "global_tokens_never_burned",
+        ] {
+            assert!(
+                !json.contains(banned),
+                "report output must not contain the unmeasured claim `{banned}`: {json}"
+            );
+        }
+        // The honest remainder is still there.
+        let obj = out.as_object().expect("report object");
+        assert!(
+            obj.contains_key("heuristic_hotspots"),
+            "report must keep its honest heuristic_hotspots"
+        );
+        assert!(
+            obj.contains_key("session_queries"),
+            "report must keep its honest session_queries count"
+        );
     }
 
     #[test]

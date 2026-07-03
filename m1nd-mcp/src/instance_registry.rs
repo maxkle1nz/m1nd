@@ -351,6 +351,8 @@ pub fn delete_instance_state(
             "antibodies.json",
             "tremor_state.json",
             "trust_state.json",
+            // savings_state.json is no longer written (savings tracker removed —
+            // brand gate G1.5); kept here so legacy files get garbage-collected.
             "savings_state.json",
             "boot_memory_state.json",
             "daemon_state.json",
