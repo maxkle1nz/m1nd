@@ -274,6 +274,19 @@ AND test every defect. Commit+push always (PR → CI → merge as Max Kle1nz /
 maxkle1nz). Never bypass branch protection (admin-merge is blocked by design).
 Delegate deep changes to Opus subagents with a tight, source-grounded spec + a
 battery gate; orchestrate + verify. Update this file at big checkpoints.
+**Agent-docs gate (CI, PR-only):** `scripts/agent_docs_gate.py` + the `agent-docs-gate`
+job in `ci.yml` FAIL any PR that changes an agent-workflow surface (the MCP
+`M1ND_INSTRUCTIONS` string / tool schemas / verb dispatch in `server.rs`+`tools.rs`,
+`protocol/`, `help_guidance.rs`, `universal_docs.rs`, `skills/`, or the npm host
+installer under `npm/`) without ALSO updating agent-facing docs in the same PR
+(`skills/`, `docs/` incl. the wiki, `README.md`, `CONTRIBUTING.md`, or a future
+root `CLAUDE.md`/`AGENTS.md`). Anti-cry-wolf: it ARMS only on those surfaces —
+unrelated core internals never trip it. Escape hatches: an instructions-only edit
+self-satisfies, and the PR label **`agent-docs-exempt`** skips it for genuine
+no-behavioral-change refactors. It reports (not required-check yet); Max can promote
+it to blocking in branch-protection settings. Born from PR #216 (installed skills
+taught a stale era for ~2 weeks). Portable via the `SURFACE_PATHS`/`DOC_PATHS`
+knobs at the top of the script.
 
 ## Access Map
 - Battery harness: `scratchpad/m1nd_battery.py` — **now TRACKED in-repo** (#183;

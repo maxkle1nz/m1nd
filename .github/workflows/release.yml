@@ -83,6 +83,10 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
 
+      - name: Agent-docs coherence reminder (non-blocking)
+        run: |
+          echo "::notice title=Agent-docs coherence::Before announcing ${{ github.ref_name }}, confirm the agent-facing docs match what shipped: skills/ (installed into hosts), docs/ + wiki, README/CONTRIBUTING, and the M1ND_INSTRUCTIONS string. Stale host packs teach a stale contract (see PR #216). This is a reminder, not a gate — the PR-time agent-docs-gate is the enforcing check."
+
   publish:
     name: Publish to crates.io
     needs: build
