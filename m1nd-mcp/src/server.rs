@@ -2491,6 +2491,45 @@ fn proof_gate_targets(
 }
 
 // ---------------------------------------------------------------------------
+// L1GHT marker-fragment filter (field-triage batch A / inbox L28)
+// ---------------------------------------------------------------------------
+
+/// The l1ght_adapter emits one node per epistemic/declaration MARKER line of a
+/// `.light.md` (`[𝔻 confidence: …]`, `[𝔻 evidence: …]`, `[⟁ depends_on: …]`,
+/// `[⍂ entity: …]`, `[⍐ state: …]`, `[⍌ event: …]`, …). Those nodes are DATA —
+/// they annotate the claim they attach to — but they are NOT slot-worthy: they
+/// must never occupy a memory/anchor/focus row in the north packet, where they
+/// crowd out the real claim/section rows the agent actually needs. Field-report
+/// L28 (live founder SessionStart hook): 2 of 5 memory slots + 4 of 4 anchor
+/// slots were spent on rows like `𝔻 confidence: 0.9` and `𝔻 confidence: 0.95`.
+///
+/// Detection signal, in order of preference (STRUCTURAL over glyph-string):
+///   1. The node's external id carries the `::tag::` namespace segment. The
+///      adapter mints every marker node id as `light::<ns>::tag::<file>::<line>::…`
+///      (l1ght_adapter, the only `::tag::` producer) — section/claim/next/meta
+///      nodes never do. This is the deterministic, structural discriminator.
+///   2. Fallback for surfaces that expose only the label: the label begins with
+///      a L1GHT marker glyph (𝔻 epistemic, ⟁ binding, ⍂/⍐/⍌ declaration). The
+///      glyph set is matched in full and honestly — this catches a marker row
+///      even when the id is unavailable at the call site.
+///
+/// Both signals are cheap and side-effect-free; either one firing means "marker".
+const MARKER_GLYPHS: [char; 5] = ['𝔻', '⟁', '⍂', '⍐', '⍌'];
+
+/// The `::tag::` id segment the l1ght_adapter stamps on (and only on) marker nodes.
+const LIGHT_MARKER_ID_SEGMENT: &str = "::tag::";
+
+/// True when a `(node_id, label)` pair identifies a L1GHT marker/annotation node
+/// rather than a real claim/section. Pass an empty `node_id` when the caller only
+/// has the label — the glyph fallback still fires. See [`MARKER_GLYPHS`].
+fn is_marker_fragment(node_id: &str, label: &str) -> bool {
+    if node_id.contains(LIGHT_MARKER_ID_SEGMENT) {
+        return true;
+    }
+    label.trim_start().starts_with(MARKER_GLYPHS)
+}
+
+// ---------------------------------------------------------------------------
 // Tier 3: memory at point-of-relevance (`_m1nd.memory_nearby`)
 // ---------------------------------------------------------------------------
 
@@ -2596,14 +2635,45 @@ fn memory_nearby_for_result(
             let Some(anchor_id) = target_idx.get(&tgt_idx) else {
                 continue;
             };
-            let claim = graph
+            // The `grounded_in` edge starts at the EVIDENCE MARKER node (`𝔻 evidence:
+            // <path>`), so the marker's own label is a fragment, not the memorized
+            // claim. Confidence is still parsed from the marker label (that's where the
+            // value lives), but the surfaced `claim` must be the REAL claim/section the
+            // marker annotates. Resolve it via the marker's incoming `evidenced_by`
+            // edge (l1ght_adapter mints `claim --evidenced_by--> marker`); when that
+            // anchoring claim can't be found, skip rather than surface a marker
+            // fragment as a claim (field-triage L28).
+            let marker_label = graph
                 .strings
                 .resolve(graph.nodes.label[src_idx])
                 .to_string();
+            let confidence = parse_marker_confidence(&marker_label);
+            let src_nid_for_claim = m1nd_core::types::NodeId::new(src_idx as u32);
+            let claim = if is_marker_fragment("", &marker_label) {
+                let resolved = graph
+                    .csr
+                    .in_range(src_nid_for_claim)
+                    .filter_map(|rev_i| {
+                        let claim_nid = graph.csr.rev_sources[rev_i];
+                        let claim_label = graph
+                            .strings
+                            .try_resolve(graph.nodes.label[claim_nid.as_usize()])
+                            .unwrap_or("");
+                        // The parent claim/section is itself never a marker fragment.
+                        (!claim_label.is_empty() && !is_marker_fragment("", claim_label))
+                            .then(|| claim_label.to_string())
+                    })
+                    .next();
+                match resolved {
+                    Some(c) => c,
+                    None => continue, // no real claim behind the marker — do not surface it
+                }
+            } else {
+                marker_label
+            };
             if !seen.insert(claim.clone()) {
                 continue;
             }
-            let confidence = parse_marker_confidence(&claim);
             // Cheap freshness: does the cited code file still exist on disk?
             let tgt_ext = graph
                 .id_to_node
@@ -2662,11 +2732,22 @@ fn top_pagerank_anchors(graph: &m1nd_core::graph::Graph, n: usize) -> Vec<serde_
     let mut ranked: Vec<(f32, usize)> = (0..count)
         .filter_map(|i| {
             let pr = graph.nodes.pagerank[i].get();
-            if pr > 0.0 {
-                Some((pr, i))
-            } else {
-                None
+            if pr <= 0.0 {
+                return None;
             }
+            // Skip L1GHT marker fragments: on a memory-heavy graph they can rank into
+            // the top-N and waste anchor slots (field-triage L28). The external id and
+            // label are already resolvable here, so exclude before truncation — a real
+            // code/claim node takes the slot instead of an annotation node.
+            let ext = nid_to_ext.get(&i).map(String::as_str).unwrap_or("");
+            let label = graph
+                .strings
+                .try_resolve(graph.nodes.label[i])
+                .unwrap_or("");
+            if is_marker_fragment(ext, label) {
+                return None;
+            }
+            Some((pr, i))
         })
         .collect();
     ranked.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -2755,8 +2836,16 @@ fn handle_orient(
     let activate_out = tools::handle_activate(state, activate_input)?;
 
     // focus_nodes: compact projection of the activated nodes, ranked by activation.
-    let focus_nodes: Vec<serde_json::Value> = activate_out
+    // Drop L1GHT marker fragments first (field-triage L28): on a memory-heavy graph a
+    // marker node can activate and otherwise take a focus slot — and, as the top focus,
+    // drive a nonsense `suggested_first_calls`. Filtering the activated set once keeps
+    // both `focus_nodes` and `top_focus_id` grounded in real claim/code nodes.
+    let focus_ranked: Vec<&_> = activate_out
         .activated
+        .iter()
+        .filter(|a| !is_marker_fragment(&a.node_id, &a.label))
+        .collect();
+    let focus_nodes: Vec<serde_json::Value> = focus_ranked
         .iter()
         .take(top_k)
         .map(|a| {
@@ -2771,7 +2860,7 @@ fn handle_orient(
             })
         })
         .collect();
-    let top_focus_id = activate_out.activated.first().map(|a| a.node_id.clone());
+    let top_focus_id = focus_ranked.first().map(|a| a.node_id.clone());
 
     // 2. memory_nearby: reuse memory_nearby_for_result over the focus nodes.
     //    It expects a `results` array of `{node_id|label}` — shape one from the
@@ -3044,8 +3133,15 @@ fn handle_north(
     //     sees that institutional memory EXISTS rather than implying there is none.
     const LIGHT_RECALL_SCOPE: &str = "light::";
     let light_limit = 5usize;
+    // A recall hit is a real memory only if it carries authorship provenance AND is
+    // not a L1GHT marker fragment. Marker nodes (`[𝔻 confidence: …]`, `[𝔻 evidence: …]`,
+    // …) inherit their file's `source_agent`/`authored_ms_ago` prov-tags, so provenance
+    // alone is NOT enough to keep them — they would occupy memory slots that belong to
+    // the claim/section rows (field-triage L28). Excluding them here means markers never
+    // enter `hits`, so a claim always takes the slot instead of its own annotation.
     let is_light_hit = |r: &layers::SeekResultEntry| -> bool {
-        r.source_agent.is_some() || r.authored_ms_ago.is_some()
+        (r.source_agent.is_some() || r.authored_ms_ago.is_some())
+            && !is_marker_fragment(&r.node_id, &r.label)
     };
     let map_light = |r: &layers::SeekResultEntry| -> serde_json::Value {
         // age_ms is the authored age seek already computed (now − Created); absent
@@ -7609,6 +7705,147 @@ mod tests {
             !claims_no_memory,
             "honest_gaps must not claim 'No durable memory yet' when a memorized claim was \
              recalled — gaps={gaps:?}"
+        );
+    }
+
+    /// The marker-fragment discriminator: `::tag::` id segment (structural, the
+    /// only signal the l1ght_adapter mints on marker nodes) OR a leading marker
+    /// glyph (fallback when only the label is at hand). Real claim/section/code
+    /// ids and plain labels must NOT be flagged. Field-triage batch A / L28.
+    #[test]
+    fn is_marker_fragment_flags_markers_not_claims() {
+        // Marker nodes — every real marker id carries `::tag::`.
+        assert!(super::is_marker_fragment(
+            "light::light::tag::note::15::entity-x",
+            "⍂ entity: x"
+        ));
+        assert!(super::is_marker_fragment(
+            "light::ns::tag::f::3::confidence-0-90",
+            "𝔻 confidence: 0.9"
+        ));
+        // Glyph fallback when the id is unavailable (empty).
+        assert!(super::is_marker_fragment("", "𝔻 evidence: src/foo.rs"));
+        assert!(super::is_marker_fragment("", "⟁ depends_on: bar"));
+        assert!(super::is_marker_fragment("", "  ⍐ state: leading ws"));
+        // Real content — NOT markers.
+        assert!(!super::is_marker_fragment(
+            "light::light::section::note::topic-1",
+            "The doctrine claim that actually matters"
+        ));
+        assert!(!super::is_marker_fragment(
+            "file::m1nd-mcp/src/server.rs::fn::handle_north",
+            "handle_north"
+        ));
+        assert!(!super::is_marker_fragment("", "confidence in the design"));
+        assert!(!super::is_marker_fragment("", ""));
+    }
+
+    /// RED→GREEN for field-triage batch A (inbox L28): a memorized note plants
+    /// `[𝔻 confidence: …]` + `[𝔻 evidence: …]` marker nodes. Pre-fix, north's
+    /// memory slice and PageRank anchors surfaced those marker nodes as standalone
+    /// rows (2/5 memory + 4/4 anchor slots in the live founder hook). This asserts
+    /// the fix end-to-end: (a) the real claim/section still recalls, and (b) NO
+    /// memory row and NO anchor row is a marker fragment.
+    #[test]
+    fn north_excludes_marker_fragments_from_memory_and_anchors() {
+        let (temp, mut state) = build_state_populated(false);
+
+        // Plant one memorized note carrying the full marker set (confidence +
+        // evidence + a declaration marker), merged via the exact agent-memory path.
+        let now_ms = super::now_ms();
+        let mem_dir = temp.path().join("light-mem-markerfilter");
+        std::fs::create_dir_all(&mem_dir).expect("light mem dir");
+        let md = format!(
+            "---\nProtocol: L1GHT/1.0\nNode: MarkerFilterCanary\nState: verified\n\
+             Created: {now_ms}\nSource-Agent: marker-scout\n---\n\n\
+             # MarkerFilterCanary\n\n## MarkerFilterCanary\n\n\
+             The marker-filter canary: north memory and anchor slots carry only real \
+             claim and section rows, never annotation fragments.\n\n\
+             [⍐ state: marker filter canary]\n[𝔻 confidence: 0.9]\n\
+             [𝔻 evidence: m1nd-mcp/src/server.rs]\n"
+        );
+        std::fs::write(mem_dir.join("marker_filter.light.md"), md).expect("write memory");
+        super::dispatch_tool(
+            &mut state,
+            "ingest",
+            &serde_json::json!({
+                "agent_id": "marker-scout",
+                "path": mem_dir.to_string_lossy(),
+                "adapter": "light",
+                "mode": "merge",
+                "namespace": "light",
+            }),
+        )
+        .expect("ingest light memory");
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "marker filter canary claim section rows annotation",
+            }),
+        )
+        .expect("north");
+
+        // A row is a marker fragment iff its node_id/label satisfies the discriminator.
+        // INDEPENDENT of the production helper on purpose: the test must judge the
+        // OUTPUT for itself (a `::tag::` id or a leading marker glyph), so it fails
+        // RED when production filtering is off and passes GREEN when it is on.
+        let row_is_marker = |e: &serde_json::Value| -> bool {
+            let nid = e
+                .get("node_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let label = e
+                .get("claim")
+                .or_else(|| e.get("label"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            nid.contains("::tag::") || label.trim_start().starts_with(['𝔻', '⟁', '⍂', '⍐', '⍌'])
+        };
+
+        // (a) The real claim/section still recalls (no over-filtering).
+        let memory = out["memory"].as_array().expect("memory array");
+        let light: Vec<&serde_json::Value> = memory
+            .iter()
+            .filter(|e| e.get("kind").and_then(|k| k.as_str()) == Some("light"))
+            .collect();
+        assert!(
+            !light.is_empty(),
+            "the real memorized claim must still recall after marker filtering — memory={memory:?}"
+        );
+
+        // (b) NO memory row is a marker fragment.
+        let mem_markers: Vec<&serde_json::Value> =
+            memory.iter().filter(|e| row_is_marker(e)).collect();
+        assert!(
+            mem_markers.is_empty(),
+            "north.memory must carry NO L1GHT marker fragment rows — leaked={mem_markers:?}"
+        );
+
+        // (c) NO anchor row is a marker fragment.
+        let anchors = out["context"]["anchors"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let anchor_markers: Vec<&serde_json::Value> =
+            anchors.iter().filter(|e| row_is_marker(e)).collect();
+        assert!(
+            anchor_markers.is_empty(),
+            "north.context.anchors must carry NO L1GHT marker fragment rows — leaked={anchor_markers:?}"
+        );
+
+        // (d) NO focus_nodes row is a marker fragment.
+        let focus = out["context"]["focus_nodes"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let focus_markers: Vec<&serde_json::Value> =
+            focus.iter().filter(|e| row_is_marker(e)).collect();
+        assert!(
+            focus_markers.is_empty(),
+            "north.context.focus_nodes must carry NO L1GHT marker fragment rows — leaked={focus_markers:?}"
         );
     }
 
