@@ -95,6 +95,28 @@ Responses:
 
 The `tools/list` method returns the live tool schemas with full `inputSchema` per MCP spec, enabling auto-discovery by any MCP client. Use it as the source of truth for exact names and count in your current build.
 
+### HTTP Serve Surface & Live Events
+
+Under the `serve` feature (`--serve`, default port `127.0.0.1:1337`), `m1nd-mcp` also exposes an HTTP/axum surface (`m1nd-mcp/src/http_server.rs`) that serves the embedded web UI and a REST/SSE API sharing the SAME `SessionState` as the stdio transport:
+
+- `POST /api/tools/{tool}` — universal tool dispatch (same `dispatch_tool` free function the stdio transport uses).
+- `GET /api/graph/snapshot` · `subgraph` · `stats` — graph read endpoints.
+- `GET /api/events` — a **Server-Sent Events** stream. Browsers (the served UI) subscribe here with `EventSource`.
+
+**SSE event classes on `/api/events`.** Every broadcast event carries a named `event:` line. The classes are:
+
+| Event | Meaning |
+|---|---|
+| `activation` | A spreading-activation run fired. |
+| `learn` | A `learn` feedback landed. |
+| `ingest` | An ingest completed (`nodes_added` / `edges_added`). |
+| `persist` | The graph persisted (a `generation` bump). |
+| `graph_changed` | **The shared graph actually mutated** — an agent ran `memorize` / `ingest` / `edit_commit` / `apply` / `learn`. Carries `{ event, agent_id?, source?, batch_id?, timestamp_ms? }`. |
+
+`graph_changed` is the browser (pure-reader) counterpart of the MCP transport's `notifications/m1nd/graph_changed` notification (`m1nd-mcp/src/mcp_http.rs`). Both renderings share ONE mutation-detection predicate — `mcp_http::graph_mutation_event_name` — so a read-only tool result never masquerades as a graph change on either surface. On the browser side `http_server::browser_graph_changed_event` derives the `graph_changed` event from a mutation event and the SSE handler emits it alongside the raw event. The served Living Tree listens for `graph_changed` to refresh its snapshot in place (debounced ~500 ms; a low-frequency `/api/graph/stats` poll is the graceful fallback when SSE is unavailable).
+
+A separate Streamable-HTTP MCP transport (`POST`/`GET`/`DELETE /mcp`, `mcp_http.rs`) serves attached agents (`--attach`); its `GET /mcp` stream carries the same mutation signal as `notifications/m1nd/graph_changed`.
+
 ## Server Lifecycle
 
 ```mermaid

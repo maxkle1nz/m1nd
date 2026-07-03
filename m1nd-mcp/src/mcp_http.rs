@@ -83,14 +83,17 @@ fn bare_tool_name(tool: &str) -> &str {
         .unwrap_or(tool)
 }
 
-/// Decide whether a broadcast `SseEvent` represents a shared-graph change worth
-/// pushing to an attached agent, and if so, build the minimal JSON-RPC
-/// notification frame to carry on the SSE `data:` line.
+/// The canonical "is this broadcast event a shared-graph mutation?" boundary.
 ///
-/// Returns `None` for everything we deliberately suppress (read tool results,
-/// unrelated event types, mutations that did not actually succeed).
-fn graph_changed_notification(event: &SseEvent) -> Option<serde_json::Value> {
-    let relay_event_name: &str = match event.event_type.as_str() {
+/// Returns the relay event name (`memorize`, `ingest`, `apply_batch`, …) when the
+/// event means the shared graph actually changed, and `None` for everything we
+/// deliberately suppress (read tool results, unrelated event types, mutations that
+/// did not actually succeed). This is the ONE mutation-detection predicate, shared
+/// by two renderings: the MCP `graph_changed_notification` (JSON-RPC frame for
+/// attached agents) and the browser `/api/events` `graph_changed` relay
+/// (`http_server::browser_graph_changed_event` — the #233 pure-reader gap fix).
+pub(crate) fn graph_mutation_event_name(event: &SseEvent) -> Option<&str> {
+    match event.event_type.as_str() {
         // A finished tool call. Relay only mutation tools, and only when the
         // call actually succeeded (a failed mutation changed nothing).
         "tool_result" => {
@@ -104,14 +107,16 @@ fn graph_changed_notification(event: &SseEvent) -> Option<serde_json::Value> {
             if event.data.get("success").and_then(|v| v.as_bool()) == Some(false) {
                 return None;
             }
-            tool
+            Some(tool)
         }
         // Apply-batch handoff / progress are mutation-only by construction.
-        "apply_batch_handoff" | "apply_batch_progress" => event
-            .data
-            .get("tool")
-            .and_then(|v| v.as_str())
-            .unwrap_or("apply_batch"),
+        "apply_batch_handoff" | "apply_batch_progress" => Some(
+            event
+                .data
+                .get("tool")
+                .and_then(|v| v.as_str())
+                .unwrap_or("apply_batch"),
+        ),
         // A tool that timed out: relay only if it was a mutation tool (a slow
         // read timing out is not a graph change another agent must act on).
         "tool_timeout" => {
@@ -119,11 +124,21 @@ fn graph_changed_notification(event: &SseEvent) -> Option<serde_json::Value> {
             if !GRAPH_MUTATION_TOOLS.contains(&bare_tool_name(tool)) {
                 return None;
             }
-            tool
+            Some(tool)
         }
         // Everything else (health pings, read results, UI-only events) is noise.
-        _ => return None,
-    };
+        _ => None,
+    }
+}
+
+/// Decide whether a broadcast `SseEvent` represents a shared-graph change worth
+/// pushing to an attached agent, and if so, build the minimal JSON-RPC
+/// notification frame to carry on the SSE `data:` line.
+///
+/// Returns `None` for everything we deliberately suppress (read tool results,
+/// unrelated event types, mutations that did not actually succeed).
+fn graph_changed_notification(event: &SseEvent) -> Option<serde_json::Value> {
+    let relay_event_name: &str = graph_mutation_event_name(event)?;
 
     // Minimal, non-echoing detail: enough for the receiving agent to know WHAT
     // changed and re-orient, without replaying the full result payload.
