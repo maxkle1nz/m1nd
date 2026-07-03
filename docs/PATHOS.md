@@ -2,14 +2,23 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-03 (**checkpoint 8.1 — v1.2.1 CUT: compounding live in the runtime**).
+> Last checkpoint: 2026-07-03 (**checkpoint 9 — THE CONSTRUCTION ERA OPENS**). The most
+> transformative 24h in the project's history: **three official PRDs merged** (HUMAN-LAYER
+> #222, NEXTGEN §O.12 Delegation Layer #224, TWO-TIER-BRAIN #227), the **first human surface
+> SHIPPED** (Living Tree Slice 0, #232 — read-only tree + provenance post-its + trust dots in
+> `m1nd-ui`), the README **re-spined as "the shell"** (#228), the **agent-docs CI gate armed**
+> (#229), and the **field-report mailbox emptied in ~a day** (#230/#231/#233/#234/#235 + the
+> earlier #218/#219/#225/#226). Battery at **37**, zero grep losses. The runtime is a **launchd
+> medulla** warm-booting ~6.3k nodes with 4 hosts attaching one brain. OMEGA (Moves 0+1 + honest
+> Move-2 reframe) shipped in v1.2.0/1.2.1 (both released) and is now the FLOOR — the era ahead is
+> CONSTRUCTION on top of it: the tree goes alive, the Pre-Flight card renders, the two-tier brain
+> slices in, the inbox verbs land. Prior checkpoints 8.1 / 8 / 7 preserved below.
+> Prior: 2026-07-03 (**checkpoint 8.1 — v1.2.1 CUT: compounding live in the runtime**).
 > v1.2.1 tagged on the merge commit, published to crates.io + npm, GitHub Release cut, and
 > Max's live `:1338` owner rebuilt on the 1.2.1 binary — carrying the four field-triage fixes
 > (#211 `north`×L1GHT recall = THE compounding fix; #212 temp-graph tempdir; #218 numeric
-> `confidence`; #219 closure cry-wolf killed, ambiguous-blocked 9/11 → 0/11). The field-report
-> mailbox now stands at **5 reports / 4 resolved / 1 residue** (the unresolved-tag granularity
-> follow-up remains open). Prior checkpoint 8 below.
-> Last checkpoint: 2026-07-02 (**checkpoint 8 — v1.2.0 CUT: the first OMEGA-era release**).
+> `confidence`; #219 closure cry-wolf killed, ambiguous-blocked 9/11 → 0/11).
+> Prior: 2026-07-02 (**checkpoint 8 — v1.2.0 CUT: the first OMEGA-era release**).
 > Tagged `v1.2.0`, published to crates.io + npm, GitHub Release cut, and Max's live
 > `:1338` owner upgraded to the 1.2.0 binary. The era content shipped since v1.1.0:
 > OMEGA Moves 0 (calibration) + 1 (Envelope) + the Move-2 honest reframe; `north`
@@ -28,6 +37,105 @@ m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 `rg`/Read in the inner loop, measured honestly — not tie, not "feels useful".
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
+**The era-9 arc:** OMEGA (the verifiable trust substrate — answer + map + trust receipt) is
+now the FLOOR, released and live in Max's runtime. The work ahead is CONSTRUCTION on top of
+it, across three now-official fronts: the **HUMAN LAYER** (the Living Tree + Pre-Flight card —
+a coding agent's memory made legible to a human), the **DELEGATION LAYER** (§O.12 — a parent
+agent hands a child a grounded packet and reads back a debrief), and the **TWO-TIER BRAIN**
+(per-project brains + a shared medulla, sliced in proof-grown). Each slice ships proof-grown,
+degrading to UNPROVABLE rather than a fake green — the same bar, applied to building outward.
+
+## Current State (2026-07-03, checkpoint 9 — THE CONSTRUCTION ERA OPENS)
+
+**The 24h harvest: OMEGA shipped as the floor, three PRDs made official, the first human
+surface landed, and the field-report mailbox went from full to empty.** This is the checkpoint
+where m1nd stops being only "a better `rg` for agents" and becomes a substrate with a *human
+face* (the Living Tree), a *delegation contract* (the §O.12 packet/debrief), and a *two-tier
+memory shape* (per-project brains + medulla) — all three grounded in official, Fable-authored
+PRDs, with Slice 0 of the human layer already SHIPPED and dogfooded.
+
+### The three official PRDs (the era's blueprints — all merged)
+- **`docs/HUMAN-LAYER-PRD.md` (#222) — the Living Tree / Pre-Flight vision.** The human surface:
+  the familiar filetree EVOLVED into a memory-decorated tree, provenance post-its, trust dots,
+  and a **Pre-Flight hero** — the packet a human reads before an agent acts. Vision → spec; Slice
+  0 is now shipped (below), Slices 1–3 spec'd.
+- **`docs/NEXTGEN-AGENT-PRD.md` §O.12 (#224) — the Delegation Layer.** The parent→child contract:
+  a grounded **delegation packet** (north-style binding + focus for the child), a **debrief** read
+  back on return, and **delegation-abstain** (a parent that honestly declines to delegate when it
+  can't ground the child). 3-Fable design. This is OMEGA's reach extended from one agent to a tree
+  of agents — the moat becomes institutional memory across a delegation graph.
+- **`docs/TWO-TIER-BRAIN-PRD.md` (#227) — per-project brains + a shared medulla.** The memory
+  architecture: each project gets its own brain (its graph + its memories), and a shared **medulla**
+  holds cross-project doctrine/taxonomy (the launchd-served always-on layer). Proof-grown slices:
+  the clone-gate first, then the per-project inbox. 3-Fable design.
+
+### Living Tree Slice 0 — SHIPPED (#232, the first human surface)
+The served UI (`m1nd-ui`) now opens on a **read-only Living Tree**: the filetree assembled from
+`/api/graph/snapshot` (never a second fs view), decorated with **provenance post-its** (memories
+pinned via `grounded_in`, author + age absent-never-faked) and calm **trust dots**
+(`insufficient_evidence` → iris violet). CI enforces a **violet-lint** (violet is reserved for
+abstain/unknown, nothing else), and **23 INV component tests** run against REAL captured envelopes.
+The renderer is read-only by contract — humans READ memory, agents WRITE it.
+**Slice-0 deferrals (honest, carried into the next slice):** live `graph_changed` SSE refresh (the
+tree is currently a snapshot, not yet auto-updating), vendored fonts (still external-linked), and
+the stale-flip e2e (the post-it fresh→stale transition is unit-proven but not end-to-end).
+
+### The field-triage sweep — the mailbox emptied in ~a day (the loop, working)
+The universal field-telemetry doctrine paid off: the seeded/accumulated `~/.m1nd/field-reports.jsonl`
+mailbox was swept to EMPTY in roughly a day, each report becoming a battery case/test BEFORE its fix:
+- **#230 persist-immortal (field-triage batch B):** all persist targets resolve against `runtime_root`,
+  never `cwd` — warm-boot survived; a **39-failure regression → 0**.
+- **#231 marker-fragment filter (field-triage batch A):** north's memory/anchor/focus slots no longer
+  waste on L1GHT marker fragments (`𝔻 confidence: …` annotation nodes) — a shared structural
+  `is_marker_fragment` discriminator excludes them from all four north surfaces; markers stay in the
+  graph as data, they just never take a slot.
+- **#233 attach re-init (field-triage batch C):** the `-32001` completeness fix + a **wire-shape lock**
+  — the bridge transparently re-initializes on owner restart across ALL unknown-session shapes, with a
+  restart-survival proof.
+- **#235 attach self-echo (field-triage L21):** write-tool responses now return REAL envelopes through
+  the bridge — **the "null" mystery solved** (the bridge was echoing the request shape instead of the
+  owner's real response).
+- **#234 G1.5 savings/report killed:** the opt-in `savings`/`report` unmeasured-claims surface removed
+  entirely (incl. the **CO2-grams theater**) — `savings` gone (tool + handler + types + accounting),
+  `report` stripped of every tokens-saved/CO2 field but keeps its honest counts + heuristic hotspots.
+- Plus the earlier era-9 fixes that seeded the sweep: **#218** numeric-confidence coercion, **#219**
+  closure cry-wolf (ambiguous-blocked 9/11 → 0/11), **#225** attach bridge re-init on `-32001`, **#226**
+  north L1GHT recall robust on mixed graphs.
+**Battery at 37, zero grep losses.** The mailbox loop is now demonstrated end-to-end: report → battery
+case → fix, and the mailbox empties.
+
+### The runtime is now a persistent nervous system (not a tool-you-call)
+- **launchd medulla on the current `main` binary** — a persistent served m1nd (the serve/attach
+  prerequisite the checkpoint-7 A/B identified), warm-booting **~6.3k nodes** per boot.
+- **SessionStart hook (`north`) is LIVE in Max's Claude** — the ambient pre-orient wire fires for real
+  (this is the served-attach variant the A/B said was the prerequisite, now stood up).
+- **4 hosts attach one brain** — the multi-host single-brain topology is real, not a diagram.
+- **Agent-id taxonomy `host:tier:name[@parent]`** + **per-project inbox doctrine** are SEALED in the
+  medulla's own memory — the delegation/two-tier vocabulary is not just PRD, it is live doctrine the
+  running brain carries.
+
+### README, CI gate, brand
+- **README re-spined as "the shell" (#228)** — dual-audience (human + agent), built around the operating
+  loop with a walkthrough; **8 languages in parity** (the i18n set regenerated to match).
+- **agent-docs CI gate LIVE (#229)** — a PR that changes an agent-workflow surface must ALSO update
+  agent-facing docs (or carry the `agent-docs-exempt` label). Already **armed twice legitimately**.
+- **Brand: 6 SOFT PROOF plates versioned** (#223 + one more); **launch gates G1 (#221) + G1.5 (#234)
+  CLOSED** — every unmeasured claim surface removed. **G2/G3 remain** open.
+
+### Disk hygiene (new standing rule)
+Shared `CARGO_TARGET_DIR` (`$HOME/.m1nd-build-cache/target`) across all worktrees + worktree sweeps —
+**86 GB reclaimed 2026-07-03**. Carry the export even on docs-only missions; `git worktree remove` your
+tree when done.
+
+### Where OMEGA + memory sit now (the floor beneath the construction)
+OMEGA **Move 0 (calibration) + Move 1 (Envelope)** + the **honest Move-2 reframe** shipped in
+**v1.2.0 (#209) and v1.2.1 (#220)** — both RELEASED to crates.io + npm with GitHub Releases, Max's
+runtime rebuilt on the tagged binaries. `north` pre-orient, memory moves #1–#6, smoothed-Jaccard
+co-change (#206, calibration-proven +3pts), binary version-honesty (#205), and the agent-native MCP
+`initialize` instructions (#208) are all live. This is the substrate the construction era builds on;
+its detailed ledger is preserved in the checkpoint-8 section below.
+
+---
 
 ## Current State (2026-07-03, checkpoint 8.1 — v1.2.1 CUT, compounding live)
 
@@ -339,8 +447,40 @@ knobs at the top of the script.
   helper enable structural cross-file assertions via the live client.
 
 ## Known Problems
-- **Checkpoint-8 carry-over (open into the v1.2.x cycle — sweep the field-report mailbox
-  first, then these):**
+
+- **Checkpoint-9 residue (honest, the construction era's open edges — the mailbox is EMPTY,
+  these are the design/coverage gaps the shipped work left behind):**
+  - **`memory_nearby` 2-hop follow-up (from #231's residue).** The marker-fragment filter cleaned the
+    four north surfaces, but the `memory_nearby` claim-resolution path still has a 2-hop expansion that
+    can re-admit noise one edge out — the structural discriminator is applied at the surface, not yet
+    all the way through the 2-hop walk. Scoped follow-up, not a regression.
+  - **SSE pure-reader relay gap (from #233's residue).** The attach re-init fix locked the wire shape,
+    but a **pure-reader** relay (a client that only subscribes to SSE, never issues a request) can still
+    miss the re-init handshake — the transparent re-init is triggered on the request path. This is also
+    exactly what Living Tree Slice 0 deferred (`graph_changed` SSE refresh); the two meet here.
+  - **`why`-closure UNRESOLVED node-granularity (from #219).** The `m1nd:edge:unresolved` tag still has
+    the node-granularity over-fire the AMBIGUOUS tag had (fixed in #219): a clean path leaving a node
+    that drops ANY outbound ref (e.g. a std/external call) still reads `blocked`. Left untouched because
+    a dropped ref has no target node to key an edge-specific tag against — needs a DESIGN DECISION.
+    Residue measured earlier: ~8/11 connected pairs still blocked, now all on `unresolved`.
+  - **The CI flake fix is in flight (sibling worktree).** A sibling session works in `m1nd-flake2` on
+    a test/CI-flake fix; that surface is THEIRS this mission (PATHOS is mine). Don't double-touch it.
+  - **Slice-6 cwd-matrix battery still budgeted (TWO-TIER §21.14, ~line 469).** The two-tier brain's
+    cwd-resolution matrix (which project's brain a given cwd binds to) has a battery slice specified but
+    not yet built — it's in the PRD as a budgeted proof slice, not done.
+  - **Envelope calibration path still unbuilt.** The Trust-Gated Envelope (Move 1) ships DARK — it can
+    compose the triple, but the calibration path that would let the envelope's verdict earn `act` (as
+    opposed to `reverify`/`abstain`) is not yet wired; the envelope inherits `predict`'s coarse strength
+    model until that lands.
+  - **`x.method()` receiver inference is still THE binding gap.** Unchanged and load-bearing (detailed
+    below): a bare `x.method()` on a local/field receiver carries no qualifier, so same-name ties still
+    fall to proximity/`candidates[0]`. Receiver-type inference (`let x: T` / field types / fn returns)
+    remains the dedicated harder cycle. This is the #1 remaining correctness gap in the graph itself.
+  - **Living Tree Slice-0 deferrals** (repeated here so they're not lost): live `graph_changed` SSE
+    refresh, vendored fonts, and the stale-flip e2e — all carried into Slice 1.
+
+- **Checkpoint-8 carry-over (still open into the v1.2.x cycle — the mailbox is now empty, but
+  these design/decision gaps remain):**
   - **`why`-closure CRY-WOLF — AMBIGUOUS portion = FIXED (field-triage #4, PR pending).** The
     `m1nd:edge:ambiguous` over-fire is closed: the tag now fires only on a genuine coin-flip
     (decisive proximity/qualifier binds no longer tag) and is read edge-specifically via a targeted
@@ -468,17 +608,21 @@ knobs at the top of the script.
   `initialize` instructions (#208).
 - Auto-freshness: `ingest` doesn't auto-start the watcher (it exists —
   notify + `maybe_tick` — but is opt-in); seeded fix.
-- Multi-session: an X-RAY/Codex guardian also touches this repo — `git fetch`
-  before acting, confirm `git branch --show-current` before commit. `main` is held
-  by the primary worktree (/Users/kle1nz/m1nd); do feature work in
-  /Users/kle1nz/m1nd-night and run parallel frentes in isolated worktrees.
+- Multi-session: sibling sessions touch this repo (a launchd medulla serves the live
+  brain; a sibling worktree may hold a test/CI-flake fix — e.g. `m1nd-flake2` this era) —
+  `git fetch` before acting, confirm `git branch --show-current` before commit. `main` is
+  held by the primary worktree (/Users/kle1nz/m1nd); do feature work in an isolated
+  worktree (e.g. /Users/kle1nz/m1nd-<mission>) with the shared `CARGO_TARGET_DIR`, and
+  `git worktree remove` it when done (disk-hygiene rule).
 
 ## Proof Standard
 Done = `cargo test --workspace` green + clippy `-D warnings` + `cargo fmt` clean +
-the BATTERY (`scratchpad/m1nd_battery.py`, tracked) at **28/28** on the m1nd suite
-showing the targeted tool improved with a concrete example (e.g. `impact(reverse,
+the BATTERY (`scratchpad/m1nd_battery.py`, tracked) at **37** on the m1nd suite (zero
+grep losses) showing the targeted tool improved with a concrete example (e.g. `impact(reverse,
 pack_to_budget)` ranks `handle_seek` above the `pack_to_budget_*` tests), zero
-regression. CI green on 3 OSes before merge.
+regression. CI green on 3 OSes before merge. **For UI/human-layer slices:** INV component
+tests against REAL captured envelopes (`m1nd-ui/src/__fixtures__/`) + the violet-lint
+(violet reserved for abstain/unknown) + a live dogfood against a `--serve` of m1nd's own graph.
 **For OMEGA verbs, "calibration-gated" now JOINS battery-gated (§O.6).** Battery
 tests prove the code does what it says (consistency); the calibrator proves the
 verdict is right often enough to act on (correctness-at-coverage). A verb earns `act`
@@ -494,12 +638,49 @@ before "done" — now a standing CLAUDE.md rule) → seed the next move.
 
 ## Next Agent Prompt / next seeds
 
-**→ ACTIVE NORTH IS m1nd-OMEGA: `docs/NEXTGEN-AGENT-PRD.md` §O.10 (the ranked OMEGA
-roadmap, calibration-gated, reuse-first, honest).** Read §O.1–O.11 first — the vision
-(answer + map + trust receipt), the calibration keystone, the critic corrections baked
-in, and the open poisoned-oracle risk. The verb plan: each OMEGA verb is a thin
-composer over shipping tools (a fan-out + dedupe over `audit`/`orient`-style chaining),
-ships DARK, and earns `act` only once Move 0's calibrator certifies it.
+**→ ACTIVE NORTH IS THE CONSTRUCTION ERA. OMEGA (§O.10, below) is the FLOOR — released and
+live — not the frontier anymore.** The frontier is building outward on three official PRDs,
+in this order, each slice proof-grown and degrading to UNPROVABLE rather than a fake green:
+
+1. **FIRST — make the tree ALIVE: SSE `graph_changed` + vendored fonts.** Living Tree Slice 0
+   ships a read-only *snapshot*; the next move is the two Slice-0 deferrals that turn it live —
+   the `graph_changed` SSE refresh (the tree updates as the graph does; this ALSO closes the
+   SSE pure-reader relay gap in Known Problems) and vendored fonts (drop the external link). This
+   is the smallest, highest-leverage next step: the human surface stops being a photo and becomes
+   a window.
+2. **THEN — Human-Layer Slice 1: the Pre-Flight Card** (`docs/HUMAN-LAYER-PRD.md`). The hero: the
+   **§O.12 delegation packet rendered** as the card a human reads before an agent acts — binding
+   trust + focus + prior memory + honest gaps, made legible. The delegation packet already exists
+   as a contract (§O.12); Slice 1 is its human face.
+3. **Two-Tier Brain slices — CLONE GATE FIRST** (`docs/TWO-TIER-BRAIN-PRD.md`). Slice in the
+   per-project-brain + medulla architecture proof-grown; the clone-gate (a project brain forks
+   cleanly from the medulla without dragging cross-project memory) is the first slice, then the
+   per-project inbox. The Slice-6 cwd-matrix battery (§21.14) is budgeted but unbuilt.
+4. **Inbox verbs — `inbox_drop` / `inbox_sweep` + a `north` inbox counter.** The per-project inbox
+   doctrine is sealed in medulla memory; the verbs that operate it (drop a cross-project note into a
+   project's inbox, sweep it on next `north`) + surfacing an inbox count in the north packet are the
+   delegation-layer's runtime hands.
+
+**Doctrine pointers (carry verbatim into every spawned agent):** the **UNIVERSAL FIELD-TELEMETRY
+DOCTRINE** (every agent/repo is a sensor → REPORT to `~/.m1nd/field-reports.jsonl`, never fix
+mid-mission; `honesty` class is calibration ground truth; a triage session STARTS by sweeping the
+mailbox and a confirmed bug becomes a battery case BEFORE the fix); the **UNIVERSAL DOC GATE incl.
+agent surfaces** (docs/wiki/README/PATHOS current before "done"; any change to HOW agents work
+updates the agent-read surfaces — CLAUDE.md/AGENTS.md, skills/, host packs, MCP instructions — in
+the SAME PR; the agent-docs CI gate #229 enforces this); the **DISK HYGIENE rule** (shared
+`CARGO_TARGET_DIR` + worktree sweeps); and **Fable writes the PRDs** (PRD/UML/architecture-vision
+docs are authored by Fable — Opus grounds/researches beneath, Fable holds the writing seat).
+
+---
+
+**↓ THE FLOOR (still-true reference): m1nd-OMEGA, `docs/NEXTGEN-AGENT-PRD.md` §O.10 — the ranked
+OMEGA roadmap, calibration-gated, reuse-first, honest.** Moves 0 (calibration) + 1 (Envelope)
+DONE and RELEASED (v1.2.0/1.2.1); the honest Move-2 reframe shipped. Read §O.1–O.11 for the vision
+(answer + map + trust receipt), the calibration keystone, the critic corrections, and the open
+poisoned-oracle risk. Move 2 (Solvency) and Moves 3–9 remain if the construction era ever needs to
+return to deepening the substrate — but they are NOT the active north. The verb plan: each OMEGA
+verb is a thin composer over shipping tools, ships DARK, earns `act` only once the calibrator
+certifies it.
 
 **OMEGA roadmap (§O.10) — Move 0 + Move 1 DONE, Move 2 next; Ω+1 is the fresh front:**
 - **Move 0 — conformal calibration harness (keystone).** ✅ **DONE (PR #192).** First
@@ -540,9 +721,13 @@ The reuse-first Wave roadmap (§ Ω+1.4) is now re-anchored on serve/attach at W
 ORGANIZE-first (Waves 1–3 nearly free), rewired keystone (Wave 4: `Stop → cross_verify →
 memorize` directly), swarm last.
 
-**AUTONOMOUS OVERNIGHT MANDATE (2026-06-30):** run the OMEGA roadmap (PRD §O.10) to
-completion — tested + cross-repo stress-tested — UNATTENDED; stop only when complete.
-Honor the universal doc gate at each move (docs/PATHOS current before "done").
+**AUTONOMOUS MANDATE (2026-06-30, still standing — target shifted from OMEGA to
+CONSTRUCTION):** run the active north — now the construction era (tree-alive → Pre-Flight
+Slice 1 → two-tier clone-gate → inbox verbs) — to completion, tested/dogfooded, UNATTENDED;
+stop only when complete. Honor the universal doc gate incl. agent surfaces at each move
+(docs/wiki/README/PATHOS current before "done"). The OMEGA-roadmap phrasing of this mandate
+is `[SHIPPED/histórico]` — Moves 0+1 landed and released; the mandate now drives building
+outward on the three PRDs.
 
 **MEMORY track (Subsystem D) — moves #1-#6 DONE, #7 BLOCKED, #8 largest.** #1-#2
 (`Created`/`Source-Agent` #187/#189) + **#3-#6 SHIPPED this session** (age-staleness #198,
@@ -583,3 +768,55 @@ worktree-isolated Opus frentes on non-overlapping surfaces; go SOLO if rate-limi
   battery staleness scenario.)
 - Does the impact symbol-first ranking want to differ by direction
   (reverse=callers vs forward=dependencies)?
+
+---
+
+<!-- ────────────────────────────────────────────────────────────────────────
+  AUTO-GENERATED SECTIONS — do NOT hand-edit between the anchors below.
+  Everything ABOVE this line is hand-curated and never touched by automation.
+  The auto-changelog (git-cliff over Conventional Commits) and auto-overview are
+  regenerated on every push to `main` by .github/workflows/pathos-autorefresh.yml
+  and committed back as Max Kle1nz with [skip ci].
+──────────────────────────────────────────────────────────────────────── -->
+
+## Auto — changelog (since the last `vX.Y.Z` tag)
+
+<!-- BEGIN:auto-changelog -->
+### Unreleased
+
+**Chores & infra**
+
+- Agent-docs gate — agent-workflow changes require agent-facing doc updates (or explicit exempt) (#229)
+
+**Docs**
+
+- The shell is the product — README re-spined around the operating loop (#228)
+- TWO-TIER-BRAIN-PRD — per-project brains + shared medulla (official, proof-grown; 3-Fable design) (#227)
+- The 5 launch plates (SOFT PROOF, founder-approved) (#223)
+- §O.12 — the Delegation Layer (packet, debrief, delegation-abstain; 3-Fable design) (#224)
+- HUMAN-LAYER-PRD — the Living Tree, post-it memory, Pre-Flight hero (vision → spec) (#222)
+
+**Features**
+
+- Living Tree slice 0 — the tree, post-its, trust dots (read-only) (#232)
+
+**Fixes**
+
+- Write-tool responses return real envelopes through the bridge (field-triage L21) (#235)
+- Remove the opt-in savings/report unmeasured-claims surface (brand gate G1.5) (#234)
+- Marker fragments excluded from recall/anchor slots (field-triage batch A) (#231)
+- Re-init covers all unknown-session shapes + restart-survival proof (field-triage batch C) (#233)
+- All persist targets resolve against runtime_root, never cwd (field-triage batch B) (#230)
+- L1GHT recall robust on mixed graphs — memory beat scoped to light provenance (field-triage #6) (#226)
+- Bridge transparently re-initializes on owner restart (-32001) (field-triage #5) (#225)
+- Remove the unmeasured savings envelope — an uncalibrated claim is the confident guess (brand gate G1) (#221)
+<!-- END:auto-changelog -->
+
+## Auto — repo overview
+
+<!-- BEGIN:auto-overview -->
+- **Repo:** `m1nd-cp9`
+- **Branch:** `docs/pathos-cp9`
+- **Last commit:** 2026-07-03
+- **Commits since `v1.2.1`:** 15
+<!-- END:auto-overview -->
