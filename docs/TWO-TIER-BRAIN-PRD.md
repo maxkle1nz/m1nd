@@ -1,0 +1,667 @@
+# The Two-Tier Brain — PRD
+
+**Per-project brains + a shared medulla · the memory that travels with git (official, proof-grown)**
+
+> **Status:** OFFICIAL — founder-approved direction (2026-07-03), formalized as the canonical PRD.
+> **Provenance (three-seat Fable design, critique baked in):** an architect (Canonical Architecture v1, decisions Q1–Q6), a lifecycle/operations seat (decisions B1–B10, live-machine probes), and an adversarial critic whose **MANDATORY-FIX list and KILL list are BINDING in this PRD** — each is encoded inline and marked `[C-FIX n]` / `[KILLED]`, never appended as a caveat. Where the critic's steelman of the single-brain alternative won an axis, this PRD **adopts that outcome** and says so (§2).
+> **Ground:** every `file:line` anchor below was verified at `origin/main` @ `f737931`; the repo HEAD this PRD lands on is `98b745a` (docs/brand assets only between the two — code anchors unaffected). **The symbol is the contract, the line is a hint — re-anchor at implementation start.** Live-machine numbers are from probes on the founder's machine, 2026-07-03 ~17:00, and are marked *(measured)*. Every effort figure not marked *(measured)* is an estimate written in words, never a precision bar.
+> **Two live facts shaped this design and are part of its evidence:** (1) the medulla's persistence failure is **root-caused** — the launchd plist has no `WorkingDirectory`, so the owner runs with cwd=`/` (documentary proof: the live lease records `"workspace_root": "/"`, `"graph_source": "/graph_snapshot.json"`); relative-path persists fail with os error 30 while absolute-path writes succeed. (2) Today's 16:44 medulla restart **silently destroyed its own code graph** (6,221 nodes → ~124 memory nodes) and overwrote the 6.2 MB embedding cache down to 82 KB *(measured)*. The mixed single brain amputates itself on every restart; this PRD is the cure, demonstrated urgent the day it was written.
+
+---
+
+## 1. Thesis
+
+**A teammate clones the repo. Git delivered `brain.json`, `agent-memory/*.light.md`, `battery/` — and no snapshot. Their first session: the graph is empty, but the project's memory loads instantly, and `north` answers with the project's decisions and gotchas before m1nd has parsed a single line of code.** The clone knows *why* the code is the way it is before it knows the code. That is the compounding thesis made visceral, on day one, for free — and it costs a gitignore and an init command.
+
+Two theses, one product:
+
+1. **Product thesis — the memory is the brain; it travels with git.** One brain per repo owns that repo's code graph, agent-memory, and calibration; the memory clones with the repo, so every teammate and every agent inherits it. Exactly one **medulla** per founder/machine holds what is *not* any repo's: doctrine, preferences, cross-project findings.
+2. **Engineering thesis — process-per-repo is the namespace mechanism.** Spawn-on-miss rides the *existing, tested* lease/registry/boot-GC machinery (`acquire_with_mode`, `instance_registry.rs:134-220`; stale-GC `:391-426`; PR #225 re-init `c797714`): zero new locking code, zero verb rewrites, isolation by OS construction. This — not any "structural impossibility" — is why two-tier is cheap where the single-brain alternative is expensive (§2).
+
+The organizing law, stated with corrected precision `[C-FIX 8]`: **the wrong workspace binding becomes impossible via the default path** — there is no shared owner for project questions to land on. Overrides can still misbind (`M1ND_ATTACH_URL`, a stale `M1ND_RUNTIME_DIR` pin copied between repos, symlinked worktrees), which is exactly why the existing `workspace_binding_mismatch` guard (`session.rs:747-836`, live-proven against `:1338` from `~/m1nd-l00p`) survives — demoted from front line to defense-in-depth backstop, never deleted.
+
+---
+
+## 2. The single-brain steelman — verdict, stated explicitly
+
+The adversarial critic built the strongest possible alternative — **SB-N: one resident owner + namespaces** (federate every active repo into today's single brain via the existing id-prefixing at `layer_handlers.rs:6050`; scope every `north`/`seek` by the `M1ND_WORKSPACE_ROOT` hint every host already sends; tag claims per project; evict cold namespaces). SB-N would delete five of this design's six net-new mechanisms and make cross-project code queries possible. The verdicts, adopted verbatim:
+
+**REJECTED as the substrate — two-tier wins Axis 1, but for the honest reason, not the seats' original one.** SB-N's namespace scoping is not a filter bolted onto `north`; it is a rewrite of the substrate's core assumption. Every verb handler, the calibration state, the trust rows, plasticity, and the binding guard all assume ONE graph, ONE workspace, ONE calibration row per process. Making namespaces first-class means auditing and patching essentially the whole verb surface, with months of regression risk. **Process-per-repo delivers the identical guarantee with zero verb changes: the OS is the namespace implementation** — a reuse-first argument, because the codebase's single-graph assumption makes process isolation the cheapest correct namespace mechanism. Two more decisive merits: **blast radius** (proven live today — the 16:44 restart destroyed the mixed brain's graph and embeddings for *everything at once*; per-repo owners cap that loss at one repo), and **per-brain calibration is a mandate delivered for free** (`session.rs:1498` loads `calibration_state.json` from `runtime_root` — pointing `runtime_root` at `<repo>/.m1nd` *is* the implementation, where SB-N needs calibration schema surgery).
+
+**ADOPTED from the steelman — four postures this PRD takes because the critic's steelman won them:**
+
+1. **The medulla IS the retained single brain.** The whole design is honestly framed as: *single brain where global works; process-per-repo only where code graphs live.* This disarms the complexity-tax critique instead of pretending it away.
+2. **Per-repo memory roots matter more than per-repo processes.** The compounding win ships with the gitignore + init slice alone; the sequencing reflects that (memory split lands before any federation machinery — §14).
+3. **Single-pane operations.** `doctor` + the existing `list_instances` must render the fleet as one table from day one (Slice 2 gate), so N processes stay as inspectable as one.
+4. **Cross-project code query is a declared NON-GOAL** — SB-N's genuine advantage, structurally forfeited here (the medulla is forbidden code; project graphs are isolated at read time). The escape hatch is named, not wished for: spin up a throwaway analysis brain and `federate`/`federate_auto` the repos into it — that mechanism exists today (`layer_handlers.rs:5972+`, `audit_handlers.rs:2088+`) and is exactly what it is for. Unstated, this forfeit becomes next quarter's regret; stated, it is a design boundary.
+
+---
+
+## 3. Decision register — every open question closed
+
+Architect decisions Q1–Q6 and lifecycle decisions B1–B10, as amended by the binding review. Amendments are marked; nothing is silently rewritten.
+
+| # | Question | DECISION (final) | Notes / amendment |
+|---|---|---|---|
+| Q1 | Who spawns project owners? | **The bridge self-spawns** on discovery miss. Not launchd-per-repo, not a supervisor. | The bridge is the only host-neutral seat; launchd is macOS-only. Crash recovery free: next bridge respawns; #225 covers mid-session restarts (see risk §21.14). |
+| Q2 | Idle shutdown? | **Yes for project brains** — `--idle-exit-secs 1800`: persist snapshot → release lease → exit 0. **Never for the medulla** (launchd KeepAlive). | Nx-daemon/LSP precedent. `[KILLED: B4's wake-persist-exit special case — plain idle-exit already drains; the special case added code and guaranteed cold mornings.]` |
+| Q3 | Federated-read shape | **End state: server-side** (project owner composes a read-only HTTP MCP call to the medulla inside `north`). **v1 ships the hook-side two-call compose instead** — the doctrine feed must not wait for an HTTP composition layer. | `[C-FIX 5 + Axis-4 adoption]` Server-side moves whole to V2, with a negative cache mandated (`[C-FIX 6]`). §10. |
+| Q4 | `mcp-config`: embedded vs bridge | **Bridge model becomes the default emit** (`args: ["--attach","auto"]`); today's embedded `--stdio --no-gui` survives behind `--embedded` (CI/one-shot). | The live machine already proved the bridge model on all four hosts. |
+| Q5 | Read-only-fs persist failure | **CLOSED — root cause isolated** (was honestly open in Architecture v1): plist lacks `WorkingDirectory` → cwd=`/` → relative-path persists fail (os error 30). Fix = plist key + absolute `--graph` + the durable code fix (persist targets resolve against `runtime_root`, never cwd). Pre-cutover blocker, Slice 0. | Documentary proof: live lease `workspace_root:"/"`. The Codex launcher never hit it because it `cd`s and passes an absolute `--graph` (`~/.codex/bin/m1nd-stdio-session.sh:23-27`). |
+| Q6 | One registry or per-tier? | **One shared registry: `~/.m1nd/registry`**, achieved by **re-pointing** the medulla's `--registry-dir` — [KILLED: the S6 `runtimes/claude → ~/.m1nd/medulla` directory move + compat symlink — zero user value, real breakage risk]. `brain_kind` field keeps legacy entries parseable (serde default). | A project owner must *see* the medulla entry to resolve it without hardcoded addresses. |
+| — | Naming | **Project Brain / Medulla / The Two-Tier Brain**; code identifier `brain_kind: project\|medulla`. | HUMAN-LAYER S5 collision resolved in §4.3. |
+| — | Calibration in git? | **Never committed.** Per-brain AND per-machine (§5.1 rationale). | |
+| — | Brain auto-creation? | **Never silent.** `m1nd init` is the only birth. `--attach auto` in a brainless repo routes to the medulla + honest gap. | Security stance §9.4. |
+| B1 | Brain present, graph empty | **Auto-warm:** boot memory-first, serve immediately, background-ingest the workspace root, wear `warming` honestly. `brain.json` (born only by explicit init) IS standing consent; ingest reads only the repo's own files. | **Amendment:** background ingests are capped machine-wide at **one at a time** (post-reboot CPU-storm guard) `[C-FIX, Axis 3]`. |
+| B2 | `m1nd init` posture | **Foreground, with progress** — the one blocking moment in the system, human-invoked. Prints a birth certificate. | Gains the loud commit warning + `--private` `[C-FIX 1]` and the `$HOME` refusal `[C-FIX 9]`. |
+| B3 | Field telemetry | **Global mailbox stays** — one file, `~/.m1nd/field-reports.jsonl`; reports gain a `"brain"` field. | Argued in §19. |
+| B4 | Idle clock & sleep | Idle = monotonic time since last tool call. | `[KILLED: the wake-persist-exit special case.]` Honest consequence: owners that survive sleep give a *warm* morning; owners that idle-exited give a doctrine-only first beat (§10). |
+| B5 | Upgrade choreography | **Medulla first (kickstart), project brains converge lazily on respawn.** No fleet orchestrator. | `doctor --bounce` (immediate convergence) moves to V2 `[KILL list]`; v1 immediate convergence = `m1nd brain stop` + next call. |
+| B6 | Removal surface | Ladder `stop → clean → eject` on the `delete_instance_state` file set (`instance_registry.rs:348-362`). | **v1 ships `stop` only**; `clean`/`eject` are V2 `[KILL list]`. |
+| B7 | Wedged owner | The ONE failure that asks a human: **doctor prescribes the verified `kill -TERM`, never executes it silently.** | §17 row 2. |
+| B8 | Swarm roster | `[KILLED for v1 — no slice, no gate, no RED: by the founder's own doctrine it is a hypothesis, not a feature.]` Retained as a V2 hypothesis with its own slice+gate before it is real. | §15. |
+| B9 | Degradation grammar | **Exactly ONE `fix` per degraded envelope**, routed through the existing `recovery_playbook`. A menu is a failure of nerve. | Invariant TT-INV-4. |
+| B10 | Legacy debris | Reclaimed only in the LAST migration step, after soak: `_expired/` 145 MB *(measured)*, 20 hex per-session runtimes, binary `.bak`s (~290 MB). Nothing before proof. | §16 M8. |
+
+**Net-new surface, complete list (everything else is composition):** (a) bridge walk-up + spawn-on-miss; (b) `--port 0` + real-port readback via the existing `set_running_endpoint`; (c) the hook-side two-call composed north (v1) / the server-side federated beat (V2); (d) `M1ND_RUNTIME_DIR`/attach-auto emit in `mcpServerEntry` + the selective `.m1nd/.gitignore` written by `init`; (e) `brain_kind` verb gate + registry field, `M1ND_AGENT_ID`; (f) **memory hygiene: the secret-scan in the `memorize` write path + the conflict-marker guard** `[C-FIX 1, 2 — mandated by review]`; (g) V2: `memorize --promote`.
+
+---
+
+## 4. Topology & names
+
+### 4.1 The two tiers
+
+- **PROJECT BRAIN** — one per repo, owns exactly one thing: *this repo*. Runtime lives in `<repo>/.m1nd/`. Holds the code graph, the project's agent-memory (decisions/gotchas), and its **own** calibration state. Spawned on demand, idle-exits, ephemeral port, lease-guarded. **The memory travels with git.**
+- **MEDULLA** — exactly one per founder/machine-fleet. Runtime stays physically at `~/.m1nd/runtimes/claude/` (`[KILLED: the directory move]`) and is *logically* the medulla, carried by `brain_kind:"medulla"` in its `brain.json` and registry entry. Holds doctrine, founder preferences, cross-project findings. **Code graphs are forbidden and verb-gated.** Pinned `:1338`, launchd-kept — and it is honestly framed as **the retained single brain** (§2, adopted posture 1).
+
+### 4.2 One diagram
+
+```mermaid
+flowchart TD
+    subgraph HOSTS["any MCP host — claude · codex · gemini · antigravity"]
+        H1["session"]
+    end
+    H1 -->|"stdio MCP — ONE global config per host"| BR
+    BR["BRIDGE — m1nd-mcp --attach auto<br/>walk up cwd to .m1nd/brain.json<br/>registry hit: attach · miss: spawn · no brain: medulla<br/>~6 MB RSS (measured)"]
+    subgraph TIER1["PROJECT BRAINS — one per repo, spawn-on-demand"]
+        PA["repo A — A/.m1nd/<br/>code graph · project memory (git-tracked)<br/>own calibration · ephemeral port · idle-exit"]
+        PB["repo B — B/.m1nd/<br/>same shape, fully isolated"]
+    end
+    MED["MEDULLA — one per founder/machine<br/>doctrine · preferences · cross-project findings<br/>code graphs FORBIDDEN (verb gate)<br/>pinned :1338 · launchd KeepAlive"]
+    BR -->|"attach — HTTP MCP, no lease"| PA
+    BR -->|"attach"| PB
+    BR -->|"no brain anywhere: attach + honest gap"| MED
+    BR -.->|"doctrine beat — v1 hook-composed, ≤1 s, fail-open"| MED
+    PA -.->|"V2: server-side federated read (deferred)"| MED
+    PA ==>|"PROMOTION — upward only, provenance-stamped<br/>(v1 manual · V2 --promote)"| MED
+    REG[("~/.m1nd/registry — ONE shared phonebook<br/>lease · heartbeat · brain_kind")]
+    BR --- REG
+    PA --- REG
+    PB --- REG
+    MED --- REG
+```
+
+### 4.3 The "Project Brain (S5)" naming collision — resolved
+
+`docs/HUMAN-LAYER-PRD.md` §4 names S5 "Project Brain — read the shared memory (read-only)": a **UI surface**. Reconciliation, one sentence of doc change (scheduled in Slice 6, not smuggled into this commit): **S5 becomes the "Project Brain Panel" — the human's read-only window onto a project brain's agent-memory.** The runtime tier owns the bare name; the panel is its view — semantically exact, since S5 renders precisely what the per-repo tier holds.
+
+---
+
+## 5. Project Brain subsystem
+
+### 5.1 Runtime layout in `<repo>/.m1nd/` — committed vs ignored, with rationale
+
+Policy law: **memory is the brain; caches are the metabolism. The brain travels with git; metabolism is per-machine.** The repo's own `.gitignore:48-54` already encodes this in miniature (track `agent-memory/*.light.md`, ignore `.history/`/`.locks/`) — the policy below is that precedent, generalized.
+
+| Path in `<repo>/.m1nd/` | Git | Rationale |
+|---|---|---|
+| `brain.json` | **COMMIT** | Brain identity manifest (schema §5.2). **Data only — never executable paths** (§9.4). |
+| `agent-memory/*.light.md` | **COMMIT** | The irreplaceable asset — project decisions/gotchas. This IS the compounding thesis. *(Unless `--private` — §5.2.)* |
+| `battery/` | **COMMIT** | Proof-grown doctrine: this brain's battery cases are proof assets; they travel like memory (CI wiring is V2). |
+| `.gitignore` | **COMMIT** | The selective policy itself, written by `m1nd init`. |
+| `agent-memory/.history/`, `.locks/` | ignore | Existing precedent verbatim (`.gitignore:48-54`): per-machine supersession/audit runtime. **Honest consequence — zombie claims:** supersession chains fork silently across machines (§7.3). |
+| `graph_snapshot.json` | ignore | Rebuildable via ingest; carries machine-absolute paths; matches the existing root rule (`.gitignore:23`). |
+| `embeddings_cache.bin`, `*.tmp` | ignore | Content-addressed, runtime-regenerated (`.gitignore:28-31`); only the writable owner persists it (`session.rs:1409-1413`). |
+| `calibration_state.json` | **ignore — decided** | Calibration is the brain's *proprioception on this body*: τ measured against THIS machine's prediction history. Committing it imports someone else's error history as your ground truth — it would falsify honesty, the one thing m1nd must never do. Re-arms cheaply via `calibrate_predict`. "Per brain" means *not shared across brains*; it also must not be shared across bodies. |
+| `plasticity_state.json`, `antibodies.json`, `tremor_state.json`, `trust_state.json`, `savings_state.json`, `boot_memory_state.json`, `daemon_*.json`, `ingest_roots.json`, `auto_ingest_state.json`, `document_cache.json`, `cache_index.json`, `xray.ledger.jsonl` | ignore | The full runtime set enumerated by `delete_instance_state` (`instance_registry.rs:348-362`); `ingest_roots.json` carries absolute paths. Durable knowledge in `boot_memory` earns git travel by being **memorized** into a `.light.md`, never by committing the KV file. |
+| `agent-pack/` | ignore | Regenerable, binary-versioned (`m1nd install-skills`); today's blanket `.m1nd/` rule (`.gitignore:46`) existed for exactly this. |
+| `logs/` | ignore | Spawn/serve logs. |
+
+In the m1nd repo itself, blanket line `.gitignore:46` (`.m1nd/`) is **replaced** by this selective block — otherwise the m1nd repo's own project-brain memory could never travel (Slice 3 RED proves the blanket swallows it).
+
+### 5.2 `m1nd init` — the birth certificate (the ONE foreground moment)
+
+`m1nd init` (existing command, `npm/lib/cli.js:26`) becomes the brain's birth: writes `brain.json` + the selective `.m1nd/.gitignore`, runs the first ingest **foreground with progress** (B2 — embedding dominates first-ingest wall time; the exact number is a **Slice 3 gate measurement, not a claim**), persists the first snapshot (every future spawn is warm), and prints the birth certificate.
+
+```json
+{
+  "schema": "m1nd-brain-v0",
+  "brain_kind": "project",
+  "name": "<repo basename>",
+  "created_ts": 1751558400000,
+  "expected_sha": "f737931",
+  "strict_binary": false,
+  "promotion": { "default": "propose" }
+}
+```
+
+Binding rules `[C-FIX 1, 9]`:
+
+- **The loud warning is part of the ceremony:** `agent-memory/ will be COMMITTED — treat it like code you would push. Secrets in claims are refused at write time (§7.1), but review before pushing a public repo.`
+- **`--private` mode:** adds `agent-memory/` to the ignore set for repos whose memory must not travel (public repos, sensitive infra). The trade is stated: no memory-before-code clone for this repo.
+- **`init` refuses to run at `$HOME`** (a home-brain would try to ingest the founder's world), and the walk-up (§9.1) excludes `$HOME` itself for the same reason.
+- `brain.json` is **inert data** — no binary paths, no hooks, no auto-exec directives (§9.4).
+
+### 5.3 Owner lifecycle
+
+**Spawn-on-demand (bridge-side, Q1).** On discovery miss with `brain.json` present, the bridge spawns a detached owner:
+
+```
+m1nd-mcp --serve --no-gui --port 0 \
+         --runtime-dir <repo>/.m1nd \
+         --graph <repo>/.m1nd/graph_snapshot.json \
+         --idle-exit-secs 1800
+env: M1ND_EXPECTED_SHA=<brain.json .expected_sha>, M1ND_WORKSPACE_ROOT=<repo>
+```
+
+- **Binary:** always `std::env::current_exe()` — the same binary the bridge runs. Never a path from `brain.json` (§9.4).
+- **Session independence `[C-FIX 4]`:** the spawn is fully detached (own session — setsid/double-fork discipline); **the owner must outlive the bridge and the host session that birthed it.** Gated in Slice 2 (orphan-survival gate) — without this, every session-end would kill a brain mid-write.
+- **Port (net-new, small):** `--port 0` = OS-assigned ephemeral; the owner reports the *actual* bound port through the existing `set_running_endpoint` registry write (the mechanism `entry_base_url` documents, `instance_registry.rs:645-650`). Deletes the port-collision class for the project tier while keeping TCP (the bridge is HTTP/SSE). The medulla alone keeps a pinned port.
+- **Single-spawn race protection: zero new code.** Both racers exec; the per-`runtime_root` exclusive PID+heartbeat lease (`acquire_with_mode`, `instance_registry.rs:134-220`; proven by `rejects_live_runtime_root_collision_for_foreign_owner` and the read-only coexistence tests at `:725`/`:881`) lets exactly one win; the loser exits 0 "already owned"; the bridge retries discovery (250 ms × 20 ≤ 5 s) until the winner publishes `bind+port`, then attaches. **The bridge never blocks a session on this** — spawn-and-return `[C-FIX 3]`.
+- **Warm boot:** snapshot-boot from `graph_snapshot.json` (persisted at idle-exit/SIGTERM/post-ingest). The ≤2.5 s attachable-after-spawn figure is a **budget with a Slice 3 gate, not a claim** `[C-FIX 3]`. Cold boot without a snapshot: boot memory-first (proven live: agent-memory loads inside the boot second), serve immediately, **auto-warm** in the background (B1, machine-wide cap: one background ingest at a time), report `needs_ingest`/`warming` honestly — never block a session.
+- **Idle-exit (Q2):** 30 min (monotonic since last tool call) → persist snapshot + embeddings + calibration → release lease → exit 0. Discovery then misses cleanly; the next bridge respawns warm. Crash path: heartbeat stops → entry stale in 30 s (`STALE_AFTER_MS`) → boot GC (`spawn_boot_gc`, `:391-426`) sweeps. Gated in Slice 2 (persist-on-idle AND persist-on-SIGTERM, `--idle-exit-secs 2` in test) `[C-FIX 4]`.
+- **Per-brain calibration: free.** `session.rs:1498` loads `calibration_state.json` from `runtime_root` — pointing `runtime_root` at `<repo>/.m1nd` *is* the implementation.
+- **Per-brain drift guard: free.** `brain.json.expected_sha` → env → `enforce_strict_version` (`main.rs:293-322`); drift surfaces in every `north.binding.fingerprint` (live-proven: `binary_lags_repo:true`). Advisory default: `strict_binary:false` = spawn + surface drift; `true` = refuse to spawn (fail-closed, never redirect) — after an upgrade, strict brains demand a deliberate, reviewed re-pin of `expected_sha`, committed like code.
+- **`m1nd brain stop [path]` (v1):** resolve `runtime_root` → registry → PID → SIGTERM (persists on the way down), lease released. RAM freed; nothing deleted; the next call resurrects warm. (`clean`/`eject`: V2, §20.)
+
+### 5.4 The first hour, lived (compressed; the contracts above make it true)
+
+1. **Brainless repo:** SessionStart hook → bridge walks up, no brain → medulla attach → one calm line: doctrine + `project_brain_absent — fix: m1nd init`. Claude offers; founder accepts.
+2. **`m1nd init`:** foreground ingest with progress → `BRAIN BORN: <name> · N nodes · memory travels with git` → `git add .m1nd && git commit` (as Max Kle1nz — never as Claude).
+3. **Fresh clone of a brained repo:** memory-before-code (§1) — claims served at `node_count == 0`, `warming` worn, graph fills in the background, second session warm. **This is Slice 3's formal gate**, not marketing.
+4. **Second host joins (same repo, same minute):** its bridge walks up to the same `brain.json` → registry HIT → attaches the **same owner process**. One brain, many hands; provenance separates them (§11). Bridges cost ~6 MB RSS *(measured — three live now)*.
+
+**Morning honesty `[C-FIX 3]`:** the first touch of a repo is **warm iff its owner survived** (still resident, or snapshot-boot completes inside the attach window) and **doctrine-only + `warming` when it didn't**. Anchors arrive on the second beat. This is stated here, in the failure table, and in the hook's own output — never styled away.
+
+---
+
+## 6. Medulla subsystem
+
+**Belongs (all as `.light.md` claims + boot-memory KV):** operating doctrine (proof standard, git identity, model routing); founder preferences; cross-project findings (patterns confirmed in ≥2 repos); distilled field-telemetry learnings about m1nd behavior; host/tool runbooks. The live claim set (8 today *(measured)*, growing daily) is triaged at migration time from a live enumeration — never from this document (§16 M4).
+
+**FORBIDDEN — structurally, not aspirationally:** code graphs, ingest roots, code snapshots, single-repo gotchas, secrets. Enforcement (net-new, small): `brain_kind:"medulla"` makes the owner **refuse `ingest`, `federate`, `federate_auto`, `auto_ingest_*`** with a typed error naming the project brain as the right destination. The medulla cannot be re-polluted by an eager agent. (The promotion write path is the single deliberate crossing — §8.)
+
+**Address & discovery:** physical path unchanged (`~/.m1nd/runtimes/claude/`) `[KILLED: the move]`; pinned `:1338`; launchd `com.kle1nz.m1nd-serve` re-scoped medulla-only **after the Slice 0 persistence fix**, with `WorkingDirectory` set and an absolute `--graph`. Consumers resolve the medulla **via the unified registry** (`brain_kind=="medulla"` entry; bridge keyword `--attach medulla`), falling back to the literal `:1338` — no more hardcoded-only addresses in hooks. Machines without launchd get a project-only experience + `medulla_unreachable` gap; `m1nd doctor` prescribes the service install.
+
+**Size discipline — the medulla is an index, not a warehouse:** soft cap 200 active claims (doctor warns at 300); no code embeddings; a periodic consolidation pass merges/supersedes; any claim that merely restates CLAUDE.md doctrine is pruned to a pointer (the founder's DRY rule). Small enough that the doctrine beat is always ≤1 s.
+
+**Known steady state:** a pure memory-only medulla weighs **~170 MB RSS** *(measured this hour — the post-purge weight is known in advance because the 16:44 restart already produced it)*.
+
+---
+
+## 7. Memory hygiene — the mandated subsystem `[C-FIX 1, 2]`
+
+The review's single incident-grade finding: **committed memory without a write-path guard is a leak machine.** The false-coverage claim is retired — the gitleaks PostToolUse hook matches `Edit|Write|MultiEdit` and extracts `tool_input.file_path`; `mcp__m1nd__memorize` never matches, the file is written *inside the m1nd-mcp process*, invisible to any host hook; Codex/Gemini/Antigravity have no such hook at all; and m1nd's own write path has zero scanning *(probed at f737931)*. Under today's `~/.m1nd` layout this was privately inert; the moment memory moves into the repo, it must be closed **before** the gitignore flips (Slice 4 lands before Slice 6 cutover; the init warning lands with Slice 3).
+
+### 7.1 Secret-scan inside the write path
+
+Host-independent, inside `memorize` (and the future `--promote`): scan the claim text + evidence excerpts against a secret-pattern corpus (connection strings with credentials, cloud keys, bearer/OAuth tokens, private-key headers). On hit → **typed refusal naming the pattern class; nothing is written.** The agent is told to redact and re-memorize. Honesty about the mechanism: pattern-based scanning has false negatives (risk §21.2) — this is a floor, not a proof; `--private` and the init warning are the defense-in-depth layers.
+
+### 7.2 Conflict-marker guard at ingest & recall
+
+The ingest walker reads `*.light.md` wholesale (`tools.rs:374-408`) — a git conflict marker inside a claim would be ingested as memory content and served in `north`: poisoned orientation. Guard (net-new, small): claims containing conflict-marker lines (`<<<<<<<`/`=======`/`>>>>>>>` at line start) are **refused at ingest and flagged at recall — never served in north**; the flag names the file and the one fix (resolve the merge).
+
+### 7.3 The merge policy — one policy, stated once
+
+- **New claims are conflict-resistant by construction:** one claim per file; parallel additions merge cleanly.
+- **Supersession is merge-hostile:** the L1GHT rewrite-supersession rewrites the same file in place — two branches superseding one claim = a text conflict. Policy: **prefer keeping both claims live and `learn wrong` the loser** after merge; a text conflict is resolved by the human/agent doing the merge, protected by §7.2 from silent poisoning.
+- **`.history/` does not travel** (per-machine, gitignored — existing precedent). Honest consequence, named: **supersession audit chains fork across machines, and machine B can merge-resurrect a claim machine A superseded (zombie claims).** Mitigation: the conflict-marker guard + `learn wrong` on sight; full cross-machine supersession sync is an **open problem** (§21.3), not a hidden one.
+- **Eject never purges history:** a secret that reached a committed claim is a git-history-scrub job plus credential rotation — never an eject (§20).
+
+---
+
+## 8. Promotion & supersession across tiers
+
+**Direction of flow:** knowledge is *promoted up* (project → medulla, by copy-with-provenance); doctrine *flows down* only by read at north-time — never copied into project brains.
+
+**Promotion rules — a claim qualifies when BOTH hold:**
+
+- **P1 — repo-agnostic when restated:** names no single repo's file/line/flag.
+- **P2 — one of:** observed in ≥2 projects · founder doctrine/preference stated by Max · distilled field-telemetry finding about m1nd itself.
+
+**v1 mechanic — manual, documented `[KILL list: Slice 6 mechanization deferred]`:** the orchestrator (or founder) runs `memorize` **against the medulla** (attach `--attach medulla`) with the provenance fields written into the claim by convention — `origin_brain: <repo>`, `origin_claim: <slug>`, `promoted_by: <agent_id>`, `ts` — and marks the project-side claim `promoted_to: medulla@<slug>`. The project copy **remains in place**: it is the local witness; promotion elevates, never moves.
+
+**V2 mechanic — `memorize --promote`:** the project owner writes the claim to the medulla over the same HTTP client as the federated read, stamping the same provenance automatically; a maker `agent_id` gets a typed refusal. No inbox/queue machinery (reuse-first): direct write + provenance + the consolidation pass demoting junk; `learn wrong` on the medulla kills a bad promotion instantly without touching the project witness.
+
+**Who decides — stated with corrected precision `[C-FIX 8]`:** any agent proposes; only `*:orchestrator` or `human:founder` promote. **This is etiquette enforced by provenance audit, NOT a security boundary** — `agent_id` is self-declared, and any agent that attaches the medulla directly can `memorize` without `--promote`. Provenance makes violations auditable; delegation packets instruct makers accordingly; nothing stronger is claimed.
+
+**Supersession & conflict resolution:**
+
+- Within a tier: the existing L1GHT rewrite-supersession stands (prior belief → `.history/`, `State: outdated`), plus the §7.3 merge policy.
+- Across tiers: **no tier ever edits the other's claims.** Conflicts are *composed and labeled*, never silently resolved. The composed north marks conflicting pairs and ranks by this table (mirroring the founder's truth hierarchy — code > PATHOS > memory — and doctrine precedence):
+
+| Conflict class | Winner | Note |
+|---|---|---|
+| Fact about repo X | **Project brain X** | It sits closest to the code; the code itself is rank 0. |
+| Cross-project fact / founder preference | **Medulla** | |
+| Operating doctrine | **Medulla by default**; the repo's own doctrine claim wins *inside that repo* — **unless** the medulla claim is flagged `absolute` (founder-set) | Exactly CLAUDE.md's precedence: ABSOLUTE-global > repo doctrine > general global. |
+| Any of the above vs live code/git | **Reality** | Stale memory gets `learn wrong`/superseded in the same session. |
+
+---
+
+## 9. Discovery & routing subsystem
+
+### 9.1 Bridge-side resolution — host configs stay global
+
+Precedence (first hit wins):
+
+1. **`M1ND_ATTACH_URL`** — absolute override (exists, `cli.rs:88-99`).
+2. **`M1ND_RUNTIME_DIR` / `--runtime-dir`** — explicit pin: that path is the `runtime_root`, no walk.
+3. **Walk-up (net-new):** starting dir = `M1ND_WORKSPACE_ROOT` → host env candidates (`WORKSPACE_ROOT_ENV_CANDIDATES`, `session.rs:475-490`) → `cwd`. Ascend to the nearest ancestor containing `.m1nd/brain.json`; stop below `$HOME` and fs root — **`$HOME` itself is excluded** `[C-FIX 9]`. Nested brains: **nearest wins** (LSP-root precedent; the `nested_workspace_binding` guard stays as backstop). Found → `runtime_root = <that>/.m1nd`.
+4. **Registry discovery:** `discover_serve_owner_base_url(runtime_root, registry)` (`instance_registry.rs:673-713`) — unchanged; exact canonicalized match, read-only, no lease. Hit → attach.
+5. **Miss + brain exists → spawn** (§5.3), bounded retry, attach — spawn-and-return, never block.
+6. **No brain anywhere → medulla:** registry entry with `brain_kind=="medulla"` → fallback literal `http://127.0.0.1:1338` → attach; the session runs medulla-only and north carries `project_brain_absent` + `fix: m1nd init`. **Never auto-create a brain.**
+7. **Spawn fails / all down →** degrade to medulla if reachable (`project_brain_unavailable` gap); else ONE typed error routed through `recovery_playbook`. Hooks stay fail-open regardless.
+
+```mermaid
+flowchart TD
+    S["bridge start: m1nd-mcp --attach auto"] --> E1{"M1ND_ATTACH_URL set?"}
+    E1 -->|yes| A1["attach that URL — absolute override"]
+    E1 -->|no| E2{"M1ND_RUNTIME_DIR pin?"}
+    E2 -->|yes| D0["runtime_root = pin — no walk"]
+    E2 -->|no| W["walk up: M1ND_WORKSPACE_ROOT → host env → cwd<br/>nearest ancestor with .m1nd/brain.json<br/>$HOME itself excluded"]
+    W -->|found| D0
+    W -->|none| M0{"registry: brain_kind == medulla?"}
+    D0 --> R{"registry discovery<br/>discover_serve_owner_base_url"}
+    R -->|hit| AT["attach owner"]
+    R -->|"miss + brain.json"| SP["spawn detached owner — port 0, lease-arbitrated<br/>retry discovery 250 ms × 20 · spawn-and-return"]
+    SP -->|"winner publishes bind+port"| AT
+    SP -->|"retries exhausted"| M0
+    M0 -->|yes| AM["attach medulla<br/>gap: project_brain_absent · fix: m1nd init"]
+    M0 -->|no| ML{"literal 127.0.0.1:1338 up?"}
+    ML -->|yes| AM
+    ML -->|no| ERR["ONE typed error via recovery_playbook<br/>hooks stay fail-open — exit 0"]
+```
+
+### 9.2 Registry schema evolution
+
+`InstanceRegistryEntry` (`instance_registry.rs:19-39`) gains **one optional field**: `brain_kind: "project"|"medulla"` (serde default `"project"` — legacy files keep parsing). Everything else — lease semantics, staleness, GC, conflicts — unchanged. **One registry dir for both tiers** (Q6): `~/.m1nd/registry`, achieved by re-pointing the medulla's `--registry-dir`; the live `registry-claude` split is consolidated at migration. **Scale correction, inline:** the earlier "~54k legacy entries" figure was stale; the live registry holds **143 instance files / 10 leases** *(measured)* — scale claims are re-measured at gate time, never inherited (TT-INV-11).
+
+### 9.3 Config carriers
+
+Global host configs carry only `--attach auto` (works from any cwd) + `M1ND_WORKSPACE_ROOT` + `M1ND_AGENT_ID`. Project-scoped configs written by `m1nd mcp-config --project` *additionally* pin `M1ND_RUNTIME_DIR=<proj>/.m1nd` — an explicit short-circuit of the walk (worktree/symlink edge cases). Env pin > walk, per §9.1. `--embedded` keeps today's `--stdio --no-gui` form (CI/one-shot).
+
+### 9.4 Security stance (binding)
+
+Cloning a repo must never grant it execution. Therefore: `brain.json` is **inert data** — no binary paths, no hooks, no auto-exec directives; spawn always execs the user-installed `current_exe()`; `expected_sha` is a *pin that can only refuse*, never redirect; `init` is the only birth and refuses at `$HOME`; the only consequence of a cloned `.m1nd/` is that ingest reads the repo's own files — which any session does anyway. The committed-memory privacy stance lives in §7 and §20.
+
+---
+
+## 10. The composed north — doctrine + project, fail-open
+
+### 10.1 v1 shape — the hook-side two-call compose `[C-FIX 5; Axis-4 adoption]`
+
+The doctrine feed may not regress across cutover, and slice-1 value must not wait for an HTTP composition layer. So v1 composes **in the hook** (~10 lines of shell, inside the existing `timeout 4 … || exit 0`):
+
+1. **Project beat:** `--attach auto` → `north(task)` against the project owner (or medulla-only when no brain).
+2. **Doctrine beat:** `--attach medulla` → `seek` doctrine + boot-memory keys, **≤1 s hard timeout**.
+3. **Compose:** one calm ≤1200-char packet (today's hook budget), items tier-tagged, gaps carried.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant H as SessionStart hook — timeout 4, fail-open
+    participant B as bridge (--attach auto)
+    participant P as project owner (repo/.m1nd)
+    participant M as medulla (:1338)
+    H->>B: resolve cwd (walk-up)
+    alt owner live — registry hit
+        B->>P: north(task) — ≤2 s warm
+        P-->>B: anchors + project memory + fingerprint
+    else brain exists, no owner
+        B->>P: spawn detached (port 0) — return immediately
+        Note over B,P: never waits — beat degrades to warming
+    end
+    H->>M: doctrine beat — seek/boot_memory, ≤1 s HARD
+    alt medulla up
+        M-->>H: doctrine claims (tier: medulla)
+    else down or timeout
+        Note over H,M: gap: medulla_unreachable — labeled, never blocking
+    end
+    H->>H: compose ≤100 ms — tier-tagged packet, ONE fix per gap
+    H-->>H: exit 0 ALWAYS — worst case is today's baseline
+```
+
+### 10.2 V2 shape — server-side federated read (deferred whole `[KILL list]`)
+
+The end state (Q3): the project owner's `north` handler performs a read-only HTTP MCP call to the medulla and composes it as a **third feed** into the existing memory-beat merge (`server.rs:2949-3128`, which already composes boot-memory KV + L1GHT recall into one `memory: Vec` at `:3120`), reusing `attach_client.rs` machinery. Ships with: 5-min TTL cache per owner; expired-cache-while-down served **labeled** `stale: true, age_s: n` (staleness is worn, never hidden); and a **negative cache / circuit breaker (60 s)** so a down medulla degrades one beat, not every session's startup all day `[C-FIX 6]`. No graph merges ever: `federate`/`federate_auto` remain multi-repo *ingestion* tools inside one brain and are verb-gated OFF on the medulla.
+
+### 10.3 Latency budget — the hook's ≤4 s ceiling stands (`~/.claude/hooks/m1nd-north.sh`, `timeout 4`, fail-open)
+
+| Phase | Budget |
+|---|---|
+| Bridge resolve + attach (warm) | ≤ 300 ms |
+| Project `north` (warm) | ≤ 2 s |
+| Medulla doctrine beat | ≤ 1 s **hard timeout** |
+| Compose (shell) | ≤ 100 ms |
+| Slack | ≥ 600 ms |
+
+**Cold paths, stated honestly `[C-FIX 3]`:** the hook **spawns-and-returns, never waits.** Snapshot exists → one attach attempt inside the project beat's window; owner not ready in time → `warming` + doctrine-only. Full ingest needed → background spawn, `warming` + medulla-only. **The first session of a repo whose owner idle-exited gets rung 4: doctrine-only; anchors arrive on the second beat.** The "≤2.5 s warm from snapshot" figure is a budget until Slice 3 measures it.
+
+### 10.4 Degradation ladder (compose, don't couple — absent ≠ wrong)
+
+1. Both up → project anchors + project memory + medulla doctrine + honest gaps.
+2. Medulla down/timeout → project north + `gaps:[{kind: medulla_unreachable}]` (V2 adds the labeled stale cache).
+3. Project brain absent → medulla-only + `gaps:[{kind: project_brain_absent, fix: "m1nd init"}]` + `needs_ingest`.
+4. Project brain warming → medulla-only + `warming{pid}`.
+5. Both down → hook exits 0 silently (existing fail-open).
+
+Every memory item carries `tier: project|medulla` + the source brain's fingerprint, so binary drift stays visible **per brain** in one composed view.
+
+---
+
+## 11. Identity & provenance
+
+**`agent_id` convention:** `host:role`, lowercase, single colon. Hosts: `claude, codex, gemini, antigravity, human, ci`. Roles: `orchestrator, maker, reviewer, researcher, guardian, founder, battery`. Examples: `claude:orchestrator`, `codex:maker`, `human:founder`, `ci:battery`.
+
+**Transport (net-new, tiny):** `M1ND_AGENT_ID` env read at bridge start and injected into every forwarded call's meta; per-call explicit `agent_id` (already a free-form string in the verbs — no schema change) wins. `mcp-config` writes each host's default (`M1ND_AGENT_ID=codex:maker`, etc.).
+
+**Attribution:** `memorize`/`learn`/`mission_*` stamp `agent_id` + brain; promotion chains preserve `origin_brain → promoted_by` (§8). Cross-brand provenance becomes readable history: *"codex:maker learned this in cherry; claude:orchestrator promoted it."* Restated plainly: provenance is **audit**, not enforcement (§8, §21.1).
+
+**Delegation Packet (NEXTGEN §O.12) — dual-tier sourcing, mandatory fields:**
+
+- *From the project brain:* north anchors (file:line), the `impact` set for the touched surface, relevant claims (`seek`), a calibration snapshot (trust level + n — how much to trust predictions *here*), `needs_ingest`/drift flags.
+- *From the medulla:* the doctrine block (git identity rule, proof standard, model routing), founder preferences relevant to the task domain, promotion etiquette (makers propose, never promote).
+- *Footer:* `sources: {project: <repo>@<git-sha> + brain fingerprint, medulla: <n claims>, composed_ts}` — the subagent's grounding is auditable.
+
+Where a host has a SessionStart surface, subagents also receive the composed north automatically; where it doesn't, the packet text is the carrier.
+
+---
+
+## 12. Interop map — every existing surface
+
+| Surface | Today (verified) | Two-tier adaptation |
+|---|---|---|
+| **Claude hook** | `~/.claude/hooks/m1nd-north.sh` hardcodes `--attach http://127.0.0.1:1338` (line 10); `timeout 4`, fail-open | **hooks v2 (Slice 6):** the two-call compose (§10.1); `--attach auto` + `--attach medulla`; spawn-and-return; `timeout 4` + fail-open unchanged. |
+| **Codex** | `~/.codex/hooks.json` SessionStart = headroom only; `~/.codex/bin/m1nd-stdio-session.sh` spawns per-session owners under `~/.m1nd/runtimes/<hash>` | Add the composed-north call to SessionStart; **retire `m1nd-stdio-session.sh`** once Slice 2 lands (it was the proven seed; bridge spawn supersedes it — per-session runtimes collapse into per-repo brains). |
+| **Gemini / Antigravity** | No hook surface (honest gap) | mcp-config wiring + agent-pack `m1nd-first` rule = north-on-first-tool-call. Stated honestly: north-before-first-token only where hooks exist. |
+| **`mcp-config` / `hosts apply`** | Emits embedded `--stdio --no-gui` + `M1ND_WORKSPACE_ROOT` only (`npm/lib/cli.js:481-509`, `1043-1050`) | **The highest-leverage edit:** default emit = `--attach auto` + `M1ND_WORKSPACE_ROOT` + `M1ND_AGENT_ID`; `--project` also pins `M1ND_RUNTIME_DIR`; `--embedded` keeps today's form. Idempotent writer (`writeHostConfig:1062-1073`) unchanged. [KILLED: `hosts apply --remove` polish — not v1/v2 scope.] |
+| **`install-skills` / agent-pack** | Writes `<proj>/.m1nd/agent-pack/` (`cli.js:606-616`) | Same dir, coexists with the brain; stays gitignored; skill text updated (Slice 6) to teach composed north + promotion etiquette. |
+| **Rule files (CLAUDE.md/AGENTS.md)** | Host rule file written by install-skills | Gains the two-tier paragraph: project brain = repo truth; medulla = doctrine; memorize→project by default; promotion is orchestrator etiquette. |
+| **Battery** | Tracked battery precedent (`.gitignore:56-60`) | **Per-brain batteries:** `<repo>/.m1nd/battery/` committed (Slice 3 policy); cases accumulate per slice (§14). CI wiring (project battery in repo CI; medulla doctrine-battery on the doctor schedule) is **V2**. |
+| **Field telemetry** | `~/.m1nd/field-reports.jsonl`, global; 30 lines live | **Stays one global mailbox** (B3, argued §19). Reports gain a `"brain"` field → per-brain calibration ground truth. `[KILLED: auto-field-report-on-corruption — reporting stays a doctrine act by agents/humans, not silent machinery.]` |
+| **launchd** | `com.kle1nz.m1nd-serve` serves the mixed `:1338`; **no `WorkingDirectory` → cwd=`/` → persist failures (live, root-caused)** | Slice 0 fix (plist key + absolute `--graph` + code fix); re-scoped medulla-only at migration; project brains are never launchd-managed. |
+| **Workspace-binding guard** | `session.rs:747-836`, `:1296-1342`; wired into seek/handshake/recovery | **Unchanged.** Role shifts to defense-in-depth backstop (§1). |
+| **`federate` / `federate_auto`** | Merge repos into ONE owner's graph (`layer_handlers.rs:6050` id-prefixing) | Unchanged for real multi-repo analysis *within a project brain*; refused on the medulla; docs state they are NOT the cross-tier mechanism — and they ARE the §2 escape hatch for the cross-project-code-query non-goal. |
+| **`persist` / snapshot boot** | Exists; the medulla never persisted (bug, now root-caused) | Project brains persist at idle-exit/SIGTERM/post-ingest; medulla persists memory state only. |
+| **HUMAN-LAYER-PRD S5** | "Project Brain" = read-only memory UI | Renamed **"Project Brain Panel"** — one doc line, scheduled in Slice 6 (§4.3). |
+| **Docs/PATHOS** | Founder's doc gate | Each slice ends at the documentation gate; this PRD itself lands with the §O.13 pointer in the same PR. |
+
+---
+
+## 13. Honesty invariants (TT-INV — the floor; every slice must hold all of them)
+
+1. **TT-INV-1 · Fail-open is sacred.** The SessionStart ceiling (`timeout 4 … || exit 0`) survives every failure in §17; the worst case is today's baseline — a session with no m1nd context, never a blocked session.
+2. **TT-INV-2 · Absent ≠ wrong.** Every degradation is a labeled gap (`project_brain_absent`, `medulla_unreachable`, `warming{pid}`, `needs_ingest`) — composed, never silently absorbed.
+3. **TT-INV-3 · Staleness is worn, never hidden.** Any cached block served is labeled `stale: true, age_s`; every memory item carries `tier` + source-brain fingerprint; binary drift surfaces per brain in every composed north.
+4. **TT-INV-4 · ONE fix per degraded envelope** (B9), routed through the existing `recovery_playbook`. A menu is a failure of nerve.
+5. **TT-INV-5 · Budgets are gates, not claims** `[C-FIX 3]`. No "warm ≤2.5 s" prose anywhere until the Slice 3 gate measures it; same for first-ingest wall time and graph-loaded RSS.
+6. **TT-INV-6 · The morning is cold when it is cold.** First touch of a drained repo = doctrine-only + `warming`, stated in the packet itself.
+7. **TT-INV-7 · Promotion gating is etiquette-by-provenance, not a security boundary** `[C-FIX 8]`. `agent_id` is self-declared; violations are auditable, not preventable.
+8. **TT-INV-8 · No silent births, no executable manifests.** `m1nd init` is the only way a brain is born; `brain.json` is inert data; spawn execs `current_exe()` only; `expected_sha` can only refuse.
+9. **TT-INV-9 · Memory is never truly lost while git lives — and eject never purges history.** A leaked secret is a history-scrub + rotation job, never an eject (§20); the write-path scan (§7.1) is a floor, not a proof.
+10. **TT-INV-10 · A brain without a green battery is a hypothesis.** Applies to features too: the swarm roster stays a hypothesis until it has a slice and a gate.
+11. **TT-INV-11 · Scale and coverage claims are re-measured at gate time.** The "~54k entries" → 143-files correction (§9.2) is the standing precedent; "~90% composes"-style unfalsifiable percentages are banned from this PRD's claims `[C-FIX 8]`.
+
+---
+
+## 14. PROOF-GROWN plan — V1 slices (each: scope · RED→GREEN gate · battery additions)
+
+Every slice independently shippable; **global rollback** at any point = re-point host configs to `--attach http://127.0.0.1:1338` (one line per host, ≤5 min). Nothing is claimed without its gate green. Scope verdict adopted from the review (Axis 6): **the shippable V1 spine is deliberately ~⅓ of the seats' original plan**; everything else is V2 (§15).
+
+### Slice 0 — Medulla persistence fix (pre-cutover blocker; Q5 root-caused)
+
+- **Scope:** plist `WorkingDirectory` + absolute `--graph`; durable code fix — every persist target (snapshot, ingest-roots, the full `delete_instance_state` file set) resolves against `runtime_root`, never cwd; net-new tiny `persistence_degraded: true` flag in handshake/north when a persist write fails (keep serving from RAM — never stop).
+- **RED (live now):** `serve-claude.err.log` logs `ingest roots persist failed: Read-only file system (os error 30)`; every restart logs `No graph snapshot found, starting fresh`; the live lease records `workspace_root:"/"`.
+- **GREEN:** persist → restart → "loaded snapshot" in the log; zero os-30 lines; new lease `workspace_root` ≠ `"/"`; a second restart is clean.
+- **Battery:** persist→warm-reboot cycle case; regression case: owner with read-only cwd + writable `runtime_root` persists everything (the live failure, mechanized).
+
+### Slice 1 — Ephemeral ports
+
+- **Scope:** `--port 0`; owner publishes the real bound port via the existing `set_running_endpoint` write (`instance_registry.rs:645-650`); medulla alone keeps `:1338`.
+- **RED:** two owners on the default port → second fails bind (failing integration test).
+- **GREEN:** two live owners, registry entries publish distinct real ports, `discover_serve_owner_base_url` returns each correctly.
+- **Battery:** coexistence case beside the existing tests at `instance_registry.rs:725`/`:881`.
+
+### Slice 2 — Bridge walk-up + spawn-on-miss + lifecycle gates `[C-FIX 3, 4, 9]`
+
+- **Scope:** walk-up resolution (§9.1, `$HOME` excluded); detached session-independent spawn; bounded retry; race via the existing lease (zero new locking); `--idle-exit-secs` (persist → release → exit 0; no wake special case); spawn-and-return semantics; machine-wide background-ingest cap (one); `m1nd brain stop`; `doctor`/`list_instances` fleet single-pane table (§2 adopted posture 3).
+- **RED:** `--attach auto` from a repo with `brain.json` but no live owner errors today (captured as a failing test); a spawned owner dies with its spawning session; idle-exit and SIGTERM-persist are untested.
+- **GREEN:** same call spawns, attaches, `session_handshake.binding.workspace_root == <repo>`. **Race gate:** two bridges spawn simultaneously ×20 loops → exactly one owner PID per `runtime_root`, both bridges attach OK. **Orphan gate:** bridge exits → owner PID alive → a second bridge attaches the same PID. **Idle gate:** `--idle-exit-secs 2` → persists on the idle clock AND on SIGTERM; lease released; next spawn boots from the snapshot. **Walk-up gate:** a dir directly under `$HOME` with no brain never resolves `$HOME`. **Fleet gate:** `doctor` renders every live owner (path, kind, port, pid, age) in one table.
+- **Battery:** race ×20 case · orphan case · idle/SIGTERM-persist case · `$HOME`-exclusion case · fleet-table case.
+
+### Slice 3 — `m1nd init` + selective gitignore + the clone gate (the money demo, formalized)
+
+- **Scope:** `init` writes `brain.json` + the selective `.m1nd/.gitignore` (§5.1); foreground ingest with progress; snapshot persist; **loud commit warning + `--private`** `[C-FIX 1]`; **refuses at `$HOME`** `[C-FIX 9]`; the m1nd repo's blanket `.gitignore:46` replaced by the selective block; `battery/` committed-dir policy.
+- **RED:** `git check-ignore` proves today's blanket `.m1nd/` swallows `agent-memory/x.light.md`; a fresh clone's first north carries no memory.
+- **GREEN:** check-ignore battery — `.light.md`/`battery/`/`brain.json`/`.gitignore` **tracked**; snapshot/embeddings/calibration/`.locks/`/`.history/` **ignored**; same battery green in the m1nd repo. **Clone gate (formal):** fresh clone → first north returns the committed claims while `node_count == 0`, wearing `warming` — memory-before-code, mechanically proven. **Measurement gate:** record first-ingest wall time and graph-loaded RSS here (fills the two honest unknowns; RSS budget ≤500 MB).
+- **Battery:** check-ignore battery · clone-gate script · `$HOME`-refusal case · `--private` check-ignore variant.
+
+### Slice 4 — Memory hygiene: secret-scan + conflict-marker guard `[C-FIX 1, 2 — must land before cutover]`
+
+- **Scope:** §7 whole — the scan inside `memorize` (and the future promote path), typed refusal; the marker guard at ingest and recall; the merge policy documented in the agent-pack/rule text.
+- **RED:** `memorize` a `postgres://user:pass@host/db` claim → lands in a committed `.light.md` (the proven hole: PostToolUse matcher `Edit|Write|MultiEdit` never sees memorize; zero scanning in the Rust write path); a `.light.md` containing `<<<<<<<` is ingested and served in north.
+- **GREEN:** memorize-with-secret → typed refusal naming the pattern class, nothing written; marker-bearing claim refused at ingest / flagged at recall and absent from north; clean claims unaffected.
+- **Battery:** secret corpus (credentialed URLs, cloud keys, tokens, private-key headers) refused · marker corpus refused/flagged · false-positive canary (prose mentioning the word "password" passes).
+
+### Slice 5 — `brain_kind` + medulla verb gate + registry unification
+
+- **Scope:** the optional `brain_kind` registry field (serde default `"project"`); the medulla's `brain.json` set `"medulla"`; typed refusal of `ingest`/`federate`/`federate_auto`/`auto_ingest_*` naming the project brain; discovery-by-kind + bridge keyword `--attach medulla` (registry-resolved, literal `:1338` fallback); medulla launchd unit re-pointed at the unified `~/.m1nd/registry`. `[KILLED: the directory move.]`
+- **RED:** the medulla accepts `ingest` today (assert it — the structural violation is possible); the medulla is discoverable only via a hardcoded address.
+- **GREEN:** typed refusal with the redirect; registry entry carries `brain_kind`; `--attach medulla` resolves via the unified registry; legacy entries still parse.
+- **Battery:** the medulla doctrine-battery seed — `north` returns doctrine · `ingest` refused typed · legacy-entry parse case.
+
+### Slice 6 — Hooks v2 + config cutover, doctrine continuity gated `[C-FIX 3, 5]`
+
+- **Scope:** Claude hook v2 = spawn-and-return + the two-call compose (§10.1); Codex SessionStart gains the same compose; **retire `~/.codex/bin/m1nd-stdio-session.sh`**; `mcp-config`/`hosts apply` default emit `--attach auto` + `M1ND_WORKSPACE_ROOT` + `M1ND_AGENT_ID` (`--project` pins `M1ND_RUNTIME_DIR`; `--embedded` legacy); agent-pack/rule-file two-tier text; the HUMAN-LAYER S5 → "Project Brain Panel" doc line (§4.3).
+- **RED:** `grep 1338 ~/.claude/hooks/m1nd-north.sh` hits as the only resolution path; Codex SessionStart lacks north; `hosts status` shows embedded entries; the live cwd failure (`~/m1nd-l00p` handshake = `wrong_workspace_binding`).
+- **GREEN — the grounding's live failure, inverted:** parallel sessions in `~/m1nd` and `~/m1nd-l00p` return each repo's own anchors / medulla-only + `project_brain_absent` respectively, and **no `wrong_workspace_binding`**. **Doctrine-continuity gate:** a post-cutover session in a brainless repo still receives the doctrine block (the channel the old hook provided may not regress). `hosts status` shows `--attach auto` ×4; the hook's medulla resolution is registry-by-kind with the literal as fallback only.
+- **Battery:** the cwd-matrix probe script (four hosts × two repos) · doctrine-continuity case · a bounce-under-live-session case for the #225 re-init claim (see risk §21.14).
+
+### Slice 7 — Migration (the medulla split), mechanized equivalence gate `[C-FIX 7]`
+
+- **Scope:** execute the §16 runbook M0→M6.
+- **RED (live-proven):** `session_handshake` for `~/m1nd-l00p` against `:1338` = `wrong_workspace_binding`; the medulla holds m1nd-code claims and the m1nd ingest root.
+- **GREEN — the equivalence gate, mechanized or it is theater:** the **frozen 10-probe set** (seek/why/impact about m1nd code + doctrine probes), with **defined compared fields** (claim slugs found; anchor file paths), and the **baseline JSON committed BEFORE migration starts** — ⊇ becomes set inclusion checked by script, not vibes. Plus: claim-count conservation (`count(baseline) == count(project-active) + count(medulla-active)`); the l00p repro clean; the four-host matrix green.
+- **Battery:** the frozen probe set + comparison script land in the m1nd project brain's `battery/`.
+
+### Slice 8 — Calibration re-arm + soak + reclaim
+
+- **Scope:** archive the mixed calibration row (n=9196, measured over a mixed graph — invalid for either tier); each brain re-arms `calibrate_predict` from n=0; 7-day soak (doctor + field reports daily); then B10 reclaim (`_expired/` 145 MB, 20 hex session runtimes, binary `.bak`s keep newest, `registry-claude/`) only after verifying no live lease references each path; cold copy retained ≥30 days on the external Cofre volume.
+- **RED:** any brain wearing the inherited mixed τ.
+- **GREEN:** per-brain trust rows independent, n climbing from 0; post-reclaim doctor clean and the attach matrix still green.
+- **Battery:** calibration-independence probe · doctor-warns-at->5-owners case.
+
+---
+
+## 15. V2 backlog (proof-gated — each needs its own RED→GREEN before "done") & the kill list
+
+**V2 backlog:**
+
+1. **Server-side federated north** (§10.2) — with the negative cache/circuit breaker `[C-FIX 6]`, TTL + labeled staleness, chaos gates (medulla killed → project-only within the 1 s timeout; brainless → medulla-only), and a latency gate (warm composed north p95 ≤ 2 s over a 50-call loop).
+2. **`memorize --promote` mechanization** (§8) — provenance stamped automatically; maker refusal typed; `learn wrong` kill-path gated.
+3. **Per-brain batteries in CI** — the m1nd repo's CI runs its project brain's battery; the medulla doctrine-battery runs on the doctor schedule.
+4. **Removal ladder `brain clean` / `brain eject`** (§20) — v1 ships `stop` only.
+5. **`doctor --bounce [<repo>|--all]`** — fleet convergence with sessions riding #225; gate: bounce-all under a live session leaves N fresh entries, session uninterrupted.
+6. **Swarm roster** (B8) — an honest HYPOTHESIS: `swarm:[{agent_id, last_call_age_s, mission?}]` composed from call provenance + open `mission_*` state; visibility, never mutexes. Not real until it has a slice and a gate (TT-INV-10).
+
+**KILLED (for the record, with reasons):** B4's wake-persist-exit special case (plain idle-exit suffices; the special case guaranteed cold mornings) · the S6 `runtimes/claude → ~/.m1nd/medulla` move + compat symlink (zero user value, real breakage risk; the registry re-point achieves Q6) · Slice-5 cache/TTL/stale machinery in v1 (deferred whole with the slice) · promotion mechanization in v1 (manual, documented) · `doctor --bounce` in v1 · `brain clean`/`eject` in v1 · auto-field-report-on-corruption (telemetry stays a doctrine act) · `hosts apply --remove` polish · the "~90% composes" figure (unfalsifiable) · "structurally impossible" language (corrected to "impossible via the default path" everywhere).
+
+---
+
+## 16. Migration runbook — reversible, proof at each step
+
+**Pre-state, verified this hour:** medulla `:1338` on binary f737931 (swapped 16:44 today); RSS 170 MB holding **memory only** (the code graph was destroyed by the 16:44 restart — there is *less* to migrate than assumed); 8 `.light.md` claims *(measured; growing — triage from live enumeration)*; `calibration_state.json` n=9196 (mixed, invalid to carry); live lease in `registry-claude/` carrying the `workspace_root:"/"` evidence; `registry/leases/` holds 1 json + 7 leaked `.tmp`; 21 runtime dirs incl. 145 MB `_expired/`; the hook hardcodes `:1338`.
+
+**Zero-data-loss doctrine (binding for every step):** nothing is deleted until M8, after soak, and then only artifacts that are (a) inside the cold copy AND (b) rebuildable. Claims are *never* deleted anywhere — supersession only, `.history/` preserved. Deliberately not carried forward: the mixed calibration row and the embedding cache — both archived; the live system already proved the cache is volatile (it self-destructed today).
+
+| Step | ACTION | PROVE (gate to proceed) | ROLLBACK |
+|---|---|---|---|
+| **M0 — Freeze + cold copy + frozen baseline** | Capture the baseline against `:1338`: the **frozen 10-probe set with defined extraction fields, committed as JSON** `[C-FIX 7]` + `boot_memory` list + `ls agent-memory/` + a copy of the calibration file → `~/.m1nd/migration/<date>/baseline/`. Then `launchctl bootout` the serve unit and `cp -a ~/.m1nd ~/.m1nd.pre-two-tier.<date>` (~1.0 GB *(measured)*); plist + hook copied alongside. | Baseline JSON readable + committed; `diff -rq` spot-check on the copy. | Bootstrap the old plist — nothing has changed yet. |
+| **M1 — Medulla persistence fix** (= Slice 0 applied live) | Plist gains `WorkingDirectory` + absolute `--graph`; binary carries the runtime-root-resolved persist fix. | Zero `os error 30` after a `persist`; kill + restart logs "loaded snapshot", not "starting fresh"; the new lease's `workspace_root` ≠ `"/"`. | Restore the M0 plist. |
+| **M2 — Selective gitignore in `~/m1nd`** | Replace blanket `.gitignore:46` with the §5.1 block. | `git check-ignore` battery green. | `git revert`. |
+| **M3 — Birth of the m1nd project brain** | `cd ~/m1nd && m1nd init` → fresh ingest (~6.2k nodes expected), fresh embeddings (the 82 KB corpse is not carried), snapshot persisted. *This re-creates what the 16:44 restart destroyed — the first concrete repair the new architecture performs.* | Code-probe half of the baseline answered ⊇ by the project brain **via the committed comparison script**; second spawn warm within the measured budget; registry entry `brain_kind=project`; **record first-ingest wall time + graph-loaded RSS** (TT-INV-5). | `m1nd brain stop ~/m1nd` + remove `~/m1nd/.m1nd/` working copy (manual in v1 — eject is V2); nothing else touched. |
+| **M4 — Memory triage** (the only hand-curated judgment) | Enumerate ALL claims at cutover (8 today, growing). Write the triage table (claim → tier → new slug), then: repo-specific → `memorize` into the project brain with provenance, then supersede on the medulla with a `moved_to:` pointer. Doctrine stays. | `count(baseline) == count(project-active) + count(medulla-active)`; every claim `seek`-able at exactly one live tier; `.history/` holds every superseded original. | Supersession is non-destructive — reactivate from `.history/` (or the cold copy). |
+| **M5 — Medulla purity** | Medulla `brain.json` → `brain_kind:"medulla"`; drop `/Users/kle1nz/m1nd` from ingest roots (persistable now, thanks to M1); restart; verb gate live. | `ingest` on the medulla → typed refusal naming the project brain; doctrine half of the baseline still answered identically; RSS at the ~170 MB memory-only baseline *(already measured — the pure-medulla weight is known)*. | Remove the kind flag; re-ingest — the graph is rebuildable by definition. |
+| **M6 — Registry unification + host cutover** (Slices 5+6 applied live) | Launchd unit gains `--registry-dir ~/.m1nd/registry`; sweep the 7 leaked `.tmp` leases; hooks v2 + `hosts apply --host all`; retire the Codex launcher script. **No directory move** `[KILLED: S6]`. | Discovery via the unified registry by kind; the l00p inversion gate (Slice 7 RED→GREEN); doctrine-continuity gate; `hosts status` ×4; `grep 1338` in the hook hits only the fallback line. | One line per host back to the literal `:1338` (≤5 min); old `--registry-dir` restored. |
+| **M7 — Calibration re-arm** | Archive the mixed row to `~/.m1nd/migration/<date>/archive/calibration_state.mixed.json`; each brain runs `calibrate_predict` from n=0. | Per-brain trust rows independent, n climbing; no brain wears the inherited τ. | Restore nothing — re-arming is forward-only by design; the archive preserves the row for forensics. |
+| **M8 — Soak 7 days → reclaim** (B10) | Watch field-reports + `m1nd doctor` daily. Then, verifying no live lease references each path: rm `_expired/` (145 MB), the 20 hex session dirs, `bin/*.bak` except newest (~290 MB), `registry-claude/`. Cold copy → the external Cofre volume, kept ≥30 days. | Doctor clean daily through soak; post-reclaim attach matrix green. | The cold copy IS the rollback for anything reclaimed in error. |
+
+**Total rollback at ANY step, ≤5 minutes:** bootout new units → `mv ~/.m1nd ~/.m1nd.two-tier-failed && cp -a ~/.m1nd.pre-two-tier.<date> ~/.m1nd` → restore plist + hook from M0 → bootstrap → revert the four host-config lines. Back to today's world exactly.
+
+```mermaid
+stateDiagram-v2
+    [*] --> M0
+    M0: M0 freeze + cold copy + frozen baseline JSON
+    M1: M1 medulla persistence fix (Slice 0 live)
+    M2: M2 selective gitignore in ~/m1nd
+    M3: M3 m1nd init — project brain born (fresh ingest)
+    M4: M4 memory triage (count-conserving)
+    M5: M5 medulla purity (brain_kind + verb gate + root dropped)
+    M6: M6 registry unification + hooks v2 host cutover
+    M7: M7 calibration re-arm (n=0 per brain)
+    SOAK: M8 soak — 7 days, doctor + field reports daily
+    RECLAIMED: reclaim debris (145 MB _expired, baks, registry-claude)
+    ROLLBACK: pre-two-tier restored (≤5 min from any step)
+    M0 --> M1
+    M1 --> M2
+    M2 --> M3
+    M3 --> M4
+    M4 --> M5
+    M5 --> M6
+    M6 --> M7
+    M7 --> SOAK
+    SOAK --> RECLAIMED
+    M1 --> ROLLBACK
+    M3 --> ROLLBACK
+    M5 --> ROLLBACK
+    M6 --> ROLLBACK
+    RECLAIMED --> [*]
+    ROLLBACK --> [*]
+```
+
+---
+
+## 17. Failure-mode UX — the honest degradation grammar
+
+**Four laws.** (1) Fail-open is sacred (TT-INV-1). (2) ONE next action per degraded envelope (TT-INV-4). (3) Absent ≠ wrong (TT-INV-2). (4) **Self-heal first, prescribe second, never auto-kill** — exactly one failure asks a human for anything.
+
+| # | Failure | Detection | Automatic behavior | Founder sees | THE one action |
+|---|---|---|---|---|---|
+| 1 | Project owner down (idle-exit/crash) | discovery miss; mid-session `-32001` | respawn warm; live bridges ride #225 re-init (see risk §21.14) | nothing, or one `warming` beat | none |
+| 2 | Owner **wedged** (alive, lease held, heartbeat stale) | spawn loses lease AND discovery filters stale; retry window expires | degrade to medulla + `gaps:[project_owner_wedged{pid}]` | `trust=degraded · project owner wedged (pid N)` | `m1nd doctor --repo .` → prints the verified `kill -TERM N`; **founder approves** (B7) |
+| 3 | Spawn race (two sessions, one brain) | lease arbitration | loser exits 0; bridge re-discovers, attaches winner | nothing — invisible by design | none (Slice 2 gate proves ×20) |
+| 4 | Registry stale entry | `owner_live && !stale` filter; boot GC | filtered; post-wake heartbeat refreshes ≤5 s | nothing | none |
+| 5 | **Medulla unreachable** | doctrine beat 1 s hard timeout | project north + `gaps:[medulla_unreachable]`; v1 has no doctrine cache (V2 adds the labeled stale cache + 60 s negative cache) | `doctrine: unavailable this beat` | `launchctl kickstart gui/$UID/com.kle1nz.m1nd-serve` (doctor prints it verbatim) |
+| 6 | Port collision | project tier: **deleted by design** (`--port 0`); medulla `:1338` squatted → launchd flaps | collapses into #5 | as #5 | doctor names the squatter PID + the kickstart |
+| 7 | Snapshot corrupt | load error at spawn | rename to `graph_snapshot.corrupt.<ts>.json` (evidence kept), boot memory-first, auto-warm (B1); `snapshot_corrupt_recovered` worn in north; doctor lists corpses. `[KILLED: the auto-filed field report — reporting stays a doctrine act.]` | one `warming` north | none — self-heals; the corpse feeds triage |
+| 8 | Binary drift | `expected_sha` vs `current_exe` (`main.rs:293-322`) | advisory (default): spawn + drift worn in every fingerprint (live today: `binary_lags_repo:true`). `strict_binary:true`: refuse to spawn, medulla-only + `gaps:[binary_drift_blocked]` | drift line in north | doctor prints the exact reinstall / deliberate re-pin |
+| 9 | **Persistence degraded** (the live os-30 class) | persist failure at write time | keep serving from RAM — never stop; `persistence_degraded:true` in every handshake/north (Slice 0) | `⚠ not persisting — warm boots off until fixed` | doctor prints the failing path + permission check |
+| 10 | Both tiers down | connect errors everywhere | hook exits 0 silently; in-session bridge returns ONE typed error through `recovery_playbook` | a bare session | `m1nd doctor` |
+
+The founder's view of any failure is always the same shape: **one calm line in the packet, one command to run.** The agent's view is the full typed envelope. Nobody ever waits.
+
+---
+
+## 18. Upgrades & resource discipline
+
+### 18.1 Upgrade choreography (B5, amended)
+
+Install replaces `~/.m1nd/bin/m1nd-mcp` keeping ONE `.bak` (today's 6 baks/~350 MB *(measured)* get reclaimed at M8; doctor flags the excess).
+
+1. **Medulla first:** `launchctl kickstart -k` — restarts on the new binary; attached sessions are *supposed* to ride #225's transparent re-init (one `-32001` re-handshake) — **this claim now has a battery case before cutover leans on it** (risk §21.14).
+2. **Project brains converge lazily:** owners are ephemeral — idle-exit retires the old binary; the next spawn *is* the upgrade. Zero fleet orchestration (the Nx model). Immediate convergence in v1: `m1nd brain stop <repo>` + next call. (`doctor --bounce` is V2.)
+3. **Skew, worn honestly:** bridge↔owner skew surfaces in the binding (`owner_version_skew`), tolerated while the MCP handshake succeeds. Owner↔medulla skew rides the stable `seek`/`boot_memory` verb contract; every composed north carries both tiers' fingerprints. **Snapshots are caches, never contracts:** version mismatch at load takes the corruption branch — re-ingest, never a format migration, never a crash.
+4. **Pins:** advisory by default; `strict_binary:true` for determinism-demanding repos (CI battery repos) — refuse-to-spawn is fail-closed and never redirects. A heterogeneous fleet (repo A pinned old, repo B newest) is a *supported state*: that is precisely what per-brain runtimes buy.
+
+### 18.2 Resource discipline — measured, with the honest unknowns named
+
+| Thing | Value |
+|---|---|
+| Medulla RSS (memory-only, ~124 nodes) | **170 MB** *(measured)* — the pure-medulla steady state post-M5, known in advance |
+| Attach bridge RSS | **~6 MB** each *(measured — three live)* — sessions are effectively free |
+| Embedding cache at 6.2k nodes | **6.2 MB** *(measured earlier today, pre-wipe)* |
+| Binary on disk | 59 MB (+ ~290 MB reclaimable `.bak`s) *(measured)* |
+| `~/.m1nd` total / runtimes / `_expired` | 1.0 GB / 180 MB / **145 MB reclaimable** *(measured)* |
+| Graph-loaded owner RSS (6.2k nodes) | **honest unknown** — destroyed before capture by today's restart; **measured at the Slice 3 gate**, budget ≤500 MB (TT-INV-5) |
+| First-ingest wall time (6k-node repo) | **honest unknown** — embedding-dominated; **measured at the Slice 3 gate** |
+
+**Policy:** idle-exit 1800 s is the governor; expected steady state 1–3 resident owners + the medulla (an orchestra day peaks ~4–5; doctor warns >5). **Sleep, stated honestly (B4 amended):** owners that survive sleep give a warm morning (first touch = registry hit); owners that accumulated 30 awake-idle minutes exited and give a doctrine-only first beat. launchd is for the medulla only; project owners are demand-driven, always. **Worktrees:** each worktree carries the committed `.m1nd/` → its own owner over its own branch's graph (runtime files are per-worktree because gitignored). Never share a runtime across branches — that re-creates the mixed-graph disease.
+
+---
+
+## 19. Multi-agent choreography
+
+**Scene:** one repo, simultaneously — `claude:orchestrator`, `codex:maker`, `antigravity:reviewer`, plus subagents. All bridges walk up to the same `brain.json` → same `runtime_root` → **the same owner process**. One graph, one memory, one calibration. Writes serialize inside the single owner at call granularity — the ReadWrite lease means exactly one writer process *exists*, so cross-process write races are impossible by construction, not by discipline.
+
+- **What each hand sees:** the identical composed north. What differs is provenance: every call stamped by `M1ND_AGENT_ID`. A `memorize` by Codex is `seek`-able by Claude on the next call — same process RAM, zero sync machinery.
+- **Subagents:** inherit the dual-tier Delegation Packet (§11) and attach the same brain from the same cwd; their `memorize` lands in the project tier under their own agent_id; promotion is proposed, never executed, by makers (§8).
+- **Coordination visibility:** the swarm roster is a V2 hypothesis (§15) — v1 ships provenance-stamped history and the fleet single-pane, nothing more, because nothing more has a gate.
+- **Field telemetry — DECIDED (B3): the global mailbox stays.** One file, `~/.m1nd/field-reports.jsonl`. Argued: (a) reports are about m1nd-the-product, not the project — their one consumer is the improvement loop, which sweeps ONE file, and the founder's doctrine hardcodes that path into every agent's standing instructions (30 live reports prove the loop works *(measured)*); (b) reports must *outlive* project brains — a bug witnessed in one repo must survive that repo's eject, because it is calibration ground truth about m1nd; (c) per-project mailboxes buy a collector, a doctrine rewrite, and no new consumer; (d) O_APPEND JSONL is race-safe at this volume. **Adaptation:** reports gain `"brain": "project:<name>"|"medulla"` — per-brain ground truth becomes a filter for free. Schema stays free-form; nothing blocks on the new field.
+
+---
+
+## 20. Eject & uninstall — the afterlife
+
+**v1 ships `m1nd brain stop` only** (§5.3). The full ladder is V2, specified here so it is built once:
+
+1. **`stop`** — SIGTERM (persists on the way down), lease released. Nothing deleted; next call resurrects warm.
+2. **`clean`** (V2) — stop + delete the **metabolism only** (the gitignored set: snapshot, embeddings, calibration, caches, `.locks/`, `.history/`). The committed brain — `brain.json`, `agent-memory/`, `battery/`, `.gitignore` — is untouched. The local factory reset; the standing prescription for "the brain is acting weird".
+3. **`eject`** (V2) — stop + clean + delete the committed brain files + drop registry entries + remove `--project` runtime pins from host configs. **Guard:** refuses on uncommitted `agent-memory/` changes unless `--force`, and prints the git truth before acting.
+
+**What git carries away:** eject removes the working copy only. Every clone and every commit still holds the brain — `git checkout <sha> -- .m1nd/` resurrects its mind whole, and the runtime rebuilds around it. **Memory is never truly lost while git lives.** Stated with equal honesty (TT-INV-9): eject does **not** purge history — a secret leaked into a claim is a git-history-scrub job plus rotation, never an eject; the §7.1 write-path scan exists to make that event rare, not impossible.
+
+**The privacy boundary coincides with the tier boundary** — said once, plainly: founder doctrine and preferences live only in the medulla and reach project sessions by **read**, composed in RAM, never persisted into `<repo>/.m1nd/`. Pushing a repo can expose project claims only — never the founder's cross-project mind. Promotion is the single deliberate crossing, upward only, provenance-stamped.
+
+**Full machine uninstall:** bootout + rm the plist; archive the medulla's mind (`cp -a` its `agent-memory/` — plain markdown, no export tool needed); remove host entries + hooks by hand (an `hosts apply --remove` convenience was `[KILLED]` as polish); `npm rm -g` the CLI; `rm -rf ~/.m1nd`. Repos keep their `.m1nd/` — inert data (§9.4), harmless without the binary, alive again the day m1nd returns.
+
+---
+
+## 21. Open risks (named, not waved away)
+
+1. **`agent_id` is self-declared.** Promotion gating, provenance, and any future roster are convention + audit, not enforcement (TT-INV-7). A misbehaving agent can misattribute; provenance makes it visible after the fact only.
+2. **The secret-scan is pattern-based → false negatives exist.** Committed memory in **public** repos remains a human policy call: the init warning and `--private` are the layers above the floor; residual risk stays open until real-world soak.
+3. **Zombie claims across machines.** `.history/` doesn't travel, so supersession forks silently; a merge can resurrect a superseded claim (§7.3). Mitigated (marker guard, `learn wrong` on sight), not solved — cross-machine supersession sync is future design work.
+4. **Medulla-down latency burn (v1):** every session start pays the 1 s doctrine timeout while the medulla is down — bounded per-session, not per-call; the V2 negative cache removes it. Accepted for v1.
+5. **Morning cold quality:** the first beat of a drained repo is doctrine-only; if the Slice 3 snapshot-boot measurement lands worse than the ≤2.5 s budget, the warm story (and this PRD's prose) must be re-cut to the measured number — TT-INV-5 makes that mandatory, not optional.
+6. **First-ingest wall time is unknown** (embedding-dominated). Foreground `init` on a large repo may be minutes; the progress display is the only mitigation shipped in v1.
+7. **Graph-loaded RSS is unknown** (budget ≤500 MB, measured at Slice 3). A many-worktree orchestra day could stress RAM; idle-exit + the >5-owner doctor warning are the governors; unproven at scale.
+8. **`strict_binary` pin churn:** strict repos demand a deliberate re-pin after every upgrade — accepted friction, fail-closed by design.
+9. **Cross-project code query is forfeited** (§2, adopted posture 4). The throwaway-federate-brain escape hatch is documented; if the need becomes chronic, that is a v3 design question, not a medulla exception.
+10. **Single unified registry under more writers:** existing lease/GC machinery is assumed sufficient; 7 leaked `.tmp` leases were already observed live *(measured)* and are swept at M6 — watch during soak.
+11. **Hosts without SessionStart** (Gemini/Antigravity): north-on-first-tool-call only; north-before-first-token stays an honest gap on those hosts.
+12. **The medulla claim set grows daily** (8 at write time). M4 triage must enumerate at cutover — this document's inventory is already stale by design.
+13. **Nested-brain edge cases:** nearest-wins is the rule; symlinked/worktree layouts can still surprise — the binding guard backstop and the `--project` pin are the escape valves.
+14. **The #225 transparent-re-init claim needs its own gate.** During this PRD's own writing session, two `north` calls against the live `:1338` returned `-32001 Unknown or expired Mcp-Session-Id` with **no transparent recovery at the tool surface** (the session's MCP handle predated today's 16:44 medulla restart; retry did not recover; field-reported — mailbox line 30). Slices 6/V2-5 carry a bounce-under-live-session battery case; until it is green, "sessions ride #225" is a budgeted claim, not a fact (TT-INV-5 applied to a resilience claim).
+
+---
+
+## Appendix A — verified contract index
+
+All code anchors verified at `origin/main` @ `f737931` (repo HEAD at landing: `98b745a`, docs-only delta). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**
+
+| Contract | Where |
+|---|---|
+| Registry entry schema / lease acquire / state-file enumeration / boot GC / endpoint readback / discovery / coexistence tests | `m1nd-mcp/src/instance_registry.rs:19-39 · 134-220 · 348-362 · 391-426 · 645-650 · 673-713 · 725, 881` |
+| Strict version enforcement / serve boot | `m1nd-mcp/src/main.rs:56-90 · 275-340 · 293-322` |
+| Workspace-root env candidates / binding guard / nested guard / state loads (embeddings, calibration) | `m1nd-mcp/src/session.rs:450 · 475-503 · 589 · 747-836 · 1296-1342 · 1379-1500 · 1409-1413 · 1498` |
+| Attach URL override / bridge CLI | `m1nd-mcp/src/cli.rs:27-33 · 88-99` |
+| HTTP attach client (reused for doctrine beat / V2 federated read / V2 promote) | `m1nd-mcp/src/attach_client.rs` |
+| North memory-beat merge seam (V2 third feed lands here) | `m1nd-mcp/src/server.rs:2949-3128` (merge vec at `:3120`) |
+| `federate` / `federate_auto` (id-prefixing; the §2 escape hatch) | `m1nd-mcp/src/layer_handlers.rs:5972+ · 6050` / `audit_handlers.rs:2088+` |
+| L1GHT ingest walker (the §7.2 guard site) | `m1nd-mcp/src/tools.rs:374-408` |
+| npm CLI: init / mcp-config emit / install-skills / host config writer | `npm/lib/cli.js:26-31 · 481-509 · 606-616 · 649-668 · 1043-1073` |
+| Gitignore precedents (root snapshot / embeddings / blanket `.m1nd/` / selective memory / battery) | `.gitignore:23 · 28-31 · 46 · 48-54 · 56-60` |
+| S5 naming (→ "Project Brain Panel") | `docs/HUMAN-LAYER-PRD.md` §4 (S5 row) |
+| Owner-restart re-init | PR #225 (`c797714`) — see risk §21.14 |
+| Live artifacts (probed 2026-07-03) | `~/Library/LaunchAgents/com.kle1nz.m1nd-serve.plist` (no `WorkingDirectory`) · `~/.claude/hooks/m1nd-north.sh:10` · `~/.claude/hooks/verify-edit.sh` (matcher `Edit\|Write\|MultiEdit`) · `~/.codex/bin/m1nd-stdio-session.sh:23-27` · `~/.m1nd/registry-claude/leases/cdd1c483184e7cb0.json` (`workspace_root:"/"`) · `~/.m1nd/serve-claude.err.log` (os error 30) · `~/.m1nd/runtimes/claude/agent-memory/` (8 claims) · `~/.m1nd/field-reports.jsonl` (30 lines) |
