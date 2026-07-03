@@ -27,7 +27,7 @@ use std::net::TcpListener;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
-use m1nd_mcp::attach_client::{forward_with_reinit, post_and_demux, AttachSession};
+use m1nd_mcp::attach_client::{forward_with_reinit, post_and_demux, AttachSession, PostOutcome};
 
 /// Path to the compiled binary under test (Cargo sets `CARGO_BIN_EXE_<name>`).
 const BIN: &str = env!("CARGO_BIN_EXE_m1nd-mcp");
@@ -120,6 +120,46 @@ fn tools_list_payload(id: i64) -> String {
     serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": "tools/list" }).to_string()
 }
 
+/// Poll a bare `initialize` against `endpoint` (with a FRESH throwaway session, so
+/// the caller's real bridge session is left untouched) until the owner answers a
+/// `result`, or panic after `timeout`. Used to know a (re)spawned owner is serving
+/// before driving the stale-session bridge through it — without racing the bind.
+async fn wait_until_serving(client: &reqwest::Client, endpoint: &str, timeout: Duration) {
+    let probe = initialize_payload();
+    let deadline = Instant::now() + timeout;
+    loop {
+        let fresh = AttachSession::default();
+        if let Ok(o) = post_and_demux(client, endpoint, &fresh, &probe).await {
+            if o.value.and_then(|v| v.get("result").cloned()).is_some() {
+                return;
+            }
+        }
+        if Instant::now() >= deadline {
+            panic!("owner never came back to serving within {timeout:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+}
+
+/// Kill an owner child, wait for exit, give the OS a beat to release the port,
+/// then spawn a fresh owner on the SAME port + tmp (the launchd-kickstart /
+/// binary-swap event) and block until it is serving. Returns the new child.
+async fn restart_owner(
+    old: &mut Child,
+    client: &reqwest::Client,
+    endpoint: &str,
+    port: u16,
+    tmp: &std::path::Path,
+) -> Child {
+    let _ = old.kill();
+    let _ = old.wait();
+    // Give the OS a moment to release the port before rebinding.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let fresh = spawn_owner(port, tmp);
+    wait_until_serving(client, endpoint, Duration::from_secs(30)).await;
+    fresh
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn bridge_survives_owner_restart_transparently() {
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -200,5 +240,152 @@ async fn bridge_survives_owner_restart_transparently() {
     assert_ne!(
         first_session_id, second_session_id,
         "a transparent re-init must capture a fresh Mcp-Session-Id"
+    );
+}
+
+/// Field-triage batch-C / PRD §21.14 — "sessions ride #225" is a BUDGETED claim,
+/// so it needs a proof that survives MORE than one restart. The original test
+/// restarts once; this drives the SAME bridge session through TWO consecutive
+/// owner restarts (the second respawned after a full kill — the binary-swap /
+/// launchd-kickstart shape), asserting transparent recovery each time and a fresh
+/// session id after each. A regression that recovers once but not repeatedly
+/// (e.g. a re-init guard that latches) fails HERE.
+#[tokio::test(flavor = "multi_thread")]
+async fn bridge_survives_two_restarts_including_binary_swap() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let port = free_port();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let endpoint = format!("{base_url}/mcp");
+    let client = reqwest::Client::builder().build().expect("reqwest client");
+
+    let mut owner = spawn_owner(port, tmp.path());
+    let mut session = wait_and_initialize(&client, &endpoint).await;
+    let mut last_sid = session.mcp_session_id.clone().expect("initial session id");
+
+    // A live call works before any restart.
+    let ok = forward_with_reinit(&client, &endpoint, &mut session, &tools_list_payload(2))
+        .await
+        .expect("first tools/list forwards");
+    assert!(ok.get("result").is_some(), "pre-restart call: {ok}");
+
+    // Two consecutive restarts, each driven through the SAME stale bridge session.
+    for cycle in 1..=2 {
+        owner = restart_owner(&mut owner, &client, &endpoint, port, tmp.path()).await;
+
+        // Distinct request id per cycle (10, 11) so a mismatched frame can't slip by.
+        let id = 10 + cycle;
+        let after = forward_with_reinit(&client, &endpoint, &mut session, &tools_list_payload(id))
+            .await
+            .unwrap_or_else(|e| panic!("cycle {cycle}: transport error: {e}"));
+        assert!(
+            after.get("error").is_none(),
+            "cycle {cycle}: bridge must transparently re-init, saw error frame: {after}"
+        );
+        assert!(
+            after.get("result").is_some(),
+            "cycle {cycle}: re-init should yield a real result, got: {after}"
+        );
+
+        let sid = session
+            .mcp_session_id
+            .clone()
+            .unwrap_or_else(|| panic!("cycle {cycle}: session id after re-init"));
+        assert_ne!(
+            last_sid, sid,
+            "cycle {cycle}: each restart must mint a FRESH Mcp-Session-Id"
+        );
+        last_sid = sid;
+    }
+
+    let _ = owner.kill();
+    let _ = owner.wait();
+}
+
+/// Field-triage batch-C — LOCK the owner's unknown-session wire SHAPE to the shape
+/// the bridge's re-init trigger matches, so a future owner change that alters it
+/// FAILS loudly here instead of silently re-breaking live sessions.
+///
+/// This is the gap the investigation surfaced: #225 keyed re-init ONLY on a
+/// parseable `-32001` JSON-RPC frame. The owner's `POST /mcp` currently pairs its
+/// `404` with that frame (so #225 works) — but its `GET /mcp` relay answers `404`
+/// with a PLAIN-TEXT body and no frame, and a proxy could strip the body on POST.
+/// The fix keys re-init on the 404 STATUS too. Here we assert:
+///   (a) the real owner's POST unknown-session response is `404` carrying the
+///       `-32001` frame — the shape the bridge matches; drift on EITHER trips it;
+///   (b) `PostOutcome::signals_session_expired()` fires on that real outcome;
+///   (c) it ALSO fires on a synthetic frame-less 404 (the plain-text / proxy
+///       shape), proving the status path — not only the frame — drives recovery.
+#[tokio::test(flavor = "multi_thread")]
+async fn owner_unknown_session_wire_shape_is_recoverable() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let port = free_port();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let endpoint = format!("{base_url}/mcp");
+    let client = reqwest::Client::builder().build().expect("reqwest client");
+
+    let mut owner = spawn_owner(port, tmp.path());
+    wait_until_serving(&client, &endpoint, Duration::from_secs(30)).await;
+
+    // Drive a post-init request carrying a BOGUS session id (exactly what a stale
+    // bridge holds after an owner restart) and inspect the RAW outcome.
+    let bogus = AttachSession {
+        mcp_session_id: Some("00000000-0000-0000-0000-deadbeefdead".to_string()),
+        protocol_version: Some("2025-06-18".to_string()),
+        initialize_payload: None,
+    };
+    let outcome = post_and_demux(&client, &endpoint, &bogus, &tools_list_payload(2))
+        .await
+        .expect("owner reachable");
+
+    let _ = owner.kill();
+    let _ = owner.wait();
+
+    // (a) The owner's unknown-session shape is EXACTLY what the bridge matches.
+    assert_eq!(
+        outcome.status, 404,
+        "owner must answer HTTP 404 for an unknown Mcp-Session-Id (the re-init \
+         trigger status); got {}",
+        outcome.status
+    );
+    let frame = outcome
+        .value
+        .as_ref()
+        .expect("owner's 404 currently carries a JSON-RPC frame");
+    assert_eq!(
+        frame
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_i64()),
+        Some(-32001),
+        "owner's unknown-session frame must carry code -32001; got: {frame}"
+    );
+
+    // (b) The real outcome is recognized as session-expired → the bridge re-inits.
+    assert!(
+        outcome.signals_session_expired(),
+        "the real owner unknown-session outcome must trigger re-init"
+    );
+
+    // (c) The STATUS path (not the frame) is load-bearing: a frame-less 404 — the
+    // owner's own SSE/GET shape, or anything a proxy produces — still triggers.
+    let frameless_404 = PostOutcome {
+        value: None,
+        session_id_header: None,
+        status: 404,
+    };
+    assert!(
+        frameless_404.signals_session_expired(),
+        "a 404 with NO JSON-RPC frame must STILL trigger re-init (status-driven)"
+    );
+
+    // And a normal success outcome must NOT be mistaken for expiry.
+    let ok_200 = PostOutcome {
+        value: Some(serde_json::json!({"jsonrpc":"2.0","id":2,"result":{}})),
+        session_id_header: None,
+        status: 200,
+    };
+    assert!(
+        !ok_200.signals_session_expired(),
+        "a 200 result must never be treated as session-expired"
     );
 }
