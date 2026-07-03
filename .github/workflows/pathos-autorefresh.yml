@@ -51,7 +51,11 @@ jobs:
           git config user.name "Max Kle1nz"
           git config user.email "kleinz@cosmophonix.com"
           # Tenta os 3 caminhos suportados; ignora os que não existem.
-          git add docs/internal/PATHOS.md docs/PATHOS.md PATHOS.md 2>/dev/null || true
+          # NÃO usar um único `git add a b c`: pathspec inexistente é erro ATÔMICO
+          # (nada é adicionado e o refresh se perde em silêncio — provado no primeiro run, 2026-07-03).
+          for f in docs/internal/PATHOS.md docs/PATHOS.md PATHOS.md; do
+            if [ -f "$f" ]; then git add "$f"; fi
+          done
           if git diff --cached --quiet; then
             echo "Nada para commitar (PATHOS já alinhado)."
           else
