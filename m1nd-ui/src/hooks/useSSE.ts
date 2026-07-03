@@ -11,7 +11,9 @@ interface UseSSEOptions {
 
 /**
  * Subscribe to server-sent events at /api/events.
- * Listens for named event types: activation, learn, ingest, persist.
+ * Listens for named event types: activation, learn, ingest, persist, graph_changed.
+ * `graph_changed` (PRD §5.3) fires when an agent mutates the shared graph — the
+ * Living Tree uses it to refresh live.
  * Reconnects automatically on error (exponential backoff, max 30s).
  */
 export function useSSE({ onEvent, onError, enabled = true }: UseSSEOptions = {}) {
@@ -26,7 +28,7 @@ export function useSSE({ onEvent, onError, enabled = true }: UseSSEOptions = {})
       const es = new EventSource(`${BASE_URL}/api/events`);
       esRef.current = es;
 
-      const EVENT_TYPES = ['activation', 'learn', 'ingest', 'persist'] as const;
+      const EVENT_TYPES = ['activation', 'learn', 'ingest', 'persist', 'graph_changed'] as const;
 
       // Listen for named event types (SSE server sends event: <type>)
       for (const eventType of EVENT_TYPES) {

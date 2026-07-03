@@ -1380,21 +1380,59 @@ async fn handle_graph_snapshot(State(state): State<Arc<AppState>>) -> impl IntoR
     (StatusCode::OK, Json(result))
 }
 
+/// Build the browser-facing `graph_changed` SSE event from a broadcast event, or
+/// `None` if the event is not a shared-graph mutation.
+///
+/// This is the browser (pure-reader) rendering of the SAME mutation boundary the
+/// MCP relay uses (`mcp_http::graph_mutation_event_name`) — reused, never
+/// duplicated. It closes the #233 "SSE pure-reader relay gap": the MCP transport
+/// already turns mutation events into `notifications/m1nd/graph_changed` for
+/// attached agents, but a plain browser reading `/api/events` never saw a
+/// `graph_changed` class. The Living Tree subscribes to it to refresh in place
+/// (PRD §5.3). The payload is minimal — `event` (which mutation) + non-echoing
+/// context — the tree re-fetches the snapshot rather than trusting a diff.
+fn browser_graph_changed_event(event: &SseEvent) -> Option<SseEvent> {
+    let name = crate::mcp_http::graph_mutation_event_name(event)?;
+    let mut detail = serde_json::Map::new();
+    detail.insert("event".into(), serde_json::json!(name));
+    for key in ["agent_id", "source", "batch_id", "timestamp_ms"] {
+        if let Some(v) = event.data.get(key) {
+            detail.insert(key.into(), v.clone());
+        }
+    }
+    Some(SseEvent {
+        event_type: "graph_changed".to_string(),
+        data: serde_json::Value::Object(detail),
+    })
+}
+
 async fn handle_sse(
     State(state): State<Arc<AppState>>,
 ) -> Sse<impl futures::Stream<Item = Result<sse::Event, std::convert::Infallible>>> {
     let rx = state.event_tx.subscribe();
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|event| async {
-        match event {
+    let stream = tokio_stream::wrappers::BroadcastStream::new(rx).flat_map(|event| {
+        // Each broadcast event is relayed raw (unchanged legacy behavior). When
+        // the event is a shared-graph mutation it ALSO yields a derived
+        // `graph_changed` event so a plain browser can refresh live (#233 fix).
+        let frames: Vec<Result<sse::Event, std::convert::Infallible>> = match event {
             Ok(e) => {
-                let sse_event = sse::Event::default()
-                    .event(e.event_type)
-                    .json_data(e.data)
-                    .ok()?;
-                Some(Ok(sse_event))
+                let mut out = Vec::with_capacity(2);
+                if let Some(changed) = browser_graph_changed_event(&e) {
+                    if let Ok(ev) = sse::Event::default()
+                        .event(changed.event_type)
+                        .json_data(changed.data)
+                    {
+                        out.push(Ok(ev));
+                    }
+                }
+                if let Ok(ev) = sse::Event::default().event(e.event_type).json_data(e.data) {
+                    out.push(Ok(ev));
+                }
+                out
             }
-            Err(_) => None,
-        }
+            Err(_) => Vec::new(),
+        };
+        futures::stream::iter(frames)
     });
     Sse::new(stream)
 }
@@ -1535,5 +1573,63 @@ mod tests {
         let payload = timeout_error_payload(30);
         assert_eq!(payload["error_type"], "timeout");
         assert!(payload["hint"].as_str().expect("hint").contains("scope"));
+    }
+
+    // ---- Browser `graph_changed` relay (#233 pure-reader gap fix) ----------
+
+    fn sse(event_type: &str, data: serde_json::Value) -> SseEvent {
+        SseEvent {
+            event_type: event_type.to_string(),
+            data,
+        }
+    }
+
+    #[test]
+    fn browser_relays_graph_changed_for_a_successful_mutation() {
+        // A landed `memorize` mutates the shared graph → the browser must get a
+        // `graph_changed` event so the Living Tree refreshes in place (PRD §5.3).
+        let e = sse(
+            "tool_result",
+            serde_json::json!({
+                "tool": "memorize",
+                "success": true,
+                "agent_id": "agent-b",
+                "source": "http",
+                "timestamp_ms": 1234,
+            }),
+        );
+        let changed = browser_graph_changed_event(&e).expect("memorize relays to browser");
+        assert_eq!(changed.event_type, "graph_changed");
+        assert_eq!(changed.data["event"], "memorize");
+        assert_eq!(changed.data["agent_id"], "agent-b");
+        assert_eq!(changed.data["timestamp_ms"], 1234);
+    }
+
+    #[test]
+    fn browser_does_not_relay_read_or_ui_events_as_graph_changed() {
+        // Reads, activations, and persists are NOT graph mutations — the browser
+        // still receives them raw on their own event class, but they must NEVER
+        // masquerade as `graph_changed` (that would trigger needless refetches).
+        for e in [
+            sse(
+                "tool_result",
+                serde_json::json!({"tool": "seek", "success": true}),
+            ),
+            sse(
+                "activation",
+                serde_json::json!({"agent_id": "a", "query": "x"}),
+            ),
+            sse("persist", serde_json::json!({"generation": 3})),
+            sse(
+                "tool_result",
+                serde_json::json!({"tool": "ingest", "success": false}),
+            ),
+        ] {
+            assert!(
+                browser_graph_changed_event(&e).is_none(),
+                "{} must not relay as graph_changed",
+                e.event_type
+            );
+        }
     }
 }
