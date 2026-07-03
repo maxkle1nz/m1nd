@@ -1,0 +1,179 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "activate(query) for exploration",
+      "help for tool reference"
+    ]
+  },
+  "binding": {
+    "fingerprint": {
+      "binary_drift": null,
+      "binary_git_sha": "a44237d-dirty",
+      "binary_version": "1.2.1",
+      "cache_generation": 0,
+      "current_exe": "/Users/kle1nz/m1nd-tree/target/release/m1nd-mcp",
+      "edge_count": 0,
+      "graph_finalized": false,
+      "graph_generation": 0,
+      "graph_path": "./graph_snapshot.json",
+      "graph_path_exists": false,
+      "ingest_roots": [],
+      "node_count": 0,
+      "plasticity_generation": 0,
+      "plasticity_path": "./plasticity_state.json",
+      "process_id": 9421,
+      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "schema": "m1nd-binding-fingerprint-v0",
+      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "graph_populated": false,
+    "graph_state": {
+      "cache_generation": 0,
+      "edge_count": 0,
+      "finalized": false,
+      "graph_generation": 0,
+      "graph_path": "./graph_snapshot.json",
+      "graph_path_exists": false,
+      "ingest_root_count": 0,
+      "ingest_roots": [],
+      "node_count": 0,
+      "plasticity_generation": 0,
+      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "ok": false,
+    "trust_mode": "needs_ingest"
+  },
+  "context": null,
+  "honest_gaps": [
+    "The graph is empty or unbound \u2014 no codebase context is available until ingest runs.",
+    "Binding is not full trust (needs_ingest) \u2014 treat retrieval as orientation only and verify final truth against local files; see recovery_playbook for the repair.",
+    "No durable memory yet \u2014 neither boot_memory nor L1GHT agent-memory holds a prior cross-session claim to carry."
+  ],
+  "memory": [],
+  "needs": "needs_ingest",
+  "next_move": "Run ingest for the intended repo, then call north again to get grounded context.",
+  "non_claims": [
+    "north composes existing read-only verbs; it does not ingest, mutate, or repair the graph.",
+    "north does not refresh the host MCP binding.",
+    "north does not replace compiler, tests, or local file truth.",
+    "an absent memory age means unknown authored time, never freshly authored."
+  ],
+  "proof_state": "triaging",
+  "recovery_playbook": {
+    "binding_fingerprint": {
+      "binary_drift": null,
+      "binary_git_sha": "a44237d-dirty",
+      "binary_version": "1.2.1",
+      "cache_generation": 0,
+      "current_exe": "/Users/kle1nz/m1nd-tree/target/release/m1nd-mcp",
+      "edge_count": 0,
+      "graph_finalized": false,
+      "graph_generation": 0,
+      "graph_path": "./graph_snapshot.json",
+      "graph_path_exists": false,
+      "ingest_roots": [],
+      "node_count": 0,
+      "plasticity_generation": 0,
+      "plasticity_path": "./plasticity_state.json",
+      "process_id": 9421,
+      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "schema": "m1nd-binding-fingerprint-v0",
+      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "context_guard": {
+      "schema": "m1nd-context-guard-v0",
+      "workspace_binding_mismatch": null,
+      "wrong_workspace_binding": false
+    },
+    "graph_state": {
+      "cache_generation": 0,
+      "edge_count": 0,
+      "finalized": false,
+      "graph_generation": 0,
+      "graph_path": "./graph_snapshot.json",
+      "graph_path_exists": false,
+      "ingest_root_count": 0,
+      "ingest_roots": [],
+      "node_count": 0,
+      "plasticity_generation": 0,
+      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "workspace_root": "/Users/kle1nz/m1nd-tree/.",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "input_trust_mode": "needs_ingest",
+    "next_action": "call_ingest",
+    "non_claims": [
+      "No automatic repair was performed.",
+      "No ingest or graph mutation was performed.",
+      "No retrieval probe or filesystem mutation was performed.",
+      "This playbook is derived only from current session state and caller-supplied host evidence."
+    ],
+    "recovery_goal": "Populate this binding's active graph for the intended repository.",
+    "schema": "m1nd-recovery-playbook-v0",
+    "status": "blocked",
+    "steps": [
+      {
+        "action": "Call ingest for the intended repository on this same binding.",
+        "arguments": {
+          "agent_id": "gui",
+          "path": "/Users/kle1nz/m1nd-tree/."
+        },
+        "id": "call_ingest",
+        "reason": "The active graph is empty or incomplete, so retrieval cannot yet be trusted.",
+        "tool": "ingest"
+      },
+      {
+        "action": "Call session_handshake again after ingest completes.",
+        "arguments": {
+          "agent_id": "gui"
+        },
+        "id": "rerun_session_handshake",
+        "reason": "The handshake should confirm node and edge counts before the next retrieval step.",
+        "tool": "session_handshake"
+      }
+    ],
+    "tool_surface": {
+      "available_tools_sample": [
+        "doctor",
+        "health",
+        "help",
+        "ingest",
+        "recovery_playbook",
+        "seek",
+        "session_handshake",
+        "trust_selftest"
+      ],
+      "degraded_host_tool_surface": false,
+      "missing_required_tools": [],
+      "required_tools": [
+        "health",
+        "trust_selftest",
+        "recovery_playbook",
+        "doctor",
+        "ingest",
+        "seek",
+        "help"
+      ],
+      "required_tools_present": {
+        "doctor": true,
+        "health": true,
+        "help": true,
+        "ingest": true,
+        "recovery_playbook": true,
+        "seek": true,
+        "trust_selftest": true
+      },
+      "status": "ok",
+      "tool_count": 8
+    },
+    "trust_mode": "needs_ingest"
+  },
+  "schema": "m1nd-north-packet-v0",
+  "sufficiency": null,
+  "task": "render the living tree"
+}

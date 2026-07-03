@@ -1,0 +1,570 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "change_frequency": 0.44999998807907104,
+      "external_id": "light::light::tag::trustbandmapping-light-md::16::confidence-high",
+      "label": "\ud835\udd3b confidence: high",
+      "last_modified": 1783097005.2711976,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": 16,
+        "line_start": 16,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "light:epistemic_confidence",
+        "light:confidence:0.80",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.699999988079071,
+      "external_id": "light::light::file::graphsnapshotendpoint-light-md",
+      "label": "graphsnapshotendpoint.light.md",
+      "last_modified": 1783097005.0288403,
+      "node_type": 0,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "namespace:light",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.6666666865348816,
+      "external_id": "file::m1nd-mcp/src/http_server.rs",
+      "label": "m1nd-mcp/src/http_server.rs",
+      "last_modified": 1782856153.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 1539,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-mcp/src/http_server.rs"
+      },
+      "tags": [
+        "rust",
+        "rust:module:http_server",
+        "m1nd:edge:unresolved",
+        "m1nd:edge:ambiguous",
+        "m1nd:edge:ambiguous:file::tests/e2e/test_perspective_usecases.py::fn::xt",
+        "m1nd:edge:ambiguous:file::m1nd-demo/src/components/WebGLErrorBoundary.tsx::interface::State",
+        "m1nd:edge:ambiguous:file::m1nd-mcp/src/protocol/layers.rs::enum::GlobSort::Path",
+        "m1nd:edge:ambiguous:file::m1nd-demo/src/components/ui/item.tsx::fn::Item",
+        "m1nd:edge:ambiguous:file::m1nd-core/src/types.rs::enum::NodeType::Custom",
+        "m1nd:edge:ambiguous:file::m1nd-core/src/types.rs::fn::get"
+      ]
+    },
+    {
+      "change_frequency": 0.375,
+      "external_id": "file::m1nd-core/src/trust.rs",
+      "label": "m1nd-core/src/trust.rs",
+      "last_modified": 1782769548.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 870,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-core/src/trust.rs"
+      },
+      "tags": [
+        "rust",
+        "rust:module:trust",
+        "m1nd:edge:unresolved",
+        "m1nd:edge:ambiguous",
+        "m1nd:edge:ambiguous:file::m1nd-mcp/src/protocol/layers.rs::enum::GlobSort::Path"
+      ]
+    },
+    {
+      "change_frequency": 0.5,
+      "external_id": "light::light::section::graphsnapshotendpoint-light-md::graphsnapshotendpoint-1",
+      "label": "GraphSnapshotEndpoint",
+      "last_modified": 1783097005.0288403,
+      "node_type": 7,
+      "provenance": {
+        "canonical": true,
+        "line_end": 11,
+        "line_start": 11,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "light:section",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.44999998807907104,
+      "external_id": "light::light::tag::graphsnapshotendpoint-light-md::17::evidence-m1nd-mcp-src-http-server-rs",
+      "label": "\ud835\udd3b evidence: m1nd-mcp/src/http_server.rs",
+      "last_modified": 1783097005.0288403,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": 17,
+        "line_start": 17,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "light:evidenced_by",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.550000011920929,
+      "external_id": "light::light::meta::graphsnapshotendpoint-light-md::node",
+      "label": "GraphSnapshotEndpoint",
+      "last_modified": 1783097005.0288403,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "light:node",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.44999998807907104,
+      "external_id": "light::light::tag::trustbandmapping-light-md::17::evidence-m1nd-core-src-trust-rs",
+      "label": "\ud835\udd3b evidence: m1nd-core/src/trust.rs",
+      "last_modified": 1783097005.2711976,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": 17,
+        "line_start": 17,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "light:evidenced_by",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.550000011920929,
+      "external_id": "light::light::meta::graphsnapshotendpoint-light-md::state",
+      "label": "authored",
+      "last_modified": 1783097005.0288403,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "light:state",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.550000011920929,
+      "external_id": "light::light::meta::trustbandmapping-light-md::node",
+      "label": "TrustBandMapping",
+      "last_modified": 1783097005.2711976,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "light:node",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.44999998807907104,
+      "external_id": "light::light::tag::graphsnapshotendpoint-light-md::15::entity-the-graph-snapshot-endpoint-is-the-single-source-of-tree-structure-never-a-second-fs-readdir-view",
+      "label": "\u2342 entity: The graph snapshot endpoint is the single source of tree structure \u2014 never a second fs.readdir view",
+      "last_modified": 1783097005.0288403,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": 15,
+        "line_start": 15,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "light:declares_entity",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.550000011920929,
+      "external_id": "light::light::meta::trustbandmapping-light-md::state",
+      "label": "authored",
+      "last_modified": 1783097005.2711976,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "light:state",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.44999998807907104,
+      "external_id": "light::light::tag::graphsnapshotendpoint-light-md::16::confidence-high",
+      "label": "\ud835\udd3b confidence: high",
+      "last_modified": 1783097005.0288403,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": 16,
+        "line_start": 16,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "light:epistemic_confidence",
+        "light:confidence:0.80",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.550000011920929,
+      "external_id": "light::light::meta::graphsnapshotendpoint-light-md::protocol",
+      "label": "L1GHT/1.0",
+      "last_modified": 1783097005.0288403,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "graphsnapshotendpoint.light.md"
+      },
+      "tags": [
+        "light",
+        "light:protocol",
+        "light:created:1783097005028",
+        "light:source_agent:agent-refactor"
+      ]
+    },
+    {
+      "change_frequency": 0.09090909361839294,
+      "external_id": "file::m1nd-ui/vite.config.ts",
+      "label": "m1nd-ui/vite.config.ts",
+      "last_modified": 1773667960.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 22,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-ui/vite.config.ts"
+      },
+      "tags": [
+        "typescript",
+        "m1nd:edge:unresolved"
+      ]
+    },
+    {
+      "change_frequency": 0.09090909361839294,
+      "external_id": "file::m1nd-ui/tailwind.config.ts",
+      "label": "m1nd-ui/tailwind.config.ts",
+      "last_modified": 1773667960.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 32,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-ui/tailwind.config.ts"
+      },
+      "tags": [
+        "typescript",
+        "m1nd:edge:unresolved"
+      ]
+    },
+    {
+      "change_frequency": 0.44999998807907104,
+      "external_id": "light::light::tag::trustbandmapping-light-md::15::entity-unknown-trust-tier-maps-to-insufficient-evidence-render-it-violet-never-as-medium-risk",
+      "label": "\u2342 entity: Unknown trust tier maps to insufficient_evidence \u2014 render it violet, never as medium risk",
+      "last_modified": 1783097005.2711976,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": 15,
+        "line_start": 15,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "light:declares_entity",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.09090909361839294,
+      "external_id": "file::m1nd-ui/tsconfig.json",
+      "label": "m1nd-ui/tsconfig.json",
+      "last_modified": 1773667960.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 21,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-ui/tsconfig.json"
+      },
+      "tags": [
+        "json"
+      ]
+    },
+    {
+      "change_frequency": 0.5,
+      "external_id": "light::light::section::trustbandmapping-light-md::trustbandmapping-1",
+      "label": "TrustBandMapping",
+      "last_modified": 1783097005.2711976,
+      "node_type": 7,
+      "provenance": {
+        "canonical": true,
+        "line_end": 11,
+        "line_start": 11,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "light:section",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.550000011920929,
+      "external_id": "light::light::meta::trustbandmapping-light-md::protocol",
+      "label": "L1GHT/1.0",
+      "last_modified": 1783097005.2711976,
+      "node_type": 9,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "light:protocol",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.09090909361839294,
+      "external_id": "file::m1nd-ui/index.html",
+      "label": "m1nd-ui/index.html",
+      "last_modified": 1773667960.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 20,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-ui/index.html"
+      },
+      "tags": [
+        "html"
+      ]
+    },
+    {
+      "change_frequency": 0.699999988079071,
+      "external_id": "light::light::file::trustbandmapping-light-md",
+      "label": "trustbandmapping.light.md",
+      "last_modified": 1783097005.2711976,
+      "node_type": 0,
+      "provenance": {
+        "canonical": true,
+        "line_end": null,
+        "line_start": null,
+        "namespace": "light",
+        "source_path": "trustbandmapping.light.md"
+      },
+      "tags": [
+        "light",
+        "namespace:light",
+        "light:created:1783097005271",
+        "light:source_agent:agent-audit"
+      ]
+    },
+    {
+      "change_frequency": 0.23076923191547394,
+      "external_id": "file::m1nd-ui/package.json",
+      "label": "m1nd-ui/package.json",
+      "last_modified": 1782610469.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 31,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-ui/package.json"
+      },
+      "tags": [
+        "json"
+      ]
+    },
+    {
+      "change_frequency": 0.09090909361839294,
+      "external_id": "file::m1nd-ui/postcss.config.js",
+      "label": "m1nd-ui/postcss.config.js",
+      "last_modified": 1773667960.0,
+      "node_type": 0,
+      "provenance": {
+        "canonical": false,
+        "line_end": 6,
+        "line_start": 1,
+        "namespace": null,
+        "source_path": "m1nd-ui/postcss.config.js"
+      },
+      "tags": [
+        "typescript"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "causal_strength": 0.8500000238418579,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "has_state",
+      "source_id": "light::light::file::graphsnapshotendpoint-light-md",
+      "target_id": "light::light::meta::graphsnapshotendpoint-light-md::state",
+      "weight": 1.0
+    },
+    {
+      "causal_strength": 0.800000011920929,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "contains_section",
+      "source_id": "light::light::file::graphsnapshotendpoint-light-md",
+      "target_id": "light::light::section::graphsnapshotendpoint-light-md::graphsnapshotendpoint-1",
+      "weight": 1.0
+    },
+    {
+      "causal_strength": 0.699999988079071,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "declares_entity",
+      "source_id": "light::light::section::graphsnapshotendpoint-light-md::graphsnapshotendpoint-1",
+      "target_id": "light::light::tag::graphsnapshotendpoint-light-md::15::entity-the-graph-snapshot-endpoint-is-the-single-source-of-tree-structure-never-a-second-fs-readdir-view",
+      "weight": 0.8999999761581421
+    },
+    {
+      "causal_strength": 0.800000011920929,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "evidenced_by",
+      "source_id": "light::light::tag::graphsnapshotendpoint-light-md::15::entity-the-graph-snapshot-endpoint-is-the-single-source-of-tree-structure-never-a-second-fs-readdir-view",
+      "target_id": "light::light::tag::graphsnapshotendpoint-light-md::17::evidence-m1nd-mcp-src-http-server-rs",
+      "weight": 0.800000011920929
+    },
+    {
+      "causal_strength": 0.800000011920929,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "grounded_in",
+      "source_id": "light::light::tag::graphsnapshotendpoint-light-md::17::evidence-m1nd-mcp-src-http-server-rs",
+      "target_id": "file::m1nd-mcp/src/http_server.rs",
+      "weight": 0.800000011920929
+    },
+    {
+      "causal_strength": 0.8500000238418579,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "has_state",
+      "source_id": "light::light::file::trustbandmapping-light-md",
+      "target_id": "light::light::meta::trustbandmapping-light-md::state",
+      "weight": 1.0
+    },
+    {
+      "causal_strength": 0.800000011920929,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "contains_section",
+      "source_id": "light::light::file::trustbandmapping-light-md",
+      "target_id": "light::light::section::trustbandmapping-light-md::trustbandmapping-1",
+      "weight": 1.0
+    },
+    {
+      "causal_strength": 0.699999988079071,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "declares_entity",
+      "source_id": "light::light::section::trustbandmapping-light-md::trustbandmapping-1",
+      "target_id": "light::light::tag::trustbandmapping-light-md::15::entity-unknown-trust-tier-maps-to-insufficient-evidence-render-it-violet-never-as-medium-risk",
+      "weight": 0.8999999761581421
+    },
+    {
+      "causal_strength": 0.800000011920929,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "evidenced_by",
+      "source_id": "light::light::tag::trustbandmapping-light-md::15::entity-unknown-trust-tier-maps-to-insufficient-evidence-render-it-violet-never-as-medium-risk",
+      "target_id": "light::light::tag::trustbandmapping-light-md::17::evidence-m1nd-core-src-trust-rs",
+      "weight": 0.800000011920929
+    },
+    {
+      "causal_strength": 0.800000011920929,
+      "direction": 0,
+      "inhibitory": false,
+      "relation": "grounded_in",
+      "source_id": "light::light::tag::trustbandmapping-light-md::17::evidence-m1nd-core-src-trust-rs",
+      "target_id": "file::m1nd-core/src/trust.rs",
+      "weight": 0.800000011920929
+    }
+  ]
+}

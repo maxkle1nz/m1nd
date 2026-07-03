@@ -1,0 +1,929 @@
+{
+  "_m1nd": {
+    "personality": "129 nodes in blast radius. proof_state=triaging. follow the downstream seam next.",
+    "read_only": false,
+    "suggest_next": [
+      "view(next_suggested_target) to inspect the strongest downstream seam",
+      "validate_plan(files) before touching a high-blast seam",
+      "counterfactual(node) to simulate removal"
+    ],
+    "summary": "129 nodes in blast radius. proof_state=triaging. follow the downstream seam next."
+  },
+  "blast_radius": [
+    {
+      "hop_distance": 1,
+      "label": "agentKickstart",
+      "node_id": "agentKickstart",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "agentCommand",
+      "node_id": "agentCommand",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "usage",
+      "node_id": "usage",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "parseArgs",
+      "node_id": "parseArgs",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "assertPackShape",
+      "node_id": "assertPackShape",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "packRoutingCheck",
+      "node_id": "packRoutingCheck",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "installSkills",
+      "node_id": "installSkills",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "mcpConfig",
+      "node_id": "mcpConfig",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "hostStatus",
+      "node_id": "hostStatus",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "hostPlan",
+      "node_id": "hostPlan",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "hostApply",
+      "node_id": "hostApply",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "doctor",
+      "node_id": "doctor",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "selfUpdate",
+      "node_id": "selfUpdate",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "restart",
+      "node_id": "restart",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "runDemo",
+      "node_id": "runDemo",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "print",
+      "node_id": "print",
+      "signal_strength": 0.2736250162124634,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "resolve",
+      "node_id": "resolve",
+      "signal_strength": 0.0233030766248703,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "extractGraphState",
+      "node_id": "extractGraphState",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "proofState",
+      "node_id": "proofState",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "payloadDict",
+      "node_id": "payloadDict",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "withClient",
+      "node_id": "withClient",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "runTrustSequence",
+      "node_id": "runTrustSequence",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentScope",
+      "node_id": "agentScope",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentTrust",
+      "node_id": "agentTrust",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentOrient",
+      "node_id": "agentOrient",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentFirstMinute",
+      "node_id": "agentFirstMinute",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentRecover",
+      "node_id": "agentRecover",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentContext",
+      "node_id": "agentContext",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentAuto",
+      "node_id": "agentAuto",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentHandoff",
+      "node_id": "agentHandoff",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentDoctor",
+      "node_id": "agentDoctor",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "callToolSafely",
+      "node_id": "callToolSafely",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "runtimeBinaryName",
+      "node_id": "runtimeBinaryName",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "readPackageVersion",
+      "node_id": "readPackageVersion",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "evaluateNeedles",
+      "node_id": "evaluateNeedles",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "installCodex",
+      "node_id": "installCodex",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "installPortable",
+      "node_id": "installPortable",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "agentPackStatusForHost",
+      "node_id": "agentPackStatusForHost",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "hostConfigStatus",
+      "node_id": "hostConfigStatus",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "hostPathShadow",
+      "node_id": "hostPathShadow",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "hostReadinessNonClaims",
+      "node_id": "hostReadinessNonClaims",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "hostPlanNonClaims",
+      "node_id": "hostPlanNonClaims",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "hostApplyNonClaims",
+      "node_id": "hostApplyNonClaims",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "hostInstallCommand",
+      "node_id": "hostInstallCommand",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "canonicalHostConfigPath",
+      "node_id": "canonicalHostConfigPath",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "writeHostConfig",
+      "node_id": "writeHostConfig",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "action",
+      "node_id": "action",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "buildSelfUpdateProof",
+      "node_id": "buildSelfUpdateProof",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "applySelfUpdate",
+      "node_id": "applySelfUpdate",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "verifySelfUpdate",
+      "node_id": "verifySelfUpdate",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "buildSelfUpdateStatus",
+      "node_id": "buildSelfUpdateStatus",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "rollbackSelfUpdate",
+      "node_id": "rollbackSelfUpdate",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "sourceReleaseBinary",
+      "node_id": "sourceReleaseBinary",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "sourceLooksBuildable",
+      "node_id": "sourceLooksBuildable",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "listRuntimeProcesses",
+      "node_id": "listRuntimeProcesses",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "stopRuntimeProcesses",
+      "node_id": "stopRuntimeProcesses",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "installRuntimeBinary",
+      "node_id": "installRuntimeBinary",
+      "signal_strength": 0.07487064599990845,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "homeDir",
+      "node_id": "homeDir",
+      "signal_strength": 0.06840625405311584,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "which",
+      "node_id": "which",
+      "signal_strength": 0.06270574033260345,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "runtimeVersion",
+      "node_id": "runtimeVersion",
+      "signal_strength": 0.06270574033260345,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "runCommand",
+      "node_id": "runCommand",
+      "signal_strength": 0.05374777317047119,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "findRuntimeBinary",
+      "node_id": "findRuntimeBinary",
+      "signal_strength": 0.050164587795734406,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 2,
+      "label": "defaultRuntimePath",
+      "node_id": "defaultRuntimePath",
+      "signal_strength": 0.037623435258865356,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "safeJsonParse",
+      "node_id": "safeJsonParse",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "attachCapabilityGuidance",
+      "node_id": "attachCapabilityGuidance",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "candidateCount",
+      "node_id": "candidateCount",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "callSummary",
+      "node_id": "callSummary",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "trustNeedsIngest",
+      "node_id": "trustNeedsIngest",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "queryLooksLikeExactIdentifier",
+      "node_id": "queryLooksLikeExactIdentifier",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "queryLooksLikeFirstContact",
+      "node_id": "queryLooksLikeFirstContact",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "strongIdentifierCandidatesFromQuery",
+      "node_id": "strongIdentifierCandidatesFromQuery",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "chooseOrientationTool",
+      "node_id": "chooseOrientationTool",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "orientationArgs",
+      "node_id": "orientationArgs",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "extractResultList",
+      "node_id": "extractResultList",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "compactContextPayload",
+      "node_id": "compactContextPayload",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "queryLooksLikePath",
+      "node_id": "queryLooksLikePath",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "defaultAutoMode",
+      "node_id": "defaultAutoMode",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "classifyRecoveryType",
+      "node_id": "classifyRecoveryType",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "buildRecoverAction",
+      "node_id": "buildRecoverAction",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "buildOrientAction",
+      "node_id": "buildOrientAction",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "buildFirstMinuteAction",
+      "node_id": "buildFirstMinuteAction",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "buildDirectProofAction",
+      "node_id": "buildDirectProofAction",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "autoActionForQuery",
+      "node_id": "autoActionForQuery",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "autoActionForObserved",
+      "node_id": "autoActionForObserved",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "ensureWithinRepo",
+      "node_id": "ensureWithinRepo",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "anchorsFromPayload",
+      "node_id": "anchorsFromPayload",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "groupAnchors",
+      "node_id": "groupAnchors",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "operatingContract",
+      "node_id": "operatingContract",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "recoveryPlan",
+      "node_id": "recoveryPlan",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "findGitRoot",
+      "node_id": "findGitRoot",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "start",
+      "node_id": "start",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "callTool",
+      "node_id": "callTool",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "close",
+      "node_id": "close",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "decodeToolResponse",
+      "node_id": "decodeToolResponse",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "ensureDir",
+      "node_id": "ensureDir",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "copyFile",
+      "node_id": "copyFile",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "copyDir",
+      "node_id": "copyDir",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "needleMatches",
+      "node_id": "needleMatches",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "hostRuleFilename",
+      "node_id": "hostRuleFilename",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "readText",
+      "node_id": "readText",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "runtimeBindingsFromText",
+      "node_id": "runtimeBindingsFromText",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "hostScopedConfigText",
+      "node_id": "hostScopedConfigText",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "portableAgentPackPaths",
+      "node_id": "portableAgentPackPaths",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "hostConfigCandidates",
+      "node_id": "hostConfigCandidates",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "writeCodexMcpConfig",
+      "node_id": "writeCodexMcpConfig",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "writeJsonMcpConfig",
+      "node_id": "writeJsonMcpConfig",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "selfUpdateNonClaims",
+      "node_id": "selfUpdateNonClaims",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "versionFromText",
+      "node_id": "versionFromText",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "compareSemver",
+      "node_id": "compareSemver",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "safeJsonParse",
+      "node_id": "safeJsonParse",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "normalizeChannel",
+      "node_id": "normalizeChannel",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "readNpmRegistry",
+      "node_id": "readNpmRegistry",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "readCrateVersion",
+      "node_id": "readCrateVersion",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "githubReleaseAvailability",
+      "node_id": "githubReleaseAvailability",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "updateStatePath",
+      "node_id": "updateStatePath",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "selectTargetVersion",
+      "node_id": "selectTargetVersion",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "runtimeInstallAction",
+      "node_id": "runtimeInstallAction",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "installRuntimeBinaryWithBackup",
+      "node_id": "installRuntimeBinaryWithBackup",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "stageReleaseAsset",
+      "node_id": "stageReleaseAsset",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "cargoInstallRuntime",
+      "node_id": "cargoInstallRuntime",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "commandLooksLikeRuntime",
+      "node_id": "commandLooksLikeRuntime",
+      "signal_strength": 0.020486481487751007,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "buildActionEnvelope",
+      "node_id": "buildActionEnvelope",
+      "signal_strength": 0.01871766336262226,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "proofRequirementsForRoute",
+      "node_id": "proofRequirementsForRoute",
+      "signal_strength": 0.01871766336262226,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "buildAgentCliCommand",
+      "node_id": "buildAgentCliCommand",
+      "signal_strength": 0.01715785823762417,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "runtimeInfo",
+      "node_id": "runtimeInfo",
+      "signal_strength": 0.01715785823762417,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "buildScopeAlignment",
+      "node_id": "buildScopeAlignment",
+      "signal_strength": 0.01715785823762417,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "baseAgentEnvelope",
+      "node_id": "baseAgentEnvelope",
+      "signal_strength": 0.01715785823762417,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "realPathOrResolved",
+      "node_id": "realPathOrResolved",
+      "signal_strength": 0.01715785823762417,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 3,
+      "label": "call",
+      "node_id": "call",
+      "signal_strength": 0.01715785823762417,
+      "type": "Function"
+    }
+  ],
+  "causal_chains": [],
+  "direction": "forward",
+  "max_hops_reached": 4,
+  "next_step_hint": "Run `view` if this tool finishes cleanly.",
+  "next_suggested_target": "agentKickstart",
+  "next_suggested_tool": "view",
+  "proof_state": "triaging",
+  "source": "file::npm/lib/cli.js::fn::main",
+  "source_label": "main",
+  "total_blast_nodes": 129,
+  "total_energy": 9.060089111328125,
+  "truncated": false
+}

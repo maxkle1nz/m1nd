@@ -1,0 +1,222 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "activate(query) for exploration",
+      "help for tool reference"
+    ]
+  },
+  "binding": {
+    "fingerprint": {
+      "binary_drift": null,
+      "binary_git_sha": "a44237d-dirty",
+      "binary_version": "1.2.1",
+      "cache_generation": 5,
+      "current_exe": "/Users/kle1nz/m1nd-tree/target/release/m1nd-mcp",
+      "edge_count": 22007,
+      "graph_finalized": true,
+      "graph_generation": 5,
+      "graph_path": "./graph_snapshot.json",
+      "graph_path_exists": true,
+      "ingest_roots": [
+        "/Users/kle1nz/m1nd-tree",
+        "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory"
+      ],
+      "node_count": 6509,
+      "plasticity_generation": 0,
+      "plasticity_path": "./plasticity_state.json",
+      "process_id": 9421,
+      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "schema": "m1nd-binding-fingerprint-v0",
+      "workspace_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "graph_populated": true,
+    "graph_state": {
+      "cache_generation": 5,
+      "edge_count": 22007,
+      "finalized": true,
+      "graph_generation": 5,
+      "graph_path": "./graph_snapshot.json",
+      "graph_path_exists": true,
+      "ingest_root_count": 2,
+      "ingest_roots": [
+        "/Users/kle1nz/m1nd-tree",
+        "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory"
+      ],
+      "node_count": 6509,
+      "plasticity_generation": 0,
+      "runtime_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt",
+      "workspace_root": "/private/tmp/claude-502/-Users-kle1nz/eef922c0-61f3-4d8d-bf47-098d85e49d93/scratchpad/rt/agent-memory",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "ok": true,
+    "trust_mode": "full_trust"
+  },
+  "context": {
+    "anchors": [
+      {
+        "label": "write",
+        "node_id": "file::m1nd-mcp/tests/counterfactual_behavior.rs::fn::write",
+        "pagerank": 1.0
+      },
+      {
+        "label": "Graph",
+        "node_id": "file::m1nd-core/src/graph.rs::struct::Graph",
+        "pagerank": 0.3504084050655365
+      },
+      {
+        "label": "FiniteF32",
+        "node_id": "file::m1nd-core/src/types.rs::struct::FiniteF32",
+        "pagerank": 0.33693546056747437
+      },
+      {
+        "label": "NodeId",
+        "node_id": "file::m1nd-core/src/types.rs::struct::NodeId",
+        "pagerank": 0.2655208706855774
+      },
+      {
+        "label": "SessionState",
+        "node_id": "file::m1nd-mcp/src/session.rs::struct::SessionState",
+        "pagerank": 0.2631194293498993
+      }
+    ],
+    "coverage": {
+      "total": 6509,
+      "unvisited_high_value": [
+        "m1nd-mcp/tests/counterfactual_behavior.rs::fn::write",
+        "m1nd-core/src/types.rs::struct::FiniteF32",
+        "m1nd-core/src/types.rs::struct::NodeId",
+        "m1nd-demo/src/lib/utils.ts::fn::cn",
+        "m1nd-core/src/graph.rs::struct::StringInterner"
+      ],
+      "visited": 25
+    },
+    "focus_nodes": [
+      {
+        "activation": 0.9169653654098511,
+        "kind": "Function",
+        "label": "snapshot",
+        "node_id": "file::m1nd-mcp/src/instance_registry.rs::fn::snapshot",
+        "pagerank": 0.007251317612826824,
+        "path": "m1nd-mcp/src/instance_registry.rs"
+      },
+      {
+        "activation": 0.9439544677734375,
+        "kind": "File",
+        "label": "m1nd-mcp/src/http_server.rs",
+        "node_id": "file::m1nd-mcp/src/http_server.rs",
+        "pagerank": 0.0076976800337433815,
+        "path": "m1nd-mcp/src/http_server.rs"
+      },
+      {
+        "activation": 0.8794668316841125,
+        "kind": "Module",
+        "label": "http_server",
+        "node_id": "file::m1nd-mcp/src/lib.rs::mod::http_server",
+        "pagerank": 0.0029163258150219917,
+        "path": "m1nd-mcp/src/lib.rs"
+      },
+      {
+        "activation": 0.7732505202293396,
+        "kind": "Function",
+        "label": "orient_real_snapshot_probe",
+        "node_id": "file::m1nd-mcp/src/server.rs::fn::orient_real_snapshot_probe",
+        "pagerank": 0.0029002921655774117,
+        "path": "m1nd-mcp/src/server.rs"
+      },
+      {
+        "activation": 0.7699124813079834,
+        "kind": "Function",
+        "label": "seek_token_budget_real_snapshot_probe",
+        "node_id": "file::m1nd-mcp/src/server.rs::fn::seek_token_budget_real_snapshot_probe",
+        "pagerank": 0.0029002921655774117,
+        "path": "m1nd-mcp/src/server.rs"
+      },
+      {
+        "activation": 0.7665103077888489,
+        "kind": "Function",
+        "label": "handle_graph_snapshot",
+        "node_id": "file::m1nd-mcp/src/http_server.rs::fn::handle_graph_snapshot",
+        "pagerank": 0.0029723767656832933,
+        "path": "m1nd-mcp/src/http_server.rs"
+      },
+      {
+        "activation": 0.7620452046394348,
+        "kind": "Function",
+        "label": "serve",
+        "node_id": "file::m1nd-mcp/src/server.rs::fn::serve",
+        "pagerank": 0.004161550663411617,
+        "path": "m1nd-mcp/src/server.rs"
+      },
+      {
+        "activation": 0.7426413893699646,
+        "kind": "Function",
+        "label": "handle_subgraph",
+        "node_id": "file::m1nd-mcp/src/http_server.rs::fn::handle_subgraph",
+        "pagerank": 0.0029723767656832933,
+        "path": "m1nd-mcp/src/http_server.rs"
+      }
+    ],
+    "memory_nearby": [
+      {
+        "anchored_to": "file::m1nd-mcp/src/http_server.rs",
+        "claim": "\ud835\udd3b evidence: m1nd-mcp/src/http_server.rs",
+        "evidence_fresh": true
+      }
+    ]
+  },
+  "honest_gaps": [],
+  "memory": [
+    {
+      "age_ms": 45247,
+      "claim": "\ud835\udd3b evidence: m1nd-mcp/src/http_server.rs",
+      "kind": "light",
+      "node_id": "light::light::tag::graphsnapshotendpoint-light-md::17::evidence-m1nd-mcp-src-http-server-rs",
+      "source_agent": "agent-refactor",
+      "stale": false
+    },
+    {
+      "age_ms": 45247,
+      "claim": "GraphSnapshotEndpoint",
+      "kind": "light",
+      "node_id": "light::light::section::graphsnapshotendpoint-light-md::graphsnapshotendpoint-1",
+      "source_agent": "agent-refactor",
+      "stale": false
+    },
+    {
+      "age_ms": 45247,
+      "claim": "graphsnapshotendpoint.light.md",
+      "kind": "light",
+      "node_id": "light::light::file::graphsnapshotendpoint-light-md",
+      "source_agent": "agent-refactor",
+      "stale": false
+    },
+    {
+      "age_ms": 45247,
+      "claim": "\u2342 entity: The graph snapshot endpoint is the single source of tree structure \u2014 never a second fs.readdir view",
+      "kind": "light",
+      "node_id": "light::light::tag::graphsnapshotendpoint-light-md::15::entity-the-graph-snapshot-endpoint-is-the-single-source-of-tree-structure-never-a-second-fs-readdir-view",
+      "source_agent": "agent-refactor",
+      "stale": false
+    }
+  ],
+  "needs": null,
+  "next_move": "Call `surgical_context` on the top focus node to ground the task before editing.",
+  "non_claims": [
+    "north composes existing read-only verbs; it does not ingest, mutate, or repair the graph.",
+    "north does not refresh the host MCP binding.",
+    "north does not replace compiler, tests, or local file truth.",
+    "an absent memory age means unknown authored time, never freshly authored."
+  ],
+  "proof_state": "triaging",
+  "recovery_playbook": null,
+  "schema": "m1nd-north-packet-v0",
+  "sufficiency": {
+    "captured": 0.12099066376686096,
+    "state": "gathering",
+    "top_score": 0.6624570488929749,
+    "why": "the strongest match left out still scores 0.49 \u2014 relevant context did not fit (set carries 12% of the salience); raise token_budget/top_k or narrow the goal"
+  },
+  "task": "modify the graph snapshot endpoint in http_server.rs"
+}

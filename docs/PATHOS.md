@@ -46,6 +46,22 @@ memory-recall proof (agent-memory surfacing through `north` on the running :1338
 captured at cut time — this checkpoint is where compounding stopped being an A/B hypothesis and
 became a live runtime property.
 
+**Human layer — Living Tree Slice 0 SHIPPED (2026-07-03, `feat/living-tree-slice0`).** The
+first human surface landed: the served UI (`m1nd-ui`, `127.0.0.1:1337`) now opens on the
+**Living Tree** — the familiar filetree EVOLVED, assembled from `/api/graph/snapshot` (never a
+second fs view), decorated with calm trust dots (`insufficient_evidence` → iris violet), the
+read-only **post-it** system (memories pinned via `grounded_in`, author + age absent-never-faked,
+four states: fresh / aging / stale-flipped / violet-unknown), directory memory-count roll-ups,
+the hover blast whisper (floor language), and the node drawer (rung 1, action-language verdict) —
+with honest `needs_ingest`/degraded cold states. The force-directed map is demoted (not the front
+door). This slice also retired the cyberpunk theme for the **SOFT PROOF** tokens and shipped the
+CI-able **violet-quarantine lint** (violet is reserved for abstain/unknown, nothing else). The
+INV honesty suite (23 tests) is fed by REAL captured envelopes (`m1nd-ui/src/__fixtures__/`),
+dogfooded live against a `--serve` of m1nd's own graph; `cargo build -p m1nd-mcp` still compiles
+the new embedded dist. Verdict/state renderer is read-only — humans read memory, agents write it.
+Slices 1–3 (Pre-Flight Card, Honesty HUD + Change Preview, Project Brain) stay spec'd in
+`docs/HUMAN-LAYER-PRD.md`. UI-only change; no engine/agent-surface behavior moved.
+
 ---
 
 **v1.2.0 IS RELEASED.** Tag `v1.2.0` on the merge commit, `release.yml` published
