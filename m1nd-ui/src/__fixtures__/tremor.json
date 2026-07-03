@@ -1,0 +1,16 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "activate(query) for exploration",
+      "help for tool reference"
+    ]
+  },
+  "elapsed_ms": 0.000125,
+  "nodes_with_sufficient_data": 0,
+  "note": "No velocity observations yet \u2014 tremor measures the second derivative of change over time. Run `ghost_edges` (parses git commit history) to seed change velocity, then re-run; or accumulate observations via the daemon.",
+  "threshold": 0.10000000149011612,
+  "total_nodes_analyzed": 0,
+  "tremors": [],
+  "window": "30d"
+}

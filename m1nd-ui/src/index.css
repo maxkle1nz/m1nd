@@ -2,25 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * SOFT PROOF design tokens (HUMAN-LAYER-PRD §6.1).
+ * The abstain wears the brand color (Iris violet #7C3AED) and NOTHING else does
+ * — the violet family is QUARANTINED to the abstain/unknown token names below and
+ * enforced by scripts/violet-lint.mjs. "Nothing glows": matte contact shadows only,
+ * no emission gradients (§6.3).
+ */
 :root {
-  --bg-base: #09090b;
-  --bg-surface: #0c0c10;
-  --bg-elevated: #1a1a2e;
-  --border-subtle: #1e1e2e;
-  --border-medium: #2a2a3a;
-  --border-strong: #3b3b5c;
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --accent-purple: #a78bfa;
-  --accent-indigo: #6366f1;
-  --accent-violet: #7c3aed;
-  --accent-emerald: #059669;
-  --accent-fire: #ff6b35;
-  --accent-teal: #4ecdc4;
-  --health-ok: #22c55e;
-  --health-warn: #eab308;
-  --health-error: #ef4444;
+  /* Foundation */
+  --porcelain: #f7f4ef; /* app ground */
+  --bone: #efeae2;       /* cards, post-it paper */
+  --ink: #2b2836;        /* text */
+  --ink-soft: #5b5566;   /* secondary text */
+
+  /* Violet family — QUARANTINED to abstain / honest-unknown only */
+  --wisteria: #a78bfa;   /* violet tint */
+  --iris: #7c3aed;       /* violet primary (the brand color) */
+  --veil: #ede9fe;       /* violet wash */
+  --iris-deep: #4c1d95;  /* ink-level violet accent */
+
+  /* Verdict tokens (semantic) */
+  --verdict-act: #6fa287;         /* fired sage — low risk / act */
+  --verdict-act-tint: #dee9dc;
+  --verdict-reverify: #c89b3c;    /* ochre — medium risk / reverify */
+  --verdict-reverify-tint: #f0e3c0;
+  --verdict-abstain: #7c3aed;     /* IRIS — abstain / insufficient_evidence */
+  --verdict-abstain-tint: #ede9fe;
+
+  /* State tokens */
+  --state-unverified: #b8b2a8;    /* unfired grey — stale / no-evidence */
+  --state-unverified-tint: #e9e5de;
+  --state-failure: #b0563b;       /* fired brick — losses, hard errors */
+  --state-failure-tint: #edcec3;
+
+  /* Matte contact shadow (no colored halos, no emission) */
+  --shadow-contact: 0 1px 2px rgb(43 40 54 / 0.08);
+  --shadow-card: 0 1px 3px rgb(43 40 54 / 0.1);
 }
 
 html, body, #root {
@@ -29,20 +47,28 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  background: var(--porcelain);
+  color: var(--ink);
 }
 
-/* Toast slide-in animation */
-@keyframes slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+/*
+ * The tremor breath — the single sanctioned ambient animation (§6.3).
+ * Opacity ±0.15, period ≥ 3s. Never a strobe. Abstain-class elements NEVER
+ * carry this (enforced by the abstain-never-animates component test, INV-02).
+ */
+@keyframes tremor-breath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+.tremor-breath {
+  animation: tremor-breath 3.4s ease-in-out infinite;
 }
 
-.animate-slide-in {
-  animation: slide-in 0.25s ease-out;
+/* Quiet toast slide-in (≤200ms, ease-out) */
+@keyframes soft-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-soft-slide-in {
+  animation: soft-slide-in 0.18s ease-out;
 }

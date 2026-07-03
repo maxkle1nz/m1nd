@@ -1,0 +1,201 @@
+{
+  "_m1nd": {
+    "personality": "150 nodes in blast radius. proof_state=triaging. follow the downstream seam next.",
+    "read_only": false,
+    "suggest_next": [
+      "view(next_suggested_target) to inspect the strongest downstream seam",
+      "validate_plan(files) before touching a high-blast seam",
+      "counterfactual(node) to simulate removal"
+    ],
+    "summary": "150 nodes in blast radius. proof_state=triaging. follow the downstream seam next."
+  },
+  "blast_radius": [
+    {
+      "hop_distance": 1,
+      "label": "handle_graph_snapshot",
+      "node_id": "handle_graph_snapshot",
+      "signal_strength": 0.5818362832069397,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "handle_subgraph",
+      "node_id": "handle_subgraph",
+      "signal_strength": 0.5808448791503906,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "append_event_to_log",
+      "node_id": "append_event_to_log",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "emit_followup_events",
+      "node_id": "emit_followup_events",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "tool_result_summary",
+      "node_id": "tool_result_summary",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "emit_apply_batch_handoff",
+      "node_id": "emit_apply_batch_handoff",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "apply_batch_progress_sink",
+      "node_id": "apply_batch_progress_sink",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "watch_event_log",
+      "node_id": "watch_event_log",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "UiAssets",
+      "node_id": "UiAssets",
+      "signal_strength": 0.550000011920929,
+      "type": "Struct"
+    },
+    {
+      "hop_distance": 1,
+      "label": "SseEvent",
+      "node_id": "SseEvent",
+      "signal_strength": 0.550000011920929,
+      "type": "Struct"
+    },
+    {
+      "hop_distance": 1,
+      "label": "AppState",
+      "node_id": "AppState",
+      "signal_strength": 0.550000011920929,
+      "type": "Struct"
+    },
+    {
+      "hop_distance": 1,
+      "label": "spawn_background",
+      "node_id": "spawn_background",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "open_browser",
+      "node_id": "open_browser",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "truncate_json",
+      "node_id": "truncate_json",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "timeout_error_payload",
+      "node_id": "timeout_error_payload",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "tool_error_payload",
+      "node_id": "tool_error_payload",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "build_router",
+      "node_id": "build_router",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "handle_health",
+      "node_id": "handle_health",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "handle_instance_self",
+      "node_id": "handle_instance_self",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    },
+    {
+      "hop_distance": 1,
+      "label": "handle_instances",
+      "node_id": "handle_instances",
+      "signal_strength": 0.550000011920929,
+      "type": "Function"
+    }
+  ],
+  "causal_chains": [
+    {
+      "cumulative_strength": 0.800000011920929,
+      "path": [
+        "m1nd-mcp/src/http_server.rs",
+        "m1nd-mcp"
+      ],
+      "relations": [
+        "contains"
+      ]
+    },
+    {
+      "cumulative_strength": 0.6800000071525574,
+      "path": [
+        "m1nd-mcp/src/http_server.rs",
+        "m1nd-mcp",
+        "m1nd-tree"
+      ],
+      "relations": [
+        "contains",
+        "contains"
+      ]
+    },
+    {
+      "cumulative_strength": 0.64000004529953,
+      "path": [
+        "m1nd-mcp/src/http_server.rs",
+        "m1nd-mcp",
+        "m1nd-mcp/tests/test_auto_ingest.rs"
+      ],
+      "relations": [
+        "contains",
+        "contains"
+      ]
+    }
+  ],
+  "direction": "forward",
+  "max_hops_reached": 5,
+  "next_step_hint": "Run `view` if this tool finishes cleanly.",
+  "next_suggested_target": "handle_graph_snapshot",
+  "next_suggested_tool": "view",
+  "proof_state": "triaging",
+  "source": "file::m1nd-mcp/src/http_server.rs",
+  "source_label": "m1nd-mcp/src/http_server.rs",
+  "total_blast_nodes": 2936,
+  "total_energy": 94.19145965576172,
+  "truncated": true
+}

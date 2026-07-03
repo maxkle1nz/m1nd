@@ -6,6 +6,7 @@ import type {
   ToolCallResult,
   ToolSchema,
 } from './types';
+import type { GraphSnapshot } from '../lib/snapshot';
 
 const BASE_URL = import.meta.env.DEV ? 'http://localhost:1337' : '';
 
@@ -70,5 +71,17 @@ export const api = {
     '/api/graph/stats',
   ),
 
-  graphSnapshot: () => apiFetch<unknown>('/api/graph/snapshot'),
+  /** The single source of tree structure (PRD §3.1). Typed to the live wire shape. */
+  graphSnapshot: () => apiFetch<GraphSnapshot>('/api/graph/snapshot'),
+
+  /**
+   * Call a tool by its BARE name (the dispatch route strips no `m1nd.` prefix —
+   * `/api/tools/{tool}` maps 1:1 to the tool id). Returns the unwrapped `result`.
+   * Used by the Living Tree for trust / tremor / impact / north.
+   */
+  tool: <T = unknown>(toolName: string, params: Record<string, unknown> = {}) =>
+    apiFetch<{ result: T }>(`/api/tools/${toolName}`, {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: 'gui', ...params }),
+    }).then((r) => r.result),
 };

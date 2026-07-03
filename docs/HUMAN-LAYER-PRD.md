@@ -576,9 +576,28 @@ Sequencing follows the critic: the smallest lovable surface first, the moat seco
 never. Each slice ships behind the same gate style the repo already uses (battery/tests
 green, claims scoped).
 
+> **Slice 0 status — SHIPPED 2026-07-03 (`feat/living-tree-slice0`).** The Living Tree is
+> the served front door: `TreeView`/`TreeRow` assembled from `/api/graph/snapshot` (never a
+> second fs view), trust dots (`insufficient_evidence` → iris violet), read-only post-its
+> pinned via `grounded_in` (author + age absent-never-faked, four states), directory
+> memory-count aggregation, the hover blast whisper (floor language), the node drawer (rung
+> 1, action-language verdict), and the honest `needs_ingest`/degraded cold states. The
+> map/GraphCanvas is demoted (not mounted at the front door). SOFT PROOF tokens + the
+> **violet-quarantine lint** (`m1nd-ui/scripts/violet-lint.mjs`, CI-able) landed here; the
+> INV suite (`m1nd-ui/src/**/*.test.{ts,tsx}`, 23 tests) is fed by **real captured envelopes**
+> in `m1nd-ui/src/__fixtures__/` (dogfooded from a live `--serve` of m1nd's own graph).
+> Verified live in-browser: cream porcelain ground, violet only on the unknown dot, the
+> `GraphSnapshotEndpoint` post-it rendering fresh on `http_server.rs`. `cargo build -p
+> m1nd-mcp` still compiles with the new embedded dist. **Deferred (honest):** self-hosted
+> Instrument Sans / IBM Plex Mono woff2 (falls back to system/JetBrains stacks until vendored,
+> §6.5); the `graph_changed` SSE live-refresh (§5.3 — the tree refreshes on reload, not yet
+> surgically); tremor breath is wired but the repo currently reports no active tremors; the
+> stale-flipped post-it path is code- and test-covered but needs a real evidence-drift case
+> to exercise end-to-end. Slices 1–3 below remain spec'd.
+
 | Slice | Ships | Proof gates (all must be green) |
 |---|---|---|
-| **0 — the Living Tree, read-only** *(the smallest lovable surface)* | Tree + trust dots + post-its + coverage emphasis + hover whisper + node drawer + honest cold states. SOFT PROOF tokens + violet-quarantine lint land here (the re-skin is the foundation, not a later coat). No map, no editing. | Renders m1nd's own repo from the live served endpoints (dogfood); INV-01/02/04/06/07/08 tests green; violet-lint green (zero violet outside abstain tokens); post-it provenance matches `seek`/snapshot tags byte-for-byte; cold-graph state renders `needs_ingest` honestly; tree usable keyboard-only. |
+| **0 — the Living Tree, read-only** ✅ **SHIPPED 2026-07-03** *(the smallest lovable surface)* | Tree + trust dots + post-its + coverage emphasis + hover whisper + node drawer + honest cold states. SOFT PROOF tokens + violet-quarantine lint land here (the re-skin is the foundation, not a later coat). No map, no editing. | Renders m1nd's own repo from the live served endpoints (dogfood); INV-01/02/04/06/07/08 tests green; violet-lint green (zero violet outside abstain tokens); post-it provenance matches `seek`/snapshot tags byte-for-byte; cold-graph state renders `needs_ingest` honestly; tree usable keyboard-only. |
 | **1 — the Pre-Flight Card** *(the hero)* | The north card (mini-map strip, blast line, memory strip, violet gap card, one next-move button), seeded from the tree's `[Check before editing]`. | Replays real captured north envelopes from `docs/benchmarks/**/event-streams/`; INV-03/05/07 green on the card; the 2-second read holds (headline + verdict + gaps visible without scroll at 1280×800); every gap shows exactly one action; `needs_ingest` and degraded-binding variants render the repair path. |
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |
