@@ -101,12 +101,278 @@ async fn run_stdout_writer(mut rx: mpsc::UnboundedReceiver<StdoutFrame>) {
 /// Session state the bridge captures at `initialize` and replays on every
 /// subsequent request, so the owner routes all of this client's traffic to the
 /// one shared session.
+///
+/// `initialize_payload` is the load-bearing addition for field-triage #5: we
+/// RETAIN the host's original `initialize` frame verbatim so that, when the owner
+/// restarts and expires our session, we can re-run `initialize` REPLAYING the
+/// exact clientInfo/capabilities/protocolVersion the host negotiated — a
+/// transparent re-init the host never sees.
 #[derive(Clone, Default)]
-struct AttachSession {
+pub struct AttachSession {
     /// `Mcp-Session-Id` minted by the owner at `initialize`.
-    mcp_session_id: Option<String>,
+    pub mcp_session_id: Option<String>,
     /// `result.protocolVersion` negotiated at `initialize`.
-    protocol_version: Option<String>,
+    pub protocol_version: Option<String>,
+    /// The host's original `initialize` request frame, retained verbatim so a
+    /// transparent re-init can replay its params (see field-triage #5).
+    pub initialize_payload: Option<String>,
+}
+
+impl AttachSession {
+    /// Absorb an `initialize` round-trip: record the freshly minted
+    /// `Mcp-Session-Id` (from the response header), the negotiated
+    /// `result.protocolVersion` (from the response body), and retain the exact
+    /// request frame that produced them so it can be replayed on a later re-init.
+    /// Mirrors the capture the bridge loop performs on the host's first
+    /// `initialize`; reused by [`reinitialize`] and by the integration test.
+    pub fn capture_initialize(
+        &mut self,
+        session_id_header: &Option<String>,
+        response_value: &serde_json::Value,
+        request_payload: &str,
+    ) {
+        if let Some(sid) = session_id_header {
+            self.mcp_session_id = Some(sid.clone());
+        }
+        if let Some(pv) = response_value
+            .get("result")
+            .and_then(|r| r.get("protocolVersion"))
+            .and_then(|p| p.as_str())
+        {
+            self.protocol_version = Some(pv.to_string());
+        }
+        self.initialize_payload = Some(request_payload.to_string());
+    }
+}
+
+/// JSON-RPC error code the owner returns when a forwarded request carries an
+/// `Mcp-Session-Id` it no longer knows (e.g. after an owner restart). Per the MCP
+/// spec the owner also answers HTTP 404, but the JSON-RPC code is the
+/// authoritative, transport-independent signal we key the re-init on.
+const SESSION_EXPIRED_CODE: i64 = -32001;
+
+/// Outcome of one POST to the owner's `/mcp`, demuxed to a single JSON-RPC value.
+///
+/// `value` is the response frame (for a request) or `None` (for a notification,
+/// or when no usable frame could be extracted). `session_id_header` carries the
+/// `Mcp-Session-Id` the owner minted on this response (only present on
+/// `initialize`). `status` is the HTTP status, kept for diagnostics.
+pub struct PostOutcome {
+    /// The demuxed JSON-RPC response value, if the owner returned one.
+    pub value: Option<serde_json::Value>,
+    /// `Mcp-Session-Id` response header, if the owner set one (init only).
+    pub session_id_header: Option<String>,
+    /// HTTP status code the owner returned.
+    pub status: u16,
+}
+
+/// Does this response frame carry the owner's "session unknown/expired" error?
+/// Keyed on the JSON-RPC error `code == -32001` so it works whether the owner
+/// delivered the error as `application/json` or inside an SSE frame.
+fn is_session_expired(value: &serde_json::Value) -> bool {
+    value
+        .get("error")
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_i64())
+        == Some(SESSION_EXPIRED_CODE)
+}
+
+/// POST one JSON-RPC `payload` to the owner's `/mcp` `endpoint`, attaching the
+/// session's `Mcp-Session-Id` + negotiated protocol version, and demux the reply
+/// to a single JSON-RPC value.
+///
+/// This is the exact transport step the bridge loop performs, factored out so the
+/// re-init retry ([`forward_with_reinit`]) and the integration test drive the
+/// SAME code the loop does. When `relay` is `Some`, interim server→client SSE
+/// notifications are forwarded to that sink (the loop passes its stdout sink);
+/// pass `None` when no relay target exists (the test path).
+///
+/// Errors are transport failures (could not reach the owner / could not read the
+/// body). A JSON-RPC *error frame* from the owner is NOT an `Err` — it comes back
+/// as `Ok(PostOutcome { value: Some(<error frame>), .. })`, so callers can inspect
+/// the code (e.g. `-32001`) and decide to re-initialize.
+pub async fn post_and_demux(
+    client: &reqwest::Client,
+    endpoint: &str,
+    session: &AttachSession,
+    payload: &str,
+) -> Result<PostOutcome, String> {
+    post_and_demux_relayed::<fn(serde_json::Value)>(client, endpoint, session, payload, None).await
+}
+
+/// Backing implementation of [`post_and_demux`]. `relay`, when set, is invoked for
+/// every interim server→client notification frame found in an SSE body (id-less),
+/// so the caller can forward it verbatim to the host. Generic over the relay
+/// closure so the public `None` path needs no allocation and no sink type.
+async fn post_and_demux_relayed<F>(
+    client: &reqwest::Client,
+    endpoint: &str,
+    session: &AttachSession,
+    payload: &str,
+    mut relay: Option<F>,
+) -> Result<PostOutcome, String>
+where
+    F: FnMut(serde_json::Value),
+{
+    let mut builder = client
+        .post(endpoint)
+        .header(
+            reqwest::header::ACCEPT,
+            "application/json, text/event-stream",
+        )
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(payload.to_string());
+
+    if let Some(sid) = &session.mcp_session_id {
+        builder = builder.header(MCP_SESSION_HEADER, sid.clone());
+    }
+    if let Some(pv) = &session.protocol_version {
+        builder = builder.header(MCP_PROTOCOL_VERSION_HEADER, pv.clone());
+    }
+
+    let response = builder.send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let session_id_header = response
+        .headers()
+        .get(MCP_SESSION_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+
+    // A notification/response POST (no reply expected) returns 202 with an empty
+    // body — surface no value.
+    if status == reqwest::StatusCode::ACCEPTED {
+        return Ok(PostOutcome {
+            value: None,
+            session_id_header,
+            status: status.as_u16(),
+        });
+    }
+
+    let body = response.text().await.map_err(|e| e.to_string())?;
+
+    // Parse the request id we sent so SSE demux can pick the matching frame.
+    let want_id = serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|v| v.get("id").cloned())
+        .filter(|v| !v.is_null());
+
+    let value = if content_type.contains("text/event-stream") {
+        extract_sse_response_relayed(&body, want_id.as_ref(), relay.as_mut())
+    } else {
+        match serde_json::from_str::<serde_json::Value>(&body) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                eprintln!(
+                    "[m1nd-mcp][attach] owner returned {} with non-JSON body ({}): {}",
+                    status, e, body
+                );
+                None
+            }
+        }
+    };
+
+    Ok(PostOutcome {
+        value,
+        session_id_header,
+        status: status.as_u16(),
+    })
+}
+
+/// Transparently re-initialize a session against the owner after it expired
+/// (owner restart). REPLAYS the retained host `initialize` frame so the fresh
+/// session preserves the negotiated clientInfo/capabilities/protocolVersion, then
+/// re-sends `notifications/initialized`. On success `session` is updated in place
+/// with the new `Mcp-Session-Id` (and protocol version); returns the fresh
+/// session id. Returns `Err` if there is no retained initialize frame or the
+/// re-init round-trip itself fails — the caller then passes the honest error
+/// through rather than looping.
+pub async fn reinitialize(
+    client: &reqwest::Client,
+    endpoint: &str,
+    session: &mut AttachSession,
+) -> Result<String, String> {
+    let init_payload = session
+        .initialize_payload
+        .clone()
+        .ok_or_else(|| "no retained initialize frame to replay".to_string())?;
+
+    // Re-run initialize with a CLEAN session (no stale id) so the owner mints a
+    // brand-new one from the replayed host params.
+    let clean = AttachSession {
+        initialize_payload: Some(init_payload.clone()),
+        ..AttachSession::default()
+    };
+    let outcome = post_and_demux(client, endpoint, &clean, &init_payload).await?;
+
+    let value = outcome
+        .value
+        .ok_or_else(|| "re-init produced no initialize response frame".to_string())?;
+    if is_session_expired(&value) || value.get("error").is_some() {
+        return Err(format!("re-init initialize returned an error: {value}"));
+    }
+
+    session.capture_initialize(&outcome.session_id_header, &value, &init_payload);
+    let new_sid = session
+        .mcp_session_id
+        .clone()
+        .ok_or_else(|| "re-init response carried no Mcp-Session-Id".to_string())?;
+
+    // The owner's new session needs the `initialized` notification before it will
+    // accept post-init requests. Best-effort: a failure here surfaces as the retry
+    // failing, which is handled honestly upstream.
+    let notify = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+    let _ = post_and_demux(client, endpoint, session, notify).await;
+
+    Ok(new_sid)
+}
+
+/// Forward one JSON-RPC `payload` to the owner, transparently recovering from an
+/// owner restart. If the owner answers with `-32001` (session unknown/expired),
+/// re-initialize ONCE (replaying the retained host params) and retry the original
+/// request under the fresh session, returning that result to the host as if
+/// nothing happened. Guarded to a single re-init attempt per call: if re-init or
+/// the retry still yields `-32001`, the honest error is returned rather than
+/// looping. `session` is updated in place across a successful re-init.
+///
+/// This is the field-triage #5 fix. It is exercised end-to-end (real owner
+/// restart, red→green) by `tests/attach_reinit.rs`.
+pub async fn forward_with_reinit(
+    client: &reqwest::Client,
+    endpoint: &str,
+    session: &mut AttachSession,
+    payload: &str,
+) -> Result<serde_json::Value, String> {
+    let outcome = post_and_demux(client, endpoint, session, payload).await?;
+    let value = outcome
+        .value
+        .ok_or_else(|| "owner returned no JSON-RPC response frame".to_string())?;
+
+    if !is_session_expired(&value) {
+        return Ok(value);
+    }
+
+    // Owner-side session is gone (restart). Re-initialize once, then retry.
+    eprintln!("[m1nd-mcp][attach] owner session expired — re-initialized");
+    match reinitialize(client, endpoint, session).await {
+        Ok(_) => {
+            let retry = post_and_demux(client, endpoint, session, payload).await?;
+            match retry.value {
+                Some(v) => Ok(v),
+                None => Ok(value), // no fresh frame — return the original -32001 honestly
+            }
+        }
+        Err(e) => {
+            eprintln!("[m1nd-mcp][attach] re-init failed ({e}); passing error through");
+            // Honest passthrough of the original session-expired error.
+            Ok(value)
+        }
+    }
 }
 
 /// Run the `--attach` bridge against `base_url` (e.g. `http://127.0.0.1:1337`).
@@ -213,161 +479,121 @@ pub async fn run_attach_client(base_url: String) {
             .map(str::to_owned);
         let is_initialize = method.as_deref() == Some("initialize");
 
-        // --- Build the POST with the MCP-mandated headers. ---
-        let mut builder = client
-            .post(&endpoint)
-            .header(
-                reqwest::header::ACCEPT,
-                "application/json, text/event-stream",
-            )
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(payload.clone());
+        let id_for_error = req_id.clone().unwrap_or(serde_json::Value::Null);
 
-        // After init, every request/notification carries the captured session id
-        // and negotiated protocol version (so the owner routes to the shared
-        // session and not a fresh one).
-        if let Some(sid) = &session.mcp_session_id {
-            builder = builder.header(MCP_SESSION_HEADER, sid.clone());
-        }
-        if let Some(pv) = &session.protocol_version {
-            builder = builder.header(MCP_PROTOCOL_VERSION_HEADER, pv.clone());
-        }
-
-        let response = match builder.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("[m1nd-mcp][attach] HTTP send error: {}", e);
-                // Only a request expects a reply; surface a clean JSON-RPC error
-                // to the host so it never hangs. Notifications get nothing.
-                if is_request {
-                    let id = req_id.clone().unwrap_or(serde_json::Value::Null);
+        // ================= INITIALIZE (host's own) =================
+        // The host's `initialize` cannot itself be session-expired, so it takes
+        // the plain POST path. Capturing it here RETAINS the host's exact
+        // clientInfo/capabilities/protocolVersion frame so a later transparent
+        // re-init (owner restart) can replay it verbatim — the core of the fix.
+        if is_initialize {
+            let outcome = match post_and_demux(&client, &endpoint, &session, &payload).await {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("[m1nd-mcp][attach] HTTP send error on initialize: {}", e);
                     let err = jsonrpc_error(
-                        id,
+                        id_for_error,
                         -32002,
-                        format!(
-                            "attach bridge: failed to reach m1nd owner at {}: {}",
-                            endpoint, e
+                        format!("attach bridge: failed to reach m1nd owner at {endpoint}: {e}"),
+                    );
+                    sink.emit(&err, mode);
+                    continue;
+                }
+            };
+            match outcome.value {
+                Some(v) => {
+                    session.capture_initialize(&outcome.session_id_header, &v, &payload);
+                    match &session.mcp_session_id {
+                        Some(sid) => eprintln!("[m1nd-mcp][attach] captured Mcp-Session-Id={sid}"),
+                        None => eprintln!(
+                            "[m1nd-mcp][attach] WARNING: initialize response had no Mcp-Session-Id header"
                         ),
+                    }
+                    // Lazily spawn the server→client push relay exactly once, now
+                    // that a session id exists (the owner routes the SSE GET by it).
+                    if !relay_spawned {
+                        if let Some(sid) = session.mcp_session_id.clone() {
+                            relay_spawned = true;
+                            relay_handle = Some(spawn_push_relay(
+                                &client,
+                                &endpoint,
+                                sid,
+                                session.protocol_version.clone(),
+                                &sink,
+                                mode,
+                            ));
+                        }
+                    }
+                    sink.emit_value(v, mode);
+                }
+                None => {
+                    let err = jsonrpc_error(
+                        id_for_error,
+                        -32004,
+                        "attach bridge: owner returned no initialize response frame".to_string(),
                     );
                     sink.emit(&err, mode);
                 }
-                continue;
-            }
-        };
-
-        let status = response.status();
-        let content_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-
-        // On `initialize`, capture the minted session id BEFORE consuming the body.
-        if is_initialize {
-            if let Some(sid) = response
-                .headers()
-                .get(MCP_SESSION_HEADER)
-                .and_then(|v| v.to_str().ok())
-            {
-                session.mcp_session_id = Some(sid.to_string());
-                eprintln!("[m1nd-mcp][attach] captured Mcp-Session-Id={}", sid);
-
-                // Lazily spawn the server→client push relay exactly once: the
-                // owner can only route the `GET /mcp` SSE stream once it knows the
-                // session id, which we just captured. Re-`initialize` won't
-                // double-spawn thanks to `relay_spawned`.
-                if !relay_spawned {
-                    relay_spawned = true;
-                    let relay = run_push_relay(
-                        client.clone(),
-                        endpoint.clone(),
-                        sid.to_string(),
-                        session.protocol_version.clone(),
-                        sink.clone(),
-                        mode,
-                    );
-                    relay_handle = Some(tokio::spawn(relay));
-                }
-            } else {
-                eprintln!(
-                    "[m1nd-mcp][attach] WARNING: initialize response had no Mcp-Session-Id header"
-                );
-            }
-        }
-
-        // --- Notifications/responses (no id): owner replies 202, nothing to stdout. ---
-        if !is_request {
-            if status != reqwest::StatusCode::ACCEPTED && !status.is_success() {
-                eprintln!(
-                    "[m1nd-mcp][attach] notification POST returned {} (expected 202)",
-                    status
-                );
             }
             continue;
         }
 
-        let id_for_error = req_id.clone().unwrap_or(serde_json::Value::Null);
-        let body = match response.text().await {
-            Ok(b) => b,
+        // ================= NOTIFICATIONS (no id) =================
+        // Owner replies 202; nothing goes to stdout. Best-effort forward — a
+        // post-restart 404 here is harmless (the next request re-inits).
+        if !is_request {
+            match post_and_demux(&client, &endpoint, &session, &payload).await {
+                Ok(o) if o.status != 202 && !(200..300).contains(&o.status) => {
+                    eprintln!(
+                        "[m1nd-mcp][attach] notification POST returned {} (expected 202)",
+                        o.status
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("[m1nd-mcp][attach] notification POST error: {e}"),
+            }
+            continue;
+        }
+
+        // ================= POST-INIT REQUESTS =================
+        // Route through the transparent re-init path: if the owner restarted and
+        // our session expired (-32001), re-initialize (replaying the retained host
+        // params) and retry ONCE, so the host sees a clean result. We snapshot the
+        // session id first; if it changed, a re-init happened and the SSE relay
+        // must re-subscribe under the fresh id.
+        let sid_before = session.mcp_session_id.clone();
+        let result = forward_with_reinit(&client, &endpoint, &mut session, &payload).await;
+        let sid_after = session.mcp_session_id.clone();
+
+        if sid_after != sid_before {
+            // A transparent re-init minted a new session. Tear down the stale relay
+            // (its GET is pinned to the old, now-unknown session id) and re-spawn it
+            // under the new one so `graph_changed` push notifications keep flowing.
+            if let Some(handle) = relay_handle.take() {
+                handle.abort();
+                let _ = handle.await;
+            }
+            if let Some(sid) = sid_after {
+                relay_handle = Some(spawn_push_relay(
+                    &client,
+                    &endpoint,
+                    sid,
+                    session.protocol_version.clone(),
+                    &sink,
+                    mode,
+                ));
+                relay_spawned = true;
+            }
+        }
+
+        match result {
+            Ok(v) => sink.emit_value(v, mode),
             Err(e) => {
-                eprintln!("[m1nd-mcp][attach] failed to read response body: {}", e);
+                eprintln!("[m1nd-mcp][attach] request forward error: {e}");
                 let err = jsonrpc_error(
                     id_for_error,
-                    -32003,
-                    format!("attach bridge: failed reading owner response: {}", e),
-                );
-                sink.emit(&err, mode);
-                continue;
-            }
-        };
-
-        // --- Demux by content-type. ---
-        let response_value: Option<serde_json::Value> =
-            if content_type.contains("text/event-stream") {
-                // SSE: extract the JSON-RPC response frame whose `id` matches the
-                // request; relay any interim server→client notifications to stdout.
-                extract_sse_response(&body, req_id.as_ref(), mode, &sink)
-            } else {
-                // application/json (slice-1's path): the body IS the JSON-RPC response.
-                match serde_json::from_str::<serde_json::Value>(&body) {
-                    Ok(v) => Some(v),
-                    Err(e) => {
-                        eprintln!(
-                            "[m1nd-mcp][attach] owner returned {} with non-JSON body ({}): {}",
-                            status, e, body
-                        );
-                        None
-                    }
-                }
-            };
-
-        match response_value {
-            Some(v) => {
-                // On a successful `initialize` response, capture the negotiated
-                // protocol version for subsequent requests.
-                if is_initialize {
-                    if let Some(pv) = v
-                        .get("result")
-                        .and_then(|r| r.get("protocolVersion"))
-                        .and_then(|p| p.as_str())
-                    {
-                        session.protocol_version = Some(pv.to_string());
-                        eprintln!("[m1nd-mcp][attach] negotiated protocolVersion={}", pv);
-                    }
-                }
-                sink.emit_value(v, mode);
-            }
-            None => {
-                // We got a request but couldn't surface a usable response frame.
-                // Emit a clean JSON-RPC error so the host never hangs.
-                let err = jsonrpc_error(
-                    id_for_error,
-                    -32004,
-                    format!(
-                        "attach bridge: owner returned {} but no matching JSON-RPC response frame",
-                        status
-                    ),
+                    -32002,
+                    format!("attach bridge: failed to reach m1nd owner at {endpoint}: {e}"),
                 );
                 sink.emit(&err, mode);
             }
@@ -385,6 +611,27 @@ pub async fn run_attach_client(base_url: String) {
     // Drop the producing sink so the writer task's channel closes and it exits.
     drop(sink);
     let _ = writer_handle.await;
+}
+
+/// Spawn the long-lived push relay under `session_id`, returning its handle.
+/// Small wrapper so both the first-`initialize` spawn and the re-subscribe after a
+/// transparent re-init share one call site (they must pass the SAME arguments).
+fn spawn_push_relay(
+    client: &reqwest::Client,
+    endpoint: &str,
+    session_id: String,
+    protocol_version: Option<String>,
+    sink: &StdoutSink,
+    mode: TransportMode,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(run_push_relay(
+        client.clone(),
+        endpoint.to_string(),
+        session_id,
+        protocol_version,
+        sink.clone(),
+        mode,
+    ))
 }
 
 /// Long-lived server→client push relay (Wave 4 slice 4).
@@ -561,6 +808,22 @@ fn extract_sse_response(
     mode: TransportMode,
     sink: &StdoutSink,
 ) -> Option<serde_json::Value> {
+    extract_sse_response_relayed(body, want_id, Some(|v| sink.emit_value(v, mode)))
+}
+
+/// Core of [`extract_sse_response`]: returns the response frame matching `want_id`
+/// (or the first response-shaped frame) and invokes `relay` on every interim
+/// id-less notification frame. Generic over the relay closure so the sink-free
+/// callers (`post_and_demux`, tests) pay nothing; the stdout path passes a closure
+/// that forwards to the serialized sink.
+fn extract_sse_response_relayed<F>(
+    body: &str,
+    want_id: Option<&serde_json::Value>,
+    mut relay: Option<F>,
+) -> Option<serde_json::Value>
+where
+    F: FnMut(serde_json::Value),
+{
     let mut matched: Option<serde_json::Value> = None;
     let mut first_response: Option<serde_json::Value> = None;
 
@@ -584,8 +847,10 @@ fn extract_sse_response(
                 first_response = Some(value);
             }
         } else if !has_id {
-            // Interim server→client notification → relay to stdout.
-            sink.emit_value(value, mode);
+            // Interim server→client notification → relay to the caller's sink.
+            if let Some(relay) = relay.as_mut() {
+                relay(value);
+            }
         }
     }
 
