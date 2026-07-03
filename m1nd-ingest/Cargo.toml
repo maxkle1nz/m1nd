@@ -1,9 +1,11 @@
 [package]
 name = "m1nd-ingest"
-version = "1.3.0"
+version = "1.3.1"
 edition = "2021"
 description = "Language ingest and graph extraction pipeline for m1nd."
 license = "MIT"
+keywords = ["mcp", "mcp-server", "code-graph", "agent", "ai"]
+categories = ["development-tools", "command-line-utilities"]
 repository = "https://github.com/maxkle1nz/m1nd"
 
 [features]
@@ -41,7 +43,7 @@ tier2 = [
 ]
 
 [dependencies]
-m1nd-core = { path = "../m1nd-core", version = "1.3.0" }
+m1nd-core = { path = "../m1nd-core", version = "1.3.1" }
 serde = { workspace = true }
 regex = "1"
 walkdir = "2"

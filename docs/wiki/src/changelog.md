@@ -10,6 +10,19 @@ No unreleased changes.
 
 ---
 
+## [1.3.1] — 2026-07-04
+
+Discoverability patch — metadata only, no behavior change.
+
+### Added
+
+- **npm keywords** (`mcp`, `mcp-server`, `model-context-protocol`, `code-graph`, …) and
+  **crates.io keywords + categories** on all three crates — both were shipping **empty**,
+  so the published packages were invisible to registry search. Repo GitHub topics set to
+  match. `glama.json` added (Glama listing claim). `server.json` synced to 1.3.1.
+
+---
+
 ## [1.3.0] — 2026-07-04
 
 The construction-era release: **the shell reaches every host.** One 24-hour sweep —
