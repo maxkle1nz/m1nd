@@ -1,16 +1,17 @@
 import React from 'react';
 import { useToastStore } from '../stores/toastStore';
 
+// SOFT PROOF skin — quiet bone cards, verdict-toned accents (no neon, no glow).
 const TYPE_STYLES = {
-  info: 'border-m1nd-accent/50 text-m1nd-accent',
-  success: 'border-emerald-500/50 text-emerald-400',
-  learn: 'border-violet-500/50 text-violet-400',
+  info: 'border-ink/15 text-ink-soft',
+  success: 'border-verdict-act/50 text-ink',
+  learn: 'border-verdict-reverify/50 text-ink',
 } as const;
 
 const TYPE_ICONS = {
-  info: '\u25C8',   // diamond
-  success: '\u2713', // checkmark
-  learn: '\u2731',   // heavy asterisk
+  info: '◈', // diamond
+  success: '✓', // checkmark
+  learn: '✱', // heavy asterisk
 } as const;
 
 const ToastContainer = React.memo(function ToastContainer() {
@@ -24,16 +25,16 @@ const ToastContainer = React.memo(function ToastContainer() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto bg-m1nd-surface/95 backdrop-blur-sm border rounded-lg px-3 py-2 shadow-xl text-xs font-mono max-w-[320px] animate-slide-in ${TYPE_STYLES[toast.type]}`}
+          className={`pointer-events-auto bg-bone/95 backdrop-blur-sm border rounded-lg px-3 py-2 shadow-card text-xs font-sans max-w-[320px] animate-soft-slide-in ${TYPE_STYLES[toast.type]}`}
           onClick={() => removeToast(toast.id)}
           role="status"
         >
           <div className="flex items-center gap-2">
             <span className="text-sm">{TYPE_ICONS[toast.type]}</span>
-            <span className="text-slate-200">{toast.message}</span>
+            <span className="text-ink">{toast.message}</span>
           </div>
           {toast.detail && (
-            <div className="text-[10px] text-slate-500 mt-0.5 ml-5 truncate" title={toast.detail}>
+            <div className="text-[10px] text-ink-soft mt-0.5 ml-5 truncate" title={toast.detail}>
               {toast.detail}
             </div>
           )}

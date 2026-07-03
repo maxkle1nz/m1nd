@@ -1,0 +1,22 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "tremor(node) to check volatility",
+      "panoramic for combined view"
+    ]
+  },
+  "elapsed_ms": 0.000167,
+  "note": "No defect history yet (insufficient_evidence) \u2014 trust is an actuarial model of CONFIRMED defects, populated by `learn` feedback (feedback='wrong'/'partial') and cross_verify findings, NOT by code churn. mean_trust is null because there is no computed score to report \u2014 run learn/cross_verify to populate, or ingest if the graph is empty.",
+  "scope": "all",
+  "summary": {
+    "high_risk_count": 0,
+    "low_risk_count": 0,
+    "mean_trust": null,
+    "medium_risk_count": 0,
+    "total_nodes_with_history": 0,
+    "unknown_count": 0
+  },
+  "trust_band": "insufficient_evidence",
+  "trust_scores": []
+}
