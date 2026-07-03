@@ -32,6 +32,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # git-cliff precisa do histórico completo
+          # A main deste repo exige status checks; o GITHUB_TOKEN não pode dar push
+          # direto (GH006). Um fine-grained PAT de admin (contents: read/write) no
+          # secret PATHOS_REFRESH_TOKEN destrava o push-back; sem ele, o push cai no
+          # fail-soft abaixo (warning + step summary, nunca um run vermelho perpétuo).
+          token: ${{ secrets.PATHOS_REFRESH_TOKEN || github.token }}
 
       - uses: actions/setup-node@v4
         with:
@@ -60,5 +65,24 @@ jobs:
             echo "Nada para commitar (PATHOS já alinhado)."
           else
             git commit -m "docs(norte): auto-refresh PATHOS [skip ci]"
-            git push
+            # Fail-soft: com required status checks na main, o GITHUB_TOKEN é rejeitado
+            # (GH006, provado 2026-07-03). Não deixar o workflow vermelho a cada push
+            # (cry-wolf); avisar alto e documentar o destravamento no summary.
+            if git push; then
+              echo "PATHOS auto-refresh aterrissou na main."
+            else
+              echo "::warning title=PATHOS auto-refresh bloqueado::O refresh foi gerado e commitado no runner, mas o push na main foi rejeitado pela branch protection (required status checks). O refresh NAO aterrissou. Destrave: secret PATHOS_REFRESH_TOKEN (fine-grained PAT de admin, contents read/write) — o workflow ja o usa se existir."
+              {
+                echo "## PATHOS auto-refresh — push bloqueado pela branch protection"
+                echo ""
+                echo "O refresh foi **gerado** e **commitado** (como Max Kle1nz) no runner, mas o push"
+                echo "direto na \`main\` foi rejeitado: required status checks + \`GITHUB_TOKEN\` sem bypass."
+                echo ""
+                echo "**Destravar (decisão do dono do repo):**"
+                echo "- **Opção A (preferida):** criar um fine-grained PAT (repo m1nd, Contents: read/write)"
+                echo "  e salvá-lo no secret \`PATHOS_REFRESH_TOKEN\` — este workflow já o usa se existir."
+                echo "- **Opção B:** permitir bypass dos required checks para o app \`github-actions\`"
+                echo "  (mudança de branch protection)."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi

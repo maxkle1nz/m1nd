@@ -478,6 +478,15 @@ knobs at the top of the script.
     remains the dedicated harder cycle. This is the #1 remaining correctness gap in the graph itself.
   - **Living Tree Slice-0 deferrals** (repeated here so they're not lost): live `graph_changed` SSE
     refresh, vendored fonts, and the stale-flip e2e — all carried into Slice 1.
+  - **PATHOS auto-refresh: the push-back to `main` is BLOCKED by branch protection (needs Max's
+    call).** The pattern is installed and PROVEN up to the last hop: the Action regenerates both
+    auto sections and commits as Max Kle1nz on the runner, but the direct push is rejected (GH006 —
+    required status checks; `GITHUB_TOKEN` has no bypass; first live runs 2026-07-03). The workflow
+    now fail-softs (warning + step summary, never a perpetually red run) and already prefers a
+    `PATHOS_REFRESH_TOKEN` secret if present. **Unblock = Max's decision:** (A) fine-grained admin
+    PAT (Contents read/write) in the `PATHOS_REFRESH_TOKEN` secret — zero workflow edits needed; or
+    (B) required-checks bypass for `github-actions` (a protection change). Until then the auto
+    sections only refresh when a PR (like this one) carries a regenerated copy.
 
 - **Checkpoint-8 carry-over (still open into the v1.2.x cycle — the mailbox is now empty, but
   these design/decision gaps remain):**
@@ -786,10 +795,12 @@ worktree-isolated Opus frentes on non-overlapping surfaces; go SOLO if rate-limi
 
 **Chores & infra**
 
+- Stage the refreshed PATHOS per-path — a missing pathspec made git add atomically stage nothing (#237)
 - Agent-docs gate — agent-workflow changes require agent-facing doc updates (or explicit exempt) (#229)
 
 **Docs**
 
+- Checkpoint 9 — the construction era opens (3 PRDs, Living Tree, mailbox swept) + auto-refresh installed (#236)
 - The shell is the product — README re-spined around the operating loop (#228)
 - TWO-TIER-BRAIN-PRD — per-project brains + shared medulla (official, proof-grown; 3-Fable design) (#227)
 - The 5 launch plates (SOFT PROOF, founder-approved) (#223)
@@ -815,8 +826,8 @@ worktree-isolated Opus frentes on non-overlapping surfaces; go SOLO if rate-limi
 ## Auto — repo overview
 
 <!-- BEGIN:auto-overview -->
-- **Repo:** `m1nd-cp9`
-- **Branch:** `docs/pathos-cp9`
+- **Repo:** `m1nd`
+- **Branch:** `main`
 - **Last commit:** 2026-07-03
-- **Commits since `v1.2.1`:** 15
+- **Commits since `v1.2.1`:** 17
 <!-- END:auto-overview -->
