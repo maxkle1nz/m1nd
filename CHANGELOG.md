@@ -6,7 +6,22 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- **Persist targets now resolve against the runtime root, never the process cwd
+  (field-triage batch B).** A relative `graph_source` / `plasticity_state` (the
+  defaults are `./graph_snapshot.json` / `./plasticity_state.json`) is now
+  anchored on the configured `--runtime-dir` / `M1ND_RUNTIME_DIR` instead of the
+  current working directory. A launchd-spawned `--serve` owner with no
+  `WorkingDirectory` runs with `cwd=/` (a sealed, read-only volume), so every
+  persist — the graph snapshot, the plasticity state, and the `ingest_roots.json`
+  written next to the snapshot — used to fail silently with `Read-only file
+  system (os error 30)`. The medulla therefore re-ingested the whole repo on
+  every boot and warm-boot never worked (`graph_path_exists: false`, "No graph
+  snapshot found, starting fresh"). An explicit absolute `--graph` override is
+  left untouched, and with no runtime dir the historical cwd-relative behavior is
+  preserved. Proven with a red→green test that spawns the real binary under
+  `cwd=/` and asserts a second process warm-boots from the persisted snapshot.
 
 ---
 

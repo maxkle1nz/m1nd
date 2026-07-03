@@ -108,6 +108,31 @@ fn resolve_graph_source(path: PathBuf) -> PathBuf {
     }
 }
 
+/// Anchor a persist target against the runtime root when it is relative.
+///
+/// BUG (field-triage batch B): the launchd-spawned `serve` owner runs with
+/// `cwd=/` (the plist has no `WorkingDirectory`; `/` is a sealed, read-only
+/// volume). The default `graph_source` / `plasticity_state` are RELATIVE
+/// (`./graph_snapshot.json`, `./plasticity_state.json`), so every persist —
+/// the graph snapshot, the plasticity state, and `ingest_roots.json` (written
+/// next to the snapshot) — resolved against `/` and failed with
+/// `Read-only file system (os error 30)`. The medulla therefore re-ingested
+/// the whole repo on every boot and warm-boot never worked (`graph_path_exists:
+/// false`, "No graph snapshot found, starting fresh").
+///
+/// When a `runtime_dir` is configured, a RELATIVE persist target must resolve
+/// against it (the runtime dir is always writable and process-independent of
+/// cwd — the embedding cache, boot memory, and daemon state already anchor
+/// there). An EXPLICIT absolute override (a real `--graph /abs/path`) is left
+/// exactly as given. With no runtime_dir, behavior is unchanged (relative to
+/// cwd), preserving the plain `m1nd-mcp` stdio-in-a-repo workflow.
+fn anchor_persist_target(path: PathBuf, runtime_dir: Option<&std::path::Path>) -> PathBuf {
+    match runtime_dir {
+        Some(root) if path.is_relative() => root.join(path),
+        _ => path,
+    }
+}
+
 fn load_config_from_cli(cli: &Cli) -> McpConfig {
     // Priority: --config file > --graph/--plasticity/--domain flags > env vars > defaults
 
@@ -131,6 +156,16 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
     }
 
     // 2. Build from CLI flags + env vars
+
+    // Resolve the runtime dir FIRST: relative persist targets anchor against it
+    // so they never resolve against cwd (field-triage batch B: launchd cwd=/ is
+    // read-only). `--runtime-dir` wins over `M1ND_RUNTIME_DIR`.
+    let runtime_dir = cli
+        .runtime_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("M1ND_RUNTIME_DIR").ok().map(PathBuf::from));
+
     let graph_source = cli
         .graph
         .as_ref()
@@ -139,6 +174,7 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
         .or_else(|| std::env::var("GRAPH_SNAPSHOT_PATH").ok().map(PathBuf::from))
         .map(resolve_graph_source)
         .unwrap_or_else(|| PathBuf::from("./graph_snapshot.json"));
+    let graph_source = anchor_persist_target(graph_source, runtime_dir.as_deref());
 
     let plasticity_state = cli
         .plasticity
@@ -155,9 +191,8 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
                 .map(PathBuf::from)
         })
         .unwrap_or_else(|| PathBuf::from("./plasticity_state.json"));
+    let plasticity_state = anchor_persist_target(plasticity_state, runtime_dir.as_deref());
 
-    let runtime_dir = std::env::var("M1ND_RUNTIME_DIR").ok().map(PathBuf::from);
-    let runtime_dir = cli.runtime_dir.as_ref().map(PathBuf::from).or(runtime_dir);
     let registry_dir = cli
         .registry_dir
         .as_ref()
@@ -406,8 +441,62 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_graph_source, strict_version_verdict};
+    use super::{anchor_persist_target, resolve_graph_source, strict_version_verdict};
     use std::path::PathBuf;
+
+    // --- field-triage batch B: relative persist targets must anchor on the
+    // runtime dir, never resolve against cwd (launchd cwd=/ is read-only) ---
+
+    #[test]
+    fn relative_persist_target_anchors_on_runtime_dir() {
+        // BUG (field report L27/L29): the plist has no WorkingDirectory, so the
+        // owner runs with cwd=/. The default `./graph_snapshot.json` then resolved
+        // against `/` and every persist failed with os error 30 (read-only fs).
+        let runtime = PathBuf::from("/Users/kle1nz/.m1nd/runtimes/claude");
+
+        let graph = anchor_persist_target(
+            PathBuf::from("./graph_snapshot.json"),
+            Some(runtime.as_path()),
+        );
+        assert_eq!(
+            graph,
+            runtime.join("./graph_snapshot.json"),
+            "relative graph snapshot must land under the runtime dir"
+        );
+        assert!(
+            graph.starts_with(&runtime),
+            "anchored graph path must be under the runtime dir, got {graph:?}"
+        );
+
+        // A bare relative filename anchors too (the ingest_roots.json neighbor
+        // is derived from graph_source.parent(), so this fixes it transitively).
+        let plas = anchor_persist_target(
+            PathBuf::from("plasticity_state.json"),
+            Some(runtime.as_path()),
+        );
+        assert_eq!(plas, runtime.join("plasticity_state.json"));
+    }
+
+    #[test]
+    fn explicit_absolute_persist_target_is_never_rewritten() {
+        // A real `--graph /abs/path` override must pass through untouched even
+        // when a runtime dir is set: the operator asked for that exact location.
+        let runtime = PathBuf::from("/Users/kle1nz/.m1nd/runtimes/claude");
+        let explicit = PathBuf::from("/data/snapshots/graph_snapshot.json");
+        assert_eq!(
+            anchor_persist_target(explicit.clone(), Some(runtime.as_path())),
+            explicit,
+            "explicit absolute path must not be re-anchored"
+        );
+    }
+
+    #[test]
+    fn no_runtime_dir_leaves_relative_target_unchanged() {
+        // With no runtime dir (plain `m1nd-mcp` stdio-in-a-repo), the historical
+        // cwd-relative behavior is preserved.
+        let rel = PathBuf::from("./graph_snapshot.json");
+        assert_eq!(anchor_persist_target(rel.clone(), None), rel);
+    }
 
     // --- field-triage #2: the `temp` graph-source sentinel must not litter CWD ---
 
