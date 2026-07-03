@@ -289,24 +289,12 @@ pub fn personality_line(tool_name: &str, result: &Value) -> String {
 // ---------------------------------------------------------------------------
 
 /// Build the `_m1nd` metadata envelope to wrap every tool response.
-pub fn build_m1nd_meta(
-    tool_name: &str,
-    result: &Value,
-    session_tokens_saved: u64,
-    global_tokens_saved: u64,
-) -> Value {
+pub fn build_m1nd_meta(tool_name: &str, result: &Value) -> Value {
     let suggestions = suggest_next(tool_name);
     let personality = personality_line(tool_name, result);
 
     let mut meta = json!({
         "suggest_next": suggestions,
-        "savings": {
-            "query_tokens_saved": estimate_query_savings(tool_name),
-            "session_total": session_tokens_saved,
-        },
-        "gaia": {
-            "global_tokens_never_burned": global_tokens_saved,
-        },
     });
 
     if !personality.is_empty() {
@@ -314,20 +302,6 @@ pub fn build_m1nd_meta(
     }
 
     meta
-}
-
-/// Estimate tokens saved for a single query.
-fn estimate_query_savings(tool_name: &str) -> u64 {
-    match tool_name {
-        "activate" | "seek" | "search" => 750,
-        "impact" | "predict" | "counterfactual" => 1000,
-        "surgical_context" => 3200,
-        "surgical_context_v2" => 4800,
-        "hypothesize" | "missing" => 1000,
-        "apply" | "apply_batch" => 900,
-        "scan" => 1000,
-        _ => 500,
-    }
 }
 
 // ---------------------------------------------------------------------------

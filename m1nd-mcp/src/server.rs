@@ -3519,7 +3519,7 @@ fn build_orient_coverage(state: &SessionState, agent_id: &str) -> serde_json::Va
 /// Dispatch a tool call by name. Normalizes underscores to dots.
 /// Used by both JSON-RPC stdio and HTTP API -- zero duplication.
 ///
-/// v0.4.0: wraps all responses with _m1nd metadata, tracks savings.
+/// v0.4.0: wraps all responses with _m1nd metadata.
 pub fn dispatch_tool(
     state: &mut SessionState,
     tool_name: &str,
@@ -3678,20 +3678,15 @@ Run surgical_context_v2 (agent_id='{agent}', path='{first}') for each unproven t
         // never removes or renames existing fields. Non-object results (rare)
         // are left untouched.
         if response_envelope_enabled() && value.is_object() {
-            let session_saved = state.savings_tracker.tokens_saved;
-            let global_saved = state.global_savings.total_tokens_saved + session_saved;
             // Builders read the result; snapshot it once to avoid a borrow
             // conflict with the mutable insert below.
             let snapshot = value.clone();
-            let mut meta =
-                personality::build_m1nd_meta(&normalized, &snapshot, session_saved, global_saved);
-            // Promote the headline fields the contract calls for so agents get
-            // them without reaching into nested `savings`.
+            let mut meta = personality::build_m1nd_meta(&normalized, &snapshot);
+            // Promote the headline summary so agents get it at the top level.
             let summary = personality::personality_line(&normalized, &snapshot);
             if !summary.is_empty() {
                 meta["summary"] = serde_json::Value::String(summary);
             }
-            meta["tokens_saved"] = serde_json::json!(session_saved);
             meta["read_only"] = serde_json::json!(state.read_only);
 
             // Tier 3: memory at point-of-relevance (additive, capped, best-effort).
@@ -5347,8 +5342,17 @@ mod tests {
         let obj = out.as_object().expect("object result");
         assert!(obj.contains_key("_m1nd"), "_m1nd envelope must be present");
         let meta = &obj["_m1nd"];
-        assert!(meta.get("suggest_next").is_some(), "suggest_next present");
-        assert!(meta.get("tokens_saved").is_some(), "tokens_saved present");
+        assert!(meta.get("suggest_next").is_some(), "suggest_next kept");
+        assert!(meta.get("read_only").is_some(), "read_only kept");
+        // Brand gate G1: the unmeasured savings envelope is removed. An
+        // uncalibrated `tokens_saved` guessed on every response is the
+        // confident guess — honesty is the product.
+        assert!(
+            meta.get("tokens_saved").is_none(),
+            "tokens_saved must be gone (unmeasured claim)"
+        );
+        assert!(meta.get("savings").is_none(), "savings block must be gone");
+        assert!(meta.get("gaia").is_none(), "gaia block must be gone");
         // Additive: the original results field is still there.
         assert!(obj.contains_key("results"), "results field preserved");
     }
