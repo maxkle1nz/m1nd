@@ -7,6 +7,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTreeData, bandFor } from '../../hooks/useTreeData';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { useToastStore } from '../../stores/toastStore';
 import { flattenVisible, type TreeRow } from '../../lib/tree';
 import { blastCountPhrase } from '../../lib/softProof';
 import { api } from '../../api/client';
@@ -23,6 +25,18 @@ interface LivingTreeProps {
 
 export default function LivingTree({ onIngest }: LivingTreeProps) {
   const { status, root, bands, breathingPaths, error, reload } = useTreeData();
+  const addToast = useToastStore((s) => s.addToast);
+
+  // Live refresh (§5.3): when an agent mutates the shared graph, refetch the
+  // snapshot and update rows in place — calm, debounced, no flash.
+  const onLiveRefresh = useCallback(() => {
+    reload();
+    addToast('map updated', 'the graph changed under you', 'info');
+  }, [reload, addToast]);
+  useLiveRefresh({
+    onRefresh: onLiveRefresh,
+    enabled: status === 'ready' || status === 'error',
+  });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [filter, setFilter] = useState('');

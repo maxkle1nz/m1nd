@@ -140,11 +140,27 @@ export interface SsePersistData {
   generation: number;
 }
 
+/**
+ * Emitted by the server (http_server.rs `browser_graph_changed_event`) when the
+ * shared graph actually changed under the UI — an agent ran memorize / ingest /
+ * edit_commit / apply / learn. The Living Tree listens for this to refresh in
+ * place (PRD §5.3). `event` names WHICH mutation; the tree re-fetches the
+ * snapshot rather than trusting a diff.
+ */
+export interface SseGraphChangedData {
+  event: string;
+  agent_id?: string;
+  source?: string;
+  batch_id?: string;
+  timestamp_ms?: number;
+}
+
 export type SseEvent =
   | { event_type: 'activation'; data: SseActivationData }
   | { event_type: 'learn'; data: SseLearnData }
   | { event_type: 'ingest'; data: SseIngestData }
-  | { event_type: 'persist'; data: SsePersistData };
+  | { event_type: 'persist'; data: SsePersistData }
+  | { event_type: 'graph_changed'; data: SseGraphChangedData };
 
 // ---- Tool IDs ----
 
