@@ -446,11 +446,12 @@ Straight from the research, stated as **built / unbuilt / unverified** — never
    print; `apply --yes` writes owned hook JSON (merge, never-clobber) and doctrine files, and
    PRINTS the Claude/Cline/Kiro host-managed hook blocks rather than writing them.
 
-### 6b. Publish `server.json` to the official registry
+### 6b. Publish `server.json` to the official registry — **SHIPPED 2026-07-04**
 
-Publish m1nd to `registry.modelcontextprotocol.io` as `io.github.maxkle1nz/m1nd` via the
-registry publish action. **Cheap, real, unblocked** — the registry is LIVE (§5.4). This is a
-*build* action, not a research question.
+Published: `io.github.maxkle1nz/m1nd` **v1.3.0** is live on `registry.modelcontextprotocol.io`
+(device-flow auth by Max as maxkle1nz; verified via the public search API). Ownership proof =
+`mcpName` inside the npm package `@maxkle1nz/m1nd@1.3.0`. Gotcha learned: the registry caps
+`description` at **100 chars** — the repo `server.json` carries the published 95-char form.
 
 ### 6c. The `[unverified]` probe list — with verification steps
 

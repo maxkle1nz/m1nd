@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.maxkle1nz/m1nd",
-  "description": "The shell around your coding agent: a neuro-symbolic code graph with calibrated trust. North orients before work, verdicts guard during, memory compounds after — via MCP.",
+  "description": "The shell around your coding agent: a neuro-symbolic code graph with calibrated trust, via MCP.",
   "repository": {
     "url": "https://github.com/maxkle1nz/m1nd",
     "source": "github"
