@@ -2,6 +2,13 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
+> Last checkpoint: 2026-07-03 (**checkpoint 8.1 — v1.2.1 CUT: compounding live in the runtime**).
+> v1.2.1 tagged on the merge commit, published to crates.io + npm, GitHub Release cut, and
+> Max's live `:1338` owner rebuilt on the 1.2.1 binary — carrying the four field-triage fixes
+> (#211 `north`×L1GHT recall = THE compounding fix; #212 temp-graph tempdir; #218 numeric
+> `confidence`; #219 closure cry-wolf killed, ambiguous-blocked 9/11 → 0/11). The field-report
+> mailbox now stands at **5 reports / 4 resolved / 1 residue** (the unresolved-tag granularity
+> follow-up remains open). Prior checkpoint 8 below.
 > Last checkpoint: 2026-07-02 (**checkpoint 8 — v1.2.0 CUT: the first OMEGA-era release**).
 > Tagged `v1.2.0`, published to crates.io + npm, GitHub Release cut, and Max's live
 > `:1338` owner upgraded to the 1.2.0 binary. The era content shipped since v1.1.0:
@@ -22,7 +29,24 @@ m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
 
-## Current State (2026-07-02, checkpoint 8 — v1.2.0 CUT, the first OMEGA-era release)
+## Current State (2026-07-03, checkpoint 8.1 — v1.2.1 CUT, compounding live)
+
+**v1.2.1 IS RELEASED — and the compounding is now live in Max's runtime.** Tag `v1.2.1` on
+the merge commit, `release.yml` published `m1nd-core` / `m1nd-ingest` / `m1nd-mcp` to crates.io
++ `@maxkle1nz/m1nd` to npm, a GitHub Release was cut, and Max's live `:1338` owner was rebuilt
+on the tagged binary (`--version` → `1.2.1 (<sha>)`). The patch carries the four field-triage
+fixes merged since the 1.2.0 tag: **#211 `north` composes L1GHT agent-memory recall — THE
+compounding fix** (memorize once, recall through the front door thereafter); #212 temp-graph
+sentinel → real tempdir; #218 numeric `confidence` coerced instead of rejected; **#219 closure
+ambiguity tag fires only on genuine ties — the cry-wolf killed** (ambiguous-blocked 9/11 → 0/11,
+honesty guard proven). Battery grew to **37/37**. `m1nd-openclaw` stays `0.1.0`.
+**Field-report mailbox: 5 reports / 4 resolved / 1 residue** — the four fixes above closed their
+reports; the residue is a follow-up on unresolved-tag granularity (still open). The live north
+memory-recall proof (agent-memory surfacing through `north` on the running :1338 binary) was
+captured at cut time — this checkpoint is where compounding stopped being an A/B hypothesis and
+became a live runtime property.
+
+---
 
 **v1.2.0 IS RELEASED.** Tag `v1.2.0` on the merge commit, `release.yml` published
 `m1nd-core` / `m1nd-ingest` / `m1nd-mcp` to crates.io + `@maxkle1nz/m1nd` to npm (the

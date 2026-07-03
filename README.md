@@ -58,7 +58,7 @@ Plus an **attention runtime** — `focus` hands the agent the minimal, budget-bo
 
 1.2.0 turns the loop from "retrieve, then hope" into **pre-orient → act on calibrated verdicts → capture what you learned**. The theme is the same as the trust layer: an honest *no* beats a confident guess.
 
-- **`north(task)` — pre-orient in one call.** The new front door composes trust, task context (focus nodes + PageRank anchors), prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know). `needs_ingest` is a real answer for an empty graph. (The L1GHT-recall composition that folds prior memory into the packet landed on `main` just after the 1.2.0 tag — it is not in the 1.2.0 binary.)
+- **`north(task)` — pre-orient in one call.** The new front door composes trust, task context (focus nodes + PageRank anchors), prior cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps` (what m1nd does *not* yet know). `needs_ingest` is a real answer for an empty graph. (The L1GHT-recall composition that folds prior memory into the packet shipped in **1.2.1** — it landed on `main` just after the 1.2.0 tag, so it is not in the 1.2.0 binary.)
 - **Conformal calibration on prediction.** `calibrate_predict` arms a per-repo gate; verdicts then read `act` / `reverify` / `abstain`, where `abstain` means *uncalibrated or insufficient* — a signal to stop, not a weak yes. Ships dark: until you calibrate, verdicts cap at `reverify`.
 - **`trust_envelope` on `seek`** (ships dark) and a **`closure` verdict on `why`** — `blocked` means the path rests on an unresolved/guessed edge. **`trust_band: insufficient_evidence`** is now distinct from a risk band: it means *no evidence*, the honest cold-start answer, not "medium risk".
 - **Memory grew a provenance spine** — claims carry real age + author, supersede older claims, age out, and respect a recency cap, so remembered knowledge states its own freshness instead of quietly going stale.
@@ -117,7 +117,7 @@ The response is one oriented packet — trust verdict, memory the last session l
 }
 ```
 
-If `north` reports `needs: "needs_ingest"` (empty graph), or you are on an older binary without the L1GHT-recall composition, fall back to the explicit trust loop — establish trust *before* believing any retrieval:
+If `north` reports `needs: "needs_ingest"` (empty graph), or you are on a pre-1.2.1 binary without the L1GHT-recall composition, fall back to the explicit trust loop — establish trust *before* believing any retrieval:
 
 ```jsonc
 // 0. Trust the binding in one call (verdict before retrieval)
@@ -283,7 +283,7 @@ The same honesty rides on retrieval. A `seek` hit carries a `sufficiency` readou
 
 The proof of the commitment is what was killed for it: `savings` and `resonate` were pulled from the advertised surface in beta.7 because a tool that always claims to win is not credible. No competitor — not mem0, Zep, Letta, Sourcegraph, or any code-graph MCP — ships a layer that tells the agent what *not* to trust and how to recover.
 
-**The field-triage loop closes on itself.** The session telemetry agents leave in `~/.m1nd/field-reports.jsonl` (local-only — m1nd never phones home) is not a passive log: reports get triaged, and a *confirmed* field bug becomes a red battery case **before** the fix, so the regression is proven, not just described. That loop has already run once end-to-end: two field-reported bugs turned into failing battery cases and then merged fixes — `north` now composes L1GHT recall into its memory packet, and the `temp` graph sentinel resolves to a real tempdir instead of littering the working directory.
+**The field-triage loop closes on itself.** The session telemetry agents leave in `~/.m1nd/field-reports.jsonl` (local-only — m1nd never phones home) is not a passive log: reports get triaged, and a *confirmed* field bug becomes a red battery case **before** the fix, so the regression is proven, not just described. That loop has already run end-to-end through a full field-triage sweep: four field-reported bugs turned into failing battery cases and then merged fixes, all shipped in **1.2.1** — `north` now composes L1GHT recall into its memory packet, the `temp` graph sentinel resolves to a real tempdir instead of littering the working directory, `memorize` accepts a numeric `confidence`, and the closure ambiguity tag now fires only on genuine ties (the cry-wolf: ambiguous-blocked fell 9/11 → 0/11).
 
 ## Language Coverage
 
