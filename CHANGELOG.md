@@ -10,6 +10,21 @@ No unreleased changes.
 
 ---
 
+## [1.2.2] — 2026-07-03
+
+Brand gate G1 — honesty is the product.
+
+### Removed
+
+- **The unmeasured `savings` envelope (brand gate G1).** Every response used to
+  carry `_m1nd.savings`, `_m1nd.tokens_saved`, and `_m1nd.gaia.global_tokens_never_burned`
+  — a confidently-stated "tokens saved" number with no measured basis. An uncalibrated
+  claim is the confident guess, and it has no place in a product whose whole promise is
+  calibrated trust. The envelope's honest neighbors (`suggest_next`, `read_only`,
+  `summary`) are kept; the standalone opt-in `savings`/`report` tools are unchanged.
+
+---
+
 ## [1.1.0] — 2026-06-28
 
 A code-intelligence correctness release: a new attention runtime (`focus`), the
