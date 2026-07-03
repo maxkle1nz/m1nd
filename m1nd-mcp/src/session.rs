@@ -68,55 +68,13 @@ struct RecoveryAutoActionContext<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// SavingsTracker — tracks estimated token savings from m1nd usage
+// QueryLogEntry — ring buffer entry for report
 // ---------------------------------------------------------------------------
-
-/// Tracks estimated token savings from using m1nd instead of grep/Read.
-pub struct SavingsTracker {
-    pub queries_by_tool: HashMap<String, u64>,
-    pub tokens_saved: u64,
-    pub file_reads_avoided: u64,
-    pub lines_avoided: u64,
-}
-
-impl Default for SavingsTracker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SavingsTracker {
-    pub fn new() -> Self {
-        Self {
-            queries_by_tool: HashMap::new(),
-            tokens_saved: 0,
-            file_reads_avoided: 0,
-            lines_avoided: 0,
-        }
-    }
-
-    /// Call after every successful tool dispatch.
-    pub fn record(&mut self, tool: &str, _result_nodes: usize) {
-        *self.queries_by_tool.entry(tool.to_string()).or_insert(0) += 1;
-        let (tokens, files, lines) = match tool {
-            "m1nd_activate" | "m1nd_seek" | "m1nd_search" => (750, 5, 500),
-            "m1nd_impact" | "m1nd_predict" | "m1nd_counterfactual" => (1000, 8, 800),
-            "m1nd_surgical_context" => (3200, 8, 300),
-            "m1nd_surgical_context_v2" => (4800, 12, 400),
-            "m1nd_hypothesize" | "m1nd_missing" => (1000, 5, 200),
-            "m1nd_apply" | "m1nd_apply_batch" => (900, 3, 200),
-            "m1nd_scan" => (1000, 4, 400),
-            _ => (500, 2, 200),
-        };
-        self.tokens_saved += tokens;
-        self.file_reads_avoided += files;
-        self.lines_avoided += lines;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// QueryLogEntry — ring buffer entry for report/savings
-// ---------------------------------------------------------------------------
+//
+// Brand gate G1.5 (founder decision 2026-07-03): SavingsTracker and
+// GlobalSavingsState were removed. They tallied unmeasured tokens-saved for the
+// killed `savings` tool; `report`'s honest content leans on this query log, not
+// on any token estimate.
 
 /// A log entry for each tool call.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -127,15 +85,6 @@ pub struct QueryLogEntry {
     pub elapsed_ms: f64,
     pub result_count: usize,
     pub query_preview: String,
-}
-
-/// Global savings state, persisted to disk.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct GlobalSavingsState {
-    pub total_sessions: u64,
-    pub total_queries: u64,
-    pub total_tokens_saved: u64,
-    pub total_file_reads_avoided: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -383,15 +332,9 @@ pub struct SessionState {
     /// Path to calibration_state.json persistence file.
     pub calibration_path: PathBuf,
 
-    // --- v0.4.0: Savings + Query Log ---
-    /// Savings tracker (token economy).
-    pub savings_tracker: SavingsTracker,
-    /// Query log ring buffer (capped at 1000 entries).
+    // --- v0.4.0: Query Log (savings tracker removed — brand gate G1.5) ---
+    /// Query log ring buffer (capped at 1000 entries). Feeds `report`.
     pub query_log: Vec<QueryLogEntry>,
-    /// Global savings state (persisted).
-    pub global_savings: GlobalSavingsState,
-    /// Path to savings_state.json persistence file.
-    pub savings_path: PathBuf,
     /// Graph node count at session start.
     pub session_start_node_count: u32,
     /// Graph edge count at session start.
@@ -1500,17 +1443,8 @@ impl SessionState {
                     .unwrap_or_else(|_| m1nd_core::calibration::CalibrationTable::new())
             },
             calibration_path: runtime_root.join("calibration_state.json"),
-            // v0.4.0: Savings + Query Log
-            savings_tracker: SavingsTracker::new(),
+            // v0.4.0: Query Log (savings tracker/state removed — brand gate G1.5)
             query_log: Vec::new(),
-            global_savings: {
-                let sv_path = runtime_root.join("savings_state.json");
-                std::fs::read_to_string(&sv_path)
-                    .ok()
-                    .and_then(|s| serde_json::from_str(&s).ok())
-                    .unwrap_or_default()
-            },
-            savings_path: runtime_root.join("savings_state.json"),
             session_start_node_count: 0,
             session_start_edge_count: 0,
             boot_memory_path: runtime_root.join("boot_memory_state.json"),
@@ -2027,17 +1961,6 @@ impl SessionState {
             self.query_log.remove(0);
         }
         self.query_log.push(entry);
-    }
-
-    /// Persist global savings state to disk.
-    pub fn persist_savings(&self) {
-        if self.read_only {
-            self.log_read_only_persist_skip();
-            return;
-        }
-        if let Ok(json) = serde_json::to_string_pretty(&self.global_savings) {
-            let _ = std::fs::write(&self.savings_path, json);
-        }
     }
 
     /// Generate a summary of active agent sessions for health output.

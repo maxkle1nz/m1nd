@@ -6,12 +6,12 @@
 //           They COMPILE now (all structs exist in protocol/layers.rs).
 //           They FAIL until BUILD fills in handler bodies.
 //
-// 26 tests:
+// 23 tests (m1nd.savings removed — brand gate G1.5):
 //   m1nd.search      (8 tests, tests 1-8)
 //   m1nd.help        (4 tests, tests 9-12)
 //   m1nd.report      (4 tests, tests 13-16)
 //   m1nd.panoramic   (4 tests, tests 17-20)
-//   m1nd.savings     (3 tests, tests 21-23)
+//   m1nd.savings     REMOVED (brand gate G1.5)
 //   perspective.routes fix (3 tests, tests 24-26)
 //
 // Pattern mirrors tests/perspective_golden.rs and tests/test_surgical.rs.
@@ -19,8 +19,8 @@
 use m1nd_mcp::perspective::state::{PerspectiveMode, Route, RouteFamily};
 use m1nd_mcp::protocol::layers::{
     HelpInput, HelpOutput, PanoramicAlert, PanoramicInput, PanoramicModule, PanoramicOutput,
-    ReportInput, ReportOutput, ReportQueryEntry, SavingsInput, SavingsOutput, SavingsSessionRecord,
-    SearchInput, SearchMode, SearchOutput, SearchResultEntry,
+    ReportInput, ReportOutput, ReportQueryEntry, SearchInput, SearchMode, SearchOutput,
+    SearchResultEntry,
 };
 use m1nd_mcp::protocol::perspective::{
     PerspectiveRoutesInput, PerspectiveRoutesOutput, PerspectiveStartInput, PerspectiveStartOutput,
@@ -98,10 +98,9 @@ fn build_help_output_known(tool: &str) -> HelpOutput {
 }
 
 /// Build a minimal ReportOutput for a session with N queries.
+///
+/// Brand gate G1.5: ReportOutput no longer carries any tokens-saved / CO2 field.
 fn build_report_output(agent_id: &str, queries: u32) -> ReportOutput {
-    let tokens_saved = (queries as u64) * 1200;
-    let co2 = (tokens_saved as f64) * 0.0002;
-
     let recent = (0..queries.min(3))
         .map(|i| ReportQueryEntry {
             tool: "activate".into(),
@@ -116,15 +115,9 @@ fn build_report_output(agent_id: &str, queries: u32) -> ReportOutput {
         session_queries: queries,
         session_elapsed_ms: (queries as f64) * 15.0,
         queries_answered: queries,
-        tokens_saved_session: tokens_saved,
-        tokens_saved_global: tokens_saved * 10,
-        co2_saved_grams: co2,
         recent_queries: recent,
         heuristic_hotspots: vec![],
-        markdown_summary: format!(
-            "## m1nd Session Report\n- Queries: {}\n- Tokens saved: {}\n",
-            queries, tokens_saved
-        ),
+        markdown_summary: format!("## m1nd Session Report\n- Queries: {}\n", queries),
         truncated: false,
         inline_summary: None,
     }
@@ -576,20 +569,17 @@ fn test_report_empty_session() {
         session_queries: 0,
         session_elapsed_ms: 0.0,
         queries_answered: 0,
-        tokens_saved_session: 0,
-        tokens_saved_global: 0,
-        co2_saved_grams: 0.0,
         recent_queries: vec![],
         heuristic_hotspots: vec![],
-        markdown_summary: "## m1nd Session Report\n- Queries: 0\n- Tokens saved: 0\n".into(),
+        markdown_summary: "## m1nd Session Report\n- Queries: 0\n".into(),
         truncated: false,
         inline_summary: None,
     };
 
     assert_eq!(out.session_queries, 0, "empty session must have 0 queries");
     assert_eq!(
-        out.tokens_saved_session, 0,
-        "empty session must have 0 tokens saved"
+        out.queries_answered, 0,
+        "empty session must have 0 answered queries"
     );
     assert!(
         out.recent_queries.is_empty(),
@@ -635,28 +625,35 @@ fn test_report_after_queries() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 15: report savings are positive after queries
+// Test 15: report carries NO unmeasured token/CO2 claims (brand gate G1.5)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_report_savings_positive() {
-    // Contract: tokens_saved_session and co2_saved_grams must be > 0 after
-    // at least one m1nd_answered=true query.
+fn test_report_carries_no_unmeasured_claims() {
+    // Contract (brand gate G1.5, was test_report_savings_positive): report used
+    // to assert tokens_saved / CO2 were POSITIVE. Those were unmeasured claims
+    // and were removed. The serialized output must now contain none of them,
+    // while the honest counts remain.
 
     let out = build_report_output("agent_y", 3);
+    let json = serde_json::to_string(&out).expect("ReportOutput must serialize");
 
+    for banned in [
+        "tokens_saved_session",
+        "tokens_saved_global",
+        "co2_saved_grams",
+        "tokens_saved",
+    ] {
+        assert!(
+            !json.contains(banned),
+            "ReportOutput must not carry the unmeasured claim `{banned}`: {json}"
+        );
+    }
+    // Honest remainder survives.
+    assert_eq!(out.session_queries, 3, "honest query count must survive");
     assert!(
-        out.tokens_saved_session > 0,
-        "tokens_saved_session must be > 0 after answered queries"
-    );
-    assert!(
-        out.co2_saved_grams > 0.0,
-        "co2_saved_grams must be > 0 after answered queries"
-    );
-    // tokens_saved_global must be >= tokens_saved_session
-    assert!(
-        out.tokens_saved_global >= out.tokens_saved_session,
-        "global savings must be >= session savings"
+        json.contains("session_queries"),
+        "serialized output must keep session_queries"
     );
 }
 
@@ -687,8 +684,8 @@ fn test_report_markdown_format() {
         "serialized output must contain session_queries"
     );
     assert!(
-        json.contains("co2_saved_grams"),
-        "serialized output must contain co2_saved_grams"
+        json.contains("queries_answered"),
+        "serialized output must contain queries_answered"
     );
 }
 
@@ -863,135 +860,16 @@ fn test_panoramic_respects_scope() {
 }
 
 // ===========================================================================
-// m1nd.savings — 3 golden tests
+// m1nd.savings — REMOVED (brand gate G1.5, founder decision 2026-07-03)
 // ===========================================================================
-
-// ---------------------------------------------------------------------------
-// Test 21: savings are zero at session start
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_savings_zero_on_start() {
-    // Contract: at the very start of a session (no queries yet),
-    // session_tokens_saved must be 0.
-
-    let input: SavingsInput = serde_json::from_str(r#"{"agent_id":"fresh_agent"}"#)
-        .expect("SavingsInput must deserialize");
-
-    assert_eq!(input.agent_id, "fresh_agent");
-
-    let out = SavingsOutput {
-        session_tokens_saved: 0,
-        global_tokens_saved: 1_000_000, // global persists across sessions
-        global_co2_grams: 200.0,
-        cost_saved_usd: 3.00,
-        recent_sessions: vec![],
-        formatted_summary: "m1nd Savings: 0 tokens this session, 1,000,000 total".into(),
-    };
-
-    assert_eq!(
-        out.session_tokens_saved, 0,
-        "session_tokens_saved must be 0 at session start"
-    );
-    assert!(
-        !out.formatted_summary.is_empty(),
-        "formatted_summary must be non-empty even at start"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 22: savings increment after queries
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_savings_increments() {
-    // Contract: after queries are answered by m1nd (not fallback to grep/glob),
-    // session_tokens_saved must increase. Each m1nd-answered query saves
-    // approximately 1200 tokens (avoided grep pattern).
-
-    // Session with 5 answered queries
-    let out_after = SavingsOutput {
-        session_tokens_saved: 6000, // 5 queries * ~1200 tokens
-        global_tokens_saved: 1_006_000,
-        global_co2_grams: 201.2,
-        cost_saved_usd: 3.018,
-        recent_sessions: vec![SavingsSessionRecord {
-            agent_id: "agent_test".into(),
-            session_start_ms: 1710000000000,
-            queries: 5,
-            tokens_saved: 6000,
-            co2_grams: 1.2,
-        }],
-        formatted_summary: "m1nd Savings: 6,000 tokens this session".into(),
-    };
-
-    assert!(
-        out_after.session_tokens_saved > 0,
-        "session_tokens_saved must be > 0 after answered queries"
-    );
-    assert_eq!(
-        out_after.recent_sessions.len(),
-        1,
-        "recent_sessions must include current session"
-    );
-    assert!(
-        out_after.global_tokens_saved >= out_after.session_tokens_saved,
-        "global_tokens_saved must be >= session_tokens_saved"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 23: savings output has correct session/global structure
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_savings_persists_format() {
-    // Contract: SavingsOutput must have distinct session and global fields.
-    // global_tokens_saved must be >= session_tokens_saved (accumulates across sessions).
-    // cost_saved_usd must be calculated from global tokens (not session only).
-
-    let out = SavingsOutput {
-        session_tokens_saved: 3600,
-        global_tokens_saved: 50_000,
-        global_co2_grams: 10.0,
-        cost_saved_usd: 0.15, // 50_000 / 1000 * $0.003
-        recent_sessions: vec![SavingsSessionRecord {
-            agent_id: "a".into(),
-            session_start_ms: 1710000000000,
-            queries: 3,
-            tokens_saved: 3600,
-            co2_grams: 0.72,
-        }],
-        formatted_summary: "Global: 50,000 tokens saved | $0.15 | 10.0g CO2".into(),
-    };
-
-    // Structural invariants
-    assert!(
-        out.global_tokens_saved >= out.session_tokens_saved,
-        "global must accumulate across sessions"
-    );
-    assert!(out.cost_saved_usd >= 0.0, "cost must be non-negative");
-    assert!(out.global_co2_grams >= 0.0, "CO2 must be non-negative");
-    assert!(
-        out.recent_sessions.len() <= 5,
-        "recent_sessions must be capped at 5"
-    );
-
-    // JSON roundtrip
-    let json = serde_json::to_string(&out).expect("SavingsOutput must serialize");
-    assert!(
-        json.contains("session_tokens_saved"),
-        "serialized must contain session_tokens_saved"
-    );
-    assert!(
-        json.contains("global_tokens_saved"),
-        "serialized must contain global_tokens_saved"
-    );
-    assert!(
-        json.contains("global_co2_grams"),
-        "serialized must contain global_co2_grams"
-    );
-}
+//
+// The three former savings golden tests (test_savings_zero_on_start,
+// test_savings_increments, test_savings_persists_format) asserted the shape of
+// an unmeasured token-economy claim (session_tokens_saved, global_tokens_saved,
+// global_co2_grams, cost_saved_usd). The `savings` tool and its SavingsInput /
+// SavingsOutput / SavingsSessionRecord types were removed, so these tests were
+// removed with them. The kill is proven live in
+// `server::tests::savings_tool_is_removed_and_report_carries_no_unmeasured_claims`.
 
 // ===========================================================================
 // perspective.routes fix — 3 golden tests

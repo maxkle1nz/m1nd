@@ -12,7 +12,7 @@ No unreleased changes.
 
 ## [1.2.2] — 2026-07-03
 
-Brand gate G1 — honesty is the product.
+Brand gate G1 + G1.5 — honesty is the product.
 
 ### Removed
 
@@ -21,7 +21,18 @@ Brand gate G1 — honesty is the product.
   — a confidently-stated "tokens saved" number with no measured basis. An uncalibrated
   claim is the confident guess, and it has no place in a product whose whole promise is
   calibrated trust. The envelope's honest neighbors (`suggest_next`, `read_only`,
-  `summary`) are kept; the standalone opt-in `savings`/`report` tools are unchanged.
+  `summary`) are kept.
+- **The opt-in `savings`/`report` unmeasured-claims surface (brand gate G1.5) —
+  completes the beta.7 de-advertisement.** G1 removed the per-response envelope, but the
+  standalone opt-in tools still emitted the same uncalibrated tokens-saved numbers when
+  explicitly called — a living remnant of the confident guess behind an explicit call. The
+  brand cannot say it killed the unmeasured claim while a tool named `savings` still emits
+  it. So the `savings` tool is **removed entirely** (dispatch arm + handler + `SavingsInput`/
+  `SavingsOutput`/`SavingsSessionRecord` types + the `SavingsTracker`/`GlobalSavingsState`
+  accounting; nothing writes `savings_state.json` anymore). `report` **survives, stripped**:
+  its honest content — query counts, elapsed time, graph size, and the highest-risk heuristic
+  hotspots — is kept, while every `tokens_saved_session` / `tokens_saved_global` /
+  `co2_saved_grams` field is gone.
 
 ---
 

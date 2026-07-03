@@ -62,6 +62,8 @@ the new embedded dist. Verdict/state renderer is read-only — humans read memor
 Slices 1–3 (Pre-Flight Card, Honesty HUD + Change Preview, Project Brain) stay spec'd in
 `docs/HUMAN-LAYER-PRD.md`. UI-only change; no engine/agent-surface behavior moved.
 
+**Brand gates (pending 1.2.2):** **G1 (#221) CLOSED** — the per-response unmeasured `savings`/`tokens_saved`/`gaia` envelope was removed. **G1.5 (#234) CLOSED** (founder decision 2026-07-03, mailbox L16) — the opt-in `savings`/`report` unmeasured-claims surface is killed: `savings` removed entirely (tool + handler + `Savings*` types + `SavingsTracker`/`GlobalSavingsState` accounting; nothing writes `savings_state.json` anymore), `report` stripped of every tokens-saved/CO2 field but keeps its honest counts + heuristic hotspots — completing the beta.7 de-advertisement.
+
 ---
 
 **v1.2.0 IS RELEASED.** Tag `v1.2.0` on the merge commit, `release.yml` published
