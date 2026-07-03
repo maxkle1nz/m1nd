@@ -47,6 +47,15 @@ degrading to UNPROVABLE rather than a fake green — the same bar, applied to bu
 
 ## Current State (2026-07-03, checkpoint 9 — THE CONSTRUCTION ERA OPENS)
 
+> **cp9 addendum (2026-07-04): v1.3.0 CUT.** The construction era's first release — the
+> mailbox-zero fixes (#230/#231/#233/#235/#240), the Living Tree LIVE (graph_changed SSE +
+> vendored fonts, #242), `m1nd hosts` grown 5→22 hosts + the new `m1nd-north-shim` (#244),
+> the HOST-INTEGRATION-MATRIX (#241), reception §9.5 (#238), and the MCP-Registry manifest
+> (`server.json` + npm `mcpName`, #243) — semver MINOR for the new host surfaces. Tagged on
+> the merge commit; crates.io + npm + GitHub Release via the release workflow; registry
+> publish follows once npm serves 1.3.0 (`mcp-publisher login github` is Max's device-code
+> moment). The wiki changelog's never-tagged `1.2.2` draft was absorbed into 1.3.0.
+
 **The 24h harvest: OMEGA shipped as the floor, three PRDs made official, the first human
 surface landed, and the field-report mailbox went from full to empty.** This is the checkpoint
 where m1nd stops being only "a better `rg` for agents" and becomes a substrate with a *human
