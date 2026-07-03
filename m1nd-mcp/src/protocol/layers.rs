@@ -2471,7 +2471,7 @@ pub struct GlobFileEntry {
 // v0.4.0: m1nd.report — Session Report
 // =========================================================================
 
-/// Input for m1nd.report — session usage and savings report.
+/// Input for m1nd.report — session usage report.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ReportInput {
     pub agent_id: String,
@@ -2498,7 +2498,11 @@ pub struct ReportHeuristicHotspot {
     pub heuristic_signals: HeuristicSignals,
 }
 
-/// Output for m1nd.report — session statistics and token savings.
+/// Output for m1nd.report — session statistics.
+///
+/// Brand gate G1.5: the tokens-saved / CO2 fields were removed as unmeasured
+/// claims. What remains is honest — real query counts, elapsed time, and the
+/// heuristic hotspots visible in the current graph.
 #[derive(Clone, Debug, Serialize)]
 pub struct ReportOutput {
     pub agent_id: String,
@@ -2506,12 +2510,6 @@ pub struct ReportOutput {
     pub session_elapsed_ms: f64,
     /// Queries answered by m1nd in this session (not fallback to grep/glob).
     pub queries_answered: u32,
-    /// Estimated tokens saved this session (based on avoided grep/glob ops).
-    pub tokens_saved_session: u64,
-    /// Estimated tokens saved globally (all sessions).
-    pub tokens_saved_global: u64,
-    /// CO2 grams saved (0.0002 g per avoided token).
-    pub co2_saved_grams: f64,
     /// Recent query log (last 10).
     pub recent_queries: Vec<ReportQueryEntry>,
     /// Highest-risk heuristic hotspots visible in the current graph.
@@ -2799,42 +2797,10 @@ pub struct PanoramicOutput {
     pub agent_runtime_contract: Option<serde_json::Value>,
 }
 
-// =========================================================================
-// v0.4.0: m1nd.savings — Token Economy Report
-// =========================================================================
-
-/// Input for m1nd.savings — token savings and economy summary.
-#[derive(Clone, Debug, Deserialize)]
-pub struct SavingsInput {
-    pub agent_id: String,
-}
-
-/// Per-session savings record.
-#[derive(Clone, Debug, Serialize)]
-pub struct SavingsSessionRecord {
-    pub agent_id: String,
-    pub session_start_ms: u64,
-    pub queries: u32,
-    pub tokens_saved: u64,
-    pub co2_grams: f64,
-}
-
-/// Output for m1nd.savings — cumulative token economy stats.
-#[derive(Clone, Debug, Serialize)]
-pub struct SavingsOutput {
-    /// Tokens saved this session.
-    pub session_tokens_saved: u64,
-    /// Tokens saved globally (all agents, all sessions).
-    pub global_tokens_saved: u64,
-    /// CO2 grams saved globally.
-    pub global_co2_grams: f64,
-    /// Cost saved in USD (based on $0.003/1K tokens saved).
-    pub cost_saved_usd: f64,
-    /// Recent sessions (last 5).
-    pub recent_sessions: Vec<SavingsSessionRecord>,
-    /// Formatted display string.
-    pub formatted_summary: String,
-}
+// Brand gate G1.5 (founder decision 2026-07-03): the m1nd.savings token-economy
+// tool and its SavingsInput / SavingsSessionRecord / SavingsOutput types were
+// removed. Every field they carried (tokens_saved, co2_grams, cost_saved_usd)
+// was an unmeasured claim — killed to complete the beta.7 de-advertisement.
 
 // =========================================================================
 // Tests
