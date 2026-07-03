@@ -274,6 +274,27 @@ impl AutoIngestState {
         path.canonicalize().ok()
     }
 
+    /// Decide what a filesystem watch event means for the pending queue.
+    ///
+    /// Watch backends (FSEvents, inotify) can surface events whose path is the
+    /// watched directory itself — e.g. metadata updates when children are
+    /// created. Directories are never ingestable: enqueueing one only inflates
+    /// `queue_depth`, the readiness signal agents and tests poll, letting a
+    /// "wait until N changes are queued" observer fire before all N file
+    /// events actually arrived (recurring ubuntu CI flake: a single tick then
+    /// ingested 1 of 2 watched files). Existing directories are dropped here;
+    /// missing paths still enqueue as deletes (a removed path cannot be
+    /// stat-ed, and the tick resolves unknown paths to a no-op skip).
+    fn watch_event_change_kind(canonical: &Path) -> Option<PendingChangeKind> {
+        if canonical.exists() {
+            if canonical.is_dir() {
+                return None;
+            }
+            return Some(PendingChangeKind::Upsert);
+        }
+        Some(PendingChangeKind::Delete)
+    }
+
     fn detect_allowed_format(path: &Path, allowed_formats: &[String]) -> Option<String> {
         let (format, _) = DocumentRouter::detect(path);
         let normalized = match format {
@@ -502,10 +523,8 @@ impl AutoIngestState {
                     }
                     let canonical =
                         AutoIngestState::canonicalize_path(&path).unwrap_or_else(|| path.clone());
-                    let kind = if canonical.exists() {
-                        PendingChangeKind::Upsert
-                    } else {
-                        PendingChangeKind::Delete
+                    let Some(kind) = AutoIngestState::watch_event_change_kind(&canonical) else {
+                        continue;
                     };
                     AutoIngestState::enqueue_change(
                         &pending,
@@ -1022,6 +1041,27 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watch_events_for_existing_directories_are_dropped() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("watched");
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notes.md");
+        fs::write(&file, "# notes").unwrap();
+
+        // An event for the watched directory itself must never enqueue: it
+        // would inflate queue_depth without an ingestable change behind it.
+        assert_eq!(AutoIngestState::watch_event_change_kind(&dir), None);
+        assert_eq!(
+            AutoIngestState::watch_event_change_kind(&file),
+            Some(PendingChangeKind::Upsert)
+        );
+        assert_eq!(
+            AutoIngestState::watch_event_change_kind(&dir.join("missing.md")),
+            Some(PendingChangeKind::Delete)
+        );
+    }
 
     #[test]
     fn noise_paths_are_ignored() {

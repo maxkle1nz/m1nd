@@ -582,7 +582,22 @@ fn auto_ingest_universal_handles_markdown_and_html() {
         .and_then(|value| value.as_array())
         .map(|value| value.len())
         .unwrap_or(0);
-    assert_eq!(ingested, 2);
+    assert_eq!(
+        ingested, 2,
+        "one tick must ingest both watched files; tick output: {tick}"
+    );
+    // Stronger than the count: the two ingested paths must BE the two watched
+    // files (canonicalized on both sides — the queue stores canonical paths).
+    let mut ingested_canonical = tick["ingested_paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| Path::new(value.as_str().unwrap()).canonicalize().unwrap())
+        .collect::<Vec<_>>();
+    ingested_canonical.sort();
+    let mut expected = vec![md.canonicalize().unwrap(), html.canonicalize().unwrap()];
+    expected.sort();
+    assert_eq!(ingested_canonical, expected);
 
     assert!(search_count(&mut state, "Universal Watch") > 0);
     assert!(search_count(&mut state, "HTML Watch") > 0);
