@@ -24,6 +24,62 @@ import time
 
 TIMEOUT = 180.0
 
+# The m1nd binary under test — set by run_battery so in-check helpers (e.g. the
+# closure honesty-guard) can spin up an ISOLATED second process without touching
+# the shared suite graph.
+_BIN_PATH = None
+
+
+def _true_tie_still_blocks():
+    """Honesty guard for the closure cry-wolf fix: prove that a GENUINE coin-flip
+    edge STILL yields closure.state == "blocked" via a fresh, ISOLATED m1nd
+    process (its own temp runtime — does NOT perturb the shared suite graph).
+
+    Plants the minimal ambiguous corpus: `walk()` calls `helper()` with TWO
+    same-name `helper` fns in the SAME directory (identical proximity, no
+    qualifier) — a true tie. Returns True iff `why(walk -> the bound helper)` is
+    blocked with a `calls` dangling edge whose reason is "ambiguous". Stable:
+    the resolver deterministically binds one helper and flags that edge.
+    """
+    if not _BIN_PATH:
+        return False
+    root = tempfile.mkdtemp(prefix="m1nd_tie_corpus_")
+    src = os.path.join(root, "src")
+    os.makedirs(src)
+    open(os.path.join(src, "walker.rs"), "w").write("pub fn walk() {\n    helper();\n}\n")
+    open(os.path.join(src, "one.rs"), "w").write("pub fn helper() -> u32 { 1 }\n")
+    open(os.path.join(src, "two.rs"), "w").write("pub fn helper() -> u32 { 2 }\n")
+    open(os.path.join(root, "Cargo.toml"), "w").write(
+        "[package]\nname='tie'\nversion='0.0.0'\nedition='2021'\n")
+    tmp = tempfile.mkdtemp(prefix="m1nd_tie_rt_")
+    env = dict(os.environ)
+    env.update(M1ND_GRAPH_SOURCE="temp", M1ND_PLASTICITY_STATE=os.path.join(tmp, "p.json"),
+               M1ND_RUNTIME_DIR=tmp, M1ND_TOOL_TIER="full")
+    errf = open(os.path.join(tmp, "err.log"), "wb")
+    proc = subprocess.Popen([_BIN_PATH, "--stdio", "--no-gui"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=errf, env=env)
+    cc = C(proc)
+    try:
+        cc.rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                              "clientInfo": {"name": "tie", "version": "0"}})
+        cc.rpc("tools/list")
+        cc.tool("ingest", {"agent_id": "tie", "path": root})
+        for t in ("file::src/one.rs::fn::helper", "file::src/two.rs::fn::helper"):
+            r, _ = cc.tool("why", {"source": "file::src/walker.rs::fn::walk",
+                                   "target": t, "agent_id": "tie", "max_hops": 3})
+            cl = r.get("closure") or {}
+            if (r.get("found") and cl.get("state") == "blocked"
+                    and any(d.get("reason") == "ambiguous" and d.get("relation") == "calls"
+                            for d in (cl.get("dangling_edges") or []))):
+                return True
+        return False
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except Exception:
+            proc.kill()
+
 
 # --------------------------------------------------------------------------- #
 # MCP stdio client (framing copied from focus_smoke.py)                        #
@@ -835,17 +891,40 @@ def suite_m1nd(repo):
         # `check(res,q,c)` owns its verdict. STRUCTURE-first (no pinned τ).     #
         # =================================================================== #
 
-        # ---- closure verdict on `why` (#185) ----
+        # ---- closure verdict on `why` (#185, tightened by field-triage #4) ----
         # `why` attaches a top-level `closure` block: state ∈ {closed, blocked},
         # a non-empty `why` string, and `dangling_edges` (empty iff closed, non-
-        # empty iff blocked). MEASURED stable: handle_seek->pack_to_budget is
-        # `blocked` because handle_seek's outbound `calls` edge is ambiguous (many
-        # same-name fns in-repo), surfacing one dangling `calls` edge sourced at
-        # handle_seek. We assert the well-formed invariant AND that the ambiguity
-        # is actually DETECTED here (state=blocked with that dangling edge) — proof
-        # the verdict reflects real resolution, not just a field that exists.
+        # empty iff blocked).
+        #
+        # UPDATED for field-triage #4 (the AMBIGUOUS closure cry-wolf). PREVIOUSLY
+        # this case asserted handle_seek->pack_to_budget was `blocked` with an
+        # `ambiguous` reason, because the ambiguity tag was NODE-level: handle_seek
+        # also calls common-named fns (get/resolve/new) that are genuine same-name
+        # ties, so the WHOLE node was tagged and EVERY clean path through it
+        # (including the unique-target pack_to_budget edge) was falsely reported
+        # ambiguous. That false alarm fired on ~100% of load-bearing paths in this
+        # repo (measured: 9/11 connected pairs blocked on `ambiguous`) — the
+        # cry-wolf. The fix (a) tags only GENUINE coin-flips (decisive proximity/
+        # qualifier binds no longer tag) and (b) reads the tag PER-EDGE via a
+        # targeted `m1nd:edge:ambiguous:<target>` tag, so a clean edge is never
+        # blamed for an unrelated ambiguous sibling. Result: ambiguous-blocked
+        # dropped 9/11 -> 0/11.
+        #
+        # NOTE on this specific path: handle_seek ALSO carries the node-level
+        # `EDGE_UNRESOLVED_TAG` (it calls std/external fns that drop), and
+        # unresolved semantics were explicitly OUT OF SCOPE for triage #4 (left
+        # unchanged). So this path may still be `blocked` — but now on
+        # `unresolved`, NEVER on `ambiguous`. We therefore assert exactly the
+        # in-scope contract:
+        #   1. well-formed contract (state/why/dangling coherent), UNCHANGED;
+        #   2. the AMBIGUOUS cry-wolf is gone HERE: no dangling edge on this path
+        #      carries reason "ambiguous" (it is closed, or blocked only on
+        #      unresolved);
+        #   3. HONESTY GUARD: the fix did NOT overshoot into silence — a GENUINE
+        #      tie STILL yields `blocked`+`ambiguous`, proven end-to-end via an
+        #      isolated planted-corpus probe (`_true_tie_still_blocks`).
         dict(id="closure_verdict_wellformed_blocked",
-             intent="why must carry a well-formed closure verdict and flag the ambiguous edge as blocked",
+             intent="why closure verdict well-formed; ambiguous cry-wolf gone on this path; genuine tie still blocked (fixed, not silenced)",
              tool="why",
              args=dict(source="file::m1nd-mcp/src/layer_handlers.rs::fn::handle_seek",
                        target="file::m1nd-mcp/src/result_shaping.rs::fn::pack_to_budget", agent_id=aid, max_hops=3),
@@ -854,19 +933,19 @@ def suite_m1nd(repo):
              check=lambda res, q, c: (
                  (lambda cl: (
                      isinstance(cl, dict)
+                     # (1) well-formed contract — unchanged.
                      and cl.get("state") in ("closed", "blocked")
                      and isinstance(cl.get("why"), str) and len(cl.get("why")) > 0
                      and isinstance(cl.get("dangling_edges"), list)
                      and (cl.get("dangling_edges") == []) == (cl.get("state") == "closed")
-                     # measured-stable specifics for this path: blocked, and the
-                     # dangling edge is a `calls` edge sourced at handle_seek.
-                     and cl.get("state") == "blocked"
-                     and any(d.get("relation") == "calls"
-                             and str(d.get("source", "")).endswith("::fn::handle_seek")
-                             and isinstance(d.get("reason"), str)
-                             for d in (cl.get("dangling_edges") or []))
+                     # (2) the AMBIGUOUS cry-wolf is gone on this clean path: no
+                     # dangling edge here is reason "ambiguous" (unique-name target).
+                     and not any(d.get("reason") == "ambiguous"
+                                 for d in (cl.get("dangling_edges") or []))
+                     # (3) honesty guard: a true coin-flip STILL flags blocked.
+                     and _true_tie_still_blocks()
                  ))(res.get("closure")),
-                 "closure well-formed (state/why/dangling coherent) and blocked on the ambiguous handle_seek calls edge",
+                 "closure well-formed; no `ambiguous` dangling on handle_seek->pack_to_budget (cry-wolf gone); genuine tie still blocked+ambiguous (not silenced)",
              )),
 
         # ---- trust cold-start honesty (#182) ----
@@ -1059,6 +1138,8 @@ def suite_ts(repo):
 # Battery runner                                                               #
 # --------------------------------------------------------------------------- #
 def run_battery(bin_path, repo, suite_name):
+    global _BIN_PATH
+    _BIN_PATH = bin_path  # let in-check helpers spawn isolated probes
     env = dict(os.environ)
     tmp = tempfile.mkdtemp(prefix="m1nd_battery_")
     env["M1ND_GRAPH_SOURCE"] = "temp"  # FRESH temp graph as instructed

@@ -1755,7 +1755,11 @@ pub fn handle_why(state: &mut SessionState, input: WhyInput) -> M1ndResult<serde
             } else {
                 current
             };
-            let reason = closure_reason_for_source(&graph, edge_source);
+            // Edge-specific provenance: `edge_target` (the CSR-stored target `T`)
+            // is the real directed edge's target in both BFS directions, so we can
+            // ask whether THIS edge (edge_source -> edge_target) was the ambiguous
+            // guess — not whether edge_source has any ambiguous edge at all.
+            let reason = closure_reason_for_edge(&graph, edge_source, edge_target);
             load_bearing.push((edge_external_id(&graph, edge_source), rel.clone(), reason));
             path_relations.push(rel);
             current = prev;
@@ -1826,16 +1830,46 @@ fn edge_external_id(graph: &m1nd_core::graph::Graph, node_idx: usize) -> String 
     format!("node_{node_idx}")
 }
 
-/// Read the provenance reason carried by an edge's SOURCE node, if any. Returns
-/// `Some("ambiguous")`/`Some("unresolved")` when the node was tagged at ingest
-/// because one of its outgoing edges was a low-confidence fallback or a dropped
-/// reference; `None` for a cleanly-resolved source. Ambiguous (a wrong guess on
-/// a created edge) is reported in preference to unresolved (a dropped edge).
-fn closure_reason_for_source(graph: &m1nd_core::graph::Graph, node_idx: usize) -> Option<String> {
-    let tags = graph.node_tags(m1nd_core::types::NodeId::new(node_idx as u32));
-    if tags.contains(&m1nd_ingest::resolve::EDGE_AMBIGUOUS_TAG) {
+/// Read the provenance reason for the SPECIFIC directed edge `source -> target`
+/// that lies ON a reconstructed `why` path. Returns:
+///   * `Some("ambiguous")` iff THIS edge was a genuine coin-flip at ingest — i.e.
+///     `source` carries the TARGETED `m1nd:edge:ambiguous:<target_ext_id>` tag for
+///     exactly this target;
+///   * else `Some("unresolved")` iff `source` carries the node-level
+///     `EDGE_UNRESOLVED_TAG`;
+///   * else `None` (clean).
+///
+/// The AMBIGUOUS reason is now edge-specific — this is the cry-wolf fix. The tag
+/// is written per-SOURCE-NODE at ingest, but the closure verdict is a PER-PATH
+/// claim (`closure_verdict`'s contract: only edges ON the path count). The old
+/// reader used the BARE node-level ambiguous tag, so any node with SOME ambiguous
+/// outbound edge poisoned EVERY path through it — a clean edge like
+/// `handle_seek -> pack_to_budget` (a unique-name target) was reported `blocked`
+/// merely because `handle_seek` also calls a common-named fn (`get`/`resolve`/
+/// `new`) that is a genuine same-name tie. Reading the TARGETED tag blames ONLY
+/// the specific guessed edge, so clean siblings are no longer falsely blocked.
+///
+/// The UNRESOLVED reason is deliberately LEFT node-level (semantics unchanged, per
+/// the field-triage #4 scope): a dropped reference created no edge to key against,
+/// and the existing contract (see `why_reports_blocked_when_path_rests_on_dangling_edge`)
+/// is that a node with a dropped outbound reference honestly flags paths leaving
+/// it as incomplete. Only the ambiguous over-fire is tightened here. NOTE: this
+/// leaves a residual node-level over-fire for `unresolved` (a clean edge out of a
+/// node that drops an UNRELATED ref still reads blocked) — tracked as follow-up;
+/// not touched here because unresolved semantics were explicitly out of scope.
+fn closure_reason_for_edge(
+    graph: &m1nd_core::graph::Graph,
+    source_idx: usize,
+    target_idx: usize,
+) -> Option<String> {
+    let source = m1nd_core::types::NodeId::new(source_idx as u32);
+    let target_ext_id = edge_external_id(graph, target_idx);
+    if m1nd_ingest::resolve::source_has_ambiguous_edge_to(graph, source, &target_ext_id) {
         Some("ambiguous".to_string())
-    } else if tags.contains(&m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG) {
+    } else if graph
+        .node_tags(source)
+        .contains(&m1nd_ingest::resolve::EDGE_UNRESOLVED_TAG)
+    {
         Some("unresolved".to_string())
     } else {
         None
