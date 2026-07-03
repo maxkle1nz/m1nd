@@ -463,8 +463,36 @@ def north_recalls_memorized_claim(c):
     prov = hit.get("source_agent")
     prov_note = (f"source_agent={prov!r}" if prov else
                  "source_agent absent (honest — provenance not stamped)")
+
+    # Field-triage batch A / inbox L28: north memory + anchor slots must NEVER be
+    # spent on L1GHT MARKER FRAGMENTS (the annotation nodes: '𝔻 confidence: …',
+    # '𝔻 evidence: …', '⟁ depends_on: …', '⍂ entity: …', '⍐ state: …', '⍌ event: …').
+    # A marker row is identified structurally by a '::tag::' node id (the only such
+    # segment the l1ght_adapter mints) or, as a fallback, a leading marker glyph.
+    # The memorize above plants confidence + evidence markers, so pre-fix north
+    # leaked them into these slots (RED); post-fix only claim/section rows remain.
+    MARKER_GLYPHS = ("𝔻", "⟁", "⍂", "⍐", "⍌")
+
+    def _is_marker_row(e):
+        nid = str((e or {}).get("node_id") or "")
+        if "::tag::" in nid:
+            return True
+        txt = str((e or {}).get("claim") or (e or {}).get("label") or "")
+        return txt.lstrip().startswith(MARKER_GLYPHS)
+
+    mem_markers = [e for e in mem if _is_marker_row(e)]
+    ctx = nr.get("context") or {}
+    anchors = (ctx or {}).get("anchors") or []
+    anchor_markers = [a for a in anchors if _is_marker_row(a)]
+    if mem_markers or anchor_markers:
+        leaked = [str((e or {}).get("claim") or (e or {}).get("label") or "")
+                  for e in (mem_markers + anchor_markers)]
+        return False, (f"north spent slot(s) on L1GHT marker fragments "
+                       f"(memory={len(mem_markers)}, anchors={len(anchor_markers)}): {leaked}")
+
     return True, (f"north.memory carries the memorized L1GHT claim "
-                  f"({len(matches)}/{len(mem)} entr(y/ies)); {prov_note}")
+                  f"({len(matches)}/{len(mem)} entr(y/ies)); {prov_note}; "
+                  f"no marker fragments in {len(mem)} memory + {len(anchors)} anchor rows")
 
 
 # --------------------------------------------------------------------------- #
