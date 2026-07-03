@@ -10,6 +10,31 @@ No unreleased changes.
 
 ---
 
+## [1.2.1] — 2026-07-03
+
+The first field-triage patch. Four bugs reported through the local field-report
+mailbox (`~/.m1nd/field-reports.jsonl`) were each turned into a red battery case and
+then fixed — the telemetry loop closing on itself. This is the release that turns the
+**compounding on**: `north` now folds prior L1GHT agent-memory into its packet, so what
+one agent memorizes the next agent reads back through the front door.
+
+### Fixed
+
+- **`north` composes L1GHT agent-memory recall (#211).** The pre-orient packet now folds
+  prior cross-session memory (each claim with its real age + source agent) into `north`
+  itself — the composition landed on `main` just after the 1.2.0 tag, so it ships here in
+  the binary for the first time. This is the compounding beat: memorize once, recall through
+  `north` thereafter.
+- **`temp` graph sentinel resolves to a real tempdir (#212).** The `temp` graph target now
+  resolves under the OS tempdir instead of littering the working directory.
+- **`memorize` accepts a numeric `confidence` (#218).** A numeric confidence is coerced to
+  string instead of being rejected — agents that pass `0.9` no longer fail the call.
+- **Closure ambiguity tag fires only on genuine ties (#219).** `ingest` closure now tags
+  ambiguity only when candidates are actually tied, killing the cry-wolf: on the battery,
+  ambiguous-blocked cases fell **9/11 → 0/11** — the honesty guard proven, not just claimed.
+
+---
+
 ## [1.2.0] — 2026-07-02
 
 The first OMEGA-era release. The loop shifts from "retrieve, then hope" to
