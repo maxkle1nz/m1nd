@@ -2612,6 +2612,7 @@ pub fn handle_apply(
             namespace: None,
             include_dotfiles: false,
             dotfile_patterns: Vec::new(),
+            project_root: None,
         };
 
         match crate::tools::handle_ingest(state, ingest_input) {
@@ -3524,6 +3525,7 @@ pub fn handle_apply_batch(
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             };
 
             match crate::tools::handle_ingest(state, ingest_input) {
@@ -4539,6 +4541,7 @@ pub fn handle_view(
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             };
             if crate::tools::handle_ingest(state, ingest_input).is_ok() {
                 auto_ingested = true;
@@ -4653,6 +4656,7 @@ pub fn handle_batch_view(
                     namespace: None,
                     include_dotfiles: false,
                     dotfile_patterns: Vec::new(),
+                    project_root: None,
                 };
                 if crate::tools::handle_ingest(state, ingest_input).is_ok() {
                     auto_ingested = true;

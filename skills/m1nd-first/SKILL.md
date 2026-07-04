@@ -41,8 +41,11 @@ this loop by default:
    `focus`; reach for the pieces directly only when you need just one. Heed
    `reception`: `reception.match == "caller_root_mismatch"` means the bound graph
    does NOT cover your current repo — do not trust retrieval for it; read
-   `reception.options[]`. Absent/null `reception` = your root matches the bound
-   brain.
+   `reception.options[]`. ONE call sets you up: `ingest` with
+   `project_root=<your repo root>` creates a per-project brain inside the served
+   owner, ingests your repo, binds your session, and returns its north packet —
+   thereafter every call from your root routes to YOUR brain automatically.
+   Absent/null `reception` = your root matches the brain serving you.
 2. If trust is degraded or retrieval comes back `blocked`/empty unexpectedly,
    drop to the recovery path: follow `recovery_playbook` before interpreting
    absence. `wrong_workspace_binding` means rebind, intentional ingest, or real

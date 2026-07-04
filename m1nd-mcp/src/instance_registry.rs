@@ -36,6 +36,13 @@ pub struct InstanceRegistryEntry {
     pub stale: bool,
     #[serde(default)]
     pub conflicts: Vec<String>,
+    /// Two-Tier Brain: which kind of brain this instance hosts. `None` (the
+    /// serde default, so the ~54k legacy entries parse unchanged) means the
+    /// classic single bound/dev graph. `Some("project")` marks an owner-hosted
+    /// per-project brain (TWO-TIER-BRAIN interim variant) so `doctor`/list can
+    /// distinguish the dev graph from the project brains it also hosts.
+    #[serde(default)]
+    pub brain_kind: Option<String>,
 }
 
 /// Acquisition mode for an instance.
@@ -192,6 +199,7 @@ impl InstanceHandle {
             owner_live: Some(true),
             stale: false,
             conflicts: Vec::new(),
+            brain_kind: None,
         };
 
         let entry_path = registry_root
@@ -225,6 +233,17 @@ impl InstanceHandle {
         inner.entry.port = Some(port);
         inner.entry.status = "running".into();
         inner.entry.last_heartbeat_ms = now_ms();
+        persist_handle_inner(&inner)
+    }
+
+    /// Two-Tier Brain: stamp the brain kind (e.g. `"project"`) onto this
+    /// instance's registry entry and re-persist it, so `doctor`/`list_instances`
+    /// can tell an owner-hosted per-project brain apart from the bound dev graph.
+    /// The bound/dev owner never calls this, so its entry keeps `brain_kind:
+    /// None`.
+    pub fn set_brain_kind(&self, brain_kind: &str) -> M1ndResult<()> {
+        let mut inner = self.inner.lock();
+        inner.entry.brain_kind = Some(brain_kind.to_string());
         persist_handle_inner(&inner)
     }
 
@@ -533,7 +552,13 @@ fn generate_instance_id(workspace_root: &Path, runtime_root: &Path, now_ms: u64)
     format!("inst_{:x}", hasher.finish())
 }
 
-fn fingerprint_path(path: &Path) -> String {
+/// Stable per-path fingerprint (hash of the path string). Used to name the
+/// lease file for a runtime_root, and reused by the Two-Tier project-brain
+/// registry to name each brain's owner-side store dir by its caller_root, so
+/// the two agree on one hashing scheme (`pub(crate)`, one keyword — the smallest
+/// change that lets the store-dir naming reuse this instead of forking a second
+/// hex-of-path helper).
+pub(crate) fn fingerprint_path(path: &Path) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.to_string_lossy().hash(&mut hasher);
     format!("{:x}", hasher.finish())

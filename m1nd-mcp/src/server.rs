@@ -40,9 +40,13 @@ what one agent proves and memorizes, the next agent reads. Operate in a loop.
 
 A response may carry a `reception` block. `reception.match == \"caller_root_mismatch\"` \
 means the bound graph does NOT cover your current repo (its root ≠ your resolved \
-`caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]` \
-(continue_bound with that caveat, or ingest your repo). Absent `reception` = your root \
-matches the bound brain (silent bind is legal only on a match, TT-INV-12).
+`caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]`. \
+ONE call sets you up: `ingest` with `project_root=<your repo root>` creates your \
+per-project brain inside this owner, ingests your repo into it, binds this session to \
+it, and returns its north packet in the same response — thereafter every call from \
+your root routes to YOUR brain automatically, including brand-new sessions. Absent \
+`reception` = your root matches the brain serving you (silent bind is legal only on a \
+match, TT-INV-12).
 
 ## 1. PRE-ORIENT — never start cold
 
@@ -662,6 +666,10 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                             "items": { "type": "string" },
                             "default": [],
                             "description": "Allowed dotfile patterns when include_dotfiles=true (for example '.codex/**')"
+                        },
+                        "project_root": {
+                            "type": "string",
+                            "description": "ONE-CALL BOOTSTRAP (Two-Tier interim): set to your repo root when this owner's graph does not cover your repo (reception said caller_root_mismatch). Creates a per-project brain inside the served owner, ingests your repo into it, binds this session to it, and returns its north packet — one call, then every call from your root routes to YOUR brain automatically. Served-owner HTTP/attach only; inert on a plain stdio server. The owner's bound graph is never replaced."
                         }
                     },
                     "required": ["path", "agent_id"]
@@ -6037,6 +6045,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest");
@@ -6181,6 +6190,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest");
@@ -6226,6 +6236,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest");
@@ -6306,6 +6317,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest");
@@ -6480,6 +6492,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest");
@@ -6551,6 +6564,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest active repo");
@@ -6624,6 +6638,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest active repo");
@@ -6673,6 +6688,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest");
@@ -6720,6 +6736,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest");
@@ -6761,6 +6778,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("initial ingest");
@@ -8157,6 +8175,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest single file");
@@ -8346,6 +8365,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("ingest real m1nd-core/src");

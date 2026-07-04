@@ -6,7 +6,18 @@ All notable changes to m1nd are documented here. This project uses [Semantic Ver
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- **Per-project brains in the served owner — one-call bootstrap + silent cwd routing
+  (Two-Tier interim variant).** The one served owner now hosts multiple graphs: its
+  bound dev graph (untouched) plus per-project brains stored under
+  `<runtime_root>/project-brains/<hash>/`. From a repo the owner does not cover,
+  `ingest` with `project_root=<repo root>` creates the brain, ingests the repo,
+  binds the session, and returns the new brain's `north` packet in one call;
+  thereafter every call from that root — including brand-new sessions — routes to
+  that brain silently (TT-INV-12). The reception `ingest_your_repo` option now
+  carries this real invocation; registry entries gain a serde-default `brain_kind`
+  field. Owner restarts warm-boot each project brain from its own store.
 
 ---
 

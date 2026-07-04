@@ -828,6 +828,7 @@ fn maybe_auto_ingest_search_scope(
             namespace: None,
             include_dotfiles: false,
             dotfile_patterns: Vec::new(),
+            project_root: None,
         },
     )?;
 

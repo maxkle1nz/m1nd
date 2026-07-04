@@ -27,6 +27,8 @@ pub mod surgical_handlers;
 
 // v0.4.0: new tool handlers + personality
 pub mod personality;
+// Two-Tier Brain (interim): owner-hosted per-project brain stores + registry.
+pub mod project_brains;
 pub mod report_handlers;
 pub mod result_shaping;
 pub mod scope;

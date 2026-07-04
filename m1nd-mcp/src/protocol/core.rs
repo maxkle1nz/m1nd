@@ -182,6 +182,17 @@ pub struct IngestInput {
     /// include_dotfiles=true.
     #[serde(default)]
     pub dotfile_patterns: Vec<String>,
+    /// Two-Tier Brain (interim variant): when set, this `ingest` is a per-project
+    /// BOOTSTRAP handled entirely by the served owner's HTTP dispatch layer — it
+    /// creates (or warm-resolves) an owner-hosted per-project brain rooted at this
+    /// path, ingests the repo into it, binds the calling wire session to it, and
+    /// returns that new brain's orientation, all in ONE call. Thereafter the
+    /// caller's `caller_root` routes to that brain silently. `None` = classic
+    /// ingest against whichever graph the call already resolved to. HTTP/attach
+    /// only — on the stdio path this field is inert (the bound graph serves
+    /// stdio exactly as before).
+    #[serde(default)]
+    pub project_root: Option<String>,
 }
 
 /// Input for m1nd.resonate (resonance analysis).

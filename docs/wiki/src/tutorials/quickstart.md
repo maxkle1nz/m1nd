@@ -221,8 +221,11 @@ binding trust, task context, prior cross-session memory, a sufficiency signal,
 one `next_move`, and `honest_gaps` (what m1nd does not yet know). Heed
 `reception` when present: `reception.match == "caller_root_mismatch"` means the
 bound graph does NOT cover your current repo — do not trust retrieval for it;
-read `reception.options[]`. Absent/null `reception` = your root matches the
-bound brain.
+read `reception.options[]`. ONE call sets you up: `ingest` with
+`project_root=<your repo root>` creates a per-project brain inside the served
+owner and binds you to it — thereafter every call from your root routes there
+automatically. Absent/null `reception` = your root matches the brain serving
+you.
 
 ```jsonc
 {

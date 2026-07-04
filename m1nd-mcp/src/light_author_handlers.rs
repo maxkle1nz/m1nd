@@ -235,6 +235,7 @@ pub fn handle_light_author(
             namespace: Some(input.namespace.clone().unwrap_or_else(|| "light".into())),
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
         let ingest_result = crate::tools::handle_ingest(state, ingest_input)?;
 
@@ -791,6 +792,7 @@ mod tests {
             namespace: None,
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
         crate::tools::handle_ingest(&mut state, code_ingest).expect("code ingest");
 
@@ -927,6 +929,7 @@ mod tests {
             namespace: Some("light".into()),
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
 
         // Must NOT error on the absent Created/Source-Agent keys.
@@ -1114,6 +1117,7 @@ mod tests {
             namespace: Some("light".into()),
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
         let live_count = crate::tools::handle_ingest(&mut state, live_only).expect("live ingest")
             ["node_count"]
@@ -1131,6 +1135,7 @@ mod tests {
             namespace: Some("light".into()),
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
         let dir_count = crate::tools::handle_ingest(&mut state, dir_ingest).expect("dir ingest")
             ["node_count"]
@@ -1242,6 +1247,7 @@ mod tests {
             namespace: Some("light".into()),
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
         let result = crate::tools::handle_ingest(&mut state, ingest)
             .expect("doc with Supersedes must ingest without error");

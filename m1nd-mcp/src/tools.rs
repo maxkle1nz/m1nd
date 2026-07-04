@@ -518,6 +518,7 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
             namespace: Some("light".to_string()),
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
         handle_ingest(state, ingest_input)
     } else {
@@ -533,6 +534,7 @@ pub fn reload_agent_memory(state: &mut SessionState) -> Option<serde_json::Value
                 namespace: Some("light".to_string()),
                 include_dotfiles: false,
                 dotfile_patterns: vec![],
+                project_root: None,
             };
             match handle_ingest(state, ingest_input) {
                 Ok(r) => last = r,
@@ -4738,6 +4740,7 @@ mod tests {
             namespace: None,
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
 
         // 1) Code ingest (replace) -> builds `file::auth.rs`.
@@ -5000,6 +5003,7 @@ mod tests {
             namespace: None,
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
 
         // Step 1: code ingest — records sha256 for auth.rs in file_inventory.
@@ -5207,6 +5211,7 @@ mod tests {
                     namespace: None,
                     include_dotfiles: false,
                     dotfile_patterns: vec![],
+                    project_root: None,
                 },
             )
             .expect("code ingest")
@@ -5315,6 +5320,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: vec![],
+                project_root: None,
             },
         )
         .expect("code ingest");

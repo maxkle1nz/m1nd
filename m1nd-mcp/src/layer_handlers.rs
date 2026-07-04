@@ -5055,6 +5055,7 @@ fn l6_vp_autowarm_plan_files(state: &mut SessionState, input: &layers::ValidateP
             namespace: None,
             include_dotfiles: false,
             dotfile_patterns: Vec::new(),
+            project_root: None,
         };
         let _ = crate::tools::handle_ingest(state, ingest_input);
     }
@@ -13369,6 +13370,7 @@ def5678|2026-03-23 09:00:00 +0000|max kle1nz|feat: add benchmark harness
             namespace: Some("light".into()),
             include_dotfiles: false,
             dotfile_patterns: vec![],
+            project_root: None,
         };
         crate::tools::handle_ingest(state, ingest).expect("light ingest");
     }
