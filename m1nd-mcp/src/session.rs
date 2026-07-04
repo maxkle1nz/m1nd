@@ -302,6 +302,12 @@ pub struct SessionState {
     /// How `workspace_root` was inferred. This is diagnostic-only and helps
     /// agents distinguish real repo roots from Codex runtime session folders.
     pub workspace_root_source: Option<String>,
+    /// Per-wire-session caller root (hop-2 `M1nd-Caller-Root`); `None` = unknown
+    /// (direct-HTTP / legacy bridge). Request-scoped: the HTTP layer stamps it
+    /// from the incoming header before each dispatch, so a later call without the
+    /// header does not inherit a stale value. Feeds First-Contact Reception's
+    /// mismatch verdict (`reception_verdict`). See TWO-TIER-BRAIN-PRD §9.5.4.
+    pub caller_root: Option<String>,
     /// Dedicated runtime root for persisted sidecar state.
     pub runtime_root: PathBuf,
     /// Registry + lease handle for this process instance.
@@ -817,6 +823,64 @@ impl SessionState {
                     | "xml"
             )
         )
+    }
+
+    /// Degraded First-Contact Reception verdict (TWO-TIER-BRAIN-PRD §9.5.5).
+    ///
+    /// Returns a compact `reception` block ONLY when the caller's resolved root
+    /// (hop-2 `M1nd-Caller-Root`) is KNOWN and does NOT fall under the bound
+    /// workspace / ingest roots — the live Antigravity/Cherry failure, made loud.
+    /// Returns `None` on:
+    ///   (a) unknown caller root — honesty by omission, §9.5.4 absent ≠ wrong; and
+    ///   (b) match — TT-INV-12 silence-when-matched (silent binding is legal only
+    ///       when the caller's root matches the bound brain).
+    ///
+    /// Reuses the mismatch guard's `path_starts_with_loosely` (canonicalize +
+    /// normalize) and its exact known-roots list (`workspace_root` + `ingest_roots`),
+    /// lifted from the per-call `scope` opt-in to a first-contact default.
+    pub fn reception_verdict(&self) -> Option<serde_json::Value> {
+        // Unknown caller (direct-HTTP / legacy bridge sent no header) → cannot
+        // compute the match; say nothing rather than raise a false alarm.
+        let caller_root = self.caller_root.as_deref()?;
+
+        // The same known-roots list `workspace_binding_mismatch` compares against.
+        let mut known_roots: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(workspace_root) = self.workspace_root.as_deref() {
+            known_roots.push(std::path::PathBuf::from(workspace_root));
+        }
+        for root in &self.ingest_roots {
+            known_roots.push(std::path::PathBuf::from(root));
+        }
+
+        // Caller falls under a bound root → legal silent bind, no packet.
+        let caller_path = std::path::Path::new(caller_root);
+        if known_roots
+            .iter()
+            .any(|root| Self::path_starts_with_loosely(caller_path, root))
+        {
+            return None;
+        }
+
+        // Mismatch: the bound graph does NOT cover the caller's repo. Say so, and
+        // hand the agent machine-actionable options (no live `bind` verb yet —
+        // stated honestly).
+        Some(serde_json::json!({
+            "schema": "m1nd-reception-degraded-v0",
+            "match": "caller_root_mismatch",
+            "caller_root": caller_root,
+            "bound_workspace": self.workspace_root.clone().unwrap_or_default(),
+            "honest": "this graph does NOT cover your repo",
+            "options": [
+                {
+                    "action": "continue_bound",
+                    "note": "keep using this graph, but treat its answers as NOT covering your current repo — verify against local files"
+                },
+                {
+                    "action": "ingest_your_repo",
+                    "call": format!("ingest with path={caller_root} (separate runtime today; per-project brains are the two-tier roadmap)")
+                }
+            ]
+        }))
     }
 
     fn absolute_scope_path(scope: &str) -> Option<std::path::PathBuf> {
@@ -1415,6 +1479,7 @@ impl SessionState {
             ingest_roots,
             workspace_root: Some(workspace_root.to_string_lossy().to_string()),
             workspace_root_source: Some(workspace_root_source),
+            caller_root: None,
             runtime_root: runtime_root.clone(),
             instance,
             apply_batch_progress_sink: None,

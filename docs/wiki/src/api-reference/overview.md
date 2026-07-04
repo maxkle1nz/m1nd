@@ -82,7 +82,7 @@ Two doctrine points frame the whole surface. First, [`north`](lifecycle.md#m1ndn
 
 | Tool | Description |
 |------|-------------|
-| [`north`](lifecycle.md#m1ndnorth) | In-session front door: composed pre-orient (trust + task context + prior memory + sufficiency + `next_move` + `honest_gaps`) |
+| [`north`](lifecycle.md#m1ndnorth) | In-session front door: composed pre-orient (trust + task context + prior memory + sufficiency + `next_move` + `honest_gaps`; plus `reception` on a first-contact caller-root mismatch) |
 | [`ingest`](lifecycle.md#m1ndingest) | Ingest or re-ingest a codebase, descriptor, or memory corpus |
 | [`document_resolve`](lifecycle.md#m1nddocument_resolve) | Resolve canonical local artifacts for a universal document |
 | [`document_provider_health`](lifecycle.md#m1nddocument_provider_health) | Report optional document provider availability and install hints |

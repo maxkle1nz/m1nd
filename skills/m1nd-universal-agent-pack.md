@@ -21,6 +21,10 @@ cross-session memory, a sufficiency signal, one `next_move`, and `honest_gaps`
 in a single packet, before any query. If it returns `needs_ingest` (empty/unbound
 graph), `ingest` the repo, then `north` again — that is a real answer, not a
 failure. `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
+Heed `reception`: `reception.match == "caller_root_mismatch"` means the bound
+graph does NOT cover your current repo — do not trust retrieval for it; read
+`reception.options[]`. Absent/null `reception` = your root matches the bound
+brain.
 
 Drop to the trust-only sub-checks when the binding looks degraded and you need
 just the trust verdict:

@@ -36,6 +36,14 @@ trust, not vibes: absent / null / abstain / insufficient_evidence are REAL answe
 prefer them over guessing. Every tool call needs an `agent_id`. Knowledge is shared: \
 what one agent proves and memorizes, the next agent reads. Operate in a loop.
 
+## 0. FIRST CONTACT — heed reception
+
+A response may carry a `reception` block. `reception.match == \"caller_root_mismatch\"` \
+means the bound graph does NOT cover your current repo (its root ≠ your resolved \
+`caller_root`) — do NOT trust retrieval for THIS repo; read `reception.options[]` \
+(continue_bound with that caveat, or ingest your repo). Absent `reception` = your root \
+matches the bound brain (silent bind is legal only on a match, TT-INV-12).
+
 ## 1. PRE-ORIENT — never start cold
 
 Call `north(task)` FIRST, before reading or editing anything. One round-trip returns: \
@@ -3322,6 +3330,12 @@ fn handle_north(
         );
     }
 
+    // First-Contact Reception (TWO-TIER-BRAIN-PRD §9.5.5): on a caller_root
+    // mismatch this carries the honest front-desk block; on match/unknown it is
+    // null (absent-ish). Computed here, after every prior `state` borrow has
+    // returned, so it never conflicts with the earlier `&mut state` uses.
+    let reception = state.reception_verdict();
+
     Ok(serde_json::json!({
         "schema": "m1nd-north-packet-v0",
         "task": task,
@@ -3331,6 +3345,7 @@ fn handle_north(
         "sufficiency": sufficiency,
         "next_move": next_move,
         "honest_gaps": honest_gaps,
+        "reception": reception.unwrap_or(serde_json::Value::Null),
         "needs": if needs_ingest { serde_json::json!("needs_ingest") } else { serde_json::Value::Null },
         "recovery_playbook": recovery_playbook.unwrap_or(serde_json::Value::Null),
         "proof_state": "triaging",
@@ -7424,6 +7439,104 @@ mod tests {
             gaps.iter()
                 .any(|g| g.as_str().unwrap_or("").contains("empty or unbound")),
             "honest_gaps must state the graph is empty/unbound, got {gaps:?}"
+        );
+    }
+
+    /// First-Contact Reception degraded mode (TWO-TIER-BRAIN-PRD §9.5.5).
+    /// When the caller's resolved root (hop-2 `M1nd-Caller-Root`) is KNOWN and
+    /// falls OUTSIDE the bound workspace, north must carry a `reception` block
+    /// flagging the mismatch honestly. THIS FAILS BEFORE THE FIX (no `reception`
+    /// key) — that silence is exactly the live Antigravity/Cherry failure this
+    /// slice kills.
+    #[test]
+    fn north_reception_flags_caller_root_mismatch() {
+        let (_temp, mut state) = build_state_populated(false);
+        // The bound workspace (SessionState::initialize binds it to the runtime dir).
+        let bound = state
+            .workspace_root
+            .clone()
+            .expect("populated state must have a bound workspace_root");
+        // A caller root guaranteed NOT under the bound workspace.
+        state.caller_root = Some("/some/other/repo".into());
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "reception-mismatch",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed on a populated graph");
+
+        assert_eq!(
+            out["reception"]["match"], "caller_root_mismatch",
+            "north must flag a mismatched caller_root (the silence is the bug)"
+        );
+        assert_eq!(
+            out["reception"]["caller_root"], "/some/other/repo",
+            "reception must echo the caller's resolved root verbatim"
+        );
+        assert_eq!(
+            out["reception"]["bound_workspace"], bound,
+            "reception must name the bound workspace the caller is NOT under"
+        );
+        let options = out["reception"]["options"]
+            .as_array()
+            .expect("reception.options must be an array");
+        assert!(
+            !options.is_empty(),
+            "reception.options must be a non-empty, machine-actionable list"
+        );
+    }
+
+    /// TT-INV-12 silence-when-matched: when the caller's resolved root falls
+    /// UNDER the bound workspace, silent binding is legal — north carries NO
+    /// `reception` block. Guards against a false-positive front desk.
+    #[test]
+    fn north_reception_absent_when_caller_root_matches() {
+        let (_temp, mut state) = build_state_populated(false);
+        // Caller root == the bound workspace → a match, silence is correct.
+        state.caller_root = state.workspace_root.clone();
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "reception-match",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed on a populated graph");
+
+        assert!(
+            out.get("reception").is_none() || out["reception"].is_null(),
+            "a matched caller_root must NOT raise reception (TT-INV-12)"
+        );
+    }
+
+    /// Honesty-by-omission (§9.5.4 absent≠wrong): when the caller root is
+    /// UNKNOWN (direct-HTTP / legacy bridge sent no header), the match cannot be
+    /// computed, so north raises NO `reception` block — no false alarm.
+    #[test]
+    fn north_reception_absent_when_caller_root_unknown() {
+        let (_temp, mut state) = build_state_populated(false);
+        // Leave caller_root = None (the default) → unknown caller.
+        assert!(state.caller_root.is_none());
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "reception-unknown",
+                "task": "lease enforcement in the instance registry",
+            }),
+        )
+        .expect("north should succeed on a populated graph");
+
+        assert!(
+            out.get("reception").is_none() || out["reception"].is_null(),
+            "an unknown caller_root must NOT raise reception (honesty by omission)"
         );
     }
 

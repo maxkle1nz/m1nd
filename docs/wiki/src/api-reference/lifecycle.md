@@ -13,6 +13,13 @@ nodes + PageRank anchors), prior cross-session memory (each claim with its real
 age and author — absent, never faked, when unknown), a sufficiency signal, one
 `next_move`, and `honest_gaps` (what m1nd does not yet know).
 
+On first contact the packet may also carry a `reception` field (First-Contact
+Reception, degraded mode): `reception.match == "caller_root_mismatch"` means the
+bound graph does **not** cover your current repo (its root ≠ your resolved
+caller root) — do not trust retrieval for this repo; read `reception.options[]`.
+It is `null` when your root matches the bound brain (silent bind is legal only on
+a match) or when the caller root is unknown (direct-HTTP callers).
+
 `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`. Reach
 for those pieces directly only when you need just one. The
 `trust_selftest` / `session_handshake` / `recovery_playbook` trio is the
