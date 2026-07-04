@@ -8,6 +8,8 @@
  * reception mismatch the chip wears the honesty (brick text); §3.5's banner still
  * owns the repair. Click = the Hall. SOFT PROOF; no violet (not an abstain surface).
  */
+import { Icon } from '../../lib/icons/registry';
+
 interface BrainChipProps {
   /**
    * The bound brain's PROJECT name (§4A.5, Brain Chip law) — "m1nd", never the
@@ -47,7 +49,10 @@ export default function BrainChip({
       <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: dot }} />
       <span className="text-xs font-medium truncate max-w-[16ch]">{name}</span>
       {nodeCount != null && (
-        <span className="text-[10px] font-mono text-ink-soft">{nodeCount} nodes</span>
+        <span className="inline-flex items-center gap-1 text-[10px] text-ink-soft">
+          <Icon name="graph" size={14} decorative className="text-ink-soft/70" />
+          <span className="font-mono tabular-nums">{nodeCount.toLocaleString()}</span> nodes
+        </span>
       )}
     </button>
   );

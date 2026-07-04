@@ -9,11 +9,14 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx",
     "violet-lint": "node scripts/violet-lint.mjs",
+    "icon-lint": "node scripts/icon-lint.mjs",
+    "lint:soft": "node scripts/violet-lint.mjs && node scripts/icon-lint.mjs",
     "test": "node --import tsx --test --test-reporter=spec 'src/**/*.test.ts' 'src/**/*.test.tsx'"
   },
   "dependencies": {
     "@xyflow/react": "^12.10.1",
     "dagre": "^0.8.5",
+    "lucide-react": "^1.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.3"

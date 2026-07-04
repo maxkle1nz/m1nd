@@ -18,6 +18,7 @@ import type { InstanceRegistryEntry, InstanceListResponse, InstanceSelfResponse 
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { useToastStore } from '../../stores/toastStore';
 import { entryBaseUrl, brainDisplayName } from '../../lib/hallSemantics';
+import { useCardV2Data } from '../../hooks/useCardV2Data';
 import BrainCard from './BrainCard';
 import BrainReceiptDrawer from './BrainReceiptDrawer';
 
@@ -72,6 +73,31 @@ export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewP
     () => instances.find((e) => e.instance_id === selectedId) ?? null,
     [instances, selectedId],
   );
+
+  // Card-v2 GOLD/DEPTH for the OPEN/bound brain (§4A.3.1). On-demand only — the
+  // Hall opens on the bound brain, so `enabled` is simply "we have a self".
+  const v2 = useCardV2Data(self != null, self);
+
+  const reread = useCallback(async () => {
+    const root = self?.project_root;
+    if (!root) return;
+    try {
+      await api.tool('ingest', { path: root });
+      addToast('re-reading this repo…', brainDisplayName({ display_name: self?.display_name, workspace_root: root }), 'info');
+      v2.refreshFreshness();
+    } catch (err) {
+      setError(errorDetail(err, 'Re-read failed'));
+    }
+  }, [self, addToast, v2]);
+
+  const calibrate = useCallback(async () => {
+    try {
+      await api.tool('calibrate_predict', {});
+      addToast('calibrating on this repo…', 'measuring precision once', 'info');
+    } catch (err) {
+      setError(errorDetail(err, 'Calibrate failed'));
+    }
+  }, [addToast]);
 
   const openBrain = useCallback(
     (entry: InstanceRegistryEntry) => {
@@ -182,6 +208,20 @@ export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewP
                   entry.instance_id === selfId && self ? self.graph_state.edge_count : null
                 }
                 selected={entry.instance_id === selectedId}
+                // The viewing chip marks the ONE brain the tab is currently on
+                // (§4A.8). Today the tree is bound-graph-only, so that is the
+                // self/bound brain; when per-brain Open lands (2H) this flips to
+                // the served brain's id. Exactly one card ever wears it.
+                viewing={entry.instance_id === selfId}
+                // Card-v2 GOLD renders on the OPEN/bound brain only (§4A.3.1);
+                // hosted brains pass null → the fields are absent-honest.
+                gold={
+                  entry.instance_id === selfId
+                    ? { g1: v2.g1, g2: v2.g2, g3: v2.g3, g4: v2.g4 }
+                    : null
+                }
+                onReread={reread}
+                onCalibrate={calibrate}
                 onSelect={(en) => setSelectedId(en.instance_id)}
                 onOpen={openBrain}
               />
@@ -205,6 +245,8 @@ export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewP
         onSave={saveBrain}
         saving={selected != null && savingId === selected.instance_id}
         onDeleted={onDeleted}
+        // Card-v2 DEPTH (§4A.3.1) — only for the OPEN/bound brain's receipt.
+        depth={selected?.instance_id === selfId ? { d1: v2.d1, d2: v2.d2, calibrationReceipt: v2.g2?.receipt ?? null } : null}
       />
     </div>
   );

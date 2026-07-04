@@ -1,0 +1,18 @@
+/*
+ * RED-CASE FIXTURE for icon-lint (NOT compiled — `.fixture` extension).
+ * This file MUST trip icon-lint: it imports lucide-react directly (rule a),
+ * pulls the banned `Sparkles` (rule c), and sets strokeWidth ≠ 1.5 (rule b).
+ * The icon-lint test copies it to a temp `.tsx` under a scratch src and asserts
+ * the linter exits non-zero and names all three violations. If the lint ever
+ * stops biting this file, the guard is dead.
+ */
+import { Sparkles, Waypoints } from 'lucide-react';
+
+export function GlitterBadge() {
+  return (
+    <span>
+      <Sparkles strokeWidth={2} />
+      <Waypoints strokeWidth={3} />
+    </span>
+  );
+}

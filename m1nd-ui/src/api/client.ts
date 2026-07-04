@@ -8,10 +8,14 @@ import type {
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 
-// In Vite, import.meta.env.DEV points the browser at the dev server; in a plain
-// Node test runner import.meta.env is undefined, so guard the read (the tests
-// never hit the network — they stub api.* — but the module must import cleanly).
-const BASE_URL = import.meta.env?.DEV ? 'http://localhost:1337' : '';
+// The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
+// (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
+// vite.config) and the owner directly in production. Same-origin avoids the CORS
+// wall a direct cross-origin owner URL hit (the browser has no allow-origin from
+// the loopback owner). `VITE_M1ND_API` still lets a browser bypass the proxy to a
+// CORS-enabled owner if ever needed. In a plain Node test runner import.meta.env
+// is undefined, so guard the read (tests stub api.* and never hit the network).
+const BASE_URL = (import.meta.env?.VITE_M1ND_API as string | undefined) ?? '';
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {

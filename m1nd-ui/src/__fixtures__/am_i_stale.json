@@ -1,0 +1,20 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "activate(query) for exploration",
+      "help for tool reference"
+    ]
+  },
+  "checked": 4,
+  "fresh": [],
+  "source": "coverage_session",
+  "stale": [],
+  "summary": "All 4 file(s) checked (coverage_session) are fresh — nothing changed on disk since ingest.",
+  "unknown": [
+    "m1nd-core/src/graph.rs",
+    "m1nd-core/src/snapshot.rs",
+    "m1nd-core/src/snapshot_bin.rs",
+    "m1nd-mcp/src/server.rs"
+  ]
+}

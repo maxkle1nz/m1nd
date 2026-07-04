@@ -1,8 +1,12 @@
 /*
  * VerdictChip — the trust receipt on an answer surface (HUMAN-LAYER-PRD §4.3).
  * act = sage, reverify = ochre, abstain = IRIS violet. On the violet-lint
- * allow-list. The abstain chip NEVER animates (INV-02) and carries NO numeral.
+ * allow-list. Each verdict carries its glyph before the text (§4A.7 CONCEPT→ICON:
+ * act=Check, reverify=RotateCcw, abstain=CircleDashed). The abstain glyph
+ * SUPERSEDES the old plain iris dot — same size, iris ink, and it still NEVER
+ * animates (INV-02); the chip carries NO numeral.
  */
+import { Icon, type IconName } from '../../lib/icons/registry';
 
 export type Verdict = 'act' | 'reverify' | 'abstain';
 
@@ -14,17 +18,19 @@ interface VerdictChipProps {
 
 const VERDICT_META: Record<
   Verdict,
-  { text: string; bg: string; fg: string; abstain: boolean }
+  { text: string; bg: string; fg: string; icon: IconName; abstain: boolean }
 > = {
-  act: { text: 'good to go', bg: 'bg-verdict-act-tint', fg: 'text-ink', abstain: false },
+  act: { text: 'good to go', bg: 'bg-verdict-act-tint', fg: 'text-ink', icon: 'verdictAct', abstain: false },
   reverify: {
     text: 'worth a second look',
     bg: 'bg-verdict-reverify-tint',
     fg: 'text-ink',
+    icon: 'verdictReverify',
     abstain: false,
   },
-  // IRIS — the only violet chip.
-  abstain: { text: "I won't guess this one", bg: 'bg-iris-veil', fg: 'text-iris-deep', abstain: true },
+  // IRIS — the only violet chip. The CircleDashed glyph wears iris ink (inherited
+  // from the chip's text-iris-deep) and never animates.
+  abstain: { text: "I won't guess this one", bg: 'bg-iris-veil', fg: 'text-iris-deep', icon: 'verdictAbstain', abstain: true },
 };
 
 export default function VerdictChip({ verdict, label }: VerdictChipProps) {
@@ -35,13 +41,7 @@ export default function VerdictChip({ verdict, label }: VerdictChipProps) {
       data-abstain={m.abstain ? 'true' : undefined}
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${m.bg} ${m.fg}`}
     >
-      {m.abstain && (
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-iris shrink-0"
-          aria-hidden
-          data-abstain-dot="true"
-        />
-      )}
+      <Icon name={m.icon} size={14} decorative className="shrink-0" />
       {label ?? m.text}
     </span>
   );

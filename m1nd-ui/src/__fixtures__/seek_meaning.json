@@ -1,0 +1,377 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "impact(top_result) to check blast radius",
+      "learn(feedback) to strengthen edges",
+      "hypothesize(claim) to test a theory"
+    ]
+  },
+  "agent_runtime_contract": {
+    "auto_action": null,
+    "graph_identity": {
+      "cache_generation": 1,
+      "edge_count": 20980,
+      "finalized": true,
+      "graph_generation": 1,
+      "graph_path": "/Users/kle1nz/.m1nd/runtimes/claude/./graph_snapshot.json",
+      "graph_path_exists": true,
+      "ingest_root_count": 17,
+      "node_count": 6590,
+      "plasticity_generation": 0
+    },
+    "next_step_hint": null,
+    "next_suggested_tool": null,
+    "non_claims": [
+      "agent_runtime_contract does not repair the MCP host binding.",
+      "agent_runtime_contract does not ingest or mutate the graph.",
+      "agent_runtime_contract does not prove semantic retrieval correctness.",
+      "agent_runtime_contract does not replace compiler, test, log, or direct file truth."
+    ],
+    "observed": {
+      "candidates": 6590,
+      "error_text": null,
+      "tool": "seek"
+    },
+    "proof_state": "proving",
+    "recovery": null,
+    "schema": "m1nd-agent-runtime-contract-v0",
+    "session_identity": {
+      "agent_id": "gui",
+      "binary": {
+        "git_sha": "2de6d0c-dirty",
+        "name": "m1nd-mcp",
+        "version": "1.3.2"
+      },
+      "current_exe": "/Users/kle1nz/.m1nd/bin/m1nd-mcp",
+      "process_id": 87137,
+      "runtime_root": "/Users/kle1nz/.m1nd/runtimes/claude",
+      "tool": "seek"
+    },
+    "status": "ok",
+    "trust_mode": "full_trust",
+    "workspace_binding": {
+      "active_ingest_roots": [
+        "/Users/kle1nz/m1nd",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/persist-targets-anchor-on-runtime-root.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/brand-gate-g1-5-opt-in-savings-report-unmeasured-claims-surface-killed.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/two-tier-prd-reception-protocol-9-5.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/pathos-cp9-and-autorefresh-state.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/autoingestwatcherdirectoryeventflake.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/m1nd-hosts-cli-location.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/livingtreegraphchangedbrowsersse.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/m1nd-directory-listing-state-2026-07.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/tokenvalidator.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/npm-cold-start-funnel-version-flag-fresh-install-channel-default.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/slice-2r-degraded-reception-design.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/slice-2r-degraded-reception-shipped.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/humanlayer4a-hallthresholdergonomics.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/twotierinterimprojectbrainsshipped.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/hallprojectsidentityshipped.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory"
+      ],
+      "active_workspace_root": "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory",
+      "active_workspace_root_source": "graph_path_parent",
+      "mismatch": null,
+      "requested_scope": null,
+      "workspace_match": true
+    }
+  },
+  "elapsed_ms": 33.613749999999996,
+  "embeddings_used": true,
+  "next_step_hint": "Open the top seek result next: Graph in m1nd-core/src/graph.rs.",
+  "next_suggested_target": "m1nd-core/src/graph.rs",
+  "next_suggested_tool": "view",
+  "proof_state": "proving",
+  "query": "where is the graph snapshot endpoint that serves tree structure",
+  "relevance_clearing_total": 1435,
+  "results": [
+    {
+      "connections": [],
+      "excerpt": "The complete property graph. Owns all storage. Mutation methods increment `generation` for desync detection (FM-PL-006). pub struct Graph { pub nodes: NodeStorage, pub csr: CsrGraph, pub edge_plasticity: EdgePlasticity,",
+      "file_path": "m1nd-core/src/graph.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "Graph (struct) [rust, rust:module:graph, rust:fq:graph::Graph, rust:visibility:pub]",
+      "label": "Graph",
+      "line_end": 426,
+      "line_start": 426,
+      "node_id": "file::m1nd-core/src/graph.rs::struct::Graph",
+      "score": 0.5302027463912964,
+      "score_breakdown": {
+        "embedding_similarity": 0.3333333432674408,
+        "graph_activation": 0.35456177592277527,
+        "temporal_recency": 0.2217663824558258
+      },
+      "type": "struct"
+    },
+    {
+      "connections": [],
+      "excerpt": "struct GraphSnapshot { version: u32, nodes: Vec<NodeSnapshot>, edges: Vec<EdgeSnapshot>,",
+      "file_path": "m1nd-core/src/snapshot.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "GraphSnapshot (struct) [rust, rust:module:snapshot, rust:fq:snapshot::GraphSnapshot, rust:visibility:private]",
+      "label": "GraphSnapshot",
+      "line_end": 23,
+      "line_start": 23,
+      "node_id": "file::m1nd-core/src/snapshot.rs::struct::GraphSnapshot",
+      "score": 0.5044367909431458,
+      "score_breakdown": {
+        "embedding_similarity": 0.3333333432674408,
+        "graph_activation": 0.003217219142243266,
+        "temporal_recency": 0.3474411368370056
+      },
+      "type": "struct"
+    },
+    {
+      "connections": [],
+      "excerpt": "struct GraphSnapshotBin { version: u32, nodes: Vec<NodeSnapshotBin>, edges: Vec<EdgeSnapshotBin>,",
+      "file_path": "m1nd-core/src/snapshot_bin.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "GraphSnapshotBin (struct) [rust, rust:module:snapshot_bin, rust:fq:snapshot_bin::GraphSnapshotBin, rust:visibility:private]",
+      "label": "GraphSnapshotBin",
+      "line_end": 12,
+      "line_start": 12,
+      "node_id": "file::m1nd-core/src/snapshot_bin.rs::struct::GraphSnapshotBin",
+      "score": 0.4877447485923767,
+      "score_breakdown": {
+        "embedding_similarity": 0.3333333432674408,
+        "graph_activation": 0.003273249138146639,
+        "temporal_recency": 0.3079736530780792
+      },
+      "type": "struct"
+    },
+    {
+      "connections": [
+        {
+          "label": "num_nodes",
+          "node_id": "file::m1nd-core/src/graph.rs::fn::num_nodes",
+          "relation": "calls"
+        },
+        {
+          "label": "Graph",
+          "node_id": "file::m1nd-core/src/graph.rs::struct::Graph",
+          "relation": "calls"
+        },
+        {
+          "label": "resolve_id",
+          "node_id": "file::m1nd-core/src/graph.rs::fn::resolve_id",
+          "relation": "calls"
+        },
+        {
+          "label": "add_edge",
+          "node_id": "file::m1nd-core/src/graph.rs::fn::add_edge",
+          "relation": "calls"
+        },
+        {
+          "label": "add_node",
+          "node_id": "file::m1nd-core/src/graph.rs::fn::add_node",
+          "relation": "calls"
+        }
+      ],
+      "excerpt": "Load full graph from JSON snapshot. Reconstructs the complete graph with all nodes, edges, CSR, and PageRank. pub fn load_graph(path: &Path) -> M1ndResult<Graph> { let data = std::fs::read_to_string(path)?; let snapshot: GraphSnapshot = serde_json::from_str(&data).map_err(M1ndError::Serde)?;",
+      "file_path": "m1nd-core/src/snapshot.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "load_graph (function) [rust, rust:module:snapshot, rust:fq:snapshot::load_graph, rust:visibility:pub, m1nd:edge:unresolved, m1nd:edge:ambiguous, m1nd:edge:ambiguous:file::m1nd-core/src/tremor.rs::fn::from_str, m1nd:edge:ambiguous:file::m1nd-core/src/graph.rs::fn::add_node, m1nd:edge:ambiguous:file::m1nd-core/src/graph.rs::fn::add_edge, m1nd:edge:ambiguous:file::m1nd-core/src/graph.rs::fn::finalize]",
+      "label": "load_graph",
+      "line_end": 229,
+      "line_start": 229,
+      "node_id": "file::m1nd-core/src/snapshot.rs::fn::load_graph",
+      "score": 0.472746878862381,
+      "score_breakdown": {
+        "embedding_similarity": 0.3333333432674408,
+        "graph_activation": 0.003559411969035864,
+        "temporal_recency": 0.13580362498760223
+      },
+      "type": "function"
+    },
+    {
+      "connections": [
+        {
+          "label": "num_nodes",
+          "node_id": "file::m1nd-core/src/graph.rs::fn::num_nodes",
+          "relation": "calls"
+        },
+        {
+          "label": "NodeId",
+          "node_id": "file::m1nd-core/src/types.rs::struct::NodeId",
+          "relation": "calls"
+        },
+        {
+          "label": "as_usize",
+          "node_id": "file::m1nd-core/src/types.rs::fn::as_usize",
+          "relation": "calls"
+        },
+        {
+          "label": "with_capacity",
+          "node_id": "file::m1nd-core/src/graph.rs::fn::with_capacity",
+          "relation": "calls"
+        },
+        {
+          "label": "snapshot_from_provenance",
+          "node_id": "file::m1nd-core/src/snapshot.rs::fn::snapshot_from_provenance",
+          "relation": "calls"
+        }
+      ],
+      "excerpt": "Save full graph to JSON snapshot. Atomic write: temp file + rename (FM-PL-008). Serializes all nodes and edges so the graph can be fully reconstructed on load. pub fn save_graph(graph: &Graph, path: &Path) -> M1ndResult<()> { let n = graph.num_nodes() as usize; // Build reverse map: NodeId -> external_id string",
+      "file_path": "m1nd-core/src/snapshot.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "save_graph (function) [rust, rust:module:snapshot, rust:fq:snapshot::save_graph, rust:visibility:pub, m1nd:edge:unresolved, m1nd:edge:ambiguous, m1nd:edge:ambiguous:file::m1nd-core/src/types.rs::fn::as_usize, m1nd:edge:ambiguous:file::m1nd-core/src/graph.rs::fn::with_capacity]",
+      "label": "save_graph",
+      "line_end": 146,
+      "line_start": 146,
+      "node_id": "file::m1nd-core/src/snapshot.rs::fn::save_graph",
+      "score": 0.46812573075294495,
+      "score_breakdown": {
+        "embedding_similarity": 0.3333333432674408,
+        "graph_activation": 0.003559411969035864,
+        "temporal_recency": 0.13580362498760223
+      },
+      "type": "function"
+    },
+    {
+      "connections": [
+        {
+          "label": "initialize",
+          "node_id": "file::m1nd-mcp/src/session.rs::fn::initialize",
+          "relation": "calls"
+        },
+        {
+          "label": "McpConfig",
+          "node_id": "file::m1nd-mcp/src/server.rs::struct::McpConfig",
+          "relation": "calls"
+        },
+        {
+          "label": "Path",
+          "node_id": "file::m1nd-mcp/src/protocol/layers.rs::enum::GlobSort::Path",
+          "relation": "calls"
+        },
+        {
+          "label": "load_graph",
+          "node_id": "file::m1nd-core/src/snapshot_bin.rs::fn::load_graph",
+          "relation": "calls"
+        },
+        {
+          "label": "code",
+          "node_id": "file::m1nd-core/src/domain.rs::fn::code",
+          "relation": "calls"
+        }
+      ],
+      "excerpt": "REAL PROBE: load the repo's actual graph_snapshot.json (~5540 nodes) and run `orient` on a real task, printing the focus nodes + summary. Run with: `cargo test -p m1nd-mcp orient_real_snapshot_probe -- --nocapture` Skips gracefully (printing a note) if the snapshot is not present. fn orient_real_snapshot_probe() { // L",
+      "file_path": "m1nd-mcp/src/server.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "orient_real_snapshot_probe (function) [rust, rust:module:server, rust:fq:server::orient_real_snapshot_probe, test, rust:module:server::tests, rust:fq:server::tests::orient_real_snapshot_probe, rust:visibility:private, m1nd:edge:ambiguous, m1nd:edge:ambiguous:file::m1nd-mcp/src/protocol/layers.rs::enum::GlobSort::Path, m1nd:edge:unresolved, m1nd:edge:ambiguous:file::m1nd-core/src/snapshot_bin.rs::fn::load_graph]",
+      "label": "orient_real_snapshot_probe",
+      "line_end": 6671,
+      "line_start": 6671,
+      "node_id": "file::m1nd-mcp/src/server.rs::fn::orient_real_snapshot_probe",
+      "score": 0.44660499691963196,
+      "score_breakdown": {
+        "embedding_similarity": 0.3333333432674408,
+        "graph_activation": 0.003167492803186178,
+        "temporal_recency": 0.15681250393390656
+      },
+      "type": "function"
+    }
+  ],
+  "sufficiency": {
+    "captured": 0.21601222455501556,
+    "state": "gathering",
+    "top_score": 0.5302027463912964,
+    "why": "the strongest match left out still scores 0.46 — relevant context did not fit (set carries 22% of the salience); raise token_budget/top_k or narrow the goal"
+  },
+  "total_candidates_scanned": 6590,
+  "trust_envelope": {
+    "calibrated": false,
+    "factors": [
+      {
+        "band": "deferred: insufficient_evidence",
+        "known": false,
+        "name": "trust_band",
+        "weight": 1.0
+      },
+      {
+        "band": "full_trust",
+        "known": true,
+        "name": "binding",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: cross_verify (ingest-only, unavailable in seek)",
+        "known": false,
+        "name": "evidence_freshness",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: am_i_stale (per-file I/O)",
+        "known": false,
+        "name": "am_i_stale",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: why/impact closure (not built in seek)",
+        "known": false,
+        "name": "closure",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: mission_verify (needs an open mission)",
+        "known": false,
+        "name": "evidence_class",
+        "weight": 1.0
+      }
+    ],
+    "next_repair_call": "trust_selftest",
+    "reasons": [
+      "weighted trust score 1.00 over 1 known factor(s), but the `envelope` signal is UNCALIBRATED — `act` is unreachable and the verdict is capped at `reverify` until a calibration row is measured",
+      "factor `trust_band` deferred (deferred: insufficient_evidence)",
+      "factor `evidence_freshness` deferred (deferred: cross_verify (ingest-only, unavailable in seek))",
+      "factor `am_i_stale` deferred (deferred: am_i_stale (per-file I/O))",
+      "factor `closure` deferred (deferred: why/impact closure (not built in seek))",
+      "factor `evidence_class` deferred (deferred: mission_verify (needs an open mission))"
+    ],
+    "score": 1.0,
+    "verdict": "reverify"
+  }
+}

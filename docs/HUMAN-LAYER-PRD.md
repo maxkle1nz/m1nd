@@ -1286,7 +1286,58 @@ green, claims scoped).
 > binding reads `agent-memory` (the runtime subdir) rather than the repo basename — honest rendering
 > of the real two-tier binding, not a bug; the cards use `instance.workspace_root` for the cleaner name.
 >
-> Slices 1–3 below remain spec'd.
+> **Slice 1T status — SHIPPED 2026-07-04 (`feat/tree-precision-1t`).** The precision system + the
+> reading instruments landed as a foundation (client-heavy, bound brain, ZERO new verbs). **The icon
+> system (§4A.7):** `lucide-react` vendored (ISC — Feather/MIT heritage, verified; license text
+> alongside the registry as the fonts do), a central `lib/icons/registry.tsx` that is the ONLY lucide
+> import site (the verbatim CONCEPT→ICON table), the `<Icon>` wrapper fixing stroke 1.5 + `currentColor`
+> (the violet quarantine covers icons for free) + the two sanctioned sizes (14/16) + the aria-label
+> contract, plus `StatCell`/`StatValue` (right-aligned tabular-mono counts). The **icon-lint**
+> (`scripts/icon-lint.mjs`, sibling to violet-lint) fails on any lucide import outside the registry,
+> any `strokeWidth ≠ 1.5`, and the BANNED `Sparkles` — proven to BITE by a red-case fixture test.
+> **Label truth (§4A.8):** `KIND_LABEL` dies from card faces (`brainKindBadge`→`brainImplClass`,
+> receipt-only); the implementation class moves to the receipt's `binding:` line (process-bound /
+> owner-hosted / sibling owner); the **viewing chip** (`Eye`, exactly-one-at-a-time) is born, from the
+> same envelope as the Brain Chip. **Card anatomy v2 (§4A.3.1):** for the OPEN/bound brain — GOLD on
+> the face (G1 freshness-vs-git via `am_i_stale` + `[Re-read]`; G2 calibration chip via
+> `predict.calibration`, the uncalibrated cap stated VERBATIM + `[Calibrate once]`; G3 the compounding
+> meter — distinct `light:*` memories + 30-day aging; G4 aliveness — sessions + queries), DEPTH in the
+> receipt (D1 last claim, D2 honest gaps: coverage + ghost edges + `honest_gaps`); a hosted brain shows
+> these ABSENT-honest; on-demand fetch only (the §4A.3.1-G1 cost rule — no per-card background poll).
+> **Reading the Tree (§4A.10):** three LENSES (directory | kind | layer via the `layers` verb + the
+> honest "unlayered" group, counts verbatim); six matte FILTER chips (kind/language/trust/has-memory/
+> changed-since-read/churning, AND-combined, "N hidden by filters" residue); SEARCH two modes — `name`
+> (instant substring) and `meaning` (`seek`), the `SeekPanel` rendering the `sufficiency` (state + why
+> verbatim) + the `trust_envelope` verdict (`VerdictChip`) the UI used to DISCARD, plus the
+> `embeddings_used:false` "matched by text, not meaning" caption and the "showing N of M that cleared
+> relevance" truncation line, a hit-click jumping the tree; a breadcrumb + a density toggle; `/` focuses
+> search. Proofs: **142 UI tests green** (51 net-new incl. INV-13 stroke/color/label + the icon-lint
+> BITE, INV-14 zero-class-face + viewing-chip-count-1, INV-16 foreign-hit-dropped in both the lens logic
+> and the SeekPanel render, the card-v2 GOLD/DEPTH + anti-scope, the lens/filter residue exactness), all
+> lens/search/card fixtures are **real captured envelopes** (`seek_meaning.json` / `layers.json` /
+> `am_i_stale.json` / `predict_calibration.json`, POST'd from the live `:1338` owner); violet-lint +
+> icon-lint green; `tsc` clean; `vite build` green with the dist air-gap grep at **zero external
+> resource loads** (lucide adds no host); **live smoke** on the dogfood `:1338` owner rendered the layer
+> lens (8 detected layers + "unlayered" 5,803), the meaning-search panel (verdict "worth a second look",
+> sufficiency "gathering" + the verbatim why, 16 of 847 that cleared relevance), and the Hall (one
+> viewing chip, the four GOLD rows live — "24 memories · newest 1h ago", "3 agents attached · 105
+> queries this session" — the Cherry card absent-honest, zero class labels on any face).
+> *(A kickstart of the served owner activates the new embedded dist — the running binary embeds the
+> prior build.)*
+>
+> **Honest deviations / residue (1T):** (1) two small dev-ergonomics fixes rode this PR — the dev API
+> base now rides the same-origin Vite proxy (the old hardcoded cross-origin `:1337` failed CORS against
+> a loopback owner), and the proxy target is retargetable via `M1ND_API` (default unchanged); neither
+> touches production (`BASE_URL=''`). (2) The `changed`/`language`/`trust` filter chips ship as
+> present/DERIVED toggles — a toggled chip filters to the rows that carry the field; per-value refinement
+> panels (pick which languages/bands) are a natural follow-up, not required by §4A.10. (3) Per-brain
+> lens/search still ride the bound brain only; inside an opened hosted brain every call carries the
+> §4A.9 selector — that is **2H** (§4A.9), unchanged. (4) The `filtering_reason`/`embeddings_used:false`
+> honesty branches are typed + unit-tested as pure functions; the live embed-on owner rarely returns a
+> truly empty or trigram-only result, so those captions await a real trigram-fallback case to exercise
+> end-to-end (the render logic is proven against the real envelope's booleans).
+>
+> Slices 2H / 2 / 3 below remain spec'd.
 
 | Slice | Ships | Proof gates (all must be green) |
 |---|---|---|
@@ -1294,7 +1345,7 @@ green, claims scoped).
 | **0T — the Threshold + the chip** ✅ **SHIPPED 2026-07-04** *(§4A lettered insert — rides Slice-0 machinery; renumbering would ripple)* | The Threshold empty state (evolves the shipped cold state), the 3-beat orientation, the Brain Chip on every surface, the reduced-motion kill switch, the palette Brains group v0, and the **clobber-ban retirement** of the raw "Read a repo" ingest on non-empty owners (§4A.4). Bootstrap uses `project_root` when `GET /api/tools` advertises it; plain ingest survives only on an empty owner. | INV-12 tests green (zero-brain-only render, dismiss persists, beats independent); INV-11's clobber-ban test green (no foreign-path bare ingest on a non-empty owner); chip present on every surface including cold/degraded states, sourced from the same envelope as the surface; reduced-motion component test green (tremor breath stands down, transitions zeroed); Threshold + orientation fully keyboard-only; progress copy is words, never a fabricated percent (INV-05). |
 | **1 — the Pre-Flight Card** *(the hero)* | The north card (mini-map strip, blast line, memory strip, violet gap card, one next-move button), seeded from the tree's `[Check before editing]`. | Replays real captured north envelopes from `docs/benchmarks/**/event-streams/`; INV-03/05/07 green on the card; the 2-second read holds (headline + verdict + gaps visible without scroll at 1280×800); every gap shows exactly one action; `needs_ingest` and degraded-binding variants render the repair path. |
 | **1H — the Hall** ✅ **SHIPPED 2026-07-04** *(§4A lettered insert — gated on the two-tier brains slice landing; its test file is the contract)* | The Hall at rung −1: the three-class brains list (§4A.3 card anatomy, absent-never-faked fields), the drawer receipt, the actions table with honest disabled states (§4A.4), the calm two-step delete on the existing `delete-state` route, palette jump + ESC-from-root, live refresh reused. `InstancesPanel` retires. | INV-09/10/11 green on real fixtures (captured `/api/instances` + self envelopes, incl. a live-refusal case and a counts-absent case); delete flow structurally unreachable below two confirmations; disabled affordances carry residue-naming tooltips (copy asserted); ESC at tree root reaches the Hall and back; recency ordering is the registry's, unre-sorted; violet-lint stays green after the panel reskin (the cyberpunk tokens die here); Hall fully keyboard-only. |
-| **1T — Reading the Tree + the precision system** *(§4A.7/§4A.8/§4A.10; client-heavy, bound brain — zero new verbs)* | The icon registry + precision rules land here the way tokens landed in Slice 0 (foundation, not a later coat): lucide-react vendored (ISC text alongside), the concept→icon registry, the icon lint. Card anatomy v2 GOLD/DEPTH fields for the open brain (§4A.3.1). The §4A.8 label fix (kind badges die; viewing chip born). Grouping (directory/kind/layer), the filter bar, `meaning` search on `seek` with sufficiency + verdict rendered, breadcrumb, density toggle (§4A.10). | INV-13/14/16 green; icon lint green (registry-only imports, stroke 1.5, no Sparkles); air-gap grep of `dist/` still zero external hosts; layer lens renders real `layers` output with the "unlayered" group; `meaning` panel renders `sufficiency.why` + `VerdictChip` from a real captured `SeekOutput` (fixture, not hand-written); filter footer residue count exact; G1 freshness computed on demand only (no per-card background polling — asserted); zero class labels in card DOM. |
+| **1T — Reading the Tree + the precision system** ✅ **SHIPPED 2026-07-04** *(§4A.7/§4A.8/§4A.10; client-heavy, bound brain — zero new verbs)* | The icon registry + precision rules land here the way tokens landed in Slice 0 (foundation, not a later coat): lucide-react vendored (ISC text alongside), the concept→icon registry, the icon lint. Card anatomy v2 GOLD/DEPTH fields for the open brain (§4A.3.1). The §4A.8 label fix (kind badges die; viewing chip born). Grouping (directory/kind/layer), the filter bar, `meaning` search on `seek` with sufficiency + verdict rendered, breadcrumb, density toggle (§4A.10). | INV-13/14/16 green; icon lint green (registry-only imports, stroke 1.5, no Sparkles); air-gap grep of `dist/` still zero external hosts; layer lens renders real `layers` output with the "unlayered" group; `meaning` panel renders `sufficiency.why` + `VerdictChip` from a real captured `SeekOutput` (fixture, not hand-written); filter footer residue count exact; G1 freshness computed on demand only (no per-card background polling — asserted); zero class labels in card DOM. |
 | **2H — per-brain Open** *(§4A.9; the contract above is the spec — Rust + UI in one slice)* | The `brain` query param on `/api/graph/*` + `/api/tools/*` reusing the wire's resolution; `served_brain` echo; `rest_brain_selector` capability stamp; brain-scoped `graph_changed` (additive field); the tree/chip/Hall adoption end-to-end; Open's residue tooltip deleted. | INV-15 green (wrong-echo fixture dropped); Rust: `snapshot?brain=<hosted>` ≠ bound snapshot, unknown root refused with the honest error, absent param byte-compatible (`hall_brains_listing.rs` extended); UI: every fetch carries the selector while viewing, chip flips to the echo's name, warm-boot renders words not bars; feature-detection: Open stays disabled against an old owner (no stamp). |
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |

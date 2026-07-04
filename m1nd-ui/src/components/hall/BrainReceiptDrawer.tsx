@@ -21,8 +21,12 @@ import {
   resolvedBrainCounts,
   visibleConflicts,
   isProjectBrain,
+  bindingClassLabel,
 } from '../../lib/hallSemantics';
 import ForgetRuntimeFlow from './ForgetRuntimeFlow';
+import { Icon } from '../../lib/icons/registry';
+import { humanizeAge, authorLabel } from '../../lib/softProof';
+import type { LastClaimD1, HonestGapsD2 } from '../../lib/cardV2';
 
 interface BrainReceiptDrawerProps {
   entry: InstanceRegistryEntry | null;
@@ -34,6 +38,9 @@ interface BrainReceiptDrawerProps {
   saving: boolean;
   /** Called after a successful delete so the list can drop the card. */
   onDeleted: (entry: InstanceRegistryEntry) => void;
+  /** Card-v2 DEPTH (§4A.3.1) — D1 last claim + D2 honest gaps + the G2 exact row.
+   *  Only the OPEN/bound brain carries it; null → the section is absent-honest. */
+  depth?: { d1: LastClaimD1 | null; d2: HonestGapsD2 | null; calibrationReceipt: string | null } | null;
 }
 
 /** A read-only receipt line. */
@@ -74,6 +81,7 @@ export default function BrainReceiptDrawer({
   onSave,
   saving,
   onDeleted,
+  depth = null,
 }: BrainReceiptDrawerProps) {
   if (!entry) return null;
   const band = livenessBand(entry);
@@ -122,6 +130,9 @@ export default function BrainReceiptDrawer({
         <section>
           <div className="text-[10px] uppercase tracking-widest text-ink-soft/70 mb-2">the binding</div>
           <div className="rounded-lg border border-ink/10 bg-bone/50 px-3 py-2">
+            {/* The implementation class lives HERE and only here (§4A.8, INV-14):
+                the card face never labels a brain by class; the receipt does. */}
+            <Fact label="binding" value={bindingClassLabel(entry, isSelf)} mono={false} />
             <Fact label="status" value={dot.label} mono={false} />
             {counts.nodeCount != null && counts.edgeCount != null ? (
               <Fact label="graph" value={`${counts.nodeCount} nodes · ${counts.edgeCount} edges`} />
@@ -164,6 +175,53 @@ export default function BrainReceiptDrawer({
             </div>
           )}
         </section>
+
+        {/* Card-v2 DEPTH (§4A.3.1): the receipt descent — D1 last claim, D2 honest
+            gaps, and the G2 exact calibration row. Categories, not gauges. Only
+            the OPEN brain carries it; a hosted brain shows nothing (absent-honest). */}
+        {depth && (depth.d1 || depth.d2 || depth.calibrationReceipt) && (
+          <section data-role="card-depth">
+            <div className="text-[10px] uppercase tracking-widest text-ink-soft/70 mb-2">what it has learned</div>
+            <div className="rounded-lg border border-ink/10 bg-bone/50 px-3 py-2 space-y-2">
+              {/* D1 — the last learned claim */}
+              {depth.d1 && (
+                <div data-role="d1-last-claim">
+                  <div className="flex items-center gap-1.5 text-[11px] text-ink">
+                    <Icon name="memory" size={14} decorative className="text-ink-soft/80 shrink-0" />
+                    <span className="truncate" title={depth.d1.claim}>{depth.d1.claim}</span>
+                  </div>
+                  <div className="text-[10px] text-ink-soft/70 pl-5">
+                    {authorLabel(depth.d1.sourceAgent)} · {humanizeAge(depth.d1.ageMs)}
+                  </div>
+                </div>
+              )}
+              {/* G2 — the exact calibration row (receipt depth) */}
+              {depth.calibrationReceipt && (
+                <div className="flex items-center gap-1.5 text-[10px] text-ink-soft font-mono" data-role="calibration-receipt">
+                  <Icon name="calibration" size={14} decorative className="text-ink-soft/70 shrink-0" />
+                  <span className="truncate" title={depth.calibrationReceipt}>{depth.calibrationReceipt}</span>
+                </div>
+              )}
+              {/* D2 — honest gaps */}
+              {depth.d2 && (
+                <div data-role="d2-honest-gaps" className="space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-[11px] text-ink-soft">
+                    <Icon name="freshness" size={14} decorative className="text-ink-soft/70 shrink-0" />
+                    {depth.d2.coverageLine}
+                    {depth.d2.ghostEdges != null && (
+                      <span className="text-ink-soft/70"> · {depth.d2.ghostEdges} guessed links (dashed on the map)</span>
+                    )}
+                  </div>
+                  {depth.d2.gaps.map((g, i) => (
+                    <div key={i} className="text-[10px] text-ink-soft/70 pl-5 truncate" title={g}>
+                      {g}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Actions (§4A.4) */}
         <section>

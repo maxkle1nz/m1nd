@@ -86,7 +86,11 @@ export interface ImpactOutput {
   next_step_hint?: string;
 }
 
-// ── seek (SeekResultEntry) ────────────────────────────────────────────────────
+// ── seek (SeekResultEntry / SeekOutput) ───────────────────────────────────────
+// Transcribed from the REAL captured envelope (src/__fixtures__/seek_meaning.json,
+// POST /api/tools/seek on the live :1338 owner). The §4A.10 meaning-search panel
+// renders `sufficiency` + `trust_envelope` (which the UI currently discards) — so
+// both are typed in full here, not as `unknown`.
 export interface SeekResultEntry {
   node_id: string;
   label: string;
@@ -94,14 +98,101 @@ export interface SeekResultEntry {
   file_path?: string;
   line_start?: number;
   line_end?: number;
-  source_agent?: string; // Option — absent → unknown
-  authored_ms_ago?: number; // Option — absent → unknown
+  source_agent?: string | null; // Option — absent/null → unknown (INV-04)
+  authored_ms_ago?: number | null; // Option — absent/null → unknown (INV-04)
   excerpt?: string;
-  score?: number;
+  intent_summary?: string; // the one-line "what this is" the panel shows
+  score?: number; // the engine's score VERBATIM — no invented stars (§4A.10)
 }
+
+/** The sufficiency block — ALWAYS present on SeekOutput (layers.rs:103). */
+export interface Sufficiency {
+  state: string; // "sufficient" | "gathering" | "saturated"
+  top_score?: number;
+  captured?: number;
+  why: string; // the engine's own explanation, rendered verbatim
+}
+
+/** One factor inside a TrustEnvelope. */
+export interface TrustEnvelopeFactor {
+  name: string;
+  band: string;
+  known: boolean;
+  weight: number;
+}
+
+/** The trust envelope — ALWAYS present on SeekOutput (layers.rs:180-231). */
+export interface TrustEnvelope {
+  verdict: 'act' | 'reverify' | 'abstain';
+  calibrated: boolean; // false → capped at reverify by engine law (G2 explains)
+  score?: number;
+  factors?: TrustEnvelopeFactor[];
+  reasons?: string[];
+  next_repair_call?: string;
+}
+
 export interface SeekOutput {
   query: string;
   results: SeekResultEntry[];
-  trust_envelope?: unknown;
-  sufficiency?: { state?: string };
+  sufficiency: Sufficiency;
+  trust_envelope: TrustEnvelope;
+  embeddings_used?: boolean; // false → "matched by text, not meaning" (trigram fallback)
+  relevance_clearing_total?: number; // engine-counted total that cleared relevance
+  total_candidates_scanned?: number;
+  filtering_reason?: string | null; // when results empty, the engine says WHY (verbatim)
+}
+
+// ── layers (LayersOutput) — the §4A.10 layer lens ─────────────────────────────
+// From the REAL captured envelope (src/__fixtures__/layers.json, the `layers`
+// verb). Layer names repeat across `level`s (e.g. two "entry_points"), so a
+// group's stable key is its level, and its display combines name + level.
+export interface LayerNode {
+  node_id: string;
+  label: string;
+  type?: string;
+  in_degree?: number;
+  out_degree?: number;
+  layer_confidence?: number;
+}
+export interface LayerGroup {
+  name: string;
+  level: number;
+  node_count: number;
+  description?: string;
+  avg_out_degree?: number;
+  avg_pagerank?: number;
+  nodes: LayerNode[];
+  nodes_returned?: number;
+  nodes_truncated?: boolean;
+}
+export interface LayerUtilityNode {
+  node_id: string;
+  label: string;
+  classification?: string;
+  used_by_layers?: number[];
+}
+export interface LayersOutput {
+  layers: LayerGroup[];
+  summary?: {
+    total_layers_detected?: number;
+    total_nodes_classified?: number;
+    total_utility_nodes?: number;
+    total_violations?: number;
+    has_cycles?: boolean;
+    layer_separation_score?: number;
+  };
+  utility_nodes?: LayerUtilityNode[];
+  truncated?: boolean;
+}
+
+// ── am_i_stale (AmIStaleOutput) — G1 freshness + the "changed since read" chip ─
+// From the REAL captured envelope (src/__fixtures__/am_i_stale.json). The card
+// passes the visible file set explicitly; the result partitions checked paths.
+export interface AmIStaleOutput {
+  checked: number;
+  stale: Array<{ path: string; reason: string } | string>;
+  fresh: string[];
+  unknown?: string[];
+  summary?: string;
+  source?: string;
 }
