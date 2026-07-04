@@ -101,6 +101,13 @@ Under the `serve` feature (`--serve`, default port `127.0.0.1:1337`), `m1nd-mcp`
 
 - `POST /api/tools/{tool}` — universal tool dispatch (same `dispatch_tool` free function the stdio transport uses).
 - `GET /api/graph/snapshot` · `subgraph` · `stats` — graph read endpoints.
+- `GET /api/instances` — **every brain this owner holds**, PROJECT-named (the Hall's brains surface, HUMAN-LAYER-PRD §4A.3). Lists the bound dev graph AND every owner-hosted per-project brain (Two-Tier interim, `project_brains.rs`). Each entry is a registry `InstanceRegistryEntry` enriched server-side (`http_server::instances_listing`) with two honest fields:
+  - `display_name` — the **repo basename** ("m1nd", "Cerrybubbles1"), the brain's human name. NEVER the runtime dir ("claude") nor its `agent-memory` sidecar. Resolved from `SessionState::project_root_display` for the bound brain (its primary code ingest root, skipping `.light.md` memory files + the `agent-memory` dir) and from the store's `project_brain.json` manifest for a hosted `brain_kind:"project"` brain (whose raw `workspace_root` is the fingerprint store dir).
+  - `project_root` — the repo the brain maps (the card's path).
+
+  The bound brain floats first; the rest keep the registry's freshest-heartbeat order. The raw runtime fields (`workspace_root`, `runtime_root`, `pid`, `brain_kind`, …) stay on each entry, demoted to the receipt drawer.
+- `GET /api/instance/self` — the bound brain's own envelope (`SessionState::instance_self_summary`): `instance` + `graph_state` + session counters, now also carrying top-level `display_name` + `project_root` (the Brain Chip's name source, so the chip reads "m1nd", not the `agent-memory` sidecar that `graph_state.workspace_root` still carries).
+- `POST /api/instances/{id}/save` · `/delete-state` — persist / clean a listed brain's runtime state (the delete is live-guarded and refuses a running instance).
 - `GET /api/events` — a **Server-Sent Events** stream. Browsers (the served UI) subscribe here with `EventSource`.
 
 **SSE event classes on `/api/events`.** Every broadcast event carries a named `event:` line. The classes are:
