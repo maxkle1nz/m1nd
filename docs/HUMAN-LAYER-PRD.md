@@ -19,6 +19,12 @@
 > such — never claimed shipped. Upstream for the amendment: the UI/UX deep research
 > (out-of-repo operator document, 2026-07-04 — inventory + verified pattern cards), folded and
 > cited inline as *(research §…)*.
+> **Amended 2026-07-04 (evening): the §4A precision pass** — card anatomy v2 (§4A.3.1),
+> iconography & precision system (§4A.7), brain-label semantics (§4A.8), the per-brain Open
+> contract (§4A.9), and Reading the Tree (§4A.10) — by founder direction (verbatim in each
+> section). Anchors verified at `origin/main` @ `2de6d0c` (post-#262: the Hall shipped,
+> `/api/instances` PROJECT-named). Same law as the parent amendment: surface, don't build —
+> where the backend is missing, the affordance ships disabled with the residue named.
 
 ---
 
@@ -530,7 +536,7 @@ project brains the in-flight two-tier slice adds.
 | **Last activity** | "N queries this session" | self: `queries_processed` (`session.rs:1262`); others: heartbeat age | BUILT |
 | **Attached agents** | How many hands are on this brain | self: `active_agent_sessions` (`session.rs:1261`) + `health.agent_sessions[]` | BUILT for self; **per-hosted-brain `attached_sessions` `[needs-backend]`** (the owner knows; no surface reports it) |
 | **Memories** | Post-it count | open brain: `light`-namespace nodes in the snapshot (same aggregation the tree ships, §3.6) | BUILT for the open brain; absent-honest elsewhere |
-| **Kind badge** | project / medulla / bound | `brain_kind` registry field (stamped by `set_brain_kind`); legacy entries parse as absent = bound | **BUILT** (two-tier landed #260; hosted brains now enumerated on `/api/instances`) |
+| **Kind badge** | ~~project / medulla / bound~~ — **superseded by §4A.8 (INV-14):** implementation class never renders on a card face; the badge is replaced by the *viewing* chip, and classes live in the receipt's `binding:` line | `brain_kind` registry field (stamped by `set_brain_kind`); legacy entries parse as absent = bound — the field survives as receipt + routing input | **BUILT as data** (two-tier landed #260); the visible badge is retired by the §4A.8 label fix (slice 1T) |
 | **Conflict chips** | shared runtime root, duplicate workspace, stale lock — calm chips, not warnings. **Lock/runtime conflicts are OWNER-process concepts and never render on a project brain** (it owns no lock). | `conflicts[]` per entry, filtered for `brain_kind:"project"` (`hallSemantics.visibleConflicts`) | **BUILT + project-aware 2026-07-04** (Max's screenshot: a "stale lock" badge on the in-process Cherry brain) |
 
 **Hall discipline.** Heat scarcity applies (§3.2): most cards sit quiet; only a stale,
@@ -540,6 +546,36 @@ at most five facts; everything deeper lives in the card's drawer — a **read-on
 of gauges *(research §D R6; §1's "not a dashboard" kill applies here verbatim)*. The list
 stays live the way the tree does: `graph_changed` SSE → debounced refetch → quiet in-place
 update (`useLiveRefresh` reused; stats-poll fallback when SSE is down) *(research §D R7)*.
+
+#### 4A.3.1 Card anatomy v2 — the precious fields (founder-curated, 2026-07-04)
+
+The five-fact budget above is a ceiling; v2 decides — by founder curation — **which facts
+earn the face**. The Hall card answers exactly three questions in calm typography: **do I
+trust it? is it alive? what has it learned?** Identity (name · path · liveness dot · kind-free
+per §4A.8) is chrome, not a fact; the five facts spent are the counts row plus the four GOLD
+fields below. Everything else is DEPTH — it lives in the receipt drawer, one descent away.
+
+**GOLD — on the card face** (each field: meaning → source → honest status):
+
+| # | Field | Rendering (action language, §2) | Source (verified at `2de6d0c`) | Status |
+|---|---|---|---|---|
+| G1 | **Freshness vs. git** | "12 files changed since I read them" + `[Re-read]` (the §4A.4 re-ingest, same-root) — or "everything I read is current" | `am_i_stale` (`server.rs:3407`, doc `:3391`): recomputes each inventoried file's sha256 against the ingest baseline (`state.file_inventory`, same hasher) → `stale[{path, reason: "changed"\|"missing"}]`, `fresh[]`, `checked`; the card passes the brain's snapshot file paths explicitly (the coverage-session default is per-agent, not per-repo). Session-scoped complement in the receipt: `drift` (`server.rs:3907`, `DriftInput` `core.rs:144`) | **Open/bound brain: buildable TODAY** over `POST /api/tools/am_i_stale`. Cost is real (one hash per file): computed on demand (card focus / receipt open / explicit `[Check freshness]`), cached per graph generation, never a background poll of every card — the §5.4 measure-first posture. Hosted brains: rides the §4A.9 selector |
+| G2 | **Calibration chip** | "not measured on this repo yet — answers stay at 'worth a second look'" + `[Calibrate once]` — or "measured here ✓" (receipt: exact `τ / measured_precision / coverage / n`) | The engine's own law, verbatim at rung 2: uncalibrated seek envelopes are **capped at `reverify` (`act` is UNREACHABLE)** (`TrustEnvelope` doc, `protocol/layers.rs` above `:141`); uncalibrated `predict` verdicts are honestly `abstain` (`tools.rs:2410-2428` calibration block: `calibrated, tau, target_alpha, measured_precision, coverage, n`, uncalibrated `note` verbatim). Action → `calibrate_predict` (`server.rs:4167`) | **Open/bound brain: buildable TODAY** (the calibration block rides any `predict` reply; §4.3 already renders it). A node-free per-brain read is the **`calibration_armed` registry field — `[needs-backend]`** (TWO-TIER §9.5.1, serde-default family) |
+| G3 | **The compounding meter** | "14 memories · newest 2 h ago · 1 aging" — the proof the brain gets richer, not just older | `light`-namespace nodes + `light:created:<ms>` tags in the snapshot (the §3.6 aggregation the tree already ships); "aging" = the same 30-day rule `north` applies (`server.rs:3038-3054`), mirrored client-side; receipt-depth confirmation: `cross_verify` `evidence_freshness` reason `aged_out` (`audit_handlers.rs:1003`, test `:3398`) | **Open/bound brain: TODAY** (client aggregation over the snapshot). Hosted/dormant brains: `[needs-backend]` — either the §9.5.1 enrichment family (a `memory_count`/`newest_memory_ms` stamp) or the §4A.9 selector |
+| G4 | **Aliveness** | "2 agents attached · 48 queries this session" — one caption, not two rows (v2 merges the §4A.3 "Last activity" + "Attached agents" lines) | self: `active_agent_sessions` + `queries_processed` (`session.rs:1256-1265`); receipt: `health.active_sessions[]` + `uptime_seconds` + `last_persist_time` (`HealthOutput`, `core.rs:509`) | **BUILT for self**; per-hosted-brain `attached_sessions` stays `[needs-backend]` (§4A.3 row, unchanged) |
+
+**DEPTH — the receipt drawer** (rung 1 of the Hall; read-only, categories not gauges):
+
+| # | Field | Rendering | Source | Status |
+|---|---|---|---|---|
+| D1 | **The last learned claim** | One line: "*latest claim label*" — `agent-refactor` · 2 h ago (absent → "author unknown", INV-04) | newest `light`-namespace node by `light:created` desc + `light:source_agent` tag (snapshot; same provenance rules as §3.3) | Open/bound: TODAY. Hosted: §4A.9 selector |
+| D2 | **Honest gaps** | "51 of 6,520 files visited" + "12 guessed links (dashed on the map)" + the open `honest_gaps[]` lines | `orient.coverage` (`server.rs:2703`) / `coverage_session`; ghost edges (`GhostEdgeOutput`, `core.rs:422`); `north.honest_gaps[]` (`server.rs:3219`) | Open/bound: TODAY (all three verbs REST-reachable). Hosted: §4A.9 |
+| D3 | **Per-project inbox** | "3 notes waiting" on the matching project card's receipt (read-only list when opened) | The per-project inbox doctrine (`<repo>/.m1nd/inbox.jsonl` — sealed as live doctrine in the medulla's memory; PATHOS next-steps: the runtime hands are `inbox_drop` / `inbox_sweep` + a `north` inbox counter) | **`[needs-backend — inbox verbs]`**: renders nothing until the counter exists; never a fabricated zero |
+
+**Anti-scope (binding, the §1 kills carried down):** NO timeseries charts, NO aggregate
+health scores ("brain health: 87%" is a lie with a number on it), NO animated percentages,
+NO sparklines. A Hall card is a specimen label, not a dashboard tile: if a field can't be
+said in one calm line of IBM Plex Mono, it belongs in the receipt or nowhere.
 
 ### 4A.4 Actions — affordance → surface, and delete designed calm
 
@@ -667,15 +703,307 @@ Two **distinct** confirmations — the card acknowledge and the typed name — a
 | Stop from UI | — (CLI command rendered) | — | two-tier Slice 2 `m1nd brain stop`; an HTTP stop verb is a later call |
 | Delete (clean) | `delete-state` route, guarded | hosted-brain store dirs are a **new file layout** — their delete must land with the slice or the card says so | **hosted-brain delete** with the same live-guard + the same calm flow |
 | Eject | — | — | V2 (TWO-TIER §20) — reserved, named |
+| Card v2 GOLD (§4A.3.1): freshness-vs-git (G1) · calibration (G2) · compounding (G3) | `am_i_stale` · `predict.calibration` · snapshot `light:*` aggregation — all REST-reachable TODAY for the open/bound brain (`POST /api/tools/*`, the same `dispatch_tool` as stdio) | — | per-hosted-brain reads ride the §4A.9 selector; node-free per-brain `calibration_armed` + memory stamps join the §9.5.1 serde-default family |
+| Card v2 DEPTH: per-project inbox (D3) | — | — | **inbox verbs** (`inbox_drop` / `inbox_sweep` + the `north` inbox counter — doctrine sealed in medulla memory; runtime hands unbuilt) |
+| Reading the Tree (§4A.10): meaning-search · layer grouping · freshness/tremor filters | `seek` · `layers` · `am_i_stale` · `tremor` · `trust` — REST-reachable TODAY, **bound brain only**; grouping, filter chips, name-search, breadcrumb, density are client-only | — | zero new verbs; hosted brains inherit the §4A.9 selector |
+| Per-brain Open (§4A.9) | Open ships disabled-with-tooltip (the honest shipped state) | the MCP wire's caller-root resolution (`project_brains.rs` routing) — the machinery to REUSE | the **REST brain selector** (`?brain=` + `served_brain` echo + capability stamp + brain-scoped `graph_changed`) — spec'd whole in §4A.9, slice 2H |
 
 **The residue, consolidated** (each honest, each slice-sized): (1) REST brain **routing** —
 _enumeration_ shipped 2026-07-04 (`/api/instances` lists every hosted brain, PROJECT-named),
 but _opening_ a hosted brain in-tab still needs a brain selector on `/api/graph/*` +
-`/api/tools/*` (Open stays disabled-with-tooltip for project brains); (2) the §9.5.1 optional
+`/api/tools/*` (Open stays disabled-with-tooltip for project brains) — **the contract is now
+spec'd whole in §4A.9 (slice 2H)**; (2) the §9.5.1 optional
 registry fields (dormant counts, mtime, calibration, sessions — warm brains already report
-real counts); (3) hosted-brain delete; (4) an in-UI stop; (5) eject (V2). Until each lands,
+real counts) — §4A.3.1 adds the same-family memory stamps; (3) hosted-brain delete; (4) an
+in-UI stop; (5) eject (V2); (6) the **inbox verbs** behind §4A.3.1-D3. Until each lands,
 its affordance renders disabled with the residue's name in the tooltip — the PRD's honesty
 carried into the pixels.
+
+### 4A.7 Iconography & the precision system
+
+**Founder direction, verbatim:** *"deixar a UIX organizada de um jeito mais organizado, com um
+design de precisão, com ícones certos para cada coisa para fácil visualização — nerd adora
+iconezinho."*
+
+The ask is precision, not decoration. SOFT PROOF stays matte and calm (§6); what it gains is a
+**strict icon language** — one icon per concept, every concept always the same icon — so a
+glance parses structure before reading a single word. The counter-law travels with it:
+**no decorative icons.** An icon exists only where it carries recognition value a word would
+render slower; anything else is noise wearing a costume.
+
+**The library — `lucide-react`, decided.** Reuse-first audit: the repo ships no icon set today
+(the served UI draws dots and chips only); hand-maintaining an SVG set is exactly the
+new-abstraction the mother rule bans. Lucide wins on the criteria that matter here: a single
+24×24 stroke grid with uniform line weight (the whole set reads as ONE hand — the precision
+feel), per-icon ESM imports that tree-shake into the bundle (**zero external hosts — the §6.5
+air-gap grep already gates the built `dist/`, and icons ride the same gate**), and a
+`strokeWidth` prop that lets the system standardize on **1.5 px** (hairline-adjacent, sits
+correctly next to IBM Plex Mono). **License note, verified 2026-07-04 (`npm view lucide-react
+license`): ISC — not MIT as commonly assumed — permissive, MIT-equivalent in practice, Feather
+(MIT) heritage; vendor the license text alongside, exactly as the fonts do (§6.5, OFL
+precedent).** Alternatives weighed and declined: Phosphor (MIT, larger set — but its
+duotone/fill variants invite exactly the decoration this system bans) and Heroicons (MIT — a
+20/24 solid/outline split that reads UI-kit, not instrument).
+
+**The CONCEPT → ICON table (binding; one icon per concept, no synonyms):**
+
+| Concept | Icon (`lucide-react`) | Where it appears | Never |
+|---|---|---|---|
+| Graph / nodes | `Waypoints` | stats rows ("2,089 nodes"), receipt fingerprint | as a logo flourish |
+| Edges / connections | `Spline` | stats rows ("7,323 edges"), map legend | on ghost edges (they are dashes, INV-06) |
+| Freshness / staleness | `History` | G1 caption, freshness banner (§4.3), stale post-it back | as a spinner |
+| Memory / claim (post-it) | `Tag` | post-it chips, memory counts, G3 — the specimen-tag motif §6.4 already draws | anywhere a memory isn't |
+| Calibration | `Ruler` | G2 chip, calibration line (§4.3) | a gauge — gauges are banned (§1 "not a dashboard") |
+| Verdict: act | `Check` | inside `VerdictChip`, before the text | bare (icon-only) at rung 0 |
+| Verdict: reverify | `RotateCcw` | inside `VerdictChip`, before the text | bare at rung 0 |
+| Verdict: abstain | `CircleDashed` | inside `VerdictChip` — supersedes the current plain iris dot (`VerdictChip.tsx`), same size, iris ink; still NEVER animates (INV-02) | any other hue than the iris family |
+| Agents attached | `Cable` | G4 caption, receipt sessions list — the `--attach` word made visible | a humanoid icon (agents aren't users) |
+| Inbox / field reports | `Inbox` | D3 count + receipt list | before the inbox verbs exist |
+| Ingest / re-read | `RefreshCw` | `[Re-read]` actions, Threshold's first action | as an ambient spinner (INV-05: progress is words) |
+| Receipt / drawer | `ReceiptText` | "more in the receipt →" affordances | — |
+| Delete (danger zone) | `Trash2` | ONLY inside the §4A.4 forget flow (step 1 card) | on a card face |
+| Viewing (the §4A.8 state) | `Eye` | the viewing chip on the open brain's Hall card + the Brain Chip | on more than one card at once |
+| Search | `Search` | the §4A.10 search field (both modes) | — |
+| Filter | `Filter` | the §4A.10 filter bar toggle | — |
+| Architectural layer | `Layers` | the §4A.10 group-by-layer mode + group headers | — |
+| Group by directory | `FolderTree` | the §4A.10 mode picker | — |
+| Group by kind | `Shapes` | the §4A.10 mode picker | — |
+
+KIND glyphs (a scoped sub-family: **group headers and filter chips only**, never per-row —
+rows already carry dot + tags and must stay quiet): file `FileCode` · function
+`SquareFunction` · struct/class `Box` · doc `FileText` · memory `Tag` (same concept, same
+icon — the law holds across tables).
+
+One deliberate ABSENCE, stated: the semantic-search mode gets **no sparkle icon**. "AI
+glitter" (`Sparkles` and kin) is the emission-gradient of iconography — a promise, not a fact
+— and fails the same test §6.3 fails glow on. The seek mode is a labeled text toggle
+(`name / meaning`); its honesty markers are the sufficiency line and the verdict chip
+(§4A.10), not a magic star.
+
+**Precision rules — the card grid, spacing, alignment (lint-able where possible):**
+
+- **Card slots, strict order** (every Hall card, same skeleton — §4A.3.1 fills it):
+  1. **Identity row:** liveness dot · name (Instrument Sans semibold) · the viewing chip when
+     §4A.8 applies — no kind badge (INV-14).
+  2. **Path row:** `shortPath(project_root)` in IBM Plex Mono, `ink-soft`.
+  3. **Stats rows (the five facts):** counts + G1–G4, each one line: icon (14 px, 1.5 stroke,
+     `currentColor`) · label · **value right-aligned**.
+  4. **Actions row:** Open (primary when enabled) · "more in the receipt →". Delete lives in
+     the drawer only (§4A.4).
+- **Numbers:** every count/age/score renders in IBM Plex Mono (monospaced = tabular by
+  construction); any count that ever lands in a proportional face is a bug (§6.4 already bans
+  it) — belt: `font-variant-numeric: tabular-nums` on stats containers.
+- **Icon sizing:** 14 px inline (chips, stats), 16 px in headers/actions, never larger except
+  the Threshold's single empty-state mark; stroke 1.5 everywhere; color always `currentColor`
+  (icons inherit ink/ink-soft — and therefore the violet quarantine (§6.2) covers icons for
+  free: an icon can only wear iris inside an abstain-class component).
+- **Spacing scale:** the 4-px base the Tailwind theme already implies — 4/8/12/16/24; card
+  padding 16; icon-to-label gap 6; fact-row height 24 (compact) / 28 (comfortable, §4A.10).
+- **INV-13 (the precision invariant, component-testable, §7):** counts right-aligned tabular
+  mono; an icon never appears without a text label on its first use per surface (aria-label
+  minimum, visible label at rung 0); one accent family per severity per surface, matte —
+  never two hues meaning the same thing.
+- **Lint:** the §6.2 mechanism gains an icon rule — a repo lint fails (a) any `lucide-react`
+  import outside the icon-registry module (one file maps concept → icon, so "one icon per
+  concept" is greppable), (b) any `strokeWidth` ≠ 1.5, (c) `Sparkles`/decoration imports,
+  period.
+
+### 4A.8 Brain-label semantics — every brain is a PROJECT
+
+**Founder question, verbatim:** *"por que m1nd aparece como THIS brain e cherrybubbles como
+project? m1nd também não é project?"*
+
+He is right, and the fix is doctrine, not copy. The shipped Hall (1H) labels cards by
+**implementation class** — `KIND_LABEL` renders `bound → "this brain"`, `project →
+"project"`, `sibling → "sibling"` (`BrainCard.tsx:28-32`) — which leaks plumbing taxonomy
+(§4A.3's "Kind badge" row, hereby superseded) into the owner's front door. The product truth
+of the two-tier inversion (TWO-TIER §2: every repo gets its own brain; the medulla is the
+exception, not the rule) is simpler and Max said it in one line: **every brain IS a project.**
+The m1nd dev graph is not a different KIND of thing from the Cherry brain — it is the project
+brain of `~/m1nd` that happens, today, to be process-bound rather than owner-hosted. That is
+an implementation residue on a timeline (Slices 2/3 dissolve it), and residues do not get
+badges on the front door.
+
+**The law (INV-14):** no Hall card may label a brain by implementation class. "this brain",
+"project", "sibling", "bound", "hosted", "medulla" disappear from card faces. Classes remain
+REAL and remain visible — **in the receipt drawer** (rung 1), where the senior/orchestrator
+reads them as what they are: `binding: process-bound | owner-hosted | sibling owner (own
+port) | medulla`, next to the fingerprint and runtime root the drawer already shows. One
+exception by design: the **medulla** (when the Slice 5+ split lands) is genuinely not a
+project and may carry its name — it is the one brain whose job is to not be one.
+
+**What replaces the badge: the VIEWING state.** The one distinction a human needs at the Hall
+is not taxonomy — it is *"which of these am I looking at right now?"* The brain currently
+bound/open in this tab carries a quiet **viewing chip** (`Eye` icon + "viewing", ink on bone —
+never a hue of its own; it is a state, not a severity). It obeys the Brain Chip law (§4A.5):
+the chip in the top bar and the viewing chip on the card are the SAME truth from the SAME
+envelope (`instance/self` / the §4A.9 `served_brain` echo) — they can never disagree. Exactly
+one card wears it at a time; on ESC-to-Hall it marks where you came from.
+
+**Sort order survives unchanged** (bound-first, then recency — `instances_listing` already
+floats self, `http_server.rs:847`): the viewing brain floating first is *useful*; naming its
+implementation class was the leak. And the §4A.4 delete flow keeps its per-class GUARDS
+(a process brain refuses while live; a hosted brain needs its own delete slice) — INV-14
+governs **labels**, not behavior: the consequence card may still say "this brain is running"
+because that is a fact about the moment, not a class badge.
+
+**End-state slice, named:** when per-brain REST routing (§4A.9) plus process-per-repo
+(TWO-TIER Slices 2/3) land, "bound vs hosted" stops being observable from the Hall entirely —
+every card opens the same way, and the receipt's `binding:` line becomes the only place the
+word survives. This section is written so that day requires deleting a line of copy, not
+redesigning a surface.
+
+### 4A.9 Per-brain Open — the REST contract (spec'd, not built)
+
+**Founder question, verbatim:** *"por que cherrybubbles não consigo dar Open?"*
+
+**Why Open is disabled today (the honest answer):** the browser surface is bound-graph-only.
+`/api/graph/stats·subgraph·snapshot` and `POST /api/tools/{*tool_name}` carry **no brain
+selector** — they always answer from the graph the owner is bound to (TWO-TIER §9.5.5,
+"Still open: per-brain browsing/execution over REST"). The MCP wire already routes per call
+(bootstrap directive → session sticky → caller-root match → bound default; the interim
+variant's silent routing), but the Hall's fetches are plain HTTP from a browser tab — no
+`M1nd-Caller-Root`, no wire session. So the Cherry card can be *listed* (enumeration shipped
+2026-07-04) but not *entered*: Open ships disabled with this exact residue named in the
+tooltip (`BrainCard.tsx:158`, INV-11 discipline). This section is the contract that retires
+that tooltip.
+
+**The contract (slice 2H — the implementation slice must satisfy all of it):**
+
+1. **Selector shape:** a `brain` **query parameter** on the read/browse surface —
+   `GET /api/graph/stats|snapshot|subgraph?brain=<project_root>` and
+   `POST /api/tools/{*tool_name}?brain=<project_root>` — carrying the URL-encoded absolute
+   `project_root` (the same key the Hall already holds per card from `/api/instances`).
+   Query-param over header, deliberately: the Hall's fetches are same-origin `fetch()` calls
+   and the existing graph routes already read query inputs (`http_server.rs:1106` subgraph);
+   a header would mimic the wire's `M1nd-Caller-Root` without its session machinery. Wire and
+   REST stay two doors into ONE resolution.
+2. **Resolution reuses the wire's, verbatim:** the param resolves through the SAME routing the
+   MCP interim variant ships (`project_brains.rs`: exact `project_root` match → warm brain,
+   else warm-boot the dormant store; bound graph when the param names the bound root).
+   **Absent param = bound graph** — today's behavior, byte-compatible, so every existing
+   client keeps working (the serde-default posture, applied to a URL).
+3. **Registered roots only (the security line):** the param matches ONLY the owner's known
+   brains (bound root + hosted store manifests + registry). Unknown root → a plain tool_error
+   naming the miss ("no brain for <root> — the Hall lists what exists"), never a filesystem
+   read, never an auto-create (creation stays consented: `ingest {project_root}` bootstrap or
+   `m1nd init`). The surface remains loopback-only (`cli.rs:22-28`); the param adds routing,
+   not exposure.
+4. **The `served_brain` echo:** every `/api/graph/*` response gains
+   `served_brain: {project_root, display_name}` — the same resolution `instances_listing`
+   already computes (`http_server.rs:847`). This is what makes INV-15 testable: the client
+   ASSERTS the echo against what it asked for and discards mismatches instead of rendering
+   them. (Tool envelopes already carry binding fingerprints where it matters; graph payloads
+   are the blind spot the echo closes.)
+5. **Capability stamp, feature-detected:** `GET /api/tools` gains `rest_brain_selector: true`.
+   The Hall enables Open only when the stamp is present (the 0T `project_root` detection
+   posture — never assumed, never version-sniffed).
+6. **Liveness, brain-scoped:** `graph_changed` gains an optional `brain_root` field (additive;
+   absent on old binaries). The viewer refetches when the event names its brain OR carries no
+   field (honest over-refetch on old owners, debounced ~500 ms as today, §5.3).
+7. **The tree adopts the brain end-to-end:** opening a hosted card sets the session's viewed
+   root; every fetch (snapshot, trust, tremor, impact, seek — all of §3.6 and §4A.10) carries
+   the selector; the **Brain Chip flips to the served brain's name + counts from the echo**
+   (the §4A.5 law holds: no graph pixel without the OWNING brain's name); ESC at tree root
+   returns to the Hall with the §4A.8 viewing chip moved accordingly. A dormant store
+   warm-boots on first fetch — the UI says so in words ("waking this brain…", INV-05), never
+   a fake bar.
+
+**Acceptance (the slice is done when):** a two-brain fixture (bound m1nd + hosted Cherry)
+opens Cherry in-tab — chip reads Cherry, tree renders Cherry's 2,089·7,323, zero bound-brain
+nodes visible; Rust test proves `snapshot?brain=<cherry_root>` ≠ bound snapshot and unknown
+roots refuse (the `hall_brains_listing.rs` precedent extended); UI test proves every fetch
+URL carries the selector while a hosted brain is viewed, and a response whose echo names the
+WRONG brain is dropped, not rendered (INV-15); Open's tooltip residue text is deleted the
+same PR (INV-11's exit criterion).
+
+**INV-15 (the adoption invariant, §7):** the tree never renders one brain's nodes under
+another brain's chip.
+
+### 4A.10 Reading the Tree — categories, filters, real search
+
+**Founder feedback, verbatim:** *"no filetree é bem bagunçado o método que temos para ler as
+coisas, não tem categorias, não tem como filtrar, a busca não parece avançada — poderia buscar
+semanticamente; dá pra ir bem mais em profundidade."*
+
+The tree's grammar (§3) is right; its READING instruments are missing. Today the surface
+ships one flat lens: directory nesting + a substring filter (`LivingTree.tsx:42-66`) +
+arrows/enter (`:111-136`). This section adds the three instruments a mental map owes its
+reader — **grouping, filtering, and real search** — every one drawing fields already
+serialized, most of it client-side over data the tree already fetches.
+
+**1. Grouping — three lenses, one grammar.** A quiet mode picker (top of the tree pane):
+
+| Lens | Groups | Source | Cost |
+|---|---|---|---|
+| **Directory** (`FolderTree`, default) | the repo's real nesting | snapshot `contains` edges — today's tree, unchanged | shipped |
+| **Kind** (`Shapes`) | file · function · struct/class · memory · doc, each with its KIND glyph + count | snapshot `node_type` (every node already carries it, `http_server.rs:1301`) | client-only regroup |
+| **Layer** (`Layers`) | the architecture m1nd detects: one group per detected layer, "N nodes" per group verbatim; nodes outside every layer land in an honest **"unlayered"** group — never hidden | `POST /api/tools/layers` — the auto-detect handler (`layer_handlers.rs:8453`: layer name + node membership + counts) | one call per graph generation, cached |
+
+Groups behave exactly like directories: carets, counts, keyboard, heat scarcity — no second
+navigation grammar. Group headers wear the lens icon + name + count (tabular, right-aligned,
+INV-13); rows inside stay §3.2 rows.
+
+**2. Filters — matte chips, every chip a real field.** One thin bar under the search field;
+chips AND-combine; each names its source so the filter is a claim, not a vibe:
+
+| Chip | Keeps rows where | Source (all already fetched or one cheap call) |
+|---|---|---|
+| kind | `node_type` ∈ selection | snapshot (client) |
+| language | provenance `source_path` extension ∈ selection — stated as DERIVED (a UI constant maps ext → language; the engine asserts nothing) | snapshot provenance (client) |
+| trust | trust band ∈ selection (sage / ochre / terracotta / **iris = never verified**) | `trust` — the dots already fetch it (§3.6) |
+| has memory | ≥ 1 anchored post-it | the §3.6 `grounded_in` aggregation (client) |
+| changed since read | file is in `am_i_stale.stale[]` | `am_i_stale` over the visible file set — on demand, cached per generation (§4A.3.1-G1 cost rule) |
+| churning now | an active tremor names the file | `tremor` — the breath already fetches it (§3.2) |
+
+Filter honesty: an active filter always shows its residue — **"41 rows · 6,479 hidden by
+filters"** in the tree footer, one click clears — the tree never silently presents a filtered
+world as the world (the §3.2 "showing the N riskiest" posture, generalized). The trust chip
+IS that §3.2 fold, made explicit and reusable.
+
+**3. Search — two modes, honestly different.** One field (`/` focuses it), a two-value text
+toggle beside it — `name | meaning` — no sparkle (§4A.7):
+
+- **`name`** — the shipped instant substring over name/path (`LivingTree.tsx:61-64`). Stays
+  exactly as is: zero latency, zero calls, the muscle-memory filter.
+- **`meaning`** — `POST /api/tools/seek {query, top_k}`. A results panel replaces the tree
+  body while active (ESC returns — the ladder grammar):
+  - Each hit: label · `file:line` · `intent_summary` · the engine's `score` in Plex Mono —
+    **the seek score verbatim; no invented stars, no theatrical fuzzy meter** (the envelope IS
+    the honest score). Click → the tree re-mounts with the path expanded, the row focused,
+    the drawer open on it (rung 1) — highlight is selection, never a glow.
+  - **The panel header is the precious part:** the `sufficiency` block rendered calm —
+    `state` (`sufficient / gathering / saturated`) as one plain line with its `why` verbatim
+    (`Sufficiency`, `layers.rs:103`: `state, top_score, captured, why`) — and the
+    `trust_envelope` verdict as the existing `VerdictChip` (act/reverify/abstain — action
+    language shipped; uncalibrated caps at `reverify` by engine law, G2's receipt explains
+    why). Both fields are ALWAYS present on `SeekOutput` (`layers.rs:180-231`) — the UI just
+    stops discarding them.
+  - Truncation honesty: `relevance_clearing_total` > shown → "showing 10 of 37 that cleared
+    relevance" (exact, the engine counted); zero hits → `filtering_reason` verbatim (the
+    engine says WHY it's empty); `embeddings_used: false` → one calm caption, "matched by
+    text, not meaning" — the trigram fallback is worn, not hidden.
+  - **Exploration folds into the ladder, not a third mode:** a hit's drawer keeps `[Show on
+    map]` → `/api/graph/subgraph` (which runs `activate` with ghost edges internally,
+    `http_server.rs:1106-1126`) — "related to this" is the map's job at rung 2; adding an
+    activate-results list would be the §1 dashboard creeping back.
+
+**4. Reading ergonomics (small, binding):** initial expansion stays depth-1 (shipped,
+`LivingTree.tsx:48-50`) + auto-expand to any focused node's path (search jump, chip, drawer
+links); a **breadcrumb** of the focused node above the tree (segments clickable, Plex Mono);
+a **density toggle** compact/comfortable (row 24/28 px, localStorage, a preference — never a
+mode); keyboard: `/` search · arrows navigate (shipped) · Enter select+drawer · ESC up the
+ladder — §4A.5 owns the global keys (Cmd+K, chip); this section adds none.
+
+**Surface truth:** `seek`, `layers`, `tremor`, `trust`, `am_i_stale` are ALL dispatchable
+today via `POST /api/tools/{*tool_name}` (`http_server.rs:700 → :979 → :1014`, the same
+`dispatch_tool` as stdio) — **for the bound brain**. Inside an opened hosted brain, every one
+of these calls carries the §4A.9 selector — Reading the Tree needs zero verbs of its own.
+
+**INV-16 (the search-scope invariant, §7):** search and filters never leave the viewed brain
+— a `meaning` result renders only when it belongs to the brain the chip names; a result from
+any other brain (stale panel across an Open switch, wrong echo) is dropped with an honest
+notice, never rendered into the wrong tree.
 
 ---
 
@@ -852,7 +1180,8 @@ air-gapped; no CDN fonts).
 ## 7. Honesty invariants (UI) — component-testable
 
 The six from the research, plus the two the critic forced, each phrased as a rule + a test.
-The 4A amendment adds four more (`[4A]`), same discipline.
+The 4A amendment adds four more (`[4A]`), and the precision pass four more (INV-13..16),
+same discipline.
 Fixtures come from **real captured envelopes** (`docs/benchmarks/**/event-streams/*.jsonl`)
 — never hand-written JSON, so the tests can't drift from the wire.
 
@@ -870,6 +1199,10 @@ Fixtures come from **real captured envelopes** (`docs/benchmarks/**/event-stream
 | **INV-10** `[4A]` | **The Hall renders only owner-reported brains.** Every card traces to `/api/instance/self`, an `/api/instances` entry, or an owner-reported hosted brain; absent counts render absent (violet-unknown treatment), never zero, never estimated; no client-side brain invention. | Entries fixture lacking counts → no numeral in the card, unknown treatment present; every rendered card's key maps to a fixture `instance_id`; an empty response renders the Threshold/empty state, never placeholder cards. |
 | **INV-11** `[4A]` | **No affordance without a surface.** An action whose backend does not exist renders disabled with a tooltip naming the missing residue; and a bare foreign-path `ingest` is never offered while the owner holds a graph (the clobber ban, §4A.4). | Hosted-brain fixture without REST routing → Open disabled + tooltip text names the residue; non-empty-owner fixture → no raw foreign-path ingest affordance in the DOM (only "Re-read" same-root or the `project_root` bootstrap when schema-advertised). |
 | **INV-12** `[4A]` | **Onboarding never returns, never blocks.** The Threshold renders only at zero brains; every orientation beat is ESC-dismissable and dismisses forever; a returning user (≥1 brain or a persisted dismissal) never sees any of it. | 1-brain fixture → no Threshold mounted; dismiss → flag persisted → clean re-render shows tree directly; each of the 3 beats dismisses independently and stays dismissed. |
+| **INV-13** `[4A.7]` | **Precision is mechanical.** Every count/age/score renders right-aligned in tabular mono; an icon never appears without a text label on its first use per surface; one icon per concept (the §4A.7 registry is the only import site); stroke 1.5 everywhere; one accent family per severity per surface. | Stats-cell class assertion (mono + right-align) on Hall/tree fixtures; icon-registry lint (no `lucide-react` import outside it, no `strokeWidth` ≠ 1.5, no `Sparkles`); render a card → every icon has `aria-label` or a visible sibling label. |
+| **INV-14** `[4A.8]` | **No card labels a brain by implementation class.** "this brain" / "project" / "sibling" / "bound" / "hosted" never render on a Hall card face; classes live in the receipt drawer's `binding:` line only; exactly one card wears the viewing chip, sourced from the same envelope as the Brain Chip. | Instances fixture (bound + hosted + sibling) → zero class strings in card DOM; drawer open → `binding:` line present; viewing chip count === 1 and its name === the top-bar chip's name. |
+| **INV-15** `[4A.9]` | **The tree never renders one brain's nodes under another brain's chip.** While a brain is viewed, every graph/tool fetch carries its selector; a response whose `served_brain` echo names a different brain is discarded, never rendered. | Two-brain fixture → open hosted: all fetch URLs carry `brain=<root>`; inject a wrong-echo response → zero rows from it rendered + the drop is surfaced; chip name === `served_brain.display_name` throughout. |
+| **INV-16** `[4A.10]` | **Search and filters never leave the viewed brain.** `meaning` results render only for the brain the chip names; stale panels across an Open switch drop with an honest notice; filter residue is always stated ("N hidden by filters"), never a silently smaller world. | Seek fixture from brain A while brain B is viewed → zero result rows + notice present; active-filter fixture → footer residue count equals hidden rows exactly; clearing filters restores the full row count. |
 
 These land as a `honesty.spec` suite in `m1nd-ui` and run in CI next to the palette lint
 (§6.2). A slice is not done while any invariant test is red (§8).
@@ -961,6 +1294,8 @@ green, claims scoped).
 | **0T — the Threshold + the chip** ✅ **SHIPPED 2026-07-04** *(§4A lettered insert — rides Slice-0 machinery; renumbering would ripple)* | The Threshold empty state (evolves the shipped cold state), the 3-beat orientation, the Brain Chip on every surface, the reduced-motion kill switch, the palette Brains group v0, and the **clobber-ban retirement** of the raw "Read a repo" ingest on non-empty owners (§4A.4). Bootstrap uses `project_root` when `GET /api/tools` advertises it; plain ingest survives only on an empty owner. | INV-12 tests green (zero-brain-only render, dismiss persists, beats independent); INV-11's clobber-ban test green (no foreign-path bare ingest on a non-empty owner); chip present on every surface including cold/degraded states, sourced from the same envelope as the surface; reduced-motion component test green (tremor breath stands down, transitions zeroed); Threshold + orientation fully keyboard-only; progress copy is words, never a fabricated percent (INV-05). |
 | **1 — the Pre-Flight Card** *(the hero)* | The north card (mini-map strip, blast line, memory strip, violet gap card, one next-move button), seeded from the tree's `[Check before editing]`. | Replays real captured north envelopes from `docs/benchmarks/**/event-streams/`; INV-03/05/07 green on the card; the 2-second read holds (headline + verdict + gaps visible without scroll at 1280×800); every gap shows exactly one action; `needs_ingest` and degraded-binding variants render the repair path. |
 | **1H — the Hall** ✅ **SHIPPED 2026-07-04** *(§4A lettered insert — gated on the two-tier brains slice landing; its test file is the contract)* | The Hall at rung −1: the three-class brains list (§4A.3 card anatomy, absent-never-faked fields), the drawer receipt, the actions table with honest disabled states (§4A.4), the calm two-step delete on the existing `delete-state` route, palette jump + ESC-from-root, live refresh reused. `InstancesPanel` retires. | INV-09/10/11 green on real fixtures (captured `/api/instances` + self envelopes, incl. a live-refusal case and a counts-absent case); delete flow structurally unreachable below two confirmations; disabled affordances carry residue-naming tooltips (copy asserted); ESC at tree root reaches the Hall and back; recency ordering is the registry's, unre-sorted; violet-lint stays green after the panel reskin (the cyberpunk tokens die here); Hall fully keyboard-only. |
+| **1T — Reading the Tree + the precision system** *(§4A.7/§4A.8/§4A.10; client-heavy, bound brain — zero new verbs)* | The icon registry + precision rules land here the way tokens landed in Slice 0 (foundation, not a later coat): lucide-react vendored (ISC text alongside), the concept→icon registry, the icon lint. Card anatomy v2 GOLD/DEPTH fields for the open brain (§4A.3.1). The §4A.8 label fix (kind badges die; viewing chip born). Grouping (directory/kind/layer), the filter bar, `meaning` search on `seek` with sufficiency + verdict rendered, breadcrumb, density toggle (§4A.10). | INV-13/14/16 green; icon lint green (registry-only imports, stroke 1.5, no Sparkles); air-gap grep of `dist/` still zero external hosts; layer lens renders real `layers` output with the "unlayered" group; `meaning` panel renders `sufficiency.why` + `VerdictChip` from a real captured `SeekOutput` (fixture, not hand-written); filter footer residue count exact; G1 freshness computed on demand only (no per-card background polling — asserted); zero class labels in card DOM. |
+| **2H — per-brain Open** *(§4A.9; the contract above is the spec — Rust + UI in one slice)* | The `brain` query param on `/api/graph/*` + `/api/tools/*` reusing the wire's resolution; `served_brain` echo; `rest_brain_selector` capability stamp; brain-scoped `graph_changed` (additive field); the tree/chip/Hall adoption end-to-end; Open's residue tooltip deleted. | INV-15 green (wrong-echo fixture dropped); Rust: `snapshot?brain=<hosted>` ≠ bound snapshot, unknown root refused with the honest error, absent param byte-compatible (`hall_brains_listing.rs` extended); UI: every fetch carries the selector while viewing, chip flips to the echo's name, warm-boot renders words not bars; feature-detection: Open stays disabled against an old owner (no stamp). |
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |
 
@@ -1057,3 +1392,22 @@ mockup markup).
 | Reception degraded block echoed by the chip | `m1nd-reception-degraded-v0` on `north`/`health`/`session_handshake` (TWO-TIER §9.5.5, SHIPPED) |
 | §4A shell donors (palette, shortcuts, ingest modal, instances panel, live refresh, cold state) | `m1nd-ui/src/components/CommandPalette.tsx` · `InstancesPanel.tsx` · `App.tsx:110-205` · `hooks/useKeyboardShortcuts.ts:14-40` · `hooks/useLiveRefresh.ts` · `components/tree/LivingTree.tsx:148-161` |
 | UI/UX deep research (inventory §A, verified pattern cards §B: NN/g confirm + onboarding, GitHub type-the-name, Linear archive-vs-delete, palette switcher, calm tech) | out-of-repo operator document, 2026-07-04 (`m1nd-ui-ux-research.md`) |
+
+**§4A precision-pass contracts (§4A.3.1 / §4A.7–4A.10 — verified at `2de6d0c`):**
+
+| Contract | Where |
+|---|---|
+| `am_i_stale` (sha256 vs `file_inventory`; `stale[{path, reason}]` / `fresh` / `checked` / `source`) | `m1nd-mcp/src/server.rs:3407` (doc `:3391`) |
+| `drift` dispatch / `DriftInput` (since-session complement) | `server.rs:3907` / `protocol/core.rs:144` |
+| `predict.calibration` block (`calibrated, tau, target_alpha, measured_precision, coverage, n`; uncalibrated note verbatim) | `m1nd-mcp/src/tools.rs:2410-2428` |
+| The uncalibrated cap law ("verdict is capped at `reverify` — `act` is UNREACHABLE") | `TrustEnvelope` doc, `protocol/layers.rs` (above `:141`) |
+| `Sufficiency` (`state / top_score / captured / why`) — always present on `SeekOutput`, with `trust_envelope`, `relevance_clearing_total`, `filtering_reason`, `embeddings_used` | `protocol/layers.rs:103` / `:180-231` |
+| `aged_out` evidence-freshness reason (30-d recency rule) + its test | `m1nd-mcp/src/audit_handlers.rs:1003` / `:3398` |
+| `layers` — auto-detect architectural layers (name + membership + counts) | `m1nd-mcp/src/layer_handlers.rs:8453` (dispatch `server.rs:4152`) |
+| `HealthOutput` (`queries_processed`, `active_sessions[]`, `uptime_seconds`, `last_persist_time`) | `protocol/core.rs:509` *(the `:498` in the era-stamped table above is the `c1c458f` line; current main is `:509`)* |
+| `instances_listing` enrichment (`display_name` / `project_root` / `brain_kind` / project counts / `last_activity_ms`; bound floats first) | `m1nd-mcp/src/http_server.rs:847` (fields `:830-968`) |
+| The class-label leak §4A.8 kills (`KIND_LABEL`: "this brain" / "project" / "sibling") | `m1nd-ui/src/components/hall/BrainCard.tsx:28-32` (Open tooltip residue `:158`) |
+| Today's tree reading surface (substring filter / keyboard / depth-1 auto-expand) | `m1nd-ui/src/components/tree/LivingTree.tsx:42-66` / `:111-136` / `:48-50` |
+| `VerdictChip` (action-language chip the `meaning` panel + icons coordinate with) | `m1nd-ui/src/components/soft/VerdictChip.tsx` |
+| lucide-react license = **ISC** (verified `npm view lucide-react license`, 2026-07-04) | vendored license text ships alongside, §6.5 OFL precedent |
+| Per-project inbox doctrine (sealed in medulla memory; `inbox_drop`/`inbox_sweep` + north counter = the unbuilt hands) | `docs/PATHOS.md` (next-steps: inbox verbs) |
