@@ -38,7 +38,11 @@ measured high-signal pattern starts by never starting cold:
    directly only when you need just one. Heed `reception`:
    `reception.match == "caller_root_mismatch"` means the bound graph does NOT
    cover your current repo — do not trust retrieval for it; read
-   `reception.options[]`. Absent/null = your root matches the bound brain.
+   `reception.options[]`. ONE call sets you up: `ingest` with
+   `project_root=<your repo root>` creates a per-project brain inside the
+   served owner, ingests your repo, binds your session, and returns its north
+   packet — thereafter every call from your root routes to YOUR brain
+   automatically. Absent/null = your root matches the brain serving you.
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
    then `north` again. `needs_ingest` is a REAL answer, not a failure.
 3. Act on verdicts, do not override them (see below).

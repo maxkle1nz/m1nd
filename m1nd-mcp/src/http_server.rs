@@ -295,6 +295,10 @@ pub struct AppState {
     /// Registry of live Streamable-HTTP MCP wire sessions (Wave 4, Slice 1).
     /// Distinct from the instance lease and from `SessionState.sessions`.
     pub mcp_sessions: crate::mcp_http::McpSessionRegistry,
+    /// Two-Tier Brain (interim): owner-hosted per-project brains, routed by the
+    /// hop-2 caller root. The bound `session` above stays exactly the dev/single
+    /// graph it always was; project brains live BESIDE it, never inside it.
+    pub project_brains: Arc<crate::project_brains::ProjectBrainRegistry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -323,12 +327,16 @@ pub fn spawn_background(
 
     // SSE broadcast channel
     let (event_tx, _) = broadcast::channel::<SseEvent>(64);
-    let registry_root = {
+    let (registry_root, runtime_root) = {
         let guard = session.lock();
-        guard.instance.registry_root()
+        (guard.instance.registry_root(), guard.runtime_root.clone())
     };
 
     // AppState
+    let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
+        runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
+        Some(registry_root.clone()),
+    ));
     let app_state = Arc::new(AppState {
         session,
         tool_schemas_cache,
@@ -336,6 +344,7 @@ pub fn spawn_background(
         event_log_path: None,
         registry_dir: Some(registry_root),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
+        project_brains,
     });
     {
         let session = app_state.session.lock();
@@ -413,6 +422,7 @@ pub async fn run(
 
     // 2. Extract SessionState, wrap in Arc<Mutex> for shared access
     let session_state = server.into_session_state();
+    let owner_runtime_root = session_state.runtime_root.clone();
     let session = Arc::new(Mutex::new(session_state));
 
     // 3. Cache tool schemas (static, computed once)
@@ -429,6 +439,10 @@ pub async fn run(
     let event_log_path = event_log.map(std::path::PathBuf::from);
 
     // 6. Build shared AppState
+    let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
+        owner_runtime_root.join(crate::project_brains::PROJECT_BRAINS_DIR),
+        config.registry_dir.clone(),
+    ));
     let app_state = Arc::new(AppState {
         session: session.clone(),
         tool_schemas_cache,
@@ -436,6 +450,7 @@ pub async fn run(
         event_log_path: event_log_path.clone(),
         registry_dir: config.registry_dir.clone(),
         mcp_sessions: crate::mcp_http::new_mcp_session_registry(),
+        project_brains,
     });
     {
         let session = app_state.session.lock();

@@ -269,6 +269,8 @@ m1nd-mcp --attach http://127.0.0.1:1337 --stdio    # or set M1ND_ATTACH_URL and 
 
 Any number of bridges point at the one owner and share its single live graph, so what one agent `memorize`s another recalls immediately — no reingest, no per-agent copy. Queries go over localhost, so it stays local-first (bind stays `127.0.0.1` unless you opt into `--bind 0.0.0.0`). Warm `seek` over the bridge measured ≈0.7ms on a small graph on one machine — order-of-magnitude, not a guarantee: attach adds a localhost round-trip, and latency scales with graph size and load.
 
+The owner is not single-repo anymore: a session rooted in a repo the owner's graph does not cover gets an honest `reception` block instead of wrong answers, and ONE call — `ingest` with `project_root=<your repo>` — creates a per-project brain inside the same owner (own graph, own persistence), binds the session to it, and returns its `north` packet; from then on every call from that repo routes to its own brain automatically, while the owner's original graph stays untouched.
+
 ## The material: honesty
 
 *The whole shell is built from one material — m1nd would rather tell your agent "don't trust this" than let it guess.*

@@ -843,27 +843,15 @@ impl SessionState {
         // compute the match; say nothing rather than raise a false alarm.
         let caller_root = self.caller_root.as_deref()?;
 
-        // The same known-roots list `workspace_binding_mismatch` compares against.
-        let mut known_roots: Vec<std::path::PathBuf> = Vec::new();
-        if let Some(workspace_root) = self.workspace_root.as_deref() {
-            known_roots.push(std::path::PathBuf::from(workspace_root));
-        }
-        for root in &self.ingest_roots {
-            known_roots.push(std::path::PathBuf::from(root));
-        }
-
         // Caller falls under a bound root → legal silent bind, no packet.
-        let caller_path = std::path::Path::new(caller_root);
-        if known_roots
-            .iter()
-            .any(|root| Self::path_starts_with_loosely(caller_path, root))
-        {
+        if self.covers_root(caller_root) {
             return None;
         }
 
         // Mismatch: the bound graph does NOT cover the caller's repo. Say so, and
-        // hand the agent machine-actionable options (no live `bind` verb yet —
-        // stated honestly).
+        // hand the agent machine-actionable options. `ingest_your_repo` is now the
+        // REAL one-call bootstrap (owner-hosted project brain — Two-Tier interim),
+        // no longer a roadmap promise.
         Some(serde_json::json!({
             "schema": "m1nd-reception-degraded-v0",
             "match": "caller_root_mismatch",
@@ -877,10 +865,29 @@ impl SessionState {
                 },
                 {
                     "action": "ingest_your_repo",
-                    "call": format!("ingest with path={caller_root} (separate runtime today; per-project brains are the two-tier roadmap)")
+                    "call": format!("ingest with project_root={caller_root} — ONE call: creates a per-project brain inside this owner, ingests your repo into it, binds this session to it, and returns its north packet; thereafter every call from this root routes to YOUR brain automatically (silent on match)")
                 }
             ]
         }))
+    }
+
+    /// True when `root` falls under this brain's bound territory — the
+    /// `workspace_root` or any ingest root (the exact known-roots list the
+    /// `workspace_binding_mismatch` guard compares against). ONE definition of
+    /// "does this brain cover that caller?", shared by the reception verdict
+    /// above and the Two-Tier HTTP routing layer.
+    pub fn covers_root(&self, root: &str) -> bool {
+        let mut known_roots: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(workspace_root) = self.workspace_root.as_deref() {
+            known_roots.push(std::path::PathBuf::from(workspace_root));
+        }
+        for ingest_root in &self.ingest_roots {
+            known_roots.push(std::path::PathBuf::from(ingest_root));
+        }
+        let candidate = std::path::Path::new(root);
+        known_roots
+            .iter()
+            .any(|known| Self::path_starts_with_loosely(candidate, known))
     }
 
     fn absolute_scope_path(scope: &str) -> Option<std::path::PathBuf> {

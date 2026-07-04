@@ -17,8 +17,13 @@ On first contact the packet may also carry a `reception` field (First-Contact
 Reception, degraded mode): `reception.match == "caller_root_mismatch"` means the
 bound graph does **not** cover your current repo (its root ≠ your resolved
 caller root) — do not trust retrieval for this repo; read `reception.options[]`.
-It is `null` when your root matches the bound brain (silent bind is legal only on
-a match) or when the caller root is unknown (direct-HTTP callers).
+ONE call sets you up: `ingest` with `project_root=<your repo root>` creates a
+per-project brain inside the served owner, ingests your repo into it, binds your
+session to it, and returns its north packet in the same response — thereafter
+every call from your root (this session or a brand-new one) routes to YOUR brain
+automatically. It is `null` when your root matches the brain serving you (silent
+bind is legal only on a match) or when the caller root is unknown (direct-HTTP
+callers).
 
 `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`. Reach
 for those pieces directly only when you need just one. The

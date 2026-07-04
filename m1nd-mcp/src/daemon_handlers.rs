@@ -646,6 +646,7 @@ pub fn handle_daemon_tick(
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )?;
         state.record_file_inventory([entry.clone()]);
@@ -983,6 +984,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("initial ingest");
@@ -1085,6 +1087,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("initial ingest");
@@ -1190,6 +1193,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("initial ingest");
@@ -1429,6 +1433,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("initial ingest");
@@ -1512,6 +1517,7 @@ mod tests {
                 namespace: None,
                 include_dotfiles: false,
                 dotfile_patterns: Vec::new(),
+                project_root: None,
             },
         )
         .expect("initial ingest");

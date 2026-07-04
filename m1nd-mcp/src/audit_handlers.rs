@@ -2641,6 +2641,7 @@ pub fn handle_audit(
             namespace: None,
             include_dotfiles: input.include_config,
             dotfile_patterns: dotfile_patterns.clone(),
+            project_root: None,
         },
     )?;
 

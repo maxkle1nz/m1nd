@@ -23,8 +23,11 @@ graph), `ingest` the repo, then `north` again — that is a real answer, not a
 failure. `north` composes `trust_selftest` + `orient` + `boot_memory` + `focus`.
 Heed `reception`: `reception.match == "caller_root_mismatch"` means the bound
 graph does NOT cover your current repo — do not trust retrieval for it; read
-`reception.options[]`. Absent/null `reception` = your root matches the bound
-brain.
+`reception.options[]`. ONE call sets you up: `ingest` with
+`project_root=<your repo root>` creates a per-project brain inside the served
+owner, ingests your repo, binds your session, and returns its north packet —
+thereafter every call from your root routes to YOUR brain automatically.
+Absent/null `reception` = your root matches the brain serving you.
 
 Drop to the trust-only sub-checks when the binding looks degraded and you need
 just the trust verdict:

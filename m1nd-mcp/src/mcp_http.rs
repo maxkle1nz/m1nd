@@ -204,6 +204,13 @@ pub struct McpTransportSession {
     /// (legacy bridge / direct HTTP) → the owner treats first contact as unknown.
     /// Read at `initialize` and refreshed per-request if the header is present.
     pub caller_root: Option<String>,
+    /// Two-Tier Brain (interim): the canonicalized project root of the
+    /// per-project brain this wire session is bound to. Set by the one-call
+    /// bootstrap or by the first caller_root auto-match; sticky for the session's
+    /// lifetime (§9.5.2 "never re-ask" — mid-session cwd travel is deliberately
+    /// NOT re-detected, the scope-guard backstop covers it). `None` = the session
+    /// rides the owner's bound graph, exactly as before this feature.
+    pub bound_project_root: Option<String>,
 }
 
 /// Registry of live MCP wire sessions, keyed by opaque session id.
@@ -353,6 +360,252 @@ async fn run_mcp_method(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Two-Tier Brain (interim) — per-call brain routing + the one-call bootstrap.
+// ---------------------------------------------------------------------------
+
+/// When this request is the one-call bootstrap (`tools/call` on `ingest` with a
+/// non-empty `project_root`), return that root. Everything else → `None`.
+fn bootstrap_project_root(request: &JsonRpcRequest) -> Option<String> {
+    if request.method != "tools/call" {
+        return None;
+    }
+    let name = request.params.get("name")?.as_str()?;
+    if bare_tool_name(name) != "ingest" {
+        return None;
+    }
+    let root = request
+        .params
+        .get("arguments")?
+        .get("project_root")?
+        .as_str()?
+        .trim();
+    if root.is_empty() {
+        None
+    } else {
+        Some(root.to_string())
+    }
+}
+
+/// Wrap a successful tool payload as an MCP `tools/call` result — the exact
+/// shape `handle_mcp_method` emits, so bootstrap responses are indistinguishable
+/// from any other tool result on the wire.
+fn tool_result_response(id: serde_json::Value, payload: &serde_json::Value) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string_pretty(payload).unwrap_or_default(),
+            }]
+        })),
+        error: None,
+    }
+}
+
+/// Wrap a tool-level failure as MCP `isError` content (spec: tool execution
+/// errors are content, not JSON-RPC protocol errors) — mirrors the
+/// `dispatch_tool` Err arm in `handle_mcp_method`.
+fn tool_error_response(id: serde_json::Value, message: String) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id,
+        result: Some(serde_json::json!({
+            "content": [{ "type": "text", "text": format!("Error: {}", message) }],
+            "isError": true
+        })),
+        error: None,
+    }
+}
+
+/// The one-call bootstrap (TWO-TIER-BRAIN interim; the reception option made
+/// real): create (or warm-resolve) the per-project brain for `project_root`,
+/// ingest the caller's repo into it, bind THIS wire session to it (sticky), and
+/// return the new brain's north packet in the SAME response — total friction =
+/// one call. The owner's bound graph is never touched.
+///
+/// Runs inside the caller's `spawn_blocking` context (ingest + engine build are
+/// CPU-bound).
+fn run_bootstrap(
+    app: &Arc<AppState>,
+    request: &JsonRpcRequest,
+    project_root: &str,
+    session_id: Option<&str>,
+) -> JsonRpcResponse {
+    let arguments = request
+        .params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+
+    // Guard: a root the BOUND brain already covers needs no project brain — and
+    // silently shadowing the dev graph would be worse than refusing. One honest
+    // error, one next action.
+    let bound_covers = { app.session.lock().covers_root(project_root) };
+    if bound_covers {
+        return tool_error_response(
+            request.id.clone(),
+            format!(
+                "project_root {project_root} is already covered by this owner's bound graph — \
+                 you are home; call verbs directly (bootstrap refused so the bound brain is \
+                 never shadowed by a duplicate)"
+            ),
+        );
+    }
+
+    match app.project_brains.bootstrap(project_root, &arguments) {
+        Err(e) => tool_error_response(
+            request.id.clone(),
+            format!("one-call bootstrap of {project_root} failed: {e}"),
+        ),
+        Ok((brain, ingest_result, reused)) => {
+            let key = crate::project_brains::ProjectBrainRegistry::canonical_key(project_root);
+
+            // Sticky: this wire session now belongs to the new brain (§9.5.2).
+            if let Some(sid) = session_id {
+                if let Some(s) = app.mcp_sessions.lock().get_mut(sid) {
+                    s.bound_project_root = Some(key.clone());
+                }
+            }
+
+            // Orient in the same response — north-grade, from the NEW brain.
+            let agent_id = arguments
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("bootstrap")
+                .to_string();
+            let north = {
+                let mut state = brain.lock();
+                state.caller_root = Some(key.clone());
+                crate::server::dispatch_tool(
+                    &mut state,
+                    "north",
+                    &serde_json::json!({
+                        "agent_id": agent_id,
+                        "task": format!(
+                            "first orientation of the {key} project brain right after its one-call bootstrap"
+                        ),
+                    }),
+                )
+                .unwrap_or_else(|e| {
+                    serde_json::json!({
+                        "error": format!("north after bootstrap failed: {e}"),
+                    })
+                })
+            };
+
+            let packet = serde_json::json!({
+                "schema": "m1nd-project-brain-bootstrap-v0",
+                "project_root": key,
+                "store_dir": app.project_brains.store_dir_for(&key),
+                "reused_existing_brain": reused,
+                "ingest": ingest_result,
+                "north": north,
+                "routing": "this wire session is now bound to your project brain; any call — this session or a brand NEW session — whose resolved caller root is this repo routes here automatically, silent on match (TT-INV-12)",
+            });
+            tool_result_response(request.id.clone(), &packet)
+        }
+    }
+}
+
+/// Route a post-`initialize` MCP request to the brain that owns the caller, then
+/// dispatch it — the Two-Tier routing seam. Precedence, per call:
+///
+///   1. one-call bootstrap (`ingest` + `project_root`) → create/resolve brain,
+///      bind session, respond with the bootstrap packet;
+///   2. session sticky choice (`bound_project_root`) → that brain (a vanished
+///      brain falls through to the bound graph honestly);
+///   3. resolved caller_root: under the bound graph's roots → bound (TT-INV-12
+///      silence, exactly today's behavior); else a known project brain (live or
+///      warm-bootable store) → that brain, silently, and the session goes sticky;
+///   4. default → the bound graph (whose reception verdict flags true unknowns).
+///
+/// Same lock + spawn_blocking + timeout discipline as `run_mcp_method`; no lock
+/// is ever held across `.await` and no two session locks are held at once.
+async fn route_and_run(
+    app: Arc<AppState>,
+    request: JsonRpcRequest,
+    caller_root: Option<String>,
+    session_id: String,
+) -> JsonRpcResponse {
+    let id = request.id.clone();
+    let result = tokio::time::timeout(
+        Duration::from_secs(MCP_TOOL_TIMEOUT_SECS),
+        tokio::task::spawn_blocking(move || {
+            // 1. The one-call bootstrap.
+            if let Some(project_root) = bootstrap_project_root(&request) {
+                return run_bootstrap(&app, &request, &project_root, Some(&session_id));
+            }
+
+            // 2. Sticky per-session choice.
+            let sticky = {
+                let sessions = app.mcp_sessions.lock();
+                sessions
+                    .get(&session_id)
+                    .and_then(|s| s.bound_project_root.clone())
+            };
+            if let Some(root) = sticky {
+                if let Some(brain) = app.project_brains.resolve(&root) {
+                    let mut state = brain.lock();
+                    // The brain's own reception stays silent for its root and
+                    // honest for a traveled caller (scope-guard backstop).
+                    state.caller_root = caller_root.clone();
+                    return handle_mcp_method(&mut state, &request);
+                }
+                // Brain store vanished mid-session — fall through to the bound
+                // graph, whose reception will say so honestly.
+            }
+
+            // 3. Automatic recognition by resolved caller root.
+            if let Some(root) = caller_root.as_deref() {
+                let bound_covers = { app.session.lock().covers_root(root) };
+                if !bound_covers {
+                    if let Some(brain) = app.project_brains.resolve(root) {
+                        let key = crate::project_brains::ProjectBrainRegistry::canonical_key(root);
+                        if let Some(s) = app.mcp_sessions.lock().get_mut(&session_id) {
+                            s.bound_project_root = Some(key);
+                        }
+                        let mut state = brain.lock();
+                        state.caller_root = caller_root.clone();
+                        return handle_mcp_method(&mut state, &request);
+                    }
+                }
+            }
+
+            // 4. Default: the bound graph (reception flags true unknowns there).
+            let mut session = app.session.lock();
+            session.caller_root = caller_root;
+            handle_mcp_method(&mut session, &request)
+        }),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(_join_err)) => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id,
+            result: None,
+            error: Some(JsonRpcError {
+                code: -32603,
+                message: "Internal error: tool task panicked".into(),
+                data: None,
+            }),
+        },
+        Err(_elapsed) => JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id,
+            result: None,
+            error: Some(JsonRpcError {
+                code: -32000,
+                message: format!("Tool execution exceeded {}s timeout", MCP_TOOL_TIMEOUT_SECS),
+                data: None,
+            }),
+        },
+    }
+}
+
 /// Parse the request body into a JSON-RPC message classification.
 fn parse_message(body: &Bytes) -> Result<ParsedMessage, String> {
     let value: serde_json::Value =
@@ -463,6 +716,7 @@ pub async fn handle_mcp_post(
                     last_seen_ms: now,
                     // Remember the caller root for post-init requests that omit it.
                     caller_root: incoming_caller_root,
+                    bound_project_root: None,
                 },
             );
         }
@@ -525,7 +779,13 @@ pub async fn handle_mcp_post(
     // its own write, which through the `--attach` bridge races the real response
     // into the host's stdout and is read as a literal `null`.
     let mutation_meta = mutation_event_meta(&request);
-    let response = run_mcp_method(app.clone(), request, resolved_caller_root).await;
+    let response = route_and_run(
+        app.clone(),
+        request,
+        resolved_caller_root,
+        session_id.clone(),
+    )
+    .await;
     if let Some((tool, agent_id)) = mutation_meta {
         publish_graph_mutation_event(
             &app,
@@ -891,6 +1151,11 @@ mod tests {
             .get("tools")
             .cloned()
             .unwrap_or(serde_json::Value::Array(vec![]));
+        let project_brains = Arc::new(crate::project_brains::ProjectBrainRegistry::new(
+            root.join("runtime")
+                .join(crate::project_brains::PROJECT_BRAINS_DIR),
+            None,
+        ));
         Arc::new(AppState {
             session: Arc::new(Mutex::new(session)),
             tool_schemas_cache,
@@ -898,6 +1163,7 @@ mod tests {
             event_log_path: None,
             registry_dir: None,
             mcp_sessions: new_mcp_session_registry(),
+            project_brains,
         })
     }
 
@@ -917,6 +1183,7 @@ mod tests {
                 created_ms: now,
                 last_seen_ms: now,
                 caller_root: None,
+                bound_project_root: None,
             },
         );
         sid
