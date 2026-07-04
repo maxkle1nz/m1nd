@@ -24,6 +24,9 @@ m1nd-ui/node_modules/
 # human-authored publish artifact at the repo root only; runtime dirs may
 # legitimately contain their own untracked server.json.
 !/server.json
+# UI honesty-test fixtures — REAL captured tool envelopes (INV-01: the tests must
+# never drift from the wire). Committed on purpose despite the *.json rule.
+!m1nd-ui/src/__fixtures__/*.json
 graph_snapshot.json
 plasticity_state.json
 antibodies.json

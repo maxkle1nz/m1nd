@@ -60,6 +60,13 @@ export interface InstanceRegistryEntry {
   owner_live?: boolean | null;
   stale: boolean;
   conflicts: string[];
+  /**
+   * Two-Tier Brain kind (instance_registry.rs:45). Absent (serde default) on the
+   * ~54k legacy entries → the classic single bound/dev graph; "project" marks an
+   * owner-hosted per-project brain. Rendered as the Hall's kind badge (§4A.3);
+   * absence is honest, never faked.
+   */
+  brain_kind?: string | null;
 }
 
 export interface InstanceSelfResponse {

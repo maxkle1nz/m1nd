@@ -1,0 +1,211 @@
+/*
+ * HallView — the Hall, rung −1 (HUMAN-LAYER-PRD §4A.3).
+ *
+ * The front door of the OWNER: every brain it holds, one glance. Promotes and
+ * re-skins the retired InstancesPanel (§4A.3, research R1) to SOFT PROOF — the
+ * cyberpunk tokens die here. Three brain classes from the owner's own registry
+ * (self + siblings + hosted project brains), freshest-first as the registry
+ * already sorts them (never re-sorted — INV-10 / R4). Live the way the tree is:
+ * graph_changed SSE → debounced refetch → quiet in-place update (useLiveRefresh
+ * reused, R7). The card face carries ≤5 facts; the receipt lives in the drawer.
+ *
+ * Keyboard: roving focus over the grid (↑/↓), Enter selects, ESC ascends (the
+ * Hall is rung −1 — ESC here leaves the Hall, handled by the parent ladder).
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, ApiError } from '../../api/client';
+import type { InstanceRegistryEntry, InstanceListResponse, InstanceSelfResponse } from '../../types';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
+import { useToastStore } from '../../stores/toastStore';
+import { entryBaseUrl } from '../../lib/hallSemantics';
+import BrainCard from './BrainCard';
+import BrainReceiptDrawer from './BrainReceiptDrawer';
+
+interface HallViewProps {
+  /** ESC at the Hall (rung −1) ascends out of it — the parent owns where to. */
+  onExit?: () => void;
+  /** Open the bound brain's tree (self card / bound Open). */
+  onOpenBound: () => void;
+  /** Start the Threshold bootstrap ("+ Read a new repo"). */
+  onBootstrap: () => void;
+}
+
+function errorDetail(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) return error.detail;
+  if (error instanceof Error) return error.message;
+  return fallback;
+}
+
+export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewProps) {
+  const [self, setSelf] = useState<InstanceSelfResponse | null>(null);
+  const [instances, setInstances] = useState<InstanceRegistryEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const addToast = useToastStore((s) => s.addToast);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [selfResp, listResp] = await Promise.all([api.instanceSelf(), api.instances()]);
+      setSelf(selfResp);
+      // Registry order IS recency — never re-sort (R4/INV-10).
+      setInstances((listResp as InstanceListResponse).instances);
+      setError((listResp as InstanceListResponse).error ?? null);
+    } catch (err) {
+      setError(errorDetail(err, 'Failed to load the Hall'));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Live refresh (R7) — same calm nerve as the tree.
+  const onLive = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+  useLiveRefresh({ onRefresh: onLive, enabled: true });
+
+  const selfId = self?.instance.instance_id ?? null;
+  const selected = useMemo(
+    () => instances.find((e) => e.instance_id === selectedId) ?? null,
+    [instances, selectedId],
+  );
+
+  const openBrain = useCallback(
+    (entry: InstanceRegistryEntry) => {
+      if (entry.instance_id === selfId) {
+        onOpenBound();
+        return;
+      }
+      const url = entryBaseUrl(entry);
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    },
+    [selfId, onOpenBound],
+  );
+
+  const saveBrain = useCallback(
+    async (entry: InstanceRegistryEntry) => {
+      setSavingId(entry.instance_id);
+      try {
+        if (entry.instance_id === selfId) await api.saveSelfInstanceState();
+        else await api.saveInstanceState(entry.instance_id);
+        addToast('state saved', entry.workspace_root.split('/').pop() ?? '', 'info');
+      } catch (err) {
+        setError(errorDetail(err, 'Save failed'));
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [selfId, addToast],
+  );
+
+  const onDeleted = useCallback(
+    (entry: InstanceRegistryEntry) => {
+      setSelectedId(null);
+      setInstances((prev) => prev.filter((e) => e.instance_id !== entry.instance_id));
+      void refresh();
+    },
+    [refresh],
+  );
+
+  // Roving focus over the grid (§4A.5): ↑/↓ move selection; ESC ascends.
+  const onGridKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selected) setSelectedId(null);
+        else onExit?.();
+        return;
+      }
+      if (instances.length === 0) return;
+      const idx = instances.findIndex((x) => x.instance_id === selectedId);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = instances[Math.min(idx + 1, instances.length - 1)] ?? instances[0];
+        setSelectedId(next.instance_id);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = instances[Math.max(idx - 1, 0)] ?? instances[0];
+        setSelectedId(prev.instance_id);
+      }
+    },
+    [instances, selectedId, selected, onExit],
+  );
+
+  return (
+    <div className="flex-1 flex overflow-hidden bg-porcelain" data-surface="hall">
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-ink/10 flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-lg text-ink font-semibold">Your brains</h1>
+            <p className="text-xs text-ink-soft mt-0.5">
+              Every map m1nd holds for you. {instances.length} {instances.length === 1 ? 'brain' : 'brains'}.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-role="bootstrap-new"
+            onClick={onBootstrap}
+            className="px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
+            title="Read a new repo into its own brain"
+          >
+            + Read a new repo
+          </button>
+        </div>
+
+        {/* Grid */}
+        <div
+          ref={gridRef}
+          role="list"
+          aria-label="brains"
+          tabIndex={0}
+          onKeyDown={onGridKeyDown}
+          className="flex-1 overflow-y-auto p-6 outline-none focus:ring-1 focus:ring-ink/10"
+        >
+          {error && (
+            <div className="mb-4 rounded-lg border border-state-failure/25 bg-state-failure-tint/40 px-3 py-2 text-xs text-ink font-mono">
+              {error}
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {instances.map((entry) => (
+              <BrainCard
+                key={entry.instance_id}
+                entry={entry}
+                isSelf={entry.instance_id === selfId}
+                knownNodeCount={
+                  entry.instance_id === selfId && self ? self.graph_state.node_count : null
+                }
+                knownEdgeCount={
+                  entry.instance_id === selfId && self ? self.graph_state.edge_count : null
+                }
+                selected={entry.instance_id === selectedId}
+                onSelect={(en) => setSelectedId(en.instance_id)}
+                onOpen={openBrain}
+              />
+            ))}
+          </div>
+          {instances.length === 0 && !error && (
+            <div className="rounded-xl border border-ink/10 bg-bone/50 px-6 py-10 text-center text-sm text-ink-soft">
+              No brains yet — read your first repo to begin.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Receipt drawer (rung 0 of a card → its receipt) */}
+      <BrainReceiptDrawer
+        entry={selected}
+        isSelf={selected?.instance_id === selfId}
+        self={self}
+        onClose={() => setSelectedId(null)}
+        onOpen={openBrain}
+        onSave={saveBrain}
+        saving={selected != null && savingId === selected.instance_id}
+        onDeleted={onDeleted}
+      />
+    </div>
+  );
+}

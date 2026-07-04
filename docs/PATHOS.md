@@ -115,6 +115,29 @@ The renderer is read-only by contract — humans READ memory, agents WRITE it.
 tree is currently a snapshot, not yet auto-updating), vendored fonts (still external-linked), and
 the stale-flip e2e (the post-it fresh→stale transition is unit-proven but not end-to-end).
 
+### Human layer Slices 0T + 1H — SHIPPED (`feat/human-layer-hall`, the layer above the tree)
+On the two-tier backend (#260), the served UI gained its **owner-level home**. **The Hall (1H)** is
+rung −1: it promotes + re-skins the retired `InstancesPanel` to SOFT PROOF (the cyberpunk tokens
+finally die; violet-lint stays green) into a projects area that lists every brain the owner holds —
+three classes from the registry (bound self + siblings + hosted project brains), freshest-first
+unre-sorted, live via the reused `graph_changed` refetch. Cards carry matte liveness dots and
+absent-honest counts (INV-10, never 0); a read-only receipt drawer holds the binding facts and the
+removal ladder (stop→clean→eject) with honest disabled rungs; and **the calm two-step delete**
+(INV-09) is structurally unreachable below two confirmations — consequence card (dies vs survives,
+categories not filenames) → type-the-name → the guarded `delete-state` route, with the live-instance
+refusal rendered **verbatim** from the real wire envelope. **The Threshold (0T)** turns the zero-brain
+first-run into onboarding: one sentence, one action, the one-call `project_root` bootstrap
+(feature-detected via `GET /api/tools`), word-grained progress (INV-05, never a fake %), and a 3-beat
+orientation from the real north packet, each beat ESC-dismissable-forever (INV-12). Plus the **Brain
+Chip** on every surface (no graph pixel without the owning brain's name), the **Cmd+K Brains group**,
+a tested **reduced-motion contract**, and the **clobber-ban retirement** of the bare foreign-path
+ingest on a non-empty owner (INV-11). Proof: **80 UI tests green** (52 net-new; INV-09/10/11/12 each
+covered), all fed by REAL captured `:1338` envelopes; violet-lint green; `tsc` clean; build
+air-gapped; live smoke rendered the two real brains (the m1nd dev brain + the Cherry project brain).
+**Honest deviation:** the tool-command palette re-skin stays deferred — 0T's Brains group ships as a
+focused new `BrainPalette`, not a retrofit of the deferred-legacy cyberpunk `CommandPalette`.
+**Kickstart note:** the dist is rust-embedded, so activating the new UI needs a served-owner restart.
+
 ### The field-triage sweep — the mailbox emptied in ~a day (the loop, working)
 The universal field-telemetry doctrine paid off: the seeded/accumulated `~/.m1nd/field-reports.jsonl`
 mailbox was swept to EMPTY in roughly a day, each report becoming a battery case/test BEFORE its fix:

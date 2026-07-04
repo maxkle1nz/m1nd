@@ -124,3 +124,25 @@ html, body, #root {
 .animate-soft-slide-in {
   animation: soft-slide-in 0.18s ease-out;
 }
+
+/*
+ * Reduced motion is a CONTRACT, not a courtesy (HUMAN-LAYER-PRD §4A.5). Under
+ * `prefers-reduced-motion: reduce` the single sanctioned ambient animation (the
+ * tremor breath) stands down — a static tick replaces it, so §3.2's INFORMATION
+ * survives while its motion does not — and every transition/animation is zeroed.
+ * This extends §6.3 mechanically and is asserted by a component test alongside
+ * abstain-never-animates.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .tremor-breath {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
