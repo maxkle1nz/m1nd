@@ -13,9 +13,11 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
-  <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
+  <a href="https://crates.io/crates/m1nd-mcp"><img src="https://img.shields.io/crates/v/m1nd-mcp.svg?label=crates.io" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-io.github.maxkle1nz%2Fm1nd-6d28d9" alt="MCP Registry — io.github.maxkle1nz/m1nd" /></a>
+  <a href="https://glama.ai/mcp/servers/maxkle1nz/m1nd"><img src="https://glama.ai/mcp/servers/maxkle1nz/m1nd/badges/score.svg" alt="Glama score" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
 </p>
 
@@ -38,9 +40,39 @@
 
 **m1nd 是包裹你的代码智能体的外壳——它生活于其中的操作循环：行动之前先定向，工作之中带着诚实的裁决，完成之后留下带证据的记忆，并且跨会话复利。**
 
+<p align="center">
+  <img src="../docs/assets/demo.gif" width="760" alt="A real m1nd session: north() returns trust + focus + honest gaps, seek() answers with a reverify verdict instead of overclaiming, memorize() anchors the finding to code" />
+</p>
+
+<p align="center"><em>一次真实的会话——捕捉自一个实时的所有者（<code>m1nd-mcp 1.3.0</code>，一张覆盖本仓库的 6,453 节点图）：<code>north</code> 用信任 + 诚实的缺口为智能体做简报，<code>seek</code> 带着 <code>reverify</code> 裁决作答而非自信的猜测，<code>memorize</code> 把发现写回并锚定到代码。</em></p>
+
 <p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="一堆散乱的文件变成一张相互连接的图，展示什么与什么相连" /></p>
 
 > grep 能找到文本。向量搜索能找到相似片段。`m1nd` 给智能体一张本地图，显示什么与什么相连、什么发生了变化、什么会崩溃、什么产生了漂移，以及从哪里恢复。
+
+## 60 秒上手
+
+三条命令。第一条证明 runtime 可见，第二条打印你的宿主的确切接线，第三条是你的智能体的——你再也不用手动调用它。
+
+```bash
+# 1 · 检查 runtime 是否已安装且可见（无需构建，无需配置）
+npx -y @maxkle1nz/m1nd doctor
+#    → 打印一个 JSON 裁决：找到 runtime + 版本，否则给出确切的修复方法
+```
+
+```bash
+# 2 · 打印你的宿主的接线（claude · codex · gemini · cursor · cline · …）
+npx -y @maxkle1nz/m1nd hosts plan --host claude --project .
+#    → dry-run：可粘贴的 MCP 配置 JSON + session-start 钩子——不写入任何东西
+```
+
+```jsonc
+// 3 · 从现在起由你的智能体来驾驶——它每个会话的第一步就是一次调用：
+north({ "agent_id": "dev", "task": "harden the JWT auth token validation flow" })
+//    → 一个数据包：binding 信任 · 焦点节点 + 锚点 · 先前记忆 · honest_gaps
+```
+
+准备好真正接线了吗（skills + MCP 配置，每个宿主）？→ [快速开始](#快速开始)。从智能体自安装？→ [`llms-install.md`](../llms-install.md)。
 
 ## m1nd 是什么：包裹智能体的外壳
 

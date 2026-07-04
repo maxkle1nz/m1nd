@@ -13,9 +13,11 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
-  <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
+  <a href="https://crates.io/crates/m1nd-mcp"><img src="https://img.shields.io/crates/v/m1nd-mcp.svg?label=crates.io" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-io.github.maxkle1nz%2Fm1nd-6d28d9" alt="MCP Registry — io.github.maxkle1nz/m1nd" /></a>
+  <a href="https://glama.ai/mcp/servers/maxkle1nz/m1nd"><img src="https://glama.ai/mcp/servers/maxkle1nz/m1nd/badges/score.svg" alt="Glama score" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
 </p>
 
@@ -38,9 +40,39 @@
 
 **m1nd はあなたのコーディングエージェントを包むシェルだ——エージェントがその中で生きる操作ループ：行動する前に方向づけられ、働いている間は誠実なバーディクトを身につけ、終えた後には証拠つきのメモリを残し、セッションをまたいで複利していく。**
 
+<p align="center">
+  <img src="../docs/assets/demo.gif" width="760" alt="A real m1nd session: north() returns trust + focus + honest gaps, seek() answers with a reverify verdict instead of overclaiming, memorize() anchors the finding to code" />
+</p>
+
+<p align="center"><em>ある実際のセッション——ライブのオーナーからキャプチャ（<code>m1nd-mcp 1.3.0</code>、このリポジトリ上の 6,453 ノードのグラフ）：<code>north</code> はトラスト + 誠実なギャップでエージェントにブリーフィングし、<code>seek</code> は自信ありげな推測ではなく <code>reverify</code> のバーディクトを身につけて答え、<code>memorize</code> は発見をコードに固定して書き戻す。</em></p>
+
 <p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="散らばったファイルの山が、何が何につながるかを示す接続されたグラフになる" /></p>
 
 > `grep` はテキストを見つける。ベクトル検索は類似チャンクを見つける。`m1nd` はエージェントに、何が繋がっていて、何が変わって、何が壊れて、何がドリフトして、どこから再開すべきかを示すローカルグラフを与える。
+
+## 60秒で始める
+
+3つのコマンド。1つ目は runtime が見えていることを証明し、2つ目はあなたのホストの正確な配線を出力し、3つ目はあなたのエージェントのもの——もう二度と手で呼ぶことはない。
+
+```bash
+# 1 · runtime がインストールされ見えていることを確認する（ビルド不要、設定不要）
+npx -y @maxkle1nz/m1nd doctor
+#    → JSON のバーディクトを出力：runtime 発見 + バージョン、なければ正確な修正方法
+```
+
+```bash
+# 2 · あなたのホストの配線を出力する（claude · codex · gemini · cursor · cline · …）
+npx -y @maxkle1nz/m1nd hosts plan --host claude --project .
+#    → dry-run：貼り付ける MCP 設定 JSON + session-start フック——何も書き込まない
+```
+
+```jsonc
+// 3 · これ以降はあなたの AGENT が運転する——各セッションの最初の一手は1回の呼び出し:
+north({ "agent_id": "dev", "task": "harden the JWT auth token validation flow" })
+//    → 1つのパケット：binding のトラスト · フォーカスノード + アンカー · 過去のメモリ · honest_gaps
+```
+
+本気で配線する準備はできた？（skills + MCP 設定、すべてのホスト）→ [クイックスタート](#クイックスタート)。エージェントから自己インストール？→ [`llms-install.md`](../llms-install.md)。
 
 ## m1nd とは：エージェントを包むシェル
 

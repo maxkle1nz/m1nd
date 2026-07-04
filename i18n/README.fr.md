@@ -13,9 +13,11 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@maxkle1nz/m1nd"><img src="https://img.shields.io/npm/v/@maxkle1nz/m1nd.svg?color=00f5ff&label=npm" alt="npm" /></a>
-  <a href="https://crates.io/crates/m1nd-core"><img src="https://img.shields.io/crates/v/m1nd-core.svg" alt="crates.io" /></a>
+  <a href="https://crates.io/crates/m1nd-mcp"><img src="https://img.shields.io/crates/v/m1nd-mcp.svg?label=crates.io" alt="crates.io" /></a>
   <a href="https://github.com/maxkle1nz/m1nd/actions"><img src="https://github.com/maxkle1nz/m1nd/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="https://registry.modelcontextprotocol.io/?search=io.github.maxkle1nz/m1nd"><img src="https://img.shields.io/badge/MCP_Registry-io.github.maxkle1nz%2Fm1nd-6d28d9" alt="MCP Registry — io.github.maxkle1nz/m1nd" /></a>
+  <a href="https://glama.ai/mcp/servers/maxkle1nz/m1nd"><img src="https://glama.ai/mcp/servers/maxkle1nz/m1nd/badges/score.svg" alt="Glama score" /></a>
   <a href="https://docs.rs/m1nd-core"><img src="https://img.shields.io/docsrs/m1nd-core" alt="docs.rs" /></a>
 </p>
 
@@ -38,9 +40,39 @@
 
 **m1nd est la coque autour de votre agent de coding — la boucle opérationnelle dans laquelle il vit : orienté avant d'agir, des verdicts honnêtes pendant qu'il travaille, une mémoire avec preuves après qu'il a fini, qui se compose de session en session.**
 
+<p align="center">
+  <img src="../docs/assets/demo.gif" width="760" alt="A real m1nd session: north() returns trust + focus + honest gaps, seek() answers with a reverify verdict instead of overclaiming, memorize() anchors the finding to code" />
+</p>
+
+<p align="center"><em>Une session réelle — capturée depuis un propriétaire en direct (<code>m1nd-mcp 1.3.0</code>, un graphe de 6,453 nœuds sur ce dépôt) : <code>north</code> briefe l'agent avec du trust + des lacunes honnêtes, <code>seek</code> répond en portant un verdict <code>reverify</code> au lieu d'une supposition confiante, <code>memorize</code> réécrit la trouvaille ancrée au code.</em></p>
+
 <p align="center"><img src="../docs/assets/visuals/01-code-to-graph.png" width="520" alt="Une pile de fichiers épars devient un graphe connecté de ce qui relie quoi" /></p>
 
 > grep trouve du texte. La recherche vectorielle trouve des chunks similaires. `m1nd` donne aux agents un graphe local de ce qui est connecté, ce qui a changé, ce qui casse, ce qui a dérivé, et où reprendre.
+
+## Démarrez en 60 secondes
+
+Trois commandes. La première prouve que le runtime est visible, la deuxième imprime le câblage exact de votre hôte, et la troisième est celle de votre agent — vous ne l'appelez plus jamais à la main.
+
+```bash
+# 1 · vérifiez que le runtime est installé et visible (pas de build, pas de config)
+npx -y @maxkle1nz/m1nd doctor
+#    → imprime un verdict JSON : runtime trouvé + version, ou le correctif exact sinon
+```
+
+```bash
+# 2 · imprimez le câblage de votre hôte (claude · codex · gemini · cursor · cline · …)
+npx -y @maxkle1nz/m1nd hosts plan --host claude --project .
+#    → dry-run : le JSON de config MCP + le hook de session-start à coller — n'écrit rien
+```
+
+```jsonc
+// 3 · désormais c'est votre AGENT qui conduit — son premier geste à chaque session est un seul appel :
+north({ "agent_id": "dev", "task": "harden the JWT auth token validation flow" })
+//    → un seul paquet : trust du binding · nœuds de focus + ancres · mémoire antérieure · honest_gaps
+```
+
+Prêt à le câbler pour de vrai (skills + config MCP, chaque hôte) ? → [Démarrage Rapide](#démarrage-rapide). Auto-installation depuis un agent ? → [`llms-install.md`](../llms-install.md).
 
 ## Ce qu'est m1nd : la coque autour de votre agent
 
