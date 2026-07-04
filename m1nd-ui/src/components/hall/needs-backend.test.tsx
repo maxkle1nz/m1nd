@@ -39,10 +39,15 @@ test('INV-11 residue #1 (REST brain routing): hosted-brain Open is disabled in t
   assert.match(palette, /REST brain routing/, 'palette names the residue');
 });
 
-// ── Residue (2): §9.5.1 registry fields — counts + calibration + attached ─────
-test('INV-11 residue #2 (§9.5.1 fields): dormant/hosted counts render absent, and per-brain calibration/attached is named not-reported', () => {
+// ── Residue (2): §9.5.1 registry fields — counts NOW reported, calibration open ─
+// Counts are no longer part of the residue for a project brain (warm/manifest
+// counts ship 2026-07-04, per Max's screenshot). What REMAINS [needs-backend]
+// is per-brain calibration + attached-session counts — still named honestly.
+test('INV-11 residue #2: a project brain reports its counts; calibration/attached stays not-reported', () => {
   const card = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
-  assert.match(card, /counts unknown — not running/);
+  // Counts now render (the residue's count half is closed) — never "not running".
+  assert.match(card, new RegExp(`${project.node_count} nodes`));
+  assert.doesNotMatch(card, /not running/);
   assert.doesNotMatch(card, /\b0 nodes\b/);
 
   const receipt = html(

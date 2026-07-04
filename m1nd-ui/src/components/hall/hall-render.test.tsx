@@ -46,23 +46,30 @@ test('INV-10: the bound (self) card shows its real node/edge counts from graph_s
   assert.doesNotMatch(out, /counts unknown/);
 });
 
-test('INV-10: a hosted/dormant brain with unknown counts renders "counts unknown", never 0', () => {
+test('INV-10: a countless brain renders absent-honest, never a fabricated 0', () => {
+  // A fresh project brain before its first persist has no recorded counts. It
+  // must render absent — "counts not recorded yet" (project language, NOT the
+  // instance "not running") — never "0 nodes".
+  const countless = { ...project, node_count: null, edge_count: null };
   const out = html(
-    <BrainCard
-      entry={project}
-      isSelf={false}
-      knownNodeCount={null}
-      knownEdgeCount={null}
-      selected={false}
-      onSelect={noop}
-      onOpen={noop}
-    />,
+    <BrainCard entry={countless} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />,
   );
-  assert.match(out, /counts unknown — not running/);
+  assert.match(out, /counts not recorded yet/);
   assert.match(out, /data-role="counts-absent"/);
+  assert.doesNotMatch(out, /not running/, 'a project brain never reads instance "not running"');
   // The honesty tooth: no fabricated "0 nodes" / "0 edges".
   assert.doesNotMatch(out, /\b0 nodes\b/);
   assert.doesNotMatch(out, /\b0 edges\b/);
+});
+
+test('INV-10: a dormant SIBLING owner (no counts) still reads "counts unknown — not running"', () => {
+  // The instance-language copy survives for a real owner instance (a sibling),
+  // which genuinely can be not-running — only project brains change it.
+  const sibling = { ...bound, brain_kind: 'sibling-owner-shape' as string, node_count: null, edge_count: null };
+  const out = html(
+    <BrainCard entry={sibling} isSelf={false} knownNodeCount={null} knownEdgeCount={null} selected={false} onSelect={noop} onOpen={noop} />,
+  );
+  assert.match(out, /counts unknown — not running/);
 });
 
 test('INV-10: every rendered card key traces to a real registry instance_id', () => {
@@ -168,7 +175,7 @@ test('§4A.5: a degraded chip wears the honesty (data-healthy=false), and a null
 const cardName = (entry: (typeof list.instances)[number], isSelf: boolean) =>
   visibleText(<BrainCard entry={entry} isSelf={isSelf} selected={false} onSelect={noop} onOpen={noop} />);
 
-test('naming guard: no card headline is a plumbing name while a project_root exists', () => {
+test('naming guard: no card headline is a plumbing name or a fingerprint hash', () => {
   for (const entry of list.instances) {
     const isSelf = entry.instance_id === self.instance.instance_id;
     const name = (entry.display_name ?? '').trim();
@@ -177,6 +184,12 @@ test('naming guard: no card headline is a plumbing name while a project_root exi
     assert.ok(entry.project_root, `fixture entry ${entry.instance_id} must carry a project_root`);
     assert.notEqual(name, 'claude', 'a card name must never be the runtime dir "claude"');
     assert.notEqual(name, 'agent-memory', 'a card name must never be the "agent-memory" sidecar');
+    // Max's screenshot: a project card wore "68c5ce186f6efcd2" — the fingerprint
+    // store-dir hash. A name may never be a bare 16+ char hex fingerprint.
+    assert.ok(
+      !(name.length >= 16 && /^[0-9a-f]+$/i.test(name)),
+      `a card name must never be a fingerprint hash: "${name}"`,
+    );
     // The rendered card must actually show that project name.
     assert.match(cardName(entry, isSelf), new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
@@ -196,6 +209,38 @@ test('naming guard: the project card shows "Cerrybubbles1", not the fingerprint 
   // The fingerprint hash (the pre-fix leak) must not be the headline.
   assert.doesNotMatch(text, /68c5ce186f6efcd2/);
   assert.equal(project.display_name, 'Cerrybubbles1');
+});
+
+// ── Project-brain semantics: a project brain is NOT an instance (§4A.3) ───────
+// Max's live screenshot: the Cherry project card wore "counts unknown — not
+// running" + a "stale lock" badge — instance language on an in-process brain.
+
+test('project card shows its RECORDED counts, never "not running"', () => {
+  const out = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
+  // The real stored counts (2089/7323 in the fixture) render from the entry.
+  assert.match(out, new RegExp(`${project.node_count} nodes`));
+  assert.match(out, new RegExp(`${project.edge_count} edges`));
+  // "not running" is instance language — never on a project card.
+  assert.doesNotMatch(out, /not running/);
+  assert.doesNotMatch(out, /counts unknown/);
+});
+
+test('project card carries NO lock/instance badge (locks are an owner concept)', () => {
+  // The fixture's project entry has a stale_lock conflict (a real captured
+  // field) — it must be filtered out for kind=project.
+  assert.ok(project.conflicts.includes('stale_lock'), 'fixture precondition: project has a stale_lock conflict');
+  const out = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
+  assert.doesNotMatch(out, /stale.?lock/i, 'a project card must not show a lock badge');
+  assert.equal((out.match(/data-role="conflict-chip"/g) ?? []).length, 0, 'no conflict chips on the project card');
+});
+
+test('project card wears a calm live dot, not a stale/failure dot from instance status', () => {
+  // The fixture project entry has status:"stale" (an instance field) — it must
+  // NOT drive the project card's dot to the stale band.
+  assert.equal(project.status, 'stale', 'fixture precondition: instance status is stale');
+  const out = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
+  assert.match(out, /data-liveness="live"/, 'a present project brain reads live, not stale');
+  assert.doesNotMatch(out, /data-liveness="stale"/);
 });
 
 // ── The receipt is a read-only receipt, not a dashboard (§4A.3, R6) ───────────

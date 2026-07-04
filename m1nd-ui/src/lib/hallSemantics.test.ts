@@ -20,6 +20,10 @@ import {
   nameMatches,
   brainKindBadge,
   ownerLanding,
+  isProjectBrain,
+  resolvedBrainCounts,
+  visibleConflicts,
+  brainFreshnessMs,
 } from './hallSemantics';
 import type { InstanceListResponse, InstanceSelfResponse } from '../types';
 
@@ -40,12 +44,53 @@ test('fixture precondition: the live list carries both a bound and a hosted proj
 // ── Liveness band: calm, matte, honest (§4A.3) ────────────────────────────────
 test('livenessBand: live owner → live; stale heartbeat → stale; dormant when not running', () => {
   assert.equal(livenessBand(bound), 'live', 'live non-stale owner reads live');
-  // The captured project brain is a live owner with a stale heartbeat.
-  assert.equal(livenessBand(project), 'stale');
-  // A dead pid (owner_live flips false) reads dormant, never a false live.
+  // A project brain has NO process status — present in the owner reads live,
+  // never a stale/failed instance band (even though the entry carries a stale
+  // instance status field, which does not apply to an in-process brain).
+  assert.equal(livenessBand(project), 'live', 'a project brain reads live, not its instance status');
+  assert.equal(livenessBand({ brain_kind: 'project', status: 'stale', stale: true }), 'live');
+  // A real owner instance still honors its process status.
   assert.equal(livenessBand({ owner_live: false, stale: false, status: 'running' }), 'dormant');
   assert.equal(livenessBand({ owner_live: false, stale: true, status: 'stale' }), 'stale');
   assert.equal(livenessBand({ owner_live: false, status: 'failed' }), 'failure');
+});
+
+// ── Project-brain semantics: not an instance (§4A.3; Max's live screenshot) ────
+test('isProjectBrain: only brain_kind:"project" is a project brain', () => {
+  assert.equal(isProjectBrain(project), true);
+  assert.equal(isProjectBrain(bound), false);
+  assert.equal(isProjectBrain({ brain_kind: null }), false);
+  assert.equal(isProjectBrain({}), false);
+});
+
+test('resolvedBrainCounts: a project brain uses its OWN entry counts, others use known', () => {
+  // The project entry carries recorded counts → used directly, ignoring known.
+  const pc = resolvedBrainCounts(project, { nodeCount: null, edgeCount: null });
+  assert.equal(pc.nodeCount, project.node_count);
+  assert.equal(pc.edgeCount, project.edge_count);
+  // A fresh project brain (no recorded counts) → absent, never 0.
+  const fresh = resolvedBrainCounts({ brain_kind: 'project', node_count: null, edge_count: null }, { nodeCount: 5, edgeCount: 9 });
+  assert.equal(fresh.nodeCount, null);
+  assert.equal(fresh.edgeCount, null);
+  // A non-project brain uses the caller-supplied known counts.
+  const bc = resolvedBrainCounts(bound, { nodeCount: 42, edgeCount: 99 });
+  assert.equal(bc.nodeCount, 42);
+  assert.equal(bc.edgeCount, 99);
+});
+
+test('visibleConflicts: lock/runtime conflicts are filtered out for a project brain', () => {
+  // The fixture project entry has a stale_lock conflict → hidden for kind=project.
+  assert.ok(project.conflicts.includes('stale_lock'));
+  assert.deepEqual(visibleConflicts(project), []);
+  // A NON-lock conflict on a project brain would still show.
+  assert.deepEqual(visibleConflicts({ brain_kind: 'project', conflicts: ['duplicate_workspace'] }), ['duplicate_workspace']);
+  // A real owner keeps all its conflicts.
+  assert.deepEqual(visibleConflicts({ brain_kind: null, conflicts: ['stale_lock', 'shared_runtime'] }), ['stale_lock', 'shared_runtime']);
+});
+
+test('brainFreshnessMs: a project brain uses last_activity_ms, others the heartbeat', () => {
+  assert.equal(brainFreshnessMs(project), project.last_activity_ms);
+  assert.equal(brainFreshnessMs(bound), bound.last_heartbeat_ms);
 });
 
 // ── Freshness: dormant-aware, never faked (INV-04 discipline) ─────────────────

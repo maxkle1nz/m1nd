@@ -42,7 +42,12 @@ export function livenessBand(entry: {
   owner_live?: boolean | null;
   stale?: boolean;
   status?: string;
+  brain_kind?: string | null;
 }): LivenessBand {
+  // A project brain has no process status of its own (it lives in the owner):
+  // it is simply present in the owner or not — never "stale"/"failed"/"crashed",
+  // which are OWNER-process states. Present → a calm live dot.
+  if (isProjectBrain(entry)) return 'live';
   const status = (entry.status ?? '').toLowerCase();
   if (status === 'failed' || status === 'error' || status === 'crashed') return 'failure';
   if (entry.owner_live === true) return entry.stale ? 'stale' : 'live';
@@ -183,6 +188,55 @@ export function brainCounts(known: {
  */
 export function nameMatches(typed: string, basename: string): boolean {
   return typed.trim().length > 0 && typed.trim() === basename;
+}
+
+// ── Project-brain semantics (PRD §4A.3; brain_kind) ───────────────────────────
+// A project brain lives IN-PROCESS inside the owner (Two-Tier interim), warm-
+// booted lazily. It has NO instance "running"/"stale" status and NO lock of its
+// own — those belong to owner processes. The Hall must render its recorded
+// graph size + freshness, never a process state or a lock badge.
+
+/** True for an owner-hosted per-project brain (kind=project). */
+export function isProjectBrain(entry: { brain_kind?: string | null }): boolean {
+  return entry.brain_kind === 'project';
+}
+
+/**
+ * The counts a card should show. A project brain carries its OWN counts on the
+ * entry (server-enriched from the warm brain or the store manifest); everything
+ * else uses the caller-supplied known counts (self graph_state / a live
+ * sibling). Absence stays absent (INV-10), never a fabricated 0.
+ */
+export function resolvedBrainCounts(
+  entry: { brain_kind?: string | null; node_count?: number | null; edge_count?: number | null },
+  known: { nodeCount?: number | null; edgeCount?: number | null },
+): BrainCounts {
+  if (isProjectBrain(entry)) {
+    return brainCounts({ nodeCount: entry.node_count, edgeCount: entry.edge_count });
+  }
+  return brainCounts(known);
+}
+
+/** The freshness timestamp for a card: a project brain's last-activity (manifest
+ *  updated/created), else the instance heartbeat. */
+export function brainFreshnessMs(entry: {
+  brain_kind?: string | null;
+  last_activity_ms?: number | null;
+  last_heartbeat_ms?: number;
+}): number | null {
+  if (isProjectBrain(entry)) return entry.last_activity_ms ?? null;
+  return entry.last_heartbeat_ms ?? null;
+}
+
+/**
+ * The conflict chips a card should show. Lock/instance conflicts (`stale_lock`,
+ * `duplicate_lock`, `shared_runtime`) are OWNER-process concepts and never apply
+ * to an in-process project brain — filtered out for kind=project so a hosted
+ * brain never wears a "stale lock" it cannot own.
+ */
+export function visibleConflicts(entry: { brain_kind?: string | null; conflicts: string[] }): string[] {
+  if (!isProjectBrain(entry)) return entry.conflicts;
+  return entry.conflicts.filter((c) => !/lock|runtime/i.test(c));
 }
 
 // ── Kind badge (PRD §4A.3; brain_kind registry field) ─────────────────────────

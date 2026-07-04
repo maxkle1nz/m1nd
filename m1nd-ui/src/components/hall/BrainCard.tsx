@@ -16,7 +16,10 @@ import {
   brainDisplayName,
   brainProjectPath,
   shortPath,
-  brainCounts,
+  resolvedBrainCounts,
+  brainFreshnessMs,
+  visibleConflicts,
+  isProjectBrain,
   brainKindBadge,
   entryBaseUrl,
   type BrainKindBadge,
@@ -51,7 +54,13 @@ export default function BrainCard({
   const band = livenessBand(entry);
   const dot = LIVENESS_STYLE[band];
   const kind = brainKindBadge(entry, isSelf);
-  const counts = brainCounts({ nodeCount: knownNodeCount, edgeCount: knownEdgeCount });
+  // A project brain carries its own recorded counts on the entry; self/siblings
+  // use the polled known counts. Freshness + conflicts also follow project
+  // semantics (no process status, no lock).
+  const counts = resolvedBrainCounts(entry, { nodeCount: knownNodeCount, edgeCount: knownEdgeCount });
+  const isProject = isProjectBrain(entry);
+  const freshnessMs = brainFreshnessMs(entry);
+  const conflicts = visibleConflicts(entry);
   const name = brainDisplayName(entry);
   const projectPath = brainProjectPath(entry);
   const canOpenInPlace = isSelf || entryBaseUrl(entry) != null;
@@ -94,7 +103,7 @@ export default function BrainCard({
           </div>
         </div>
         <div className="text-[10px] text-ink-soft font-mono text-right shrink-0">
-          {lastSeenPhrase(entry.last_heartbeat_ms)}
+          {lastSeenPhrase(freshnessMs)}
         </div>
       </div>
 
@@ -106,16 +115,20 @@ export default function BrainCard({
             <span data-role="edge-count">{counts.edgeCount} edges</span>
           </>
         ) : (
+          // "not running" is INSTANCE language — never for a project brain, which
+          // lives in-process and has no process state. Absent project counts read
+          // "counts not recorded yet" (a fresh store before its first persist).
           <span data-role="counts-absent" className="italic text-ink-soft/70">
-            counts unknown — not running
+            {isProject ? 'counts not recorded yet' : 'counts unknown — not running'}
           </span>
         )}
       </div>
 
-      {/* Conflict chips — calm, not warnings (§4A.3) */}
-      {entry.conflicts.length > 0 && (
+      {/* Conflict chips — calm, not warnings (§4A.3); lock/instance conflicts are
+          filtered out for a project brain (it owns no lock) */}
+      {conflicts.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {entry.conflicts.map((c) => (
+          {conflicts.map((c) => (
             <span
               key={c}
               data-role="conflict-chip"

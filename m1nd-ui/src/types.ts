@@ -81,6 +81,21 @@ export interface InstanceRegistryEntry {
    * real project root, not the fingerprint store dir that leaked before.
    */
   project_root?: string | null;
+  /**
+   * Graph size for a hosted **project** brain (kind=project), server-enriched
+   * from the warm brain (live) or its store manifest (dormant). A project brain
+   * lives in-process and has no instance "running" state — the Hall shows THESE
+   * counts, never "not running". Absent (null) only for a fresh store before its
+   * first persist; never a fabricated 0. Bound/sibling brains leave these null
+   * (their counts arrive via graph_state / a polled stat).
+   */
+  node_count?: number | null;
+  edge_count?: number | null;
+  /**
+   * A project brain's freshness (manifest `updated_ms`/`created_ms`) — used for
+   * its card's "last seen" instead of the instance heartbeat.
+   */
+  last_activity_ms?: number | null;
 }
 
 export interface InstanceSelfResponse {
