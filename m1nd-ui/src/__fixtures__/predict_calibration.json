@@ -1,0 +1,12 @@
+{
+  "calibration": {
+    "calibrated": true,
+    "coverage": 0.13875597715377808,
+    "measured_precision": 0.33855798840522766,
+    "n": 9196,
+    "signal": "predict",
+    "target_alpha": 0.10000000149011612,
+    "tau": 0.4583333432674408,
+    "tau_reverify_floor": 0.2291666716337204
+  }
+}
