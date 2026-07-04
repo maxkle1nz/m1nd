@@ -102,6 +102,19 @@ assert(help.stdout.includes("m1nd agent next"));
 assert(help.stdout.includes("m1nd pack-routing-check"));
 assert(help.stdout.includes("RETROBUILDER capability_suggestions"));
 
+// Cold-start bug 1: `m1nd --version` (a stranger's most common first command) must
+// print the package version and exit 0 — not "missing value for --version". The bare
+// `version` subcommand and the conventional `-V` short flag behave identically.
+for (const versionArgs of [["--version"], ["-V"], ["version"]]) {
+  const versionRun = spawnSync(process.execPath, [cli, ...versionArgs], { encoding: "utf8" });
+  assert.strictEqual(versionRun.status, 0, `${versionArgs.join(" ")} exit: ${versionRun.stderr}`);
+  assert.strictEqual(
+    versionRun.stdout.trim(),
+    CURRENT_VERSION,
+    `${versionArgs.join(" ")} should print the package version`
+  );
+}
+
 const packCheck = spawnSync(process.execPath, [cli, "pack-check", "--json"], { encoding: "utf8" });
 assert.strictEqual(packCheck.status, 0, packCheck.stderr);
 assert.strictEqual(JSON.parse(packCheck.stdout).schema, "m1nd-agent-pack-check-v0");
@@ -818,6 +831,79 @@ const updateStatusJson = JSON.parse(updateStatus.stdout);
 assert.strictEqual(updateStatusJson.schema, "m1nd-self-update-v0");
 assert.strictEqual(updateStatusJson.command, "status");
 assert(updateStatusJson.status_summary);
+
+// Cold-start bug 2: a fresh install must land on the PACKAGE's own version, never on a
+// months-old beta. In the real registry the `beta` dist-tag trails far behind (an old
+// 0.9.x) while `latest` tracks the shipped package — so the default channel must resolve
+// `latest`, and target/plan must point at the package version, not the stale beta tag.
+const registryBetaStale = JSON.stringify({
+  "dist-tags": { beta: "0.9.0-beta.8", latest: CURRENT_VERSION },
+  version: CURRENT_VERSION,
+});
+withEnv(
+  {
+    M1ND_TEST_NPM_VIEW_JSON: registryBetaStale,
+    M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "true",
+    M1ND_TEST_CRATE_VERSION: CURRENT_VERSION,
+    M1ND_TEST_HOME: mkTmpDir(),
+  },
+  () => {
+    // Fresh install: no managed runtime yet (binary path does not exist).
+    const freshPlan = selfUpdate({
+      _: ["update", "plan"],
+      binary: path.join(mkTmpDir(), "no-such-m1nd-mcp"),
+      "no-kill": true,
+    });
+    // Default channel must be `latest`, and it must resolve the package version — not beta.
+    assert.strictEqual(freshPlan.channel, "latest", "default channel must be latest, not beta");
+    assert.strictEqual(
+      freshPlan.latest_version,
+      CURRENT_VERSION,
+      "default channel must resolve the package version, not the stale beta dist-tag"
+    );
+    assert.strictEqual(freshPlan.target_version, CURRENT_VERSION, "target must be the package version");
+    assert.strictEqual(freshPlan.install_state, "missing");
+    const runtimeAction = freshPlan.planned_actions.find((entry) => entry.kind === "runtime");
+    assert(runtimeAction, "a fresh install must plan a runtime install");
+    assert.strictEqual(
+      runtimeAction.target_version,
+      CURRENT_VERSION,
+      "runtime install must target the package version"
+    );
+    // The GitHub release for the package version is the primary source (v<CURRENT>).
+    assert.strictEqual(runtimeAction.id, "runtime-install-github-release");
+    assert(
+      String(runtimeAction.url || "").includes(`/download/v${CURRENT_VERSION}/`),
+      "runtime install must fetch the package-version GitHub release asset"
+    );
+    // No beta in the actions that actually execute (the registry echoes all dist-tags
+    // for transparency, but nothing a fresh install RUNS may target the stale beta).
+    assert(
+      !JSON.stringify(freshPlan.planned_actions).includes("0.9.0-beta"),
+      "fresh-install actions must not target the stale beta version"
+    );
+
+    // Doctor's fresh-install "next" advice must be a single sane step toward the package
+    // version — no `--channel beta` gymnastics that would drag a stranger onto the old beta.
+    const doctorRun = spawnSync(process.execPath, [cli, "doctor", "--json"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        M1ND_TEST_NPM_VIEW_JSON: registryBetaStale,
+        M1ND_TEST_GITHUB_RELEASE_AVAILABLE: "true",
+        M1ND_TEST_CRATE_VERSION: CURRENT_VERSION,
+        // Simulate a stale runtime already on disk so the mismatch advice fires.
+        M1ND_MCP_BINARY: process.execPath,
+        M1ND_TEST_RUNTIME_VERSION: "m1nd-mcp 0.9.0-beta.8",
+      },
+    });
+    assert.strictEqual(doctorRun.status, 0, doctorRun.stderr);
+    const doctorJson = JSON.parse(doctorRun.stdout);
+    const mismatchAdvice = doctorJson.next_actions.find((entry) => entry.includes("does not match package"));
+    assert(mismatchAdvice, "doctor must flag the runtime/package mismatch");
+    assert(!mismatchAdvice.includes("--channel beta"), "doctor must not steer a fresh user onto the beta channel");
+  }
+);
 
 const hostStatusCliProject = mkTmpDir();
 installSkills("generic", hostStatusCliProject);
