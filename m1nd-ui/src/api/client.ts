@@ -17,7 +17,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'network', detail: res.statusText }));
-    throw new ApiError(res.status, error.error, error.detail);
+    // The owner emits two error shapes: instance routes use `detail`, the
+    // universal tool_error_payload uses `message` (http_server.rs:690). The Hall
+    // must render either verbatim (INV-09), so accept both — never drop the human
+    // string into `undefined`.
+    const detail = error.detail ?? error.message ?? res.statusText;
+    throw new ApiError(res.status, error.error, detail);
   }
   return res.json();
 }
