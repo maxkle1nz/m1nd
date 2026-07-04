@@ -11,7 +11,8 @@ import type { InstanceRegistryEntry, InstanceSelfResponse } from '../../types';
 import {
   livenessBand,
   LIVENESS_STYLE,
-  repoBasename,
+  brainDisplayName,
+  brainProjectPath,
   shortPath,
   bornPhrase,
   lastSeenPhrase,
@@ -75,7 +76,8 @@ export default function BrainReceiptDrawer({
   if (!entry) return null;
   const band = livenessBand(entry);
   const dot = LIVENESS_STYLE[band];
-  const name = repoBasename(entry.workspace_root);
+  const name = brainDisplayName(entry);
+  const projectPath = brainProjectPath(entry);
   const baseUrl = entryBaseUrl(entry);
   const canOpenInPlace = isSelf || baseUrl != null;
   const isLive = entry.owner_live === true;
@@ -101,8 +103,8 @@ export default function BrainReceiptDrawer({
             <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: dot.color }} title={dot.label} />
             <span className="text-base text-ink font-semibold truncate">{name}</span>
           </div>
-          <div className="text-[11px] text-ink-soft font-mono break-all" title={entry.workspace_root}>
-            {entry.workspace_root}
+          <div className="text-[11px] text-ink-soft font-mono break-all" title={projectPath}>
+            {projectPath}
           </div>
         </div>
         <button onClick={onClose} className="text-ink-soft hover:text-ink text-sm font-mono shrink-0" aria-label="close receipt">
@@ -197,7 +199,7 @@ export default function BrainReceiptDrawer({
             <DisabledRung
               label="Stop"
               residue="Stopping a live brain from the UI isn't built yet — two-tier Slice 2."
-              cli={`m1nd brain stop ${shortPath(entry.workspace_root)}`}
+              cli={`m1nd brain stop ${name}`}
             />
 
             {/* Clean = the real guarded delete (the calm two-step). Live brains are refused. */}

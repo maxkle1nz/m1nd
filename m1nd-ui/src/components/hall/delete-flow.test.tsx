@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ForgetStepView, canFireDelete, liveRefusalLine, type ForgetStep } from './ForgetRuntimeFlow';
-import { repoBasename, nameMatches } from '../../lib/hallSemantics';
+import { brainDisplayName, nameMatches } from '../../lib/hallSemantics';
 import type { InstanceListResponse } from '../../types';
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '__fixtures__');
@@ -30,7 +30,9 @@ const roleTag = (out: string, role: string) => out.match(new RegExp(`<button[^>]
 
 const list = load<InstanceListResponse>('instances.json');
 const dormant = list.instances.find((e) => e.brain_kind == null)!; // shape reused; treated as dormant below
-const basename = repoBasename(dormant.workspace_root);
+// The delete confirm target is the PROJECT name (§4A.4) — "m1nd", the same name
+// the card shows — never the runtime dir the workspace_root would basename to.
+const basename = brainDisplayName(dormant);
 const noop = () => {};
 
 const view = (over: Partial<React.ComponentProps<typeof ForgetStepView>>) =>

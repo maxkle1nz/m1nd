@@ -120,7 +120,8 @@ function TopBar({
         />
       </div>
       <BrainChip
-        workspaceRoot={self ? self.graph_state.workspace_root ?? self.instance.workspace_root : null}
+        displayName={self ? self.display_name ?? null : null}
+        projectPath={self ? self.project_root ?? null : null}
         nodeCount={self ? self.graph_state.node_count : null}
         healthy={status === 'ok'}
         onClick={onOpenHall}

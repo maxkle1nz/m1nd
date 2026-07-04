@@ -17,7 +17,7 @@ import { api, ApiError } from '../../api/client';
 import type { InstanceRegistryEntry, InstanceListResponse, InstanceSelfResponse } from '../../types';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { useToastStore } from '../../stores/toastStore';
-import { entryBaseUrl } from '../../lib/hallSemantics';
+import { entryBaseUrl, brainDisplayName } from '../../lib/hallSemantics';
 import BrainCard from './BrainCard';
 import BrainReceiptDrawer from './BrainReceiptDrawer';
 
@@ -91,7 +91,7 @@ export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewP
       try {
         if (entry.instance_id === selfId) await api.saveSelfInstanceState();
         else await api.saveInstanceState(entry.instance_id);
-        addToast('state saved', entry.workspace_root.split('/').pop() ?? '', 'info');
+        addToast('state saved', brainDisplayName(entry), 'info');
       } catch (err) {
         setError(errorDetail(err, 'Save failed'));
       } finally {

@@ -67,6 +67,20 @@ export interface InstanceRegistryEntry {
    * absence is honest, never faked.
    */
   brain_kind?: string | null;
+  /**
+   * The brain's PROJECT name — the Hall card's headline (HUMAN-LAYER-PRD §4A.3).
+   * The repo basename ("m1nd", "Cerrybubbles1"), NEVER the runtime dir ("claude")
+   * nor its `agent-memory` sidecar. Computed server-side (http_server.rs
+   * `instances_listing`): bound brain → its primary code ingest root's basename;
+   * project brain → its store manifest's project_root basename. Absent only on a
+   * rootless brain; the card falls back to the workspace basename if so.
+   */
+  display_name?: string | null;
+  /**
+   * The repo this brain maps — the Hall card's path (§4A.3). The server-resolved
+   * real project root, not the fingerprint store dir that leaked before.
+   */
+  project_root?: string | null;
 }
 
 export interface InstanceSelfResponse {
@@ -86,6 +100,13 @@ export interface InstanceSelfResponse {
   active_agent_sessions: number;
   queries_processed: number;
   last_persist_secs_ago?: number | null;
+  /**
+   * The bound brain's PROJECT name/root (§4A.5) — the Brain Chip's name source,
+   * so the chip reads "m1nd", never the `agent-memory` sidecar that
+   * `graph_state.workspace_root` carries. Same server derivation as the Hall.
+   */
+  display_name?: string | null;
+  project_root?: string | null;
 }
 
 export interface InstanceListResponse {

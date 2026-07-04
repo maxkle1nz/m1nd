@@ -13,7 +13,8 @@ import {
   livenessBand,
   LIVENESS_STYLE,
   lastSeenPhrase,
-  repoBasename,
+  brainDisplayName,
+  brainProjectPath,
   shortPath,
   brainCounts,
   brainKindBadge,
@@ -51,7 +52,8 @@ export default function BrainCard({
   const dot = LIVENESS_STYLE[band];
   const kind = brainKindBadge(entry, isSelf);
   const counts = brainCounts({ nodeCount: knownNodeCount, edgeCount: knownEdgeCount });
-  const name = repoBasename(entry.workspace_root);
+  const name = brainDisplayName(entry);
+  const projectPath = brainProjectPath(entry);
   const canOpenInPlace = isSelf || entryBaseUrl(entry) != null;
 
   return (
@@ -87,8 +89,8 @@ export default function BrainCard({
               {KIND_LABEL[kind]}
             </span>
           </div>
-          <div className="text-[11px] text-ink-soft font-mono break-all" title={entry.workspace_root}>
-            {shortPath(entry.workspace_root)}
+          <div className="text-[11px] text-ink-soft font-mono break-all" title={projectPath}>
+            {shortPath(projectPath)}
           </div>
         </div>
         <div className="text-[10px] text-ink-soft font-mono text-right shrink-0">

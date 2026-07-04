@@ -102,6 +102,35 @@ export function repoBasename(workspaceRoot: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : workspaceRoot;
 }
 
+/**
+ * The brain's PROJECT name (HUMAN-LAYER-PRD §4A.3, Brain Chip law). The server
+ * now resolves `display_name` = the repo basename ("m1nd", "Cerrybubbles1"),
+ * never the runtime dir ("claude") nor its `agent-memory` sidecar. This is the
+ * ONE name source for cards, the receipt, the chip, and the delete confirm
+ * target — so they can never disagree. Falls back to `repoBasename(workspace)`
+ * ONLY for a legacy entry the server did not enrich (pre-#261 owners); the
+ * naming-guard test forbids that fallback from ever being a plumbing name while
+ * a project_root exists.
+ */
+export function brainDisplayName(entry: {
+  display_name?: string | null;
+  workspace_root: string;
+}): string {
+  const name = entry.display_name?.trim();
+  return name && name.length > 0 ? name : repoBasename(entry.workspace_root);
+}
+
+/** The brain's project path — the card's path line. Prefers the server-resolved
+ *  `project_root` (the real repo), falling back to `workspace_root` for a legacy
+ *  unenriched entry. */
+export function brainProjectPath(entry: {
+  project_root?: string | null;
+  workspace_root: string;
+}): string {
+  const root = entry.project_root?.trim();
+  return root && root.length > 0 ? root : entry.workspace_root;
+}
+
 /** ".../a/b/c" — the full-path-on-hover short form. */
 export function shortPath(path: string): string {
   const parts = path.split('/').filter(Boolean);

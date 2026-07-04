@@ -125,22 +125,77 @@ test('INV-11: the receipt shows Stop and Eject as disabled rungs naming their re
 });
 
 // ── The Brain Chip: the brain name is always in view (§4A.5) ───────────────────
-test('§4A.5: the Brain Chip renders the brain name + node count from the self envelope', () => {
+test('§4A.5: the Brain Chip renders the PROJECT name + node count from the self envelope', () => {
   const out = html(
-    <BrainChip workspaceRoot={bound.workspace_root} nodeCount={self.graph_state.node_count} healthy onClick={noop} />,
+    <BrainChip
+      displayName={self.display_name ?? null}
+      projectPath={self.project_root ?? null}
+      nodeCount={self.graph_state.node_count}
+      healthy
+      onClick={noop}
+    />,
   );
   assert.match(out, /data-role="brain-chip"/);
   assert.match(out, /data-healthy="true"/);
   assert.match(out, new RegExp(`${self.graph_state.node_count} nodes`));
-  // The basename is in view.
-  assert.match(visibleText(<BrainChip workspaceRoot={bound.workspace_root} nodeCount={null} healthy onClick={noop} />), /claude/);
+  // The PROJECT name is in view — "m1nd", the repo, NOT the agent-memory sidecar
+  // that graph_state.workspace_root carries (the exact leak Max saw).
+  const chipText = visibleText(
+    <BrainChip displayName={self.display_name ?? null} projectPath={self.project_root ?? null} nodeCount={null} healthy onClick={noop} />,
+  );
+  assert.match(chipText, /m1nd/);
+  assert.doesNotMatch(chipText, /agent-memory/);
+  assert.doesNotMatch(chipText, /\bclaude\b/);
 });
 
 test('§4A.5: a degraded chip wears the honesty (data-healthy=false), and a null brain says "no brain"', () => {
-  const degraded = html(<BrainChip workspaceRoot={bound.workspace_root} nodeCount={null} healthy={false} onClick={noop} />);
+  const degraded = html(
+    <BrainChip displayName={self.display_name ?? null} projectPath={self.project_root ?? null} nodeCount={null} healthy={false} onClick={noop} />,
+  );
   assert.match(degraded, /data-healthy="false"/);
-  const none = visibleText(<BrainChip workspaceRoot={null} nodeCount={null} healthy={false} onClick={noop} />);
+  const none = visibleText(<BrainChip displayName={null} projectPath={null} nodeCount={null} healthy={false} onClick={noop} />);
   assert.match(none, /no brain/);
+});
+
+// ── The naming guard (Brain Chip law, §4A.3/§4A.5) ────────────────────────────
+// No Hall-rendered brain name may be a runtime dir name ("claude") or the
+// "agent-memory" sidecar while a project_root exists. This is the INV pin of
+// Max's screenshot verdict: the Hall shows PROJECTS, never plumbing. It runs on
+// the REAL captured /api/instances fixture (both brains), across every surface
+// that renders a brain's headline: the card, the receipt, and the chip.
+
+/** The headline (name) region of a card — the bold title span text. */
+const cardName = (entry: (typeof list.instances)[number], isSelf: boolean) =>
+  visibleText(<BrainCard entry={entry} isSelf={isSelf} selected={false} onSelect={noop} onOpen={noop} />);
+
+test('naming guard: no card headline is a plumbing name while a project_root exists', () => {
+  for (const entry of list.instances) {
+    const isSelf = entry.instance_id === self.instance.instance_id;
+    const name = (entry.display_name ?? '').trim();
+    // Every enriched entry in the fixture has a project_root → its name must be
+    // the project basename, never a runtime/sidecar token.
+    assert.ok(entry.project_root, `fixture entry ${entry.instance_id} must carry a project_root`);
+    assert.notEqual(name, 'claude', 'a card name must never be the runtime dir "claude"');
+    assert.notEqual(name, 'agent-memory', 'a card name must never be the "agent-memory" sidecar');
+    // The rendered card must actually show that project name.
+    assert.match(cardName(entry, isSelf), new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+test('naming guard: the bound card shows "m1nd" (its repo), not "agent-memory"/"claude"', () => {
+  const text = cardName(bound, true);
+  assert.match(text, /m1nd/);
+  assert.doesNotMatch(text, /agent-memory/);
+  // "claude" may appear nowhere as the brain's identity.
+  assert.equal(bound.display_name, 'm1nd');
+});
+
+test('naming guard: the project card shows "Cerrybubbles1", not the fingerprint store dir', () => {
+  const text = cardName(project, false);
+  assert.match(text, /Cerrybubbles1/);
+  // The fingerprint hash (the pre-fix leak) must not be the headline.
+  assert.doesNotMatch(text, /68c5ce186f6efcd2/);
+  assert.equal(project.display_name, 'Cerrybubbles1');
 });
 
 // ── The receipt is a read-only receipt, not a dashboard (§4A.3, R6) ───────────

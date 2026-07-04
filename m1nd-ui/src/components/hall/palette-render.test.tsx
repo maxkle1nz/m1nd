@@ -27,16 +27,21 @@ const rows: BrainRow[] = [
   { entry: project, isSelf: false, openable: false }, // hosted, no port → not openable
 ];
 
-// ── filterBrains: fuzzy basename, recency order preserved (R4) ────────────────
-test('§4A.5: filterBrains preserves registry recency order and fuzzy-matches basenames', () => {
+// ── filterBrains: fuzzy PROJECT name, recency order preserved (R4) ─────────────
+test('§4A.5: filterBrains preserves registry recency order and fuzzy-matches PROJECT names', () => {
   // Empty query → all rows, unchanged order (recents-first is the registry's).
   const all = filterBrains(rows, '');
   assert.deepEqual(all.map((r) => r.entry.instance_id), rows.map((r) => r.entry.instance_id));
-  // A basename substring narrows it. Both fixtures live under .../claude/... roots
-  // so a nonsense query yields nothing; the bound basename "claude" matches self.
+  // The fuzzy match is on the PROJECT name (display_name), not the plumbing path.
   assert.equal(filterBrains(rows, 'zzzznomatch').length, 0);
-  const claude = filterBrains(rows, 'claude');
-  assert.ok(claude.length >= 1, '"claude" matches the bound brain basename');
+  // "m1nd" finds the bound brain (its repo), "cerry" the project brain.
+  assert.equal(filterBrains(rows, 'm1nd').length, 1, '"m1nd" matches the bound brain by its project name');
+  assert.equal(filterBrains(rows, 'm1nd')[0].entry.instance_id, bound.instance_id);
+  assert.equal(filterBrains(rows, 'cerry').length, 1, '"cerry" matches the project brain');
+  assert.equal(filterBrains(rows, 'cerry')[0].entry.instance_id, project.instance_id);
+  // The plumbing token "claude" (the runtime dir) matches NOTHING — the Hall
+  // never searches by plumbing (the Brain Chip law, carried into the palette).
+  assert.equal(filterBrains(rows, 'claude').length, 0, '"claude" (plumbing) matches no project name');
 });
 
 // ── Render: recents-first, dot + last-seen, self label ────────────────────────
