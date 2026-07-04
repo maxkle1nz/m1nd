@@ -1350,7 +1350,7 @@ async function agentDoctor(args, deps, repo, agentId) {
   });
   envelope.package_doctor = deps.doctor();
   envelope.hosts = deps.hostStatus({ ...args, host: args.host || "all", project: repo, binary });
-  envelope.update = deps.selfUpdate({ ...args, _: ["update", "status"], channel: args.channel || "beta", binary, "no-kill": true });
+  envelope.update = deps.selfUpdate({ ...args, _: ["update", "status"], channel: args.channel || "latest", binary, "no-kill": true });
   envelope.pack = deps.assertPackShape();
   envelope.next_actions.push("If any host/runtime surface needs attention, apply the emitted update/hosts plan and restart/rebind the host.");
   envelope.next_actions.push("After host rebind, call trust_selftest or run m1nd agent trust --ensure-ingest.");
@@ -1401,11 +1401,11 @@ function recoveryPlan(type, repo, binary) {
     return [
       {
         action: "inspect_install",
-        command: "m1nd update status --channel beta --json",
+        command: "m1nd update status --json",
       },
       {
         action: "plan_update_if_needed",
-        command: "m1nd update plan --channel beta --json",
+        command: "m1nd update plan --json",
       },
       {
         action: "check_host_wiring",
