@@ -10,6 +10,28 @@ No unreleased changes.
 
 ---
 
+## [1.3.2] — 2026-07-04
+
+The launch-funnel patch — a stranger's first minute now works.
+
+### Fixed
+
+- **`--version` flag (#254).** `npx -y @maxkle1nz/m1nd --version` errored ("missing value")
+  — a stranger's most common first command. Now prints the version.
+- **Fresh installs fetched a months-old beta (#254).** A brand-new HOME received
+  m1nd-mcp `0.9.0-beta.6` plus confusing channel advice; fresh installs now fetch the
+  runtime matching the npm package's own version, with an honest fallback to the latest
+  release.
+
+### Added
+
+- **README conversion pass (#256):** 30-second real-session demo GIF, badges row,
+  a "60-second start", and `llms-install.md` (agent-legible install) — in all 8 languages.
+- **m1nd.world launch-week hero (#255):** the shell story, registry install, honest
+  proof points; stale claims removed.
+
+---
+
 ## [1.3.1] — 2026-07-04
 
 Discoverability patch — metadata only, no behavior change.
