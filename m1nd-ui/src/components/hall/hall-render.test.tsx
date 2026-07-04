@@ -219,7 +219,14 @@ test('§4A.5: the Brain Chip renders the PROJECT name + node count from the self
   );
   assert.match(out, /data-role="brain-chip"/);
   assert.match(out, /data-healthy="true"/);
-  assert.match(out, new RegExp(`${self.graph_state.node_count} nodes`));
+  // The count is tabular (comma-grouped, §4A.7 INV-13) — "6,569 nodes" — and the
+  // Waypoints glyph precedes it. Assert on VISIBLE text (the count + "nodes" sit
+  // in sibling spans around the icon, so match the tag-stripped text).
+  const chipCountText = visibleText(
+    <BrainChip displayName={self.display_name ?? null} projectPath={self.project_root ?? null} nodeCount={self.graph_state.node_count} healthy onClick={noop} />,
+  ).replace(/\s+/g, ' ');
+  assert.match(chipCountText, new RegExp(`${self.graph_state.node_count.toLocaleString()} nodes`));
+  assert.match(out, /data-icon="graph"/, 'the Waypoints graph glyph precedes the node count');
   // The PROJECT name is in view — "m1nd", the repo, NOT the agent-memory sidecar
   // that graph_state.workspace_root carries (the exact leak Max saw).
   const chipText = visibleText(

@@ -98,3 +98,16 @@ test('the registry vendored the lucide ISC license text alongside (as the fonts 
   assert.match(license, /ISC License/, 'ISC license text is vendored');
   assert.match(license, /Lucide Icons/, 'names Lucide');
 });
+
+test('§4A.7: VerdictChip carries its glyph before the text (act=Check, reverify=RotateCcw, abstain=CircleDashed)', async () => {
+  const { default: VerdictChip } = await import('../../components/soft/VerdictChip');
+  for (const [verdict, icon] of [
+    ['act', 'verdictAct'],
+    ['reverify', 'verdictReverify'],
+    ['abstain', 'verdictAbstain'],
+  ] as const) {
+    const out = renderToStaticMarkup(React.createElement(VerdictChip, { verdict }));
+    assert.match(out, new RegExp(`data-icon="${icon}"`), `${verdict} chip carries the ${icon} glyph`);
+    assert.match(out, /stroke-width="1\.5"/, 'the glyph is stroke 1.5');
+  }
+});
