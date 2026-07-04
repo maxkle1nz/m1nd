@@ -129,8 +129,23 @@ export default function BrainReceiptDrawer({
             {isSelf && self && persistedPhrase(self.last_persist_secs_ago) && (
               <Fact label="persisted" value={persistedPhrase(self.last_persist_secs_ago)!} mono={false} />
             )}
-            {isSelf && self && <Fact label="attached" value={`${self.active_agent_sessions} agent sessions`} mono={false} />}
-            {isSelf && self && <Fact label="activity" value={`${self.queries_processed} queries this session`} mono={false} />}
+            {isSelf && self ? (
+              <>
+                <Fact label="attached" value={`${self.active_agent_sessions} agent sessions`} mono={false} />
+                <Fact label="activity" value={`${self.queries_processed} queries this session`} mono={false} />
+              </>
+            ) : (
+              // §4A.3 / §9.5.1: per-listed-brain calibration + attached_sessions are
+              // [needs-backend] — the owner knows, no surface reports them. Named
+              // absent-honest, never zero, never guessed (INV-10/INV-11).
+              <div
+                data-role="needs-backend-fields"
+                className="pt-1 text-[10px] text-ink-soft/70 italic"
+                title="Per-brain calibration and attached-session counts need the §9.5.1 registry fields (not built yet)"
+              >
+                attached agents &amp; calibration — not reported for this brain yet
+              </div>
+            )}
           </div>
           {entry.conflicts.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
