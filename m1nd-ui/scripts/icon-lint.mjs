@@ -126,11 +126,17 @@ function lintFile(full) {
       }
     }
 
-    // (c) banned decoration icons — anywhere (import or use), including the registry.
-    for (const banned of BANNED_ICONS) {
-      const re = new RegExp(`\\b${banned}\\b`);
-      if (re.test(code)) {
-        violations.push(`${rel}:${ln} — banned decoration icon '${banned}' ("AI glitter", §4A.7): ${line.trim()}`);
+    // (c) banned decoration icons — anywhere (import or use) in real source.
+    //     Tests are exempt: the icon-lint's OWN test must NAME `Sparkles` in its
+    //     assertion strings to prove the guard bites. The real guard is rule (a)
+    //     (no lucide import outside the registry) — a test cannot smuggle a real
+    //     Sparkles into the bundle without importing it, which (a) already blocks.
+    if (!isTest) {
+      for (const banned of BANNED_ICONS) {
+        const re = new RegExp(`\\b${banned}\\b`);
+        if (re.test(code)) {
+          violations.push(`${rel}:${ln} — banned decoration icon '${banned}' ("AI glitter", §4A.7): ${line.trim()}`);
+        }
       }
     }
   });

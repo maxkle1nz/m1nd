@@ -18,7 +18,8 @@ import {
   entryBaseUrl,
   brainCounts,
   nameMatches,
-  brainKindBadge,
+  brainImplClass,
+  bindingClassLabel,
   ownerLanding,
   isProjectBrain,
   resolvedBrainCounts,
@@ -151,12 +152,18 @@ test('INV-09: nameMatches requires an EXACT, non-empty match (the GitHub pattern
   assert.equal(nameMatches('claude', 'claude'), true);
 });
 
-// ── Kind badge (§4A.3): self=bound, project=project, else sibling ─────────────
-test('brainKindBadge: self→bound, brain_kind:project→project, absent non-self→sibling (never guessed)', () => {
-  assert.equal(brainKindBadge(bound, true), 'bound');
-  assert.equal(brainKindBadge(project, false), 'project');
-  assert.equal(brainKindBadge({ brain_kind: null }, false), 'sibling');
-  assert.equal(brainKindBadge({ brain_kind: undefined }, false), 'sibling');
+// ── Implementation class → RECEIPT line (§4A.8, INV-14): NOT a card face ──────
+test('brainImplClass: self→bound, brain_kind:project→project, absent non-self→sibling (never guessed)', () => {
+  assert.equal(brainImplClass(bound, true), 'bound');
+  assert.equal(brainImplClass(project, false), 'project');
+  assert.equal(brainImplClass({ brain_kind: null }, false), 'sibling');
+  assert.equal(brainImplClass({ brain_kind: undefined }, false), 'sibling');
+});
+
+test('bindingClassLabel: the receipt wording (process-bound / owner-hosted / sibling owner)', () => {
+  assert.equal(bindingClassLabel(bound, true), 'process-bound');
+  assert.equal(bindingClassLabel(project, false), 'owner-hosted');
+  assert.equal(bindingClassLabel({ brain_kind: null }, false), 'sibling owner (own port)');
 });
 
 // ── INV-12: landing routing from owner state (§4A.1) ──────────────────────────

@@ -13,6 +13,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import BrainCard from './BrainCard';
 import BrainReceiptDrawer from './BrainReceiptDrawer';
 import BrainChip from './BrainChip';
+import { brainDisplayName } from '../../lib/hallSemantics';
 import type { InstanceListResponse, InstanceSelfResponse } from '../../types';
 
 const FIX = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '__fixtures__');
@@ -81,12 +82,86 @@ test('INV-10: every rendered card key traces to a real registry instance_id', ()
   }
 });
 
-test('kind badge: the hosted brain reads "project", the bound reads "this brain"', () => {
-  const projCard = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
-  assert.match(visibleText(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />), /project/);
-  assert.ok(projCard.includes('project'));
-  const boundText = visibleText(<BrainCard entry={bound} isSelf selected={false} onSelect={noop} onOpen={noop} />);
-  assert.match(boundText, /this brain/);
+// ── INV-14 (§4A.8): no card labels a brain by implementation class ────────────
+// The retired kind badge ("this brain" / "project" / "sibling" / "bound" /
+// "hosted") leaked plumbing taxonomy onto the front door. INV-14 kills it from
+// card faces; the class lives ONLY in the receipt's `binding:` line, and the one
+// distinction a human needs at the Hall — "which am I looking at?" — is the
+// viewing chip.
+
+/** The class-word tokens that may NEVER appear on a Hall card face (§4A.8). */
+const CLASS_WORDS = [/\bthis brain\b/i, /\bproject brain\b/i, /\bsibling\b/i, /\bhosted\b/i, /\bmedulla\b/i];
+
+test('INV-14: no Hall card face labels a brain by implementation class (bound + hosted)', () => {
+  for (const [entry, isSelf] of [
+    [bound, true],
+    [project, false],
+  ] as const) {
+    const face = visibleText(
+      <BrainCard entry={entry} isSelf={isSelf} viewing={isSelf} selected={false} onSelect={noop} onOpen={noop} />,
+    );
+    for (const re of CLASS_WORDS) {
+      assert.doesNotMatch(face, re, `card face must not carry the class word ${re} (INV-14)`);
+    }
+  }
+});
+
+test('INV-14: the class survives in the RECEIPT `binding:` line (bound → process-bound, hosted → owner-hosted)', () => {
+  const boundReceipt = decode(
+    html(
+      <BrainReceiptDrawer entry={bound} isSelf self={self} onClose={noop} onOpen={noop} onSave={noop} saving={false} onDeleted={noop} />,
+    ).replace(/<[^>]+>/g, ' '),
+  );
+  assert.match(boundReceipt, /binding/i, 'the receipt has a binding line');
+  assert.match(boundReceipt, /process-bound/, 'the bound brain reads process-bound in the receipt');
+
+  const projReceipt = decode(
+    html(
+      <BrainReceiptDrawer entry={project} isSelf={false} self={null} onClose={noop} onOpen={noop} onSave={noop} saving={false} onDeleted={noop} />,
+    ).replace(/<[^>]+>/g, ' '),
+  );
+  assert.match(projReceipt, /owner-hosted/, 'the hosted brain reads owner-hosted in the receipt');
+});
+
+test('INV-14: exactly one card wears the viewing chip, and its name === the top-bar chip name', () => {
+  // Render the whole grid as the Hall does: the viewing chip goes on the self
+  // (bound) brain — the tree renders the bound graph today.
+  const selfId = self.instance.instance_id;
+  let viewingCount = 0;
+  let viewingName = '';
+  for (const entry of list.instances) {
+    const isSelf = entry.instance_id === selfId;
+    const out = html(
+      <BrainCard entry={entry} isSelf={isSelf} viewing={isSelf} selected={false} onSelect={noop} onOpen={noop} />,
+    );
+    if (out.includes('data-role="viewing-chip"')) {
+      viewingCount += 1;
+      viewingName = brainDisplayName(entry);
+    }
+  }
+  assert.equal(viewingCount, 1, 'exactly one card wears the viewing chip');
+
+  // The Brain Chip (top bar) names the same brain from the same envelope.
+  const chipName = visibleText(
+    <BrainChip
+      displayName={self.display_name ?? null}
+      projectPath={self.project_root ?? null}
+      nodeCount={null}
+      healthy
+      onClick={noop}
+    />,
+  );
+  assert.match(chipName, new RegExp(viewingName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'viewing chip name === Brain Chip name');
+});
+
+test('INV-14: the viewing chip carries the Eye icon and the word "viewing"', () => {
+  const out = html(<BrainCard entry={bound} isSelf viewing selected={false} onSelect={noop} onOpen={noop} />);
+  assert.match(out, /data-role="viewing-chip"/);
+  assert.match(out, /data-icon="viewing"/, 'the viewing chip uses the Eye (viewing) icon from the registry');
+  assert.match(visibleText(<BrainCard entry={bound} isSelf viewing selected={false} onSelect={noop} onOpen={noop} />), /viewing/);
+  // A non-viewed card wears NO chip.
+  const notViewed = html(<BrainCard entry={project} isSelf={false} viewing={false} selected={false} onSelect={noop} onOpen={noop} />);
+  assert.doesNotMatch(notViewed, /data-role="viewing-chip"/);
 });
 
 // ── INV-11: no affordance without a surface (disabled-with-tooltip) ───────────

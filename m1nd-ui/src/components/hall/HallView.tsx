@@ -182,6 +182,11 @@ export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewP
                   entry.instance_id === selfId && self ? self.graph_state.edge_count : null
                 }
                 selected={entry.instance_id === selectedId}
+                // The viewing chip marks the ONE brain the tab is currently on
+                // (§4A.8). Today the tree is bound-graph-only, so that is the
+                // self/bound brain; when per-brain Open lands (2H) this flips to
+                // the served brain's id. Exactly one card ever wears it.
+                viewing={entry.instance_id === selfId}
                 onSelect={(en) => setSelectedId(en.instance_id)}
                 onOpen={openBrain}
               />

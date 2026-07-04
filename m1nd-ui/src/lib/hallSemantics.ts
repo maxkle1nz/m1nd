@@ -239,20 +239,46 @@ export function visibleConflicts(entry: { brain_kind?: string | null; conflicts:
   return entry.conflicts.filter((c) => !/lock|runtime/i.test(c));
 }
 
-// ── Kind badge (PRD §4A.3; brain_kind registry field) ─────────────────────────
+// ── Implementation class → the RECEIPT line (PRD §4A.8, INV-14) ───────────────
+// The kind badge is RETIRED from card faces (INV-14): "this brain" / "project" /
+// "sibling" / "bound" / "hosted" leak plumbing taxonomy onto the owner's front
+// door. Every brain IS a project; the class is an implementation residue on a
+// timeline (Slices 2/3 dissolve it). The class stays REAL and stays visible — in
+// the receipt drawer's `binding:` line, where the orchestrator reads it as what
+// it is. The one distinction a human needs at the Hall is the VIEWING state, not
+// taxonomy (see the viewing chip on the card).
 
-export type BrainKindBadge = 'project' | 'bound' | 'sibling';
+export type BrainImplClass = 'bound' | 'project' | 'sibling';
 
 /**
- * Classify a card for its kind badge. `self` is the bound/dev graph; a
- * `brain_kind: "project"` entry is an owner-hosted project brain; everything
- * else is a sibling owner. Absent brain_kind on a non-self entry is honestly a
- * sibling, never guessed as "project".
+ * Classify a brain by implementation class — for the RECEIPT ONLY (never a card
+ * face). `self` is the process-bound dev graph; a `brain_kind:"project"` entry is
+ * owner-hosted; everything else is a sibling owner. Absent brain_kind on a
+ * non-self entry is honestly a sibling, never guessed as "project".
  */
-export function brainKindBadge(entry: { brain_kind?: string | null }, isSelf: boolean): BrainKindBadge {
+export function brainImplClass(entry: { brain_kind?: string | null }, isSelf: boolean): BrainImplClass {
   if (isSelf) return 'bound';
   if (entry.brain_kind === 'project') return 'project';
   return 'sibling';
+}
+
+/**
+ * The receipt's `binding:` value — the human wording of the implementation class
+ * (§4A.8): process-bound | owner-hosted | sibling owner (own port). This is the
+ * one place the class-word survives; when per-brain REST routing + process-per-
+ * repo land, "bound vs hosted" stops being observable and this line becomes the
+ * ONLY place the word lives.
+ */
+export function bindingClassLabel(entry: { brain_kind?: string | null }, isSelf: boolean): string {
+  switch (brainImplClass(entry, isSelf)) {
+    case 'bound':
+      return 'process-bound';
+    case 'project':
+      return 'owner-hosted';
+    case 'sibling':
+    default:
+      return 'sibling owner (own port)';
+  }
 }
 
 // ── Consequence-card copy (PRD §4A.4 step 1) ──────────────────────────────────

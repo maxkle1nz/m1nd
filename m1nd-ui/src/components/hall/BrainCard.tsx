@@ -20,16 +20,9 @@ import {
   brainFreshnessMs,
   visibleConflicts,
   isProjectBrain,
-  brainKindBadge,
   entryBaseUrl,
-  type BrainKindBadge,
 } from '../../lib/hallSemantics';
-
-const KIND_LABEL: Record<BrainKindBadge, string> = {
-  bound: 'this brain',
-  project: 'project',
-  sibling: 'sibling',
-};
+import { Icon } from '../../lib/icons/registry';
 
 export interface BrainCardProps {
   entry: InstanceRegistryEntry;
@@ -38,6 +31,12 @@ export interface BrainCardProps {
   knownNodeCount?: number | null;
   knownEdgeCount?: number | null;
   selected: boolean;
+  /**
+   * True for the ONE card the tab is currently viewing (§4A.8). Renders the
+   * `Eye` viewing chip — a STATE, not a severity, from the same envelope as the
+   * Brain Chip. Exactly one card in the Hall wears it (HallView enforces).
+   */
+  viewing?: boolean;
   onSelect: (entry: InstanceRegistryEntry) => void;
   onOpen: (entry: InstanceRegistryEntry) => void;
 }
@@ -48,12 +47,12 @@ export default function BrainCard({
   knownNodeCount,
   knownEdgeCount,
   selected,
+  viewing = false,
   onSelect,
   onOpen,
 }: BrainCardProps) {
   const band = livenessBand(entry);
   const dot = LIVENESS_STYLE[band];
-  const kind = brainKindBadge(entry, isSelf);
   // A project brain carries its own recorded counts on the entry; self/siblings
   // use the polled known counts. Freshness + conflicts also follow project
   // semantics (no process status, no lock).
@@ -83,7 +82,10 @@ export default function BrainCard({
         selected ? 'border-ink/30 shadow-card' : 'border-ink/10 hover:shadow-contact'
       }`}
     >
-      {/* Header: dot + name + kind badge · freshness */}
+      {/* Header: dot + name + viewing chip · freshness.
+          NO kind badge — implementation class never labels a card face (INV-14);
+          it lives in the receipt's `binding:` line. The one distinction a human
+          needs here is "which am I looking at?" — the viewing chip (§4A.8). */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
@@ -94,9 +96,16 @@ export default function BrainCard({
               aria-label={`liveness: ${dot.label}`}
             />
             <span className="text-sm text-ink font-semibold truncate">{name}</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-ink/15 text-ink-soft shrink-0">
-              {KIND_LABEL[kind]}
-            </span>
+            {viewing && (
+              <span
+                data-role="viewing-chip"
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-ink/15 bg-bone text-ink-soft shrink-0"
+                title="the brain this tab is viewing"
+              >
+                <Icon name="viewing" size={14} decorative className="text-ink-soft/80" />
+                viewing
+              </span>
+            )}
           </div>
           <div className="text-[11px] text-ink-soft font-mono break-all" title={projectPath}>
             {shortPath(projectPath)}

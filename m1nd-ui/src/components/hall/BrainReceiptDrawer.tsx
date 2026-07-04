@@ -21,6 +21,7 @@ import {
   resolvedBrainCounts,
   visibleConflicts,
   isProjectBrain,
+  bindingClassLabel,
 } from '../../lib/hallSemantics';
 import ForgetRuntimeFlow from './ForgetRuntimeFlow';
 
@@ -122,6 +123,9 @@ export default function BrainReceiptDrawer({
         <section>
           <div className="text-[10px] uppercase tracking-widest text-ink-soft/70 mb-2">the binding</div>
           <div className="rounded-lg border border-ink/10 bg-bone/50 px-3 py-2">
+            {/* The implementation class lives HERE and only here (§4A.8, INV-14):
+                the card face never labels a brain by class; the receipt does. */}
+            <Fact label="binding" value={bindingClassLabel(entry, isSelf)} mono={false} />
             <Fact label="status" value={dot.label} mono={false} />
             {counts.nodeCount != null && counts.edgeCount != null ? (
               <Fact label="graph" value={`${counts.nodeCount} nodes · ${counts.edgeCount} edges`} />
