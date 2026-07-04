@@ -13,13 +13,15 @@ import HallView from './components/hall/HallView';
 import BrainChip from './components/hall/BrainChip';
 import ThresholdCard from './components/hall/ThresholdCard';
 import OrientationBeats from './components/hall/OrientationBeats';
+import BrainPalette from './components/hall/BrainPalette';
 import { useToastStore } from './stores/toastStore';
 import ToastContainer from './components/ToastContainer';
 import { useSSE } from './hooks/useSSE';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { api } from './api/client';
 import { useM1ndApi } from './hooks/useM1ndApi';
 import type { NorthPacket } from './api/toolTypes';
-import type { InstanceSelfResponse, SseEvent, SseIngestData } from './types';
+import type { InstanceRegistryEntry, InstanceSelfResponse, SseEvent, SseIngestData } from './types';
 import {
   ingestSupportsProjectRoot,
   mayOfferForeignIngest,
@@ -266,17 +268,21 @@ function IngestModal({
 /** The surface the shell is showing. Threshold is rung −∞; Hall is rung −1; tree is rung 0. */
 type Surface = 'tree' | 'hall' | 'threshold';
 
-/** Count the brains the owner holds — the landing signal (§4A.1, INV-12). */
-function useBrainCount(enabled: boolean): number | null {
-  const [count, setCount] = useState<number | null>(null);
+/**
+ * The brains the owner holds — the landing signal (§4A.1, INV-12) AND the Cmd+K
+ * Brains group source (§4A.5). Registry order IS recency; never re-sorted.
+ * Returns null until the first fetch resolves (deciding the landing).
+ */
+function useBrains(enabled: boolean): InstanceRegistryEntry[] | null {
+  const [brains, setBrains] = useState<InstanceRegistryEntry[] | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let mounted = true;
     const poll = () =>
       api
         .instances()
-        .then((r) => mounted && setCount(r.instances.length))
-        .catch(() => mounted && setCount(null));
+        .then((r) => mounted && setBrains(r.instances))
+        .catch(() => mounted && setBrains(null));
     poll();
     const id = setInterval(poll, 5000);
     return () => {
@@ -284,18 +290,20 @@ function useBrainCount(enabled: boolean): number | null {
       clearInterval(id);
     };
   }, [enabled]);
-  return count;
+  return brains;
 }
 
 export default function App() {
   const [ingestOpen, setIngestOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [surface, setSurface] = useState<Surface | null>(null); // null = deciding the landing
   const [north, setNorth] = useState<NorthPacket | null>(null);
   const [orienting, setOrienting] = useState(false);
   const status = useBackendStatus();
   const backendUp = status === 'ok' || status === 'degraded';
   const self = useSelf(backendUp);
-  const brainCount = useBrainCount(backendUp);
+  const brains = useBrains(backendUp);
+  const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
   const { runQuery } = useM1ndApi();
   const ownerHasGraph = (self?.graph_state.node_count ?? 0) > 0;
@@ -308,6 +316,13 @@ export default function App() {
     if (surface != null || brainCount == null) return;
     setSurface(brainCount <= 0 ? 'threshold' : 'tree');
   }, [surface, brainCount]);
+
+  // Cmd+K opens the Brains group (§4A.5). Not on the Threshold (no brains yet).
+  useKeyboardShortcuts({
+    onCommandPalette: () => {
+      if (surface !== 'threshold') setPaletteOpen((o) => !o);
+    },
+  });
 
   const handleSSE = useCallback(
     (event: SseEvent) => {
@@ -412,6 +427,13 @@ export default function App() {
           onClose={() => setIngestOpen(false)}
           onComplete={() => runQuery('health', { agent_id: 'gui' })}
           ownerHasGraph={ownerHasGraph}
+        />
+        <BrainPalette
+          isOpen={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          instances={brains ?? []}
+          selfId={self?.instance.instance_id ?? null}
+          onOpenBound={() => setSurface('tree')}
         />
         <ToastContainer />
       </div>
