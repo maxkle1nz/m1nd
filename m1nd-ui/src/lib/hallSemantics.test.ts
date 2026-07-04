@@ -25,6 +25,8 @@ import {
   resolvedBrainCounts,
   visibleConflicts,
   brainFreshnessMs,
+  restBrainSelectorSupported,
+  canOpenBrainInPlace,
 } from './hallSemantics';
 import type { InstanceListResponse, InstanceSelfResponse } from '../types';
 
@@ -172,4 +174,24 @@ test('INV-12: ownerLanding — zero brains→threshold, history→tree, no histo
   assert.equal(ownerLanding({ brainCount: 0, hasLocalHistory: true }), 'threshold', 'no brains beats stale history');
   assert.equal(ownerLanding({ brainCount: 2, hasLocalHistory: true }), 'tree');
   assert.equal(ownerLanding({ brainCount: 2, hasLocalHistory: false }), 'hall');
+});
+
+// ── §4A.9.5: the REST brain selector capability (Open feature-detect) ─────────
+test('§4A.9.5: restBrainSelectorSupported is TRUE only when the tools stamp is present', () => {
+  assert.equal(restBrainSelectorSupported({ tools: [], rest_brain_selector: true }), true);
+  assert.equal(restBrainSelectorSupported({ tools: [], rest_brain_selector: false }), false);
+  assert.equal(restBrainSelectorSupported({ tools: [] }), false, 'a pre-2H owner (no stamp) is unsupported');
+  assert.equal(restBrainSelectorSupported(null), false);
+  assert.equal(restBrainSelectorSupported(undefined), false);
+});
+
+test('§4A.9: canOpenBrainInPlace — bound always; hosted iff the stamp; sibling never', () => {
+  // The bound/self brain always opens in the tree (it IS the default graph).
+  assert.equal(canOpenBrainInPlace(bound, true, false), true);
+  assert.equal(canOpenBrainInPlace(bound, true, true), true);
+  // A hosted project brain opens in place ONLY with the selector stamp.
+  assert.equal(canOpenBrainInPlace(project, false, false), false, 'no stamp → hosted stays disabled');
+  assert.equal(canOpenBrainInPlace(project, false, true), true, 'stamp → hosted opens in the tree');
+  // A sibling owner (no brain_kind) never opens in place (it uses its own port).
+  assert.equal(canOpenBrainInPlace({ brain_kind: null }, false, true), false);
 });

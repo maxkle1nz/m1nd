@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import type { TreeRow } from '../../lib/tree';
 import type { TrustBand } from '../../lib/softProof';
-import { blastCountPhrase, BAND_STYLE } from '../../lib/softProof';
+import { blastCountPhrase } from '../../lib/softProof';
 import { api } from '../../api/client';
 import type { ImpactOutput } from '../../api/toolTypes';
 import PostItChip from '../soft/PostItChip';
@@ -19,7 +19,14 @@ interface TreeDrawerProps {
   onClose: () => void;
 }
 
-/** Map a trust band to the drawer verdict chip (action language, no epistemology). */
+/**
+ * Map a trust band to the drawer verdict chip (action language, no epistemology).
+ *
+ * The band IS the learn-history verdict: `insufficient_evidence` means no agent
+ * has ever confirmed or corrected an answer about this file; low/medium/high mean
+ * feedback exists (agents confirmed it safe, flagged it mixed, or corrected it as
+ * risky). See `feedbackLine` for the human wording of that history.
+ */
 function bandVerdict(band: TrustBand): { verdict: 'act' | 'reverify' | 'abstain'; label: string } {
   switch (band) {
     case 'low':
@@ -30,7 +37,34 @@ function bandVerdict(band: TrustBand): { verdict: 'act' | 'reverify' | 'abstain'
       return { verdict: 'reverify', label: 'risky — check before editing' };
     case 'insufficient_evidence':
     default:
-      return { verdict: 'abstain', label: "I haven't seen evidence either way yet" };
+      // The old copy said "I haven't seen evidence either way yet" — but `evidence`
+      // is L1GHT's word for MEMORY anchors (the panel below), and the collision
+      // read as "no memories" and confused a live reader. This chip is about
+      // FEEDBACK — whether agents confirmed/corrected answers about this file —
+      // never about memory. It must never contain the word "evidence" (INV: the
+      // memory/feedback glossary, PRD §4A.3.1).
+      return { verdict: 'abstain', label: 'no feedback on this file yet' };
+  }
+}
+
+/**
+ * The learn-HISTORY line under the feedback chip: the human wording of whether
+ * agents have confirmed or corrected answers about this file (PRD §4A.3.1
+ * glossary — FEEDBACK, distinct from the MEMORY anchors panel below). The band is
+ * the history verdict; this turns it into one honest sentence. Never says
+ * "evidence" (that word belongs to memory).
+ */
+export function feedbackLine(band: TrustBand): string {
+  switch (band) {
+    case 'low':
+      return 'agents have confirmed answers about this file';
+    case 'high':
+      return 'agents have corrected answers about this file';
+    case 'medium':
+      return 'agents have both confirmed and corrected answers here';
+    case 'insufficient_evidence':
+    default:
+      return 'no feedback yet — no agent has confirmed or corrected answers about this file';
   }
 }
 
@@ -69,7 +103,6 @@ export default function TreeDrawer({ row, band, onClose }: TreeDrawerProps) {
   }
 
   const v = bandVerdict(band);
-  const bandStyle = BAND_STYLE[band];
 
   return (
     <aside data-role="tree-drawer" className="w-80 border-l border-ink/10 bg-porcelain flex flex-col shrink-0 overflow-hidden">
@@ -92,11 +125,16 @@ export default function TreeDrawer({ row, band, onClose }: TreeDrawerProps) {
             ✕
           </button>
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <VerdictChip verdict={v.verdict} label={v.label} />
-          {bandStyle.isUnknown && (
-            <span className="text-[10px] text-ink-soft">no learn history yet</span>
-          )}
+        {/* The FEEDBACK chip (PRD §4A.3.1): whether agents confirmed/corrected
+            answers about this file. Distinct from the MEMORY anchors below —
+            this line never says "evidence" (that word is memory's). */}
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <VerdictChip verdict={v.verdict} label={v.label} />
+          </div>
+          <div className="text-[10px] text-ink-soft" data-role="feedback-line">
+            {feedbackLine(band)}
+          </div>
         </div>
       </div>
 

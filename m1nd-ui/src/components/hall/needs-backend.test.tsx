@@ -28,15 +28,45 @@ const bound = list.instances.find((e) => e.brain_kind == null)!;
 const project = list.instances.find((e) => e.brain_kind === 'project')!;
 const noop = () => {};
 
-// ── Residue (1): REST brain routing — hosted Open disabled everywhere ─────────
-test('INV-11 residue #1 (REST brain routing): hosted-brain Open is disabled in the card AND the palette', () => {
-  const card = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
-  assert.ok(hasDisabledAttr(roleTag(card, 'open-brain')), 'card Open disabled');
-  assert.match(card, /REST brain routing/, 'card names the residue');
+// ── Residue (1) RETIRED → SHIPPED (§4A.9, 2H): per-brain Open. The old "REST
+// brain routing (not built yet)" residue is gone. The honesty is now feature-
+// detected: WITHOUT the owner's `rest_brain_selector` stamp, hosted Open stays
+// disabled (INV-11 posture) but NEVER names the retired residue; WITH the stamp,
+// hosted Open is a real, enabled action.
+test('§4A.9: hosted-brain Open is disabled WITHOUT the selector stamp — and never names the retired residue', () => {
+  const card = html(<BrainCard entry={project} isSelf={false} restSelector={false} selected={false} onSelect={noop} onOpen={noop} />);
+  assert.ok(hasDisabledAttr(roleTag(card, 'open-brain')), 'card Open disabled without the stamp');
+  assert.doesNotMatch(card, /REST brain routing/, 'the retired residue text is gone');
 
-  const palette = html(<BrainPalette isOpen instances={list.instances} selfId={bound.instance_id} onClose={noop} onOpenBound={noop} />);
-  assert.ok(hasDisabledAttr(roleTag(palette, 'brain-jump', 'data-openable="false"')), 'palette jump disabled');
-  assert.match(palette, /REST brain routing/, 'palette names the residue');
+  const palette = html(
+    <BrainPalette isOpen instances={list.instances} selfId={bound.instance_id} onClose={noop} onOpenBound={noop} restSelector={false} />,
+  );
+  assert.ok(hasDisabledAttr(roleTag(palette, 'brain-jump', 'data-openable="false"')), 'palette jump disabled without the stamp');
+  assert.doesNotMatch(palette, /REST brain routing/, 'the retired residue text is gone from the palette');
+});
+
+test('§4A.9: hosted-brain Open is ENABLED once the owner advertises the selector stamp', () => {
+  const card = html(
+    <BrainCard entry={project} isSelf={false} restSelector selected={false} onSelect={noop} onOpen={noop} />,
+  );
+  assert.ok(!hasDisabledAttr(roleTag(card, 'open-brain')), 'card Open is enabled with the stamp');
+  assert.match(roleTag(card, 'open-brain'), /Open this brain in the tree/, 'the tooltip is the real Open action');
+
+  const palette = html(
+    <BrainPalette
+      isOpen
+      instances={list.instances}
+      selfId={bound.instance_id}
+      onClose={noop}
+      onOpenBound={noop}
+      onOpenBrain={noop}
+      restSelector
+    />,
+  );
+  assert.ok(
+    hasDisabledAttr(roleTag(palette, 'brain-jump', 'data-openable="true"')) === false,
+    'palette hosted jump is enabled with the stamp',
+  );
 });
 
 // ── Residue (2): §9.5.1 registry fields — counts NOW reported, calibration open ─

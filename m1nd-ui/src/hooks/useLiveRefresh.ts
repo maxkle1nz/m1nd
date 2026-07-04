@@ -19,7 +19,7 @@ import { api } from '../api/client';
 import type { SseEvent } from '../types';
 import {
   createGraphChangeDebouncer,
-  isGraphChanged,
+  graphChangeConcernsBrain,
   GRAPH_CHANGED_DEBOUNCE_MS,
   FALLBACK_POLL_MS,
 } from './liveRefreshCore';
@@ -27,6 +27,7 @@ import {
 export {
   createGraphChangeDebouncer,
   isGraphChanged,
+  graphChangeConcernsBrain,
   GRAPH_CHANGED_DEBOUNCE_MS,
   FALLBACK_POLL_MS,
 } from './liveRefreshCore';
@@ -38,12 +39,20 @@ interface UseLiveRefreshOptions {
   enabled?: boolean;
   /** Override the debounce window (tests). */
   debounceMs?: number;
+  /**
+   * The brain the surface is viewing (§4A.9.6): `null` = the bound graph. A
+   * `graph_changed` event refetches only when it names THIS brain or carries no
+   * brain (the over-refetch on old owners). The fallback stats poll rides the
+   * same selector so it watches the VIEWED brain's counts, not the bound graph's.
+   */
+  viewedRoot?: string | null;
 }
 
 export function useLiveRefresh({
   onRefresh,
   enabled = true,
   debounceMs = GRAPH_CHANGED_DEBOUNCE_MS,
+  viewedRoot = null,
 }: UseLiveRefreshOptions) {
   // Keep the latest onRefresh without re-subscribing SSE on every render.
   const refreshRef = useRef(onRefresh);
@@ -59,11 +68,23 @@ export function useLiveRefresh({
   const sseAlive = useRef(false);
   // Last observed graph size (fallback-poll change detector).
   const lastStats = useRef<{ node_count: number; edge_count: number } | null>(null);
+  // The viewed brain, in a ref so the stable SSE callback sees the latest root
+  // and the fallback poll watches the right brain's counts.
+  const viewedRootRef = useRef(viewedRoot);
+  viewedRootRef.current = viewedRoot;
+  // A brain switch invalidates the last-seen counts (different brain, different
+  // size — never mistake B's size for A's "change").
+  useEffect(() => {
+    lastStats.current = null;
+  }, [viewedRoot]);
 
   // ── Primary path: SSE graph_changed ─────────────────────────────────────────
   const onEvent = useCallback((event: SseEvent) => {
-    if (isGraphChanged(event)) {
-      sseAlive.current = true;
+    if (event.event_type !== 'graph_changed') return;
+    // Any graph_changed proves the live wire works (stop the fallback poll), even
+    // one for another brain — but only refetch when it concerns OUR brain.
+    sseAlive.current = true;
+    if (graphChangeConcernsBrain(event, viewedRootRef.current)) {
       debouncerRef.current?.fire();
     }
   }, []);
@@ -77,7 +98,7 @@ export function useLiveRefresh({
       // Once SSE has delivered even one event, the live path works — don't poll.
       if (sseAlive.current) return;
       try {
-        const stats = await api.graphStats();
+        const stats = await api.graphStats(viewedRootRef.current);
         if (!mounted) return;
         const prev = lastStats.current;
         lastStats.current = stats;

@@ -28,6 +28,8 @@ import {
   bootstrapParams,
   orientationDismissed,
 } from './lib/threshold';
+import { restBrainSelectorSupported, brainDisplayName, brainProjectPath } from './lib/hallSemantics';
+import { BOUND_VIEW, type ViewedBrain } from './lib/viewedBrain';
 
 // App-level error boundary.
 class AppErrorBoundary extends React.Component<
@@ -95,10 +97,16 @@ function useBackendStatus() {
 function TopBar({
   status,
   self,
+  viewedBrain,
   onOpenHall,
 }: {
   status: BackendStatus;
   self: InstanceSelfResponse | null;
+  /** The brain the tree is viewing (§4A.9). Bound (root=null) → the chip reads the
+   *  self envelope; a hosted brain → the chip flips to the ECHO's name/counts
+   *  (render truth, never the request), so no graph pixel ever wears the wrong
+   *  brain's name (§4A.5 law). */
+  viewedBrain: ViewedBrain;
   onOpenHall: () => void;
 }) {
   const dot =
@@ -109,6 +117,10 @@ function TopBar({
         : status === 'empty'
           ? 'var(--state-unverified, #b8b2a8)'
           : 'var(--state-failure, #b0563b)';
+  const hosted = viewedBrain.root != null;
+  const chipName = hosted ? viewedBrain.displayName : self?.display_name ?? null;
+  const chipPath = hosted ? viewedBrain.root : self?.project_root ?? null;
+  const chipCount = hosted ? viewedBrain.nodeCount : self ? self.graph_state.node_count : null;
   return (
     <div className="h-12 flex items-center justify-between px-4 border-b border-ink/10 bg-porcelain shrink-0">
       <div className="flex items-center gap-2">
@@ -120,9 +132,9 @@ function TopBar({
         />
       </div>
       <BrainChip
-        displayName={self ? self.display_name ?? null : null}
-        projectPath={self ? self.project_root ?? null : null}
-        nodeCount={self ? self.graph_state.node_count : null}
+        displayName={chipName}
+        projectPath={chipPath}
+        nodeCount={chipCount}
         healthy={status === 'ok'}
         onClick={onOpenHall}
       />
@@ -294,20 +306,65 @@ function useBrains(enabled: boolean): InstanceRegistryEntry[] | null {
   return brains;
 }
 
+/**
+ * Feature-detect the §4A.9 REST brain selector (GET /api/tools stamp). Open enables
+ * for hosted brains only when true — the 0T posture (never assumed). Polled once
+ * the backend is up; false against a pre-2H owner and while unknown.
+ */
+function useRestBrainSelector(enabled: boolean): boolean {
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    if (!enabled) return;
+    let mounted = true;
+    api
+      .tools()
+      .then((r) => mounted && setSupported(restBrainSelectorSupported(r)))
+      .catch(() => mounted && setSupported(false));
+    return () => {
+      mounted = false;
+    };
+  }, [enabled]);
+  return supported;
+}
+
 export default function App() {
   const [ingestOpen, setIngestOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [surface, setSurface] = useState<Surface | null>(null); // null = deciding the landing
   const [north, setNorth] = useState<NorthPacket | null>(null);
   const [orienting, setOrienting] = useState(false);
+  // The brain the tree is viewing (§4A.9). Bound by default (byte-compatible);
+  // Open on a hosted card sets it and switches to the tree.
+  const [viewedBrain, setViewedBrain] = useState<ViewedBrain>(BOUND_VIEW);
   const status = useBackendStatus();
   const backendUp = status === 'ok' || status === 'degraded';
   const self = useSelf(backendUp);
   const brains = useBrains(backendUp);
+  const restSelector = useRestBrainSelector(backendUp);
   const brainCount = brains?.length ?? null;
   const addToast = useToastStore((s) => s.addToast);
   const { runQuery } = useM1ndApi();
   const ownerHasGraph = (self?.graph_state.node_count ?? 0) > 0;
+
+  // Open a brain IN THE TREE (§4A.9). The bound/self brain resets to BOUND_VIEW
+  // (no selector — the tree's default graph); a hosted brain seeds the viewed
+  // brain from its card (name + counts), which the served_brain echo then
+  // confirms. Either way the shell shows the tree.
+  const openBrainInTree = useCallback(
+    (entry: InstanceRegistryEntry, isSelf: boolean) => {
+      if (isSelf) {
+        setViewedBrain(BOUND_VIEW);
+      } else {
+        setViewedBrain({
+          root: brainProjectPath(entry),
+          displayName: brainDisplayName(entry),
+          nodeCount: entry.node_count ?? null,
+        });
+      }
+      setSurface('tree');
+    },
+    [],
+  );
 
   // Decide the landing ONCE the owner state is known (§4A.1 placement doctrine).
   // Zero brains → the Threshold (empty-state-as-onboarding). Otherwise the tree
@@ -395,18 +452,26 @@ export default function App() {
   return (
     <AppErrorBoundary>
       <div className="flex flex-col h-screen w-screen bg-porcelain text-ink font-sans overflow-hidden">
-        <TopBar status={status} self={self} onOpenHall={() => surface !== 'threshold' && setSurface('hall')} />
+        <TopBar
+          status={status}
+          self={self}
+          viewedBrain={viewedBrain}
+          onOpenHall={() => surface !== 'threshold' && setSurface('hall')}
+        />
         <div className="flex flex-1 overflow-hidden">
           {surface === 'threshold' ? (
             <ThresholdCard onBootstrapped={landAndOrient} />
           ) : surface === 'hall' ? (
             <HallView
               onExit={() => setSurface('tree')}
-              onOpenBound={() => setSurface('tree')}
+              onOpenBound={() => openBrainInTree({} as InstanceRegistryEntry, true)}
+              onOpenBrain={openBrainInTree}
               onBootstrap={() => setIngestOpen(true)}
+              restSelector={restSelector}
+              viewedRoot={viewedBrain.root}
             />
           ) : (
-            <LivingTree onIngest={() => setIngestOpen(true)} />
+            <LivingTree viewedBrain={viewedBrain} onIngest={() => setIngestOpen(true)} />
           )}
         </div>
 
@@ -434,7 +499,9 @@ export default function App() {
           onClose={() => setPaletteOpen(false)}
           instances={brains ?? []}
           selfId={self?.instance.instance_id ?? null}
-          onOpenBound={() => setSurface('tree')}
+          onOpenBound={() => openBrainInTree({} as InstanceRegistryEntry, true)}
+          onOpenBrain={openBrainInTree}
+          restSelector={restSelector}
         />
         <ToastContainer />
       </div>

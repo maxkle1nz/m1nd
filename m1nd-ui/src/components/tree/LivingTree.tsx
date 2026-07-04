@@ -38,11 +38,16 @@ import TreeControls, { type SearchMode, type Density } from './TreeControls';
 import GroupHeader from './GroupHeader';
 import SeekPanel from './SeekPanel';
 import { Icon, type IconName } from '../../lib/icons/registry';
+import { BOUND_VIEW, brainSelectorFor, type ViewedBrain } from '../../lib/viewedBrain';
 
 const HOVER_DEBOUNCE_MS = 250;
 const DENSITY_KEY = 'm1nd.tree.density';
 
 interface LivingTreeProps {
+  /** The brain the tree is reading (§4A.9). Bound (root=null) by default; a hosted
+   *  brain routes every fetch through its `?brain=` selector and scopes live
+   *  refresh + meaning-search to it (INV-15/16). */
+  viewedBrain?: ViewedBrain;
   onIngest?: () => void;
 }
 
@@ -56,9 +61,11 @@ function kindGroupIcon(id: string): IconName {
   return 'graph';
 }
 
-export default function LivingTree({ onIngest }: LivingTreeProps) {
-  const { status, root, bands, breathingPaths, error, reload } = useTreeData();
+export default function LivingTree({ viewedBrain = BOUND_VIEW, onIngest }: LivingTreeProps) {
+  const { status, root, bands, breathingPaths, error, reload } = useTreeData(viewedBrain);
   const addToast = useToastStore((s) => s.addToast);
+  // The §4A.9 selector every tool call carries (undefined = the bound graph).
+  const brain = brainSelectorFor(viewedBrain);
 
   const onLiveRefresh = useCallback(() => {
     reload();
@@ -67,6 +74,9 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
   useLiveRefresh({
     onRefresh: onLiveRefresh,
     enabled: status === 'ready' || status === 'error',
+    // Refetch only for the brain on screen (§4A.9.6); a hosted-brain mutation
+    // never disturbs the bound tree and vice-versa.
+    viewedRoot: viewedBrain.root,
   });
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -121,13 +131,13 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
     if (lens !== 'layer' || layers != null || !root) return;
     let mounted = true;
     api
-      .tool<LayersOutput>('layers', {})
+      .tool<LayersOutput>('layers', {}, brain)
       .then((r) => mounted && setLayers(r))
       .catch(() => mounted && setLayers({ layers: [] }));
     return () => {
       mounted = false;
     };
-  }, [lens, layers, root]);
+  }, [lens, layers, root, brain]);
 
   // am_i_stale: on demand only when the "changed since read" chip is turned on
   // (the §4A.3.1-G1 cost rule — never a background poll of every row).
@@ -139,7 +149,7 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
       .map((r) => r.path);
     let mounted = true;
     api
-      .tool<AmIStaleOutput>('am_i_stale', { paths })
+      .tool<AmIStaleOutput>('am_i_stale', { paths }, brain)
       .then((r) => {
         if (!mounted) return;
         const s = new Set<string>();
@@ -150,7 +160,7 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
     return () => {
       mounted = false;
     };
-  }, [activeFilters, root, stalePaths.size]);
+  }, [activeFilters, root, stalePaths.size, brain]);
 
   // A reload (new generation) invalidates the cached lens/filter data.
   useEffect(() => {
@@ -158,6 +168,23 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
     setStalePaths(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root]);
+
+  // Switching the viewed brain (§4A.9) resets the tree's local view: a different
+  // brain has different nodes, so the impact whisper cache, selection, expansion,
+  // and meaning-search state must not leak across the Open. The snapshot itself
+  // reloads via useTreeData's brain-keyed effect.
+  useEffect(() => {
+    impactCache.current.clear();
+    setSelectedPath(null);
+    setWhisper(null);
+    setExpanded(new Set());
+    setSeekResult(null);
+    setSeekError(null);
+    setLens('directory');
+    setSearchMode('name');
+    setQuery('');
+    setActiveFilters(new Set());
+  }, [brain]);
 
   // The paths the viewed brain knows — the INV-16 scope guard for meaning search.
   const knownPaths = useMemo(() => {
@@ -279,7 +306,7 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
       }
       hoverTimer.current = setTimeout(async () => {
         try {
-          const r = await api.tool<ImpactOutput>('impact', { node_id: row.externalId });
+          const r = await api.tool<ImpactOutput>('impact', { node_id: row.externalId }, brain);
           const memN = row.postIts.length;
           const line =
             blastCountPhrase(r.total_blast_nodes, r.truncated) +
@@ -291,10 +318,11 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
         }
       }, HOVER_DEBOUNCE_MS);
     },
-    [],
+    [brain],
   );
 
-  // Run meaning search (Enter in meaning mode). ESC returns to the tree.
+  // Run meaning search (Enter in meaning mode). ESC returns to the tree. §4A.9:
+  // rides the selector so a hosted brain's seek returns only ITS nodes (INV-16).
   const runMeaning = useCallback(async () => {
     const q = query.trim();
     if (!q) return;
@@ -302,14 +330,14 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
     setSeekError(null);
     setSeekResult(null);
     try {
-      const r = await api.tool<SeekOutput>('seek', { query: q, top_k: 20 });
+      const r = await api.tool<SeekOutput>('seek', { query: q, top_k: 20 }, brain);
       setSeekResult(r);
     } catch (e) {
       setSeekError(e instanceof Error ? e.message : 'meaning search failed');
     } finally {
       setSeekLoading(false);
     }
-  }, [query]);
+  }, [query, brain]);
 
   // A meaning hit → jump the tree: directory lens, expand the path, select, drawer.
   const openHit = useCallback(
@@ -395,6 +423,24 @@ export default function LivingTree({ onIngest }: LivingTreeProps) {
   if (status === 'loading') {
     return (
       <div className="flex-1 flex items-center justify-center text-ink-soft text-sm">Reading the map…</div>
+    );
+  }
+
+  // A dormant hosted brain is warm-booting on its first fetch (§4A.9, INV-05):
+  // say so in WORDS — never a fake progress bar (§4A.7). The name is the brain we
+  // opened (echo not back yet); calm, honest, no spinner.
+  if (status === 'waking') {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-porcelain">
+        <div className="max-w-sm text-center space-y-2">
+          <div className="text-ink text-sm" data-role="waking">
+            waking {viewedBrain.displayName ?? 'this brain'}…
+          </div>
+          <div className="text-[11px] text-ink-soft/70">
+            reading it back from disk — first open takes a moment.
+          </div>
+        </div>
+      </div>
     );
   }
 

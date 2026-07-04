@@ -53,6 +53,13 @@ export interface GraphSnapshot {
   version: number;
   nodes: SnapshotNode[];
   edges: SnapshotEdge[];
+  /**
+   * The brain that answered (HUMAN-LAYER-PRD §4A.9.4) — attached to the snapshot
+   * so the tree can ASSERT it against the brain it opened and drop a mismatch
+   * (INV-15) instead of rendering one brain's nodes under another's chip. Absent
+   * on a pre-2H owner; when present, `project_root` is the canonical root served.
+   */
+  served_brain?: { project_root: string | null; display_name: string | null };
 }
 
 /** A node is a L1GHT (memory) node iff it carries the bare `light` tag. */

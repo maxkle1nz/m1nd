@@ -154,6 +154,37 @@ export function entryBaseUrl(entry: {
   return `http://${host}:${entry.port}`;
 }
 
+// ── The REST brain selector capability (PRD §4A.9.5; the Open feature-detect) ──
+// Open enables ONLY when the owner advertises `rest_brain_selector` on GET
+// /api/tools — the 0T posture: never assumed, never version-sniffed. An old owner
+// without the stamp keeps the honest disabled-with-tooltip Open (INV-11).
+
+/** True iff the owner's `/api/tools` envelope stamps `rest_brain_selector: true`. */
+export function restBrainSelectorSupported(
+  tools: { rest_brain_selector?: boolean } | null | undefined,
+): boolean {
+  return tools?.rest_brain_selector === true;
+}
+
+/**
+ * Can THIS card's brain be opened IN THE TREE (same tab)?
+ * - the bound/self brain: always (it IS the tree's default graph);
+ * - a hosted project brain: only when the owner advertises the REST selector
+ *   (§4A.9.5) — then `?brain=<root>` routes the tree to it;
+ * - a live sibling with its own port opens in a NEW tab, not in place — false here
+ *   (HallView still offers that via `entryBaseUrl`).
+ * `restSelector` is the feature-detected stamp; absent → hosted Open stays off.
+ */
+export function canOpenBrainInPlace(
+  entry: { brain_kind?: string | null },
+  isSelf: boolean,
+  restSelector: boolean,
+): boolean {
+  if (isSelf) return true;
+  if (isProjectBrain(entry)) return restSelector;
+  return false;
+}
+
 // ── Count honesty (PRD §4A.3 Nodes·edges; INV-10) ─────────────────────────────
 // A live brain (self, or a live sibling we polled) reports real counts. A
 // dormant/hosted brain at rest does NOT — the last-known registry count fields

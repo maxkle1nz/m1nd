@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {
   createGraphChangeDebouncer,
   isGraphChanged,
+  graphChangeConcernsBrain,
   GRAPH_CHANGED_DEBOUNCE_MS,
 } from './liveRefreshCore';
 import type { SseEvent } from '../types';
@@ -125,4 +126,36 @@ test('a mock EventSource feed of graph_changed drives exactly one reload', () =>
   } finally {
     mock.timers.reset();
   }
+});
+
+// ── §4A.9.6: brain-scoped refetch — only my brain's mutations disturb my tree ──
+
+const BOUND = null; // the bound view's viewedRoot
+const CHERRY = '/Users/kle1nz/CHERRYBUBBLES/Cerrybubbles1';
+const changedFor = (root?: string): SseEvent => ({
+  event_type: 'graph_changed',
+  data: root === undefined ? { event: 'memorize' } : { event: 'memorize', brain_root: root },
+});
+
+test('§4A.9.6: an UNSCOPED graph_changed (no brain_root) refetches any viewer (over-refetch on old owners)', () => {
+  assert.equal(graphChangeConcernsBrain(changedFor(), BOUND), true);
+  assert.equal(graphChangeConcernsBrain(changedFor(), CHERRY), true);
+  assert.equal(graphChangeConcernsBrain(changedFor(''), CHERRY), true, 'an empty brain_root is unscoped too');
+});
+
+test('§4A.9.6: a brain-scoped event refetches ONLY the viewer of that brain', () => {
+  // Viewing Cherry: a Cherry mutation refetches; a mutation for another brain does not.
+  assert.equal(graphChangeConcernsBrain(changedFor(CHERRY), CHERRY), true);
+  assert.equal(graphChangeConcernsBrain(changedFor('/some/other/repo'), CHERRY), false);
+});
+
+test('§4A.9.6: a hosted-brain mutation never disturbs the BOUND tree', () => {
+  // Bound view (viewedRoot=null): a Cherry-scoped event is not for it.
+  assert.equal(graphChangeConcernsBrain(changedFor(CHERRY), BOUND), false);
+});
+
+test('§4A.9.6: a non-graph_changed event never concerns any brain', () => {
+  const persist: SseEvent = { event_type: 'persist', data: { generation: 1 } };
+  assert.equal(graphChangeConcernsBrain(persist, BOUND), false);
+  assert.equal(graphChangeConcernsBrain(persist, CHERRY), false);
 });

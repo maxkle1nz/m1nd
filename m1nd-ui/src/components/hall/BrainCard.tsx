@@ -21,6 +21,7 @@ import {
   visibleConflicts,
   isProjectBrain,
   entryBaseUrl,
+  canOpenBrainInPlace,
 } from '../../lib/hallSemantics';
 import { Icon } from '../../lib/icons/registry';
 import BrainCardGold from './BrainCardGold';
@@ -29,6 +30,13 @@ import type { FreshnessG1, CalibrationG2, CompoundingG3, AlivenessG4 } from '../
 export interface BrainCardProps {
   entry: InstanceRegistryEntry;
   isSelf: boolean;
+  /**
+   * §4A.9.5 capability stamp: the owner advertises the REST brain selector, so a
+   * hosted project brain can be Opened in the tree. Absent/false → hosted Open
+   * stays disabled (the honest pre-2H posture; INV-11). Defaults to false so a
+   * card rendered without the stamp never over-promises.
+   */
+  restSelector?: boolean;
   /** Real counts when known (self graph_state or a live sibling's polled stats). */
   knownNodeCount?: number | null;
   knownEdgeCount?: number | null;
@@ -53,6 +61,7 @@ export interface BrainCardProps {
 export default function BrainCard({
   entry,
   isSelf,
+  restSelector = false,
   knownNodeCount,
   knownEdgeCount,
   selected,
@@ -74,7 +83,12 @@ export default function BrainCard({
   const conflicts = visibleConflicts(entry);
   const name = brainDisplayName(entry);
   const projectPath = brainProjectPath(entry);
-  const canOpenInPlace = isSelf || entryBaseUrl(entry) != null;
+  // §4A.9: a hosted project brain opens IN THE TREE when the owner advertises the
+  // REST selector; the bound/self brain always does. A live sibling (own port)
+  // opens in a NEW tab. Open is enabled if any of those paths exist.
+  const opensInTree = canOpenBrainInPlace(entry, isSelf, restSelector);
+  const opensInTab = !opensInTree && entryBaseUrl(entry) != null;
+  const canOpen = opensInTree || opensInTab;
 
   return (
     <div
@@ -164,22 +178,28 @@ export default function BrainCard({
       {/* Card-v2 GOLD (§4A.3.1) — the OPEN/bound brain only (TODAY column) */}
       {gold && <BrainCardGold g1={gold.g1} g2={gold.g2} g3={gold.g3} g4={gold.g4} onReread={onReread} onCalibrate={onCalibrate} />}
 
-      {/* Open — the one action on the face; the rest live in the drawer */}
+      {/* Open — the one action on the face; the rest live in the drawer.
+          §4A.9 (2H): the "REST brain routing not built yet" residue is RETIRED —
+          a hosted brain now opens in the tree when the owner advertises the
+          selector (INV-11 exit criterion). It stays disabled only against a
+          pre-2H owner with no stamp (feature-detected, never assumed). */}
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
           data-role="open-brain"
           onClick={(e) => {
             e.stopPropagation();
-            if (canOpenInPlace) onOpen(entry);
+            if (canOpen) onOpen(entry);
           }}
-          disabled={!canOpenInPlace}
+          disabled={!canOpen}
           title={
-            canOpenInPlace
+            opensInTree
               ? isSelf
                 ? 'Open this brain (the tree)'
-                : 'Open this brain in its own tab'
-              : 'Opening a hosted project brain in place needs REST brain routing (not built yet)'
+                : 'Open this brain in the tree'
+              : opensInTab
+                ? 'Open this brain in its own tab'
+                : 'This owner can’t open a hosted brain yet — update it to browse hosted brains.'
           }
           className="px-3 py-1 text-xs bg-porcelain text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow disabled:opacity-45 disabled:cursor-not-allowed"
         >

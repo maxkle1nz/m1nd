@@ -4,7 +4,7 @@ import type {
   InstanceSelfResponse,
   SubgraphResponse,
   ToolCallResult,
-  ToolSchema,
+  ToolsResponse,
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 
@@ -44,6 +44,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Append the §4A.9 `?brain=<project_root>` selector to a path when a brain root is
+ * given. Absent/empty → the path is untouched (the bound graph, byte-compatible —
+ * the serde-default posture applied to a URL). URL-encodes the absolute root. When
+ * the path already carries a query (`?query=…`), the selector joins with `&`.
+ */
+function withBrain(path: string, brain?: string | null): string {
+  const root = brain?.trim();
+  if (!root) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}brain=${encodeURIComponent(root)}`;
+}
+
 export const api = {
   health: () => apiFetch<HealthResponse>('/api/health'),
   instanceSelf: () => apiFetch<InstanceSelfResponse>('/api/instance/self'),
@@ -64,35 +77,45 @@ export const api = {
       body: JSON.stringify({}),
     }),
 
-  tools: () => apiFetch<{ tools: ToolSchema[] }>('/api/tools'),
+  tools: () => apiFetch<ToolsResponse>('/api/tools'),
 
-  callTool: (toolName: string, params: Record<string, unknown>) =>
-    apiFetch<ToolCallResult>(`/api/tools/m1nd.${toolName}`, {
+  callTool: (toolName: string, params: Record<string, unknown>, brain?: string | null) =>
+    apiFetch<ToolCallResult>(withBrain(`/api/tools/m1nd.${toolName}`, brain), {
       method: 'POST',
       body: JSON.stringify({ agent_id: 'gui', ...params }),
     }),
 
-  subgraph: (query: string, topK = 30, depth = 2) => {
+  subgraph: (query: string, topK = 30, depth = 2, brain?: string | null) => {
     const clampedTopK = Math.min(topK, 100);
     return apiFetch<SubgraphResponse>(
-      `/api/graph/subgraph?query=${encodeURIComponent(query)}&top_k=${clampedTopK}&depth=${depth}`,
+      withBrain(
+        `/api/graph/subgraph?query=${encodeURIComponent(query)}&top_k=${clampedTopK}&depth=${depth}`,
+        brain,
+      ),
     );
   },
 
-  graphStats: () => apiFetch<{ node_count: number; edge_count: number }>(
-    '/api/graph/stats',
-  ),
+  graphStats: (brain?: string | null) =>
+    apiFetch<{ node_count: number; edge_count: number }>(withBrain('/api/graph/stats', brain)),
 
-  /** The single source of tree structure (PRD §3.1). Typed to the live wire shape. */
-  graphSnapshot: () => apiFetch<GraphSnapshot>('/api/graph/snapshot'),
+  /** The single source of tree structure (PRD §3.1). Typed to the live wire shape.
+   *  §4A.9: `brain` routes to a hosted brain (absent = the bound graph). */
+  graphSnapshot: (brain?: string | null) =>
+    apiFetch<GraphSnapshot>(withBrain('/api/graph/snapshot', brain)),
 
   /**
    * Call a tool by its BARE name (the dispatch route strips no `m1nd.` prefix —
    * `/api/tools/{tool}` maps 1:1 to the tool id). Returns the unwrapped `result`.
-   * Used by the Living Tree for trust / tremor / impact / north.
+   * Used by the Living Tree for trust / tremor / impact / north / seek / layers.
+   * §4A.9: `brain` scopes the call to a hosted brain (absent = the bound graph),
+   * so every Reading-the-Tree instrument answers from the brain being viewed.
    */
-  tool: <T = unknown>(toolName: string, params: Record<string, unknown> = {}) =>
-    apiFetch<{ result: T }>(`/api/tools/${toolName}`, {
+  tool: <T = unknown>(
+    toolName: string,
+    params: Record<string, unknown> = {},
+    brain?: string | null,
+  ) =>
+    apiFetch<{ result: T }>(withBrain(`/api/tools/${toolName}`, brain), {
       method: 'POST',
       body: JSON.stringify({ agent_id: 'gui', ...params }),
     }).then((r) => r.result),
