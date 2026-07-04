@@ -1003,13 +1003,12 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
         present_roots.insert(root_key.clone());
         // Live counts win if the brain happens to be warm; else the manifest's
         // recorded counts (honest for a dormant store); else absent — never 0.
-        let counts = state
-            .project_brains
-            .warm_counts(&root_key)
-            .or(match (facts.node_count, facts.edge_count) {
+        let counts = state.project_brains.warm_counts(&root_key).or(
+            match (facts.node_count, facts.edge_count) {
                 (Some(n), Some(e)) => Some((n, e)),
                 _ => None,
-            });
+            },
+        );
         // A stable synthetic id from the store dir name (the fingerprint) — a
         // dormant brain has no live instance lease, but the Hall needs a React key
         // and the receipt a handle; it never collides with a real instance_id.
@@ -1243,7 +1242,10 @@ pub struct BrainQuery {
 /// The `served_brain` echo shape (§4A.9.4): the resolution `instances_listing`
 /// already computes, attached to every `/api/graph/*` response so the client can
 /// ASSERT what it got against what it asked for and drop mismatches (INV-15).
-fn served_brain_json(project_root: Option<String>, display_name: Option<String>) -> serde_json::Value {
+fn served_brain_json(
+    project_root: Option<String>,
+    display_name: Option<String>,
+) -> serde_json::Value {
     serde_json::json!({
         "project_root": project_root,
         "display_name": display_name,
@@ -1293,7 +1295,9 @@ pub fn resolve_brain(
     let bound_matches = {
         let s = state.session.lock();
         s.project_root_display()
-            .map(|r| crate::project_brains::ProjectBrainRegistry::canonical_key(&r) == requested_key)
+            .map(|r| {
+                crate::project_brains::ProjectBrainRegistry::canonical_key(&r) == requested_key
+            })
             .unwrap_or(false)
     };
     if bound_matches {
@@ -1822,7 +1826,13 @@ fn browser_graph_changed_event(event: &SseEvent) -> Option<SseEvent> {
     // `brain_root` (§4A.9.6) rides along when the mutation named a brain — the
     // viewer refetches only for ITS brain (or when the field is absent, the
     // honest over-refetch on old owners). Additive: absent on bound/legacy events.
-    for key in ["agent_id", "source", "batch_id", "timestamp_ms", "brain_root"] {
+    for key in [
+        "agent_id",
+        "source",
+        "batch_id",
+        "timestamp_ms",
+        "brain_root",
+    ] {
         if let Some(v) = event.data.get(key) {
             detail.insert(key.into(), v.clone());
         }

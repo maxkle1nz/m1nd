@@ -538,7 +538,9 @@ async fn hall_lists_dormant_project_brain_from_disk_after_restart() {
                 .unwrap_or(false)
         })
         .unwrap_or_else(|| {
-            panic!("a dormant project brain must be listed from disk with zero routed calls: {cold}")
+            panic!(
+                "a dormant project brain must be listed from disk with zero routed calls: {cold}"
+            )
         });
 
     assert_eq!(
