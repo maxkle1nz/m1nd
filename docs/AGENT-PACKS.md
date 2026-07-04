@@ -22,6 +22,7 @@ same operating model.
 
 ```bash
 npm install -g .
+m1nd version   # prints the package version (also: m1nd --version, m1nd -V)
 m1nd doctor
 ```
 
@@ -224,13 +225,15 @@ orientation and hypothesis tools; direct source reads, tests, compiler/runtime
 output, logs, or focused probes remain final truth.
 
 If the host is stale because it is still launching an older native binary, use
-the self-update surface first:
+the self-update surface first. The default channel is `latest`, so a fresh
+install lands on the package's own version; pass `--channel beta` only to opt
+into prereleases:
 
 ```bash
-m1nd update check --channel beta
-m1nd update status --channel beta
-m1nd update plan --channel beta
-m1nd update apply --channel beta --yes
+m1nd update check
+m1nd update status
+m1nd update plan
+m1nd update apply --yes
 m1nd update verify --repo /path/to/m1nd --transport stdio
 m1nd hosts status --host all --project /path/to/project --json
 m1nd hosts plan --host all --project /path/to/project --json

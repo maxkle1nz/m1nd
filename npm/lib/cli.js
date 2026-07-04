@@ -35,6 +35,7 @@ Usage:
   m1nd hosts plan [--host codex|claude|gemini|antigravity|generic|all] [--project <dir>] [--binary <path>] [--json]
   m1nd hosts apply [--host codex|claude|gemini|antigravity|generic|qwen|kiro|cline|continue|grok|...|all] [--project <dir>] [--binary <path>] [--yes] [--no-skills] [--no-config] [--no-hooks] [--json]
   m1nd doctor [--json]
+  m1nd version   (also: m1nd --version, m1nd -V)
   m1nd restart [--source <dir>] [--binary <path>] [--yes] [--json]
   m1nd update check [--channel beta|latest] [--json]
   m1nd update status [--channel beta|latest] [--json]
@@ -128,6 +129,7 @@ function parseArgs(args) {
         "no-skills",
         "shared-runtime",
         "skip-ingest",
+        "version",
         "yes",
       ].includes(key)
     ) {
@@ -1193,7 +1195,7 @@ function hostStatus(args) {
     const nextActions = [];
     const warnings = [];
     if (!runtimeCurrent) {
-      nextActions.push("Run m1nd update status --channel beta --json, then m1nd update plan/apply if the runtime is stale or missing.");
+      nextActions.push("Run m1nd update status --json, then m1nd update plan/apply if the runtime is stale or missing.");
     }
     if (pathShadow.status === "actionable") {
       nextActions.push("Align the m1nd-mcp binary found on PATH or pass --binary to target the runtime this host launches.");
@@ -1744,7 +1746,7 @@ function doctor() {
     result.next_actions.push(`From a source checkout: cargo build --release -p m1nd-mcp, then copy ${runtimeBinaryName()} to ${defaultRuntimePath()}`);
   }
   if (binary && (!binaryVersion || !binaryVersion.includes(packageVersion))) {
-    result.next_actions.push(`Runtime version ${binaryVersion || "unknown"} does not match package ${packageVersion}; run m1nd update plan --channel beta, then m1nd update apply --channel beta --yes and rebind the host.`);
+    result.next_actions.push(`Runtime version ${binaryVersion || "unknown"} does not match package ${packageVersion}; run m1nd update apply --yes to install the matching runtime, then rebind the host.`);
   }
   if (!codexSkillsInstalled) {
     result.next_actions.push("For Codex: m1nd install-skills codex");
@@ -1864,7 +1866,10 @@ function safeJsonParse(text) {
 }
 
 function normalizeChannel(channel) {
-  const normalized = channel || "beta";
+  // Default to `latest`: a fresh install must land on the shipped package version. The
+  // `beta` dist-tag trails far behind (an old 0.9.x) — defaulting to it dragged new users
+  // onto a months-old prerelease. Opt into beta explicitly with --channel beta.
+  const normalized = channel || "latest";
   if (!["beta", "latest"].includes(normalized)) {
     throw new Error(`unsupported update channel '${normalized}'. Supported channels: beta, latest`);
   }
@@ -2480,7 +2485,7 @@ function buildSelfUpdateStatus(args) {
   };
 
   if (hasPlannedActions) {
-    proof.next_actions.push("Run m1nd update plan --channel beta --json, inspect actions, then apply with --yes when ready.");
+    proof.next_actions.push("Run m1nd update plan --json, inspect actions, then apply with --yes when ready.");
   }
   if (blockingActions.length > 0) {
     proof.next_actions.push("Resolve blocking_actions before treating this install as agent-ready.");
@@ -2905,6 +2910,11 @@ function print(value, asJson) {
 async function main(rawArgs) {
   const args = parseArgs(rawArgs);
   const command = args._[0] === "/restart" ? "restart" : args._[0] || "help";
+
+  if (args.version || ["version", "-V", "--version"].includes(command)) {
+    console.log(readPackageVersion());
+    return;
+  }
 
   if (args.help || ["help", "-h", "--help"].includes(command)) {
     console.log(usage());
