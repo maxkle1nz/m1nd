@@ -20,7 +20,7 @@ import type { InstanceRegistryEntry } from '../../types';
 import { api, ApiError } from '../../api/client';
 import { useToastStore } from '../../stores/toastStore';
 import {
-  repoBasename,
+  brainDisplayName,
   nameMatches,
   DELETE_DIES,
   DELETE_SURVIVES,
@@ -204,7 +204,9 @@ export default function ForgetRuntimeFlow({ entry, isLive, onDeleted }: ForgetRu
   const [refusal, setRefusal] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const addToast = useToastStore((s) => s.addToast);
-  const basename = repoBasename(entry.workspace_root);
+  // The confirm target is the PROJECT name (§4A.4): type "m1nd" to forget, never
+  // the runtime dir or the agent-memory sidecar — same name the card shows.
+  const basename = brainDisplayName(entry);
   const matches = nameMatches(typed, basename);
 
   // Focus lands in the input at step 2 — never on the destructive button (§4A.4).

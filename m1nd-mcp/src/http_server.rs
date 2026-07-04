@@ -816,20 +816,180 @@ async fn handle_instance_self(State(state): State<Arc<AppState>>) -> impl IntoRe
 
 async fn handle_instances(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let state = state.clone();
-    let result =
-        tokio::task::spawn_blocking(
-            move || match list_instances(state.registry_dir.as_deref()) {
-                Ok(instances) => serde_json::json!({ "instances": instances }),
-                Err(error) => serde_json::json!({
-                    "instances": [],
-                    "error": error.to_string(),
-                }),
-            },
-        )
+    let result = tokio::task::spawn_blocking(move || instances_listing(&state))
         .await
         .expect("spawn_blocking panicked");
 
     (StatusCode::OK, Json(result))
+}
+
+/// The `/api/instances` body — the Hall's single brains surface, now PROJECT-
+/// named (HUMAN-LAYER-PRD §4A.3, promoting #260's "REST/GUI bound-only"
+/// residue). Every registry entry is enriched with two honest fields BEFORE it
+/// reaches the Hall:
+///   - `display_name` — the repo basename ("m1nd", "Cerrybubbles1"), the card's
+///     name. NEVER the runtime dir ("claude") nor its `agent-memory` sidecar.
+///   - `project_root` — the repo the brain maps, the card's path.
+///
+/// Resolution per entry, at the source of the lie:
+///   - the bound/self brain → `SessionState::project_root_display` (skips the
+///     agent-memory sidecar + `.light.md` memory files to reach the real repo);
+///   - a hosted `brain_kind:"project"` entry → its store manifest's
+///     `project_root` (its `workspace_root` is the fingerprint store dir, which
+///     is exactly the hash that leaked into the Hall);
+///   - a sibling owner → its own `workspace_root` basename (best effort; a
+///     foreign owner's manifest is not ours to read).
+///
+/// The raw runtime fields (`workspace_root`, `runtime_root`, `pid`, …) stay on
+/// each entry, demoted to the receipt drawer — nothing is deleted, the headline
+/// is just no longer plumbing. Extracted as a pure fn so the enriched shape is
+/// unit-testable without an HTTP driver.
+pub fn instances_listing(state: &AppState) -> serde_json::Value {
+    let instances = match list_instances(state.registry_dir.as_deref()) {
+        Ok(instances) => instances,
+        Err(error) => {
+            return serde_json::json!({ "instances": [], "error": error.to_string() });
+        }
+    };
+
+    // The owner's own runtime root + its real project identity: the one entry
+    // that is "self" is named from the live session, not from its sidecar dir.
+    // Canonicalize the runtime root so the self-match survives macOS's
+    // `/var` → `/private/var` aliasing (the registry stores the canonical form,
+    // the live session carries the raw form — a bare string compare misses).
+    let canon_root = |s: &str| {
+        std::path::Path::new(s)
+            .canonicalize()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| s.to_string())
+    };
+    let (self_runtime_root, self_project_root, self_display_name) = {
+        let session = state.session.lock();
+        (
+            canon_root(&session.runtime_root.to_string_lossy()),
+            session.project_root_display(),
+            session.display_name(),
+        )
+    };
+    let store_base = state.project_brains.base_dir().to_path_buf();
+
+    let enriched: Vec<serde_json::Value> = instances
+        .into_iter()
+        .map(|entry| {
+            let mut value = serde_json::to_value(&entry).unwrap_or(serde_json::Value::Null);
+            // Per-entry enrichment: the PROJECT name/root, plus (for hosted
+            // project brains) recorded counts + freshness, since a project brain
+            // lives in-process and has no instance "running"/"lock" status.
+            let is_project = entry.brain_kind.as_deref() == Some("project");
+            let mut project_counts: Option<(u64, u64)> = None;
+            let mut project_updated_ms: Option<u64> = None;
+
+            let (display_name, project_root) =
+                if canon_root(&entry.runtime_root) == self_runtime_root {
+                    // The bound/dev graph this owner serves.
+                    (self_display_name.clone(), self_project_root.clone())
+                } else if is_project {
+                    // A hosted project brain: its workspace_root IS its store dir;
+                    // the manifest there names the real repo it maps AND records
+                    // its last-known size (the cheap dormant-count source).
+                    let store_path = std::path::Path::new(&entry.workspace_root);
+                    let facts =
+                        crate::project_brains::store_facts_for_store(store_path).or_else(|| {
+                            // Defensive: if the entry's store path drifted, try
+                            // resolving under our own store base by basename.
+                            store_path
+                                .file_name()
+                                .map(|name| store_base.join(name))
+                                .and_then(|p| crate::project_brains::store_facts_for_store(&p))
+                        });
+                    match facts {
+                        Some(f) => {
+                            // Warm brain counts win (live truth); else the
+                            // manifest's recorded counts (honest for a dormant
+                            // store); else absent — never a fabricated zero.
+                            project_counts = state.project_brains.warm_counts(&f.project_root).or(
+                                match (f.node_count, f.edge_count) {
+                                    (Some(n), Some(e)) => Some((n, e)),
+                                    _ => None,
+                                },
+                            );
+                            project_updated_ms = f.updated_ms;
+                            let name = crate::session::basename_of(&f.project_root);
+                            (Some(name), Some(f.project_root))
+                        }
+                        // Manifest unreadable → honest fallback to the store basename
+                        // rather than invent a name.
+                        None => (
+                            Some(crate::session::basename_of(&entry.workspace_root)),
+                            Some(entry.workspace_root.clone()),
+                        ),
+                    }
+                } else {
+                    // A sibling owner: name it by its own workspace basename.
+                    (
+                        Some(crate::session::basename_of(&entry.workspace_root)),
+                        Some(entry.workspace_root.clone()),
+                    )
+                };
+            if let Some(map) = value.as_object_mut() {
+                map.insert(
+                    "display_name".into(),
+                    match display_name {
+                        Some(n) => serde_json::Value::String(n),
+                        None => serde_json::Value::Null,
+                    },
+                );
+                map.insert(
+                    "project_root".into(),
+                    match project_root {
+                        Some(r) => serde_json::Value::String(r),
+                        None => serde_json::Value::Null,
+                    },
+                );
+                if is_project {
+                    // Project-brain semantics: counts from the store/warm brain
+                    // (absent-honest, never 0), freshness from the manifest, and
+                    // NO instance process-status — a project brain has no
+                    // "running" state and no lock, so those never render on its
+                    // card (the UI keys on brain_kind).
+                    map.insert(
+                        "node_count".into(),
+                        project_counts
+                            .map(|(n, _)| serde_json::json!(n))
+                            .unwrap_or(serde_json::Value::Null),
+                    );
+                    map.insert(
+                        "edge_count".into(),
+                        project_counts
+                            .map(|(_, e)| serde_json::json!(e))
+                            .unwrap_or(serde_json::Value::Null),
+                    );
+                    if let Some(ms) = project_updated_ms {
+                        map.insert("last_activity_ms".into(), serde_json::json!(ms));
+                    }
+                }
+            }
+            value
+        })
+        .collect();
+
+    // Bound-first (§4A.3): the graph THIS owner serves is the home — float it to
+    // the top, then keep every other brain in the registry's freshest-first
+    // recency order (a stable partition preserves that order for the tail). The
+    // bound owner heartbeats continuously, but a just-bootstrapped project brain
+    // can carry a marginally fresher stamp — recency alone would bury the home.
+    let mut enriched = enriched;
+    enriched.sort_by_key(|entry| {
+        let is_self = entry
+            .get("runtime_root")
+            .and_then(|v| v.as_str())
+            .map(|r| canon_root(r) == self_runtime_root)
+            .unwrap_or(false);
+        // false→0 sorts before true→1; we want self FIRST, so invert.
+        u8::from(!is_self)
+    });
+
+    serde_json::json!({ "instances": enriched })
 }
 
 async fn handle_instance_save(State(state): State<Arc<AppState>>) -> axum::response::Response {

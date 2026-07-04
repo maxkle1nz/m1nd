@@ -184,14 +184,9 @@ impl ProjectBrainRegistry {
             Some(brain) => brain,
             None => {
                 let state = self.boot_store(&key)?;
-                // Birth record for warm-boots (inert data only).
-                let manifest = self.store_dir_for(&key).join(MANIFEST_FILE);
-                let record = serde_json::json!({
-                    "schema": "m1nd-project-brain-v0",
-                    "project_root": key,
-                    "created_ms": crate::util::now_ms(),
-                });
-                std::fs::write(&manifest, serde_json::to_string_pretty(&record)?)?;
+                // Birth record for warm-boots (inert data only). Counts stamped
+                // after ingest below so a DORMANT store still reports its size.
+                self.write_manifest(&key, None, None)?;
                 let built = Arc::new(Mutex::new(state));
                 self.brains
                     .lock()
@@ -226,12 +221,107 @@ impl ProjectBrainRegistry {
             result
         };
 
+        // Stamp the ingested size into the manifest — the CHEAP source the Hall
+        // reads for a dormant project brain's counts (parsing the multi-MB
+        // graph_snapshot on a list call is banned). A project brain lives
+        // in-process, warm-booted lazily: it has no "running" state and no lock,
+        // so the Hall shows these recorded counts + freshness, never an
+        // instance's process status.
+        let node_count = ingest_result.get("node_count").and_then(|v| v.as_u64());
+        let edge_count = ingest_result.get("edge_count").and_then(|v| v.as_u64());
+        let _ = self.write_manifest(&key, node_count, edge_count);
+
         Ok((brain, ingest_result, reused))
     }
 
+    /// Write (or refresh) the store manifest. Records the project root (identity),
+    /// the birth time (kept stable across refreshes), and the last known graph
+    /// size + refresh time — the cheap, honest source for a DORMANT project
+    /// brain's Hall counts. Inert data only (no binary paths, no exec).
+    fn write_manifest(
+        &self,
+        canonical_root: &str,
+        node_count: Option<u64>,
+        edge_count: Option<u64>,
+    ) -> M1ndResult<()> {
+        let path = self.store_dir_for(canonical_root).join(MANIFEST_FILE);
+        // Preserve the original created_ms across refreshes.
+        let created_ms = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|v| v["created_ms"].as_u64())
+            .unwrap_or_else(crate::util::now_ms);
+        let mut record = serde_json::json!({
+            "schema": "m1nd-project-brain-v0",
+            "project_root": canonical_root,
+            "created_ms": created_ms,
+        });
+        if let (Some(n), Some(e)) = (node_count, edge_count) {
+            record["node_count"] = serde_json::json!(n);
+            record["edge_count"] = serde_json::json!(e);
+            record["updated_ms"] = serde_json::json!(crate::util::now_ms());
+        }
+        std::fs::create_dir_all(self.store_dir_for(canonical_root))?;
+        std::fs::write(&path, serde_json::to_string_pretty(&record)?)?;
+        Ok(())
+    }
+
     /// The store base dir (`<owner runtime_root>/project-brains`) — surfaced for
-    /// diagnostics/tests.
+    /// diagnostics/tests and for the Hall's project-brain name resolution.
     pub fn base_dir(&self) -> &Path {
         &self.base_dir
     }
+
+    /// Live `(node_count, edge_count)` for a project brain that is warm in the
+    /// map RIGHT NOW — the freshest truth for the Hall. `None` when the brain is
+    /// dormant on disk (the caller then falls back to the manifest's recorded
+    /// counts). Locks the map only briefly, then the brain's graph read-lock.
+    pub fn warm_counts(&self, canonical_root: &str) -> Option<(u64, u64)> {
+        let key = Self::canonical_key(canonical_root);
+        let brain = self.brains.lock().get(&key).cloned()?;
+        let state = brain.lock();
+        let g = state.graph.read();
+        Some((g.num_nodes() as u64, g.num_edges() as u64))
+    }
+}
+
+/// The real project root a store belongs to, read from its `project_brain.json`
+/// manifest. This is how the Hall recovers a hosted brain's true identity: a
+/// project brain's registry entry stores its FINGERPRINT store dir as its
+/// `workspace_root` (the hash that leaked into the Hall), while the manifest in
+/// that store names the repo it actually maps. `None` = no readable manifest
+/// (not a resolvable project brain). Inert read only — no exec, no binary paths
+/// (PRD §9.4 posture).
+pub fn project_root_for_store(store_dir: &Path) -> Option<String> {
+    store_facts_for_store(store_dir).map(|f| f.project_root)
+}
+
+/// The cheap Hall facts for a project brain store, read ONLY from its inert
+/// `project_brain.json` manifest (never the multi-MB snapshot): identity +
+/// last-recorded size + freshness. `node_count`/`edge_count` are `None` for a
+/// pre-counts manifest (honest absence, not zero); the Hall then shows counts
+/// only if the brain is warm in the map. `None` = no readable manifest.
+pub fn store_facts_for_store(store_dir: &Path) -> Option<StoreFacts> {
+    let text = std::fs::read_to_string(store_dir.join(MANIFEST_FILE)).ok()?;
+    let record = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+    let project_root = record["project_root"].as_str()?.to_string();
+    Some(StoreFacts {
+        project_root,
+        node_count: record["node_count"].as_u64(),
+        edge_count: record["edge_count"].as_u64(),
+        // Freshness floor: the last recorded update, else the birth time.
+        updated_ms: record["updated_ms"]
+            .as_u64()
+            .or_else(|| record["created_ms"].as_u64()),
+    })
+}
+
+/// Inert facts about a project brain, from its manifest (see
+/// [`store_facts_for_store`]).
+#[derive(Clone, Debug)]
+pub struct StoreFacts {
+    pub project_root: String,
+    pub node_count: Option<u64>,
+    pub edge_count: Option<u64>,
+    pub updated_ms: Option<u64>,
 }

@@ -11,13 +11,16 @@ import type { InstanceRegistryEntry, InstanceSelfResponse } from '../../types';
 import {
   livenessBand,
   LIVENESS_STYLE,
-  repoBasename,
+  brainDisplayName,
+  brainProjectPath,
   shortPath,
   bornPhrase,
   lastSeenPhrase,
   persistedPhrase,
   entryBaseUrl,
-  brainCounts,
+  resolvedBrainCounts,
+  visibleConflicts,
+  isProjectBrain,
 } from '../../lib/hallSemantics';
 import ForgetRuntimeFlow from './ForgetRuntimeFlow';
 
@@ -75,18 +78,22 @@ export default function BrainReceiptDrawer({
   if (!entry) return null;
   const band = livenessBand(entry);
   const dot = LIVENESS_STYLE[band];
-  const name = repoBasename(entry.workspace_root);
+  const name = brainDisplayName(entry);
+  const projectPath = brainProjectPath(entry);
   const baseUrl = entryBaseUrl(entry);
   const canOpenInPlace = isSelf || baseUrl != null;
-  const isLive = entry.owner_live === true;
+  const isProject = isProjectBrain(entry);
+  // A project brain has no owner-process liveness/lock; only a real owner
+  // instance can be "live" (and thus block delete).
+  const isLive = !isProject && entry.owner_live === true;
 
-  // Counts are known only for self (graph_state) here; a live sibling would need a
-  // polled /api/graph/stats — deferred, so dormant/hosted shows absent-honest.
-  const counts = brainCounts(
-    isSelf && self
-      ? { nodeCount: self.graph_state.node_count, edgeCount: self.graph_state.edge_count }
-      : { nodeCount: null, edgeCount: null },
-  );
+  // Self uses graph_state; a project brain uses its entry-recorded counts; a
+  // dormant sibling shows absent-honest (a polled /api/graph/stats is deferred).
+  const counts = resolvedBrainCounts(entry, {
+    nodeCount: isSelf && self ? self.graph_state.node_count : null,
+    edgeCount: isSelf && self ? self.graph_state.edge_count : null,
+  });
+  const conflicts = visibleConflicts(entry);
 
   return (
     <aside
@@ -101,8 +108,8 @@ export default function BrainReceiptDrawer({
             <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: dot.color }} title={dot.label} />
             <span className="text-base text-ink font-semibold truncate">{name}</span>
           </div>
-          <div className="text-[11px] text-ink-soft font-mono break-all" title={entry.workspace_root}>
-            {entry.workspace_root}
+          <div className="text-[11px] text-ink-soft font-mono break-all" title={projectPath}>
+            {projectPath}
           </div>
         </div>
         <button onClick={onClose} className="text-ink-soft hover:text-ink text-sm font-mono shrink-0" aria-label="close receipt">
@@ -147,9 +154,9 @@ export default function BrainReceiptDrawer({
               </div>
             )}
           </div>
-          {entry.conflicts.length > 0 && (
+          {conflicts.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {entry.conflicts.map((c) => (
+              {conflicts.map((c) => (
                 <span key={c} className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-ink/15 bg-porcelain text-ink-soft">
                   {c.replace(/_/g, ' ')}
                 </span>
@@ -197,7 +204,7 @@ export default function BrainReceiptDrawer({
             <DisabledRung
               label="Stop"
               residue="Stopping a live brain from the UI isn't built yet — two-tier Slice 2."
-              cli={`m1nd brain stop ${shortPath(entry.workspace_root)}`}
+              cli={`m1nd brain stop ${name}`}
             />
 
             {/* Clean = the real guarded delete (the calm two-step). Live brains are refused. */}

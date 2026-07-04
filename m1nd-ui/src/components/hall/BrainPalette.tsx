@@ -17,7 +17,7 @@ import type { InstanceRegistryEntry } from '../../types';
 import {
   livenessBand,
   LIVENESS_STYLE,
-  repoBasename,
+  brainDisplayName,
   lastSeenPhrase,
   entryBaseUrl,
 } from '../../lib/hallSemantics';
@@ -36,7 +36,7 @@ export interface BrainRow {
 export function filterBrains(rows: BrainRow[], query: string): BrainRow[] {
   const q = query.trim().toLowerCase();
   if (!q) return rows;
-  return rows.filter((r) => repoBasename(r.entry.workspace_root).toLowerCase().includes(q));
+  return rows.filter((r) => brainDisplayName(r.entry).toLowerCase().includes(q));
 }
 
 interface BrainPaletteProps {
@@ -130,7 +130,7 @@ export default function BrainPalette({ isOpen, onClose, instances, selfId, onOpe
             {filtered.map((row, i) => {
               const band = livenessBand(row.entry);
               const dot = LIVENESS_STYLE[band];
-              const name = repoBasename(row.entry.workspace_root);
+              const name = brainDisplayName(row.entry);
               return (
                 <button
                   key={row.entry.instance_id}

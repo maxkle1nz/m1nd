@@ -8,27 +8,38 @@
  * reception mismatch the chip wears the honesty (brick text); §3.5's banner still
  * owns the repair. Click = the Hall. SOFT PROOF; no violet (not an abstain surface).
  */
-import { repoBasename } from '../../lib/hallSemantics';
-
 interface BrainChipProps {
-  /** Brain name (repo basename); null while unknown → honest placeholder. */
-  workspaceRoot: string | null;
+  /**
+   * The bound brain's PROJECT name (§4A.5, Brain Chip law) — "m1nd", never the
+   * `agent-memory` sidecar. Comes from the self envelope's server-resolved
+   * `display_name`; null while unknown → honest placeholder.
+   */
+  displayName: string | null;
+  /** The bound brain's project root — the chip's hover title (the real repo). */
+  projectPath?: string | null;
   nodeCount: number | null;
   /** true = bound & healthy; false = degraded/reception mismatch (wears honesty). */
   healthy: boolean;
   onClick: () => void;
 }
 
-export default function BrainChip({ workspaceRoot, nodeCount, healthy, onClick }: BrainChipProps) {
-  const name = workspaceRoot ? repoBasename(workspaceRoot) : 'no brain';
+export default function BrainChip({
+  displayName,
+  projectPath,
+  nodeCount,
+  healthy,
+  onClick,
+}: BrainChipProps) {
+  const name = displayName && displayName.trim().length > 0 ? displayName : 'no brain';
   const dot = healthy ? 'var(--verdict-act, #6fa287)' : 'var(--state-failure, #b0563b)';
+  const title = projectPath ? `${projectPath} — open the Hall` : 'open the Hall';
   return (
     <button
       type="button"
       data-role="brain-chip"
       data-healthy={healthy}
       onClick={onClick}
-      title={workspaceRoot ? `${workspaceRoot} — open the Hall` : 'open the Hall'}
+      title={title}
       className={`flex items-center gap-1.5 px-2 py-1 rounded border transition-shadow hover:shadow-contact ${
         healthy ? 'border-ink/12 text-ink' : 'border-state-failure/40 text-state-failure'
       }`}

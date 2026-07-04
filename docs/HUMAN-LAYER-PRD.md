@@ -522,16 +522,16 @@ project brains the in-flight two-tier slice adds.
 
 | Card element | Meaning | Source (verified) | Status |
 |---|---|---|---|
-| **Name + root** | Repo basename, full path on hover | `entry.workspace_root` (`instance_registry.rs:21`); self: `graph_state.workspace_root` (`session.rs:655`) | BUILT |
-| **Liveness dot** | sage = live · unfired grey = dormant · ochre = stale heartbeat · brick = hard failure — matte, never alarm | `owner_live` + `stale` (30 s rule) + `status` per entry | BUILT |
-| **Nodes · edges** | Graph size, IBM Plex Mono | self: `graph_state.node_count/edge_count` (`session.rs:647-648`); live sibling: its own `/api/graph/stats` via `entry_base_url` (`instance_registry.rs:645-650`); hosted brain at bootstrap: the envelope's `ingest.node_count` | BUILT for live; **dormant/hosted-at-rest: absent-honest** — the last-known registry count fields are `[needs-backend]` (TWO-TIER §9.5.1, serde-default posture) |
-| **Freshness** | "persisted 2 m ago" / "last seen 3 h ago" | self: `last_persist_secs_ago` (`session.rs:1263`); others: `last_heartbeat_ms` + `started_at_ms` | BUILT; snapshot-mtime for dormant brains `[needs-backend — same §9.5.1 fields]` |
+| **Name + root** | **PROJECT** basename, real repo path on hover — never the runtime dir ("claude") nor the `agent-memory` sidecar | `entry.display_name` / `entry.project_root`, resolved server-side (`http_server.rs` `instances_listing`): bound → `SessionState::project_root_display` (primary code ingest root, skipping sidecars); project → its store manifest's `project_root`; chip → self envelope's `display_name` (`session.rs` `instance_self_summary`). Fallback to the workspace basename only for a legacy unenriched entry. | **BUILT + PROJECT-named 2026-07-04** (was `workspace_root`, which leaked "agent-memory"/"claude") |
+| **Liveness dot** | sage = live · unfired grey = dormant · ochre = stale heartbeat · brick = hard failure — matte, never alarm. **A project brain has NO process status** (it lives in-process): present → a calm live dot, never a stale/failed instance band. | `owner_live` + `stale` (30 s rule) + `status` per entry — but `brain_kind:"project"` short-circuits to live (`hallSemantics.livenessBand`) | **BUILT + project-aware 2026-07-04** |
+| **Nodes · edges** | Graph size, IBM Plex Mono | self: `graph_state.node_count/edge_count`; live sibling: its own `/api/graph/stats`; **hosted project brain: its OWN entry counts** — server-enriched from the warm brain (live) or the store manifest's recorded counts (dormant), so a Cherry card shows its real 2089·7323, never "not running" | **BUILT for self + PROJECT brains 2026-07-04** (Max's screenshot: "counts unknown — not running" was instance language wrongly applied to an in-process brain); a fresh project store before first persist reads "counts not recorded yet"; **dormant OWNER-instance counts still `[needs-backend]`** (§9.5.1) |
+| **Freshness** | "persisted 2 m ago" / "last seen 3 h ago" | self: `last_persist_secs_ago`; project brain: manifest `updated_ms`/`created_ms` (`last_activity_ms`); others: `last_heartbeat_ms` + `started_at_ms` | BUILT; snapshot-mtime for dormant OWNER brains `[needs-backend — §9.5.1]` |
 | **Trust state** | The calibration line, action language ("measured here" / "not measured yet") | open brain: `predict.calibration` (`tools.rs:2428`) + `north.binding.trust_mode` | BUILT for the open brain; **per-listed-brain `calibration_armed` `[needs-backend]`** (TWO-TIER §9.5.1, unbuilt) |
 | **Last activity** | "N queries this session" | self: `queries_processed` (`session.rs:1262`); others: heartbeat age | BUILT |
 | **Attached agents** | How many hands are on this brain | self: `active_agent_sessions` (`session.rs:1261`) + `health.agent_sessions[]` | BUILT for self; **per-hosted-brain `attached_sessions` `[needs-backend]`** (the owner knows; no surface reports it) |
 | **Memories** | Post-it count | open brain: `light`-namespace nodes in the snapshot (same aggregation the tree ships, §3.6) | BUILT for the open brain; absent-honest elsewhere |
-| **Kind badge** | project / medulla / bound | `brain_kind` registry field — **in-flight** (the branch adds field + stamp); legacy entries parse as absent | IN-FLIGHT |
-| **Conflict chips** | shared runtime root, duplicate workspace, stale lock — calm chips, not warnings | `conflicts[]` per entry | BUILT |
+| **Kind badge** | project / medulla / bound | `brain_kind` registry field (stamped by `set_brain_kind`); legacy entries parse as absent = bound | **BUILT** (two-tier landed #260; hosted brains now enumerated on `/api/instances`) |
+| **Conflict chips** | shared runtime root, duplicate workspace, stale lock — calm chips, not warnings. **Lock/runtime conflicts are OWNER-process concepts and never render on a project brain** (it owns no lock). | `conflicts[]` per entry, filtered for `brain_kind:"project"` (`hallSemantics.visibleConflicts`) | **BUILT + project-aware 2026-07-04** (Max's screenshot: a "stale lock" badge on the in-process Cherry brain) |
 
 **Hall discipline.** Heat scarcity applies (§3.2): most cards sit quiet; only a stale,
 conflicted, or failed brain earns a non-sage dot *(research §B.4, calm-tech)*. A card carries
@@ -661,17 +661,21 @@ Two **distinct** confirmations — the card acknowledge and the typed name — a
 | Threshold trigger + cold state | `north` `needs_ingest` (§3.5, shipped) + empty `/api/instances` | — | — |
 | One-call bootstrap | — | `ingest {path, project_root}` → `m1nd-project-brain-bootstrap-v0` (tests-first contract) | — (UI feature-detects via `GET /api/tools`) |
 | Ingest progress | SSE `ingest` completion event | — | progress granularity, only if words prove insufficient (measure first, §5.4 posture) |
-| Brains enumeration | `/api/instance/self` + `/api/instances` (recency-sorted) | `brain_kind` stamps hosted brains | — |
+| Brains enumeration | `/api/instance/self` + `/api/instances` — **now PROJECT-named**: each entry carries server-resolved `display_name` + `project_root`, hosted `brain_kind:"project"` brains are enumerated (their store manifest names the real repo), the bound brain floats first, the rest stay recency-sorted | `brain_kind` stamps hosted brains (landed #260) | — **SHIPPED 2026-07-04** (the "REST/GUI bound-only" residue is closed for enumeration) |
 | Dormant/hosted counts + snapshot mtime + `calibration_armed` + `attached_sessions` | absent-honest | — | **last-known registry fields** (TWO-TIER §9.5.1, serde-default — small) |
 | Open hosted brain in-tab | — | wire-level caller-root routing (MCP only) | **REST brain routing** for `/api/graph/*` + `/api/tools/*` (small: the same resolution the wire uses) |
 | Stop from UI | — (CLI command rendered) | — | two-tier Slice 2 `m1nd brain stop`; an HTTP stop verb is a later call |
 | Delete (clean) | `delete-state` route, guarded | hosted-brain store dirs are a **new file layout** — their delete must land with the slice or the card says so | **hosted-brain delete** with the same live-guard + the same calm flow |
 | Eject | — | — | V2 (TWO-TIER §20) — reserved, named |
 
-**The residue, consolidated** (each honest, each slice-sized): (1) REST brain routing;
-(2) the §9.5.1 optional registry fields (counts, mtime, calibration, sessions); (3) hosted-
-brain delete; (4) an in-UI stop; (5) eject (V2). Until each lands, its affordance renders
-disabled with the residue's name in the tooltip — the PRD's honesty carried into the pixels.
+**The residue, consolidated** (each honest, each slice-sized): (1) REST brain **routing** —
+_enumeration_ shipped 2026-07-04 (`/api/instances` lists every hosted brain, PROJECT-named),
+but _opening_ a hosted brain in-tab still needs a brain selector on `/api/graph/*` +
+`/api/tools/*` (Open stays disabled-with-tooltip for project brains); (2) the §9.5.1 optional
+registry fields (dormant counts, mtime, calibration, sessions — warm brains already report
+real counts); (3) hosted-brain delete; (4) an in-UI stop; (5) eject (V2). Until each lands,
+its affordance renders disabled with the residue's name in the tooltip — the PRD's honesty
+carried into the pixels.
 
 ---
 
