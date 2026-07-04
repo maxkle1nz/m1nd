@@ -138,6 +138,34 @@ air-gapped; live smoke rendered the two real brains (the m1nd dev brain + the Ch
 focused new `BrainPalette`, not a retrofit of the deferred-legacy cyberpunk `CommandPalette`.
 **Kickstart note:** the dist is rust-embedded, so activating the new UI needs a served-owner restart.
 
+### Human layer Slice 1T — SHIPPED (`feat/tree-precision-1t`, the precision system + reading instruments)
+Client-heavy, bound brain, ZERO new verbs — the founder's "design de precisão, com ícones certos para
+cada coisa" made real. **Iconography (§4A.7):** `lucide-react` vendored (ISC — verified; license text
+alongside the registry as the fonts do), a central `lib/icons/registry.tsx` that is the ONLY lucide
+import site (the verbatim CONCEPT→ICON table), `<Icon>` fixing stroke 1.5 + `currentColor` (so the
+violet quarantine covers icons for free) + sizes 14/16 + the aria-label contract, and `StatCell`/
+`StatValue` (right-aligned tabular-mono counts). The **icon-lint** (sibling to violet-lint) fails on any
+lucide import outside the registry, any `strokeWidth ≠ 1.5`, and the banned `Sparkles` — proven to BITE
+by a red-case fixture. **Label truth (§4A.8):** kind badges die from card faces (`brainImplClass`,
+receipt-only); the class moves to the receipt `binding:` line; the **viewing chip** (`Eye`,
+exactly-one) is born from the same envelope as the Brain Chip. **Card v2 (§4A.3.1):** the OPEN brain's
+face carries GOLD — G1 freshness-vs-git (`am_i_stale` + Re-read), G2 calibration (`predict.calibration`,
+the uncalibrated cap stated verbatim + Calibrate once), G3 the compounding meter (distinct `light:*`
+memories + 30-day aging), G4 aliveness (sessions + queries) — and the receipt carries DEPTH (D1 last
+claim, D2 honest gaps); hosted brains show it absent-honest; on-demand fetch only (no per-card poll).
+**Reading the Tree (§4A.10):** three lenses (directory | kind | layer via `layers` + the honest
+"unlayered" group), six matte filter chips with exact "N hidden by filters" residue, and search in two
+modes — `name` (instant) and `meaning` (`seek`), the `SeekPanel` rendering the `sufficiency` + verdict
+the UI used to discard (no sparkle), a hit-click jumping the tree, a breadcrumb + density toggle, `/`
+focuses search. Proof: **160 UI tests green** (INV-13/14/16 by name + the icon-lint BITE), all
+lens/search/card fixtures REAL captured `:1338` envelopes; violet-lint + icon-lint green; `tsc` clean;
+build air-gapped (lucide adds no host); live smoke on `:1338` rendered the layer lens (8 layers +
+"unlayered" 5,803), the meaning panel (verdict "worth a second look", sufficiency "gathering" + the
+verbatim why, 16 of 847 cleared), and the Hall (one viewing chip, the four GOLD rows live, Cherry
+absent-honest, zero class labels). **Residue:** per-brain lens/search still bound-only (that is 2H,
+§4A.9); the trigram-fallback / empty-result captions are typed + unit-proven but await a real
+embed-off case e2e. **Kickstart note:** dist is rust-embedded — activating needs a served-owner restart.
+
 ### The field-triage sweep — the mailbox emptied in ~a day (the loop, working)
 The universal field-telemetry doctrine paid off: the seeded/accumulated `~/.m1nd/field-reports.jsonl`
 mailbox was swept to EMPTY in roughly a day, each report becoming a battery case/test BEFORE its fix:
