@@ -877,27 +877,45 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
         .into_iter()
         .map(|entry| {
             let mut value = serde_json::to_value(&entry).unwrap_or(serde_json::Value::Null);
+            // Per-entry enrichment: the PROJECT name/root, plus (for hosted
+            // project brains) recorded counts + freshness, since a project brain
+            // lives in-process and has no instance "running"/"lock" status.
+            let is_project = entry.brain_kind.as_deref() == Some("project");
+            let mut project_counts: Option<(u64, u64)> = None;
+            let mut project_updated_ms: Option<u64> = None;
+
             let (display_name, project_root) =
                 if canon_root(&entry.runtime_root) == self_runtime_root {
                     // The bound/dev graph this owner serves.
                     (self_display_name.clone(), self_project_root.clone())
-                } else if entry.brain_kind.as_deref() == Some("project") {
+                } else if is_project {
                     // A hosted project brain: its workspace_root IS its store dir;
-                    // the manifest there names the real repo it maps.
+                    // the manifest there names the real repo it maps AND records
+                    // its last-known size (the cheap dormant-count source).
                     let store_path = std::path::Path::new(&entry.workspace_root);
-                    let root =
-                        crate::project_brains::project_root_for_store(store_path).or_else(|| {
+                    let facts =
+                        crate::project_brains::store_facts_for_store(store_path).or_else(|| {
                             // Defensive: if the entry's store path drifted, try
                             // resolving under our own store base by basename.
                             store_path
                                 .file_name()
                                 .map(|name| store_base.join(name))
-                                .and_then(|p| crate::project_brains::project_root_for_store(&p))
+                                .and_then(|p| crate::project_brains::store_facts_for_store(&p))
                         });
-                    match root {
-                        Some(root) => {
-                            let name = crate::session::basename_of(&root);
-                            (Some(name), Some(root))
+                    match facts {
+                        Some(f) => {
+                            // Warm brain counts win (live truth); else the
+                            // manifest's recorded counts (honest for a dormant
+                            // store); else absent — never a fabricated zero.
+                            project_counts = state.project_brains.warm_counts(&f.project_root).or(
+                                match (f.node_count, f.edge_count) {
+                                    (Some(n), Some(e)) => Some((n, e)),
+                                    _ => None,
+                                },
+                            );
+                            project_updated_ms = f.updated_ms;
+                            let name = crate::session::basename_of(&f.project_root);
+                            (Some(name), Some(f.project_root))
                         }
                         // Manifest unreadable → honest fallback to the store basename
                         // rather than invent a name.
@@ -928,6 +946,28 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
                         None => serde_json::Value::Null,
                     },
                 );
+                if is_project {
+                    // Project-brain semantics: counts from the store/warm brain
+                    // (absent-honest, never 0), freshness from the manifest, and
+                    // NO instance process-status — a project brain has no
+                    // "running" state and no lock, so those never render on its
+                    // card (the UI keys on brain_kind).
+                    map.insert(
+                        "node_count".into(),
+                        project_counts
+                            .map(|(n, _)| serde_json::json!(n))
+                            .unwrap_or(serde_json::Value::Null),
+                    );
+                    map.insert(
+                        "edge_count".into(),
+                        project_counts
+                            .map(|(_, e)| serde_json::json!(e))
+                            .unwrap_or(serde_json::Value::Null),
+                    );
+                    if let Some(ms) = project_updated_ms {
+                        map.insert("last_activity_ms".into(), serde_json::json!(ms));
+                    }
+                }
             }
             value
         })

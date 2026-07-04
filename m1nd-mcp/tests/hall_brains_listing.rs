@@ -372,6 +372,15 @@ async fn no_display_name_is_a_runtime_or_agent_memory_name() {
                 !name.is_empty(),
                 "a brain with a project_root must have a name: {b}"
             );
+            // Max's screenshot: a project card wore "68c5ce186f6efcd2" — the
+            // fingerprint store-dir hash leaking as identity. A display_name may
+            // NEVER be a bare 16-char (or longer) hex fingerprint.
+            let is_hex_fingerprint =
+                name.len() >= 16 && name.chars().all(|c| c.is_ascii_hexdigit());
+            assert!(
+                !is_hex_fingerprint,
+                "display_name is a fingerprint store-dir hash, not a project name: {b}"
+            );
             // And the name must actually be the basename of the project_root.
             let root = b["project_root"].as_str().unwrap();
             let expected = root
@@ -385,6 +394,64 @@ async fn no_display_name_is_a_runtime_or_agent_memory_name() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// (E) project-brain counts — real counts, not "not running" (Max's screenshot).
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn warm_project_brain_reports_real_counts() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let (owner, _bound_repo, _project_repo) = owner_with_two_brains(tmp.path()).await;
+
+    let listing = instances_listing(&owner.app);
+    let hosted = project_of(brains(&listing));
+    // A project brain carries its OWN counts on the entry — never absent for a
+    // freshly-ingested brain, never a fabricated 0. (The card must not say
+    // "not running": that instance language does not apply to a project brain.)
+    assert!(
+        hosted["node_count"].as_u64().unwrap_or(0) > 0,
+        "a warm project brain must report real node counts on its entry: {hosted}"
+    );
+    assert!(
+        hosted["edge_count"].as_u64().unwrap_or(0) > 0,
+        "a warm project brain must report real edge counts on its entry: {hosted}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dormant_project_brain_reports_manifest_counts_after_restart() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    let (owner, _bound, _proj) = owner_with_two_brains(tmp.path()).await;
+    // Capture the warm counts, then "restart" the owner (fresh registry object,
+    // empty brain map) — the project brain is now DORMANT on disk, not warm.
+    let warm = instances_listing(&owner.app);
+    let warm_hosted = project_of(brains(&warm)).clone();
+    let n = warm_hosted["node_count"].as_u64().unwrap();
+    let e = warm_hosted["edge_count"].as_u64().unwrap();
+    drop(owner);
+
+    let owner2 = mk_owner(&runtime);
+    let listing = instances_listing(&owner2.app);
+    let hosted = project_of(brains(&listing));
+    // Dormant → the counts come from the store manifest (recorded at bootstrap),
+    // NOT from a warm graph and NEVER "counts unknown — not running".
+    assert_eq!(
+        hosted["node_count"].as_u64(),
+        Some(n),
+        "a dormant project brain must report its manifest-recorded node count: {hosted}"
+    );
+    assert_eq!(
+        hosted["edge_count"].as_u64(),
+        Some(e),
+        "a dormant project brain must report its manifest-recorded edge count: {hosted}"
+    );
+    assert!(
+        hosted["last_activity_ms"].as_u64().is_some(),
+        "a project brain must carry a freshness stamp: {hosted}"
+    );
 }
 
 // ---------------------------------------------------------------------------
