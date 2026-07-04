@@ -56,6 +56,21 @@ degrading to UNPROVABLE rather than a fake green — the same bar, applied to bu
 > publish follows once npm serves 1.3.0 (`mcp-publisher login github` is Max's device-code
 > moment). The wiki changelog's never-tagged `1.2.2` draft was absorbed into 1.3.0.
 
+> **cp9 addendum-2 (2026-07-04): THE DISTRIBUTION WAVE.** Registry publish is DONE —
+> `io.github.maxkle1nz/m1nd` v1.3.0 live and verified on the public API (device-flow by Max).
+> **v1.3.1** followed same-night: npm + crates.io keywords/categories were shipping EMPTY
+> (the discovery half of "published" had never been done) — filled on all packages, `glama.json`
+> added, repo topics set (12), repo description aligned to the canonical tagline. External:
+> **punkpeye/awesome-mcp-servers PR #9192 OPEN+mergeable** (fixes the 3 faults that killed the
+> abandoned #3238; Glama badge validated by their bot); appcypher verified to accept NO external
+> PRs (entry staged in fork); mcp.so is login-gated (values in Max's queue). Auto-cascade:
+> PulseMCP ingests the official registry weekly → **verify m1nd appears ~2026-07-10**.
+> **Gates for future agents:** awesome-rust requires >50★ OR >2000 downloads (m1nd was 20★/523
+> on 2026-07-04) — do NOT submit before the bar; This Week in Rust PR waits for Max's engineering
+> article; NEVER write HN/Reddit copy for Max (anti-LLM-text backlash is real — he writes, agents
+> supply facts); never reuse identical copy across channels. Max's full playbook:
+> `~/m1nd-launch-kit.md` (local-only).
+
 **The 24h harvest: OMEGA shipped as the floor, three PRDs made official, the first human
 surface landed, and the field-report mailbox went from full to empty.** This is the checkpoint
 where m1nd stops being only "a better `rg` for agents" and becomes a substrate with a *human
