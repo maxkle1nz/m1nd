@@ -1311,7 +1311,7 @@ green, claims scoped).
 > verbatim) + the `trust_envelope` verdict (`VerdictChip`) the UI used to DISCARD, plus the
 > `embeddings_used:false` "matched by text, not meaning" caption and the "showing N of M that cleared
 > relevance" truncation line, a hit-click jumping the tree; a breadcrumb + a density toggle; `/` focuses
-> search. Proofs: **160 UI tests green** (34 net-new incl. INV-13 stroke/color/label + the icon-lint
+> search. Proofs: **142 UI tests green** (51 net-new incl. INV-13 stroke/color/label + the icon-lint
 > BITE, INV-14 zero-class-face + viewing-chip-count-1, INV-16 foreign-hit-dropped in both the lens logic
 > and the SeekPanel render, the card-v2 GOLD/DEPTH + anti-scope, the lens/filter residue exactness), all
 > lens/search/card fixtures are **real captured envelopes** (`seek_meaning.json` / `layers.json` /

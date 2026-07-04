@@ -157,7 +157,7 @@ claim, D2 honest gaps); hosted brains show it absent-honest; on-demand fetch onl
 "unlayered" group), six matte filter chips with exact "N hidden by filters" residue, and search in two
 modes — `name` (instant) and `meaning` (`seek`), the `SeekPanel` rendering the `sufficiency` + verdict
 the UI used to discard (no sparkle), a hit-click jumping the tree, a breadcrumb + density toggle, `/`
-focuses search. Proof: **160 UI tests green** (INV-13/14/16 by name + the icon-lint BITE), all
+focuses search. Proof: **142 UI tests green** (51 net-new; INV-13/14/16 by name + the icon-lint BITE), all
 lens/search/card fixtures REAL captured `:1338` envelopes; violet-lint + icon-lint green; `tsc` clean;
 build air-gapped (lucide adds no host); live smoke on `:1338` rendered the layer lens (8 layers +
 "unlayered" 5,803), the meaning panel (verdict "worth a second look", sufficiency "gathering" + the
