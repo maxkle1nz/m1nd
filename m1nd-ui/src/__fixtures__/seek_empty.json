@@ -1,0 +1,328 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "impact(top_result) to check blast radius",
+      "learn(feedback) to strengthen edges",
+      "hypothesize(claim) to test a theory"
+    ]
+  },
+  "agent_runtime_contract": {
+    "auto_action": null,
+    "graph_identity": {
+      "cache_generation": 1,
+      "edge_count": 20980,
+      "finalized": true,
+      "graph_generation": 1,
+      "graph_path": "/Users/kle1nz/.m1nd/runtimes/claude/./graph_snapshot.json",
+      "graph_path_exists": true,
+      "ingest_root_count": 17,
+      "node_count": 6590,
+      "plasticity_generation": 0
+    },
+    "next_step_hint": null,
+    "next_suggested_tool": null,
+    "non_claims": [
+      "agent_runtime_contract does not repair the MCP host binding.",
+      "agent_runtime_contract does not ingest or mutate the graph.",
+      "agent_runtime_contract does not prove semantic retrieval correctness.",
+      "agent_runtime_contract does not replace compiler, test, log, or direct file truth."
+    ],
+    "observed": {
+      "candidates": 6590,
+      "error_text": null,
+      "tool": "seek"
+    },
+    "proof_state": "triaging",
+    "recovery": null,
+    "schema": "m1nd-agent-runtime-contract-v0",
+    "session_identity": {
+      "agent_id": "gui",
+      "binary": {
+        "git_sha": "2de6d0c-dirty",
+        "name": "m1nd-mcp",
+        "version": "1.3.2"
+      },
+      "current_exe": "/Users/kle1nz/.m1nd/bin/m1nd-mcp",
+      "process_id": 87137,
+      "runtime_root": "/Users/kle1nz/.m1nd/runtimes/claude",
+      "tool": "seek"
+    },
+    "status": "ok",
+    "trust_mode": "full_trust",
+    "workspace_binding": {
+      "active_ingest_roots": [
+        "/Users/kle1nz/m1nd",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/persist-targets-anchor-on-runtime-root.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/brand-gate-g1-5-opt-in-savings-report-unmeasured-claims-surface-killed.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/two-tier-prd-reception-protocol-9-5.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/pathos-cp9-and-autorefresh-state.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/autoingestwatcherdirectoryeventflake.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/m1nd-hosts-cli-location.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/livingtreegraphchangedbrowsersse.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/m1nd-directory-listing-state-2026-07.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/tokenvalidator.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/npm-cold-start-funnel-version-flag-fresh-install-channel-default.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/slice-2r-degraded-reception-design.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/slice-2r-degraded-reception-shipped.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/humanlayer4a-hallthresholdergonomics.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/twotierinterimprojectbrainsshipped.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory/hallprojectsidentityshipped.light.md",
+        "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory"
+      ],
+      "active_workspace_root": "/Users/kle1nz/.m1nd/runtimes/claude/agent-memory",
+      "active_workspace_root_source": "graph_path_parent",
+      "mismatch": null,
+      "requested_scope": null,
+      "workspace_match": true
+    }
+  },
+  "elapsed_ms": 38.127834,
+  "embeddings_used": true,
+  "next_step_hint": "Open the top seek result next: Symbol in m1nd-ingest/src/canonical.rs.",
+  "next_suggested_target": "m1nd-ingest/src/canonical.rs",
+  "next_suggested_tool": "view",
+  "proof_state": "triaging",
+  "query": "zzqqxx_nonexistent_symbol_xyzzy_9987766",
+  "relevance_clearing_total": 1188,
+  "results": [
+    {
+      "connections": [],
+      "excerpt": "Symbol, FilePath, ToolId, CitationId,",
+      "file_path": "m1nd-ingest/src/canonical.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "Symbol (type) [rust, rust:module:canonical, rust:fq:canonical::Symbol, variant]",
+      "label": "Symbol",
+      "line_end": 64,
+      "line_start": 64,
+      "node_id": "file::m1nd-ingest/src/canonical.rs::enum::DocumentEntityKind::Symbol",
+      "score": 0.3981979489326477,
+      "score_breakdown": {
+        "embedding_similarity": 0.3333333432674408,
+        "graph_activation": 0.0034637064673006535,
+        "temporal_recency": 0.32879796624183655
+      },
+      "type": "type"
+    },
+    {
+      "connections": [
+        {
+          "label": "canonicalize_path",
+          "node_id": "file::m1nd-mcp/src/perspective/peek_security.rs::fn::canonicalize_path",
+          "relation": "calls"
+        },
+        {
+          "label": "is_err",
+          "node_id": "file::tests/e2e/test_layers_e2e.py::fn::is_err",
+          "relation": "calls"
+        }
+      ],
+      "excerpt": "fn canonicalize_rejects_nonexistent() { let result = canonicalize_path(\"/nonexistent/path/foo.rs\"); assert!(result.is_err()); }",
+      "file_path": "m1nd-mcp/src/perspective/peek_security.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "canonicalize_rejects_nonexistent (function) [rust, rust:module:perspective::peek_security, rust:fq:perspective::peek_security::canonicalize_rejects_nonexistent, test, rust:module:perspective::peek_security::tests, rust:fq:perspective::peek_security::tests::canonicalize_rejects_nonexistent, rust:visibility:private, m1nd:edge:ambiguous, m1nd:edge:ambiguous:file::tests/e2e/test_layers_e2e.py::fn::is_err]",
+      "label": "canonicalize_rejects_nonexistent",
+      "line_end": 245,
+      "line_start": 245,
+      "node_id": "file::m1nd-mcp/src/perspective/peek_security.rs::fn::canonicalize_rejects_nonexistent",
+      "score": 0.3727591931819916,
+      "score_breakdown": {
+        "embedding_similarity": 0.1666666716337204,
+        "graph_activation": 0.003195785218849778,
+        "temporal_recency": 0.3001500964164734
+      },
+      "type": "function"
+    },
+    {
+      "connections": [
+        {
+          "label": "start",
+          "node_id": "file::m1nd-mcp/src/auto_ingest.rs::fn::start",
+          "relation": "calls"
+        },
+        {
+          "label": "extract_identifier",
+          "node_id": "file::m1nd-mcp/src/surgical_handlers.rs::fn::extract_identifier",
+          "relation": "calls"
+        },
+        {
+          "label": "build_excerpt",
+          "node_id": "file::m1nd-mcp/src/surgical_handlers.rs::fn::build_excerpt",
+          "relation": "calls"
+        }
+      ],
+      "excerpt": "fn extract_python_symbols(lines: &[&str], symbols: &mut Vec<surgical::SurgicalSymbol>) { for (i, line) in lines.iter().enumerate() { let trimmed = line.trim(); let line_num = (i + 1) as u32;",
+      "file_path": "m1nd-mcp/src/surgical_handlers.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "extract_python_symbols (function) [rust, rust:module:surgical_handlers, rust:fq:surgical_handlers::extract_python_symbols, rust:visibility:private, m1nd:edge:unresolved, m1nd:edge:ambiguous, m1nd:edge:ambiguous:file::m1nd-mcp/src/auto_ingest.rs::fn::start]",
+      "label": "extract_python_symbols",
+      "line_end": 1235,
+      "line_start": 1235,
+      "node_id": "file::m1nd-mcp/src/surgical_handlers.rs::fn::extract_python_symbols",
+      "score": 0.3552688956260681,
+      "score_breakdown": {
+        "embedding_similarity": 0.1666666716337204,
+        "graph_activation": 0.004564100876450539,
+        "temporal_recency": 0.18380364775657654
+      },
+      "type": "function"
+    },
+    {
+      "connections": [
+        {
+          "label": "fq_name",
+          "node_id": "file::m1nd-ingest/src/extract/rust_lang.rs::fn::fq_name",
+          "relation": "calls"
+        },
+        {
+          "label": "base_tags",
+          "node_id": "file::m1nd-ingest/src/extract/rust_lang.rs::fn::base_tags",
+          "relation": "calls"
+        },
+        {
+          "label": "RustExtractor",
+          "node_id": "file::m1nd-ingest/src/extract/rust_lang.rs::struct::RustExtractor",
+          "relation": "belongs_to_type"
+        },
+        {
+          "label": "impl RustExtractor",
+          "node_id": "file::m1nd-ingest/src/extract/rust_lang.rs::impl::RustExtractor::line::66",
+          "relation": "owned_by_impl"
+        }
+      ],
+      "excerpt": "fn symbol_tags(module_path: Option<&str>, symbol: &str) -> Vec<String> { let mut tags = Self::base_tags(module_path); tags.push(format!(\"rust:fq:{}\", Self::fq_name(module_path, symbol))); tags",
+      "file_path": "m1nd-ingest/src/extract/rust_lang.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "symbol_tags (function) [rust, rust:module:extract::rust_lang, rust:fq:extract::rust_lang::symbol_tags, rust:visibility:private, rust:impl:self:RustExtractor, m1nd:edge:unresolved]",
+      "label": "symbol_tags",
+      "line_end": 314,
+      "line_start": 314,
+      "node_id": "file::m1nd-ingest/src/extract/rust_lang.rs::fn::symbol_tags",
+      "score": 0.35502684116363525,
+      "score_breakdown": {
+        "embedding_similarity": 0.1666666716337204,
+        "graph_activation": 0.003609576728194952,
+        "temporal_recency": 0.27399832010269165
+      },
+      "type": "function"
+    },
+    {
+      "connections": [
+        {
+          "label": "extract_symbols",
+          "node_id": "file::m1nd-mcp/src/surgical_handlers.rs::fn::extract_symbols",
+          "relation": "calls"
+        }
+      ],
+      "excerpt": "fn test_extract_python_symbols() { let content = \"def my_function():\\n    pass\\n\\nclass MyClass:\\n    pass\\n\"; let symbols = extract_symbols(content, \"test.py\"); assert_eq!(symbols.len(), 2);",
+      "file_path": "m1nd-mcp/src/surgical_handlers.rs",
+      "heuristic_signals": {
+        "heuristic_factor": 0.9900000095367432,
+        "reason": "neutral heuristics",
+        "tremor_observation_count": 0,
+        "trust_band": "insufficient_evidence",
+        "trust_risk_multiplier": 1.0,
+        "trust_tier": "Unknown"
+      },
+      "intent_summary": "test_extract_python_symbols (function) [rust, rust:module:surgical_handlers, rust:fq:surgical_handlers::test_extract_python_symbols, test, rust:module:surgical_handlers::tests, rust:fq:surgical_handlers::tests::test_extract_python_symbols, rust:visibility:private]",
+      "label": "test_extract_python_symbols",
+      "line_end": 5026,
+      "line_start": 5026,
+      "node_id": "file::m1nd-mcp/src/surgical_handlers.rs::fn::test_extract_python_symbols",
+      "score": 0.35294216871261597,
+      "score_breakdown": {
+        "embedding_similarity": 0.1666666716337204,
+        "graph_activation": 0.003091651713475585,
+        "temporal_recency": 0.16439898312091827
+      },
+      "type": "function"
+    }
+  ],
+  "sufficiency": {
+    "captured": 0.26567330956459045,
+    "state": "gathering",
+    "top_score": 0.3981979489326477,
+    "why": "the strongest match left out still scores 0.35 — relevant context did not fit (set carries 27% of the salience); raise token_budget/top_k or narrow the goal"
+  },
+  "total_candidates_scanned": 6590,
+  "trust_envelope": {
+    "calibrated": false,
+    "factors": [
+      {
+        "band": "deferred: insufficient_evidence",
+        "known": false,
+        "name": "trust_band",
+        "weight": 1.0
+      },
+      {
+        "band": "full_trust",
+        "known": true,
+        "name": "binding",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: cross_verify (ingest-only, unavailable in seek)",
+        "known": false,
+        "name": "evidence_freshness",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: am_i_stale (per-file I/O)",
+        "known": false,
+        "name": "am_i_stale",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: why/impact closure (not built in seek)",
+        "known": false,
+        "name": "closure",
+        "weight": 1.0
+      },
+      {
+        "band": "deferred: mission_verify (needs an open mission)",
+        "known": false,
+        "name": "evidence_class",
+        "weight": 1.0
+      }
+    ],
+    "next_repair_call": "trust_selftest",
+    "reasons": [
+      "weighted trust score 1.00 over 1 known factor(s), but the `envelope` signal is UNCALIBRATED — `act` is unreachable and the verdict is capped at `reverify` until a calibration row is measured",
+      "factor `trust_band` deferred (deferred: insufficient_evidence)",
+      "factor `evidence_freshness` deferred (deferred: cross_verify (ingest-only, unavailable in seek))",
+      "factor `am_i_stale` deferred (deferred: am_i_stale (per-file I/O))",
+      "factor `closure` deferred (deferred: why/impact closure (not built in seek))",
+      "factor `evidence_class` deferred (deferred: mission_verify (needs an open mission))"
+    ],
+    "score": 1.0,
+    "verdict": "reverify"
+  }
+}

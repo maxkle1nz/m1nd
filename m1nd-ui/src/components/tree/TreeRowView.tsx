@@ -17,6 +17,8 @@ interface TreeRowViewProps {
   breathing: boolean;
   expanded: boolean;
   selected: boolean;
+  /** Density (§4A.10): compact = 24px, comfortable (default) = 28px. */
+  compact?: boolean;
   onToggle: (row: TreeRow) => void;
   onSelect: (row: TreeRow) => void;
   onHover: (row: TreeRow | null) => void;
@@ -39,6 +41,7 @@ export default function TreeRowView({
   breathing,
   expanded,
   selected,
+  compact = false,
   onToggle,
   onSelect,
   onHover,
@@ -65,7 +68,7 @@ export default function TreeRowView({
       onMouseLeave={() => onHover(null)}
       onClick={() => onSelect(row)}
       className={
-        'group flex items-center gap-1.5 h-7 pr-2 rounded cursor-pointer select-none ' +
+        `group flex items-center gap-1.5 ${compact ? 'h-6' : 'h-7'} pr-2 rounded cursor-pointer select-none ` +
         (selected ? 'bg-bone' : 'hover:bg-bone/60')
       }
       style={{ paddingLeft: `${row.depth * 14 + 6}px` }}

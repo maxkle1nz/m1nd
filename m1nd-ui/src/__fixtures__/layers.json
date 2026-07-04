@@ -1,0 +1,607 @@
+{
+  "layers": [
+    {
+      "name": "tests",
+      "level": 0,
+      "node_count": 4969,
+      "description": "Test infrastructure: unit tests, integration tests",
+      "avg_out_degree": 3.0108673572540283,
+      "avg_pagerank": 0.004640023224055767,
+      "nodes": [
+        {
+          "in_degree": 0,
+          "label": "m1nd-openclaw/Cargo.toml",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/Cargo.toml",
+          "out_degree": 3,
+          "type": "file"
+        },
+        {
+          "in_degree": 0,
+          "label": "m1nd-openclaw/src/client.rs",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/client.rs",
+          "out_degree": 2,
+          "type": "file"
+        },
+        {
+          "in_degree": 0,
+          "label": "m1nd-openclaw/src/main.rs",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs",
+          "out_degree": 25,
+          "type": "file"
+        },
+        {
+          "in_degree": 0,
+          "label": "Cargo.toml",
+          "layer_confidence": 1.0,
+          "node_id": "file::Cargo.toml",
+          "out_degree": 1,
+          "type": "file"
+        },
+        {
+          "in_degree": 0,
+          "label": "m1nd-viz/STORYBOARD.md",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-viz/STORYBOARD.md",
+          "out_degree": 1,
+          "type": "file"
+        },
+        {
+          "in_degree": 0,
+          "label": "m1nd-viz/generate_clips.py",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-viz/generate_clips.py",
+          "out_degree": 17,
+          "type": "file"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    },
+    {
+      "name": "entry_points",
+      "level": 1,
+      "node_count": 462,
+      "description": "Surface layer: HTTP routes, CLI entry points, main modules",
+      "avg_out_degree": 1.971861481666565,
+      "avg_pagerank": 0.007014034781605005,
+      "nodes": [
+        {
+          "in_degree": 2,
+          "label": "Cli",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/client.rs::struct::Cli",
+          "out_degree": 0,
+          "type": "struct"
+        },
+        {
+          "in_degree": 2,
+          "label": "Cli",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs::struct::Cli",
+          "out_degree": 0,
+          "type": "struct"
+        },
+        {
+          "in_degree": 2,
+          "label": "load_config",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs::fn::load_config",
+          "out_degree": 1,
+          "type": "function"
+        },
+        {
+          "in_degree": 2,
+          "label": "handle_client",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs::fn::handle_client",
+          "out_degree": 2,
+          "type": "function"
+        },
+        {
+          "in_degree": 2,
+          "label": "remove_stale_socket",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs::fn::remove_stale_socket",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 10,
+          "label": "ok",
+          "layer_confidence": 0.8999999761581421,
+          "node_id": "file::tests/e2e/test_perspective_usecases.py::fn::ok",
+          "out_degree": 0,
+          "type": "function"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    },
+    {
+      "name": "entry_points",
+      "level": 2,
+      "node_count": 295,
+      "description": "Surface layer: HTTP routes, CLI entry points, main modules",
+      "avg_out_degree": 0.800000011920929,
+      "avg_pagerank": 0.006734276656061411,
+      "nodes": [
+        {
+          "in_degree": 2,
+          "label": "build_response",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs::fn::build_response",
+          "out_degree": 3,
+          "type": "function"
+        },
+        {
+          "in_degree": 16,
+          "label": "at",
+          "layer_confidence": 0.9375,
+          "node_id": "file::docs/internal/L1GHT-EVIDENCE-BRIDGE.light.md::fn::at",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 5,
+          "label": "build",
+          "layer_confidence": 1.0,
+          "node_id": "file::docs/wiki/book.toml::struct::build",
+          "out_degree": 0,
+          "type": "struct"
+        },
+        {
+          "in_degree": 3,
+          "label": "mermaidShape",
+          "layer_confidence": 0.800000011920929,
+          "node_id": "file::m1nd-ui/src/lib/exportMermaid.ts::fn::mermaidShape",
+          "out_degree": 2,
+          "type": "function"
+        },
+        {
+          "in_degree": 3,
+          "label": "mermaidArrow",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/lib/exportMermaid.ts::fn::mermaidArrow",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 4,
+          "label": "sanitizeId",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/lib/exportMermaid.ts::fn::sanitizeId",
+          "out_degree": 0,
+          "type": "function"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    },
+    {
+      "name": "handlers",
+      "level": 3,
+      "node_count": 47,
+      "description": "Request processing: route handlers, middleware, dispatchers",
+      "avg_out_degree": 64.68085479736328,
+      "avg_pagerank": 0.011065221391618252,
+      "nodes": [
+        {
+          "in_degree": 4,
+          "label": "normalize_tool_name",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs::fn::normalize_tool_name",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 4,
+          "label": "inject_default_agent_id",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-openclaw/src/main.rs::fn::inject_default_agent_id",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 1,
+          "label": "docs/wiki/src/changelog.md",
+          "layer_confidence": 1.0,
+          "node_id": "file::docs/wiki/src/changelog.md",
+          "out_degree": 0,
+          "type": "file"
+        },
+        {
+          "in_degree": 1,
+          "label": "docs/wiki/src/introduction.md",
+          "layer_confidence": 1.0,
+          "node_id": "file::docs/wiki/src/introduction.md",
+          "out_degree": 0,
+          "type": "file"
+        },
+        {
+          "in_degree": 1,
+          "label": "docs/wiki/src/tutorials/quickstart.md",
+          "layer_confidence": 1.0,
+          "node_id": "file::docs/wiki/src/tutorials/quickstart.md",
+          "out_degree": 0,
+          "type": "file"
+        },
+        {
+          "in_degree": 1,
+          "label": "docs/AGENT-PACKS.md",
+          "layer_confidence": 1.0,
+          "node_id": "file::docs/AGENT-PACKS.md",
+          "out_degree": 0,
+          "type": "file"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    },
+    {
+      "name": "tests",
+      "level": 4,
+      "node_count": 110,
+      "description": "Test infrastructure: unit tests, integration tests",
+      "avg_out_degree": 4.436363697052002,
+      "avg_pagerank": 0.005882656201720238,
+      "nodes": [
+        {
+          "in_degree": 1,
+          "label": "AppErrorBoundary",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/App.tsx::class::AppErrorBoundary",
+          "out_degree": 0,
+          "type": "class"
+        },
+        {
+          "in_degree": 4,
+          "label": "render",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/App.tsx::fn::render",
+          "out_degree": 1,
+          "type": "function"
+        },
+        {
+          "in_degree": 2,
+          "label": "useBackendHealth",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/App.tsx::fn::useBackendHealth",
+          "out_degree": 2,
+          "type": "function"
+        },
+        {
+          "in_degree": 1,
+          "label": "ReconnectionOverlay",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/App.tsx::fn::ReconnectionOverlay",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 1,
+          "label": "LeftSidebar",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/App.tsx::fn::LeftSidebar",
+          "out_degree": 2,
+          "type": "function"
+        },
+        {
+          "in_degree": 1,
+          "label": "IngestModal",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/App.tsx::fn::IngestModal",
+          "out_degree": 3,
+          "type": "function"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    },
+    {
+      "name": "foundation",
+      "level": 5,
+      "node_count": 176,
+      "description": "Core definitions: models, types, configuration",
+      "avg_out_degree": 3.25,
+      "avg_pagerank": 0.007766629569232464,
+      "nodes": [
+        {
+          "in_degree": 2,
+          "label": "m1nd-ui/src/stores/toastStore.ts",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/toastStore.ts",
+          "out_degree": 3,
+          "type": "file"
+        },
+        {
+          "in_degree": 2,
+          "label": "m1nd-ui/src/stores/replayStore.ts",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/replayStore.ts",
+          "out_degree": 4,
+          "type": "file"
+        },
+        {
+          "in_degree": 7,
+          "label": "m1nd-ui/src/stores/graphStore.ts",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/graphStore.ts",
+          "out_degree": 22,
+          "type": "file"
+        },
+        {
+          "in_degree": 2,
+          "label": "phaseColor",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/components/ActivationReplay.tsx::fn::phaseColor",
+          "out_degree": 1,
+          "type": "function"
+        },
+        {
+          "in_degree": 2,
+          "label": "scoreToAnimState",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/components/ActivationReplay.tsx::fn::scoreToAnimState",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 2,
+          "label": "ActivationReplayProps",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/components/ActivationReplay.tsx::interface::ActivationReplayProps",
+          "out_degree": 0,
+          "type": "type"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    },
+    {
+      "name": "foundation",
+      "level": 6,
+      "node_count": 118,
+      "description": "Core definitions: models, types, configuration",
+      "avg_out_degree": 2.6440677642822266,
+      "avg_pagerank": 0.00512330885976553,
+      "nodes": [
+        {
+          "in_degree": 7,
+          "label": "getDerivedStateFromError",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/App.tsx::fn::getDerivedStateFromError",
+          "out_degree": 0,
+          "type": "function"
+        },
+        {
+          "in_degree": 5,
+          "label": "ToastStore",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/toastStore.ts::interface::ToastStore",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 3,
+          "label": "ReplayFrame",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/replayStore.ts::interface::ReplayFrame",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 3,
+          "label": "ReplayStore",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/replayStore.ts::interface::ReplayStore",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 2,
+          "label": "QueryHistoryEntry",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/graphStore.ts::interface::QueryHistoryEntry",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 15,
+          "label": "GraphStore",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/stores/graphStore.ts::interface::GraphStore",
+          "out_degree": 0,
+          "type": "type"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    },
+    {
+      "name": "foundation",
+      "level": 7,
+      "node_count": 62,
+      "description": "Core definitions: models, types, configuration",
+      "avg_out_degree": 4.516129016876221,
+      "avg_pagerank": 0.00743270106613636,
+      "nodes": [
+        {
+          "in_degree": 4,
+          "label": "GraphEdge",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/types.ts::interface::GraphEdge",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 1,
+          "label": "SubgraphResponse",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/types.ts::interface::SubgraphResponse",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 1,
+          "label": "HealthResponse",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/types.ts::interface::HealthResponse",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 3,
+          "label": "InstanceRegistryEntry",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/types.ts::interface::InstanceRegistryEntry",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 1,
+          "label": "InstanceSelfResponse",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/types.ts::interface::InstanceSelfResponse",
+          "out_degree": 0,
+          "type": "type"
+        },
+        {
+          "in_degree": 1,
+          "label": "InstanceListResponse",
+          "layer_confidence": 1.0,
+          "node_id": "file::m1nd-ui/src/types.ts::interface::InstanceListResponse",
+          "out_degree": 0,
+          "type": "type"
+        }
+      ],
+      "nodes_returned": 40,
+      "nodes_truncated": true
+    }
+  ],
+  "summary": {
+    "has_cycles": true,
+    "layer_separation_score": 0.03811916708946228,
+    "total_layers_detected": 8,
+    "total_nodes_classified": 6239,
+    "total_utility_nodes": 727,
+    "total_violations": 1500
+  },
+  "utility_nodes": [
+    {
+      "classification": "bridge",
+      "label": "normalize_tool_name",
+      "node_id": "file::m1nd-openclaw/src/main.rs::fn::normalize_tool_name",
+      "used_by_layers": [
+        0,
+        2
+      ]
+    },
+    {
+      "classification": "bridge",
+      "label": "inject_default_agent_id",
+      "node_id": "file::m1nd-openclaw/src/main.rs::fn::inject_default_agent_id",
+      "used_by_layers": [
+        0,
+        2
+      ]
+    },
+    {
+      "classification": "cross_cutting",
+      "label": "spawn",
+      "node_id": "file::m1nd-viz/src/scenes/brain.tsx::fn::spawn",
+      "used_by_layers": [
+        0,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "classification": "cross_cutting",
+      "label": "xt",
+      "node_id": "file::tests/e2e/test_perspective_usecases.py::fn::xt",
+      "used_by_layers": [
+        0,
+        2,
+        3,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "classification": "bridge",
+      "label": "ok",
+      "node_id": "file::tests/e2e/test_perspective_usecases.py::fn::ok",
+      "used_by_layers": [
+        0,
+        7
+      ]
+    },
+    {
+      "classification": "bridge",
+      "label": "at",
+      "node_id": "file::docs/internal/L1GHT-EVIDENCE-BRIDGE.light.md::fn::at",
+      "used_by_layers": [
+        0,
+        1,
+        4
+      ]
+    },
+    {
+      "classification": "bridge",
+      "label": "m1nd-ui/src/App.tsx",
+      "node_id": "file::m1nd-ui/src/App.tsx",
+      "used_by_layers": [
+        0,
+        2
+      ]
+    },
+    {
+      "classification": "bridge",
+      "label": "getDerivedStateFromError",
+      "node_id": "file::m1nd-ui/src/App.tsx::fn::getDerivedStateFromError",
+      "used_by_layers": [
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "truncated": true,
+  "violations": [
+    {
+      "edge_relation": "calls",
+      "explanation": "Circular dependency: disambiguate_with_hint and find_external_id form a dependency cycle",
+      "severity": "critical",
+      "source": "file::m1nd-ingest/src/resolve.rs::fn::disambiguate_with_hint",
+      "source_layer": 5,
+      "target": "file::m1nd-ingest/src/resolve.rs::fn::find_external_id",
+      "target_layer": 5,
+      "violation_type": "circular_dependency"
+    },
+    {
+      "edge_relation": "calls",
+      "explanation": "Circular dependency: find_external_id and resolve form a dependency cycle",
+      "severity": "critical",
+      "source": "file::m1nd-ingest/src/resolve.rs::fn::find_external_id",
+      "source_layer": 5,
+      "target": "file::m1nd-ingest/src/resolve.rs::fn::resolve",
+      "target_layer": 5,
+      "violation_type": "circular_dependency"
+    },
+    {
+      "edge_relation": "calls",
+      "explanation": "Circular dependency: disambiguate and find_external_id form a dependency cycle",
+      "severity": "critical",
+      "source": "file::m1nd-ingest/src/resolve.rs::fn::disambiguate",
+      "source_layer": 5,
+      "target": "file::m1nd-ingest/src/resolve.rs::fn::find_external_id",
+      "target_layer": 5,
+      "violation_type": "circular_dependency"
+    }
+  ]
+}
