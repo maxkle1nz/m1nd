@@ -488,6 +488,21 @@ pub(crate) fn parse_cargo_package_version(cargo_toml: &str) -> Option<String> {
     None
 }
 
+/// The last path component of a filesystem root — the human name of a repo
+/// ("/Users/x/m1nd" → "m1nd"). Trailing slashes are tolerated; a rootless or
+/// empty input returns the trimmed input unchanged (honest, never a panic).
+/// Shared by the bound-brain display name and the project-brain listing so both
+/// name a brain the same way. Mirrors the UI's `repoBasename` exactly.
+pub(crate) fn basename_of(root: &str) -> String {
+    root.trim()
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| root.trim())
+        .to_string()
+}
+
 impl SessionState {
     /// The version the bound repo's own `m1nd-mcp/Cargo.toml` declares, if a
     /// bound root (workspace_root, else any ingest root) actually contains one.
@@ -890,6 +905,59 @@ impl SessionState {
             .any(|known| Self::path_starts_with_loosely(candidate, known))
     }
 
+    /// The brain's real PROJECT root — the repo it maps, NOT its runtime sidecar.
+    ///
+    /// The Hall (HUMAN-LAYER-PRD §4A.3) must name brains by their project, never
+    /// by plumbing: the bound dev graph's `workspace_root` is its `agent-memory`
+    /// sidecar dir (inferred `graph_path_parent`), so naming from it leaks
+    /// "agent-memory"/"claude". The true project is the primary *code* ingest
+    /// root (e.g. `/Users/kle1nz/m1nd`). Precedence, mirroring
+    /// `self_repo_declared_version`'s "which root is the repo" rule:
+    ///
+    /// 1. the first ingest root that is a real directory and is NOT a `.light.md`
+    ///    memory sidecar nor an `agent-memory` runtime dir;
+    /// 2. else `workspace_root` when it is not itself an `agent-memory` dir;
+    /// 3. else the first ingest root of any kind;
+    /// 4. else `workspace_root` (last resort — honest even if it is plumbing).
+    ///
+    /// A project brain always has its project root as ingest root #1, so it
+    /// resolves to that; the bound graph skips its memory sidecars to reach the
+    /// repo. Returns `None` only when the brain has no roots at all (empty graph).
+    pub fn project_root_display(&self) -> Option<String> {
+        let is_memory_sidecar = |p: &str| {
+            p.ends_with(".light.md")
+                || std::path::Path::new(p)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "agent-memory")
+                    .unwrap_or(false)
+        };
+        // 1. First real code ingest root that is not a memory sidecar.
+        for root in &self.ingest_roots {
+            if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
+                return Some(root.clone());
+            }
+        }
+        // 2. workspace_root when it is a repo, not the agent-memory sidecar dir.
+        if let Some(ws) = self.workspace_root.as_deref() {
+            if !is_memory_sidecar(ws) {
+                return Some(ws.to_string());
+            }
+        }
+        // 3. any ingest root, then 4. workspace_root as the last honest fallback.
+        self.ingest_roots
+            .first()
+            .cloned()
+            .or_else(|| self.workspace_root.clone())
+    }
+
+    /// The Hall card / Brain Chip display name: the basename of
+    /// [`project_root_display`] — "m1nd", "Cerrybubbles1" — never a runtime dir
+    /// name ("claude") nor "agent-memory". `None` when the brain has no roots.
+    pub fn display_name(&self) -> Option<String> {
+        self.project_root_display().map(|root| basename_of(&root))
+    }
+
     fn absolute_scope_path(scope: &str) -> Option<std::path::PathBuf> {
         let scope = scope.trim();
         if scope.is_empty() {
@@ -1268,6 +1336,12 @@ impl SessionState {
             "active_agent_sessions": self.sessions.len(),
             "queries_processed": self.queries_processed,
             "last_persist_secs_ago": self.last_persist_time.map(|ts| ts.elapsed().as_secs_f64()),
+            // The bound brain's PROJECT identity — the Brain Chip's name source,
+            // so the chip reads "m1nd" and never the agent-memory sidecar
+            // (`graph_state.workspace_root`). Same derivation the Hall uses
+            // (project_root_display / display_name), so chip and card agree.
+            "display_name": self.display_name(),
+            "project_root": self.project_root_display(),
         })
     }
 
@@ -2274,6 +2348,73 @@ mod tests {
             state.workspace_root_source.as_deref(),
             Some("graph_path_parent")
         );
+    }
+
+    #[test]
+    fn display_name_is_the_repo_basename_not_the_agent_memory_sidecar() {
+        // The exact leak Max saw: a bound dev graph whose workspace_root is its
+        // `agent-memory` runtime sidecar (inferred graph_path_parent), with the
+        // real repo + memory `.light.md` files among its ingest roots. The Hall
+        // name must be the REPO basename ("m1nd"), never "agent-memory".
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo = temp.path().join("m1nd");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        let agent_memory = temp
+            .path()
+            .join("runtimes")
+            .join("claude")
+            .join("agent-memory");
+        std::fs::create_dir_all(&agent_memory).expect("agent-memory dir");
+
+        let config = McpConfig {
+            graph_source: temp.path().join("graph_snapshot.json"),
+            plasticity_state: temp.path().join("plasticity_state.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        // Mimic the bound brain's real state: workspace = agent-memory sidecar,
+        // ingest_roots = the repo first, then memory sidecar files + the dir.
+        state.workspace_root = Some(agent_memory.to_string_lossy().to_string());
+        state.ingest_roots = vec![
+            repo.to_string_lossy().to_string(),
+            agent_memory
+                .join("some-memory.light.md")
+                .to_string_lossy()
+                .to_string(),
+            agent_memory.to_string_lossy().to_string(),
+        ];
+
+        assert_eq!(
+            state.display_name().as_deref(),
+            Some("m1nd"),
+            "the bound brain must be named by its repo, not the agent-memory sidecar"
+        );
+        assert_eq!(
+            state.project_root_display().as_deref(),
+            Some(repo.to_string_lossy().as_ref()),
+            "the project root must resolve to the real repo directory"
+        );
+    }
+
+    #[test]
+    fn display_name_falls_back_to_workspace_when_no_code_root() {
+        // A brain with only its agent-memory workspace and NO real code ingest
+        // root still returns an honest name (the workspace basename), never None
+        // and never a panic — absence is absence, not a crash.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = McpConfig {
+            graph_source: temp.path().join("graph_snapshot.json"),
+            plasticity_state: temp.path().join("plasticity_state.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.ingest_roots = vec![];
+        state.workspace_root = Some("/Users/x/solo-repo".to_string());
+        assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
     }
 
     #[test]

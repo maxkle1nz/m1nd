@@ -230,8 +230,21 @@ impl ProjectBrainRegistry {
     }
 
     /// The store base dir (`<owner runtime_root>/project-brains`) — surfaced for
-    /// diagnostics/tests.
+    /// diagnostics/tests and for the Hall's project-brain name resolution.
     pub fn base_dir(&self) -> &Path {
         &self.base_dir
     }
+}
+
+/// The real project root a store belongs to, read from its `project_brain.json`
+/// manifest. This is how the Hall recovers a hosted brain's true identity: a
+/// project brain's registry entry stores its FINGERPRINT store dir as its
+/// `workspace_root` (the hash that leaked into the Hall), while the manifest in
+/// that store names the repo it actually maps. `None` = no readable manifest
+/// (not a resolvable project brain). Inert read only — no exec, no binary paths
+/// (PRD §9.4 posture).
+pub fn project_root_for_store(store_dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(store_dir.join(MANIFEST_FILE)).ok()?;
+    let record = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+    record["project_root"].as_str().map(|s| s.to_string())
 }
