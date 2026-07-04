@@ -218,7 +218,11 @@ What happened:
 Once the graph is ingested, call `north(task)` **before reading or editing
 anything**. It is the in-session front door: one round-trip that composes
 binding trust, task context, prior cross-session memory, a sufficiency signal,
-one `next_move`, and `honest_gaps` (what m1nd does not yet know).
+one `next_move`, and `honest_gaps` (what m1nd does not yet know). Heed
+`reception` when present: `reception.match == "caller_root_mismatch"` means the
+bound graph does NOT cover your current repo — do not trust retrieval for it;
+read `reception.options[]`. Absent/null `reception` = your root matches the
+bound brain.
 
 ```jsonc
 {

@@ -41,6 +41,9 @@ use crate::util::now_ms;
 
 /// Per-spec MCP session header name (case-insensitive on the wire).
 const MCP_SESSION_HEADER: &str = "mcp-session-id";
+/// Hop-2 caller-root header the `--attach` bridge stamps (TWO-TIER-BRAIN-PRD
+/// §9.5.4). Absent → the caller is unknown (legacy bridge / direct HTTP).
+const CALLER_ROOT_HEADER: &str = "m1nd-caller-root";
 
 /// Per-tool execution timeout for the HTTP MCP transport (mirrors the REST
 /// `TOOL_TIMEOUT_SECS` discipline in `http_server`).
@@ -196,6 +199,11 @@ pub struct McpTransportSession {
     pub created_ms: u64,
     /// Last time we saw a request on this session (ms since epoch).
     pub last_seen_ms: u64,
+    /// The caller's resolved root from the hop-2 `M1nd-Caller-Root` header
+    /// (TWO-TIER-BRAIN-PRD §9.5.4). `None` = the bridge/caller sent no header
+    /// (legacy bridge / direct HTTP) → the owner treats first contact as unknown.
+    /// Read at `initialize` and refreshed per-request if the header is present.
+    pub caller_root: Option<String>,
 }
 
 /// Registry of live MCP wire sessions, keyed by opaque session id.
@@ -299,12 +307,22 @@ fn jsonrpc_ok_response(resp: &JsonRpcResponse, session_id: Option<&str>) -> Resp
 ///
 /// The `parking_lot::Mutex` lock is acquired *inside* `spawn_blocking`, so it is
 /// never held across an `.await`.
-async fn run_mcp_method(app: Arc<AppState>, request: JsonRpcRequest) -> JsonRpcResponse {
+///
+/// `caller_root` is this call's resolved hop-2 `M1nd-Caller-Root` (§9.5.4): it is
+/// stamped onto the shared `SessionState` on EVERY call (set to the passed value
+/// each time, so a later call without the header cannot inherit a stale root)
+/// before dispatch, feeding First-Contact Reception's mismatch verdict.
+async fn run_mcp_method(
+    app: Arc<AppState>,
+    request: JsonRpcRequest,
+    caller_root: Option<String>,
+) -> JsonRpcResponse {
     let id = request.id.clone();
     let result = tokio::time::timeout(
         Duration::from_secs(MCP_TOOL_TIMEOUT_SECS),
         tokio::task::spawn_blocking(move || {
             let mut session = app.session.lock();
+            session.caller_root = caller_root;
             handle_mcp_method(&mut session, &request)
         }),
     )
@@ -367,6 +385,15 @@ fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Read the hop-2 `M1nd-Caller-Root` request header, if present (§9.5.4). Absent
+/// → `None` (caller unknown). Mirrors `session_id_from_headers`.
+fn caller_root_from_headers(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(CALLER_ROOT_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
 /// `POST /mcp` — the Streamable-HTTP MCP request handler.
 ///
 /// Slice 1 scope: `initialize` mints a session and returns the result with the
@@ -378,6 +405,9 @@ pub async fn handle_mcp_post(
     body: Bytes,
 ) -> Response {
     let incoming_session = session_id_from_headers(&headers);
+    // Hop-2 caller root (§9.5.4): present on every bridge-forwarded request,
+    // absent for legacy bridges / direct HTTP (→ owner sees unknown).
+    let incoming_caller_root = caller_root_from_headers(&headers);
 
     // 1. Parse + classify the message.
     let parsed = match parse_message(&body) {
@@ -412,7 +442,7 @@ pub async fn handle_mcp_post(
         let session_id = generate_mcp_session_id();
         let now = now_ms();
 
-        let response = run_mcp_method(app.clone(), request).await;
+        let response = run_mcp_method(app.clone(), request, incoming_caller_root.clone()).await;
 
         // Record the negotiated protocol version from the result we just built.
         let protocol_version = response
@@ -431,6 +461,8 @@ pub async fn handle_mcp_post(
                     protocol_version,
                     created_ms: now,
                     last_seen_ms: now,
+                    // Remember the caller root for post-init requests that omit it.
+                    caller_root: incoming_caller_root,
                 },
             );
         }
@@ -451,7 +483,11 @@ pub async fn handle_mcp_post(
         Some(sid) => sid,
     };
 
-    {
+    // Resolve THIS call's caller root: the per-request header wins (the bridge
+    // stamps every request); if absent we fall back to the value captured at
+    // initialize, so a legacy re-init or a dropped header does not blind the owner
+    // mid-session. Refreshed back onto the stored session when present (§9.5.4).
+    let resolved_caller_root = {
         let mut reg = app.mcp_sessions.lock();
         match reg.get_mut(&session_id) {
             // Unknown session → 404 signals the client to re-initialize (per spec).
@@ -465,9 +501,13 @@ pub async fn handle_mcp_post(
             }
             Some(s) => {
                 s.last_seen_ms = now_ms();
+                if incoming_caller_root.is_some() {
+                    s.caller_root = incoming_caller_root.clone();
+                }
+                s.caller_root.clone()
             }
         }
-    }
+    };
 
     // 4. Known session → run the method against the shared graph.
     //
@@ -485,7 +525,7 @@ pub async fn handle_mcp_post(
     // its own write, which through the `--attach` bridge races the real response
     // into the host's stdout and is read as a literal `null`.
     let mutation_meta = mutation_event_meta(&request);
-    let response = run_mcp_method(app.clone(), request).await;
+    let response = run_mcp_method(app.clone(), request, resolved_caller_root).await;
     if let Some((tool, agent_id)) = mutation_meta {
         publish_graph_mutation_event(
             &app,
@@ -876,6 +916,7 @@ mod tests {
                 protocol_version: "test".into(),
                 created_ms: now,
                 last_seen_ms: now,
+                caller_root: None,
             },
         );
         sid

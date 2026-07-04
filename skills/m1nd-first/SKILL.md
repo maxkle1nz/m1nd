@@ -38,7 +38,11 @@ this loop by default:
    `honest_gaps` (what m1nd does NOT yet know). If it returns `needs_ingest`,
    `ingest` the repo, then `north` again — `needs_ingest` is a real answer, not a
    failure. `north` composes `trust_selftest` + `orient` + `boot_memory` +
-   `focus`; reach for the pieces directly only when you need just one.
+   `focus`; reach for the pieces directly only when you need just one. Heed
+   `reception`: `reception.match == "caller_root_mismatch"` means the bound graph
+   does NOT cover your current repo — do not trust retrieval for it; read
+   `reception.options[]`. Absent/null `reception` = your root matches the bound
+   brain.
 2. If trust is degraded or retrieval comes back `blocked`/empty unexpectedly,
    drop to the recovery path: follow `recovery_playbook` before interpreting
    absence. `wrong_workspace_binding` means rebind, intentional ingest, or real

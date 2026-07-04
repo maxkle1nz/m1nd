@@ -35,7 +35,10 @@ measured high-signal pattern starts by never starting cold:
    absent, never faked, when unknown), a sufficiency signal, one `next_move`,
    and `honest_gaps` (what m1nd does NOT know). `north` composes
    `trust_selftest` + `orient` + `boot_memory` + `focus`; reach for the pieces
-   directly only when you need just one.
+   directly only when you need just one. Heed `reception`:
+   `reception.match == "caller_root_mismatch"` means the bound graph does NOT
+   cover your current repo — do not trust retrieval for it; read
+   `reception.options[]`. Absent/null = your root matches the bound brain.
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the repo,
    then `north` again. `needs_ingest` is a REAL answer, not a failure.
 3. Act on verdicts, do not override them (see below).

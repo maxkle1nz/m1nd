@@ -509,6 +509,10 @@ pub struct HealthOutput {
     pub binding_fingerprint: serde_json::Value,
     pub tool_surface_contract: serde_json::Value,
     pub host_binding_alignment: serde_json::Value,
+    /// First-Contact Reception block (TWO-TIER-BRAIN-PRD §9.5.5): present only on
+    /// a caller_root mismatch; absent on match / unknown caller (serde-skipped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reception: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

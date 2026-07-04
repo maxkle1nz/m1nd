@@ -56,7 +56,10 @@ Use one stable `agent_id` for one investigation.
    travels with it when degraded), task context (focus + PageRank anchors),
    prior cross-session memory (each claim with real age + author), a sufficiency
    signal, one `next_move`, and `honest_gaps`. It composes `trust_selftest` +
-   `orient` + `boot_memory` + `focus`.
+   `orient` + `boot_memory` + `focus`. Heed `reception`:
+   `reception.match == "caller_root_mismatch"` means the bound graph does NOT
+   cover your current repo — do not trust retrieval for it; read
+   `reception.options[]`. Absent/null = your root matches the bound brain.
 2. If `north` returns `needs_ingest` (empty/unbound graph), `ingest` the
    intended repo, then `north` again. `needs_ingest` is a REAL answer.
 3. Act on the verdicts (see "Verdict Discipline" below); then use retrieval or

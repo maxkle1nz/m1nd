@@ -3299,6 +3299,9 @@ pub fn handle_health(state: &mut SessionState, _input: HealthInput) -> M1ndResul
                 "health does not rebind the host or refresh tool schemas automatically"
             ],
         }),
+        // First-Contact Reception (§9.5.5): flags a caller_root mismatch; absent
+        // (serde-skipped) on match / unknown caller.
+        reception: state.reception_verdict(),
     })
 }
 
@@ -3558,10 +3561,16 @@ pub fn handle_session_handshake(
         None
     };
 
+    // First-Contact Reception (§9.5.5): null on match / unknown caller, the
+    // honest mismatch block otherwise. Computed before the json! so it does not
+    // overlap the other `state` reads in the literal.
+    let reception = state.reception_verdict();
+
     Ok(serde_json::json!({
         "schema": "m1nd-session-handshake-v0",
         "trust_mode": trust_mode,
         "binding_fingerprint": state.binding_fingerprint(),
+        "reception": reception.unwrap_or(serde_json::Value::Null),
         // Version-honesty: the running binary's identity + any drift. Additive,
         // warn-only — the drift block is null when nothing mismatches. The same
         // block also lives inside binding_fingerprint; surfaced here at top level

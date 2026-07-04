@@ -33,6 +33,10 @@ use crate::server::{read_request_payload, TransportMode};
 const MCP_SESSION_HEADER: &str = "mcp-session-id";
 /// Per-spec negotiated protocol version header.
 const MCP_PROTOCOL_VERSION_HEADER: &str = "mcp-protocol-version";
+/// Net-new hop-2 header carrying the bridge's resolved caller root to the owner
+/// (TWO-TIER-BRAIN-PRD §9.5.4). Absent → the owner treats the caller as unknown
+/// (legacy bridge / direct HTTP) — the serde-default posture applied to the wire.
+const CALLER_ROOT_HEADER: &str = "m1nd-caller-root";
 
 /// One framed JSON-RPC message destined for stdout, carrying the `TransportMode`
 /// it must be framed in. Pushed by BOTH the request/response loop and the push
@@ -116,6 +120,11 @@ pub struct AttachSession {
     /// The host's original `initialize` request frame, retained verbatim so a
     /// transparent re-init can replay its params (see field-triage #5).
     pub initialize_payload: Option<String>,
+    /// The bridge's resolved caller root, computed ONCE at attach start and
+    /// stamped as `M1nd-Caller-Root` on every forwarded request so the owner can
+    /// tell first contact honestly (TWO-TIER-BRAIN-PRD §9.5.4). `None` only if no
+    /// env candidate and no cwd could be resolved — the owner then sees unknown.
+    pub caller_root: Option<String>,
 }
 
 impl AttachSession {
@@ -258,6 +267,12 @@ where
     }
     if let Some(pv) = &session.protocol_version {
         builder = builder.header(MCP_PROTOCOL_VERSION_HEADER, pv.clone());
+    }
+    // Hop-2 first-contact truth (§9.5.4): tell the owner which repo the caller is
+    // rooted in. Stamped on EVERY forwarded request (the bridge cwd is fixed, but
+    // this keeps the value arriving even if it was absent at initialize).
+    if let Some(root) = &session.caller_root {
+        builder = builder.header(CALLER_ROOT_HEADER, root.clone());
     }
 
     let response = builder.send().await.map_err(|e| e.to_string())?;
@@ -433,6 +448,37 @@ pub async fn forward_with_reinit(
     }
 }
 
+/// Resolve the caller root for the hop-2 `M1nd-Caller-Root` header
+/// (TWO-TIER-BRAIN-PRD §9.5.4).
+///
+/// Mirrors the owner's workspace ladder but stays host-neutral: the explicit
+/// `M1ND_*` pins first, then the generic workspace-env set, then the bridge's own
+/// spawn cwd — which §9.5.4 documents as the hop-1 caller truth. The full
+/// editor-hint list is intentionally NOT copied here; cwd already covers the
+/// bridge's spawn dir. An env candidate wins only if it is a non-empty, existing
+/// directory (so a stale/empty pin never masks the real cwd).
+fn resolve_caller_root() -> Option<String> {
+    const CALLER_ROOT_ENV_CANDIDATES: [&str; 6] = [
+        "M1ND_WORKSPACE_ROOT",
+        "M1ND_PROJECT_ROOT",
+        "M1ND_REPO_ROOT",
+        "WORKSPACE_ROOT",
+        "PROJECT_ROOT",
+        "REPO_ROOT",
+    ];
+    for name in CALLER_ROOT_ENV_CANDIDATES {
+        if let Ok(value) = std::env::var(name) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() && std::path::Path::new(trimmed).is_dir() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    std::env::current_dir()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 /// Run the `--attach` bridge against `base_url` (e.g. `http://127.0.0.1:1337`).
 ///
 /// Loop: read one JSON-RPC frame from stdin (preserving its detected
@@ -453,7 +499,16 @@ pub async fn run_attach_client(base_url: String) {
         }
     };
 
-    let mut session = AttachSession::default();
+    // Resolve the caller root ONCE (§9.5.4 hop-2): the bridge inherits the host
+    // session env at spawn, so this is the caller's truth for the session.
+    let mut session = AttachSession {
+        caller_root: resolve_caller_root(),
+        ..AttachSession::default()
+    };
+    eprintln!(
+        "[m1nd-mcp][attach] caller_root={:?} (hop-2 M1nd-Caller-Root)",
+        session.caller_root
+    );
 
     // --- SINGLE serialized stdout writer (load-bearing for framing fidelity). ---
     // There are now TWO producers of stdout frames: the request/response loop

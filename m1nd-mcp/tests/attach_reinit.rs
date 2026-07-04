@@ -332,6 +332,7 @@ async fn owner_unknown_session_wire_shape_is_recoverable() {
         mcp_session_id: Some("00000000-0000-0000-0000-deadbeefdead".to_string()),
         protocol_version: Some("2025-06-18".to_string()),
         initialize_payload: None,
+        caller_root: None,
     };
     let outcome = post_and_demux(&client, &endpoint, &bogus, &tools_list_payload(2))
         .await
