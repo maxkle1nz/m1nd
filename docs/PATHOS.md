@@ -71,6 +71,17 @@ degrading to UNPROVABLE rather than a fake green — the same bar, applied to bu
 > supply facts); never reuse identical copy across channels. Max's full playbook:
 > `~/m1nd-launch-kit.md` (local-only).
 
+> **cp9 addendum-3 (2026-07-04): RECEPTION DEGRADED MODE SHIPPED (Slice 2R degraded, §9.5.5).**
+> The top field friction (a caller in repo X silently wearing repo Y's brain — Antigravity/almus
+> + Cherry ×2) is now flagged, not silent: the `--attach` bridge stamps `M1nd-Caller-Root`
+> (hop 2; absent → unknown, legacy-compatible), the owner compares it against
+> `workspace_root`+`ingest_roots` (reuses the mismatch guard's path comparison), and
+> `north`/`health`/`session_handshake` carry `m1nd-reception-degraded-v0` ONLY on mismatch
+> (TT-INV-12 silence-on-match; omission on unknown). Proof: RED→green + battery 3/3 e2e +
+> live almus-vs-m1nd replay. Slice 2R proper (what_exists, `bind`, walk-up verdicts,
+> `m1nd init` create path) stays open — stamped in the PRD. Live owners need a kickstart
+> (rebuild+restart) to inherit the honesty.
+
 **The 24h harvest: OMEGA shipped as the floor, three PRDs made official, the first human
 surface landed, and the field-report mailbox went from full to empty.** This is the checkpoint
 where m1nd stops being only "a better `rg` for agents" and becomes a substrate with a *human
