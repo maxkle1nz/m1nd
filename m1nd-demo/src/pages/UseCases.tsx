@@ -349,7 +349,7 @@ const useCases = [
     number: "01",
     title: "Find the Auth Refresh Flow",
     subtitle: "Orientation",
-    description: "An AI agent needs to understand how token refresh works. Instead of reading 8 files and burning 4,000 tokens, it fires a single m1nd query and gets the complete subgraph back in one response.",
+    description: "An AI agent needs to understand how token refresh works. Instead of opening 8 files and reconstructing the flow by hand, it fires a single m1nd query and gets the complete subgraph back in one response.",
     steps: [
       "m1nd activates from AuthService and propagates through the import graph in 1.36µs",
       "TokenRefresher, JWTValidator, and SessionStore returned with function signatures attached",
@@ -414,7 +414,7 @@ const useCases = [
       "7 previously-visited nodes restored with their original traversal sequence",
       "Nodes from older sessions separated from today's findings — temporal context preserved",
       "Open trails marked — the agent knows exactly where it stopped and why",
-      "Zero tokens spent on reconstruction — the graph remembers what mattered",
+      "No re-exploration from scratch — the graph remembers what mattered",
       "The agent continues the investigation exactly where it left off",
     ],
     color: "#ffb700",

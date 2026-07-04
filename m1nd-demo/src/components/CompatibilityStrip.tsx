@@ -1,14 +1,13 @@
 import { motion } from "framer-motion";
 
 const MODELS = [
-  { name: "Claude Opus 4.6",    maker: "Anthropic", color: "#CC9B7A", bg: "#CC9B7A14" },
-  { name: "Claude Sonnet 4.x",  maker: "Anthropic", color: "#CC9B7A", bg: "#CC9B7A14" },
-  { name: "GPT-5.4 Thinking",   maker: "OpenAI",    color: "#10A37F", bg: "#10A37F14" },
-  { name: "GPT-5.3 Instant",    maker: "OpenAI",    color: "#10A37F", bg: "#10A37F14" },
-  { name: "GPT-5.4 mini",       maker: "OpenAI",    color: "#10A37F", bg: "#10A37F14" },
-  { name: "Gemini 2.5 Pro",     maker: "Google",    color: "#4285F4", bg: "#4285F414" },
-  { name: "Llama 4",            maker: "Meta",       color: "#0668E1", bg: "#0668E114" },
-  { name: "any MCP model",      maker: "",           color: "#00f5ff", bg: "#00f5ff10", isWild: true },
+  { name: "Claude Opus",   maker: "Anthropic", color: "#CC9B7A", bg: "#CC9B7A14" },
+  { name: "Claude Sonnet", maker: "Anthropic", color: "#CC9B7A", bg: "#CC9B7A14" },
+  { name: "GPT-5",         maker: "OpenAI",    color: "#10A37F", bg: "#10A37F14" },
+  { name: "GPT-5 mini",    maker: "OpenAI",    color: "#10A37F", bg: "#10A37F14" },
+  { name: "Gemini 2.5 Pro", maker: "Google",   color: "#4285F4", bg: "#4285F414" },
+  { name: "Llama",         maker: "Meta",       color: "#0668E1", bg: "#0668E114" },
+  { name: "any MCP model", maker: "",           color: "#00f5ff", bg: "#00f5ff10", isWild: true },
 ];
 
 const CLIENTS = [
@@ -68,7 +67,7 @@ export function CompatibilityStrip() {
         >
           <div className="h-px flex-1 bg-border/20 max-w-[120px]" />
           <span className="font-mono text-[10px] text-muted-foreground/40 tracking-widest uppercase">
-            works with every model · every client · april 2026
+            works with every model · every client that speaks MCP
           </span>
           <div className="h-px flex-1 bg-border/20 max-w-[120px]" />
         </motion.div>

@@ -32,13 +32,13 @@ const FAQS: FAQ[] = [
     q: "Which LLMs and AI clients does m1nd support?",
     a: (
       <>
-        m1nd is MCP-native — it works with every client and model that speaks the Model Context Protocol. As of April 2026 that means:
+        m1nd is MCP-native — it works with every client and model that speaks the Model Context Protocol, across <strong style={{ color: "rgba(226,232,240,0.8)" }}>22 supported hosts</strong> (run <code>m1nd hosts plan</code> for yours):
         <br /><br />
-        <strong style={{ color: "rgba(226,232,240,0.8)" }}>Models:</strong> Claude Opus 4.6 · Claude Sonnet 4.x · GPT-5.4 Thinking · GPT-5.3 Instant · GPT-5.4 mini · Gemini 2.5 Pro · Llama 4 — and any model released tomorrow that runs through an MCP client.
+        <strong style={{ color: "rgba(226,232,240,0.8)" }}>Models:</strong> Claude Opus · Claude Sonnet · GPT-5 · Gemini 2.5 Pro · Llama — and any model released tomorrow that runs through an MCP client.
         <br /><br />
-        <strong style={{ color: "rgba(226,232,240,0.8)" }}>Clients:</strong> Claude Code · Claude Desktop · Cursor · Windsurf · VS Code · ChatGPT desktop · Cline · Continue · Zed · and any custom agent that speaks MCP.
+        <strong style={{ color: "rgba(226,232,240,0.8)" }}>Clients:</strong> Claude Code · Codex · Cursor · Windsurf · GitHub Copilot · VS Code · Cline · Continue · Zed · Antigravity · and any custom agent that speaks MCP.
         <br /><br />
-        You configure m1nd once in your MCP client settings. No per-model setup. No API key. The tool calls are identical regardless of which model is driving the agent — GPT-5.4 calls <code>seek()</code> the same way Claude Opus 4.6 does.
+        You configure m1nd once. No per-model setup. No API key. The tool calls are identical regardless of which model is driving the agent — GPT-5 calls <code>seek()</code> the same way Claude Opus does.
       </>
     ),
   },
@@ -64,7 +64,7 @@ const FAQS: FAQ[] = [
   {
     tag: "getting started",
     q: "How long does it take to set up?",
-    a: 'Under 2 minutes. Install the agent pack with npm install -g @maxkle1nz/m1nd, install the native runtime with cargo install m1nd-mcp, add it to your MCP client config, and run m1nd warmup to build the initial graph. First warmup on a 50K-line codebase takes about 8 seconds. After that, incremental updates run in the background as files change.',
+    a: 'Under 2 minutes. Install the agent pack with npx -y @maxkle1nz/m1nd (it is on the official MCP Registry as io.github.maxkle1nz/m1nd), install the native runtime with cargo install m1nd-mcp, add it to your MCP client config, and run m1nd warmup to build the initial graph. First warmup on a 50K-line codebase takes about 8 seconds. After that, incremental updates run in the background as files change.',
   },
 ];
 

@@ -119,7 +119,7 @@ const RIGHT: L[] = [
   { at: 2300, type: "blank",   text: "" },
   { at: 2400, type: "prompt",  text: '> surgical_context_v2("config/settings.py", radius=2)' },
   { at: 2600, type: "success", text: "✓ 0.001s — surgical context assembled" },
-  { at: 2750, type: "output",  text: "  84% fewer tokens than reading all files" },
+  { at: 2750, type: "output",  text: "  the connected slice — no files opened" },
   { at: 2900, type: "success", text: "  ✓ DONE — sending to model now" },
 ];
 

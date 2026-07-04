@@ -20,7 +20,7 @@ import { FAQSection } from "@/components/FAQSection";
 
 const METRICS = [
   { value: "1.36µs", label: "graph activation", sub: "1,000 nodes" },
-  { value: "84%",    label: "fewer tokens",      sub: "vs grep/cat" },
+  { value: "0",      label: "files opened",     sub: "queries hit memory" },
   { value: "543ns",  label: "blast radius",      sub: "depth=3" },
   { value: "0.18s",  label: "full code analysis", sub: "end-to-end" },
 ];

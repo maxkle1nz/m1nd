@@ -1,9 +1,14 @@
 import { motion } from "framer-motion";
 
-const STEP_INSTALL = `# agent pack, diagnostics, and host setup
-npm install -g @maxkle1nz/m1nd
+const STEP_INSTALL = `# one command — agent pack, diagnostics, host setup
+npx -y @maxkle1nz/m1nd
 m1nd doctor
-m1nd pack-check
+
+# on the official MCP Registry:
+#   io.github.maxkle1nz/m1nd  ·  registry.modelcontextprotocol.io
+
+# works with 22 hosts — print your host's recipe:
+m1nd hosts plan
 
 # native MCP runtime (semantic recall on by default)
 cargo install m1nd-mcp`;
@@ -31,7 +36,7 @@ const STEP_INGEST = `// first session — ingest your codebase
   }
 }
 
-// graph is now live — 0 files read, 0 tokens spent`;
+// graph is now live — every later query runs against it, not the filesystem`;
 
 const PLAYBOOK = [
   {
@@ -104,8 +109,8 @@ export function InstallSection() {
     {
       num: "01",
       label: "Install",
-      title: "Install the pack and runtime",
-      desc: "The npm pack gives agents their operating doctrine and diagnostics; the Rust crate gives them the native MCP runtime.",
+      title: "One command, on the official registry",
+      desc: "One npx line gives agents their operating doctrine and diagnostics; the Rust crate gives them the native MCP runtime. m1nd is published on the official MCP Registry, and m1nd hosts plan prints the right recipe for any of 22 hosts.",
       code: STEP_INSTALL,
       lang: "bash",
     },
@@ -161,11 +166,20 @@ export function InstallSection() {
           className="mb-10 rounded-xl border border-primary/15 px-5 py-4 font-mono text-xs text-muted-foreground/70"
           style={{ background: "rgba(0,245,255,0.03)" }}
         >
-          MCP entrypoints exist across major hosts: <span style={{ color: "#00f5ff" }}>Claude Code</span>,{" "}
-          <span style={{ color: "#00f5ff" }}>Cursor</span>, <span style={{ color: "#00f5ff" }}>Windsurf</span>,{" "}
-          <span style={{ color: "#00f5ff" }}>GitHub Copilot</span>, <span style={{ color: "#00f5ff" }}>Zed</span>,{" "}
-          <span style={{ color: "#00f5ff" }}>Continue</span>, and editor-specific native proxies like{" "}
-          <span style={{ color: "#00ff88" }}>Antigravity</span> when you want a hot daemon instead of a cold stdio server.
+          Works with <span style={{ color: "#00f5ff" }}>22 hosts</span> — <span style={{ color: "#00f5ff" }}>Claude Code</span>,{" "}
+          <span style={{ color: "#00f5ff" }}>Codex</span>, <span style={{ color: "#00f5ff" }}>Cursor</span>,{" "}
+          <span style={{ color: "#00f5ff" }}>Windsurf</span>, <span style={{ color: "#00f5ff" }}>GitHub Copilot</span>,{" "}
+          <span style={{ color: "#00f5ff" }}>Zed</span>, <span style={{ color: "#00f5ff" }}>Continue</span>,{" "}
+          <span style={{ color: "#00ff88" }}>Antigravity</span> and more. <code style={{ color: "#00f5ff" }}>m1nd hosts plan</code> emits the strongest channel each host actually ships —{" "}
+          <a
+            href="https://github.com/maxkle1nz/m1nd/blob/main/docs/HOST-INTEGRATION-MATRIX.md"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2"
+            style={{ color: "#00f5ff" }}
+          >
+            see the full host-integration matrix ↗
+          </a>.
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-20">
