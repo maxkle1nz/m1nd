@@ -914,14 +914,49 @@ green, claims scoped).
 >   needs a real evidence-drift case to exercise end-to-end (the stale-flip e2e). Tremor breath
 >   is wired but the repo currently reports no active tremors.
 >
+> **Slices 0T + 1H status — SHIPPED 2026-07-04 (`feat/human-layer-hall`).** The layer above the
+> tree is live on the two-tier backend (#260). **The Hall (1H)** promotes + re-skins the retired
+> `InstancesPanel` to SOFT PROOF (the cyberpunk tokens die; violet-lint stays green): three brain
+> classes from the owner's registry (bound self + siblings + hosted project brains), freshest-first
+> unre-sorted, live via the reused `graph_changed` refetch; card anatomy with matte liveness dots
+> and absent-honest counts (INV-10, never 0); a read-only receipt drawer; the removal ladder
+> (stop→clean→eject) with honest disabled rungs; and **the calm two-step delete** (INV-09):
+> consequence card (dies vs survives, categories not filenames) → type-the-name (confirm unreachable
+> below an exact match) → the `delete-state` route, with the server's live-instance refusal rendered
+> verbatim (asserted against a real captured `delete_refusal.json`). **The Threshold (0T)** is the
+> zero-brain first-run: one sentence, one action, the one-call `project_root` bootstrap
+> (feature-detected via `GET /api/tools`), word-grained progress (INV-05, never a fake %), the
+> 3-beat orientation from the real north packet (map · anchors · honest gaps), each beat
+> ESC-dismissable-forever (INV-12); plus the **Brain Chip** on every surface (no graph pixel without
+> the owning brain's name), the **Cmd+K Brains group**, the **reduced-motion contract** (tested), and
+> the **clobber-ban retirement** of the bare foreign-path ingest on a non-empty owner (INV-11).
+> Proofs: **80 UI tests green** (INV-09/10/11/12 each covered; 52 net-new incl. the delete floor,
+> the needs-backend sweep, the reduced-motion CSS assertion), all fed by **real captured envelopes**
+> (`instances.json`/`instance_self.json`/`delete_refusal.json`/`tools.json`, dogfooded from the live
+> `:1338` owner); violet-lint green; `tsc` clean; `npm run build` green (dist air-gapped, zero
+> external asset loads); live smoke rendered the two REAL brains (the bound m1nd dev brain +
+> the hosted Cherry project brain born the same day) with every honesty invariant visibly working.
+> *(A kickstart of the served owner activates the new embedded dist — the running binary embeds the
+> prior build.)*
+>
+> **Honest deviations (0T/1H):** (1) the tool-command palette (`CommandPalette.tsx`, deferred-legacy
+> cyberpunk) was NOT retrofitted — §4A.5's Brains group ships as a focused new `BrainPalette` rather
+> than a mode bolted onto that panel; the tool palette stays a later-slice re-skin (research R8's
+> full tools catalog is deferred with it). (2) `attach bridge` wire fix to `api/client.ts`: the
+> universal `tool_error_payload` returns `message` (not `detail`), so `apiFetch` now reads either —
+> without it the delete live-refusal would land in `undefined` (INV-09 would silently fail). (3) The
+> Brain Chip renders the self envelope's `graph_state.workspace_root` verbatim, which on the medulla
+> binding reads `agent-memory` (the runtime subdir) rather than the repo basename — honest rendering
+> of the real two-tier binding, not a bug; the cards use `instance.workspace_root` for the cleaner name.
+>
 > Slices 1–3 below remain spec'd.
 
 | Slice | Ships | Proof gates (all must be green) |
 |---|---|---|
 | **0 — the Living Tree, read-only** ✅ **SHIPPED 2026-07-03** *(the smallest lovable surface)* | Tree + trust dots + post-its + coverage emphasis + hover whisper + node drawer + honest cold states. SOFT PROOF tokens + violet-quarantine lint land here (the re-skin is the foundation, not a later coat). No map, no editing. | Renders m1nd's own repo from the live served endpoints (dogfood); INV-01/02/04/06/07/08 tests green; violet-lint green (zero violet outside abstain tokens); post-it provenance matches `seek`/snapshot tags byte-for-byte; cold-graph state renders `needs_ingest` honestly; tree usable keyboard-only. |
-| **0T — the Threshold + the chip** *(§4A lettered insert — rides Slice-0 machinery; renumbering would ripple)* | The Threshold empty state (evolves the shipped cold state), the 3-beat orientation, the Brain Chip on every surface, the reduced-motion kill switch, the palette Brains group v0, and the **clobber-ban retirement** of the raw "Read a repo" ingest on non-empty owners (§4A.4). Bootstrap uses `project_root` when `GET /api/tools` advertises it; plain ingest survives only on an empty owner. | INV-12 tests green (zero-brain-only render, dismiss persists, beats independent); INV-11's clobber-ban test green (no foreign-path bare ingest on a non-empty owner); chip present on every surface including cold/degraded states, sourced from the same envelope as the surface; reduced-motion component test green (tremor breath stands down, transitions zeroed); Threshold + orientation fully keyboard-only; progress copy is words, never a fabricated percent (INV-05). |
+| **0T — the Threshold + the chip** ✅ **SHIPPED 2026-07-04** *(§4A lettered insert — rides Slice-0 machinery; renumbering would ripple)* | The Threshold empty state (evolves the shipped cold state), the 3-beat orientation, the Brain Chip on every surface, the reduced-motion kill switch, the palette Brains group v0, and the **clobber-ban retirement** of the raw "Read a repo" ingest on non-empty owners (§4A.4). Bootstrap uses `project_root` when `GET /api/tools` advertises it; plain ingest survives only on an empty owner. | INV-12 tests green (zero-brain-only render, dismiss persists, beats independent); INV-11's clobber-ban test green (no foreign-path bare ingest on a non-empty owner); chip present on every surface including cold/degraded states, sourced from the same envelope as the surface; reduced-motion component test green (tremor breath stands down, transitions zeroed); Threshold + orientation fully keyboard-only; progress copy is words, never a fabricated percent (INV-05). |
 | **1 — the Pre-Flight Card** *(the hero)* | The north card (mini-map strip, blast line, memory strip, violet gap card, one next-move button), seeded from the tree's `[Check before editing]`. | Replays real captured north envelopes from `docs/benchmarks/**/event-streams/`; INV-03/05/07 green on the card; the 2-second read holds (headline + verdict + gaps visible without scroll at 1280×800); every gap shows exactly one action; `needs_ingest` and degraded-binding variants render the repair path. |
-| **1H — the Hall** *(§4A lettered insert — gated on the two-tier brains slice landing; its test file is the contract)* | The Hall at rung −1: the three-class brains list (§4A.3 card anatomy, absent-never-faked fields), the drawer receipt, the actions table with honest disabled states (§4A.4), the calm two-step delete on the existing `delete-state` route, palette jump + ESC-from-root, live refresh reused. `InstancesPanel` retires. | INV-09/10/11 green on real fixtures (captured `/api/instances` + self envelopes, incl. a live-refusal case and a counts-absent case); delete flow structurally unreachable below two confirmations; disabled affordances carry residue-naming tooltips (copy asserted); ESC at tree root reaches the Hall and back; recency ordering is the registry's, unre-sorted; violet-lint stays green after the panel reskin (the cyberpunk tokens die here); Hall fully keyboard-only. |
+| **1H — the Hall** ✅ **SHIPPED 2026-07-04** *(§4A lettered insert — gated on the two-tier brains slice landing; its test file is the contract)* | The Hall at rung −1: the three-class brains list (§4A.3 card anatomy, absent-never-faked fields), the drawer receipt, the actions table with honest disabled states (§4A.4), the calm two-step delete on the existing `delete-state` route, palette jump + ESC-from-root, live refresh reused. `InstancesPanel` retires. | INV-09/10/11 green on real fixtures (captured `/api/instances` + self envelopes, incl. a live-refusal case and a counts-absent case); delete flow structurally unreachable below two confirmations; disabled affordances carry residue-naming tooltips (copy asserted); ESC at tree root reaches the Hall and back; recency ordering is the registry's, unre-sorted; violet-lint stays green after the panel reskin (the cyberpunk tokens die here); Hall fully keyboard-only. |
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |
 
