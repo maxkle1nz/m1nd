@@ -283,6 +283,35 @@ impl ProjectBrainRegistry {
         let g = state.graph.read();
         Some((g.num_nodes() as u64, g.num_edges() as u64))
     }
+
+    /// The COLD roster: every project brain this owner has ON DISK, read only from
+    /// each store's inert `project_brain.json` manifest (never the multi-MB
+    /// snapshot — listing ≠ warm-boot). This is the fix for the "hosted brain
+    /// vanishes from the Hall after a restart" bug: the instance registry only
+    /// re-lists a project brain once a routed call warm-boots it, but a brain that
+    /// exists on disk is a brain the Hall must show (and `?brain=` can open) with
+    /// zero routed calls. The caller unions this with the warm/registry view.
+    ///
+    /// Returns `(canonical_root, StoreFacts, store_dir)` per readable manifest.
+    /// A store whose manifest is missing/unreadable is silently skipped (honest
+    /// absence, never a fabricated entry). Inert read only (PRD §9.4 posture).
+    pub fn disk_roster(&self) -> Vec<(String, StoreFacts, PathBuf)> {
+        let Ok(entries) = std::fs::read_dir(&self.base_dir) else {
+            return Vec::new(); // no project-brains dir yet → empty roster
+        };
+        let mut out = Vec::new();
+        for entry in entries.flatten() {
+            let store_dir = entry.path();
+            if !store_dir.is_dir() {
+                continue;
+            }
+            if let Some(facts) = store_facts_for_store(&store_dir) {
+                let key = Self::canonical_key(&facts.project_root);
+                out.push((key, facts, store_dir));
+            }
+        }
+        out
+    }
 }
 
 /// The real project root a store belongs to, read from its `project_brain.json`

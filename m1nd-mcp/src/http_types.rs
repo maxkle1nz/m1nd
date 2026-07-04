@@ -96,6 +96,10 @@ pub struct SubgraphQuery {
     pub top_k: usize,
     #[serde(default = "default_depth")]
     pub depth: usize,
+    /// §4A.9 per-brain selector: URL-encoded absolute `project_root` of the brain
+    /// to browse. Absent → the bound graph (byte-compatible with today).
+    #[serde(default)]
+    pub brain: Option<String>,
 }
 
 fn default_top_k() -> usize {

@@ -973,12 +973,79 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
         })
         .collect();
 
+    let mut enriched = enriched;
+
+    // ── Cold disk union (the "hosted brain vanishes after restart" fix) ──────────
+    // The instance registry only re-lists a project brain once a routed call
+    // warm-boots it, so after every owner restart a dormant project brain is
+    // absent from the Hall until touched (field-proven reincidence: "Cherry
+    // sumiu"). But a brain that exists on disk IS a brain the Hall must show and
+    // `?brain=` can open — listing is a cheap manifest read, never a warm-boot.
+    // Union the disk roster in: any store manifest whose canonical root is not
+    // already represented (bound root or an already-listed project entry) becomes
+    // a synthesized card. The warm/registry entry always wins a collision (it
+    // carries live status + a real instance_id); disk fills only the gaps.
+    let self_project_key = self_project_root
+        .as_deref()
+        .map(crate::project_brains::ProjectBrainRegistry::canonical_key);
+    let mut present_roots: std::collections::HashSet<String> = enriched
+        .iter()
+        .filter_map(|e| e.get("project_root").and_then(|v| v.as_str()))
+        .map(crate::project_brains::ProjectBrainRegistry::canonical_key)
+        .collect();
+    if let Some(ref k) = self_project_key {
+        present_roots.insert(k.clone());
+    }
+    for (root_key, facts, store_dir) in state.project_brains.disk_roster() {
+        if present_roots.contains(&root_key) {
+            continue; // warm/registry entry already represents this brain
+        }
+        present_roots.insert(root_key.clone());
+        // Live counts win if the brain happens to be warm; else the manifest's
+        // recorded counts (honest for a dormant store); else absent — never 0.
+        let counts = state
+            .project_brains
+            .warm_counts(&root_key)
+            .or(match (facts.node_count, facts.edge_count) {
+                (Some(n), Some(e)) => Some((n, e)),
+                _ => None,
+            });
+        // A stable synthetic id from the store dir name (the fingerprint) — a
+        // dormant brain has no live instance lease, but the Hall needs a React key
+        // and the receipt a handle; it never collides with a real instance_id.
+        let synthetic_id = store_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| format!("project-brain:{n}"))
+            .unwrap_or_else(|| format!("project-brain:{root_key}"));
+        let name = crate::session::basename_of(&facts.project_root);
+        let mut card = serde_json::json!({
+            "instance_id": synthetic_id,
+            "brain_kind": "project",
+            "display_name": name,
+            "project_root": facts.project_root,
+            // Its store dir is its workspace_root (mirrors a warm project entry).
+            "workspace_root": store_dir.to_string_lossy(),
+            "node_count": counts.map(|(n, _)| n),
+            "edge_count": counts.map(|(_, e)| e),
+            // Dormant-on-disk: no live process, no lock, no conflicts. The card
+            // keys on brain_kind and shows manifest freshness, never "not running".
+            "conflicts": serde_json::Value::Array(vec![]),
+            "stale": false,
+            "dormant": true,
+        });
+        if let (Some(obj), Some(ms)) = (card.as_object_mut(), facts.updated_ms) {
+            obj.insert("last_activity_ms".into(), serde_json::json!(ms));
+            obj.insert("last_heartbeat_ms".into(), serde_json::json!(ms));
+        }
+        enriched.push(card);
+    }
+
     // Bound-first (§4A.3): the graph THIS owner serves is the home — float it to
     // the top, then keep every other brain in the registry's freshest-first
     // recency order (a stable partition preserves that order for the tail). The
     // bound owner heartbeats continuously, but a just-bootstrapped project brain
     // can carry a marginally fresher stamp — recency alone would bury the home.
-    let mut enriched = enriched;
     enriched.sort_by_key(|entry| {
         let is_self = entry
             .get("runtime_root")
@@ -1147,15 +1214,159 @@ async fn handle_instance_delete_state(
 async fn handle_list_tools(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "tools": state.tool_schemas_cache })),
+        Json(serde_json::json!({
+            "tools": state.tool_schemas_cache,
+            // Capability stamp (HUMAN-LAYER-PRD §4A.9.5): the Hall feature-detects
+            // the REST brain selector — Open enables only when this is present, so
+            // an old owner without `?brain=` routing keeps the 0T disabled posture
+            // (never assumed, never version-sniffed).
+            "rest_brain_selector": true,
+        })),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Per-brain selector (HUMAN-LAYER-PRD §4A.9) — the REST brain routing that lets
+// the Hall Open any project brain, not just the bound graph.
+// ---------------------------------------------------------------------------
+
+/// The `?brain=<project_root>` query parameter shared by the graph browse routes
+/// and the tool route. Absent = the bound graph (today's behavior, byte-
+/// compatible — the serde-default posture applied to a URL, §4A.9.2).
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct BrainQuery {
+    /// URL-encoded absolute `project_root` of a brain the owner already holds.
+    /// Absent → route to the bound graph.
+    pub brain: Option<String>,
+}
+
+/// The `served_brain` echo shape (§4A.9.4): the resolution `instances_listing`
+/// already computes, attached to every `/api/graph/*` response so the client can
+/// ASSERT what it got against what it asked for and drop mismatches (INV-15).
+fn served_brain_json(project_root: Option<String>, display_name: Option<String>) -> serde_json::Value {
+    serde_json::json!({
+        "project_root": project_root,
+        "display_name": display_name,
+    })
+}
+
+/// The bound graph's `served_brain` echo — its real PROJECT identity (never the
+/// `agent-memory` sidecar), the SAME derivation the Brain Chip and the Hall use
+/// (`SessionState::project_root_display` / `display_name`).
+fn bound_served_brain(session: &Arc<Mutex<SessionState>>) -> serde_json::Value {
+    let s = session.lock();
+    served_brain_json(s.project_root_display(), s.display_name())
+}
+
+/// Resolve the `?brain=` parameter to the session it names and that session's
+/// `served_brain` echo — the ONE resolution both REST doors (graph + tools)
+/// share, reusing the wire's routing verbatim (`ProjectBrainRegistry`, #260):
+///
+/// - **Absent** → the bound graph (today's behavior, byte-compatible).
+/// - **Names the bound root** → the bound graph (canonical-path match, so the
+///   macOS `/var`→`/private/var` alias and a trailing slash both resolve).
+/// - **Names a known hosted brain** → that project brain, warm-booting its
+///   dormant store on first touch (#230 semantics per store).
+/// - **Unknown root** → `Err` with an honest tool_error naming the miss; NEVER a
+///   filesystem read, NEVER an auto-create (creation stays consented, §4A.9.3).
+///
+/// Registered-roots-only is the security line (§4A.9.3): the param adds routing,
+/// not exposure — the surface stays loopback-only (`cli.rs`).
+///
+/// `pub` so the per-brain-selector integration test drives the ONE resolution the
+/// HTTP handlers wrap — the real routing, warm-boot, and echo, without an HTTP
+/// client (the same altitude `instances_listing` is tested at).
+pub fn resolve_brain(
+    state: &Arc<AppState>,
+    brain: Option<&str>,
+) -> Result<(Arc<Mutex<SessionState>>, serde_json::Value), m1nd_core::error::M1ndError> {
+    let Some(root) = brain.map(str::trim).filter(|s| !s.is_empty()) else {
+        // Absent param = the bound graph, exactly as before.
+        let echo = bound_served_brain(&state.session);
+        return Ok((state.session.clone(), echo));
+    };
+
+    // Does the param name the BOUND graph's own root? Compare on canonical form
+    // so `/private/var` aliases and trailing slashes resolve to a match — then the
+    // bound session answers, with its bound echo (no double-routing).
+    let requested_key = crate::project_brains::ProjectBrainRegistry::canonical_key(root);
+    let bound_matches = {
+        let s = state.session.lock();
+        s.project_root_display()
+            .map(|r| crate::project_brains::ProjectBrainRegistry::canonical_key(&r) == requested_key)
+            .unwrap_or(false)
+    };
+    if bound_matches {
+        let echo = bound_served_brain(&state.session);
+        return Ok((state.session.clone(), echo));
+    }
+
+    // Otherwise it must be a KNOWN hosted project brain (warm or dormant-on-disk).
+    // `resolve` warm-boots a dormant store; `None` = this owner holds no such
+    // brain → honest miss, never a filesystem probe of the raw path.
+    match state.project_brains.resolve(root) {
+        Some(brain_session) => {
+            // The hosted brain's identity is its manifest's project_root basename
+            // (the SAME name the Hall card wears) — resolved from the canonical key
+            // so the echo names the repo, not the fingerprint store dir.
+            let display = Some(crate::session::basename_of(&requested_key));
+            let echo = served_brain_json(Some(requested_key), display);
+            Ok((brain_session, echo))
+        }
+        None => Err(m1nd_core::error::M1ndError::InvalidParams {
+            tool: "brain_selector".into(),
+            detail: format!(
+                "no brain for '{root}' — the Hall lists what exists. \
+                 A brain is created only by consent (`ingest {{project_root}}` or `m1nd init`), \
+                 never by browsing to it."
+            ),
+        }),
+    }
+}
+
+/// Turn a `/api/graph/*` result into its HTTP response: 200 with the body, or —
+/// when the `?brain=` selector named an unknown root — an honest 404-grade
+/// tool_error naming the miss (§4A.9.3). NOT_FOUND is the right grade: the human
+/// asked for a brain that does not exist, the same way a bad tool name 404s.
+fn graph_response(
+    result: Result<serde_json::Value, m1nd_core::error::M1ndError>,
+) -> axum::response::Response {
+    match result {
+        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+        Err(e) => {
+            let mut payload = tool_error_payload(&e);
+            payload["error"] = serde_json::json!("unknown_brain");
+            (StatusCode::NOT_FOUND, Json(payload)).into_response()
+        }
+    }
 }
 
 async fn handle_tool_call(
     State(state): State<Arc<AppState>>,
     Path(tool_name): Path<String>,
+    Query(brain): Query<BrainQuery>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
+    // §4A.9.1: the tool route carries the SAME selector as the graph routes —
+    // Reading the Tree's lenses/filters/meaning-search (seek, layers, tremor,
+    // trust, impact) are all /api/tools calls, so they ride this param and answer
+    // from the named brain. Resolve up-front; an unknown root 404s honestly.
+    let (target_session, served_echo) = match resolve_brain(&state, brain.brain.as_deref()) {
+        Ok(pair) => pair,
+        Err(e) => return graph_response(Err(e)),
+    };
+    // §4A.9.6: brain-scope the mutation event. When the caller selected a brain,
+    // stamp its root on the `graph_changed` relay so a viewer only refetches for
+    // ITS brain (a bound/absent call leaves it None → the honest over-refetch on
+    // old readers still fires). Only meaningful when the param was explicit.
+    let brain_root_for_event: Option<String> = if brain.brain.is_some() {
+        served_echo
+            .get("project_root")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
     let event_tx = state.event_tx.clone();
     let event_log_path = state.event_log_path.clone();
     let tool_for_event = tool_name.clone();
@@ -1164,7 +1375,6 @@ async fn handle_tool_call(
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
-    let state = state.clone();
     let tool = tool_name.clone();
     let progress_event_tx = event_tx.clone();
     let progress_event_log_path = event_log_path.clone();
@@ -1174,7 +1384,10 @@ async fn handle_tool_call(
     let result = tokio::time::timeout(
         Duration::from_secs(TOOL_TIMEOUT_SECS),
         tokio::task::spawn_blocking(move || {
-            let mut session = state.session.lock();
+            // §4A.9: dispatch against the SELECTED brain (bound when absent) — the
+            // resolution already validated the root, so this is the same brain the
+            // graph routes would serve for this selector.
+            let mut session = target_session.lock();
             if tool == "apply_batch" {
                 session.apply_batch_progress_sink = Some(apply_batch_progress_sink(
                     progress_event_tx.clone(),
@@ -1221,19 +1434,24 @@ async fn handle_tool_call(
             let inner = inner.expect("spawn_blocking panicked");
 
             // Broadcast SSE event for the tool result
+            let mut result_data = serde_json::json!({
+                "tool": tool_for_event,
+                "source": "http",
+                "agent_id": agent_id_for_event,
+                "success": inner.is_ok(),
+                "result_preview": match &inner {
+                    Ok(v) => tool_result_summary(&tool_for_event, v),
+                    Err(e) => serde_json::json!({"error": e.to_string()}),
+                },
+                "timestamp_ms": now_ms(),
+            });
+            // §4A.9.6: name WHICH brain mutated (additive; absent for bound/old).
+            if let (Some(obj), Some(root)) = (result_data.as_object_mut(), &brain_root_for_event) {
+                obj.insert("brain_root".into(), serde_json::json!(root));
+            }
             let sse_event = SseEvent {
                 event_type: "tool_result".to_string(),
-                data: serde_json::json!({
-                    "tool": tool_for_event,
-                    "source": "http",
-                    "agent_id": agent_id_for_event,
-                    "success": inner.is_ok(),
-                    "result_preview": match &inner {
-                        Ok(v) => tool_result_summary(&tool_for_event, v),
-                        Err(e) => serde_json::json!({"error": e.to_string()}),
-                    },
-                    "timestamp_ms": now_ms(),
-                }),
+                data: result_data,
             };
             let _ = event_tx.send(sse_event.clone());
             if let Some(ref log_path) = event_log_path {
@@ -1285,10 +1503,19 @@ async fn handle_subgraph(
     let state = state.clone();
     let top_k = params.clamped_top_k(); // Cap at 100 (FM-FE-001)
     let query = params.query.clone();
+    let brain_param = params.brain.clone();
+
+    // §4A.9: resolve the target brain up-front — an unknown root 404s before any
+    // work; a known one (bound when absent) hands back its session + echo. The
+    // echo rides the response meta so the client can assert it (INV-15).
+    let (target, served_brain) = match resolve_brain(&state, brain_param.as_deref()) {
+        Ok(pair) => pair,
+        Err(e) => return graph_response(Err(e)),
+    };
 
     let result: serde_json::Value = tokio::task::spawn_blocking(move || {
         let start = std::time::Instant::now();
-        let mut session = state.session.lock();
+        let mut session = target.lock();
 
         // 1. Run activate internally to get top-K nodes
         let activate_params = serde_json::json!({
@@ -1451,32 +1678,51 @@ async fn handle_subgraph(
     .await
     .expect("spawn_blocking panicked");
 
-    (StatusCode::OK, Json(result))
+    // §4A.9.4: attach the served_brain echo at the top level (same place as
+    // stats/snapshot) so every graph door speaks the same INV-15 language.
+    let mut result = result;
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("served_brain".into(), served_brain);
+    }
+
+    (StatusCode::OK, Json(result)).into_response()
 }
 
-async fn handle_graph_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn handle_graph_stats(
+    State(state): State<Arc<AppState>>,
+    Query(brain): Query<BrainQuery>,
+) -> impl IntoResponse {
     let state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let session = state.session.lock();
+        // §4A.9: route to the named brain (bound when absent), echo served_brain.
+        let (session, served_brain) = resolve_brain(&state, brain.brain.as_deref())?;
+        let session = session.lock();
         let graph = session.graph.read();
-        serde_json::json!({
+        Ok::<_, m1nd_core::error::M1ndError>(serde_json::json!({
             "node_count": graph.num_nodes(),
             "edge_count": graph.num_edges(),
             "domain": session.domain.name.as_str(),
             "namespaces": serde_json::Value::Array(vec![]),
             "memory_estimate_bytes": 0_usize,
-        })
+            "served_brain": served_brain,
+        }))
     })
     .await
     .expect("spawn_blocking panicked");
 
-    (StatusCode::OK, Json(result))
+    graph_response(result)
 }
 
-async fn handle_graph_snapshot(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn handle_graph_snapshot(
+    State(state): State<Arc<AppState>>,
+    Query(brain): Query<BrainQuery>,
+) -> impl IntoResponse {
     let state = state.clone();
-    let result: serde_json::Value = tokio::task::spawn_blocking(move || {
-        let session = state.session.lock();
+    let result: Result<serde_json::Value, m1nd_core::error::M1ndError> =
+        tokio::task::spawn_blocking(move || {
+        // §4A.9: route to the named brain (bound when absent), echo served_brain.
+        let (session, served_brain) = resolve_brain(&state, brain.brain.as_deref())?;
+        let session = session.lock();
         let graph = session.graph.read();
         let n = graph.num_nodes() as usize;
 
@@ -1543,16 +1789,19 @@ async fn handle_graph_snapshot(State(state): State<Arc<AppState>>) -> impl IntoR
             }
         }
 
-        serde_json::json!({
+        Ok(serde_json::json!({
             "version": 1,
             "nodes": nodes,
             "edges": edges,
-        })
+            // §4A.9.4: the served_brain echo makes INV-15 testable — the client
+            // asserts this against what it asked for and drops mismatches.
+            "served_brain": served_brain,
+        }))
     })
     .await
     .expect("spawn_blocking panicked");
 
-    (StatusCode::OK, Json(result))
+    graph_response(result)
 }
 
 /// Build the browser-facing `graph_changed` SSE event from a broadcast event, or
@@ -1570,7 +1819,10 @@ fn browser_graph_changed_event(event: &SseEvent) -> Option<SseEvent> {
     let name = crate::mcp_http::graph_mutation_event_name(event)?;
     let mut detail = serde_json::Map::new();
     detail.insert("event".into(), serde_json::json!(name));
-    for key in ["agent_id", "source", "batch_id", "timestamp_ms"] {
+    // `brain_root` (§4A.9.6) rides along when the mutation named a brain — the
+    // viewer refetches only for ITS brain (or when the field is absent, the
+    // honest over-refetch on old owners). Additive: absent on bound/legacy events.
+    for key in ["agent_id", "source", "batch_id", "timestamp_ms", "brain_root"] {
         if let Some(v) = event.data.get(key) {
             detail.insert(key.into(), v.clone());
         }
