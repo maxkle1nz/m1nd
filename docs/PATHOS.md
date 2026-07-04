@@ -82,6 +82,34 @@ degrading to UNPROVABLE rather than a fake green — the same bar, applied to bu
 > `m1nd init` create path) stays open — stamped in the PRD. Live owners need a kickstart
 > (rebuild+restart) to inherit the honesty.
 
+> **cp9 addendum-4 (2026-07-04): PER-BRAIN OPEN SHIPPED (Human-Layer slice 2H, §4A.9) + the
+> cold-listing bug fixed.** Max's live blocker — *"por que cherrybubbles não consigo dar Open?"*
+> — is closed. The browser surface was bound-graph-only; now `/api/graph/*` + `POST
+> /api/tools/*` take `?brain=<project_root>`, routed through the SAME resolution the wire uses
+> (`http_server::resolve_brain` → `project_brains.rs`, #260): absent = bound (byte-compatible),
+> known hosted = warm-boot on first touch, unknown root = honest 404 (never auto-created,
+> loopback-only). Every `/api/graph/*` response carries a `served_brain` echo; `GET /api/tools`
+> stamps `rest_brain_selector: true`; `graph_changed` gained optional `brain_root`. The GUI
+> adopts it end-to-end: Open ENABLED on hosted cards (residue tooltip DELETED — INV-11 exit),
+> the tree opens a hosted brain in-tab dropping echo mismatches (INV-15), the Brain Chip flips
+> to the echo, dormant stores warm-boot in words (INV-05), and every 1T lens/filter/
+> meaning-search rides the selector (INV-16). **Also fixed (same slice, field mailbox class:bug
+> "Cherry sumiu"):** a dormant project brain vanished from the Hall after an owner restart until
+> a routed call warm-booted it — now `ProjectBrainRegistry::disk_roster()` scans
+> `project-brains/*/project_brain.json` on disk and unions dormant brains into the listing with
+> ZERO routed calls (counts from the manifest; warm map wins duplicates). **UNIT C (copy):** the
+> tree drawer's learn-history chip said "I haven't seen evidence either way yet" — colliding
+> with L1GHT's `evidence:` (memory) and confusing Max live; new copy is "no feedback yet — no
+> agent has confirmed or corrected answers about this file" (+ confirmed/corrected/mixed
+> variants), pinned by a test that the feedback chip never says "evidence" and the memories
+> panel never says "feedback" (glossary sealed in PRD §4A.3.1). Proof: `per_brain_open.rs` (7/7,
+> real two-brain owner) + **171 UI tests** (142 base + 29 new); `cargo test -p m1nd-mcp` green,
+> clippy -D warnings, fmt, `tsc` + violet-lint + icon-lint green, dist regenerated. **Residue
+> now:** hosted-brain delete, in-UI stop, eject (V2), the inbox verbs (§4A.3.1-D3), and the
+> §9.5.1 dormant-owner registry fields — each still named-honest. **Kickstart note:** dist is
+> rust-embedded — live owners need a served-owner restart to inherit both the REST selector and
+> the cold-listing fix.
+
 **The 24h harvest: OMEGA shipped as the floor, three PRDs made official, the first human
 surface landed, and the field-report mailbox went from full to empty.** This is the checkpoint
 where m1nd stops being only "a better `rg` for agents" and becomes a substrate with a *human
@@ -162,9 +190,10 @@ lens/search/card fixtures REAL captured `:1338` envelopes; violet-lint + icon-li
 build air-gapped (lucide adds no host); live smoke on `:1338` rendered the layer lens (8 layers +
 "unlayered" 5,803), the meaning panel (verdict "worth a second look", sufficiency "gathering" + the
 verbatim why, 16 of 847 cleared), and the Hall (one viewing chip, the four GOLD rows live, Cherry
-absent-honest, zero class labels). **Residue:** per-brain lens/search still bound-only (that is 2H,
-§4A.9); the trigram-fallback / empty-result captions are typed + unit-proven but await a real
-embed-off case e2e. **Kickstart note:** dist is rust-embedded — activating needs a served-owner restart.
+absent-honest, zero class labels). **Residue:** ~~per-brain lens/search still bound-only~~ — **CLOSED
+2026-07-04 (slice 2H shipped, §4A.9; see cp9 addendum-4)**; the trigram-fallback / empty-result
+captions are typed + unit-proven but await a real embed-off case e2e. **Kickstart note:** dist is
+rust-embedded — activating needs a served-owner restart.
 
 ### The field-triage sweep — the mailbox emptied in ~a day (the loop, working)
 The universal field-telemetry doctrine paid off: the seeded/accumulated `~/.m1nd/field-reports.jsonl`

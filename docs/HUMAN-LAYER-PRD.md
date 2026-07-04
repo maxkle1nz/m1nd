@@ -577,13 +577,30 @@ health scores ("brain health: 87%" is a lie with a number on it), NO animated pe
 NO sparklines. A Hall card is a specimen label, not a dashboard tile: if a field can't be
 said in one calm line of IBM Plex Mono, it belongs in the receipt or nowhere.
 
+**Glossary — MEMORY vs FEEDBACK (binding, one word each, never crossed; added 2026-07-04):**
+two different truths sit side-by-side in the tree drawer and must never borrow each other's
+word.
+- **Memory** = the L1GHT anchors an agent *left* on a node (`grounded_in` post-its, `evidence:`
+  in the engine). Surfaced as "memories anchored here" (the drawer's post-it panel; §3.3, G3).
+- **Feedback** = whether an agent later *confirmed or corrected* an answer about that node (the
+  learn-history / trust verdict: `defect_count` / `false_alarm_count` / `total_learn_events`,
+  `TrustNodeOutput`). Surfaced as the drawer's feedback chip + line.
+
+The retired drawer copy "I haven't seen evidence either way yet" collided the two — `evidence`
+is memory's word, so on a file with feedback-but-no-memory it read as "no memories" and confused
+a live reader (Max, 2026-07-04). The fixed copy is **"no feedback yet — no agent has confirmed
+or corrected answers about this file"** (+ confirmed / corrected / mixed variants when history
+exists). The invariant, pinned by test: the **feedback chip never contains the word "evidence";
+the memories panel never contains the word "feedback"** (`tree-drawer.test.tsx`). SHIPPED
+2026-07-04.
+
 ### 4A.4 Actions — affordance → surface, and delete designed calm
 
 | Action | Wire (verified) | Honest status |
 |---|---|---|
 | **Open** (bound brain) | it IS the tree — no call | BUILT |
 | **Open** (live sibling) | navigate to `entry_base_url(entry)` — each live owner serves its own UI (`instance_registry.rs:645-650`; `InstancesPanel` precedent) | BUILT |
-| **Open** (hosted project brain, in this tab) | the MCP wire routes by `M1nd-Caller-Root` (in-flight), but `/api/graph/*` + `/api/tools/*` carry **no brain selector** | **`[needs-backend — REST brain routing]`**: ships disabled-with-tooltip naming this residue |
+| **Open** (hosted project brain, in this tab) | `?brain=<project_root>` on `/api/graph/*` + `/api/tools/*` (`resolve_brain`, `http_server.rs`) reusing the wire's resolution (`project_brains.rs`, #260); `served_brain` echo + `rest_brain_selector` stamp | **SHIPPED 2026-07-04 (§4A.9, 2H)** — Open enabled on hosted cards (residue tooltip deleted, INV-11 exit); the tree opens the brain in-tab, drops echo mismatches (INV-15), warm-boots dormant stores in words (INV-05) |
 | **Re-ingest** | `POST /api/tools/ingest {path}` scoped to the brain's own root (the `IngestModal` mechanics, re-labeled "Re-read") | BUILT for the open brain |
 | **Bootstrap new** (global "+ Read a new repo") | the one-call `ingest {path, project_root: path}` — isolation proven by the branch's test (1): the bound graph stays byte-identical | IN-FLIGHT (feature-detected via `GET /api/tools`); **until it lands, the Hall offers NO foreign-path ingest** — see the clobber ban below |
 | **Save state** | `POST /api/instance/save` · `/api/instances/{id}/save` (`http_server.rs:690-695`) | BUILT |
@@ -699,20 +716,22 @@ Two **distinct** confirmations — the card acknowledge and the typed name — a
 | Ingest progress | SSE `ingest` completion event | — | progress granularity, only if words prove insufficient (measure first, §5.4 posture) |
 | Brains enumeration | `/api/instance/self` + `/api/instances` — **now PROJECT-named**: each entry carries server-resolved `display_name` + `project_root`, hosted `brain_kind:"project"` brains are enumerated (their store manifest names the real repo), the bound brain floats first, the rest stay recency-sorted | `brain_kind` stamps hosted brains (landed #260) | — **SHIPPED 2026-07-04** (the "REST/GUI bound-only" residue is closed for enumeration) |
 | Dormant/hosted counts + snapshot mtime + `calibration_armed` + `attached_sessions` | absent-honest | — | **last-known registry fields** (TWO-TIER §9.5.1, serde-default — small) |
-| Open hosted brain in-tab | — | wire-level caller-root routing (MCP only) | **REST brain routing** for `/api/graph/*` + `/api/tools/*` (small: the same resolution the wire uses) |
+| Open hosted brain in-tab | **`?brain=` selector** on `/api/graph/*` + `/api/tools/*` (`resolve_brain`) reusing the wire's resolution; `served_brain` echo + `rest_brain_selector` stamp | — | — **SHIPPED 2026-07-04 (§4A.9, 2H)** |
 | Stop from UI | — (CLI command rendered) | — | two-tier Slice 2 `m1nd brain stop`; an HTTP stop verb is a later call |
 | Delete (clean) | `delete-state` route, guarded | hosted-brain store dirs are a **new file layout** — their delete must land with the slice or the card says so | **hosted-brain delete** with the same live-guard + the same calm flow |
 | Eject | — | — | V2 (TWO-TIER §20) — reserved, named |
 | Card v2 GOLD (§4A.3.1): freshness-vs-git (G1) · calibration (G2) · compounding (G3) | `am_i_stale` · `predict.calibration` · snapshot `light:*` aggregation — all REST-reachable TODAY for the open/bound brain (`POST /api/tools/*`, the same `dispatch_tool` as stdio) | — | per-hosted-brain reads ride the §4A.9 selector; node-free per-brain `calibration_armed` + memory stamps join the §9.5.1 serde-default family |
 | Card v2 DEPTH: per-project inbox (D3) | — | — | **inbox verbs** (`inbox_drop` / `inbox_sweep` + the `north` inbox counter — doctrine sealed in medulla memory; runtime hands unbuilt) |
-| Reading the Tree (§4A.10): meaning-search · layer grouping · freshness/tremor filters | `seek` · `layers` · `am_i_stale` · `tremor` · `trust` — REST-reachable TODAY, **bound brain only**; grouping, filter chips, name-search, breadcrumb, density are client-only | — | zero new verbs; hosted brains inherit the §4A.9 selector |
-| Per-brain Open (§4A.9) | Open ships disabled-with-tooltip (the honest shipped state) | the MCP wire's caller-root resolution (`project_brains.rs` routing) — the machinery to REUSE | the **REST brain selector** (`?brain=` + `served_brain` echo + capability stamp + brain-scoped `graph_changed`) — spec'd whole in §4A.9, slice 2H |
+| Reading the Tree (§4A.10): meaning-search · layer grouping · freshness/tremor filters | `seek` · `layers` · `am_i_stale` · `tremor` · `trust` — REST-reachable for the bound brain AND, **now, any hosted brain via the §4A.9 selector** (INV-16); grouping, filter chips, name-search, breadcrumb, density are client-only | — | — **SHIPPED 2026-07-04** (hosted brains inherit the selector) |
+| Per-brain Open (§4A.9) | the **REST brain selector** (`?brain=` + `served_brain` echo + `rest_brain_selector` stamp + brain-scoped `graph_changed`) — Open enabled on hosted cards, tree adopts the brain end-to-end (INV-15) | — | — **SHIPPED 2026-07-04 (slice 2H)** |
 
 **The residue, consolidated** (each honest, each slice-sized): (1) REST brain **routing** —
-_enumeration_ shipped 2026-07-04 (`/api/instances` lists every hosted brain, PROJECT-named),
-but _opening_ a hosted brain in-tab still needs a brain selector on `/api/graph/*` +
-`/api/tools/*` (Open stays disabled-with-tooltip for project brains) — **the contract is now
-spec'd whole in §4A.9 (slice 2H)**; (2) the §9.5.1 optional
+**SHIPPED 2026-07-04 (slice 2H):** _enumeration_ (`/api/instances` lists every hosted brain,
+PROJECT-named) AND _opening_ (the `?brain=` selector on `/api/graph/*` + `/api/tools/*`, the
+`served_brain` echo, the `rest_brain_selector` stamp, brain-scoped `graph_changed`) both ship;
+Open is enabled on hosted cards and the tree adopts the brain end-to-end (§4A.9). The
+**cold-listing bug** that dropped a dormant brain from the Hall after an owner restart is fixed
+in the same slice (`disk_roster()` + cold union, §9.5.5); (2) the §9.5.1 optional
 registry fields (dormant counts, mtime, calibration, sessions — warm brains already report
 real counts) — §4A.3.1 adds the same-family memory stamps; (3) hosted-brain delete; (4) an
 in-UI stop; (5) eject (V2); (6) the **inbox verbs** behind §4A.3.1-D3. Until each lands,
@@ -853,18 +872,38 @@ every card opens the same way, and the receipt's `binding:` line becomes the onl
 word survives. This section is written so that day requires deleting a line of copy, not
 redesigning a surface.
 
-### 4A.9 Per-brain Open — the REST contract (spec'd, not built)
+### 4A.9 Per-brain Open — the REST contract (SHIPPED 2026-07-04, slice 2H)
 
 **Founder question, verbatim:** *"por que cherrybubbles não consigo dar Open?"*
 
-**Why Open is disabled today (the honest answer):** the browser surface is bound-graph-only.
-`/api/graph/stats·subgraph·snapshot` and `POST /api/tools/{*tool_name}` carry **no brain
-selector** — they always answer from the graph the owner is bound to (TWO-TIER §9.5.5,
-"Still open: per-brain browsing/execution over REST"). The MCP wire already routes per call
-(bootstrap directive → session sticky → caller-root match → bound default; the interim
-variant's silent routing), but the Hall's fetches are plain HTTP from a browser tab — no
-`M1nd-Caller-Root`, no wire session. So the Cherry card can be *listed* (enumeration shipped
-2026-07-04) but not *entered*: Open ships disabled with this exact residue named in the
+> **SHIPPED 2026-07-04 (slice 2H).** All seven contract points below are live. The
+> `?brain=<project_root>` selector routes `/api/graph/*` + `/api/tools/*` through the
+> wire's resolution (`resolve_brain`, `http_server.rs`, reusing `project_brains.rs`
+> from #260); every `/api/graph/*` response carries the `served_brain` echo; `GET
+> /api/tools` stamps `rest_brain_selector: true`; `graph_changed` gained the optional
+> `brain_root`. The UI adopts it end-to-end: Open is ENABLED on hosted project cards
+> (the residue tooltip is deleted, INV-11 exit), the tree opens a hosted brain in-tab
+> (drops served_brain mismatches — INV-15), the Brain Chip flips to the echo, a
+> dormant store warm-boots in words (INV-05), and every 1T lens/filter/meaning-search
+> rides the same param (INV-16). Proof: `m1nd-mcp/tests/per_brain_open.rs` (a real
+> two-brain owner: `snapshot?brain=<hosted>` ≠ bound, unknown-root refused, absent =
+> bound byte-compat, warm-boot via REST after restart, tools respect the selector) +
+> 29 new UI tests (INV-15 drop on real two-brain fixtures, the selector on every door,
+> capability detect, brain-scoped refresh). The cold-listing bug — a dormant brain
+> vanishing from the Hall after an owner restart — is fixed in the SAME slice
+> (`disk_roster()` + cold union in `instances_listing`; see §9.5.5).
+
+**Why Open WAS disabled (the honest answer, now retired):** the browser surface *was*
+bound-graph-only. `/api/graph/stats·subgraph·snapshot` and `POST /api/tools/{*tool_name}`
+carried **no brain selector** — they always answered from the graph the owner is bound to
+(TWO-TIER §9.5.5, "Still open: per-brain browsing/execution over REST"). The MCP wire already
+routed per call (bootstrap directive → session sticky → caller-root match → bound default; the
+interim variant's silent routing), but the Hall's fetches are plain HTTP from a browser tab —
+no `M1nd-Caller-Root`, no wire session. So the Cherry card could be *listed* (enumeration
+shipped 2026-07-04) but not *entered*. **2H closed this:** the `?brain=` query param carries the
+brain identity that the header would (query over header — same-origin `fetch()`, and the graph
+routes already read query inputs), routing REST through the SAME `resolve_brain` the wire uses.
+Until it landed, Open shipped disabled with this exact residue named in the
 tooltip (`BrainCard.tsx:158`, INV-11 discipline). This section is the contract that retires
 that tooltip.
 
@@ -1346,7 +1385,7 @@ green, claims scoped).
 | **1 — the Pre-Flight Card** *(the hero)* | The north card (mini-map strip, blast line, memory strip, violet gap card, one next-move button), seeded from the tree's `[Check before editing]`. | Replays real captured north envelopes from `docs/benchmarks/**/event-streams/`; INV-03/05/07 green on the card; the 2-second read holds (headline + verdict + gaps visible without scroll at 1280×800); every gap shows exactly one action; `needs_ingest` and degraded-binding variants render the repair path. |
 | **1H — the Hall** ✅ **SHIPPED 2026-07-04** *(§4A lettered insert — gated on the two-tier brains slice landing; its test file is the contract)* | The Hall at rung −1: the three-class brains list (§4A.3 card anatomy, absent-never-faked fields), the drawer receipt, the actions table with honest disabled states (§4A.4), the calm two-step delete on the existing `delete-state` route, palette jump + ESC-from-root, live refresh reused. `InstancesPanel` retires. | INV-09/10/11 green on real fixtures (captured `/api/instances` + self envelopes, incl. a live-refusal case and a counts-absent case); delete flow structurally unreachable below two confirmations; disabled affordances carry residue-naming tooltips (copy asserted); ESC at tree root reaches the Hall and back; recency ordering is the registry's, unre-sorted; violet-lint stays green after the panel reskin (the cyberpunk tokens die here); Hall fully keyboard-only. |
 | **1T — Reading the Tree + the precision system** ✅ **SHIPPED 2026-07-04** *(§4A.7/§4A.8/§4A.10; client-heavy, bound brain — zero new verbs)* | The icon registry + precision rules land here the way tokens landed in Slice 0 (foundation, not a later coat): lucide-react vendored (ISC text alongside), the concept→icon registry, the icon lint. Card anatomy v2 GOLD/DEPTH fields for the open brain (§4A.3.1). The §4A.8 label fix (kind badges die; viewing chip born). Grouping (directory/kind/layer), the filter bar, `meaning` search on `seek` with sufficiency + verdict rendered, breadcrumb, density toggle (§4A.10). | INV-13/14/16 green; icon lint green (registry-only imports, stroke 1.5, no Sparkles); air-gap grep of `dist/` still zero external hosts; layer lens renders real `layers` output with the "unlayered" group; `meaning` panel renders `sufficiency.why` + `VerdictChip` from a real captured `SeekOutput` (fixture, not hand-written); filter footer residue count exact; G1 freshness computed on demand only (no per-card background polling — asserted); zero class labels in card DOM. |
-| **2H — per-brain Open** *(§4A.9; the contract above is the spec — Rust + UI in one slice)* | The `brain` query param on `/api/graph/*` + `/api/tools/*` reusing the wire's resolution; `served_brain` echo; `rest_brain_selector` capability stamp; brain-scoped `graph_changed` (additive field); the tree/chip/Hall adoption end-to-end; Open's residue tooltip deleted. | INV-15 green (wrong-echo fixture dropped); Rust: `snapshot?brain=<hosted>` ≠ bound snapshot, unknown root refused with the honest error, absent param byte-compatible (`hall_brains_listing.rs` extended); UI: every fetch carries the selector while viewing, chip flips to the echo's name, warm-boot renders words not bars; feature-detection: Open stays disabled against an old owner (no stamp). |
+| **2H — per-brain Open** *(§4A.9)* — **SHIPPED 2026-07-04** | The `brain` query param on `/api/graph/*` + `/api/tools/*` reusing the wire's resolution (`resolve_brain`); `served_brain` echo; `rest_brain_selector` capability stamp; brain-scoped `graph_changed` (additive field); the tree/chip/Hall adoption end-to-end; Open's residue tooltip deleted. **Plus the cold-listing fix** (`disk_roster()` + cold union in `instances_listing`). | ✅ INV-15 green (wrong-echo fixture dropped); Rust (`per_brain_open.rs`): `snapshot?brain=<hosted>` ≠ bound snapshot, unknown root refused with the honest error, absent param byte-compatible, warm-boot via REST after restart, tools respect the selector, cold-listing from disk with zero routed calls; UI (29 new tests): every fetch carries the selector while viewing, chip flips to the echo's name, warm-boot renders words not bars, Open stays disabled against an old owner (no stamp). |
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |
 
