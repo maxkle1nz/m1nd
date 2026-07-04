@@ -9,12 +9,14 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import LivingTree from './components/tree/LivingTree';
+import HallView from './components/hall/HallView';
+import BrainChip from './components/hall/BrainChip';
 import { useToastStore } from './stores/toastStore';
 import ToastContainer from './components/ToastContainer';
 import { useSSE } from './hooks/useSSE';
 import { api } from './api/client';
 import { useM1ndApi } from './hooks/useM1ndApi';
-import type { SseEvent, SseIngestData } from './types';
+import type { InstanceSelfResponse, SseEvent, SseIngestData } from './types';
 
 // App-level error boundary.
 class AppErrorBoundary extends React.Component<
@@ -74,8 +76,20 @@ function useBackendStatus() {
   return status;
 }
 
-/** Minimal SOFT PROOF top bar — no violet chrome (that's quarantined to abstain). */
-function TopBar({ status, onIngest }: { status: BackendStatus; onIngest: () => void }) {
+/**
+ * Minimal SOFT PROOF top bar — no violet chrome (that's quarantined to abstain).
+ * Carries the Brain Chip (§4A.5): no graph pixel without the owning brain's name
+ * in view. The chip is on EVERY surface, sourced from the same self envelope.
+ */
+function TopBar({
+  status,
+  self,
+  onOpenHall,
+}: {
+  status: BackendStatus;
+  self: InstanceSelfResponse | null;
+  onOpenHall: () => void;
+}) {
   const dot =
     status === 'ok'
       ? 'var(--verdict-act, #6fa287)'
@@ -93,18 +107,36 @@ function TopBar({ status, onIngest }: { status: BackendStatus; onIngest: () => v
           style={{ backgroundColor: dot }}
           title={`status: ${status}`}
         />
-        <span className="text-ink-soft text-xs ml-2">the living tree</span>
       </div>
-      <button
-        type="button"
-        onClick={onIngest}
-        className="px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
-        title="Ingest a codebase"
-      >
-        Read a repo
-      </button>
+      <BrainChip
+        workspaceRoot={self ? self.graph_state.workspace_root ?? self.instance.workspace_root : null}
+        nodeCount={self ? self.graph_state.node_count : null}
+        healthy={status === 'ok'}
+        onClick={onOpenHall}
+      />
     </div>
   );
+}
+
+/** Poll the bound-brain self envelope — the Brain Chip's data source (§4A.5). */
+function useSelf(enabled: boolean) {
+  const [self, setSelf] = useState<InstanceSelfResponse | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let mounted = true;
+    const poll = () =>
+      api
+        .instanceSelf()
+        .then((s) => mounted && setSelf(s))
+        .catch(() => mounted && setSelf(null));
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, [enabled]);
+  return self;
 }
 
 /** Ingest modal (unchanged mechanics, SOFT PROOF skin). */
@@ -168,9 +200,14 @@ function IngestModal({
   );
 }
 
+/** The surface the shell is showing. The Hall is rung −1; the tree is rung 0. */
+type Surface = 'tree' | 'hall';
+
 export default function App() {
   const [ingestOpen, setIngestOpen] = useState(false);
+  const [surface, setSurface] = useState<Surface>('tree');
   const status = useBackendStatus();
+  const self = useSelf(status === 'ok' || status === 'degraded');
   const addToast = useToastStore((s) => s.addToast);
   const { runQuery } = useM1ndApi();
 
@@ -186,12 +223,43 @@ export default function App() {
 
   useSSE({ onEvent: handleSSE, enabled: status === 'ok' || status === 'degraded' });
 
+  // The ESC ladder (§3.4 / §4A.1): ESC at the tree ROOT ascends to the Hall
+  // (rung −1). The tree owns ESC while a row/drawer is focused; only when nothing
+  // is selected does ESC bubble to window and ascend. The Hall owns its own ESC.
+  const onWindowEsc = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (surface !== 'tree') return; // the Hall handles its own ESC (ascends out)
+      // Only ascend if the tree isn't holding focus on a row/drawer/input.
+      const active = document.activeElement;
+      const treeIsFocused =
+        active instanceof HTMLElement &&
+        (active.closest('[role="tree"]') != null ||
+          active.closest('[data-role="tree-drawer"]') != null ||
+          active.tagName === 'INPUT');
+      if (!treeIsFocused) setSurface('hall');
+    },
+    [surface],
+  );
+  useEffect(() => {
+    window.addEventListener('keydown', onWindowEsc);
+    return () => window.removeEventListener('keydown', onWindowEsc);
+  }, [onWindowEsc]);
+
   return (
     <AppErrorBoundary>
       <div className="flex flex-col h-screen w-screen bg-porcelain text-ink font-sans overflow-hidden">
-        <TopBar status={status} onIngest={() => setIngestOpen(true)} />
+        <TopBar status={status} self={self} onOpenHall={() => setSurface('hall')} />
         <div className="flex flex-1 overflow-hidden">
-          <LivingTree onIngest={() => setIngestOpen(true)} />
+          {surface === 'hall' ? (
+            <HallView
+              onExit={() => setSurface('tree')}
+              onOpenBound={() => setSurface('tree')}
+              onBootstrap={() => setIngestOpen(true)}
+            />
+          ) : (
+            <LivingTree onIngest={() => setIngestOpen(true)} />
+          )}
         </div>
         <IngestModal
           isOpen={ingestOpen}

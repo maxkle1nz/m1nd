@@ -8,7 +8,10 @@ import type {
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
 
-const BASE_URL = import.meta.env.DEV ? 'http://localhost:1337' : '';
+// In Vite, import.meta.env.DEV points the browser at the dev server; in a plain
+// Node test runner import.meta.env is undefined, so guard the read (the tests
+// never hit the network — they stub api.* — but the module must import cleanly).
+const BASE_URL = import.meta.env?.DEV ? 'http://localhost:1337' : '';
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {

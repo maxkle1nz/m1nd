@@ -72,7 +72,7 @@ export default function TreeDrawer({ row, band, onClose }: TreeDrawerProps) {
   const bandStyle = BAND_STYLE[band];
 
   return (
-    <aside className="w-80 border-l border-ink/10 bg-porcelain flex flex-col shrink-0 overflow-hidden">
+    <aside data-role="tree-drawer" className="w-80 border-l border-ink/10 bg-porcelain flex flex-col shrink-0 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-ink/10">
         <div className="flex items-start justify-between gap-2">
