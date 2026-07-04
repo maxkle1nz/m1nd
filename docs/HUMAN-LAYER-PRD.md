@@ -12,6 +12,13 @@
 > One discipline note, applied to this document itself: every effort/reuse figure in here is
 > an **engineering estimate, not a measurement**, and is therefore written in words, never as
 > a precision bar (INV-05 applies to the PRD too).
+> **Amended 2026-07-04: §4A — the layer above the tree** (Threshold onboarding · the Hall
+> projects area · ergonomics), by founder direction (verbatim in §4A.1). Amendment anchors
+> verified at `origin/main` @ `aa3b5d9`; the per-project-brains backend it designs against is
+> the in-flight `feat/two-tier-project-brains` slice, whose tests-first contract is cited as
+> such — never claimed shipped. Upstream for the amendment: the UI/UX deep research
+> (out-of-repo operator document, 2026-07-04 — inventory + verified pattern cards), folded and
+> cited inline as *(research §…)*.
 
 ---
 
@@ -61,6 +68,8 @@ chat surface (see §4.2, the Delegation Packet convergence) without rebuilding a
 - Not an epistemology lesson — no surface at the default rung speaks in "binding",
   "calibration", or "closure" vocabulary (§2).
 - Not a dashboard — no wall of gauges; heat is scarce (§3.2, §6).
+- Not a setup wizard — onboarding is the empty state doing its job (§4A.2): no tour overlays,
+  no checklists, no blocking multi-step intro. Pull, never push *(research §B.1, NN/g)*.
 
 ---
 
@@ -268,10 +277,14 @@ measurement.
 ## 4. The five surfaces (re-ranked — the tree is the entry)
 
 Ranking encodes the critic's verdicts: tree first (familiarity), Pre-Flight as hero (the
-moat), map demoted to drill-down, Brain read-only.
+moat), map demoted to drill-down, Brain read-only. The 2026-07-04 founder amendment adds
+**S0 — the Hall** *above* the ranking: the owner-level home, specified whole in §4A. The tree
+remains the front door of a *brain*; the Hall is the front door of the *owner* — it interposes
+only when there is more than one brain to choose, or none at all.
 
 | # | Surface | One-line job | Reuse vs build (estimate, in words — unmeasured) |
 |---|---|---|---|
+| S0 | **The Hall** *(§4A amendment)* | The home above the tree: every brain the owner holds, one glance; its zero-brain state IS the onboarding (the Threshold) | Data: instances/self served today, hosted brains ride the in-flight two-tier slice · UI: promote + reskin `InstancesPanel` |
 | S1 | **Living Tree** | The front door; navigate the mental map | Data: fully served today · UI: new tree component, drawer evolves `DetailPanel` |
 | S2 | **Pre-Flight Card** | The hero: what the agent sees before it acts | Data: one existing call (`north`) + `impact` · UI: new card |
 | S3 | **Honesty HUD** | Ambient trust chrome; abstain wears violet | Data: fully served · UI: chips/receipt/banners, mostly new |
@@ -391,6 +404,277 @@ exists with concurrency guards.
 
 ---
 
+## 4A. The layer above the tree — Threshold, Hall & ergonomics (founder amendment, 2026-07-04)
+
+*Lettered insert, deliberately (the `2R` precedent from TWO-TIER-BRAIN-PRD §14): renumbering
+§5–§9 would ripple through every cross-reference for zero information. §4A sits between the
+surfaces (§4) and the architecture (§5) because it IS a surface layer — the one above S1.*
+
+### 4A.1 The founding ask & the placement doctrine
+
+**Founder direction, verbatim:** *"o sistema visual para humanos precisa ter um onboarding, e
+uma área para selecionar todos os projetos que temos com os mapas do m1nd, com opções de apagar
+também (dupla confirmação) e outras opções que o sistema nos oferece — SEM ter que criar nada
+novo, somente adicionando; vamos pensar nessa camada acima e de ergonomia do usuário também."*
+
+The constraint is the law of this whole section: **surface, don't build.** Every affordance
+below draws a field that already serializes, a route that already answers, or a contract
+already pinned by a failing test on the in-flight branch — and where the backend does not
+exist yet, the affordance ships **disabled with the residue named on-screen** (INV-11), never
+faked. The deep research confirmed the constraint is satisfiable almost in full: the projects
+list, per-brain health, open, save, and a guarded delete **already ship and are already wired
+to the UI client** *(research §A, headline finding)*.
+
+**Placement doctrine — who owns the front door.** Decision 1 (§1) stands untouched: the Living
+Tree is the front door *of a brain*. The Hall is the front door *of the owner* — the process
+that may hold several brains (the bound graph + the two-tier hosted project brains + sibling
+registered owners). The Hall interposes exactly when the choice is real:
+
+| Owner state at load | Landing | Why |
+|---|---|---|
+| Zero brains anywhere (self graph empty + no registered/hosted brains) | **The Threshold** (§4A.2) | The empty state IS the onboarding |
+| Brains exist and this browser remembers a last-visited brain (localStorage) | That brain's **tree**, Brain Chip visible | Experts land in their work, not in a menu — the OrbStack posture (founder's stated taste; *research §B.1*: pull, don't push) |
+| Brains exist, no local history | **The Hall** (§4A.3) | The choice is real; make it in one glance |
+| Binding degraded / reception mismatch | The tree's §3.5 degraded banner; the Brain Chip wears the honesty | Never hide a degraded binding behind a pretty home |
+
+**The Hall is rung −1 of the §3.4 depth ladder.** ESC from the tree root ascends to it; every
+descent from it lands on a brain's rung 0. One ladder, one grammar, no new mental model:
+
+```mermaid
+flowchart LR
+    RH["Rung −1 — the Hall<br/>every brain, one glance"]
+    R0["Rung 0 — tree row"]
+    R1["Rung 1 — node drawer"]
+    RH -->|"open brain"| R0 -->|click| R1
+    R1 -.->|esc| R0 -.->|"esc at root"| RH
+```
+
+### 4A.2 The Threshold — first-run as empty state, not wizard
+
+**The moment:** a human opens the served UI and the owner holds nothing. That emptiness is the
+onboarding — no overlay tour, no checklist, no account. The Threshold evolves the shipped
+Empty Pedestal (§3.5; `LivingTree.tsx:148-161` renders `needs_ingest` honestly today) from
+"cold state of the tree" into "first screen of the product":
+
+1. **One calm sentence** of what m1nd is: *"m1nd keeps a living map of your code — what's
+   proven, what's guessed, what changed."* Set in the §6.5 stack; no feature list.
+2. **One action:** `[Read your first repo]` → a path input (the existing `IngestModal`
+   mechanics, `App.tsx:110-169`) → **the one-call bootstrap**: `ingest {path, project_root:
+   path}` — the two-tier envelope that creates + ingests + binds + orients in a single call
+   (`m1nd-project-brain-bootstrap-v0`; contract pinned tests-first in
+   `m1nd-mcp/tests/two_tier_project_brains.rs` on `feat/two-tier-project-brains`).
+   **Feature-detected, never assumed:** the UI reads `GET /api/tools` and uses `project_root`
+   only when the ingest schema advertises it; until then the Threshold falls back to plain
+   `ingest` — which is safe **here and only here**, because an empty owner has nothing to
+   clobber. *(The clobber hazard is real and field-proven: on a non-empty owner, plain ingest
+   of a foreign path REPLACES the bound graph — the in-flight branch's RED. §4A.4 retires that
+   affordance everywhere else.)*
+3. **Live progress, honestly grained:** the SSE `ingest` event (`SseIngestData{nodes_added,
+   path}`, `m1nd-ui/src/types.ts:132`) is a **completion** event — there is no percent stream.
+   So the Threshold shows calm indeterminate progress with words ("reading… a mid-size repo
+   takes about a minute" — words, not a fake bar; INV-05), then lands on the tree when the
+   event arrives.
+4. **The 3-beat orientation** — the north packet rendered humanly, as three quiet callouts
+   pinned to the real regions they describe (not a spotlight tour). Each beat is one sentence
+   + one dismiss; ESC dismisses all, forever:
+
+| Beat | Copy shape (action language, §2) | Real source |
+|---|---|---|
+| **The map** | "Here's your map: N files, E connections." | `north.binding.fingerprint.node_count/edge_count` (`server.rs:3212` packet) |
+| **What matters** | "These files carry the most weight." (the top anchors, softly emphasized in the tree) | `north.context.anchors` (top-5 PageRank, `server.rs:2703`) |
+| **The honest gaps** | "What I don't know yet" — the violet card, each gap with its one next step | `north.honest_gaps[]` + the §2 action-language map; zero memories renders §3.5's "agents leave notes here as they work" |
+
+**Skippable forever; returning users never see it.** The Threshold renders only at zero
+brains; each orientation beat dismisses independently and persists (localStorage); a user with
+≥1 brain — or who dismissed once — never meets it again (INV-12). The expert cost of the whole
+onboarding is one ESC.
+
+```mermaid
+flowchart TD
+    OPEN["human opens the served UI"] --> Q{"brains?"}
+    Q -->|"zero"| T["THRESHOLD<br/>one sentence · one action"]
+    Q -->|"≥1 + local history"| TREE["last brain's tree<br/>(chip visible)"]
+    Q -->|"≥1, no history"| HALL["the HALL"]
+    T -->|"Read your first repo<br/>(one-call bootstrap)"| PROG["calm progress<br/>(SSE ingest event, words not bars)"]
+    PROG --> BEATS["tree + 3-beat orientation<br/>map · anchors · honest gaps"]
+    BEATS -->|"esc — forever"| TREE
+    HALL -->|"open brain"| TREE
+```
+
+### 4A.3 The Hall — every brain the owner holds
+
+The Hall's seed **already exists**: `InstancesPanel.tsx` lists brains, shows per-brain health,
+opens, saves, and deletes-with-a-guard — but it wears the retired cyberpunk theme (`#00ff88`,
+`#00f5ff`, black overlays, violet chrome), which the §6.2 violet-quarantine lint fails **by
+design**. The Hall is that panel **promoted to a surface and re-skinned to SOFT PROOF**
+*(research §D R1 — "the single highest-value move… zero backend")*, extended with the hosted
+project brains the in-flight two-tier slice adds.
+
+**One list, three brain classes — each honestly sourced:**
+
+| Class | What it is | Enumeration source |
+|---|---|---|
+| **The bound brain** | The graph this owner serves (what the tree shows today) | `GET /api/instance/self` (`http_server.rs:688`) |
+| **Sibling owners** | Other registered m1nd processes on this machine (live or dormant) | `GET /api/instances` → `list_instances` (`instance_registry.rs:281`), freshest-first by `last_heartbeat_ms` (`:310-314`) — the recency ordering ships already *(research §B.2)* |
+| **Hosted project brains** | Per-repo brains living INSIDE this owner (two-tier interim variant) | registry entries stamped `brain_kind:"project"` via `set_brain_kind` — **in-flight**, `feat/two-tier-project-brains` (`instance_registry.rs` diff) |
+
+**Card anatomy — every field cites its surface; absent renders absent (INV-04/INV-10):**
+
+| Card element | Meaning | Source (verified) | Status |
+|---|---|---|---|
+| **Name + root** | Repo basename, full path on hover | `entry.workspace_root` (`instance_registry.rs:21`); self: `graph_state.workspace_root` (`session.rs:655`) | BUILT |
+| **Liveness dot** | sage = live · unfired grey = dormant · ochre = stale heartbeat · brick = hard failure — matte, never alarm | `owner_live` + `stale` (30 s rule) + `status` per entry | BUILT |
+| **Nodes · edges** | Graph size, IBM Plex Mono | self: `graph_state.node_count/edge_count` (`session.rs:647-648`); live sibling: its own `/api/graph/stats` via `entry_base_url` (`instance_registry.rs:645-650`); hosted brain at bootstrap: the envelope's `ingest.node_count` | BUILT for live; **dormant/hosted-at-rest: absent-honest** — the last-known registry count fields are `[needs-backend]` (TWO-TIER §9.5.1, serde-default posture) |
+| **Freshness** | "persisted 2 m ago" / "last seen 3 h ago" | self: `last_persist_secs_ago` (`session.rs:1263`); others: `last_heartbeat_ms` + `started_at_ms` | BUILT; snapshot-mtime for dormant brains `[needs-backend — same §9.5.1 fields]` |
+| **Trust state** | The calibration line, action language ("measured here" / "not measured yet") | open brain: `predict.calibration` (`tools.rs:2428`) + `north.binding.trust_mode` | BUILT for the open brain; **per-listed-brain `calibration_armed` `[needs-backend]`** (TWO-TIER §9.5.1, unbuilt) |
+| **Last activity** | "N queries this session" | self: `queries_processed` (`session.rs:1262`); others: heartbeat age | BUILT |
+| **Attached agents** | How many hands are on this brain | self: `active_agent_sessions` (`session.rs:1261`) + `health.agent_sessions[]` | BUILT for self; **per-hosted-brain `attached_sessions` `[needs-backend]`** (the owner knows; no surface reports it) |
+| **Memories** | Post-it count | open brain: `light`-namespace nodes in the snapshot (same aggregation the tree ships, §3.6) | BUILT for the open brain; absent-honest elsewhere |
+| **Kind badge** | project / medulla / bound | `brain_kind` registry field — **in-flight** (the branch adds field + stamp); legacy entries parse as absent | IN-FLIGHT |
+| **Conflict chips** | shared runtime root, duplicate workspace, stale lock — calm chips, not warnings | `conflicts[]` per entry | BUILT |
+
+**Hall discipline.** Heat scarcity applies (§3.2): most cards sit quiet; only a stale,
+conflicted, or failed brain earns a non-sage dot *(research §B.4, calm-tech)*. A card carries
+at most five facts; everything deeper lives in the card's drawer — a **read-only receipt**
+(binding fingerprint, conflicts, persist age; `/api/instance/self` + `health`), never a wall
+of gauges *(research §D R6; §1's "not a dashboard" kill applies here verbatim)*. The list
+stays live the way the tree does: `graph_changed` SSE → debounced refetch → quiet in-place
+update (`useLiveRefresh` reused; stats-poll fallback when SSE is down) *(research §D R7)*.
+
+### 4A.4 Actions — affordance → surface, and delete designed calm
+
+| Action | Wire (verified) | Honest status |
+|---|---|---|
+| **Open** (bound brain) | it IS the tree — no call | BUILT |
+| **Open** (live sibling) | navigate to `entry_base_url(entry)` — each live owner serves its own UI (`instance_registry.rs:645-650`; `InstancesPanel` precedent) | BUILT |
+| **Open** (hosted project brain, in this tab) | the MCP wire routes by `M1nd-Caller-Root` (in-flight), but `/api/graph/*` + `/api/tools/*` carry **no brain selector** | **`[needs-backend — REST brain routing]`**: ships disabled-with-tooltip naming this residue |
+| **Re-ingest** | `POST /api/tools/ingest {path}` scoped to the brain's own root (the `IngestModal` mechanics, re-labeled "Re-read") | BUILT for the open brain |
+| **Bootstrap new** (global "+ Read a new repo") | the one-call `ingest {path, project_root: path}` — isolation proven by the branch's test (1): the bound graph stays byte-identical | IN-FLIGHT (feature-detected via `GET /api/tools`); **until it lands, the Hall offers NO foreign-path ingest** — see the clobber ban below |
+| **Save state** | `POST /api/instance/save` · `/api/instances/{id}/save` (`http_server.rs:690-695`) | BUILT |
+| **Stop** (live brain) | none — `m1nd brain stop` is two-tier Slice 2 CLI | **`[needs-backend]`**: the rung renders with the CLI command shown, copyable, never a fake button |
+| **Delete** (clean a stopped brain) | `POST /api/instances/{id}/delete-state` → `delete_instance_state` (`http_server.rs:696` → `instance_registry.rs:318`) | **BUILT + guarded** — the flow below |
+| **Eject** (delete committed memory) | none — explicitly V2 (TWO-TIER §20, KILL list) | **`[needs-backend — V2]`**: named as the heavier ceremony, reserved |
+
+**The clobber ban (binding, testable).** Today's top-bar "Read a repo" runs a bare
+`ingest {path}` (`App.tsx:129`) — on a non-empty owner pointed at a foreign path, that call
+**replaces the bound graph for everyone** (the in-flight branch's RED, field-proven on Cherry/
+almus). From Slice 0T on: a bare foreign-path ingest is **never offered** while the owner
+holds a graph — the affordance is either "Re-read *this* repo" (same root) or the
+`project_root` bootstrap (when shipped). This is INV-11's sharpest tooth.
+
+**Delete, designed calm.** What the wire actually offers is the two-tier ladder's **clean** —
+and that shapes the whole ceremony honestly *(research §A.4/§B.3)*:
+
+- The server **refuses live brains** — `PermissionDenied: "cannot delete runtime state for
+  live instance {id} (pid {pid})"` (`instance_registry.rs:333-341`, test-proven). Stop-first
+  is enforced by construction, not by UI discipline.
+- It deletes **only the rebuildable runtime** — the fixed file set (graph, plasticity, trust,
+  calibration-adjacent state, caches; `:348-364`), the registry entry, the lease. It **never
+  touches `agent-memory/*.light.md` or `brain.json`** — committed memory is not in the
+  allow-list, and TT-INV-9 holds: memory is never truly lost while git lives.
+- Therefore the honest severity is **recoverable** — and the ceremony must say so instead of
+  performing terror. Two steps is the ceiling, not the floor: over-fortifying recoverable
+  actions trains reflexive clicking *(research §B.3, NN/g verified)*. The heavy ceremony is
+  reserved for V2 eject, which really does kill committed memory.
+
+The flow — matte severity, no red alarm glow, nothing animates:
+
+**Step 1 — the consequence card** (inline reveal in the brain's drawer, not a slam modal):
+
+> **Forget this brain's runtime?**
+> Dies: the map (**N nodes · E edges**, or "counts unknown — not running"), calibration,
+> caches. *(categories, never a filename list — copy survives backend drift)*
+> Survives: **K memories** in `agent-memory/` and `brain.json` — they live on disk and in
+> git; the map rebuilds on the next read.
+> Born `started_at_ms → "N days ago"` · last seen `last_heartbeat_ms → age`.
+> `[Keep it]` `[Continue…]`
+>
+> *(live brain variant: the server's refusal line rendered verbatim, delete disabled, the one
+> fix shown: `m1nd brain stop <root>` — copyable.)*
+
+**Step 2 — type the name** (the GitHub pattern, verified — *research §B.3*): an input labeled
+with the repo basename; the confirm button stays **disabled until the typed name matches
+exactly**; labels restate outcomes — `[Forget runtime state]` / `[Keep it]`, never Yes/No.
+The final button wears matte brick (`state.failure #B0563B`, §6.1) with a hairline border —
+fired clay, not a siren. Focus lands in the input, never on the destructive button; ESC
+aborts anywhere; nothing pulses, shakes, or glows.
+
+```mermaid
+sequenceDiagram
+    participant H as human
+    participant UI as Hall (drawer)
+    participant O as owner (:1337)
+    H->>UI: Delete… (on a brain card)
+    UI->>UI: STEP 1 — consequence card<br/>dies (counts or honest-absent) · survives (memories, brain.json) · guard state
+    alt brain is live
+        UI-->>H: refusal verbatim + `m1nd brain stop` (copyable) — no delete path
+    else dormant
+        H->>UI: Continue…
+        UI->>UI: STEP 2 — type-the-name (button disabled until exact match)
+        H->>UI: types basename → [Forget runtime state]
+        UI->>O: POST /api/instances/{id}/delete-state
+        O-->>UI: {deleted: entry} — or the PermissionDenied, rendered verbatim
+        UI-->>H: quiet toast "runtime forgotten — memories kept" · card leaves the list
+    end
+```
+
+Two **distinct** confirmations — the card acknowledge and the typed name — are the floor
+(INV-09): the destructive call is structurally unreachable below them.
+
+### 4A.5 Ergonomics — the human rhythm
+
+- **Keyboard-first switching.** `Cmd+K` already opens the palette (`useKeyboardShortcuts.ts:
+  19-23`, `CommandPalette.tsx`). The palette gains a **Brains group**: fuzzy jump across every
+  Hall entry — basename + liveness dot + last-seen — recents-first for free (the registry sort
+  IS recency, `instance_registry.rs:310-314`) *(research §D R4 — the verified palette-switcher
+  pattern, zero new data)*. Jumping to a live sibling navigates to its `entry_base_url`;
+  jumping to the bound brain focuses the tree; hosted brains obey the same honesty as their
+  Open action. The Hall itself: ESC at tree root (rung −1), the Brain Chip click, or the
+  palette. The whole layer is keyboard-only operable — the slice-0 gate ("tree usable
+  keyboard-only") extends to the Hall and Threshold.
+- **The Brain Chip — the reception echo, always in view.** One chip in the top bar, on every
+  surface: **brain name · node count · liveness**, from the same envelope the surface itself
+  rendered (`instance/self` / `north.binding.fingerprint`). The law: **no graph pixel without
+  the owning brain's name in view** — the almus-class ambiguity ("which brain am I talking
+  to?") is killed at the chrome level. On degraded binding/reception mismatch the chip wears
+  the honesty (terracotta text, §3.5's banner still owns the repair steps). Click = the Hall.
+  This is the human rendering of the reception truth the agents get in-band (TWO-TIER §9.5.6:
+  one packet, two renderings).
+- **Focus management.** Focus follows the ladder: descend moves focus into the surface,
+  ESC restores it to the opener — tree row → drawer → back, Hall card → drawer → back. Modals
+  trap and restore. Roving tabindex in the tree and the Hall grid (arrows move, Tab exits).
+  The delete flow's destructive button never receives default focus (§4A.4).
+- **Reduced motion is a contract, not a courtesy.** `prefers-reduced-motion: reduce` kills the
+  tremor breath (a static tick replaces it — §3.2's information survives, its motion doesn't)
+  and zeroes transition durations. This extends §6.3 mechanically: the single sanctioned
+  ambient animation gains its media-query kill switch, component-tested like
+  abstain-never-animates.
+- **Information rhythm.** Every surface answers one question in 2 seconds; every deeper
+  question is one descent away. Hall cards cap at five facts; drawers are receipts; raw
+  envelopes stay at rung 3. Calm defaults, depth on demand — the §2 anxiety principle applied
+  to chrome *(research §B.4)*.
+
+### 4A.6 Data contract & the honest residue
+
+| §4A element | Serves it TODAY | In-flight (`feat/two-tier-project-brains`) | Net-new needed |
+|---|---|---|---|
+| Threshold trigger + cold state | `north` `needs_ingest` (§3.5, shipped) + empty `/api/instances` | — | — |
+| One-call bootstrap | — | `ingest {path, project_root}` → `m1nd-project-brain-bootstrap-v0` (tests-first contract) | — (UI feature-detects via `GET /api/tools`) |
+| Ingest progress | SSE `ingest` completion event | — | progress granularity, only if words prove insufficient (measure first, §5.4 posture) |
+| Brains enumeration | `/api/instance/self` + `/api/instances` (recency-sorted) | `brain_kind` stamps hosted brains | — |
+| Dormant/hosted counts + snapshot mtime + `calibration_armed` + `attached_sessions` | absent-honest | — | **last-known registry fields** (TWO-TIER §9.5.1, serde-default — small) |
+| Open hosted brain in-tab | — | wire-level caller-root routing (MCP only) | **REST brain routing** for `/api/graph/*` + `/api/tools/*` (small: the same resolution the wire uses) |
+| Stop from UI | — (CLI command rendered) | — | two-tier Slice 2 `m1nd brain stop`; an HTTP stop verb is a later call |
+| Delete (clean) | `delete-state` route, guarded | hosted-brain store dirs are a **new file layout** — their delete must land with the slice or the card says so | **hosted-brain delete** with the same live-guard + the same calm flow |
+| Eject | — | — | V2 (TWO-TIER §20) — reserved, named |
+
+**The residue, consolidated** (each honest, each slice-sized): (1) REST brain routing;
+(2) the §9.5.1 optional registry fields (counts, mtime, calibration, sessions); (3) hosted-
+brain delete; (4) an in-UI stop; (5) eject (V2). Until each lands, its affordance renders
+disabled with the residue's name in the tooltip — the PRD's honesty carried into the pixels.
+
+---
+
 ## 5. Architecture — evolve the served m1nd-ui (decided)
 
 ### 5.1 The decided shape
@@ -434,6 +718,12 @@ Reuse inventory (verified on disk): `GraphCanvas.tsx`, typed nodes
 `ActivationReplay.tsx` + `buildReplayFrames.ts`, `InstancesPanel.tsx`, `useSSE.ts`,
 `exportMermaid.ts`, `commandParser.ts`. The palette/theme (`lib/colors.ts`,
 `tailwind.config.ts:9-21`) is the re-skin target (§6).
+
+§4A adds to this map without a new shell: **HallView** (promotes + reskins `InstancesPanel` —
+the panel itself retires), **BrainChip** (top bar, every surface), **ThresholdCard** (evolves
+the LivingTree cold state), and the two-step **ForgetRuntimeFlow** in the Hall drawer; the
+palette gains the Brains group in place. All ride the existing client (`api/client.ts` already
+binds every route §4A consumes) and the existing `useLiveRefresh`/SSE nerve.
 
 ### 5.3 Data flow & liveness — how the tree stays live as agents work
 
@@ -558,6 +848,7 @@ air-gapped; no CDN fonts).
 ## 7. Honesty invariants (UI) — component-testable
 
 The six from the research, plus the two the critic forced, each phrased as a rule + a test.
+The 4A amendment adds four more (`[4A]`), same discipline.
 Fixtures come from **real captured envelopes** (`docs/benchmarks/**/event-streams/*.jsonl`)
 — never hand-written JSON, so the tests can't drift from the wire.
 
@@ -571,6 +862,10 @@ Fixtures come from **real captured envelopes** (`docs/benchmarks/**/event-stream
 | **INV-06** | **The guessed edge stays visible.** Ghost edges dashed; a `closure.state:"blocked"` path draws its dangling edge as a violet dashed gap with the reason; truncated lists say how many didn't fit. | Render a blocked `why` fixture → dashed connector count equals `dangling_edges.len()`, each with a reason tooltip. |
 | **INV-07** `[CRITIC]` | **Gaps carry a next action, not anxiety.** Every gap/abstain/stale rendering at rung 0–1 carries exactly one suggested action, sourced from a real field (`next_move`, `next_repair_call`, `next_step_hint`, `next_action`); epistemic vocabulary is quarantined to rung 2+. | String-table lint (banned vocabulary at rung 0–1) + render each gap fixture → exactly one action button; a gap fixture lacking a next-step field falls back to the generic "double-check" affordance, never a bare warning. |
 | **INV-08** `[CRITIC]` | **Blast counts are floors, not ceilings.** Any count over a `truncated` result or an incomplete subgraph renders with "≥ … mapped" language; a crisp bare integer is only allowed when the engine reports untruncated coverage. | Render `ImpactOutput{truncated:true}` → copy matches `/≥ \d+ mapped/`; untruncated fixture → plain count permitted. |
+| **INV-09** `[4A]` | **Delete is twice-consented and honest about survivors.** The destructive call NEVER executes with fewer than two distinct confirmations (consequence-card acknowledge + typed exact name); the server's live-instance refusal renders verbatim; the consequence card always lists what survives (committed memory, code) beside what dies. | Flow fixture: below two confirmations the API stub is never invoked; wrong/partial typed name → button stays disabled; live-entry fixture → no delete path + the `PermissionDenied` string present; survivors block asserted in DOM. |
+| **INV-10** `[4A]` | **The Hall renders only owner-reported brains.** Every card traces to `/api/instance/self`, an `/api/instances` entry, or an owner-reported hosted brain; absent counts render absent (violet-unknown treatment), never zero, never estimated; no client-side brain invention. | Entries fixture lacking counts → no numeral in the card, unknown treatment present; every rendered card's key maps to a fixture `instance_id`; an empty response renders the Threshold/empty state, never placeholder cards. |
+| **INV-11** `[4A]` | **No affordance without a surface.** An action whose backend does not exist renders disabled with a tooltip naming the missing residue; and a bare foreign-path `ingest` is never offered while the owner holds a graph (the clobber ban, §4A.4). | Hosted-brain fixture without REST routing → Open disabled + tooltip text names the residue; non-empty-owner fixture → no raw foreign-path ingest affordance in the DOM (only "Re-read" same-root or the `project_root` bootstrap when schema-advertised). |
+| **INV-12** `[4A]` | **Onboarding never returns, never blocks.** The Threshold renders only at zero brains; every orientation beat is ESC-dismissable and dismisses forever; a returning user (≥1 brain or a persisted dismissal) never sees any of it. | 1-brain fixture → no Threshold mounted; dismiss → flag persisted → clean re-render shows tree directly; each of the 3 beats dismisses independently and stays dismissed. |
 
 These land as a `honesty.spec` suite in `m1nd-ui` and run in CI next to the palette lint
 (§6.2). A slice is not done while any invariant test is red (§8).
@@ -624,7 +919,9 @@ green, claims scoped).
 | Slice | Ships | Proof gates (all must be green) |
 |---|---|---|
 | **0 — the Living Tree, read-only** ✅ **SHIPPED 2026-07-03** *(the smallest lovable surface)* | Tree + trust dots + post-its + coverage emphasis + hover whisper + node drawer + honest cold states. SOFT PROOF tokens + violet-quarantine lint land here (the re-skin is the foundation, not a later coat). No map, no editing. | Renders m1nd's own repo from the live served endpoints (dogfood); INV-01/02/04/06/07/08 tests green; violet-lint green (zero violet outside abstain tokens); post-it provenance matches `seek`/snapshot tags byte-for-byte; cold-graph state renders `needs_ingest` honestly; tree usable keyboard-only. |
+| **0T — the Threshold + the chip** *(§4A lettered insert — rides Slice-0 machinery; renumbering would ripple)* | The Threshold empty state (evolves the shipped cold state), the 3-beat orientation, the Brain Chip on every surface, the reduced-motion kill switch, the palette Brains group v0, and the **clobber-ban retirement** of the raw "Read a repo" ingest on non-empty owners (§4A.4). Bootstrap uses `project_root` when `GET /api/tools` advertises it; plain ingest survives only on an empty owner. | INV-12 tests green (zero-brain-only render, dismiss persists, beats independent); INV-11's clobber-ban test green (no foreign-path bare ingest on a non-empty owner); chip present on every surface including cold/degraded states, sourced from the same envelope as the surface; reduced-motion component test green (tremor breath stands down, transitions zeroed); Threshold + orientation fully keyboard-only; progress copy is words, never a fabricated percent (INV-05). |
 | **1 — the Pre-Flight Card** *(the hero)* | The north card (mini-map strip, blast line, memory strip, violet gap card, one next-move button), seeded from the tree's `[Check before editing]`. | Replays real captured north envelopes from `docs/benchmarks/**/event-streams/`; INV-03/05/07 green on the card; the 2-second read holds (headline + verdict + gaps visible without scroll at 1280×800); every gap shows exactly one action; `needs_ingest` and degraded-binding variants render the repair path. |
+| **1H — the Hall** *(§4A lettered insert — gated on the two-tier brains slice landing; its test file is the contract)* | The Hall at rung −1: the three-class brains list (§4A.3 card anatomy, absent-never-faked fields), the drawer receipt, the actions table with honest disabled states (§4A.4), the calm two-step delete on the existing `delete-state` route, palette jump + ESC-from-root, live refresh reused. `InstancesPanel` retires. | INV-09/10/11 green on real fixtures (captured `/api/instances` + self envelopes, incl. a live-refusal case and a counts-absent case); delete flow structurally unreachable below two confirmations; disabled affordances carry residue-naming tooltips (copy asserted); ESC at tree root reaches the Hall and back; recency ordering is the registry's, unre-sorted; violet-lint stays green after the panel reskin (the cyberpunk tokens die here); Hall fully keyboard-only. |
 | **2 — Honesty HUD + Change Preview** | Trust receipt (deferred violet slots), calibration line, freshness banner, status footer; blast rings, co-change pills, plan-gap cards, diff pane + Apply (`edit_preview`→`edit_commit`). | Live e2e on `--serve`: preview → confirm → commit round-trip on a scratch file, `updated_node_ids` re-render the tree; `source_changed` recovery path rendered from a real recovery scenario (`docs/benchmarks/scenarios/edit_preview_source_modified_recovery.json`); uncalibrated banner verbatim; INV-08 floor language on every count; abstain-never-animates test green. |
 | **3 — Project Brain + map drill-down** | Read-only memory cards + `.history` timeline (supersession shown), handoff shelf, doc-drift badges, `learn` thumbs; `GraphCanvas` re-skinned to SOFT PROOF and mounted at rung 2 only. | Supersession refusal renders from a real `would_downgrade` envelope; drift badges from real `document_drift` output; map reachable **only** via drill (no top-level map nav — asserted in the router test); ghost edges dashed pastel (INV-06) on the re-skinned canvas. |
 
@@ -666,6 +963,15 @@ the pull is unproven).
 8. **The §O.12 cross-reference is out-of-repo.** The Delegation Packet section lives in the
    operator plan, not in `docs/`. When that plan lands in-repo, §4.2 should link it directly
    (S-size doc follow-up).
+9. **The Hall can list brains it cannot yet open in place.** Until the REST brain-routing
+   residue lands (§4A.6), hosted project brains render with Open disabled — honest but
+   unsatisfying. The residue is small (the MCP wire already resolves by caller root); if
+   dogfood shows humans clicking the disabled Open, pull that slice forward. *(measure: count
+   disabled-Open hovers/clicks in the first dogfood week)*
+10. **Two delete vocabularies loom.** Registered-instance `delete-state` and the hosted-brain
+    store are different file layouts; when hosted-brain delete lands it must present as the
+    SAME calm flow (§4A.4) or the Hall teaches two fears. Drift guard: the consequence card
+    speaks categories (runtime vs memory), never filenames — copy survives allow-list drift.
 
 **The mockup plan (production note).** Look/feel exploration and component mockups follow the
 proven factory split: **Codex 5.5 image generation for look/feel plates** (the SOFT PROOF
@@ -699,3 +1005,16 @@ mockup markup).
 | `cross_verify` `evidence_freshness` / mission handlers (start·next·verify·handoff·close) / `boot_memory` provenance / `report` | `m1nd-mcp/src/audit_handlers.rs:841` / `m1nd-mcp/src/mission_handlers.rs:71·165·200·262·309` / `m1nd-mcp/src/boot_memory_handlers.rs:37` / `m1nd-mcp/src/report_handlers.rs:20` |
 | Existing UI to evolve (stack, canvas, panel actions, palette anti-pattern) | `m1nd-ui/package.json`, `src/components/*`, `DetailPanel.tsx:10-20`, `lib/colors.ts:1-9,47-50`, `tailwind.config.ts:9-21` |
 | Real envelope fixtures for INV tests | `docs/benchmarks/**/event-streams/*.jsonl` |
+
+**§4A amendment contracts (verified at `aa3b5d9` unless marked in-flight):**
+
+| Contract | Where |
+|---|---|
+| Instances & delete surfaces (`/api/instance/self` · `/api/instances` · save · `delete-state`) | `m1nd-mcp/src/http_server.rs:688-698`, handlers `:790-951` |
+| `delete_instance_state`: live-refusal guard / runtime-file allow-list / empty-dir-only removal | `m1nd-mcp/src/instance_registry.rs:318-378` (refusal `:333-341`, file set `:348-364`) |
+| `list_instances` recency sort / `entry_base_url` | `instance_registry.rs:310-314` / `:645-650` |
+| `instance_self_summary` (sessions, queries, last-persist) / `graph_runtime_summary` (counts, roots, workspace) | `m1nd-mcp/src/session.rs:1256-1265` / `:644-659` |
+| One-call bootstrap contract (`m1nd-project-brain-bootstrap-v0`: isolation, stickiness, silent caller-root routing, warm-boot, reception-option parity) — **in-flight, tests-first** | branch `feat/two-tier-project-brains`: `m1nd-mcp/tests/two_tier_project_brains.rs` (the test IS the contract) + `IngestInput.project_root` (`protocol/core.rs`) + `InstanceRegistryEntry.brain_kind` / `set_brain_kind` (`instance_registry.rs`) |
+| Reception degraded block echoed by the chip | `m1nd-reception-degraded-v0` on `north`/`health`/`session_handshake` (TWO-TIER §9.5.5, SHIPPED) |
+| §4A shell donors (palette, shortcuts, ingest modal, instances panel, live refresh, cold state) | `m1nd-ui/src/components/CommandPalette.tsx` · `InstancesPanel.tsx` · `App.tsx:110-205` · `hooks/useKeyboardShortcuts.ts:14-40` · `hooks/useLiveRefresh.ts` · `components/tree/LivingTree.tsx:148-161` |
+| UI/UX deep research (inventory §A, verified pattern cards §B: NN/g confirm + onboarding, GitHub type-the-name, Linear archive-vs-delete, palette switcher, calm tech) | out-of-repo operator document, 2026-07-04 (`m1nd-ui-ux-research.md`) |
