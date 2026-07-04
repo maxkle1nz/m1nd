@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import type { SseEvent } from '../types';
 
-const BASE_URL = import.meta.env.DEV ? 'http://localhost:1337' : '';
+// Guard the env read so the module imports cleanly under the Node test runner
+// (import.meta.env is a Vite-only injection; effects never run in server render).
+const BASE_URL = import.meta.env?.DEV ? 'http://localhost:1337' : '';
 
 interface UseSSEOptions {
   onEvent?: (event: SseEvent) => void;
