@@ -7,7 +7,7 @@ const speedStats = [
     label: "activate 1K nodes",
     sublabel: "in-memory Rust — no GC, no pauses",
     color: "#00f5ff",
-    detail: "pure Rust binary. 0 LLM tokens consumed.",
+    detail: "pure Rust binary. runs on your machine.",
   },
   {
     value: "543ns",
@@ -21,14 +21,14 @@ const speedStats = [
     label: "files opened",
     sublabel: "pre-indexed graph — no file reads, ever",
     color: "#ffb700",
-    detail: "fewer tokens. lower costs. every query.",
+    detail: "the agent queries memory, not the filesystem.",
   },
   {
-    value: "84%",
-    label: "token savings",
-    sublabel: "vs grep-based navigation workflows",
+    value: "Calibrated",
+    label: "verdicts, not vibes",
+    sublabel: "act · reverify · abstain — conformal",
     color: "#ff00aa",
-    detail: "46 m1nd queries vs ~210 grep ops. 3.1s vs 35min.",
+    detail: "\"insufficient evidence\" is a real answer.",
   },
 ];
 
@@ -143,7 +143,7 @@ export function SpeedSection() {
           </blockquote>
 
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Pure Rust. In-memory graph. Zero LLM tokens spent on navigation.
+            Pure Rust. In-memory graph. Navigation answered locally, in nanoseconds.
             <br className="hidden md:block" />
             The graph already knows what's up. Your agent just asks.
           </p>
@@ -168,9 +168,9 @@ export function SpeedSection() {
             grep reads files &nbsp;·&nbsp; m1nd reads the graph
           </div>
           <p className="text-sm text-muted-foreground/70 max-w-sm">
-            Less file waste. Instant connection to anywhere in the code.
+            No file wandering. Instant connection to anywhere in the code.
             <br />
-            <span className="text-primary/80 font-medium">Fewer tokens, lower cost — measured, not promised.</span>
+            <span className="text-primary/80 font-medium">Structure over scanning — the graph, not the filesystem.</span>
           </p>
         </motion.div>
       </div>

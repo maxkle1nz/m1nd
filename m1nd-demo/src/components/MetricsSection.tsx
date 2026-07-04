@@ -5,7 +5,7 @@ export function MetricsSection() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-12 divide-y md:divide-y-0 md:divide-x divide-border/50 text-center">
           <div className="flex flex-col gap-2 p-4">
             <h3 className="text-4xl md:text-5xl font-bold text-primary font-mono tracking-tighter">Less</h3>
-            <p className="text-xl font-medium text-foreground">Token Burn</p>
+            <p className="text-xl font-medium text-foreground">Blind Scanning</p>
             <p className="text-sm text-muted-foreground">Stop reading thousands of lines to find one symbol.</p>
           </div>
           <div className="flex flex-col gap-2 p-4">

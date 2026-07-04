@@ -66,7 +66,7 @@ export function Footer() {
           <p className="font-mono text-xs" style={{ color: "#ffffff30" }}>
             © {new Date().getFullYear()} m1nd ·{" "}
             <span style={{ color: "#00ff8860" }}>MIT License</span>
-            {" "}· v0.9 beta
+            {" "}· v1.3.1
           </p>
           <div className="flex items-center gap-6 text-xs font-mono">
             <a href="https://m1nd.world/wiki/" target="_blank" rel="noreferrer" className="text-primary/40 hover:text-primary/70 transition-colors tracking-widest uppercase">

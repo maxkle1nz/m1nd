@@ -249,7 +249,7 @@ export function NavigationFeature() {
     <FeatureSection
       title="Trace Any Path Through the Codebase"
       subtitle="Deep Navigation"
-      description="Ask m1nd to trace the full call path from database layer to client hook — crossing 4 architectural boundaries in a single call. Every hop is a typed graph edge. No import parsing, no file reading, no tokens burned."
+      description="Ask m1nd to trace the full call path from database layer to client hook — crossing 4 architectural boundaries in a single call. Every hop is a typed graph edge. No import parsing, no file reading — just the graph."
       align="right"
     >
       <div

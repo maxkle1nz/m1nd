@@ -97,19 +97,19 @@ export function Hero() {
             <span className="flex h-2 w-2 flex-shrink-0 rounded-full bg-primary animate-pulse" />
             <span className="whitespace-nowrap">Built for agents first. Humans are welcome.</span>
             <span className="hidden sm:block h-3 w-px flex-shrink-0 bg-primary/30" />
-            <span className="hidden sm:block text-primary/60 whitespace-nowrap">code + docs + change</span>
+            <span className="hidden sm:block text-primary/60 whitespace-nowrap">before · during · after</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-foreground mb-6 font-sans leading-[1.05]">
-            Before an agent acts,
+            The shell around
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
-              give it the system.
+              your coding agent.
             </span>
           </h1>
 
           <p className="text-xl md:text-2xl text-muted-foreground mb-10 max-w-2xl mx-auto leading-relaxed">
-            m1nd is operational intelligence for coding agents. It gives an agent a local system for structure, docs, change, and continuity before it disappears into grep loops, blind edits, and context waste.
+            m1nd is the operating loop your agent lives inside. It is oriented <strong className="text-foreground/90 font-semibold">before</strong> it acts — the map, past memory, and what it does <em className="text-foreground/80 not-italic">not</em> know. It wears honest verdicts <strong className="text-foreground/90 font-semibold">during</strong> — act, reverify, or abstain, because <span className="text-primary/90">"insufficient evidence" is a real answer</span>. It memorizes with evidence <strong className="text-foreground/90 font-semibold">after</strong>, so the next session — on any host — starts ahead.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -138,7 +138,7 @@ export function Hero() {
               MIT License
             </span>
             <span style={{ color: "#ffffff18" }}>·</span>
-            <span style={{ color: "#ffffff45" }}>v0.9 beta</span>
+            <span style={{ color: "#ffffff45" }}>v1.3.1</span>
             <span style={{ color: "#ffffff18" }}>·</span>
             <span style={{ color: "#ffffff45" }}>Local-first</span>
             <span style={{ color: "#ffffff18" }}>·</span>
@@ -157,7 +157,7 @@ export function Hero() {
             </a>
           </motion.div>
 
-          {/* ── Performance numbers ── */}
+          {/* ── Proof points ── */}
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -165,10 +165,10 @@ export function Hero() {
             className="mt-10 flex flex-wrap justify-center gap-8 sm:gap-12"
           >
             {[
-              { val: "1.36µs", label: "activate 1K nodes", color: "#00f5ff" },
-              { val: "84%",    label: "token savings",     color: "#00ff88" },
-              { val: "543ns",  label: "blast radius query", color: "#00f5ff" },
-              { val: "93",     label: "MCP tools live",    color: "#7b61ff" },
+              { val: "Official",  label: "MCP Registry entry", color: "#00f5ff" },
+              { val: "Calibrated", label: "conformal verdicts", color: "#00ff88" },
+              { val: "0",         label: "external telemetry",  color: "#7b61ff" },
+              { val: "MIT · Rust", label: "open, local-first",  color: "#00f5ff" },
             ].map(({ val, label, color }) => (
               <div key={label} className="text-center">
                 <div className="text-2xl md:text-3xl font-bold font-mono" style={{ color }}>{val}</div>

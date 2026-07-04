@@ -142,7 +142,7 @@ const RIGHT_SCRIPT: ScriptLine[] = [
   { startAt: 2640, text: "✓ 0.12s — surgical context assembled", type: "success" },
   { startAt: 2780, text: "  3 files loaded  ·  callers, callees, tests attached", type: "output" },
   { startAt: 2900, text: "", type: "separator" },
-  { startAt: 2960, text: "Finished in 0.30s  ·  3 tool calls  ·  84% token savings vs grep", type: "success" },
+  { startAt: 2960, text: "Finished in 0.30s  ·  3 tool calls  ·  0 files opened", type: "success" },
 ];
 
 const SLOW_CL = 24;
@@ -198,8 +198,8 @@ const BEAT_DEFS = [
     realMs: 180,
     step: 6,
     title: "Result Returned",
-    desc: "The context is serialized and returned to the agent. Total elapsed time: 0.18 seconds. Zero files opened. Zero tokens consumed. The agent now has exactly the 4 nodes that matter — their code, relationships, and blast radius.",
-    tech: "0.18s · 0 files opened · 0 tokens consumed · 4 nodes returned",
+    desc: "The context is serialized and returned to the agent. Total elapsed time: 0.18 seconds. Zero files opened — the graph query never touches the filesystem. The agent now has exactly the 4 nodes that matter — their code, relationships, and blast radius.",
+    tech: "0.18s · 0 files opened · 4 nodes returned",
     color: "#00f5ff",
   },
 ];
@@ -902,7 +902,7 @@ const DC_RIGHT: DL[] = [
   { at: 2640, type: "success", text: "✓ 0.12s — surgical context assembled" },
   { at: 2780, type: "output",  text: "  3 files loaded  ·  callers, callees, tests attached" },
   { at: 2900, type: "blank",   text: "" },
-  { at: 2960, type: "success", text: "Finished in 0.30s  ·  3 tool calls  ·  84% token savings" },
+  { at: 2960, type: "success", text: "Finished in 0.30s  ·  3 tool calls  ·  0 files opened" },
 ];
 
 const DC_RIGHT_DONE = 3050;
@@ -991,7 +991,7 @@ function DemoComparison() {
           {[
             { label: "Time",             left: "~35 min",  right: "0.30s",    lc: "#ff4444", rc: "#00ff88" },
             { label: "Files opened",     left: "23+",       right: "0",       lc: "#ff4444", rc: "#00ff88" },
-            { label: "Tokens consumed",  left: "~18,400",   right: "0",       lc: "#ff4444", rc: "#00ff88" },
+            { label: "Blast radius",     left: "unknown",   right: "computed", lc: "#ff4444", rc: "#00ff88" },
           ].map(({ label, left, right, lc, rc }) => (
             <div key={label} className="p-4 rounded-lg border border-border/30 bg-background/50">
               <div className="text-xs text-muted-foreground/60 mb-2">{label}</div>
