@@ -82,7 +82,8 @@ Rules:
 
 ## Agent Memory (Durable Cross-Session Knowledge)
 
-- `memorize`: author durable agent memory as a graph-native L1GHT `.light.md`. Accepts structured claims with `confidence`, `ambiguity`, and `evidence` (repo-relative code paths). Writes to `<runtime_root>/agent-memory/`, ingests immediately (adapter: light, mode: merge by default), and anchors each evidence path to the real code node via a `grounded_in` edge. Ingest target code BEFORE calling `memorize` so evidence resolves.
+- `memorize`: author durable agent memory as a graph-native L1GHT `.light.md`. Accepts structured claims with `confidence`, `ambiguity`, and `evidence` (repo-relative code paths). Writes to `<runtime_root>/agent-memory/`, ingests immediately (adapter: light, mode: merge by default), and anchors each evidence path to the real code node via a `grounded_in` edge. Ingest target code BEFORE calling `memorize` so evidence resolves. A `memorize` is ALWAYS project-private (born in the routed brain, stamped `Origin-Brain`).
+- `promote {brain, claim, reason}` (MEDULLA M6): the AUDITED crossing — copy a VERIFIED project-private claim UP into the shared `medulla` (the doctrine tier every session's default beat reads). Stamps the full chain (`Origin-Brain`, `Origin-Claim`, `Promoted-By`, `Promotion-Reason`); the project original stays in place stamped `Promoted-To` (elevate, never move). Gates inside the verb: only `State: verified` (or `Source-Agent: human:maintainer`) may promote (C8.3); a secret/conflict-marker is refused at the hygiene floor; evidence is origin-qualified (`<origin_root>#<path>`) so freshness delegates back to the home brain, else the claim is marked `evidence_unverifiable` (C8.2 — never reads fresher than it can prove); a weaker re-promotion bounces `WouldDowngrade`. It is an ORCHESTRATOR act (makers propose, orchestrator executes); any id may call it but `Promoted-By` audits every promotion. Demote via `learn wrong` on the MEDULLA copy or a `moved_to:` superseding medulla `memorize` — never touches the witness. Served at the routed HTTP door.
 - `cross_verify(check: ["evidence_freshness"])`: re-hashes each `grounded_in` code target vs the hash recorded at ingest; returns `stale_evidence[]` + `stale_evidence_count` naming which memorized claims cite changed code. (`check` is an array; other values: `existence`, `loc`, `hash`.)
 - `mission_close(write_light_memory: true)`: one-step path — closes the mission AND persists its verified claims as L1GHT memory; `light_memory` in the response gives the file path.
 - Boot auto-load: on session start, m1nd auto-ingests all `<runtime_root>/agent-memory/*.light.md` (gated by `M1ND_AUTO_LOAD_AGENT_MEMORY`, default ON). Past findings are available without explicit re-ingest. Reported in `session_handshake.agent_memory`.
@@ -221,4 +222,4 @@ Recent source builds include these canonical families:
 - `panoramic`, `persist`, `boot_memory`, `metrics`, `type_trace`, `diagram`
 - `mission_start`, `mission_event`, `mission_next`, `mission_verify`,
   `mission_handoff`, `mission_close`
-- `memorize`
+- `memorize`, `promote`

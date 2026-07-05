@@ -5273,6 +5273,11 @@ mod tests {
                 mode: "merge".into(),
                 supersedes: None,
                 origin_brain: None,
+                origin_claim: None,
+                promoted_by: None,
+                promotion_reason: None,
+                promoted_to: None,
+                evidence_unverifiable: false,
             },
         )
         .expect("memorize");
@@ -5406,6 +5411,11 @@ mod tests {
                 mode: "merge".into(),
                 supersedes: None,
                 origin_brain: None,
+                origin_claim: None,
+                promoted_by: None,
+                promotion_reason: None,
+                promoted_to: None,
+                evidence_unverifiable: false,
             },
         )
         .expect("memorize");
@@ -5472,6 +5482,11 @@ mod tests {
                     mode: "merge".into(),
                     supersedes: None,
                     origin_brain: None,
+                    origin_claim: None,
+                    promoted_by: None,
+                    promotion_reason: None,
+                    promoted_to: None,
+                    evidence_unverifiable: false,
                 },
             )
             .expect("memorize");

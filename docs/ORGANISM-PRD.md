@@ -514,7 +514,7 @@ to real code nodes, re-hashed at read time) or **DECLARED tissue** (witness/self
 but UNPROVABLE by construction). Every surface renders which tissue it is serving; declared tissue
 never wears verified formatting. This binds every store, every packet, every future soul.
 
-### C8.2 Promotion re-anchors evidence (F13)
+### C8.2 Promotion re-anchors evidence (F13) — [SHIPPED 2026-07-05 · R4/M6]
 
 `promote` gains **step 2.5**: evidence paths are rewritten **origin-qualified**
 (`evidence: <origin_root>#<path>`, beside `Origin-Claim`). Medulla-side freshness then either
@@ -524,11 +524,28 @@ defines (`UnprovableReason::EvidenceUnverifiable`) — rendered on every recall.
 never reads fresher than it can prove.** Without this, the doctrine tier is un-falsifiable by
 construction — declared tissue wearing verified costume at the most-read tier.
 
-### C8.3 The promotion evidence-class gate (F14)
+> **Shipped (honest):** `promote_handlers::reanchor_evidence` implements both channels — a claim
+> carrying code evidence is origin-qualified against its `Origin-Brain` (channel a); a claim whose
+> origin root does not resolve is stamped `Evidence-Unverifiable: true` in the medulla copy's
+> frontmatter (channel b), rendered so every recall surface can label it declared tissue. A claim
+> with NO evidence is neither (it was never verified tissue). **Residue:** the marker is rendered
+> frontmatter; the X360 `UnprovableReason::EvidenceUnverifiable` enum the spec references is NOT
+> yet a code type — wiring the marker through the trust envelope's verdict (so a recall of an
+> unverifiable medulla claim caps its trust) is a later slice. Cases:
+> `reanchor_origin_qualifies_code_evidence`, `reanchor_marks_unverifiable_without_origin`,
+> `reanchor_no_evidence_is_neither`, + the end-to-end origin-qualified assertion in
+> `promote_lands_audited_and_surfaces_cross_brain`.
+
+### C8.3 The promotion evidence-class gate (F14) — [SHIPPED 2026-07-05 · R4/M6]
 
 **P3** joins P1/P2: a claim may promote only if `State: verified` OR `Source-Agent` is
 `human:maintainer`. One frontmatter check inside the M6 verb, one battery case. Declared maker
 findings stop one verb short of every session's doctrine beat.
+
+> **Shipped:** `promote_handlers::evidence_class_gate` — checked INSIDE the verb before any write;
+> a non-verified, non-founder claim is refused with a typed reason that cites C8.3. Cases:
+> `c83_gate_allows_verified`, `c83_gate_allows_founder_sourced`, `c83_gate_refuses_unverified_maker_claim`,
+> + the end-to-end `c83_refuses_unverified_claim` (nothing reaches the medulla on refusal).
 
 ### C8.4 The curator laws (F15) — and who verifies the curator
 
@@ -736,11 +753,26 @@ case — all RED-first (`m1nd-mcp/tests/medulla_m5b_tier_recall.rs`). *Held for 
 live `:1338` was NOT migrated/restarted — CODE-LAND-ONLY. *Unblocks:* R4's read path, R7's
 tier-labeled packet rows, the real doctrine beat.
 
-**R4 — M6: the `promote` verb WITH the C8 riders** — step 2.5 origin-qualified evidence (§C8.2),
-P3 verified-only gate (§C8.3), demotion documented, agent-workflow surfaces in the SAME PR
-(era-coherence gate). *RED:* no promotion surface exists (grep-proven); a cross-project finding
-cannot reach another brain by any recorded act. *Unblocks:* the doctrine tier is real → R16 has
-ground to stand on.
+**R4 — M6: the `promote` verb WITH the C8 riders. [SHIPPED 2026-07-05]** — step 2.5
+origin-qualified evidence (§C8.2), P3 verified-only gate (§C8.3), demotion documented,
+agent-workflow surfaces in the SAME PR (era-coherence gate). *What landed:* the `promote` verb as
+an owner-level cross-store crossing at the routing seam (reads a project brain, writes the medulla)
+— it loads the source claim (hard error on unknown slug), runs the C8.3 gate (`State: verified` OR
+`Source-Agent: human:maintainer`), the hygiene floor (secret + conflict-marker scan), re-anchors
+evidence origin-qualified (`<origin_root>#<path>`) or marks `Evidence-Unverifiable: true` (§C8.2),
+writes the medulla copy through the shared supersession core (a weaker re-promotion bounces
+`WouldDowngrade`) with the four provenance stamps (`Origin-Brain`, `Origin-Claim`, `Promoted-By`,
+`Promotion-Reason`), stamps the project witness `Promoted-To` (elevate, never move), and re-ingests
+so the claim surfaces in another brain's default beat under `tier: medulla`. Demotion is documented
+as `learn wrong` / consolidation on the medulla copy — never touches the witness. *RED→GREEN:* a
+grep proved no promotion surface existed and no recorded act could carry a finding cross-brain; now
+13 unit + 6 end-to-end cases (over the real HTTP seam) prove the audited crossing, both evidence
+riders, the gate, the bounce, and demotion-preserves-witness. **CODE-LAND-ONLY: the LIVE `:1338`
+was NOT migrated/restarted — held for the maintainer (needs a kickstart to serve the verb).**
+*Residue:* the TT §8 conflict-composition rendering + the `witness_superseded` consolidation check
+are deferred (they belong with the consolidation pass); `Evidence-Unverifiable` is a rendered
+frontmatter marker, not yet wired into the trust envelope's verdict. *Unblocks:* the doctrine tier
+is real → R16 has ground to stand on.
 
 **R5 — Windows CI honesty triage (F25; parallel, small, anytime — early, because honesty debt
 compounds).** *What:* fix the teardown + `display_name` separator, or demote Windows from

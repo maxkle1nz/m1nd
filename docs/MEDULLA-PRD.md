@@ -386,11 +386,47 @@ Each event that survives triage adds its case to the battery of the brain it bit
 - **GREEN:** MED-INV-1 test green across bound/project/medulla permutations; MED-INV-6 case green (non-empty store never yields false absence); `tier` absent = byte-identical behavior for existing callers (golden test); fan-out latency **measured and recorded**, not claimed (TT-INV-5).
 - **Battery:** the probe repro (this PRD's §2.2, mechanized as the seed case) · no-leak permutation matrix · false-absence case · default-unchanged golden.
 
-### M6 — The promotion verb + audit trail
+### M6 — The promotion verb + audit trail — [SHIPPED 2026-07-05]
 - **Scope:** `promote` verb per §7 (load → hygiene floor → medulla copy with the four provenance stamps → witness stamp → cap report); demotion documented as `learn wrong` + consolidation (no new verb); the conflict-composition table (TT §8) wired into the composed beat's rendering (conflicting pairs labeled, ranked, never silently resolved); agent-workflow surfaces in the SAME PR (`M1ND_INSTRUCTIONS` promotion etiquette paragraph, agent-pack/skills text, host rule files — the era-coherence gate).
 - **RED:** no promotion surface exists (grep-proven @ `99006f6`); a cross-project finding cannot reach another brain's beat by any recorded act (assert: memorize in Y, full `north` in X, absent; no verb closes the gap).
 - **GREEN:** promote → the claim appears in X's next default beat under `tier: medulla` with the full chain readable ("learned in Y by A, promoted by B, reason R"); maker-id promote lands but is auditably attributed (etiquette, not enforcement — the test asserts the audit, honestly not a block); `WouldDowngrade` bounces a weaker re-promotion; witness untouched by a medulla-side demotion.
 - **Battery:** promote-then-recall case · provenance-chain render case · downgrade-bounce case · demotion-preserves-witness case · secret-in-claim refused at the promotion hygiene floor.
+
+> **Shipped variant (honest):** the `promote` verb landed as an OWNER-LEVEL
+> cross-store crossing at the routing seam (`mcp_http::route_and_run`, beside the
+> one-call bootstrap) — a single-store `&mut SessionState` handler cannot reach two
+> stores, so the seam resolves the source project store dir + the medulla store dir
+> and calls the pure `promote_handlers::promote_claim`. The four provenance stamps
+> (`Origin-Brain`, `Origin-Claim`, `Promoted-By`, `Promotion-Reason`) render through
+> the existing L1GHT writer (new `#[serde(skip)]` fields on `LightAuthorInput`); the
+> witness stamp (`Promoted-To: medulla@<slug>@<ms>`) is a same-strength supersession
+> that archives the pre-promotion original to `.history/`. The medulla copy is
+> written through a shared, extracted supersession core
+> (`write_light_memory_superseding`) so a weaker re-promotion bounces as
+> `WouldDowngrade` exactly as a weaker re-memorize does, then re-ingested so it is
+> immediately recallable in the R3 `tier: medulla` beat. **C8.2 lives in the verb:**
+> a promoted claim's code evidence is rewritten origin-qualified
+> (`<origin_root>#<path>`, freshness delegates to the origin brain, channel a) or —
+> when no origin root resolves — the claim is stamped `Evidence-Unverifiable: true`
+> (channel b) and renders as declared tissue. **C8.3 is one frontmatter check
+> inside the verb** (`State: verified` OR `Source-Agent: human:maintainer`, else a
+> typed refusal). *Proof:* RED-first — a grep proved no promotion surface existed;
+> GREEN is 13 unit cases (`promote_handlers::tests`: gate, hygiene floor, re-anchor,
+> parse, frontmatter-stamp) + 6 end-to-end cases over the REAL HTTP seam
+> (`tests/medulla_m6_promote.rs`): promote-lands-audited-and-surfaces-cross-brain,
+> C8.3-refuses-unverified, weaker-re-promotion-bounces,
+> secret-refused-at-hygiene-floor, demotion-preserves-the-witness,
+> unknown-slug-hard-errors. Full suite 570 lib + all integration green, clippy
+> `-D warnings` clean, `fmt --check` clean. **CODE-LAND-ONLY: the LIVE owner at
+> `:1338` was NOT migrated/restarted — the code lands and is scratch-proven, held
+> for the maintainer (needs a rebuild/kickstart to serve the new verb).**
+> **Honest residue:** the conflict-composition table (TT §8) rendering in the
+> composed beat and the `witness_superseded` consolidation check remain UNSHIPPED —
+> M6 ships the audited crossing + the two evidence riders; the conflict-render slice
+> is deferred (it belongs with the consolidation pass, not the crossing). The
+> `EvidenceUnverifiable` state is a rendered frontmatter marker here — the X360
+> `UnprovableReason::EvidenceUnverifiable` enum the PRD references is not yet a code
+> type; wiring the marker into the trust envelope's verdict is a later slice.
 
 ### M7 — The delegation-packet memory slice
 - **Scope:** §O.12's `context.memory` rows gain `tier` + `origin_brain`; the selection rule (project task-relevant + domain doctrine, never all-brains) implemented in `delegate`'s compose; the `sources` footer stamped; packet text carries the promotion etiquette line for makers; child-binding inheritance asserted on the routing that exists (no new machinery — the probe already proved sticky recognition for new sessions).
@@ -411,7 +447,7 @@ Each event that survives triage adds its case to the battery of the brain it bit
 | Write isolation | Routed writes per-brain (probe-proven) — but unbootstrapped roots silently pollute the shared store (S2); stdio/REST bypass (S9, out of scope here — TT Slices 2/3 + the REST brain selector own it) | Refusal-with-fix on unroutable writes; tier = directory, stamped at birth |
 | The medulla | Does not exist as a store — 25 mixed claims wearing one dir | A real store (same path), promoted/doctrine-born only, capped, audited |
 | Cross-brain read | Impossible (no surface) — isolation absolute | Default: never. On demand: `tier:"all-brains"`, labeled by origin |
-| Promotion | No surface at all | `promote` verb, four provenance stamps, downgrade-gated, demotion-safe |
+| Promotion | ~~No surface at all~~ → **SHIPPED (M6)**: `promote` verb, four provenance stamps, C8.2 evidence re-anchor, C8.3 verified-only gate, downgrade-gated, demotion-safe | `promote` verb, four provenance stamps, downgrade-gated, demotion-safe |
 | Recall honesty | Can claim false absence over a non-empty store (S8, on file) | MED-INV-6 gated; `memory_exists` stamp |
 | Subagent memory | Packet spec has age+author, no brain axis; inheritance by routing luck | Explicit slice, tier-labeled, footer-stamped; binding named in the packet |
 | Confusion telemetry | 4 live events untyped in one global file; nothing a project felt travels with it | Typed class, weekly counted, battery-fed (the named antifragility metric); letters filed into repo-side project boxes with fate-lines, swept whole by triage |

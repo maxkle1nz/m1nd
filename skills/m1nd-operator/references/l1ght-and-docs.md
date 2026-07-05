@@ -199,6 +199,28 @@ It writes a `.light.md` under `<runtime_root>/agent-memory/`, ingests it (adapte
 
 IMPORTANT: ingest the target code BEFORE calling `memorize` so evidence paths resolve to real code nodes. If evidence is unresolved, `next_action` will say so.
 
+### Promotion — the audited crossing (`promote`, MEDULLA M6)
+
+A `memorize` is ALWAYS project-private (born in the routed brain, stamped `Origin-Brain`). Knowledge becomes shared doctrine only through an EXPLICIT `promote` — never automatically. When a VERIFIED claim is genuinely transversal (true across projects, not one repo's fact), call:
+
+```
+promote { agent_id, brain: <source project root>, claim: <slug>, reason: <one line why it is transversal> }
+```
+
+What it does (owner-level cross-store, served at the routed HTTP door):
+
+1. Loads the claim from the source brain's store (hard error on an unknown slug — no guessing).
+2. **C8.3 evidence-class gate:** only `State: verified` OR `Source-Agent: human:maintainer` may promote. A declared maker finding is refused with a typed reason — it must be verified in its home brain first.
+3. **Hygiene floor:** the claim text is scanned for secrets + merge-conflict markers (the medulla is the most-read store and must be the cleanest); a hit is refused.
+4. **C8.2 evidence re-anchor:** code evidence is rewritten origin-qualified (`<origin_root>#<path>`) so medulla-side freshness delegates back to the origin brain. When no origin root resolves, the claim is stamped `Evidence-Unverifiable: true` and renders as declared tissue — a medulla claim never reads fresher than it can prove.
+5. Writes the medulla copy through the same supersession gate `memorize` uses (a weaker re-promotion of a live medulla claim bounces `WouldDowngrade`), stamping the four provenance fields `Origin-Brain` / `Origin-Claim` / `Promoted-By` / `Promotion-Reason` — the readable chain ("learned in Y by A, promoted by B, reason R").
+6. Stamps the project ORIGINAL `Promoted-To: medulla@<slug>@<ms>` (a same-strength supersession; the `.history/` keeps the pre-promotion copy). Promotion ELEVATES, never moves — the witness stays.
+7. Re-ingests the medulla copy so it immediately surfaces in every brain's default beat under `tier: medulla`.
+
+**Etiquette (provenance, not a security boundary):** any `agent_id` CAN call `promote` — `agent_id` is self-declared — but promotion is an ORCHESTRATOR / maintainer act. A maker PROPOSES (memorizing "candidate for promotion" is just a claim); the orchestrator executes. Every promotion is auditably attributed by `Promoted-By`; don't promote an unverified maker hunch.
+
+**Demotion (un-share, never destroy):** `learn wrong` on the MEDULLA copy (kills its trust, marks it for the consolidation pass) or a superseding medulla `memorize` (e.g. a `moved_to:` back-pointer when a "cross-project" finding turns out to be one repo's quirk). Demotion NEVER touches the project witness — the local truth that was and remains correct at home is preserved.
+
 ### Boot auto-load
 
 On every session start, m1nd auto-ingests all `<runtime_root>/agent-memory/*.light.md` files. This is gated by `M1ND_AUTO_LOAD_AGENT_MEMORY` (default ON). Past findings are present in the graph at the start of the next session — no explicit re-ingest needed. The result is reported in `session_handshake.agent_memory` with `{dir, file_count, loaded, nodes_added, ...}`.

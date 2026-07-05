@@ -100,6 +100,24 @@ came from. If your session's root has no project brain, a `memorize` is REFUSED 
 silently written into the shared medulla) — the refusal hands you the one-call bootstrap \
 (`ingest project_root=<your repo>`); run it, then your memory lands project-private.
 
+**PROMOTION — the audited crossing (do it deliberately, rarely).** A `memorize` is ALWAYS \
+project-private; a finding does NOT become shared doctrine by being written. When a VERIFIED \
+claim is genuinely transversal (true across projects, not one repo's fact), `promote \
+{brain: <project_root>, claim: <slug>, reason: <one line>}` copies it UP into the medulla \
+with the full readable chain (Origin-Brain, Origin-Claim, Promoted-By, Promotion-Reason); the \
+project original stays in place, stamped Promoted-To — promotion ELEVATES, never moves. Gates \
+you must respect: only `State: verified` (or a founder claim) may promote; a secret or a \
+conflict-marker is refused at the hygiene floor (the medulla is the most-read store); a \
+promoted claim's code evidence is origin-qualified so freshness delegates back to its home \
+brain, or the claim is marked `evidence_unverifiable` — a medulla claim never reads fresher \
+than it can prove. ETIQUETTE: promotion is an ORCHESTRATOR / maintainer act — a maker \
+PROPOSES (\"candidate for promotion\" is just a claim it memorizes), the orchestrator executes. \
+Any id CAN call `promote` (it is not a security boundary), but every promotion is auditably \
+attributed by `Promoted-By`; don't promote a maker's unverified hunch. To DEMOTE (un-share a \
+claim that turned out to be one repo's quirk), `learn wrong` on the MEDULLA copy or supersede \
+it with a `moved_to:` medulla `memorize` — this never touches the project witness (un-share, \
+never destroy).
+
 Then leave ONE field-telemetry signal and keep working (report, never detour): when a \
 retrieval was right or wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF misbehaves \
 (a bug, friction, or an honesty miss — it claimed fresh/closed/act and was wrong), append \
@@ -336,6 +354,7 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "mission_close",
     "persist",
     "memorize",
+    "promote",
     "xray_retag",
     "xray_apply",
     "xray_orient",
@@ -2256,6 +2275,23 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                 }
             },
             // =================================================================
+            // MEDULLA M6: promote — the audited crossing (project → medulla)
+            // =================================================================
+            {
+                "name": "promote",
+                "description": "Elevate a VERIFIED project-private claim UP into the shared medulla (the doctrine tier every session's default beat reads). An EXPLICIT orchestrator act — you judge a claim is transversal (true across projects), not one repo's fact. Copies the claim into the medulla stamped with the full origin chain (Origin-Brain, Origin-Claim, Promoted-By, Promotion-Reason); the project original stays in place, stamped Promoted-To (promotion ELEVATES, never moves). Gates: only State: verified OR Source-Agent: human:maintainer may promote (C8.3); a secret/conflict-marker in the claim is refused at the hygiene floor; evidence paths are origin-qualified so freshness delegates to the origin brain, or the claim is marked evidence_unverifiable (C8.2 — a medulla claim never reads fresher than it can prove); a weaker re-promotion bounces (WouldDowngrade). Demote by learn-wrong / consolidation on the MEDULLA copy — never touches the witness. Etiquette: any id may call, every promotion is auditably attributed (Promoted-By).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier — recorded as Promoted-By (etiquette-by-provenance: promotion is an orchestrator/maintainer act)" },
+                        "brain": { "type": "string", "description": "The SOURCE project root whose store holds the claim (the Origin-Brain to promote FROM)" },
+                        "claim": { "type": "string", "description": "The slug (or node label) of the claim to promote — hard error if no such claim exists in the source brain (no guessing)" },
+                        "reason": { "type": "string", "description": "One line: WHY this is transversal doctrine, not one repo's fact — recorded as Promotion-Reason" }
+                    },
+                    "required": ["agent_id", "brain", "claim", "reason"]
+                }
+            },
+            // =================================================================
             // X-RAY write verb: xray_retag — bulk graph-tag mutation
             // =================================================================
             {
@@ -2430,6 +2466,8 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     "apply_batch",
     "edit_commit",
     "memorize",
+    // promote writes a medulla copy + a witness stamp to disk (MEDULLA M6).
+    "promote",
     "learn",
     "daemon_start",
     "auto_ingest_start",
@@ -4445,6 +4483,19 @@ fn dispatch_core_tool(
                 serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
             crate::light_author_handlers::handle_light_author(state, input)
         }
+        // MEDULLA M6: `promote` is an OWNER-LEVEL cross-store verb — it reads a
+        // project brain's store and writes the medulla. A single-store dispatch
+        // (`&mut SessionState`) cannot reach two stores, so it is served at the
+        // routed HTTP seam (`mcp_http::run_promote`), never here. Door-coverage
+        // honesty (§C9.4): reaching this arm means the call came through the
+        // paramless/stdio door, which cannot host the crossing yet.
+        "promote" => Err(M1ndError::InvalidParams {
+            tool: "promote".into(),
+            detail: "promote is served at the routed HTTP door (it crosses two stores: a project \
+                     brain → the medulla). Call it over the served owner's /mcp endpoint; the \
+                     stdio/paramless door does not host the crossing (door-coverage honesty, §C9.4)."
+                .into(),
+        }),
         // -----------------------------------------------------------------
         // v0.7.0: Diagnostic tools
         // -----------------------------------------------------------------
