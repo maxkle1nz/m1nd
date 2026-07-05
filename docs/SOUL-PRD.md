@@ -2,24 +2,24 @@
 
 **PATHOS native and verified · the agentic soul as a first-class m1nd type: anchored claims, two tissues, the curator at the gates**
 
-> **Status:** OFFICIAL — founder-directed design, 2026-07-05. This PRD writes the layer the organism map calls its single biggest gap (`[unwritten — SOUL thesis]`): the project's curated handoff document — PATHOS — becomes a verified m1nd type with a claim grammar, a freshness receipt, and a curator workflow. It does not replace the PATHOS practice (the skill, the doctrine, the living `docs/PATHOS.md`); it gives that practice the STRUCTURAL trust it has so far earned only behaviorally.
-> **Provenance:** Fable design seat, single-seat. Every `file:line` anchor verified in this worktree at `origin/main` @ `5b1a37d` (the commit that merged `docs/MEDULLA-PRD.md`, #267 — this PRD rides that state machine and never re-decides it). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**
-> **Ground includes a LIVE PROBE** (2026-07-05): `soul_check`'s algorithm was run BY HAND against the current `docs/PATHOS.md` (cp9 + 4 addenda) — 27 mechanically checkable claims sampled, every anchor tested against the repo, git, and the running `:1338` owner (binary 1.3.2). §2.3 reports the numbers verbatim; they are this PRD's RED state and S0's seed battery case. Two field letters were filed during the probe (`~/.m1nd/field-reports.jsonl`, 2026-07-05 `fable-soul-prd`: a repro of the false-absence defect, class `honesty`; a seek scope-escape, class `friction`).
+> **Status:** OFFICIAL — maintainer-directed design, 2026-07-05. This PRD writes the layer the organism map calls its single biggest gap (`[unwritten — SOUL thesis]`): the project's curated handoff document — PATHOS — becomes a verified m1nd type with a claim grammar, a freshness receipt, and a curator workflow. It does not replace the PATHOS practice (the skill, the doctrine, the living `docs/PATHOS.md`); it gives that practice the STRUCTURAL trust it has so far earned only behaviorally.
+> **Provenance:** design seat, single-seat. Every `file:line` anchor verified in this worktree at `origin/main` @ `5b1a37d` (the commit that merged `docs/MEDULLA-PRD.md`, #267 — this PRD rides that state machine and never re-decides it). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**
+> **Ground includes a LIVE PROBE** (2026-07-05): `soul_check`'s algorithm was run BY HAND against the current `docs/PATHOS.md` (cp9 + 4 addenda) — 27 mechanically checkable claims sampled, every anchor tested against the repo, git, and the running served owner (binary 1.3.2). §2.3 reports the numbers verbatim; they are this PRD's RED state and S0's seed battery case. Two field letters were filed during the probe (`~/.m1nd/field-reports.jsonl`, 2026-07-05 `fable-soul-prd`: a repro of the false-absence defect, class `honesty`; a seek scope-escape, class `friction`).
 > **Sisters, same organism:** the memory state machine and stores this PRD mounts on — `docs/MEDULLA-PRD.md` (§3 states, §4 storage, §7 promote). The lifecycle grammar and the one-packet spine — the organism map (JOINT-A/B/E/H), whose verdicts are adopted here as law. The human face — `docs/HUMAN-LAYER-PRD.md` §4A (receipt echo only from this side). The delegation dovetail — `docs/NEXTGEN-AGENT-PRD.md` §O.12.
 
 ---
 
-## 1. Thesis — the founding insight, verbatim
+## 1. Thesis — the founding insight
 
-> **Founder (Max), the soul:** *"o pathos nada mais é que a ALMA AGÊNTICA daquele projeto — todas as informações importantes que o agente principal foi desenvolvendo, aprendendo, salvando, workflows. Mas aqui entra o gamechanger do m1nd: um PATHOS EVOLUÍDO, que tem o SISTEMA para saber se tudo que está nele é REAL ou não. E até um workflow de subagentes que, geralmente perto de PR ou merge, checa o pathos, atualiza com as últimas coisas, remove o que ficou irrelevante ou stale — deixando um pathos completo, profundo, mas organizado e ENXUTO."*
+> **The soul, stated:** PATHOS is nothing less than the AGENTIC SOUL of a project — all the important information the main agent developed, learned, saved, plus its workflows. But here is m1nd's game-changer: an EVOLVED PATHOS, one that has the SYSTEM to know whether everything in it is REAL or not. And even a subagent workflow that, usually near PR or merge, checks the PATHOS, updates it with the latest things, removes what became irrelevant or stale — leaving a PATHOS that is complete, deep, but organized and LEAN.
 
-> **Founder (Max), the challenge this PRD answers:** *"quem disse que PATHOS+medula+hook são suficientes? o PATHOS é confiável? sempre atualizado? tem certeza que nada importante se perde ao abrir chat novo?"*
+> **The challenge this PRD answers:** who said PATHOS + medulla + hook are enough? Is the PATHOS trustworthy? Always up to date? Are you sure nothing important is lost when opening a new chat?
 
 Decompressed into the four laws this PRD engineers:
 
-1. **The soul is the project's agentic alma — and it already exists.** The PATHOS document is the curated top layer of everything the project's agents developed, learned, saved: north, state, doctrine, access, problems, proof standard, next moves. This PRD does not invent that layer; it is Max's cross-repo practice, alive in this repo as `docs/PATHOS.md` (cp9). What is missing is not the soul — it is the *system that knows what in it is real*.
-2. **Trust in the soul is BEHAVIORAL today; this PRD makes it STRUCTURAL.** Today the hierarchy *código > PATHOS > memória* is enforced by agent discipline alone (update-same-session, verify-before-assert — doctrine rules in CLAUDE.md). Nothing CHECKS the soul. The probe (§2.3) measured the consequence: roughly half the sampled verifiable claims in the live tissue had drifted within ~48h of era velocity — invisibly, in a document whose whole job is to be believed by the next cold session. The answer to *"é confiável? sempre atualizado?"* must stop being "the agents are disciplined" and become a receipt.
-3. **The curator is a distinct moment, near the gates.** Max's subagent workflow — check, update, prune, near PR/merge — becomes a defined pass with a defined output contract: **completo, profundo, organizado, ENXUTO**, each made mechanical (§5). It is a FOURTH moment in the close-out family, never conflated with the three that exist (§5.1, JOINT-A adopted).
+1. **The soul is the project's agentic alma — and it already exists.** The PATHOS document is the curated top layer of everything the project's agents developed, learned, saved: north, state, doctrine, access, problems, proof standard, next moves. This PRD does not invent that layer; it is a cross-repo practice, alive in this repo as `docs/PATHOS.md` (cp9). What is missing is not the soul — it is the *system that knows what in it is real*.
+2. **Trust in the soul is BEHAVIORAL today; this PRD makes it STRUCTURAL.** Today the hierarchy *código > PATHOS > memória* is enforced by agent discipline alone (update-same-session, verify-before-assert — doctrine rules in CLAUDE.md). Nothing CHECKS the soul. The probe (§2.3) measured the consequence: roughly half the sampled verifiable claims in the live tissue had drifted within ~48h of era velocity — invisibly, in a document whose whole job is to be believed by the next cold session. The answer to *"is it trustworthy? always up to date?"* must stop being "the agents are disciplined" and become a receipt.
+3. **The curator is a distinct moment, near the gates.** The subagent workflow — check, update, prune, near PR/merge — becomes a defined pass with a defined output contract: **complete, deep, organized, LEAN**, each made mechanical (§5). It is a FOURTH moment in the close-out family, never conflated with the three that exist (§5.1, JOINT-A adopted).
 4. **The system knowing what it CANNOT verify is the product.** A soul is not all claims; it is also taste, doctrine, why-we-work-this-way. That tissue is *declared*, honestly UNPROVABLE, never fake-verified — the same refusal-to-fake-certainty that runs through the whole organism (calibration `abstain`, X-RAY `UNPROVABLE`, trust `insufficient_evidence`, memory absent-never-faked). The two-tissue split (§3.3) is this law applied to the soul.
 
 ---
@@ -28,7 +28,7 @@ Decompressed into the four laws this PRD engineers:
 
 ### 2.1 The practice as it exists
 
-- **The skill** (`~/.claude/skills/pathos/SKILL.md` + the `pathos` CLI): Max's cross-repo authoring contract — sections `North Star / Current State / Human-Agent Pathos / Operating Doctrine / Access Map / Known Problems / Proof Standard / Next Agent Prompt / First Commands / Do Not Do / Open Questions`, custodian mode, prompt templates. It defines how souls are BORN; it verifies nothing.
+- **The skill** (`~/.claude/skills/pathos/SKILL.md` + the `pathos` CLI): the cross-repo authoring contract — sections `North Star / Current State / Human-Agent Pathos / Operating Doctrine / Access Map / Known Problems / Proof Standard / Next Agent Prompt / First Commands / Do Not Do / Open Questions`, custodian mode, prompt templates. It defines how souls are BORN; it verifies nothing.
 - **The living example**: `docs/PATHOS.md` — 950 lines at `5b1a37d`; checkpoint 9 + four addenda as the live tissue, checkpoints 8.1/8/7 preserved inline as history, plus two auto-generated sections (`auto-changelog`, `auto-overview`) behind refresh anchors.
 - **The doctrine**: PATHOS is the repo's curated absolute truth, below only code/git/runtime; every big change must bring it current in the same session (the universal doc-gate); auto-refresh regenerates the anchored sections on main pushes — currently BLOCKED at the last hop by branch protection (PATHOS Known Problems admits it; the probe confirms the staleness it causes).
 - **The house anchor style is already claim-shaped.** cp9 cites files (`scratchpad/m1nd_battery.py`), exact lines (`.gitignore` line 52), symbols (`http_server::resolve_brain`), PRs (#232, #260), tags (v1.3.0), commands, live-runtime facts (~6.3k nodes). The grammar in §3 grips this EXISTING style — the probe verified it is grippable, because the probe used exactly these anchors.
@@ -43,7 +43,7 @@ Decompressed into the four laws this PRD engineers:
 | `memorize` — the organism's ONE write sink: default path per-store, `Created`/`Source-Agent`(/`Origin-Brain`, M5a) frontmatter, per-slug flock, `.history/` invalidate-and-keep, `WouldDowngrade` refusal, hygiene floor at the door | `light_author_handlers.rs:158,398,316-331,591,610`; JOINT-H (map) | `soul_update` writes THROUGH this door (§4.3) — no parallel write path, every invariant enforced at the one place it already lives |
 | X-RAY: manifest clauses bound via `grounded_in`, tri-state CONVERGENCE/DIVERGENCE/ABSENCE + first-class UNPROVABLE with `reason`+`downgrade_path`, append-only `xray.ledger.jsonl`, `ratified` flag, auto-discovery at `<workspace_root>/xray.manifest.json` | `xray_handlers.rs:1817` (resolve), `:1954` (classify_edge), `:1977/2191/2589` (orient/gate/paint), `:49` (ledger); grammar `docs/X360-RUNTIME-PRD.md` | The Soul is X-RAY's sibling axis (§3.5): X-RAY verifies *declared intent vs code*; the Soul verifies *declared state vs reality*. Same tri-state honesty, same never-fold-UNPROVABLE law, same ledger pattern — different subject document |
 | `north` — the one packet (`m1nd-north-packet-v0`), already read four ways (agent orientation / Pre-Flight Card / delegation packet / reception) | `server.rs:2949-3057,3352-3357`; JOINT-E (map) | The soul headline is the FIFTH rendering of the same atom (§4.4) — one packet, five readers, no second channel |
-| `mission_close` — proof packet (verified/rejected claims, gaps, non_claims) + `write_light_memory` distilling verified claims through the memorize sink; the `next_action` nudge already teaches persist-to-compound | `mission_handlers.rs:309-436` | A curator INPUT: the mission's distillate is exactly the "últimas coisas" Max's curator updates the soul with (§5.2). Distinct moment, kept distinct (§5.1) |
+| `mission_close` — proof packet (verified/rejected claims, gaps, non_claims) + `write_light_memory` distilling verified claims through the memorize sink; the `next_action` nudge already teaches persist-to-compound | `mission_handlers.rs:309-436` | A curator INPUT: the mission's distillate is exactly the "latest things" the curator updates the soul with (§5.2). Distinct moment, kept distinct (§5.1) |
 | `am_i_stale`, supersession `.history/`+`.locks/`, boot_memory, trail verbs | `server.rs:3407`; `light_author_handlers.rs:591-…`; `server.rs:1124` | Session-level freshness + the terminal-with-history law + resumable context — composed, not duplicated |
 
 ### 2.3 THE PROBE — `soul_check` run by hand against today's soul
@@ -52,7 +52,7 @@ Method: the claim universe was the LIVE tissue of `docs/PATHOS.md` @ `5b1a37d` (
 
 **The numbers: 12 verified-fresh · 12 evidence-stale · 3 receipt-priced (unprovable-cheaply). Of the checkable sample, 44% had drifted.**
 
-Verified-fresh (anchor exists and matches) — 12: `scratchpad/m1nd_battery.py` tracked; `scripts/agent_docs_gate.py`; the `agent-docs-gate` job in `ci.yml`; `.github/workflows/pathos-autorefresh.yml`; tags `v1.3.0`+`v1.3.1`; `server.json` (`io.github.maxkle1nz/m1nd`); root `package.json` `mcpName`; `m1nd-ui/src/__fixtures__/`; `m1nd-mcp/tests/per_brain_open.rs`; `http_server::resolve_brain` (`http_server.rs:1281`); the Access-Map doc pointers (X360/FOCUS/HOST-MATRIX + the era PRDs); the runtime claim "~6.3k nodes" (live owner: 6,642 — verified against the running `:1338`).
+Verified-fresh (anchor exists and matches) — 12: `scratchpad/m1nd_battery.py` tracked; `scripts/agent_docs_gate.py`; the `agent-docs-gate` job in `ci.yml`; `.github/workflows/pathos-autorefresh.yml`; tags `v1.3.0`+`v1.3.1`; `server.json` (`io.github.maxkle1nz/m1nd`); root `package.json` `mcpName`; `m1nd-ui/src/__fixtures__/`; `m1nd-mcp/tests/per_brain_open.rs`; `http_server::resolve_brain` (`http_server.rs:1281`); the Access-Map doc pointers (X360/FOCUS/HOST-MATRIX + the era PRDs); the runtime claim "~6.3k nodes" (live owner: 6,642 — verified against the running served owner).
 
 Evidence-stale — 12, each a distinct failure class the tool must catch:
 
@@ -75,7 +75,7 @@ Also probed, beyond the document text:
 - **The recall beat did not know the soul exists.** A fresh session's `north` for this very mission carried zero PATHOS awareness — and reproduced the known false-absence defect (`memory: []` + "No durable memory yet" over a store holding ~20 live claims; MED-INV-6's RED, re-filed as a repro letter).
 - **The soul lags the era structurally, not just in details.** cp9's "three official PRDs" section is now FALSE by omission — `docs/MEDULLA-PRD.md` (#267) merged into main and the soul does not know it. Only 2 commits separate the soul's last touch from HEAD, yet one of them changed the era's blueprint count.
 
-**The verdict this probe grounds:** the soul is honest by discipline and WRONG in the details at any given moment — 44% of its sampled checkable claims drifted in ~48h, its own auto sections are 25 commits stale behind an admitted blocker, and it contradicts itself where two eras' numbers coexist. No agent opening a cold session can KNOW any of this today without re-deriving it. That is Max's challenge, measured.
+**The verdict this probe grounds:** the soul is honest by discipline and WRONG in the details at any given moment — 44% of its sampled checkable claims drifted in ~48h, its own auto sections are 25 commits stale behind an admitted blocker, and it contradicts itself where two eras' numbers coexist. No agent opening a cold session can KNOW any of this today without re-deriving it. That is the challenge, measured.
 
 ### 2.4 The seams (what this PRD designs away)
 
@@ -83,7 +83,7 @@ Also probed, beyond the document text:
 |---|---|---|
 | SOUL-S1 | **No claim grammar.** The soul is prose; verification has nothing mechanical to grip — the probe had to hand-extract its 27 claims | §2.3 method |
 | SOUL-S2 | **No verification state per claim.** The 12 stale claims sat in live tissue unmarked, beside the 12 fresh ones, indistinguishable to a reader | §2.3 table |
-| SOUL-S3 | **History accretes INSIDE the live tissue.** 4 addenda stack on cp9; a Next-Agent item is superseded by its own addendum (stale #12); "36" leftovers from cp8 contradict cp9's "37" (stale #7); 950 lines total, ~450 live. Supersession exists editorially but not mechanically — ENXUTO is violated structurally | stale #7, #12; line counts |
+| SOUL-S3 | **History accretes INSIDE the live tissue.** 4 addenda stack on cp9; a Next-Agent item is superseded by its own addendum (stale #12); "36" leftovers from cp8 contradict cp9's "37" (stale #7); 950 lines total, ~450 live. Supersession exists editorially but not mechanically — LEAN is violated structurally | stale #7, #12; line counts |
 | SOUL-S4 | **Updates are doctrine-gated, not moment-gated.** The doc-gate says "current before done" but nothing RUNS at the gate; addenda append rather than curate; nothing prunes | stale #12; the addenda pattern |
 | SOUL-S5 | **The reader has no freshness receipt.** "Last checkpoint: 2026-07-03" is the only trust signal, and it says nothing about which claims still hold. Cold-session trust calibration costs a 950-line read plus re-derivation | §2.3 verdict |
 | SOUL-S6 | **Tissues are interleaved unmarked.** Doctrine sentences sit beside file-path claims; a verifier that treats everything as checkable fake-fails the soul, one that skips everything fake-passes it | §3.3 |
@@ -98,7 +98,7 @@ The **soul** is a per-brain curated document: by repo convention `docs/PATHOS.md
 
 One soul, two projections — the same one-atom-many-renderings doctrine the north packet proves:
 - **The document face** (human + agent readable): the markdown itself, authored in the skill's section contract, edited by agents/humans as today. Git is its store, its history, and its diff surface. m1nd never owns document edits.
-- **The store face** (machine substrate): the soul's claims registered as L1GHT citizens in the brain's own store, written through the ONE memorize sink with soul provenance (§4.3) — subject to the same supersession gate, flock, hygiene floor, and (post-M5a) `Origin-Brain` stamping as every other memory. The map's reading of the soul as "the curated apex of the brain's memory" and Max's reading of it as "the PATHOS document" meet exactly here: the document is the rendering, the store is the substrate.
+- **The store face** (machine substrate): the soul's claims registered as L1GHT citizens in the brain's own store, written through the ONE memorize sink with soul provenance (§4.3) — subject to the same supersession gate, flock, hygiene floor, and (post-M5a) `Origin-Brain` stamping as every other memory. The map's reading of the soul as "the curated apex of the brain's memory" and the reading of it as "the PATHOS document" meet exactly here: the document is the rendering, the store is the substrate.
 
 ### 3.2 The claim grammar and the check-class taxonomy
 
@@ -243,7 +243,7 @@ The organism's strongest existing unification is one packet, many readers (JOINT
 "soul": {"headline": "checkpoint 9 — THE CONSTRUCTION ERA OPENS", "receipt": "12 fresh · 12 stale · 3 priced · checked 2026-07-05 @5b1a37d", "read": "soul_read"}
 ```
 
-- **Why yes:** north is the front door of every cold session — exactly the moment Max's challenge names ("abrir chat novo"). The canonical handoff surfacing ONE curated line + ONE receipt there is the structural answer at the structural moment.
+- **Why yes:** north is the front door of every cold session — exactly the moment the challenge names ("opening a new chat"). The canonical handoff surfacing ONE curated line + ONE receipt there is the structural answer at the structural moment.
 - **Why bounded:** pull-not-push. The headline is the soul's own first curated line (authored in the doc, not generated); the receipt is counts. Hard cap: the whole sub-atom ≤ 220 chars (SOUL-INV-4); the body is `soul_read`, one explicit call away. Absent soul → the sub-atom is ABSENT (never a fabricated empty receipt); stale receipt → its own date shows it (self-aging, SOUL-INV-6). Composed fail-open like the medulla doctrine beat — a missing/slow soul never blocks orientation.
 - **What the other renderings inherit for free:** the Pre-Flight Card renders the same sub-atom as its header line (human face, §8); the delegation packet carries it to children (a child inherits the mother's soul context the same pull-not-push way — the packet names the soul, the child pulls if the task warrants).
 
@@ -258,7 +258,7 @@ The organism's strongest existing unification is one packet, many readers (JOINT
 | `mission_close` | explicit id-bearing verb; proof packet; optional distill-to-memory | rare — genuinely open missions | INPUT: its verified claims are curator feedstock |
 | The distillation gate | ambient `Stop → cross_verify → memorize` hook (Ω+1 Wave 4; blocked on serve/attach wiring, un-sliced) | every turn, once live | INPUT: its accumulated distillate is curator feedstock |
 | The doc-gate | a PROCESS rule (docs/PATHOS current before "done"), not a runtime verb | end of every BIG implementation / burst close | The curator's PRIMARY TRIGGER — the gate stops being doctrine-only and gains a mechanical pass |
-| **The curator** | **the curation moment this PRD defines** | at the doc-gate (near PR/merge — Max's "geralmente perto de PR ou merge"); optionally after a `mission_close`; on demand | — |
+| **The curator** | **the curation moment this PRD defines** | at the doc-gate (near PR/merge — "usually near PR or merge"); optionally after a `mission_close`; on demand | — |
 
 They converge only where the organism already converges: every knowledge write lands through the ONE memorize sink. The curator adds no second sink and no fifth trigger semantics — it CONSUMES the moments above and writes through the same door.
 
@@ -266,7 +266,7 @@ They converge only where the organism already converges: every knowledge write l
 
 1. **Sweep**: `soul_check` → the worklist (stale claims with reasons, superseded pairs, unanchored assertions, consistency conflicts, tissue budget overruns).
 2. **Verify**: for each stale finding, establish current truth against code/git/runtime (the hierarchy: código > PATHOS — the curator re-derives from reality, never from memory).
-3. **Update** — "as últimas coisas": fold in the interval's distillate — `mission_close` packets' verified claims, memories born since the last curation (the store's `light:created` window), the PR delta itself, and repo-relevant mailbox letters (Known Problems feedstock). Document edits by the agent (git); durable claims registered via `soul_update` through the sink.
+3. **Update** — "the latest things": fold in the interval's distillate — `mission_close` packets' verified claims, memories born since the last curation (the store's `light:created` window), the PR delta itself, and repo-relevant mailbox letters (Known Problems feedstock). Document edits by the agent (git); durable claims registered via `soul_update` through the sink.
 4. **Prune — never silently**: superseded/expired/irrelevant text moves OUT of live tissue by demotion (§5.3), each demotion visible in the same PR diff and named in the curator report. Declared tissue is proposed-only — the curator may flag doctrine as possibly-obsolete but never removes it on its own authority (SOUL-INV-5).
 5. **Receipt**: re-run `soul_check`; the PR body carries the receipt line; the soul's header carries the dated receipt.
 
@@ -280,7 +280,7 @@ They converge only where the organism already converges: every knowledge write l
 
 ### 5.4 Who curates
 
-Agent-executed — any orchestrator-tier agent or a dedicated subagent (Max's "workflow de subagentes" honored: the curator is spawnable with a §O.12 packet naming the brain and the soul). Etiquette-by-provenance, exactly like `promote`: the report and the store citizens carry the curator's `agent_id`; violations are auditable, not prevented. The judgment (what matters, how to compress) is LLM work; the substrate (check, register, receipt) is deterministic — the same authoring/execution split the uiproof standard and the pathos skill already practice.
+Agent-executed — any orchestrator-tier agent or a dedicated subagent (the "subagent workflow" honored: the curator is spawnable with a §O.12 packet naming the brain and the soul). Etiquette-by-provenance, exactly like `promote`: the report and the store citizens carry the curator's `agent_id`; violations are auditable, not prevented. The judgment (what matters, how to compress) is LLM work; the substrate (check, register, receipt) is deterministic — the same authoring/execution split the uiproof standard and the pathos skill already practice.
 
 ### 5.5 The gate sequence
 
@@ -314,7 +314,7 @@ sequenceDiagram
 
 One line, three homes: the soul's own header (`> soul receipt: checked 2026-07-05 @5b1a37d — 12 fresh · 12 stale · 3 receipt-priced · declared intact`), the north packet's `soul` sub-atom (§4.4), and the Hall card's receipt drawer (§8). It is a dated RECORD of a past check — an event, not a state — so storing it does not violate the derived-not-stored law: its `@sha` + date make its own staleness self-evident to every reader (a receipt from 30 commits ago indicts itself).
 
-**The answer to Max's challenge, spelled:** a human or agent opening a fresh context reads ONE line and knows how much to trust the handoff — how many claims held at last check, how many had drifted, when, against which sha. "É confiável?" stops being a feeling and becomes a number with a date. "Sempre atualizado?" stops being a promise and becomes a visible lag. "Nada se perde ao abrir chat novo?" — the north beat puts the receipt at the exact moment of the new chat, and everything deeper is one `soul_read` away.
+**The answer to the challenge, spelled:** a human or agent opening a fresh context reads ONE line and knows how much to trust the handoff — how many claims held at last check, how many had drifted, when, against which sha. "Is it trustworthy?" stops being a feeling and becomes a number with a date. "Always up to date?" stops being a promise and becomes a visible lag. "Is nothing lost when opening a new chat?" — the north beat puts the receipt at the exact moment of the new chat, and everything deeper is one `soul_read` away.
 
 ### 6.2 SOUL-INV — the honesty invariants (additive to TT-INV/MED-INV, which bind here)
 
@@ -331,10 +331,10 @@ One line, three homes: the soul's own header (`> soul receipt: checked 2026-07-0
 
 ## 7. The skill ↔ engine seam — named honestly
 
-- **The skill stays** (`~/.claude/skills/pathos/` + the `pathos` CLI + the autorefresh pattern): it is Max's cross-repo AUTHORING practice — how souls are born, which sections exist, custodian hygiene, prompt templates. It works in every repo, including the many with no m1nd brain. A repo without m1nd still has a valid PATHOS — with behavioral trust, as today.
+- **The skill stays** (`~/.claude/skills/pathos/` + the `pathos` CLI + the autorefresh pattern): it is the cross-repo AUTHORING practice — how souls are born, which sections exist, custodian hygiene, prompt templates. It works in every repo, including the many with no m1nd brain. A repo without m1nd still has a valid PATHOS — with behavioral trust, as today.
 - **m1nd becomes the ENGINE** where a brain exists: parse, verify, receipt, curator substrate, the north beat. The engine mechanizes the practice; it does not replace it.
 - **The seam is the section contract:** the skill's output contract IS the parser's tissue map (§3.3) — the skill authors what the engine verifies. Concretely, at S3: the skill's workflow gains one step ("if m1nd serves this repo, run `soul_check` and carry the receipt"), and `pathos status` MAY call through to `soul_check` when an owner is reachable (V2, not smuggled into S0–S2).
-- **Autorefresh:** the auto-anchored sections remain outside hand-curation and outside the curator's editing reach (the existing anchor law); their FRESHNESS is one soul claim the receipt reports — the probe caught them 25 commits stale precisely because the push-back is blocked on branch protection; the receipt makes that visible instead of silent, whatever Max decides about the token.
+- **Autorefresh:** the auto-anchored sections remain outside hand-curation and outside the curator's editing reach (the existing anchor law); their FRESHNESS is one soul claim the receipt reports — the probe caught them 25 commits stale precisely because the push-back is blocked on branch protection; the receipt makes that visible instead of silent, whatever the maintainer decides about the token.
 - **Migration, honestly:** nothing migrates by force. `docs/PATHOS.md` as it stands TODAY is already parseable by the S0 grammar (the probe is the proof — 27 claims gripped by hand using only the house style). The engine arrives under the existing document; the practice never stops.
 
 ---
