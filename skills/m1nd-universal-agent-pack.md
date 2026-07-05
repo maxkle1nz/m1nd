@@ -127,6 +127,18 @@ this loop by default:
    over every hosted brain, each hit origin-labeled). `all-brains` is one argument
    away and never ambient — use it only when you truly need another project's
    knowledge.
+9. Promotion is the audited crossing (do it deliberately, rarely): a `memorize` is
+   always project-private — a finding does NOT become shared doctrine by being
+   written. When a VERIFIED claim is genuinely transversal, `promote {brain, claim,
+   reason}` copies it UP into the medulla with the full readable chain (Origin-Brain,
+   Origin-Claim, Promoted-By, Promotion-Reason); the project original stays in place
+   stamped Promoted-To (elevate, never move). The verb gates: only `State: verified`
+   (or a founder claim) may promote; a secret/conflict-marker is refused at the
+   hygiene floor; evidence is origin-qualified so freshness delegates to the home
+   brain, else the claim is marked `evidence_unverifiable` (never reads fresher than
+   it can prove). It is an ORCHESTRATOR act — a maker proposes, the orchestrator
+   executes; any id may call it but `Promoted-By` audits every promotion. Demote via
+   `learn wrong` on the medulla copy — never touches the project witness.
 
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.

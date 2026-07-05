@@ -426,6 +426,11 @@ fn try_write_light_memory(
         supersedes: None,
         // Default path: the handler stamps Origin-Brain from the session (§6).
         origin_brain: None,
+        origin_claim: None,
+        promoted_by: None,
+        promotion_reason: None,
+        promoted_to: None,
+        evidence_unverifiable: false,
     };
 
     let result = handle_light_author(state, light_input)

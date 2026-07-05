@@ -24,6 +24,8 @@ pub mod mission_handlers;
 pub mod persist_handlers;
 pub mod perspective;
 pub mod perspective_handlers;
+// MEDULLA M6 — the `promote` verb (project-private claim → medulla, audited).
+pub mod promote_handlers;
 pub mod surgical_handlers;
 
 // v0.4.0: new tool handlers + personality

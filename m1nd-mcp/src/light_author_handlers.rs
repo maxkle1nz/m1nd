@@ -92,7 +92,7 @@ where
 // ---------------------------------------------------------------------------
 
 /// A single knowledge claim to be written as a L1GHT marker block.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LightClaim {
     /// Entity name → `[⍂ entity: <label>]` (or state/event glyph).
     pub label: String,
@@ -156,6 +156,31 @@ pub struct LightAuthorInput {
     /// honestly "unknown", the legacy-file behavior.
     #[serde(skip)]
     pub origin_brain: Option<String>,
+    /// Internal only (the `promote` verb, MEDULLA-PRD §7 · §6): the source slug this
+    /// medulla copy was promoted FROM (`Origin-Claim`). Part of the readable
+    /// promotion chain. `None` on ordinary memorize (no line rendered).
+    #[serde(skip)]
+    pub origin_claim: Option<String>,
+    /// Internal only (`promote`): the agent that executed the promotion
+    /// (`Promoted-By`). Etiquette-by-provenance (TT-INV-7) — every medulla copy is
+    /// auditably attributed. `None` on ordinary memorize.
+    #[serde(skip)]
+    pub promoted_by: Option<String>,
+    /// Internal only (`promote`): the one-line reason this claim was judged
+    /// transversal (`Promotion-Reason`). `None` on ordinary memorize.
+    #[serde(skip)]
+    pub promotion_reason: Option<String>,
+    /// Internal only (`promote`): the witness stamp `Promoted-To: medulla@<slug>@<ms>`
+    /// written on the project ORIGINAL so it reads as promoted (promotion elevates,
+    /// never moves). `None` on ordinary memorize and on the medulla copy itself.
+    #[serde(skip)]
+    pub promoted_to: Option<String>,
+    /// Internal only (`promote`, ORGANISM-PRD §C8.2 channel b): when true, this claim
+    /// carried evidence that could not be origin-qualified, so it is stamped
+    /// `Evidence-Unverifiable: true` and renders as declared tissue — a medulla claim
+    /// never reads fresher than it can prove. `false` on ordinary memorize.
+    #[serde(skip)]
+    pub evidence_unverifiable: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +411,31 @@ pub fn render_light_markdown(input: &LightAuthorInput) -> String {
     if let Some(origin) = &input.origin_brain {
         out.push_str(&format!("Origin-Brain: {}\n", origin));
     }
+    // Promotion chain (MEDULLA-PRD §7 · §6): a medulla copy carries the readable
+    // history — born in <Origin-Brain> as <Origin-Claim>, promoted by <Promoted-By>
+    // for <Promotion-Reason>. Absent on ordinary claims (unknown keys are tolerated
+    // by the parser, so these are backward-compatible frontmatter).
+    if let Some(oc) = &input.origin_claim {
+        out.push_str(&format!("Origin-Claim: {}\n", oc));
+    }
+    if let Some(by) = &input.promoted_by {
+        out.push_str(&format!("Promoted-By: {}\n", by));
+    }
+    if let Some(reason) = &input.promotion_reason {
+        out.push_str(&format!("Promotion-Reason: {}\n", reason));
+    }
+    // Witness stamp (on the project ORIGINAL, not the medulla copy): this claim was
+    // promoted UP; the shared copy lives at <Promoted-To>. Promotion elevates, the
+    // witness stays (MED-INV-3).
+    if let Some(to) = &input.promoted_to {
+        out.push_str(&format!("Promoted-To: {}\n", to));
+    }
+    // Evidence integrity (ORGANISM-PRD §C8.2 channel b): a promoted claim whose
+    // evidence could not be origin-qualified is declared tissue — it never reads
+    // fresher than it can prove. Rendered so every recall surface can label it.
+    if input.evidence_unverifiable {
+        out.push_str("Evidence-Unverifiable: true\n");
+    }
     // Supersession lineage: names the slug whose prior belief this write invalidates
     // (the prior copy is retained in `agent-memory/.history/` as `State: outdated`).
     // Frontmatter-only for now; the parser tolerates unknown keys. A graph-visible
@@ -463,7 +513,7 @@ fn resolve_output_path(state: &SessionState, input: &LightAuthorInput) -> M1ndRe
 }
 
 /// Lowercase alnum, non-alnum → '-', collapse consecutive '-'.
-fn slugify(s: &str) -> String {
+pub fn slugify(s: &str) -> String {
     let mut result = String::new();
     let mut last_was_dash = false;
     for ch in s.chars() {
@@ -681,6 +731,76 @@ fn archive_prior_as_outdated(out_path: &Path, slug: &str, runtime_root: &Path) -
     Ok(())
 }
 
+/// Archive the prior file into `<store_dir>/.history/<slug>.<ts>.light.md` flipped
+/// to `outdated`. Store-dir-anchored variant of [`archive_prior_as_outdated`] for
+/// the `promote` witness stamp, whose store dir is the SOURCE brain's `agent-memory`
+/// (not the medulla runtime root). Same audit-trail semantics.
+pub fn archive_prior_as_outdated_in(
+    store_dir: &Path,
+    out_path: &Path,
+    slug: &str,
+) -> M1ndResult<()> {
+    let prior_text = fs::read_to_string(out_path).map_err(M1ndError::Io)?;
+    let outdated = flip_state_to_outdated(&prior_text);
+    let history_dir = store_dir.join(".history");
+    fs::create_dir_all(&history_dir).map_err(M1ndError::Io)?;
+    let history_path = history_dir.join(format!("{}.{}.light.md", slug, now_ms()));
+    write_atomic(&history_path, &outdated)?;
+    Ok(())
+}
+
+/// The outcome of a supersession-aware memory write (public so the `promote` verb
+/// can distinguish a landed write from a bounced weaker one).
+pub enum SupersessionOutcome {
+    /// A first write (no prior file existed).
+    FirstWrite,
+    /// The prior belief was superseded (archived to `.history/`, live file rewritten).
+    Superseded,
+    /// The write was weaker than a live prior and was refused — the stronger prior
+    /// stays live. The `reason` mirrors the memorize gate (`would_downgrade`).
+    WouldDowngrade { reason: String },
+}
+
+/// Write `input` to `out_path` under the invalidate-and-keep supersession gate,
+/// with the per-slug flock held across the read-modify-write (`runtime_root` is
+/// where `.locks`/`.history` live). The single reusable write core shared by the
+/// `memorize` default path and the `promote` verb's medulla-copy write — so a
+/// weaker re-promotion of an existing medulla claim bounces exactly as a weaker
+/// re-memorize does (MEDULLA-PRD §7 step 3). Renders via [`render_light_markdown`],
+/// stamping `input.supersedes` when it supersedes. Does NOT ingest.
+pub fn write_light_memory_superseding(
+    input: &mut LightAuthorInput,
+    out_path: &Path,
+    runtime_root: &Path,
+) -> M1ndResult<SupersessionOutcome> {
+    let parent = out_path.parent().ok_or_else(|| M1ndError::InvalidParams {
+        tool: "memorize".into(),
+        detail: "output path has no parent directory".into(),
+    })?;
+    fs::create_dir_all(parent).map_err(M1ndError::Io)?;
+
+    let slug = slugify(&input.node_label);
+    let _lock = LockGuard::acquire(runtime_root, &slug)?;
+
+    match plan_supersession(out_path, input)? {
+        SupersessionPlan::WouldDowngrade { reason } => {
+            Ok(SupersessionOutcome::WouldDowngrade { reason })
+        }
+        SupersessionPlan::Supersede => {
+            archive_prior_as_outdated(out_path, &slug, runtime_root)?;
+            input.supersedes = Some(slug.clone());
+            let md = render_light_markdown(input);
+            write_atomic(out_path, &md)?;
+            Ok(SupersessionOutcome::Superseded)
+        }
+        SupersessionPlan::FirstWrite => {
+            let md = render_light_markdown(input);
+            write_atomic(out_path, &md)?;
+            Ok(SupersessionOutcome::FirstWrite)
+        }
+    }
+}
+
 /// Return `text` with the first `State:` frontmatter line rewritten to
 /// `State: outdated` (idempotent if already outdated).
 fn flip_state_to_outdated(text: &str) -> String {
@@ -696,6 +816,12 @@ fn flip_state_to_outdated(text: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Public atomic-write wrapper for the `promote` witness stamp (same temp-file +
+/// rename guarantee). Thin re-export of [`write_atomic`].
+pub fn write_atomic_pub(path: &Path, contents: &str) -> M1ndResult<()> {
+    write_atomic(path, contents)
 }
 
 /// Atomic write: temp file beside the target + rename (FM-PL-008), so a reader
@@ -743,6 +869,11 @@ mod tests {
             mode: "merge".into(),
             supersedes: None,
             origin_brain: None,
+            origin_claim: None,
+            promoted_by: None,
+            promotion_reason: None,
+            promoted_to: None,
+            evidence_unverifiable: false,
         }
     }
 
@@ -882,6 +1013,11 @@ mod tests {
             mode: "merge".into(),
             supersedes: None,
             origin_brain: None,
+            origin_claim: None,
+            promoted_by: None,
+            promotion_reason: None,
+            promoted_to: None,
+            evidence_unverifiable: false,
         };
 
         let result = handle_light_author(&mut state, input).expect("memorize ok");
@@ -1048,6 +1184,11 @@ mod tests {
             mode: "merge".into(),
             supersedes: None,
             origin_brain: None,
+            origin_claim: None,
+            promoted_by: None,
+            promotion_reason: None,
+            promoted_to: None,
+            evidence_unverifiable: false,
         }
     }
 

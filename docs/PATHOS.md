@@ -146,10 +146,14 @@ no-behavioral-change refactors.
 - git identity = Max Kle1nz <kleinz@cosmophonix.com>.
 
 ## Known Problems (honest, product-level)
-- **The medulla storage split is DESIGNED, not yet BUILT (ladder R2).** M5a — per-brain storage +
-  `Origin-Brain` labels + migration + brainless-root refusal — is fully specified in the constitution
-  and MEDULLA-PRD, but the code still holds mixed claims without `Origin-Brain` provenance. It is the
-  long pole of the ladder (M5a → M5b → M6) and the next real build.
+- **The medulla ladder R2→R4 (M5a → M5b → M6) is BUILT — CODE-LANDED, live HELD.** M5a (per-brain
+  storage + `Origin-Brain` labels + reversible migration + brainless-root refusal), M5b (`tier` recall
+  + the no-leak invariant proven + `all-brains` through the eviction gate), and M6 (the `promote` verb
+  + the C8.2 origin-qualified-evidence rider + the C8.3 verified-only gate + demotion) have all shipped
+  to `main` with RED-first proofs. **The LIVE owner at `:1338` has NOT been migrated/restarted** — the
+  code lands and is scratch-proven per slice, but serving the new storage + `promote` verb on the live
+  owner needs a maintainer rebuild/kickstart (held deliberately). Next real build: R6 (delegation —
+  `delegate`/`debrief`).
 - **Per-brain session-counter partition is PENDING (ladder R14, §9.5.1).** In one served owner,
   session/query counters are not yet partitioned per brain, so aliveness counts can bleed across
   brains in the Hall. Backend work budgeted, not done.
@@ -208,23 +212,23 @@ current, agent surfaces updated in the SAME PR) → seed the next rung.
 
 **→ THE ERA IS CONSTRUCTION.** The design era is closed; do not write another vision. Read the
 **ORGANISM constitution's §C10 ladder** — it is the single cross-PRD build order, and an implementer
-reads that chapter alone and knows what to build next. R0/R1/R5 shipped (#275). **Climb from R15
-onward, in dependency order, RED-first per rung:**
+reads that chapter alone and knows what to build next. R0/R1/R5 shipped (#275); **R15 → R2 → R3 → R4
+are now SHIPPED (code-landed, live held)** — the whole medulla memory spine (storage split, tier
+recall, promotion) is real code with RED-first proofs. **Climb from R6 onward, in dependency order,
+RED-first per rung:**
 
-1. **R2 — M5a: the medulla storage split** (`docs/MEDULLA-PRD.md` §11 + ORGANISM §C10). Per-brain
-   storage + `Origin-Brain` labels + migration + brainless-root refusal. This is the long pole; every
-   later memory rung (tier recall, promotion, the packet memory slice) stands on it. RED: 25 mixed
-   claims with zero `Origin-Brain`, a ghost root, a brainless-root memorize that lands silently.
-2. **R15 — the eviction gate** (§C9.1). LRU + persist-on-evict in the owner. A **hard pre-condition**
-   for R3's `all-brains` half. RED: bootstrap K+1 brains → kill -9 → warm-boot-per-brain (fails today
-   by construction).
-3. **R3 — M5b: `tier` recall + no-leak proven + `all-brains`** (gated by R15). RED: the leak
-   permutation matrix (seed brain Y, assert brain X's beat never carries it; assert `all-brains` does,
-   labeled).
-4. **R4 — M6: the `promote` verb** with its provenance riders (origin-qualified evidence, the
-   verified-only gate, demotion documented), agent-workflow surfaces in the SAME PR. Then the packet
-   memory slice (R7), delegation (R6), the mailbox (R8/R9), the Pre-Flight Card (R10), and — LAST —
-   the SOUL PRD + slices (R16), bound by the constitution's seven soul constraints.
+1. ~~**R2 — M5a: the medulla storage split**~~ **[SHIPPED #279]** Per-brain storage + `Origin-Brain`
+   labels + reversible migration + brainless-root refusal. The long pole; every later memory rung
+   stands on it.
+2. ~~**R15 — the eviction gate**~~ **[SHIPPED #277]** LRU + persist-on-evict in the owner. The hard
+   pre-condition for R3's `all-brains` half.
+3. ~~**R3 — M5b: `tier` recall + no-leak proven + `all-brains`**~~ **[SHIPPED #280]** The leak
+   permutation matrix, medulla-doctrine-surfaces-cross-brain, `all-brains` through the eviction gate.
+4. ~~**R4 — M6: the `promote` verb**~~ **[SHIPPED]** The audited crossing + the C8.2 origin-qualified
+   evidence rider + the C8.3 verified-only gate + demotion, agent-workflow surfaces in the SAME PR.
+   **Next:** delegation (R6 `delegate`/`debrief`), then the packet memory slice (R7), the mailbox
+   (R8/R9), the Pre-Flight Card (R10), and — LAST — the SOUL PRD + slices (R16), bound by the
+   constitution's seven soul constraints.
 
 **Doctrine pointers (carry verbatim into every spawned agent):** the **UNIVERSAL FIELD-TELEMETRY
 DOCTRINE** (every agent/repo is a sensor → REPORT to `~/.m1nd/field-reports.jsonl`, never fix

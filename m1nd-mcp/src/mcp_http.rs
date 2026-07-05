@@ -388,6 +388,138 @@ fn bootstrap_project_root(request: &JsonRpcRequest) -> Option<String> {
     }
 }
 
+/// When this request is a `promote` call, parse its arguments into a
+/// [`PromoteInput`](crate::promote_handlers::PromoteInput). `promote` is an
+/// OWNER-LEVEL cross-store verb (reads a project brain, writes the medulla), so it
+/// is handled at the routing seam — not by a single-store tool handler. Returns
+/// `None` for every other request.
+fn promote_request(request: &JsonRpcRequest) -> Option<crate::promote_handlers::PromoteInput> {
+    if request.method != "tools/call" {
+        return None;
+    }
+    let name = request.params.get("name")?.as_str()?;
+    if bare_tool_name(name) != "promote" {
+        return None;
+    }
+    let args = request.params.get("arguments")?;
+    Some(crate::promote_handlers::PromoteInput {
+        agent_id: args
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("promote")
+            .to_string(),
+        brain: args
+            .get("brain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        claim: args
+            .get("claim")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        reason: args
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+    })
+}
+
+/// Execute a `promote` verb (MEDULLA-PRD §7). Resolves the SOURCE brain's store
+/// dir + the MEDULLA store dir (the bound owner's `agent-memory`), then runs the
+/// pure [`promote_claim`](crate::promote_handlers::promote_claim) logic across
+/// them. A single tool handler holds one `&mut SessionState` and cannot reach two
+/// stores, so — exactly like the one-call bootstrap — the crossing lives here.
+fn run_promote(
+    app: &Arc<AppState>,
+    request: &JsonRpcRequest,
+    input: &crate::promote_handlers::PromoteInput,
+) -> JsonRpcResponse {
+    let id = request.id.clone();
+
+    if input.brain.trim().is_empty() || input.claim.trim().is_empty() {
+        return tool_error_response(
+            id,
+            "promote requires a non-empty `brain` (the source project root) and `claim` (the slug to promote)".into(),
+        );
+    }
+
+    // The MEDULLA store: the bound owner's own agent-memory dir + its runtime root
+    // (where the medulla's .locks/.history live). This is the shared doctrine store
+    // every session's default beat reads.
+    let (medulla_runtime_root, medulla_store_dir, brain_is_bound) = {
+        let session = app.session.lock();
+        let rr = session.runtime_root.clone();
+        let store = rr.join("agent-memory");
+        // A brain the bound owner covers IS the medulla — promoting from it to
+        // itself is a no-op the caller should not attempt.
+        let covered = session.covers_root(&input.brain);
+        (rr, store, covered)
+    };
+
+    // Resolve the SOURCE brain's store dir. Two shapes:
+    //  - a hosted PROJECT brain → its store dir under project-brains/;
+    //  - the bound owner (medulla) itself → refused (can't promote medulla→medulla).
+    if brain_is_bound {
+        return tool_error_response(
+            id,
+            format!(
+                "brain '{}' is the owner's bound graph (the medulla itself) — a claim there is \
+                 already doctrine; there is nothing to promote UP to.",
+                input.brain
+            ),
+        );
+    }
+    let canonical = crate::project_brains::ProjectBrainRegistry::canonical_key(&input.brain);
+    if !app.project_brains.knows(&canonical) {
+        return tool_error_response(
+            id,
+            format!(
+                "no project brain for '{}' — bootstrap it first (ingest with project_root=...), \
+                 or check the path. Promotion reads a real, hosted source store.",
+                input.brain
+            ),
+        );
+    }
+    let source_store_dir = app
+        .project_brains
+        .store_dir_for(&canonical)
+        .join("agent-memory");
+
+    match crate::promote_handlers::promote_claim(
+        input,
+        &source_store_dir,
+        &medulla_store_dir,
+        &medulla_runtime_root,
+    ) {
+        Ok(outcome) => {
+            // Re-ingest the medulla copy so it is immediately recallable in the
+            // default beat (the R3 tier=medulla path reads the bound owner's graph).
+            {
+                let mut session = app.session.lock();
+                let ingest = crate::protocol::core::IngestInput {
+                    path: outcome.medulla_path.to_string_lossy().to_string(),
+                    agent_id: input.agent_id.clone(),
+                    incremental: false,
+                    adapter: "light".into(),
+                    mode: "merge".into(),
+                    namespace: Some("light".into()),
+                    include_dotfiles: false,
+                    dotfile_patterns: vec![],
+                    project_root: None,
+                };
+                // Best-effort: a failed re-ingest never loses the durable file (it
+                // is on disk + will load next boot); it only delays recall.
+                let _ = crate::tools::handle_ingest(&mut session, ingest);
+            }
+            let payload = crate::promote_handlers::promote_response(input, &outcome);
+            tool_result_response(id, &payload)
+        }
+        Err(e) => tool_error_response(id, e.to_string()),
+    }
+}
+
 /// Wrap a successful tool payload as an MCP `tools/call` result — the exact
 /// shape `handle_mcp_method` emits, so bootstrap responses are indistinguishable
 /// from any other tool result on the wire.
@@ -537,6 +669,13 @@ async fn route_and_run(
             // 1. The one-call bootstrap.
             if let Some(project_root) = bootstrap_project_root(&request) {
                 return run_bootstrap(&app, &request, &project_root, Some(&session_id));
+            }
+
+            // 1b. The `promote` verb (MEDULLA-PRD §7) — an owner-level cross-store
+            //     crossing (read a project brain, write the medulla). Like the
+            //     bootstrap, it runs at the seam, before per-session routing.
+            if let Some(promote) = promote_request(&request) {
+                return run_promote(&app, &request, &promote);
             }
 
             // 2. Sticky per-session choice.
