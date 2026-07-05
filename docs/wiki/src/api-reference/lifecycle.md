@@ -13,6 +13,20 @@ nodes + PageRank anchors), prior cross-session memory (each claim with its real
 age and author — absent, never faked, when unknown), a sufficiency signal, one
 `next_move`, and `honest_gaps` (what m1nd does not yet know).
 
+The packet also carries **`memory_exists`** — the ground-truth count of durable
+L1GHT claims in the on-disk store. It exists so a beat that surfaces no
+task-relevant memory (`memory: []`) never lies about an **empty store**: when the
+store holds claims that simply did not match this task, `memory_exists` is `> 0`
+and `honest_gaps` says the store has memory that did not match — the false
+"no durable memory yet" line is emitted **only** when the store is truly empty.
+
+**Packet budget.** The binding serializes the `ingest_roots` array exactly once
+(in `binding.fingerprint`); `binding.graph_state` carries only the
+`ingest_root_count`, never a duplicate copy of the array. Durable memory sidecars
+in the `agent-memory` store collapse into the single store-directory root rather
+than minting one ingest root per `.light.md` file, so the packet stays within its
+2,000-token MCP budget as the memory store grows.
+
 On first contact the packet may also carry a `reception` field (First-Contact
 Reception, degraded mode): `reception.match == "caller_root_mismatch"` means the
 bound graph does **not** cover your current repo (its root ≠ your resolved

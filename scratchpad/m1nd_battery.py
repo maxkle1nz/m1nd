@@ -495,6 +495,58 @@ def north_recalls_memorized_claim(c):
                   f"no marker fragments in {len(mem)} memory + {len(anchors)} anchor rows")
 
 
+def north_packet_within_budget(c):
+    """R1 — the packet diet (Budget Law §C1.3). A north packet must obey the size
+    budget AND never serialize the ingest_roots array twice.
+
+    Two live defects reproduced in the field this session:
+      (a) the roots array serialized byte-identically in BOTH `binding.fingerprint`
+          and `binding.graph_state` — duplicated bytes on every packet;
+      (b) the memorize write-path minting a per-file ingest root for every memory
+          `.light.md`, sprawling the roots array with sidecar entries.
+
+    This check calls north on a real task, then asserts:
+      1. `binding.graph_state` does NOT carry the full `ingest_roots` array (only a
+         count); the fingerprint is the ONE canonical home for the array.
+      2. the roots array (in the fingerprint) lists no individual `.light.md`
+         sidecar — the store DIR is the one root.
+      3. the MCP surface stays within the 2,000-token budget (measured as a
+         ~4-chars/token proxy over the serialized packet).
+
+    RED on main (dup arrays + sidecar sprawl); GREEN after the fix. Returns
+    (passed, detail) and reports the measured token estimate either way.
+    """
+    nr, _ = c.tool("north", dict(agent_id="battery",
+                                 task="packet budget law enforcement on the north composer"))
+    binding = nr.get("binding") or {}
+    fp = binding.get("fingerprint") or {}
+    gs = binding.get("graph_state") or {}
+
+    # (1) graph_state must NOT duplicate the full array.
+    if isinstance(gs.get("ingest_roots"), list):
+        return False, (f"graph_state duplicates the full ingest_roots array "
+                       f"({len(gs['ingest_roots'])} entries) — must carry only the count")
+
+    # (2) no per-file .light.md sidecar may be an ingest root.
+    fp_roots = fp.get("ingest_roots")
+    if isinstance(fp_roots, list):
+        sidecars = [r for r in fp_roots if isinstance(r, str) and r.endswith(".light.md")]
+        if sidecars:
+            return False, (f"{len(sidecars)} per-file .light.md sidecar(s) listed as ingest roots "
+                           f"(sprawl): e.g. {sidecars[0]}")
+
+    # (3) packet within the 2k-token budget (4-chars/token proxy).
+    serialized = json.dumps(nr, default=str)
+    est_tokens = len(serialized) // 4
+    if est_tokens > 2000:
+        return False, (f"north packet ~{est_tokens} tokens exceeds the 2,000-token MCP budget "
+                       f"({len(serialized)} chars)")
+
+    root_count = gs.get("ingest_root_count")
+    return True, (f"north packet ~{est_tokens} tokens (<=2000); graph_state carries count "
+                  f"({root_count}) not the duplicated array; no sidecar roots")
+
+
 # --------------------------------------------------------------------------- #
 # Query suites (each: id, intent, tool, args, expect_symbol, rg_pattern, rg_extra) #
 # Cross-file / relationship-correctness cases also carry a `check` callable.     #
@@ -1095,6 +1147,21 @@ def suite_m1nd(repo):
              expect=None, expect_file="server.rs",
              rg_pat=r"fn handle_north", rg_extra=["-t", "rust"],
              check=lambda res, q, c: north_recalls_memorized_claim(c)),
+
+        # ---- R1: the packet diet / Budget Law (§C1.3) ----
+        # THE BUG (live this session): the north binding serialized the ingest_roots
+        # array TWICE byte-identically (fingerprint + graph_state), and the memorize
+        # write-path minted a per-file ingest root for every memory .light.md — the
+        # roots array sprawled with sidecar entries. The `check` calls north and
+        # asserts graph_state carries only a COUNT (not the dup array), no .light.md
+        # sidecar is a root, and the packet stays under the 2,000-token budget.
+        # RED on main (dup arrays + sidecar sprawl); GREEN after the fix.
+        dict(id="north_packet_within_budget",
+             intent="north packet obeys the Budget Law: roots serialized once, no sidecar roots, <=2k tokens",
+             tool="session_handshake", args=dict(agent_id=aid),
+             expect=None, expect_file="session.rs",
+             rg_pat=r"fn graph_runtime_summary", rg_extra=["-t", "rust"],
+             check=lambda res, q, c: north_packet_within_budget(c)),
 
         # ---- memory provenance + supersession (#187/#189/#200) ----
         # memorize a claim -> seek returns the hit with source_agent + a fresh

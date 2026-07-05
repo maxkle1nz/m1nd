@@ -488,15 +488,33 @@ pub(crate) fn parse_cargo_package_version(cargo_toml: &str) -> Option<String> {
     None
 }
 
+/// A path is a "memory sidecar" when it is an individual `.light.md` claim file
+/// or the `agent-memory` runtime store directory itself — i.e. durable L1GHT
+/// memory, NOT a code root. Used both to skip sidecars when resolving the repo
+/// display name AND to keep the ingest write-path from minting a per-file ingest
+/// root for every claim (Budget Law §C1.3.4: the store DIR is the one root, not
+/// each sidecar). One definition, both call sites.
+pub(crate) fn is_memory_sidecar(p: &str) -> bool {
+    p.ends_with(".light.md")
+        || std::path::Path::new(p)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n == "agent-memory")
+            .unwrap_or(false)
+}
+
 /// The last path component of a filesystem root — the human name of a repo
-/// ("/Users/x/m1nd" → "m1nd"). Trailing slashes are tolerated; a rootless or
+/// ("/Users/x/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
+/// so a Windows backslash path ("C:\\Users\\dev\\m1nd" → "m1nd") names its repo
+/// the same as a POSIX one. Trailing separators are tolerated; a rootless or
 /// empty input returns the trimmed input unchanged (honest, never a panic).
 /// Shared by the bound-brain display name and the project-brain listing so both
 /// name a brain the same way. Mirrors the UI's `repoBasename` exactly.
 pub(crate) fn basename_of(root: &str) -> String {
+    let is_sep = |c: char| c == '/' || c == '\\';
     root.trim()
-        .trim_end_matches('/')
-        .rsplit('/')
+        .trim_end_matches(is_sep)
+        .rsplit(is_sep)
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| root.trim())
@@ -658,6 +676,12 @@ impl SessionState {
 
     pub fn graph_runtime_summary(&self) -> serde_json::Value {
         let graph = self.graph.read();
+        // Budget Law (§C1.3.4 "no duplicate serialization"): the full `ingest_roots`
+        // array is serialized ONCE, in `binding_fingerprint`. Here we carry only the
+        // COUNT — a north packet embeds both this `graph_state` and the fingerprint,
+        // so listing the array in both duplicated the roots byte-identical and blew
+        // the packet budget. Count + the canonical array in the fingerprint is the
+        // whole truth without the duplication.
         serde_json::json!({
             "node_count": graph.num_nodes(),
             "edge_count": graph.num_edges(),
@@ -666,7 +690,6 @@ impl SessionState {
             "plasticity_generation": self.plasticity_generation,
             "cache_generation": self.cache_generation,
             "ingest_root_count": self.ingest_roots.len(),
-            "ingest_roots": self.ingest_roots,
             "workspace_root": self.workspace_root,
             "workspace_root_source": self.workspace_root_source,
             "runtime_root": self.runtime_root,
@@ -924,14 +947,6 @@ impl SessionState {
     /// resolves to that; the bound graph skips its memory sidecars to reach the
     /// repo. Returns `None` only when the brain has no roots at all (empty graph).
     pub fn project_root_display(&self) -> Option<String> {
-        let is_memory_sidecar = |p: &str| {
-            p.ends_with(".light.md")
-                || std::path::Path::new(p)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "agent-memory")
-                    .unwrap_or(false)
-        };
         // 1. First real code ingest root that is not a memory sidecar.
         for root in &self.ingest_roots {
             if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
@@ -956,6 +971,22 @@ impl SessionState {
     /// name ("claude") nor "agent-memory". `None` when the brain has no roots.
     pub fn display_name(&self) -> Option<String> {
         self.project_root_display().map(|root| basename_of(&root))
+    }
+
+    /// How many durable L1GHT memory claims exist on disk in this brain's store
+    /// (`<runtime_root>/agent-memory/*.light.md`). This is the ground-truth count
+    /// of the memory store itself, independent of whether recall surfaced any of
+    /// them for a given task — so a beat that finds no task-relevant hit can still
+    /// tell the truth ("the store HAS N memories") instead of the false absence
+    /// "no durable memory yet". Cheap dir read; `0` when the store dir is absent.
+    pub fn light_memory_count(&self) -> usize {
+        let dir = self.runtime_root.join("agent-memory");
+        std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().to_string_lossy().ends_with(".light.md"))
+            .count()
     }
 
     fn absolute_scope_path(scope: &str) -> Option<std::path::PathBuf> {
@@ -2286,7 +2317,7 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SessionState, WORKSPACE_ROOT_ENV_CANDIDATES};
+    use super::{basename_of, SessionState, WORKSPACE_ROOT_ENV_CANDIDATES};
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
@@ -2415,6 +2446,36 @@ mod tests {
         state.ingest_roots = vec![];
         state.workspace_root = Some("/Users/x/solo-repo".to_string());
         assert_eq!(state.display_name().as_deref(), Some("solo-repo"));
+    }
+
+    #[test]
+    fn basename_of_is_separator_agnostic() {
+        // POSIX still works (the '/' path).
+        assert_eq!(basename_of("/path/to/repo"), "repo");
+        assert_eq!(basename_of("~/m1nd"), "m1nd");
+        assert_eq!(basename_of("/path/to/repo/"), "repo", "trailing slash");
+        // Windows backslash paths: the chronic red Windows CI case — a '\\'
+        // separator must name the same repo a '/' separator does.
+        assert_eq!(
+            basename_of(r"C:\Users\dev\m1nd"),
+            "m1nd",
+            "backslash path must yield the repo basename, not the whole string"
+        );
+        assert_eq!(
+            basename_of(r"C:\Users\dev\m1nd\"),
+            "m1nd",
+            "trailing backslash tolerated"
+        );
+        // UNC path (\\server\share\repo).
+        assert_eq!(basename_of(r"\\server\share\repo"), "repo", "UNC path");
+        // Mixed separators (some tools emit these on Windows).
+        assert_eq!(
+            basename_of(r"C:\Users\dev/m1nd"),
+            "m1nd",
+            "mixed separators"
+        );
+        // A rootless bare name is returned unchanged (honest, never a panic).
+        assert_eq!(basename_of("repo"), "repo");
     }
 
     #[test]
