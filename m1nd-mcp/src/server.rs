@@ -3326,10 +3326,21 @@ fn handle_north(
             "Binding is not full trust ({verdict}) — treat retrieval as orientation only and verify final truth against local files; see recovery_playbook for the repair."
         ));
     }
+    // Ground-truth count of the durable L1GHT store on disk. A beat that surfaced
+    // no memory must NOT claim "no durable memory yet" when the store is non-empty
+    // (MED-INV-6 false-absence): recall missing a task-relevant hit is not the same
+    // as an empty store. When N>0 we stamp `memory_exists: N` and say so honestly.
+    let light_memory_on_disk = state.light_memory_count();
     if memory.is_empty() {
-        honest_gaps.push(
-            "No durable memory yet — neither boot_memory nor L1GHT agent-memory holds a prior cross-session claim to carry.".into(),
-        );
+        if light_memory_on_disk > 0 {
+            honest_gaps.push(format!(
+                "The memory store holds {light_memory_on_disk} durable L1GHT claim(s), but none surfaced for this task — recall found no task-relevant match, not an empty store. Broaden the task text or seek the store directly."
+            ));
+        } else {
+            honest_gaps.push(
+                "No durable memory yet — neither boot_memory nor L1GHT agent-memory holds a prior cross-session claim to carry.".into(),
+            );
+        }
     } else if light_entries.is_empty() && graph_populated {
         // Boot KV facts exist but no memorized L1GHT claim surfaced — say so, so the
         // agent knows the primary (memorize) memory had nothing to add for this task.
@@ -3350,6 +3361,11 @@ fn handle_north(
         "binding": binding,
         "context": context,
         "memory": memory,
+        // Ground-truth size of the durable L1GHT store on disk (MED-INV-6). A
+        // consumer never has to infer "is the store empty?" from `memory: []` —
+        // an empty beat over a non-empty store carries `memory_exists > 0` and the
+        // honest gap says the store has claims that just did not match this task.
+        "memory_exists": light_memory_on_disk,
         "sufficiency": sufficiency,
         "next_move": next_move,
         "honest_gaps": honest_gaps,
@@ -7668,6 +7684,164 @@ mod tests {
             "a fresh memory must not be flagged stale"
         );
         assert_eq!(entry["tags"], serde_json::json!(["lease", "doctrine"]));
+    }
+
+    /// R0 — MED-INV-6 packet honesty (RED→GREEN): a north beat over a NON-EMPTY
+    /// memory store must NEVER emit the false "No durable memory yet" line. Recall
+    /// missing a task-relevant hit (the task does not match any stored claim) is a
+    /// no-match, not an empty store. The packet must instead carry `memory_exists`
+    /// = the on-disk store count (>0) and an honest gap that says the store HAS
+    /// claims that just did not match this task.
+    #[test]
+    fn north_over_nonempty_store_never_claims_no_durable_memory() {
+        let (_temp, mut state) = build_state_populated(false);
+
+        // Seed the durable L1GHT store on disk with claims that have NOTHING to do
+        // with the query task, so recall returns empty for this task.
+        let store = state.runtime_root.join("agent-memory");
+        std::fs::create_dir_all(&store).expect("agent-memory store dir");
+        let now_ms = super::now_ms();
+        for (i, node) in ["AlphaDoctrine", "BetaDoctrine", "GammaDoctrine"]
+            .iter()
+            .enumerate()
+        {
+            let md = format!(
+                "---\nProtocol: L1GHT/1.0\nNode: {node}\nState: verified\n\
+                 Created: {now_ms}\nSource-Agent: seeder\n---\n\n\
+                 # {node}\n\n## {node}\n\n\
+                 A durable claim about widget calibration cadence number {i}.\n\n\
+                 [⍂ entity: widget calibration cadence]\n[𝔻 confidence: 0.9]\n"
+            );
+            std::fs::write(store.join(format!("mem_{i}.light.md")), md).expect("write memory");
+        }
+
+        // The store now holds 3 claims on disk — ground truth, before any recall.
+        assert_eq!(
+            state.light_memory_count(),
+            3,
+            "the store must hold 3 durable claims on disk"
+        );
+
+        // A task that matches NONE of the stored claims → recall returns empty.
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "quantum flux capacitor tachyon inversion protocol",
+            }),
+        )
+        .expect("north over a non-empty store with an unmatched task");
+
+        // The recalled memory block may be empty (no task match) — that is fine.
+        // What is NOT fine is the false-absence line over a non-empty store.
+        let gaps = out["honest_gaps"]
+            .as_array()
+            .expect("honest_gaps array")
+            .iter()
+            .filter_map(|g| g.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(
+            !gaps.contains("No durable memory yet"),
+            "MED-INV-6: a beat over a non-empty store must NOT claim 'No durable memory yet'; gaps were: {gaps}"
+        );
+        // The packet stamps the ground-truth store size so a consumer never has to
+        // infer emptiness from `memory: []`.
+        assert_eq!(
+            out["memory_exists"].as_u64(),
+            Some(3),
+            "memory_exists must carry the on-disk store count (3)"
+        );
+        // And when memory did not surface, the gap tells the honest story.
+        let memory_empty = out["memory"]
+            .as_array()
+            .map(|m| m.is_empty())
+            .unwrap_or(true);
+        if memory_empty {
+            assert!(
+                gaps.contains("memory store holds"),
+                "an empty beat over a non-empty store must say the store HAS claims that did not match; gaps: {gaps}"
+            );
+        }
+    }
+
+    /// R0 companion: over a TRULY empty store the honest "No durable memory yet"
+    /// line is still correct and `memory_exists` is 0 — the fix must not suppress
+    /// the true absence, only the FALSE one.
+    #[test]
+    fn north_over_empty_store_still_says_no_durable_memory() {
+        let (_temp, mut state) = build_state_populated(false);
+        assert_eq!(
+            state.light_memory_count(),
+            0,
+            "no store seeded → count is 0"
+        );
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "anything at all",
+            }),
+        )
+        .expect("north over an empty store");
+        assert_eq!(out["memory_exists"].as_u64(), Some(0));
+        let gaps = out["honest_gaps"]
+            .as_array()
+            .expect("honest_gaps array")
+            .iter()
+            .filter_map(|g| g.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(
+            gaps.contains("No durable memory yet"),
+            "a truly empty store must still honestly say there is no durable memory; gaps: {gaps}"
+        );
+    }
+
+    /// R1(a) — Budget Law "no duplicate serialization" (RED→GREEN): a north packet
+    /// embeds BOTH `binding.fingerprint` and `binding.graph_state`. The full
+    /// `ingest_roots` array must appear exactly ONCE across the two (in the
+    /// fingerprint) — never byte-identically duplicated. `graph_state` carries only
+    /// the COUNT. Before the fix the same array was serialized in both blocks.
+    #[test]
+    fn north_binding_serializes_ingest_roots_once_not_duplicated() {
+        let (_temp, mut state) = build_state_populated(false);
+        // Give the binding several roots so a duplicated array is unmistakable.
+        state.ingest_roots = vec![
+            "/path/to/repo".into(),
+            "/path/to/other".into(),
+            "/path/to/third".into(),
+        ];
+
+        let out = super::dispatch_tool(
+            &mut state,
+            "north",
+            &serde_json::json!({
+                "agent_id": "northerner",
+                "task": "lease enforcement",
+            }),
+        )
+        .expect("north on a multi-root binding");
+
+        // The fingerprint is the ONE canonical home for the full array.
+        let fp_roots = out["binding"]["fingerprint"]["ingest_roots"]
+            .as_array()
+            .expect("fingerprint carries the full ingest_roots array");
+        assert_eq!(fp_roots.len(), 3, "fingerprint lists all three roots");
+
+        // graph_state must NOT re-serialize the full array — only the count.
+        assert!(
+            out["binding"]["graph_state"]["ingest_roots"].is_null(),
+            "graph_state must NOT duplicate the full ingest_roots array; it was: {}",
+            out["binding"]["graph_state"]["ingest_roots"]
+        );
+        assert_eq!(
+            out["binding"]["graph_state"]["ingest_root_count"].as_u64(),
+            Some(3),
+            "graph_state carries the COUNT instead of the duplicated array"
+        );
     }
 
     /// Field-triage #1: north must COMPOSE L1GHT agent-memory (written by

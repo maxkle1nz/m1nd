@@ -976,6 +976,22 @@ impl SessionState {
         self.project_root_display().map(|root| basename_of(&root))
     }
 
+    /// How many durable L1GHT memory claims exist on disk in this brain's store
+    /// (`<runtime_root>/agent-memory/*.light.md`). This is the ground-truth count
+    /// of the memory store itself, independent of whether recall surfaced any of
+    /// them for a given task — so a beat that finds no task-relevant hit can still
+    /// tell the truth ("the store HAS N memories") instead of the false absence
+    /// "no durable memory yet". Cheap dir read; `0` when the store dir is absent.
+    pub fn light_memory_count(&self) -> usize {
+        let dir = self.runtime_root.join("agent-memory");
+        std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().to_string_lossy().ends_with(".light.md"))
+            .count()
+    }
+
     fn absolute_scope_path(scope: &str) -> Option<std::path::PathBuf> {
         let scope = scope.trim();
         if scope.is_empty() {
