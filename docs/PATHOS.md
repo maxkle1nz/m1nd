@@ -2,893 +2,276 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-03 (**checkpoint 9 — THE CONSTRUCTION ERA OPENS**). The most
-> transformative 24h in the project's history: **three official PRDs merged** (HUMAN-LAYER
-> #222, NEXTGEN §O.12 Delegation Layer #224, TWO-TIER-BRAIN #227), the **first human surface
-> SHIPPED** (Living Tree Slice 0, #232 — read-only tree + provenance post-its + trust dots in
-> `m1nd-ui`), the README **re-spined as "the shell"** (#228), the **agent-docs CI gate armed**
-> (#229), and the **field-report mailbox emptied in ~a day** (#230/#231/#233/#234/#235 + the
-> earlier #218/#219/#225/#226). Battery at **37**, zero grep losses. The runtime is a **launchd
-> medulla** warm-booting ~6.3k nodes with 4 hosts attaching one brain. OMEGA (Moves 0+1 + honest
-> Move-2 reframe) shipped in v1.2.0/1.2.1 (both released) and is now the FLOOR — the era ahead is
-> CONSTRUCTION on top of it: the tree goes alive, the Pre-Flight card renders, the two-tier brain
-> slices in, the inbox verbs land. Prior checkpoints 8.1 / 8 / 7 preserved below.
-> Prior: 2026-07-03 (**checkpoint 8.1 — v1.2.1 CUT: compounding live in the runtime**).
-> v1.2.1 tagged on the merge commit, published to crates.io + npm, GitHub Release cut, and
-> the served owner rebuilt on the 1.2.1 binary — carrying the four field-triage fixes
-> (#211 `north`×L1GHT recall = THE compounding fix; #212 temp-graph tempdir; #218 numeric
-> `confidence`; #219 closure cry-wolf killed, ambiguous-blocked 9/11 → 0/11).
-> Prior: 2026-07-02 (**checkpoint 8 — v1.2.0 CUT: the first OMEGA-era release**).
-> Tagged `v1.2.0`, published to crates.io + npm, GitHub Release cut, and the served
-> owner upgraded to the 1.2.0 binary. The era content shipped since v1.1.0:
-> OMEGA Moves 0 (calibration) + 1 (Envelope) + the Move-2 honest reframe; `north`
-> pre-orient; memory moves #1-#6; the root-`.gitignore` fix (#194); smoothed-Jaccard
-> co-change (#206, calibration-proven **+3pts** over raw counts); binary version+sha
-> honesty (#205, `M1ND_EXPECTED_*`/`M1ND_STRICT_VERSION`); battery grown to **36/36**
-> (#204); and the **agent-native MCP `initialize` instructions** (#208) — the loop now
-> ships in the wire every host reads. This checkpoint also establishes the **UNIVERSAL
-> FIELD-TELEMETRY DOCTRINE** (see below) with **4 seeded reports awaiting first triage**.
-> Prior: checkpoint 7 — memory moves #3-#6 SHIPPED + the pre-flight A/B returned its
-> first REAL verdict (north HELPS orientation 3/3 vs 0/3; compounding memory an HONEST
-> NULL, blocked by process-per-hook → prerequisite is `--serve`/`--attach`, §Ω+1.3b).
+> Last checkpoint: 2026-07-05 (**checkpoint 10 — THE DESIGN ERA CLOSES, THE CONSTRUCTION ERA
+> OPENS**). Six PRDs on `main` now form a single organism, capped by the **ORGANISM constitution**
+> (one spine · four grammars · one ritual · one cross-PRD build ladder R0–R17, adversarially
+> verified). The blueprints are done; the build order is fixed; the first three rungs shipped
+> (R0/R1/R5, #275). This is the capstone that closes the design era and hands the next agent a
+> ladder to climb — not another vision to write. Prior checkpoints (9 → 7) are summarized in
+> **Prior Eras** below; their full text lives in git history.
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 `rg`/Read in the inner loop, measured honestly — not tie, not "feels useful".
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
-**The era-9 arc:** OMEGA (the verifiable trust substrate — answer + map + trust receipt) is
-now the FLOOR, released and live in the served runtime. The work ahead is CONSTRUCTION on top of
-it, across three now-official fronts: the **HUMAN LAYER** (the Living Tree + Pre-Flight card —
-a coding agent's memory made legible to a human), the **DELEGATION LAYER** (§O.12 — a parent
-agent hands a child a grounded packet and reads back a debrief), and the **TWO-TIER BRAIN**
-(per-project brains + a shared medulla, sliced in proof-grown). Each slice ships proof-grown,
-degrading to UNPROVABLE rather than a fake green — the same bar, applied to building outward.
 
-## Current State (2026-07-03, checkpoint 9 — THE CONSTRUCTION ERA OPENS)
+**The arc now:** the verifiable trust substrate (answer + map + trust receipt) is the released,
+live FLOOR. On top of it, six PRDs describe one organism — a per-project brain, an antifragile
+shared memory, a native and verified handoff soul, a human-legible tree, a two-tier routing
+backend, and a delegation layer. The design era spent its final stretch making those six cohere
+into ONE constitution with ONE build order. The work ahead is CONSTRUCTION: climb the ladder,
+rung by rung, each slice proof-grown and degrading to UNPROVABLE rather than a fake green — the
+same bar, applied to building the organism outward.
 
-> **cp9 addendum (2026-07-04): v1.3.0 CUT.** The construction era's first release — the
-> mailbox-zero fixes (#230/#231/#233/#235/#240), the Living Tree LIVE (graph_changed SSE +
-> vendored fonts, #242), `m1nd hosts` grown 5→22 hosts + the new `m1nd-north-shim` (#244),
-> the HOST-INTEGRATION-MATRIX (#241), reception §9.5 (#238), and the MCP-Registry manifest
-> (`server.json` + npm `mcpName`, #243) — semver MINOR for the new host surfaces. Tagged on
-> the merge commit; crates.io + npm + GitHub Release via the release workflow; registry
-> publish follows once npm serves 1.3.0 (`mcp-publisher login github` is the maintainer's
-> device-code moment). The wiki changelog's never-tagged `1.2.2` draft was absorbed into 1.3.0.
+## Current State (2026-07-05, checkpoint 10 — the design era closes, the construction era opens)
 
-> **cp9 addendum-2 (2026-07-04): THE DISTRIBUTION WAVE.** Registry publish is DONE —
-> `io.github.maxkle1nz/m1nd` v1.3.0 live and verified on the public API (device-flow by the maintainer).
-> **v1.3.1** followed same-night: npm + crates.io keywords/categories were shipping EMPTY
-> (the discovery half of "published" had never been done) — filled on all packages, `glama.json`
-> added, repo topics set (12), repo description aligned to the canonical tagline. External:
-> **punkpeye/awesome-mcp-servers PR #9192 OPEN+mergeable** (fixes the 3 faults that killed the
-> abandoned #3238; Glama badge validated by their bot); appcypher verified to accept NO external
-> PRs (entry staged in fork); mcp.so is login-gated (values in the maintainer's queue). Auto-cascade:
-> PulseMCP ingests the official registry weekly → **verify m1nd appears ~2026-07-10**.
-> **Gates for future agents:** awesome-rust requires >50★ OR >2000 downloads (m1nd was 20★/523
-> on 2026-07-04) — do NOT submit before the bar; This Week in Rust PR waits for the maintainer's
-> engineering article; NEVER write HN/Reddit copy for the maintainer (anti-LLM-text backlash is real — the
-> maintainer writes, agents supply facts); never reuse identical copy across channels. The maintainer's full
-> playbook: `~/m1nd-launch-kit.md` (local-only).
+### The design era CLOSED — six PRDs on `main`, one organism
+The blueprints are complete and, as of this checkpoint, reconciled into a single constitution.
+Each PRD, one line:
 
-> **cp9 addendum-3 (2026-07-04): RECEPTION DEGRADED MODE SHIPPED (Slice 2R degraded, §9.5.5).**
-> The top field friction (a caller in repo X silently wearing repo Y's brain — three field
-> sightings across different repos on 2026-07-03/04/05) is now flagged, not silent: the `--attach` bridge stamps `M1nd-Caller-Root`
-> (hop 2; absent → unknown, legacy-compatible), the owner compares it against
-> `workspace_root`+`ingest_roots` (reuses the mismatch guard's path comparison), and
-> `north`/`health`/`session_handshake` carry `m1nd-reception-degraded-v0` ONLY on mismatch
-> (TT-INV-12 silence-on-match; omission on unknown). Proof: RED→green + battery 3/3 e2e +
-> live cross-project replay (project-d vs m1nd). Slice 2R proper (what_exists, `bind`, walk-up verdicts,
-> `m1nd init` create path) stays open — stamped in the PRD. Live owners need a kickstart
-> (rebuild+restart) to inherit the honesty.
+- **`docs/ORGANISM-PRD.md` — THE CONSTITUTION (the capstone).** One spine (the north packet),
+  four grammars (the trust ladder · the belief lifecycle · provenance/no-leak · attention), one
+  ritual (pre-orient → act → capture), and **THE LADDER (§C10): a single cross-PRD build order,
+  rungs R0–R17.** It was adversarially verified (a critic pass whose corrections are folded back
+  as amendments, §C11) — the constitution wins ties between the other five PRDs and carries the
+  pointer that says so. This is the last blueprint of the design era; everything after it climbs.
+- **`docs/MEDULLA-PRD.md` — antifragile memory across per-project brains.** The memory state
+  machine (per-brain storage · `Origin-Brain` labels · tier recall with no cross-brain leak ·
+  promotion into a shared doctrine tier), designed to get stronger under churn rather than drift.
+- **`docs/SOUL-PRD.md` — PATHOS native, verified, curated.** This very handoff becomes a first-class
+  m1nd type: a claim grammar with a freshness receipt (`soul_check`) and a curator at the doc-gate,
+  so the soul rides LAST on the ladder as the curated apex of promoted claims.
+- **`docs/HUMAN-LAYER-PRD.md` — the human face.** The Hall (projects area) · the Living Tree
+  (memory-decorated filetree) · the mailbox · the precision system (iconography, lenses, honest
+  search) · the Pre-Flight card — an agent's memory made legible to a human.
+- **`docs/TWO-TIER-BRAIN-PRD.md` — per-project brains + reception + cwd routing.** Each repo gets
+  its own brain inside one served owner; reception tells a caller honestly when it is wearing the
+  wrong brain; cwd routes each call to the right one.
+- **`docs/NEXTGEN-AGENT-PRD.md` §O.12 — the delegation layer.** A parent hands a child a grounded
+  packet and reads back a debrief; a parent that cannot ground the child honestly declines
+  (delegation-abstain). OMEGA's reach extended from one agent to a tree of agents.
 
-> **cp9 addendum-4 (2026-07-04): PER-BRAIN OPEN SHIPPED (Human-Layer slice 2H, §4A.9) + the
-> cold-listing bug fixed.** A live blocker — "why can't I Open a hosted project's tree?"
-> — is closed. The browser surface was bound-graph-only; now `/api/graph/*` + `POST
-> /api/tools/*` take `?brain=<project_root>`, routed through the SAME resolution the wire uses
-> (`http_server::resolve_brain` → `project_brains.rs`, #260): absent = bound (byte-compatible),
-> known hosted = warm-boot on first touch, unknown root = honest 404 (never auto-created,
-> loopback-only). Every `/api/graph/*` response carries a `served_brain` echo; `GET /api/tools`
-> stamps `rest_brain_selector: true`; `graph_changed` gained optional `brain_root`. The GUI
-> adopts it end-to-end: Open ENABLED on hosted cards (residue tooltip DELETED — INV-11 exit),
-> the tree opens a hosted brain in-tab dropping echo mismatches (INV-15), the Brain Chip flips
-> to the echo, dormant stores warm-boot in words (INV-05), and every 1T lens/filter/
-> meaning-search rides the selector (INV-16). **Also fixed (same slice, field mailbox class:bug
-> "a dormant project brain vanished"):** a dormant project brain vanished from the Hall after an owner restart until
-> a routed call warm-booted it — now `ProjectBrainRegistry::disk_roster()` scans
-> `project-brains/*/project_brain.json` on disk and unions dormant brains into the listing with
-> ZERO routed calls (counts from the manifest; warm map wins duplicates). **UNIT C (copy):** the
-> tree drawer's learn-history chip said "I haven't seen evidence either way yet" — colliding
-> with L1GHT's `evidence:` (memory) and confusing users live; new copy is "no feedback yet — no
-> agent has confirmed or corrected answers about this file" (+ confirmed/corrected/mixed
-> variants), pinned by a test that the feedback chip never says "evidence" and the memories
-> panel never says "feedback" (glossary sealed in PRD §4A.3.1). Proof: `per_brain_open.rs` (7/7,
-> real two-brain owner) + **171 UI tests** (142 base + 29 new); `cargo test -p m1nd-mcp` green,
-> clippy -D warnings, fmt, `tsc` + violet-lint + icon-lint green, dist regenerated. **Residue
-> now:** hosted-brain delete, in-UI stop, eject (V2), the inbox verbs (§4A.3.1-D3), and the
-> §9.5.1 dormant-owner registry fields — each still named-honest. **Kickstart note:** dist is
-> rust-embedded — served owners need a restart to inherit both the REST selector and
-> the cold-listing fix.
+### The construction era OPENED — R0/R1/R5 shipped (#275)
+The first three ladder rungs landed together — small, live-defect fixes that make the flagship
+packet honest and lean before the medulla state machine builds on top of it:
 
-**The 24h harvest: OMEGA shipped as the floor, three PRDs made official, the first human
-surface landed, and the field-report mailbox went from full to empty.** This is the checkpoint
-where m1nd stops being only "a better `rg` for agents" and becomes a substrate with a *human
-face* (the Living Tree), a *delegation contract* (the §O.12 packet/debrief), and a *two-tier
-memory shape* (per-project brains + medulla) — all three grounded in official
-PRDs, with Slice 0 of the human layer already SHIPPED and dogfooded.
+- **R0 — packet honesty (MED-INV-6 false-absence fix).** A `north` beat over a **non-empty**
+  memory store used to emit "No durable memory yet" whenever recall found nothing for the task —
+  a false absence (reproduced live: ~20 claims on disk, `memory: []`, and still the empty-store
+  line). Now `SessionState::light_memory_count()` reads the ground-truth `.light.md` count, the
+  packet stamps `memory_exists = n`, and the false line fires ONLY when the store is truly empty;
+  over a non-empty store the gap honestly says the store holds claims that did not match this task.
+- **R1 — the packet diet (Budget Law).** The binding blew its token budget two ways, both live:
+  the `ingest_roots` array was serialized twice byte-identically, and the memorize write-path
+  minted a per-file ingest root for every memory sidecar. Fix: `graph_runtime_summary` carries only
+  `ingest_root_count` (the full array lives once, in the fingerprint), and a `.light.md` written
+  into the `agent-memory` store collapses to the single store-dir root. **Measured: the packet is
+  battery-pinned at ~1,419 tokens** (budget ≤2k), with CI failing on dup-arrays / sidecar-roots /
+  >2k growth.
+- **R5 — separator-agnostic `display_name` (Windows CI honesty triage).** `basename_of()` assumed
+  `/` separators, so the brain name misfired on Windows backslash paths — the chronic red Windows
+  CI test. Now it splits on both `/` and `\` (trailing-sep, UNC, mixed, POSIX all covered): a gate
+  described as blocking now blocks, and Windows CI is green.
 
-### The three official PRDs (the era's blueprints — all merged)
-- **`docs/HUMAN-LAYER-PRD.md` (#222) — the Living Tree / Pre-Flight vision.** The human surface:
-  the familiar filetree EVOLVED into a memory-decorated tree, provenance post-its, trust dots,
-  and a **Pre-Flight hero** — the packet a human reads before an agent acts. Vision → spec; Slice
-  0 is now shipped (below), Slices 1–3 spec'd.
-- **`docs/NEXTGEN-AGENT-PRD.md` §O.12 (#224) — the Delegation Layer.** The parent→child contract:
-  a grounded **delegation packet** (north-style binding + focus for the child), a **debrief** read
-  back on return, and **delegation-abstain** (a parent that honestly declines to delegate when it
-  can't ground the child). This is OMEGA's reach extended from one agent to a tree
-  of agents — the moat becomes institutional memory across a delegation graph.
-- **`docs/TWO-TIER-BRAIN-PRD.md` (#227) — per-project brains + a shared medulla.** The memory
-  architecture: each project gets its own brain (its graph + its memories), and a shared **medulla**
-  holds cross-project doctrine/taxonomy (the launchd-served always-on layer). Proof-grown slices:
-  the clone-gate first, then the per-project inbox.
+Each rung shipped RED-first (a failing test that pins the defect) → GREEN, with the doc pass in the
+same PR.
 
-### Living Tree Slice 0 — SHIPPED (#232, the first human surface)
-The served UI (`m1nd-ui`) now opens on a **read-only Living Tree**: the filetree assembled from
-`/api/graph/snapshot` (never a second fs view), decorated with **provenance post-its** (memories
-pinned via `grounded_in`, author + age absent-never-faked) and calm **trust dots**
-(`insufficient_evidence` → iris violet). CI enforces a **violet-lint** (violet is reserved for
-abstain/unknown, nothing else), and **23 INV component tests** run against REAL captured envelopes.
-The renderer is read-only by contract — humans READ memory, agents WRITE it.
-**Slice-0 deferrals (honest, carried into the next slice):** live `graph_changed` SSE refresh (the
-tree is currently a snapshot, not yet auto-updating), vendored fonts (still external-linked), and
-the stale-flip e2e (the post-it fresh→stale transition is unit-proven but not end-to-end).
+### The ladder is the build order (ORGANISM §C10, R0–R17)
+An implementer reads §C10 alone and knows what to build next. The spine of the order, past the
+shipped R0/R1:
 
-### Human layer Slices 0T + 1H — SHIPPED (`feat/human-layer-hall`, the layer above the tree)
-On the two-tier backend (#260), the served UI gained its **owner-level home**. **The Hall (1H)** is
-rung −1: it promotes + re-skins the retired `InstancesPanel` to SOFT PROOF (the cyberpunk tokens
-finally die; violet-lint stays green) into a projects area that lists every brain the owner holds —
-three classes from the registry (bound self + siblings + hosted project brains), freshest-first
-unre-sorted, live via the reused `graph_changed` refetch. Cards carry matte liveness dots and
-absent-honest counts (INV-10, never 0); a read-only receipt drawer holds the binding facts and the
-removal ladder (stop→clean→eject) with honest disabled rungs; and **the calm two-step delete**
-(INV-09) is structurally unreachable below two confirmations — consequence card (dies vs survives,
-categories not filenames) → type-the-name → the guarded `delete-state` route, with the live-instance
-refusal rendered **verbatim** from the real wire envelope. **The Threshold (0T)** turns the zero-brain
-first-run into onboarding: one sentence, one action, the one-call `project_root` bootstrap
-(feature-detected via `GET /api/tools`), word-grained progress (INV-05, never a fake %), and a 3-beat
-orientation from the real north packet, each beat ESC-dismissable-forever (INV-12). Plus the **Brain
-Chip** on every surface (no graph pixel without the owning brain's name), the **Cmd+K Brains group**,
-a tested **reduced-motion contract**, and the **clobber-ban retirement** of the bare foreign-path
-ingest on a non-empty owner (INV-11). Proof: **80 UI tests green** (52 net-new; INV-09/10/11/12 each
-covered), all fed by REAL captured served-owner envelopes; violet-lint green; `tsc` clean; build
-air-gapped; live smoke rendered the two real brains (the m1nd dev brain + a project brain).
-**Honest deviation:** the tool-command palette re-skin stays deferred — 0T's Brains group ships as a
-focused new `BrainPalette`, not a retrofit of the deferred-legacy cyberpunk `CommandPalette`.
-**Kickstart note:** the dist is rust-embedded, so activating the new UI needs a served-owner restart.
+> **R2** (M5a — storage split + `Origin-Brain` + migration + brainless-root refusal) → **R15**
+> (the eviction gate: LRU + persist-on-evict; a HARD pre-condition for the next rung's
+> `all-brains` half) + **R3** (M5b — `tier` recall + no-leak proven + `all-brains`) → **R4** (M6 —
+> the `promote` verb with its provenance riders) → delegation (R6 `delegate`/`debrief`) → mailbox
+> (R8/R9 boxes + view) → **R10** the Pre-Flight Card → **R16** the SOUL PRD + slices, LAST, bound
+> by the constitution's seven soul constraints.
 
-### Human layer Slice 1T — SHIPPED (`feat/tree-precision-1t`, the precision system + reading instruments)
-Client-heavy, bound brain, ZERO new verbs — the "precision design, with the right icons for
-each thing" requirement made real. **Iconography (§4A.7):** `lucide-react` vendored (ISC — verified; license text
-alongside the registry as the fonts do), a central `lib/icons/registry.tsx` that is the ONLY lucide
-import site (the verbatim CONCEPT→ICON table), `<Icon>` fixing stroke 1.5 + `currentColor` (so the
-violet quarantine covers icons for free) + sizes 14/16 + the aria-label contract, and `StatCell`/
-`StatValue` (right-aligned tabular-mono counts). The **icon-lint** (sibling to violet-lint) fails on any
-lucide import outside the registry, any `strokeWidth ≠ 1.5`, and the banned `Sparkles` — proven to BITE
-by a red-case fixture. **Label truth (§4A.8):** kind badges die from card faces (`brainImplClass`,
-receipt-only); the class moves to the receipt `binding:` line; the **viewing chip** (`Eye`,
-exactly-one) is born from the same envelope as the Brain Chip. **Card v2 (§4A.3.1):** the OPEN brain's
-face carries GOLD — G1 freshness-vs-git (`am_i_stale` + Re-read), G2 calibration (`predict.calibration`,
-the uncalibrated cap stated verbatim + Calibrate once), G3 the compounding meter (distinct `light:*`
-memories + 30-day aging), G4 aliveness (sessions + queries) — and the receipt carries DEPTH (D1 last
-claim, D2 honest gaps); hosted brains show it absent-honest; on-demand fetch only (no per-card poll).
-**Reading the Tree (§4A.10):** three lenses (directory | kind | layer via `layers` + the honest
-"unlayered" group), six matte filter chips with exact "N hidden by filters" residue, and search in two
-modes — `name` (instant) and `meaning` (`seek`), the `SeekPanel` rendering the `sufficiency` + verdict
-the UI used to discard (no sparkle), a hit-click jumping the tree, a breadcrumb + density toggle, `/`
-focuses search. Proof: **142 UI tests green** (51 net-new; INV-13/14/16 by name + the icon-lint BITE), all
-lens/search/card fixtures REAL captured served-owner envelopes; violet-lint + icon-lint green; `tsc` clean;
-build air-gapped (lucide adds no host); live smoke on the served owner rendered the layer lens (8 layers +
-"unlayered" 5,803), the meaning panel (verdict "worth a second look", sufficiency "gathering" + the
-verbatim why, 16 of 847 cleared), and the Hall (one viewing chip, the four GOLD rows live, a project brain
-absent-honest, zero class labels). **Residue:** ~~per-brain lens/search still bound-only~~ — **CLOSED
-2026-07-04 (slice 2H shipped, §4A.9; see cp9 addendum-4)**; the trigram-fallback / empty-result
-captions are typed + unit-proven but await a real embed-off case e2e. **Kickstart note:** dist is
-rust-embedded — activating needs a served-owner restart.
+The two integration points every rung composes over are the **write door** (§C4) and the **packet
+spine** (§C1). No rung lands without its battery case first (RED), its doc pass, and the landing
+gate. R5 (Windows) and R17 (a conformance-boost rerank that lets X-RAY steer attention) sit off
+the critical path.
 
-### The field-triage sweep — the mailbox emptied in ~a day (the loop, working)
-The universal field-telemetry doctrine paid off: the seeded/accumulated `~/.m1nd/field-reports.jsonl`
-mailbox was swept to EMPTY in roughly a day, each report becoming a battery case/test BEFORE its fix:
-- **#230 persist-immortal (field-triage batch B):** all persist targets resolve against `runtime_root`,
-  never `cwd` — warm-boot survived; a **39-failure regression → 0**.
-- **#231 marker-fragment filter (field-triage batch A):** north's memory/anchor/focus slots no longer
-  waste on L1GHT marker fragments (`𝔻 confidence: …` annotation nodes) — a shared structural
-  `is_marker_fragment` discriminator excludes them from all four north surfaces; markers stay in the
-  graph as data, they just never take a slot.
-- **#233 attach re-init (field-triage batch C):** the `-32001` completeness fix + a **wire-shape lock**
-  — the bridge transparently re-initializes on owner restart across ALL unknown-session shapes, with a
-  restart-survival proof.
-- **#235 attach self-echo (field-triage L21):** write-tool responses now return REAL envelopes through
-  the bridge — **the "null" mystery solved** (the bridge was echoing the request shape instead of the
-  owner's real response).
-- **#234 G1.5 savings/report killed:** the opt-in `savings`/`report` unmeasured-claims surface removed
-  entirely (incl. the **CO2-grams theater**) — `savings` gone (tool + handler + types + accounting),
-  `report` stripped of every tokens-saved/CO2 field but keeps its honest counts + heuristic hotspots.
-- Plus the earlier era-9 fixes that seeded the sweep: **#218** numeric-confidence coercion, **#219**
-  closure cry-wolf (ambiguous-blocked 9/11 → 0/11), **#225** attach bridge re-init on `-32001`, **#226**
-  north L1GHT recall robust on mixed graphs.
-**Battery at 37, zero grep losses.** The mailbox loop is now demonstrated end-to-end: report → battery
-case → fix, and the mailbox empties.
-
-### The runtime is now a persistent nervous system (not a tool-you-call)
-- **launchd medulla on the current `main` binary** — a persistent served m1nd (the serve/attach
-  prerequisite the checkpoint-7 A/B identified), warm-booting **~6.3k nodes** per boot.
-- **SessionStart hook (`north`) is LIVE in the served Claude host** — the ambient pre-orient wire fires for real
-  (this is the served-attach variant the A/B said was the prerequisite, now stood up).
-- **4 hosts attach one brain** — the multi-host single-brain topology is real, not a diagram.
-- **Agent-id taxonomy `host:tier:name[@parent]`** + **per-project inbox doctrine** are SEALED in the
-  medulla's own memory — the delegation/two-tier vocabulary is not just PRD, it is live doctrine the
-  running brain carries.
-
-### README, CI gate, brand
-- **README re-spined as "the shell" (#228)** — dual-audience (human + agent), built around the operating
-  loop with a walkthrough; **8 languages in parity** (the i18n set regenerated to match).
-- **agent-docs CI gate LIVE (#229)** — a PR that changes an agent-workflow surface must ALSO update
-  agent-facing docs (or carry the `agent-docs-exempt` label). Already **armed twice legitimately**.
-- **Brand: 6 SOFT PROOF plates versioned** (#223 + one more); **launch gates G1 (#221) + G1.5 (#234)
-  CLOSED** — every unmeasured claim surface removed. **G2/G3 remain** open.
-
-### Disk hygiene (new standing rule)
-Shared `CARGO_TARGET_DIR` (`$HOME/.m1nd-build-cache/target`) across all worktrees + worktree sweeps —
-**86 GB reclaimed 2026-07-03**. Carry the export even on docs-only missions; `git worktree remove` your
-tree when done.
-
-### Where OMEGA + memory sit now (the floor beneath the construction)
-OMEGA **Move 0 (calibration) + Move 1 (Envelope)** + the **honest Move-2 reframe** shipped in
-**v1.2.0 (#209) and v1.2.1 (#220)** — both RELEASED to crates.io + npm with GitHub Releases, the served
-runtime rebuilt on the tagged binaries. `north` pre-orient, memory moves #1–#6, smoothed-Jaccard
-co-change (#206, calibration-proven +3pts), binary version-honesty (#205), and the agent-native MCP
-`initialize` instructions (#208) are all live. This is the substrate the construction era builds on;
-its detailed ledger is preserved in the checkpoint-8 section below.
-
----
-
-## Current State (2026-07-03, checkpoint 8.1 — v1.2.1 CUT, compounding live)
-
-**v1.2.1 IS RELEASED — and the compounding is now live in the served runtime.** Tag `v1.2.1` on
-the merge commit, `release.yml` published `m1nd-core` / `m1nd-ingest` / `m1nd-mcp` to crates.io
-+ `@maxkle1nz/m1nd` to npm, a GitHub Release was cut, and the served owner was rebuilt
-on the tagged binary (`--version` → `1.2.1 (<sha>)`). The patch carries the four field-triage
-fixes merged since the 1.2.0 tag: **#211 `north` composes L1GHT agent-memory recall — THE
-compounding fix** (memorize once, recall through the front door thereafter); #212 temp-graph
-sentinel → real tempdir; #218 numeric `confidence` coerced instead of rejected; **#219 closure
-ambiguity tag fires only on genuine ties — the cry-wolf killed** (ambiguous-blocked 9/11 → 0/11,
-honesty guard proven). Battery grew to **37/37**. `m1nd-openclaw` stays `0.1.0`.
-**Field-report mailbox: 5 reports / 4 resolved / 1 residue** — the four fixes above closed their
-reports; the residue is a follow-up on unresolved-tag granularity (still open). The live north
-memory-recall proof (agent-memory surfacing through `north` on the running served binary) was
-captured at cut time — this checkpoint is where compounding stopped being an A/B hypothesis and
-became a live runtime property.
-
-**Human layer — Living Tree Slice 0 SHIPPED (2026-07-03, `feat/living-tree-slice0`).** The
-first human surface landed: the served UI (`m1nd-ui`, `127.0.0.1:1337`) now opens on the
-**Living Tree** — the familiar filetree EVOLVED, assembled from `/api/graph/snapshot` (never a
-second fs view), decorated with calm trust dots (`insufficient_evidence` → iris violet), the
-read-only **post-it** system (memories pinned via `grounded_in`, author + age absent-never-faked,
-four states: fresh / aging / stale-flipped / violet-unknown), directory memory-count roll-ups,
-the hover blast whisper (floor language), and the node drawer (rung 1, action-language verdict) —
-with honest `needs_ingest`/degraded cold states. The force-directed map is demoted (not the front
-door). This slice also retired the cyberpunk theme for the **SOFT PROOF** tokens and shipped the
-CI-able **violet-quarantine lint** (violet is reserved for abstain/unknown, nothing else). The
-INV honesty suite (23 tests) is fed by REAL captured envelopes (`m1nd-ui/src/__fixtures__/`),
-dogfooded live against a `--serve` of m1nd's own graph; `cargo build -p m1nd-mcp` still compiles
-the new embedded dist. Verdict/state renderer is read-only — humans read memory, agents write it.
-Slices 1–3 (Pre-Flight Card, Honesty HUD + Change Preview, Project Brain) stay spec'd in
-`docs/HUMAN-LAYER-PRD.md`. UI-only change; no engine/agent-surface behavior moved.
-
-**Brand gates (pending 1.2.2):** **G1 (#221) CLOSED** — the per-response unmeasured `savings`/`tokens_saved`/`gaia` envelope was removed. **G1.5 (#234) CLOSED** (maintainer decision 2026-07-03, mailbox L16) — the opt-in `savings`/`report` unmeasured-claims surface is killed: `savings` removed entirely (tool + handler + `Savings*` types + `SavingsTracker`/`GlobalSavingsState` accounting; nothing writes `savings_state.json` anymore), `report` stripped of every tokens-saved/CO2 field but keeps its honest counts + heuristic hotspots — completing the beta.7 de-advertisement.
-
----
-
-**v1.2.0 IS RELEASED.** Tag `v1.2.0` on the merge commit, `release.yml` published
-`m1nd-core` / `m1nd-ingest` / `m1nd-mcp` to crates.io + `@maxkle1nz/m1nd` to npm (the
-v1.1.0 precedent), a GitHub Release was cut with real era notes, and the served
-owner was rebuilt on the tagged binary (`--version` → `1.2.0 (<sha>)`). `m1nd-openclaw`
-stays `0.1.0` (versioned independently).
-
-**What the era shipped (v1.1.0 → v1.2.0), the honest ledger:**
-- **OMEGA Move 0 — the calibration harness (keystone).** Conformal precision-at-coverage
-  calibrator; `calibrate_predict` date-splits the repo's OWN git history; `predict` emits
-  `act | reverify | abstain`, uncalibrated ⇒ honestly `abstain`. First real number on m1nd's
-  own history: τ=0.60, coverage 14.6%, act-band precision 28.3% — the calibrator's JOB was to
-  surface that the strength model is coarse, and it did.
-- **OMEGA Move 1 — the Trust-Gated Envelope (#195).** Answer + map + trust verdict composed
-  from `trust_selftest` × `cross_verify` × `am_i_stale` × `why`-closure × `mission_verify`.
-- **OMEGA Move 2 — the HONEST REFRAME (#203).** The token-economics claim was DROPPED (m1nd
-  has no token ledger and cannot source consumption); `stop_gate` stays **roadmap-only** — it
-  is NOT referenced by the shipped instructions.
-- **`north` pre-orient.** The composing front door (trust + focus/anchors + prior memory +
-  sufficiency + one `next_move` + `honest_gaps`; `needs_ingest` is a real answer).
-- **Memory moves #1-#6 DONE** — `Created`/`Source-Agent` provenance, authored-age + source on
-  recall, `aged_out` age-staleness (#198), `activate_temporal` per-type decay fix (#199),
-  supersession-on-rewrite + per-slug flock (#200), recency-capped auto-load (#201).
-- **Root-`.gitignore` directory-entry fix (#194)** — ingest now honours root `.gitignore`
-  directory entries (folded in with the cross-repo stress test).
-- **Smoothed-Jaccard co-change (#206)** — `ghost_edges`/`predict` normalize coupling instead
-  of raw co-commit counts; **calibration-proven +3 points** over raw.
-- **Binary version-honesty (#205)** — `--version` = `1.2.0 (<sha>)`; `M1ND_EXPECTED_VERSION`/
-  `M1ND_EXPECTED_SHA` (+ `M1ND_STRICT_VERSION`) detect and (strict) refuse a drifted binary.
-- **Battery grown to 36/36 (#204)** — the OMEGA/memory surface (closure, trust_band,
-  calibration, envelope, north, provenance/supersession/aged_out) is now covered; the m1nd
-  suite passes 36/36 on the release binary.
-- **Agent-native MCP `initialize` instructions (#208)** — the `M1ND_INSTRUCTIONS` string every
-  host receives is now the operating loop itself: **pre-orient (`north`-first) → act on
-  calibrated verdicts → post-capture (`memorize` + one field-telemetry signal)**. Every
-  referenced verb was verified against the live dispatcher; roadmap-only `stop_gate` is NOT
-  referenced. Replaces the old flat WORKFLOWS catalogue.
-
-### THE UNIVERSAL FIELD-TELEMETRY DOCTRINE (new this checkpoint)
-**Every agent, every repo, is a sensor.** When m1nd misbehaves during ANY mission — even on
-another repo — the agent REPORTS, it does not fix: append **one JSON line** to the single
-machine-global mailbox `~/.m1nd/field-reports.jsonl`
-(`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) and keep
-working. **Report-never-fix mid-mission** is the rule — never detour into m1nd surgery while
-on task; note the workaround, report, move on. The **`honesty` class is the most valuable**:
-it is calibration ground truth (m1nd overclaimed — said fresh/closed/act and was wrong). When
-retrieval was simply right/wrong, prefer the built-in `learn` verb (correct/wrong/partial).
-**Triage closes the loop: every m1nd improvement session STARTS by sweeping the mailbox
-(+ `seek` for field memories); a confirmed field bug becomes a battery case/test BEFORE the
-fix.** The mailbox is **local-only — m1nd never phones home**; the roadmap `m1nd feedback`
-verb (opt-in, redacted, one-click GitHub issue) is the ONLY path upstream, and always the
-human's explicit call.
-
-**Seeded reports triage status** (the improvement session sweeps these first):
-1. **closure cry-wolf (AMBIGUOUS portion) = FIXED (field-triage #4).** The `m1nd:edge:ambiguous`
-   tag fired on nearly every load-bearing path because it (a) tagged whenever a same-name fallback
-   had >1 candidates even when proximity/qualifier picked a DECISIVE winner, and (b) was read
-   node-level, so any node with ONE ambiguous edge poisoned EVERY clean path through it. Fix: tag
-   only GENUINE coin-flips (decisive binds no longer tag), and read a targeted
-   `m1nd:edge:ambiguous:<target>` tag PER-EDGE. Measured on the m1nd repo itself: ambiguous-blocked
-   dropped **9/11 → 0/11** connected pairs; the honesty guard (a true 2-way tie still yields
-   `blocked`+`ambiguous`) is proven end-to-end. NOTE: a SEPARATE node-granularity over-fire remains
-   for the `unresolved` tag (explicitly out of scope — unresolved semantics unchanged); see Known
-   Problems → "closure UNRESOLVED node-granularity".
-2. **`memorize` unanchored on a live runtime** — evidence paths didn't anchor to code nodes
-   against the running owner (friction/bug on the served runtime).
-3. **the `temp` artifact bug** — a stray `temp` file dropped in cwd by a battery/tool path
-   (bug; the battery already `rm -f temp`s around it, but the source drop is unfixed).
-4. **stale instructions = FIXED** — the old flat WORKFLOWS instructions string; closed by #208
-   this checkpoint (kept as a `win`/closed marker for the triage sweep).
-5. **north marker-fragment slot waste = FIXED (field-triage batch A, mailbox L28).** north's
-   memory beat AND its anchor/focus surfaces spent slots on L1GHT MARKER FRAGMENTS — the
-   annotation nodes the l1ght_adapter mints per marker line (`𝔻 confidence: …`, `𝔻 evidence: …`,
-   `⟁ depends_on: …`, `⍂/⍐/⍌` declarations). Live SessionStart hook evidence: 2/5 memory
-   slots + 4/4 anchor slots wasted on `𝔻 confidence: …` rows instead of real claims/code. Root
-   cause: marker nodes inherit their file's `source_agent`/`authored_ms_ago` prov-tags, so the
-   memory recall's provenance test kept them; and on a memory-heavy graph they rank into the
-   PageRank/activation windows. Fix: a shared `is_marker_fragment(node_id, label)` — STRUCTURAL
-   discriminator (the `::tag::` node-id segment the adapter stamps only on marker nodes; a leading
-   marker glyph as the id-less fallback) — excludes markers from all four north surfaces
-   (`memory`, `anchors`, `focus_nodes`, and the `memory_nearby` claim resolution). Markers stay
-   in the graph (they are data); they just never take a slot. Red→green proven live and in-tree
-   (a memorized note's markers leaked pre-fix, gone post-fix, real claim still recalls); battery
-   case `north_recalls_memorized_claim` extended to assert no memory/anchor row is a marker.
-
-### Runtime carry-over (post-upgrade honesty)
-The served owner was upgraded to the 1.2.0 binary, so **any calibration rows scaled against the
-OLD binary are now stale — re-run `calibrate_predict` once per ingested repo** on the live
-runtime to refresh them (done at upgrade if the graph had an ingested repo; noted honestly if
-the graph was empty).
-
-## Current State (2026-07-01, checkpoint 7 — memory roadmap #3-#6 shipped + the pre-flight A/B returned its first real verdict)
-- **MEMORY roadmap (PRD Subsystem D) — moves #3-#6 ALL SHIPPED + orchestrator-verified;
-  so #1-#6 are DONE.** Four new moves landed this session, each TDD-proven and verified on
-  the REAL diff (not the report):
-  - **#198 — age-staleness (`aged_out`).** `cross_verify` evidence_freshness now emits an
-    `aged_out` reason ORTHOGONAL to the code-sha `evidence_changed` signal: a memory older
-    than `RECENCY_HALF_LIFE_HOURS` with no recent use flags stale even when its cited code is
-    byte-identical (the "frozen-code reads fresh forever" gap). Missing-`Created` is EXEMPT.
-  - **#199 — the `activate_temporal` decay fix.** `activate_temporal` now reads `DomainConfig`
-    per-type half-lives, so the dead half-life table is LIVE — Module/Class decay slower than
-    File. TDD-proven the table was genuinely dead before (the decay kernels existed but never
-    touched stored memories; now they do).
-  - **#200 — supersession-on-rewrite (invalidate-and-keep).** A same-slug rewrite no longer
-    silently overwrites: it copies the prior `.light.md` to `agent-memory/.history/`
-    (`State:outdated`) and writes the new one with a `Supersedes:` header — gated so a WEAKER
-    claim can't clobber a stronger one. Serialized by a **per-slug `libc::flock` lock (no new
-    dep)** — directly closing the multi-session-worktree-drift concurrency risk the critic
-    flagged. The 2-thread concurrency flock test passes. This is the graph-native
-    `[SHIPPED/histórico]`.
-  - **#201 — recency-capped auto-load.** `reload_agent_memory` can now cap the auto-load by
-    recency (default **unlimited = no-op**, opt-in via `M1ND_MEMORY_LOAD_CAP`); missing-`Created`
-    is EXEMPT from eviction; a drop is observable. Kills the "every claim ever re-enters context
-    every boot" unbounded growth, without changing default behavior.
-- **THE PRE-FLIGHT A/B EXPERIMENT returned its first REAL verdict (isolated, honest).** An
-  isolated A/B tested whether the `north` pre-flight packet (injected via a Claude Code hook)
-  helps a real headless `claude -p` agent — full write-up folded into the PRD **§Ω+1.3b**.
-  Isolation held (the global config untouched). Verdict:
-  - **The wire EXISTS in headless.** Hooks FIRE in `claude -p` (proven with a canary); `north`
-    is delivered to the model VERBATIM; ~110ms/fire; fail-open (never blocks a turn).
-  - **HELPS orientation.** Arm B (north injected) opened the CORRECT file first — `config.py`,
-    the `pr=1.00` anchor north pointed at — in **3/3 runs vs 0/3 for control**. Directional
-    first-move retargeting is real.
-  - **Does NOT confuse or hinder.** No wrong turns; when north suggested a tool the agent
-    lacked, it IGNORED it without derailing (advisory, not over-obeyed). Mild cost: ~1.7 more
-    tool-calls (more reading).
-  - **HONEST NULL #1: both arms succeeded 3/3** — the task was too easy to show north
-    *rescuing* a run. A harder "rescue" task is still untested.
-  - **HONEST NULL #2 (load-bearing): COMPOUNDING MEMORY is architecturally BLOCKED.** north's
-    graph is in-process + each hook fire is a separate short-lived process → a post-capture
-    `memorize` writes to a graph the NEXT fire never reloads, and each fire re-ingests the repo
-    (72ms here; would DOMINATE latency at scale). **The compounding loop CANNOT close in the
-    process-per-hook setup.** → **THE INSIGHT:** the ambient loop's real prerequisite is NOT
-    the hooks, it is the **`--serve`/`--attach` mode m1nd already has (#157/#158)** — a
-    persistent live graph the hook ATTACHES to instead of re-ingesting. That kills per-fire
-    ingest latency AND enables cross-fire compounding. **Recommendation: do NOT install hooks
-    in the live env yet — wire the hook to a served m1nd FIRST, then re-test compounding +
-    latency-at-scale + a harder rescue task.** This is now the FIRST ambient milestone.
-- **OMEGA Move 1 — the Trust-Gated Envelope — SHIPPED + verified (PR #195).** Every
-  answer can now ship as the §O.4.1 triple (**answer + map + trust verdict**). The gate
-  is a **CALIBRATED WEIGHTING, not an any-red AND-fold** (§O.3 #1) — per-probe reliability
-  weights + a risk budget, tuned before defaulting on, to avoid the ~23% spurious-abstention
-  failure. **Ships DARK** until the calibrator certifies its precision-at-coverage. **14
-  tests** incl. an explicit **anti-AND** test proving a single red probe does NOT force
-  `abstain`. Verified on the REAL diff (not the report). **v1.2.0 = Move 0 + Move 1 —
-  both now landed.**
-- **Cross-repo stress test PASSED — m1nd generalizes beyond its own history.** The OMEGA
-  verbs were run against real foreign repos across **TS / Python / Rust**, not just m1nd's
-  own git history — the precondition before any verb defaults on. It surfaced and forced a
-  **`.gitignore` fix (#194)** (a battery/harness artifact that would have mis-scoped ingest
-  on foreign trees). Generalization is now evidenced, not assumed.
-- **Ω+1 — the AMBIENT LOOP — is the emerging strategic front (new PRD section).**
-  `docs/NEXTGEN-AGENT-PRD.md § Ω+1` frames the next chapter after OMEGA: m1nd stops being a
-  **tool-you-call** and becomes **the wire the loop runs on** — `pre-orient → act →
-  post-capture → compound`, wired into the Claude Code / Codex hook lifecycle
-  (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/SubagentStop/Stop/PreCompact/
-  SessionEnd) via a thin `stdin-JSON → MCP → additionalContext/permissionDecision` shim.
-  Grounded in the frontier (EvoClaw: best agent >80% isolated → **38% continuous**; the
-  collapse point IS failing to build on prior state). The moat shifts: leaving m1nd stops
-  meaning "lose a feature" and starts meaning **"lose institutional memory."** Four critic
-  corrections are BAKED IN (see Known Problems) — the doc models the honesty moat, does not
-  present the design as flawless.
-- **v1.1.0 WAS the released base (superseded by checkpoint 8 → v1.2.0 is now
-  released).** At checkpoint 7 main carried 1.1.0 (core/ingest/mcp + npm; openclaw
-  0.1.0), with the OMEGA/memory era UNRELEASED on top. **Checkpoint 8 cut v1.2.0** —
-  the tag + crates.io/npm publish + GitHub Release landed; see the checkpoint-8 Current
-  State above. **v1.2.0 = Move 0 (calibration) + Move 1 (Envelope) + the era ledger.**
-- **m1nd-OMEGA is now the BANNER for the v1.2 → v2.0 era (PR #191, `docs`).**
-  `docs/NEXTGEN-AGENT-PRD.md` §O.1–O.11 frames the vision: a **verifiable trust
-  substrate** where every answer ships as a triple — **answer + map + trust verdict**
-  (a re-derivable receipt over a code graph) — so agents mechanically decide reliance /
-  when to stop / when to refuse. The critic's corrections are BAKED IN, not bolted on:
-  - **Calibration is the keystone — consistency ≠ correctness.** Battery tests prove
-    the code does what it says; the calibrator proves the verdict is *right often
-    enough to act on*. OMEGA needs both, calibrator second (§O.6).
-  - **The receipt is a CALIBRATED WEIGHTING, not an any-red AND-fold** (§O.3 #1).
-    A naïve `any-red ⇒ abstain` over noisy probes ≈ 23% spurious abstention; agents
-    learn to route around it and the moat dies. The gate must be a calibrated
-    weighting tuned against ground truth before it defaults on.
-  - **Honest novelty (§O.5):** taint = CodeQL, blast = Glean/Sourcegraph, quarantine =
-    a Zep/Graphiti bi-temporal port — OMEGA's TRUE novelty is **answer + map + trust in
-    one round-trip**, plus sufficiency/solvency economics, over a re-derivable receipt
-    on a code graph. Framed as a port where it is one, not an invention.
-  - **The poisoned-oracle threat model is an OPEN risk (§O.7):** a poisoned eval/
-    co-change corpus makes the calibrator certify a wrong verdict — "who calibrates the
-    calibrator?" — explicitly logged as unsolved, not papered over.
-- **OMEGA Move 0 SHIPPED (PR #192, `570cb23`, `feat`) — a conformal calibration
-  harness, and the FIRST real measured number.**
-  - `m1nd-core/src/calibration.rs`: a `CalibrationTable` (clones the trust-ledger
-    persistence pattern: atomic temp+rename, empty-on-absent) + `conformal_quantile`
-    (hand-rolled split-conformal τ at risk α) + a `verdict_for` binner.
-  - `calibrate_predict` harness: **date-splits the repo's OWN git history** — train-only
-    `CoChangeMatrix` → score held-out commits → precision-at-coverage curve + conformal
-    τ → persisted to `calibration_state.json`.
-  - `predict` now emits a calibrated verdict **`act | reverify | abstain`** gated on
-    that τ (`m1nd-mcp/src/tools.rs:2177`); uncalibrated ⇒ EVERY verdict is honestly
-    `abstain`, never a fake-high `act`.
-  - **THE FIRST REAL NUMBER (m1nd's own history):** 563 commits → 360 train / 203
-    held-out, **9,825 scored predictions**, at α=0.10 → **τ=0.60, coverage 14.6%,
-    act-band precision 28.3%.** HONEST: precision tops ~28% because predict's strength
-    model is coarse (`0.1·N`) — calibration's JOB is to SURFACE that the model is weak,
-    and it did. **Honesty invariant: never quote a band as a probability; uncalibrated
-    ⇒ abstain.**
-- **Battery 28/28, tracked in-repo (#183) — with a grounded TIE ANALYSIS.** The
-  canonical capability battery (`scratchpad/m1nd_battery.py`) is committed and
-  `.gitignore`-negation-protected (`!scratchpad/m1nd_battery.py`, line 52). Re-run:
-  **28/28 on the m1nd suite, 16 wins / 12 ties / 0 grep-losses, embeddings active.**
-  Grounded analysis of the win/tie line: it is dominated by an **`rg_lines>8` scoring
-  artifact** — twin scan cases (identical capability, opposite verdict purely by grep
-  pattern volume). Of the 12 ties: only ~2-3 are convertible by a REAL capability
-  (canonical-definition-over-synonym semantic ranking), ~5 are the battery
-  UNDER-crediting structural tools (trace/scan/am_i_stale/xray_orient measured against
-  a meaningless grep), ~4 are honest permanent ties. The headline is real, but the
-  win/tie ratio is partly a measurement artifact, not pure capability.
-- **HONESTY NOTE (preserved):** an earlier "12/12" leaned on a LOOSE
-  `impact_propagate` proxy (matched a mis-bound sibling). Hardening the harness caught
-  it; the number that means anything is the **28-case battery with rigorous
-  `xfile_*`/qualified assertions**, not the old headline.
-- **Memory track — moves #1-#6 now DONE (checkpoint-4 #1-#2 → checkpoint-7 #3-#6):**
-  Subsystem D moves #1-#2 SHIPPED at ckpt 4 (`Created`+`Source-Agent` stamped #187, surfaced
-  as authored-age + source-agent on recall #189); moves **#3-#6 SHIPPED this session** (age-
-  staleness #198, `activate_temporal` per-type decay #199, supersession-on-rewrite+flock #200,
-  recency-capped auto-load #201 — detailed above). **Remaining: #7 reinforce-on-use is BLOCKED**
-  (no `last_used`/`memory_used` signal exists — needs a design decision), **#8 daemon
-  reflect/consolidate is the largest** (leans on #7).
-- **Still true from checkpoint 3 (the v1.1.0 arc):** `focus` attention runtime
-  (#157/#158: goal-conditioned working set + honest `ignored` tail + answer-free
-  `sufficiency`); Rust+TS function→function `calls` graph (#161-#163/#165/#166;
-  `impact` ranks symbols > containers, production > test); node-id collision fixed
-  across all 6 extractors (#168/#169/#173, `unique_node_id` `#N` disambiguator);
-  cross-file resolution (#170/#175: `proximity_score` same-file > same-dir >
-  cross-crate; qualified `Type::method()`/`module::func()` bind to the impl owner);
-  scan honesty (#167/#172: `total_matches_validated` = survivors; `mitigated` visible).
+### Runtime reality
+The served owner warm-boots multiple **per-project brains** inside one process. Per-brain **Open**
+works end-to-end (a hosted project's tree opens by name, not by plumbing path). **Reception is
+honest** — a caller in repo X wearing repo Y's brain is flagged, not silently served. The **Hall**
+renders every brain the owner holds as a named project, freshest-first, with absent-honest counts.
+Activating a new UI or a new binary needs a served-owner restart (the dist is rust-embedded; the
+binary is warm-booted) — note it honestly at each cut.
 
 ## Operating Doctrine
-Proof-grown: measure before claiming; verify work yourself (re-run the
-battery / a probe), never trust a report. Battery-gate risky core changes. Fix
-AND test every defect. Commit+push always (PR → CI → merge). Never bypass branch
-protection (admin-merge is blocked by design). Land deep changes with a tight,
-source-grounded spec + a battery gate; verify before claiming. Update this file
-at big checkpoints.
-**Agent-docs gate (CI, PR-only):** `scripts/agent_docs_gate.py` + the `agent-docs-gate`
-job in `ci.yml` FAIL any PR that changes an agent-workflow surface (the MCP
-`M1ND_INSTRUCTIONS` string / tool schemas / verb dispatch in `server.rs`+`tools.rs`,
-`protocol/`, `help_guidance.rs`, `universal_docs.rs`, `skills/`, or the npm host
-installer under `npm/`) without ALSO updating agent-facing docs in the same PR
-(`skills/`, `docs/` incl. the wiki, `README.md`, `CONTRIBUTING.md`, or a future
-root `CLAUDE.md`/`AGENTS.md`). Anti-cry-wolf: it ARMS only on those surfaces —
-unrelated core internals never trip it. Escape hatches: an instructions-only edit
-self-satisfies, and the PR label **`agent-docs-exempt`** skips it for genuine
-no-behavioral-change refactors. It reports (not required-check yet); a maintainer can promote
-it to blocking in branch-protection settings. Born from PR #216 (installed skills
-taught a stale era for ~2 weeks). Portable via the `SURFACE_PATHS`/`DOC_PATHS`
-knobs at the top of the script.
+Proof-grown: measure before claiming; verify work yourself (re-run the battery / a probe), never
+trust a report. Battery-gate risky core changes. Fix AND test every defect (RED-first: a failing
+test that pins the defect before the fix). Commit+push always (PR → CI → merge). Never bypass branch
+protection (admin-merge is blocked by design). Land deep changes with a tight, source-grounded spec
++ a battery gate; verify on the REAL diff. Update this file at big checkpoints.
+
+**The ladder is doctrine now:** the next rung is whatever §C10 says is next — read the constitution's
+build order before opening a new front, and climb it in dependency order (R15 is a hard
+pre-condition for R3's `all-brains`; the soul rides last). Divergence ripples out through §C11-style
+amendments to the constitution, never by silent contradiction.
+
+**Universal field-telemetry doctrine.** Every agent, every repo, is a sensor. When m1nd misbehaves
+during ANY mission — even on another repo — the agent REPORTS, it does not fix: append one JSON line
+to the machine-global mailbox `~/.m1nd/field-reports.jsonl`
+(`{ts,agent,repo,tool,class:"bug|honesty|friction|win",what,expected,snippet}`) and keep working.
+Report-never-fix mid-mission is the rule. The `honesty` class is the most valuable — it is
+calibration ground truth (m1nd overclaimed and was wrong). When retrieval was simply right/wrong,
+prefer the built-in `learn` verb (correct/wrong/partial). Triage closes the loop: every improvement
+session STARTS by sweeping the mailbox (+ `seek` for field memories), and a confirmed field bug
+becomes a battery case/test BEFORE the fix. The mailbox is local-only — m1nd never phones home.
+
+**Agent-docs gate (CI, PR-only):** `scripts/agent_docs_gate.py` + the `agent-docs-gate` job FAIL any
+PR that changes an agent-workflow surface (the MCP `M1ND_INSTRUCTIONS` string / tool schemas / verb
+dispatch, `protocol/`, `help_guidance.rs`, `universal_docs.rs`, `skills/`, or the npm host installer)
+without ALSO updating agent-facing docs in the same PR (`skills/`, `docs/` incl. the wiki, `README.md`,
+`CONTRIBUTING.md`, or a root `CLAUDE.md`/`AGENTS.md`). It arms only on those surfaces (anti-cry-wolf);
+an instructions-only edit self-satisfies; the `agent-docs-exempt` label skips it for genuine
+no-behavioral-change refactors.
 
 ## Access Map
-- Battery harness: `scratchpad/m1nd_battery.py` — **now TRACKED in-repo** (#183;
-  protected by the `.gitignore` negation `!scratchpad/m1nd_battery.py` at line 52, so
-  it survives scratchpad clears). Fresh ingest + ground-truth PASS/FAIL + `rg`
-  head-to-head; the m1nd suite is now **36 cases, green at 36/36** on the release binary
-  (grown to cover the OMEGA/memory surface, #204). Probes: `impact_probe.py`, `edge_proof.py`.
-  Reports: `M1ND_BATTERY_REPORT.md`, `battery_FINAL.txt`.
+- Battery harness: `scratchpad/m1nd_battery.py` — **TRACKED in-repo** (protected by the `.gitignore`
+  negation `!scratchpad/m1nd_battery.py`, so it survives scratchpad clears). Fresh ingest +
+  ground-truth PASS/FAIL + `rg` head-to-head; the m1nd suite runs green with zero grep losses. Probes:
+  `impact_probe.py`, `edge_proof.py`. Reports: `M1ND_BATTERY_REPORT.md`, `battery_FINAL.txt`.
 - MCP stdio client pattern: `scratchpad/focus_smoke.py` (Content-Length JSON-RPC).
 - Build: `cargo build -p m1nd-mcp --bin m1nd-mcp` → `./target/debug/m1nd-mcp`.
-- 360 vision: `docs/X360-RUNTIME-PRD.md`. Focus runtime: `docs/FOCUS-RUNTIME-PRD.md`.
-- **The Soul — THIS FILE's own future as a verified m1nd type:** `docs/SOUL-PRD.md` (claim grammar + two tissues, `soul_check` freshness receipt, curator at the doc-gate; design 2026-07-05, grounded on a live probe of this very document — 12 fresh / 12 stale / 3 receipt-priced of 27 sampled claims).
-- Ambient layer per host (session-start hooks / rules files / TIER A–D recipes, fleet research 2026-07-03): `docs/HOST-INTEGRATION-MATRIX.md`.
+- **The constitution + the build order:** `docs/ORGANISM-PRD.md` (§C10 is THE ladder; §C11 the
+  amendment ledger). The five other PRDs: `MEDULLA-PRD.md`, `SOUL-PRD.md`, `HUMAN-LAYER-PRD.md`,
+  `TWO-TIER-BRAIN-PRD.md`, `NEXTGEN-AGENT-PRD.md` (§O.12 delegation, §O.10 the OMEGA floor roadmap).
+- Runtime PRDs: `docs/X360-RUNTIME-PRD.md`, `docs/FOCUS-RUNTIME-PRD.md`. Ambient layer per host:
+  `docs/HOST-INTEGRATION-MATRIX.md`.
 - git identity = Max Kle1nz <kleinz@cosmophonix.com>.
-- Battery is now 36 cases (JSON key `records`, each row has `m1nd_pass`; summary carries
-  `m1nd_pass`/`m1nd_pass_rate`); per-case `check=lambda res,q,c:` hook + `has_direct_calls_edge`
-  helper enable structural cross-file assertions via the live client.
 
-## Known Problems
-
-- **Checkpoint-9 residue (honest, the construction era's open edges — the mailbox is EMPTY,
-  these are the design/coverage gaps the shipped work left behind):**
-  - **`memory_nearby` 2-hop follow-up (from #231's residue).** The marker-fragment filter cleaned the
-    four north surfaces, but the `memory_nearby` claim-resolution path still has a 2-hop expansion that
-    can re-admit noise one edge out — the structural discriminator is applied at the surface, not yet
-    all the way through the 2-hop walk. Scoped follow-up, not a regression.
-  - **SSE pure-reader relay gap (from #233's residue).** The attach re-init fix locked the wire shape,
-    but a **pure-reader** relay (a client that only subscribes to SSE, never issues a request) can still
-    miss the re-init handshake — the transparent re-init is triggered on the request path. This is also
-    exactly what Living Tree Slice 0 deferred (`graph_changed` SSE refresh); the two meet here.
-  - **`why`-closure UNRESOLVED node-granularity (from #219).** The `m1nd:edge:unresolved` tag still has
-    the node-granularity over-fire the AMBIGUOUS tag had (fixed in #219): a clean path leaving a node
-    that drops ANY outbound ref (e.g. a std/external call) still reads `blocked`. Left untouched because
-    a dropped ref has no target node to key an edge-specific tag against — needs a DESIGN DECISION.
-    Residue measured earlier: ~8/11 connected pairs still blocked, now all on `unresolved`.
-  - **The CI flake fix is in flight (sibling worktree).** A sibling session works in `m1nd-flake2` on
-    a test/CI-flake fix; that surface is THEIRS this mission (PATHOS is mine). Don't double-touch it.
-  - **Slice-6 cwd-matrix battery still budgeted (TWO-TIER §21.14, ~line 469).** The two-tier brain's
-    cwd-resolution matrix (which project's brain a given cwd binds to) has a battery slice specified but
-    not yet built — it's in the PRD as a budgeted proof slice, not done.
-  - **Envelope calibration path still unbuilt.** The Trust-Gated Envelope (Move 1) ships DARK — it can
-    compose the triple, but the calibration path that would let the envelope's verdict earn `act` (as
-    opposed to `reverify`/`abstain`) is not yet wired; the envelope inherits `predict`'s coarse strength
-    model until that lands.
-  - **`x.method()` receiver inference is still THE binding gap.** Unchanged and load-bearing (detailed
-    below): a bare `x.method()` on a local/field receiver carries no qualifier, so same-name ties still
-    fall to proximity/`candidates[0]`. Receiver-type inference (`let x: T` / field types / fn returns)
-    remains the dedicated harder cycle. This is the #1 remaining correctness gap in the graph itself.
-  - **Living Tree Slice-0 deferrals** (repeated here so they're not lost): live `graph_changed` SSE
-    refresh, vendored fonts, and the stale-flip e2e — all carried into Slice 1.
-  - **PATHOS auto-refresh: the push-back to `main` is BLOCKED by branch protection (needs a
-    maintainer call).** The pattern is installed and PROVEN up to the last hop: the Action regenerates both
-    auto sections and commits on the runner, but the direct push is rejected (GH006 —
-    required status checks; `GITHUB_TOKEN` has no bypass; first live runs 2026-07-03). The workflow
-    now fail-softs (warning + step summary, never a perpetually red run) and already prefers a
-    `PATHOS_REFRESH_TOKEN` secret if present. **Unblock = a maintainer decision:** (A) fine-grained admin
-    PAT (Contents read/write) in the `PATHOS_REFRESH_TOKEN` secret — zero workflow edits needed; or
-    (B) required-checks bypass for `github-actions` (a protection change). Until then the auto
-    sections only refresh when a PR (like this one) carries a regenerated copy.
-
-- **Checkpoint-8 carry-over (still open into the v1.2.x cycle — the mailbox is now empty, but
-  these design/decision gaps remain):**
-  - **`why`-closure CRY-WOLF — AMBIGUOUS portion = FIXED (field-triage #4, PR pending).** The
-    `m1nd:edge:ambiguous` over-fire is closed: the tag now fires only on a genuine coin-flip
-    (decisive proximity/qualifier binds no longer tag) and is read edge-specifically via a targeted
-    `m1nd:edge:ambiguous:<target>` tag. Ambiguous-blocked dropped 9/11 → 0/11 on the m1nd repo;
-    battery case `closure_verdict_wellformed_blocked` updated to assert (well-formed contract) +
-    (no `ambiguous` dangling on the clean handle_seek→pack_to_budget path) + (honesty guard: a real
-    tie STILL blocks). Binding behavior itself is UNCHANGED — only the tag precision/read granularity.
-  - **`why`-closure UNRESOLVED node-granularity (NEW, discovered during field-triage #4; OPEN).**
-    The `m1nd:edge:unresolved` tag has the SAME node-granularity over-fire the ambiguous tag had:
-    it is set per-source-node whenever a node drops ANY outbound ref (e.g. a call to a std/external
-    fn), and `closure_reason_for_edge` reads it node-level — so a clean path leaving such a node
-    (e.g. handle_seek→pack_to_budget, a unique-name target) still reads `blocked` on `unresolved`.
-    Left UNTOUCHED by triage #4 because "EDGE_UNRESOLVED_TAG semantics stay unchanged" was explicit
-    scope, AND it needs a DESIGN DECISION (a dropped ref has no target node to key an edge-specific
-    tag against; and the contract test `why_reports_blocked_when_path_rests_on_dangling_edge`
-    encodes the current intent). Measured residue: 8/11 connected pairs still blocked, now all on
-    `unresolved`. Follow-up task spawned.
-  - **`memorize` unanchored on the live runtime (seeded field report #2).** Evidence paths
-    didn't anchor to code nodes against the running served owner — friction/bug on the live
-    runtime specifically. Reproduce against a served-attach graph, then fix.
-  - **the `temp` artifact drop (seeded field report #3).** A stray `temp` file lands in cwd via
-    a battery/tool path; the battery works around it (`rm -f temp`) but the SOURCE drop is
-    unfixed. Trace which tool writes `temp` and stop it at source.
-  - **Memory roadmap remainder: #7 reinforce-on-use BLOCKED, #8 daemon reflect/consolidate
-    PENDING.** #7 needs a `last_used`/`memory_used` signal that does not yet exist (a design
-    decision — feedback verb on recall? auto-stamp on `activate` touch?); #8 is the largest and
-    leans on #7. Both carry forward unchanged.
-- **Ω+1 ambient-loop OPEN RISKS (the four critic corrections, baked into the PRD § Ω+1.3
-  — this design is NOT shipped, it is a direction awaiting a maintainer green-light on hook
-  install).**
-  - **Hook latency must be MEASURED, not asserted.** Every PRE/POST hook is an MCP
-    round-trip; a 12-edit refactor pays 12× `am_i_stale` + 12× `ghost_edges`→`predict`,
-    and `orient` (PageRank, heaviest verb) must NOT fire blocking on `SessionStart`
-    (esp. `compact`). Needs a per-hook latency budget, caching keyed to `graph_generation`
-    for the "nothing changed" path, and fire-and-forget async on post-capture. "Sub-100ms"
-    is a claim until benchmarked.
-  - **The keystone is `Stop → cross_verify → memorize` DIRECTLY, NOT `mission_*`.** The
-    synthesis's `Stop → mission_verify → mission_close → memorize` is structurally broken as
-    a hook: `mission_verify`/`mission_close` require a `mission_id` and hard-error without
-    one (`mission_handlers.rs:200,309,454,458`), but `Stop` fires on every turn end (almost
-    none with an open mission). `memorize` takes free-form claims + evidence and needs no
-    `mission_id` (`light_author_handlers.rs`), so it is the composable keystone. `mission_*`
-    is reserved for `SubagentStop` / genuinely-open missions.
-  - **Auto-memorize fabrication risk (the one honesty soft spot).** The distiller feeding
-    `Stop:memorize` must anchor claims to resolvable `evidence` code paths, NOT
-    free-LLM-summarize the turn (which could fabricate a memory and persist it with
-    authority). `memorize`'s resolve-or-flag gate rejects unresolved evidence; the
-    extraction step is where the guard must hold.
-  - **Calibration auto-trigger is MISSING.** `predict`/co-change is honestly `abstain` on an
-    uncalibrated graph (Move 0) and never earns its way on unless `calibrate_predict` runs
-    against the repo's git history automatically. Without the auto-trigger, the co-change
-    nudge ships silent and stays silent forever. Also: `am_i_stale → ask` must be CAUTION by
-    default (block only on a file THIS agent read this session) — a hard `ask` on every hash
-    mismatch cries wolf on formatter/branch-switch/sibling-session churn (our own documented
-    multi-session worktree drift).
-- **The ambient loop needs `--serve`/`--attach` BEFORE any hook install (proven by the A/B,
-  §Ω+1.3b).** The first pre-flight A/B measured it: in the **process-per-hook + in-process-graph**
-  setup, (a) each hook fire re-ingests the whole repo (72ms on this small repo; would DOMINATE
-  latency on a large one), and (b) **compounding cannot work** — each fire is a separate
-  short-lived process, so a `Stop:memorize` writes to a graph the next fire never reloads. Both
-  are architectural, not tunable. The fix is known: the hook must ATTACH to a persistent
-  `--serve` graph (m1nd already ships this at #157/#158), which kills the per-fire ingest AND
-  enables cross-fire compounding. **Until the served-attach variant is stood up and re-tested,
-  the compounding beat is unvalidated.** Also still untested: a **harder "rescue" task** —
-  the A/B's task was too easy (both arms 3/3), so it proved pre-orient HELPS orientation + does
-  no harm, but NOT that north rescues a run that would otherwise fail.
-- **`x.method()` receiver-variable resolution still needs type inference — the #1
-  remaining gap.** #175 fixed QUALIFIED calls (`Type::method()`, `module::func()`)
-  via the call qualifier, and #170 fixed cross-file proximity (same-file > same-dir
-  > cross-crate). What's left: a bare `x.method()` on a local/field receiver
-  carries NO qualifier in source, so same-name ties (the 4 `propagate` impls; a
-  `detector.detect()` whose type only a `let` binding knows) still fall to
-  proximity/`candidates[0]`. Real fix = receiver-type inference (track `let x: T`
-  / field types / fn return types) — a dedicated, harder cycle. Cross-crate calls
-  whose correct target is in ANOTHER crate (`graph.strings.resolve` → m1nd-core)
-  are the same class.
-- **`predict`'s signal is COARSE — calibration just measured how coarse (Move 0).**
-  Predict's strength model is `0.1·N` (linear in co-change neighbor count); calibrated
-  against m1nd's own history it tops out at **~28.3% act-band precision** (τ=0.60,
-  14.6% coverage). The calibrator is honest — `act` is structurally withheld until the
-  number clears a risk budget — but the underlying strength model needs a real upgrade
-  (proper conformal score / learned weighting) before `predict` can `act` at useful
-  coverage. Calibration's job was to surface this; it did.
-- **Battery `rg_lines>8` scoring artifact (5 ties under-credit structural tools).**
-  The win/tie verdict partly tracks grep PATTERN VOLUME, not capability — twin scan
-  cases get opposite verdicts purely by how many lines `rg` printed, and trace/scan/
-  am_i_stale/xray_orient lose "ties" to a meaningless grep. Fix = score by ANSWER
-  correctness, not match-line count. (Of 12 ties: ~5 are this artifact, ~2-3 are real
-  convertible capability, ~4 honest permanent ties.)
-- **Poisoned-oracle threat model is OPEN (OMEGA §O.7).** A poisoned eval set or
-  co-change corpus makes Move 0's calibrator certify a WRONG verdict with confidence —
-  "who calibrates the calibrator?". A self-consistent-but-false receipt is the
-  "consistent ≠ correct" failure weaponized. Logged as unsolved; eval-set integrity is
-  a hard prerequisite before any verb defaults on.
-- **Memory roadmap: #1-#6 DONE, but #7 is BLOCKED and #8 is the largest remaining.**
-  Moves #3-#6 shipped this session (#198-#201, all TDD-proven). **#7 reinforce-on-use is
-  BLOCKED — there is NO `last_used`/`memory_used` signal in the system** (nothing records
-  that a recalled memory was actually USED), so reinforcement has no input to strengthen on;
-  this needs a **design decision** (where does the use-signal come from — a `learn`-style
-  feedback verb on recall? an auto-stamp on `activate` touch?) before it can be built.
-  **#8 daemon reflect/consolidate is the largest remaining move and LEANS ON #7** (it
-  consolidates by usage/reinforcement), so #8 is effectively gated behind the #7 decision.
-  The cross-cutting concurrency-lock risk is now RESOLVED for supersession (#200's per-slug
-  `flock`); missing-`Created` eviction-exemption is honored (#201); audit-observability holds
-  (#201 drop is observable) — see PRD § D.
-- Method-call EDGES exist for Rust (#166) but not TS/Java/Go/Python.
-- **Agent-memory subsystem gaps (G1-G6, `docs/NEXTGEN-AGENT-PRD.md` § Subsystem D) — MOSTLY
-  CLOSED as of checkpoint 7; residue is the `last_used`/reinforce gap.** Fixed this era:
-  `.light.md` now carries `Created`/`Source-Agent` (#187/#189, move #1-#2); staleness is no
-  longer code-sha-only — the `aged_out` age/disuse signal ships (#198); auto-load is now
-  recency-CAPPABLE, not unbounded (#201); re-memorizing a slug no longer silently overwrites —
-  it invalidates-and-keeps with supersession history + a per-slug flock (#200); and the decay
-  kernels that "existed but didn't touch stored memories" now DO (`activate_temporal` reads
-  per-type half-lives, #199). **Residue: `last_used` is still ABSENT** — no signal records
-  that a recalled memory was used, which is exactly what blocks move #7 (reinforce-on-use);
-  and there is still **no cross-agent sharing/attribution** (source is stamped but not shared).
-- `scan.mitigated` is now visible at default `severity_min` (#172) — note this
-  CHANGED default output (callers see `mitigated` findings; `false_positive` still
-  suppressed). Revertible if undesired.
-- `#[cfg(all(test, …))]` compound predicates aren't tagged via the module path.
-- ~~i18n READMEs (7 langs) + wiki lag the v1.1.0 README~~ RESOLVED (PR #216):
-  i18n regenerated at 1.2.0, and the era-coherence sweep brought wiki, skills,
-  and agent packs to the OMEGA loop (north-first → verdicts → memorize-at-close
-  → field-reports) — every agent door now teaches the same doctrine as the MCP
-  `initialize` instructions (#208).
-- Auto-freshness: `ingest` doesn't auto-start the watcher (it exists —
-  notify + `maybe_tick` — but is opt-in); seeded fix.
-- Multi-session: sibling sessions touch this repo (a launchd medulla serves the live
-  brain; a sibling worktree may hold a test/CI-flake fix — e.g. `m1nd-flake2` this era) —
-  `git fetch` before acting, confirm `git branch --show-current` before commit. `main` is
-  held by the primary worktree (`<repo>`); do feature work in an isolated
-  worktree (e.g. `<repo>-<mission>`) with the shared `CARGO_TARGET_DIR`, and
-  `git worktree remove` it when done (disk-hygiene rule).
+## Known Problems (honest, product-level)
+- **The medulla storage split is DESIGNED, not yet BUILT (ladder R2).** M5a — per-brain storage +
+  `Origin-Brain` labels + migration + brainless-root refusal — is fully specified in the constitution
+  and MEDULLA-PRD, but the code still holds mixed claims without `Origin-Brain` provenance. It is the
+  long pole of the ladder (M5a → M5b → M6) and the next real build.
+- **Per-brain session-counter partition is PENDING (ladder R14, §9.5.1).** In one served owner,
+  session/query counters are not yet partitioned per brain, so aliveness counts can bleed across
+  brains in the Hall. Backend work budgeted, not done.
+- **The `seek` rerank over-weights graph centrality vs semantic similarity.** A high-PageRank node
+  can out-rank a more semantically-relevant hit, so meaning-search results skew toward the graph's
+  hubs. A rerank fix is queued (the constitution's R17 conformance-boost rerank is the vehicle to
+  let X-RAY/relevance steer attention here).
+- **`x.method()` receiver-type inference — the #1 remaining GRAPH gap.** A bare `x.method()` on a
+  local/field receiver carries no qualifier, so same-name ties fall to proximity / `candidates[0]`.
+  Qualified calls (`Type::method()`, `module::func()`) and cross-file proximity are solved;
+  receiver-type inference (track `let x: T` / field types / fn return types) is the dedicated harder
+  cycle. Method-call edges exist for Rust but not TS/Java/Go/Python.
+- **`why`-closure UNRESOLVED node-granularity.** The `unresolved` closure tag still over-fires at
+  node granularity (the ambiguous tag was fixed to edge granularity; unresolved was not): a clean
+  path leaving a node that drops any outbound ref (e.g. a std/external call) still reads `blocked`.
+  It needs a design decision — a dropped ref has no target node to key an edge-specific tag against.
+- **`predict`'s strength model is COARSE.** Calibrated against m1nd's own history it tops out around
+  ~28% act-band precision at ~15% coverage. The calibrator is honest — `act` is structurally withheld
+  until the number clears a risk budget — but the underlying strength model (`0.1·N` in neighbor
+  count) needs a real upgrade before `predict` can `act` at useful coverage.
+- **The poisoned-oracle threat model is OPEN.** A poisoned eval set or co-change corpus makes the
+  calibrator certify a wrong verdict with confidence — "who calibrates the calibrator?". Logged as
+  unsolved; eval-set integrity is a prerequisite before any verb defaults on.
+- **PATHOS auto-refresh push-back to `main` is BLOCKED by branch protection.** The pattern is installed
+  and proven up to the last hop: the Action regenerates the auto sections and commits on the runner,
+  but the direct push is rejected (required status checks; `GITHUB_TOKEN` has no bypass). The workflow
+  fail-softs (warning + step summary, never a perpetually red run) and prefers a `PATHOS_REFRESH_TOKEN`
+  secret if present. Unblock = a maintainer call (a fine-grained admin PAT in `PATHOS_REFRESH_TOKEN`,
+  or a required-checks bypass for `github-actions`). Until then the auto sections refresh only when a
+  PR carries a regenerated copy.
+- **Multi-session hygiene.** A served owner holds the live brain and sibling worktrees may hold
+  parallel work — `git fetch` before acting, confirm `git branch --show-current` before commit, do
+  feature work in an isolated worktree with the shared `CARGO_TARGET_DIR`
+  (`$HOME/.m1nd-build-cache/target`), and `git worktree remove` it when done.
 
 ## Proof Standard
-Done = `cargo test --workspace` green + clippy `-D warnings` + `cargo fmt` clean +
-the BATTERY (`scratchpad/m1nd_battery.py`, tracked) at **37** on the m1nd suite (zero
-grep losses) showing the targeted tool improved with a concrete example (e.g. `impact(reverse,
-pack_to_budget)` ranks `handle_seek` above the `pack_to_budget_*` tests), zero
-regression. CI green on 3 OSes before merge. **For UI/human-layer slices:** INV component
-tests against REAL captured envelopes (`m1nd-ui/src/__fixtures__/`) + the violet-lint
-(violet reserved for abstain/unknown) + a live dogfood against a `--serve` of m1nd's own graph.
-**For OMEGA verbs, "calibration-gated" now JOINS battery-gated (§O.6).** Battery
-tests prove the code does what it says (consistency); the calibrator proves the
-verdict is right often enough to act on (correctness-at-coverage). A verb earns `act`
-as an allowed output ONLY when measured precision-at-coverage clears the stated risk
-budget — until then `act` is structurally withheld and the verb emits
-`reverify`/`abstain`/`unprovable`. Both gates, in that order. Recalibration, not
-retraining: the number is re-measured against ground truth, never asserted in a README.
-Engine cadence (proof-grown): each move lands in a worktree-isolated slice with a tight
-source-grounded spec + battery gate → verify the gate + battery on the REAL diff
-(targeted re-run, never trust the report) → commit/PR/merge → the UNIVERSAL DOC GATE
-(docs/wiki/README/PATHOS current before "done") → seed the next move.
+Done = `cargo test --workspace` green + clippy `-D warnings` + `cargo fmt` clean + the BATTERY
+(`scratchpad/m1nd_battery.py`, tracked) green on the m1nd suite (zero grep losses) showing the
+targeted tool improved with a concrete example, zero regression. CI green on 3 OSes before merge.
+**For UI/human-layer slices:** INV component tests against REAL captured envelopes
+(`m1nd-ui/src/__fixtures__/`) + the violet-lint (violet reserved for abstain/unknown) + the icon-lint
++ a live dogfood against a `--serve` of m1nd's own graph. **For OMEGA/prediction verbs,
+calibration-gated JOINS battery-gated:** battery tests prove the code does what it says (consistency);
+the calibrator proves the verdict is right often enough to act on (correctness-at-coverage). A verb
+earns `act` as an allowed output ONLY when measured precision-at-coverage clears the stated risk
+budget — until then `act` is structurally withheld and the verb emits `reverify`/`abstain`/`unprovable`.
+Recalibration, not retraining: the number is re-measured against ground truth, never asserted in a
+README. Engine cadence: each rung lands in a worktree-isolated slice with a source-grounded spec +
+battery gate → verify on the REAL diff → PR/merge → the UNIVERSAL DOC GATE (docs/wiki/README/PATHOS
+current, agent surfaces updated in the SAME PR) → seed the next rung.
 
 ## Next Agent Prompt / next seeds
 
-**→ ACTIVE NORTH IS THE CONSTRUCTION ERA. OMEGA (§O.10, below) is the FLOOR — released and
-live — not the frontier anymore.** The frontier is building outward on three official PRDs,
-in this order, each slice proof-grown and degrading to UNPROVABLE rather than a fake green:
+**→ THE ERA IS CONSTRUCTION.** The design era is closed; do not write another vision. Read the
+**ORGANISM constitution's §C10 ladder** — it is the single cross-PRD build order, and an implementer
+reads that chapter alone and knows what to build next. R0/R1/R5 shipped (#275). **Climb from R15
+onward, in dependency order, RED-first per rung:**
 
-1. **FIRST — make the tree ALIVE: SSE `graph_changed` + vendored fonts.** Living Tree Slice 0
-   ships a read-only *snapshot*; the next move is the two Slice-0 deferrals that turn it live —
-   the `graph_changed` SSE refresh (the tree updates as the graph does; this ALSO closes the
-   SSE pure-reader relay gap in Known Problems) and vendored fonts (drop the external link). This
-   is the smallest, highest-leverage next step: the human surface stops being a photo and becomes
-   a window.
-2. **THEN — Human-Layer Slice 1: the Pre-Flight Card** (`docs/HUMAN-LAYER-PRD.md`). The hero: the
-   **§O.12 delegation packet rendered** as the card a human reads before an agent acts — binding
-   trust + focus + prior memory + honest gaps, made legible. The delegation packet already exists
-   as a contract (§O.12); Slice 1 is its human face.
-3. **Two-Tier Brain slices — CLONE GATE FIRST** (`docs/TWO-TIER-BRAIN-PRD.md`). Slice in the
-   per-project-brain + medulla architecture proof-grown; the clone-gate (a project brain forks
-   cleanly from the medulla without dragging cross-project memory) is the first slice, then the
-   per-project inbox. The Slice-6 cwd-matrix battery (§21.14) is budgeted but unbuilt.
-4. **Inbox verbs — `inbox_drop` / `inbox_sweep` + a `north` inbox counter.** The per-project inbox
-   doctrine is sealed in medulla memory; the verbs that operate it (drop a cross-project note into a
-   project's inbox, sweep it on next `north`) + surfacing an inbox count in the north packet are the
-   delegation-layer's runtime hands.
+1. **R2 — M5a: the medulla storage split** (`docs/MEDULLA-PRD.md` §11 + ORGANISM §C10). Per-brain
+   storage + `Origin-Brain` labels + migration + brainless-root refusal. This is the long pole; every
+   later memory rung (tier recall, promotion, the packet memory slice) stands on it. RED: 25 mixed
+   claims with zero `Origin-Brain`, a ghost root, a brainless-root memorize that lands silently.
+2. **R15 — the eviction gate** (§C9.1). LRU + persist-on-evict in the owner. A **hard pre-condition**
+   for R3's `all-brains` half. RED: bootstrap K+1 brains → kill -9 → warm-boot-per-brain (fails today
+   by construction).
+3. **R3 — M5b: `tier` recall + no-leak proven + `all-brains`** (gated by R15). RED: the leak
+   permutation matrix (seed brain Y, assert brain X's beat never carries it; assert `all-brains` does,
+   labeled).
+4. **R4 — M6: the `promote` verb** with its provenance riders (origin-qualified evidence, the
+   verified-only gate, demotion documented), agent-workflow surfaces in the SAME PR. Then the packet
+   memory slice (R7), delegation (R6), the mailbox (R8/R9), the Pre-Flight Card (R10), and — LAST —
+   the SOUL PRD + slices (R16), bound by the constitution's seven soul constraints.
 
 **Doctrine pointers (carry verbatim into every spawned agent):** the **UNIVERSAL FIELD-TELEMETRY
 DOCTRINE** (every agent/repo is a sensor → REPORT to `~/.m1nd/field-reports.jsonl`, never fix
 mid-mission; `honesty` class is calibration ground truth; a triage session STARTS by sweeping the
-mailbox and a confirmed bug becomes a battery case BEFORE the fix); the **UNIVERSAL DOC GATE incl.
+mailbox, and a confirmed bug becomes a battery case BEFORE the fix); the **UNIVERSAL DOC GATE incl.
 agent surfaces** (docs/wiki/README/PATHOS current before "done"; any change to HOW agents work
-updates the agent-read surfaces — CLAUDE.md/AGENTS.md, skills/, host packs, MCP instructions — in
-the SAME PR; the agent-docs CI gate #229 enforces this); the **DISK HYGIENE rule** (shared
-`CARGO_TARGET_DIR` + worktree sweeps).
+updates the agent-read surfaces in the SAME PR — the agent-docs CI gate enforces this); the **DISK
+HYGIENE rule** (shared `CARGO_TARGET_DIR` + worktree sweeps).
 
 ---
 
-**↓ THE FLOOR (still-true reference): m1nd-OMEGA, `docs/NEXTGEN-AGENT-PRD.md` §O.10 — the ranked
-OMEGA roadmap, calibration-gated, reuse-first, honest.** Moves 0 (calibration) + 1 (Envelope)
-DONE and RELEASED (v1.2.0/1.2.1); the honest Move-2 reframe shipped. Read §O.1–O.11 for the vision
-(answer + map + trust receipt), the calibration keystone, the critic corrections, and the open
-poisoned-oracle risk. Move 2 (Solvency) and Moves 3–9 remain if the construction era ever needs to
-return to deepening the substrate — but they are NOT the active north. The verb plan: each OMEGA
-verb is a thin composer over shipping tools, ships DARK, earns `act` only once the calibrator
-certifies it.
-
-**OMEGA roadmap (§O.10) — Move 0 + Move 1 DONE, Move 2 next; Ω+1 is the fresh front:**
-- **Move 0 — conformal calibration harness (keystone).** ✅ **DONE (PR #192).** First
-  real number measured (predict: 28.3% act-precision @ 14.6% coverage). Gates `act`
-  for every verb after it.
-- **Move 1 — the Trust-Gated Envelope (`envelope` / the §O.4.1 triple).** ✅ **DONE +
-  VERIFIED (PR #195).** answer + map + trust in one round-trip. **Gate = CALIBRATED
-  WEIGHTING, not an any-red AND-fold** (§O.3 #1); ships DARK until the calibrator
-  certifies it; **14 tests incl. the anti-AND**. Cross-repo stress test PASSED (TS/Py/Rust)
-  and surfaced the gitignore fix **#194**. **v1.2.0 = Move 0 + Move 1, both landed.**
-- **Move 2 — Solvency & Stop Gate (`solvency`) — STILL NEEDS A RE-GROUND before building.**
-  Arbiter over `focus` sufficiency + `coverage_session` + a **real token-budget signal** (the
-  §O.3 #4 unit-mismatch fix — `budget_consumed`/`relevance_clearing_total`/`coverage_session`
-  do NOT subtract; wire a true token budget or build it net-new) + `am_i_stale`. **Re-verify
-  the `file:line` anchors against current `main` before coding** (the PRD anchors carry a
-  known v1.1.0 re-ground caveat; symbol is the contract, line is a hint). Then Moves 3–9
-  (§O.10), each calibration-gated, composer-over-shipping-tools, degrading to UNPROVABLE not
-  a fake green.
-
-**→ FRESH STRATEGIC FRONT — Ω+1, THE AMBIENT LOOP (`docs/NEXTGEN-AGENT-PRD.md § Ω+1`).**
-The next chapter after OMEGA: m1nd as the ambient nervous system of the agent loop
-(`pre-orient → act → post-capture → compound`), wired into the hook lifecycle. The PRD
-section is written, critic-corrected (four load-bearing corrections in § Ω+1.3), and now
-**EMPIRICALLY GROUNDED by the first A/B (§Ω+1.3b)** — pre-orient HELPS orientation + does no
-harm, but compounding is architecturally BLOCKED in the naïve hook setup.
-- **THE NEXT AMBIENT MILESTONE = the serve/attach experiment.** The A/B proved the compounding
-  beat cannot close in process-per-hook + in-process-graph (each fire re-ingests + can't see
-  the prior fire's `memorize`). So the next move is: **stand up a served m1nd (`--serve`,
-  #157/#158), attach the hook to it instead of re-ingesting per fire, and re-run the A/B to
-  validate (a) cross-fire compounding, (b) latency-at-scale on a large repo, (c) a harder
-  RESCUE task** (the last A/B was too easy — both arms 3/3). Only after that validation does
-  the live wiring earn a green-light.
-- **DO NOT install hooks in the live env without a maintainer green-light AND the serve/attach
-  validation.** Installing hooks into the live Claude Code / Codex environment CHANGES the user's
-  workflow (a decision, not an autonomous ship), and the naïve shim pays re-ingest latency +
-  can't compound — the served-attach variant is the prerequisite.
-The reuse-first Wave roadmap (§ Ω+1.4) is now re-anchored on serve/attach at Wave 0, then
-ORGANIZE-first (Waves 1–3 nearly free), rewired keystone (Wave 4: `Stop → cross_verify →
-memorize` directly), swarm last.
-
-**AUTONOMOUS MANDATE (2026-06-30, still standing — target shifted from OMEGA to
-CONSTRUCTION):** run the active north — now the construction era (tree-alive → Pre-Flight
-Slice 1 → two-tier clone-gate → inbox verbs) — to completion, tested/dogfooded, UNATTENDED;
-stop only when complete. Honor the universal doc gate incl. agent surfaces at each move
-(docs/wiki/README/PATHOS current before "done"). The OMEGA-roadmap phrasing of this mandate
-is `[SHIPPED/histórico]` — Moves 0+1 landed and released; the mandate now drives building
-outward on the three PRDs.
-
-**MEMORY track (Subsystem D) — moves #1-#6 DONE, #7 BLOCKED, #8 largest.** #1-#2
-(`Created`/`Source-Agent` #187/#189) + **#3-#6 SHIPPED this session** (age-staleness #198,
-`activate_temporal` decay fix #199, supersession-on-rewrite+flock #200, recency-capped
-auto-load #201). **What's left NEEDS DECISIONS, not just execution:**
-- **#7 reinforce-on-use is BLOCKED on a design decision** — there is no `last_used`/
-  `memory_used` signal in the system, so reinforcement has no input. First move: DECIDE where
-  the use-signal comes from (a `learn`-style feedback on recall? an auto-stamp on `activate`
-  touch?), then build. Don't ship a reinforce that strengthens on nothing.
-- **#8 daemon reflect/consolidate is the largest move and leans on #7** — gated behind the #7
-  decision. (Full detail + gaps G1-G6 + critic corrections in the PRD § D.)
-- **Critic's cross-cutting memory risks (must design in before the related move ships):**
-  - **Concurrency / locking on `agent-memory/` writes** — biggest unhandled correctness
-    risk. `reload_agent_memory` + `memorize` both `fs::write` the same dir, and move #4's
-    invalidate-and-keep is a read-modify-write with NO lock; two sessions on one slug can
-    clobber. Collides directly with our known multi-session worktree drift — design write
-    serialization (advisory file lock) before supersession ships.
-  - **Missing-`Created` backfill before eviction** — move #3 sorts by `Created`, so every
-    legacy `.light.md` sorts oldest and would be evicted first the moment a cap ships.
-    Rule: missing-`Created` is EXEMPT from eviction (or floored to file mtime) until
-    re-memorized.
-  - **Observability for the forgetting/consolidation passes** — under verify-before-claim,
-    moves #3/#8 need an audit emission (what got capped/merged + confidence deltas) or
-    they are unprovable.
-
-Each cycle: measure → fix+test → update THIS file → seed the next. Run parallel
-worktree-isolated work on non-overlapping surfaces; go SOLO if rate-limited
-(parallel bursts can trip the API rate limit — serialize then).
+**↓ THE FLOOR (still-true reference): m1nd-OMEGA, `docs/NEXTGEN-AGENT-PRD.md` §O.10** — the verifiable
+trust substrate, released and live. Moves 0 (conformal calibration harness) + 1 (the Trust-Gated
+Envelope) are DONE and RELEASED (v1.2.0/1.2.1); the honest Move-2 reframe shipped. Read §O.1–O.11 for
+the vision (answer + map + trust receipt), the calibration keystone (consistency ≠ correctness), the
+baked-in critic corrections, and the open poisoned-oracle risk. **Move 2 (Solvency & Stop Gate)
+remains a DESIGN task, not a build task — it is roadmap-only and un-grounded:** m1nd has no token
+ledger, so a solvency arbiter would need a real budget signal wired or built net-new before it could
+mean anything, and its `file:line` anchors must be re-verified against current `main` first. It is NOT
+the active north — the ladder is. Return to deepening the substrate only if construction ever needs it.
 
 ## Do Not Do
-- Don't edit/build m1nd source while a battery/subagent is building on the shared
-  worktree (corrupts its measurement). Don't admin-merge / bypass branch
-  protection. Don't claim a fix works without a battery re-run. Don't delete
-  unmerged branches without patch-id proof.
+- Don't edit/build m1nd source while a battery/subagent is building on the shared worktree (corrupts
+  its measurement). Don't admin-merge / bypass branch protection. Don't claim a rung works without a
+  battery re-run on the REAL diff. Don't delete unmerged branches without patch-id proof. Don't open a
+  new front off-ladder — the constitution's §C10 order is the north; diverge only via a §C11 amendment.
 
 ## Open Questions
-- Should auto-freshness default-on (watcher per ingest) or opt-in? (decide with a
-  battery staleness scenario.)
-- Does the impact symbol-first ranking want to differ by direction
-  (reverse=callers vs forward=dependencies)?
+- Should auto-freshness default-on (watcher per ingest) or opt-in? (decide with a battery staleness
+  scenario.)
+- Does the `impact` symbol-first ranking want to differ by direction (reverse=callers vs
+  forward=dependencies)?
+- Where does the `last_used`/reinforce-on-use signal come from (a `learn`-style feedback on recall? an
+  auto-stamp on `activate` touch?) — the blocker on the memory subsystem's reinforce/consolidate moves.
+
+## Prior Eras (summary — full text in git history)
+- **Checkpoint 9 (2026-07-03/04) — the construction era opens.** Three PRDs made official (HUMAN-LAYER,
+  §O.12 delegation, TWO-TIER-BRAIN); the first human surfaces SHIPPED (Living Tree, the Hall, the tree
+  precision system, per-brain Open); reception degraded-mode shipped; the field-report mailbox swept to
+  empty in ~a day (each report a battery case before its fix). Releases: v1.3.0 (the shell reaches every
+  host — 22-host recipes, MCP-Registry manifest), v1.3.1/1.3.2 (discoverability + the launch funnel).
+- **Checkpoints 8 / 8.1 (2026-07-02/03) — the first OMEGA-era releases.** v1.2.0 (OMEGA Move 0
+  calibration + Move 1 Envelope + the honest Move-2 reframe + `north` pre-orient + memory moves #1–#6)
+  and v1.2.1 (the compounding fix — `north` composes L1GHT agent-memory recall — plus field-triage
+  fixes) cut, published, and rebuilt into the served runtime. The universal field-telemetry doctrine
+  established here.
+- **Checkpoint 7 (2026-07-01) — memory roadmap #3–#6 + the pre-flight A/B.** Age-staleness,
+  per-type decay, supersession-on-rewrite+flock, recency-capped auto-load all shipped. The first A/B
+  proved `north` pre-orient HELPS orientation and does no harm, but found compounding architecturally
+  blocked in process-per-hook — the insight that the ambient loop's real prerequisite is `--serve`/`--attach`.
 
 ---
 
