@@ -449,7 +449,7 @@ Straight from the research, stated as **built / unbuilt / unverified** — never
 ### 6b. Publish `server.json` to the official registry — **SHIPPED 2026-07-04**
 
 Published: `io.github.maxkle1nz/m1nd` **v1.3.0** is live on `registry.modelcontextprotocol.io`
-(device-flow auth by Max as maxkle1nz; verified via the public search API). Ownership proof =
+(device-flow auth by the maintainer as maxkle1nz; verified via the public search API). Ownership proof =
 `mcpName` inside the npm package `@maxkle1nz/m1nd@1.3.0`. Gotcha learned: the registry caps
 `description` at **100 chars** — the repo `server.json` carries the published 95-char form.
 

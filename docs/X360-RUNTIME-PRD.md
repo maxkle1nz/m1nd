@@ -2,7 +2,7 @@
 
 > A single coherent design for turning declared architectural intent into a living, graph-bound, self-updating contract that coding agents consult before they act.
 
-> **Accuracy note (post-review correction).** The adversarial critique verified anchors against a local `/Users/kle1nz/m1nd` checkout that was **behind `origin/main`** and predated the merged `focus` runtime (PR #157, commit `9d742bf`). `focus` / `handle_focus` / `FocusInput` / `compute_sufficiency` **do exist** on `origin/main`. The design is unaffected: `focus` is a thin layer **over `handle_seek`**, so injecting the conformance term into the shared `handle_seek` rerank (as §5.5 does) is exactly right — it boosts attention for both `seek` and `focus`. Seek-rerank line anchors below were taken from the stale checkout; re-ground them at build time against `origin/main` (with `focus` merged, `layer_handlers.rs` is ~280 lines longer, so the rerank sits lower).
+> **Accuracy note (post-review correction).** The adversarial critique verified anchors against a local `~/m1nd` checkout that was **behind `origin/main`** and predated the merged `focus` runtime (PR #157, commit `9d742bf`). `focus` / `handle_focus` / `FocusInput` / `compute_sufficiency` **do exist** on `origin/main`. The design is unaffected: `focus` is a thin layer **over `handle_seek`**, so injecting the conformance term into the shared `handle_seek` rerank (as §5.5 does) is exactly right — it boosts attention for both `seek` and `focus`. Seek-rerank line anchors below were taken from the stale checkout; re-ground them at build time against `origin/main` (with `focus` merged, `layer_handlers.rs` is ~280 lines longer, so the rerank sits lower).
 
 ---
 
@@ -444,7 +444,7 @@ fn evaluate_clause(manifest: &XrayManifest, graph: &Graph, c: &Clause) -> Clause
 
 **Output shape — Terraform-plan diff.** `XrayGateOutput` gains `plan: Vec<ClauseVerdict>` where each entry is `{ id, kind, lane, enforce, verdict, want, have, evidence: Vec<node_path>, reason }`.
 
-**Tool surface — NO new MCP verb.** `xray_gate` (wired `server.rs:336`, dispatch `:3336`) gains clause-aware aggregation + `plan`; `xray_orient` gains `Unprovable` in its ledger. The **CI/git-hook surface is a thin CLI shell**: `m1nd conformance [--staged] [--format=plan|json]` calls the same `gate_graph()` core and exits non-zero on `blocked`. The existing `~/.claude/hooks/verify-edit.sh` machinery and a pre-commit hook invoke it. One core, two front-doors — mirroring how `/Users/kle1nz/xray/xray-gate.py` already shells the gate.
+**Tool surface — NO new MCP verb.** `xray_gate` (wired `server.rs:336`, dispatch `:3336`) gains clause-aware aggregation + `plan`; `xray_orient` gains `Unprovable` in its ledger. The **CI/git-hook surface is a thin CLI shell**: `m1nd conformance [--staged] [--format=plan|json]` calls the same `gate_graph()` core and exits non-zero on `blocked`. The existing `~/.claude/hooks/verify-edit.sh` machinery and a pre-commit hook invoke it. One core, two front-doors — mirroring how `~/xray/xray-gate.py` already shells the gate.
 
 **Anti-tautology enforcement at gate time.** Each clause's `mutation_witness` is checked once per ratification: apply the witness mutation to a *snapshot* graph and assert the clause flips to Divergence/Absence; a clause passing against both real and mutated graph is rejected as vacuous (`verdict: Unprovable, reason: "vacuous"`). **Mechanism caveat (shared with §5.1):** `GraphDiff::apply(&self, graph: &mut Graph)` (`diff.rs:174`) mutates **in place** and `Graph` is **not `Clone`** — so "a cloned graph" is not free. Use a source-rebuilt mutant (`merge_graphs` `:344` returns a fresh `Graph`) or apply-then-revert; the self-test **must not** mutate the live graph (asserted by a regression test).
 
@@ -512,7 +512,7 @@ sequenceDiagram
 | `ledger_path_for()` `:49` | verdict-flip ledger record schema (id, old→new, who/when) |
 | `GraphDiff.apply` `diff.rs:174` on a **snapshot** (`Graph` not `Clone`; rebuild via `merge_graphs :344` or revert) | anti-tautology `mutation_witness` self-test |
 | `xray_gate`/`xray_orient` (`server.rs:336/3336`) | thin `m1nd conformance` CLI shell (no new MCP verb) |
-| `~/.claude/hooks/verify-edit.sh`, `/Users/kle1nz/xray/xray-gate.py` | pre-commit hook wiring |
+| `~/.claude/hooks/verify-edit.sh`, `~/xray/xray-gate.py` | pre-commit hook wiring |
 | `resolve_light_evidence` `tools.rs:248-372`, `cross_verify` `:847-960` | clause→`grounded_in`→`evidence_freshness` glue |
 
 **Phased delivery.**
