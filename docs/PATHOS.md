@@ -153,10 +153,13 @@ no-behavioral-change refactors.
 - **Per-brain session-counter partition is PENDING (ladder R14, §9.5.1).** In one served owner,
   session/query counters are not yet partitioned per brain, so aliveness counts can bleed across
   brains in the Hall. Backend work budgeted, not done.
-- **The `seek` rerank over-weights graph centrality vs semantic similarity.** A high-PageRank node
-  can out-rank a more semantically-relevant hit, so meaning-search results skew toward the graph's
-  hubs. A rerank fix is queued (the constitution's R17 conformance-boost rerank is the vehicle to
-  let X-RAY/relevance steer attention here).
+- **The `seek` rerank centrality-vs-semantic balance was corrected (pre-R17).** Previously a
+  high-PageRank node could out-rank a more semantically-relevant hit — the `graph_activation * 0.2`
+  centrality prior was added ungated, so a near-zero-relevance hub could ride pure centrality to the
+  top. Fixed by gating the activation term with the node's own relevance (`max(sem, keyword,
+  trigram)`): centrality stays a full-strength co-ranker/tie-breaker for relevant nodes but can no
+  longer swamp the semantic signal for irrelevant ones. This lands the balance FIRST, before R17
+  adds `conformance_boost` to the same rerank — so X-RAY steers attention on top of a correct base.
 - **`x.method()` receiver-type inference — the #1 remaining GRAPH gap.** A bare `x.method()` on a
   local/field receiver carries no qualifier, so same-name ties fall to proximity / `candidates[0]`.
   Qualified calls (`Type::method()`, `module::func()`) and cross-file proximity are solved;

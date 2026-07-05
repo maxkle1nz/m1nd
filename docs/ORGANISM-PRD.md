@@ -780,7 +780,10 @@ term into the shared `handle_seek` rerank (BEDROCK **+0.20**, EROSION **−0.30*
 thin layer over `handle_seek`, the same term boosts seek and focus at once. It **composes** with the
 two terms already in that rerank — trust × tremor (damping, multiplicative) × conformance (additive) —
 the one place intent-vs-reality feeds attention. *State:* shipped-partial (DESIGNED, X360 §5.5 —
-P1 malus-only leapfrog: EROSION down-ranking first). *RED:* a rerank fixture — a BEDROCK node
+P1 malus-only leapfrog: EROSION down-ranking first). *Precondition (LANDED):* the centrality-vs-semantic
+balance of this rerank was corrected first — the `graph_activation` term is now gated by node relevance
+so a high-PageRank/low-similarity hub can't ride pure centrality to the top; R17 adds `conformance_boost`
+on top of that corrected base. *RED:* a rerank fixture — a BEDROCK node
 out-ranks its pre-boost position and an EROSION node drops, with the composition against trust/tremor
 pinned so no term silently dominates.
 

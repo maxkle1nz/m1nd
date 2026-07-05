@@ -23,13 +23,27 @@ Unlike `activate` (which propagates signal through edges), `seek` scores every n
 | `min_score` | `number` | No | `0.1` | Minimum combined score threshold. Range: 0.0 to 1.0. |
 | `graph_rerank` | `boolean` | No | `true` | Whether to run graph re-ranking (PageRank weighting) on candidates. Disable for pure text matching. |
 
-### Scoring Formula (V1)
+### Scoring Formula
 
 ```
-combined = keyword_match * 0.6 + graph_activation * 0.3 + trigram * 0.1
+relevance = max(embedding_similarity, keyword_match, trigram)
+combined  = keyword_match * 0.4
+          + embedding_similarity * 0.3
+          + graph_activation * activation_gate(relevance) * 0.2
+          + trigram * 0.1
+          + path/anchor biases
 ```
 
-V2 upgrade path will replace keyword matching with real embeddings (fastembed-rs + jina-embeddings-v2-base-code).
+`embedding_similarity` is the query↔node cosine (static local embeddings; falls back to the
+trigram TF-IDF signal when embeddings are unavailable). `graph_activation` is normalized PageRank.
+
+**Centrality is gated by relevance.** The `graph_activation` term is scaled by an `activation_gate`
+that ramps with the node's own relevance: a clearly on-topic node keeps its full centrality weight,
+while a near-zero-relevance node keeps only a small floor of it. This stops a high-PageRank but
+semantically-irrelevant hub from riding pure centrality to the top and drowning the real targets —
+centrality remains a full-strength co-ranker and tie-breaker, it just no longer acts alone.
+
+The combined base is then damped multiplicatively by trust × tremor heuristics before ranking.
 
 ### Example Request
 
