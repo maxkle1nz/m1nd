@@ -188,6 +188,56 @@ fn canon(p: &Path) -> String {
         .to_string()
 }
 
+/// The repo basename of a filesystem root, separator-agnostic — the SAME thing
+/// production's `session::basename_of` computes for `display_name`. Splits on
+/// BOTH '/' and '\\' (tolerating trailing separators) so a Windows backslash
+/// `project_root` ("C:\\...\\project-repo") yields "project-repo" here exactly as
+/// it does in the production listing, instead of the whole path. This is why the
+/// prior fix (#275 fixed production `basename_of`) did not un-red Windows CI: the
+/// naming-guard test recomputed the expected basename with '/'-only splitting,
+/// so on Windows `expected` was the entire path and the assertion failed.
+fn repo_basename(root: &str) -> &str {
+    let is_sep = |c: char| c == '/' || c == '\\';
+    root.trim_end_matches(is_sep)
+        .rsplit(is_sep)
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(root)
+}
+
+#[test]
+fn repo_basename_is_separator_agnostic() {
+    // POSIX separators (Unix CI / the macOS dev box).
+    assert_eq!(
+        repo_basename("/private/tmp/xyz/project-repo"),
+        "project-repo"
+    );
+    assert_eq!(
+        repo_basename("/private/tmp/xyz/project-repo/"),
+        "project-repo"
+    );
+    // Windows backslash separators — the chronic red CI case. On a Unix box the
+    // std::path::Path basename of a backslash string is the whole string (there
+    // is no '\\' separator off-Windows), so the guard MUST split on '\\' itself.
+    // This pins the exact input shape that broke #279/#280 without needing a
+    // Windows runner to observe the failure.
+    assert_eq!(
+        repo_basename(r"C:\Users\RUNNER~1\AppData\Local\Temp\xyz\project-repo"),
+        "project-repo",
+        "a Windows project_root must yield the repo basename, not the whole path"
+    );
+    assert_eq!(
+        repo_basename(r"C:\Users\RUNNER~1\AppData\Local\Temp\xyz\project-repo\"),
+        "project-repo",
+        "trailing backslash tolerated"
+    );
+    // Mixed separators (a POSIX-rooted temp with a backslash tail, or vice versa).
+    assert_eq!(
+        repo_basename(r"/private/tmp/xyz\project-repo"),
+        "project-repo"
+    );
+}
+
 /// An owner whose bound graph is `bound-repo`, plus a hosted `project-repo`
 /// brain bootstrapped through the one-call `ingest {project_root}` path.
 async fn owner_with_two_brains(tmp: &Path) -> (Owner, PathBuf, PathBuf) {
@@ -382,12 +432,12 @@ async fn no_display_name_is_a_runtime_or_agent_memory_name() {
                 "display_name is a fingerprint store-dir hash, not a project name: {b}"
             );
             // And the name must actually be the basename of the project_root.
+            // Compute `expected` separator-agnostically (the SAME rule production
+            // uses for display_name) so a Windows backslash project_root yields
+            // the repo basename here too — otherwise this guard reds Windows CI
+            // while production is correct (the trap #279 fell into).
             let root = b["project_root"].as_str().unwrap();
-            let expected = root
-                .trim_end_matches('/')
-                .rsplit('/')
-                .next()
-                .unwrap_or(root);
+            let expected = repo_basename(root);
             assert_eq!(
                 name, expected,
                 "display_name must be the project_root basename: {b}"
