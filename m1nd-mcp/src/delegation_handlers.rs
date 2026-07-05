@@ -1292,6 +1292,7 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
                 promotion_reason: None,
                 promoted_to: None,
                 evidence_unverifiable: false,
+                soul_source: None,
             },
         )?;
         memorized.push(json!({
@@ -1341,6 +1342,7 @@ pub fn handle_debrief(state: &mut SessionState, params: &Value) -> M1ndResult<Va
                 promotion_reason: None,
                 promoted_to: None,
                 evidence_unverifiable: false,
+                soul_source: None,
             },
         )?;
         memorized.push(json!({

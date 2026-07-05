@@ -181,6 +181,15 @@ pub struct LightAuthorInput {
     /// never reads fresher than it can prove. `false` on ordinary memorize.
     #[serde(skip)]
     pub evidence_unverifiable: bool,
+    /// SOUL-PRD §4.3 (`soul_update`, ORGANISM R16): when set, this claim was
+    /// registered by the curator as a citizen of the SOUL — its provenance is
+    /// `Soul-Source: <path>#<section>` (WHERE in the soul it lives). This is the
+    /// ONLY new soul write path — it rides the ONE memorize sink (SOUL-INV-8), same
+    /// supersession/flock/hygiene gates as every other memory. `None` on ordinary
+    /// memorize (no line rendered); unknown keys are tolerated by the parser, so it
+    /// is backward-compatible frontmatter.
+    #[serde(default)]
+    pub soul_source: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +444,12 @@ pub fn render_light_markdown(input: &LightAuthorInput) -> String {
     // fresher than it can prove. Rendered so every recall surface can label it.
     if input.evidence_unverifiable {
         out.push_str("Evidence-Unverifiable: true\n");
+    }
+    // SOUL provenance (SOUL-PRD §4.3 · SOUL-INV-8): a claim the curator registered as
+    // a citizen of the soul carries WHERE in the soul it lives (`<path>#<section>`).
+    // No parallel write path — it rides this ONE sink, subject to every gate above.
+    if let Some(soul_source) = &input.soul_source {
+        out.push_str(&format!("Soul-Source: {}\n", soul_source));
     }
     // Supersession lineage: names the slug whose prior belief this write invalidates
     // (the prior copy is retained in `agent-memory/.history/` as `State: outdated`).
@@ -874,6 +889,7 @@ mod tests {
             promotion_reason: None,
             promoted_to: None,
             evidence_unverifiable: false,
+            soul_source: None,
         }
     }
 
@@ -1018,6 +1034,7 @@ mod tests {
             promotion_reason: None,
             promoted_to: None,
             evidence_unverifiable: false,
+            soul_source: None,
         };
 
         let result = handle_light_author(&mut state, input).expect("memorize ok");
@@ -1189,6 +1206,7 @@ mod tests {
             promotion_reason: None,
             promoted_to: None,
             evidence_unverifiable: false,
+            soul_source: None,
         }
     }
 

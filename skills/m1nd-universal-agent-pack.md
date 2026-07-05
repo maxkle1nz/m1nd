@@ -412,6 +412,21 @@ and local file truth. It does not replace them.
 Keep `agent_id` stable within one investigation. Use trails, perspectives, and
 coverage sessions when work spans agents, branches, or sessions.
 
+The soul (ORGANISM R16): a repo's `docs/PATHOS.md` is its SOUL — the curated
+handoff. The pathos skill AUTHORS it; m1nd is the ENGINE that verifies it.
+`soul_check` parses the soul into anchored claims, verifies each per class
+(path/line-hint/symbol/git/consistency/receipt/runtime/declared), and returns a
+one-line FRESHNESS RECEIPT — "N fresh · M stale · K receipt-priced, checked
+<date> @<sha>" — the line a cold context reads to know how much to trust the
+handoff. THE TWO TISSUES: verifiable tissue is machine-checkable; DECLARED tissue
+(doctrine, taste, why-we-work-this-way) is UNPROVABLE-but-curated and NEVER
+fake-verified. `soul_read` pulls the body (whole or a section), never ambient. The
+CURATOR is a near-PR/doc-gate workflow (agent judgment, deterministic substrate):
+sweep with `soul_check` → verify against code/git/runtime → update durable claims
+via `memorize {soul_source}` (the ONE write door) → prune stale never silently →
+re-check → receipt in the PR. Who verifies the curator (§C8.4): its report passes
+`soul_check {verify_curator_report}` run by a DIFFERENT agent — grader ≠ author.
+
 For host setup, prefer exporting `M1ND_WORKSPACE_ROOT` to the actual repository
 or project root. Claude Code, Antigravity, Gemini, Cursor, Windsurf, VS Code,
 and generic shells can expose their own workspace hints too, but

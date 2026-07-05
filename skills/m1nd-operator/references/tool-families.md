@@ -150,6 +150,16 @@ Use this family when docs must be graph-grounded, not merely read. Distinguish t
 - `light` for authored graph-native semantic markdown
 - `universal` for ordinary docs that need canonicalization and binding/drift surfaces
 
+## The Soul — PATHOS Native And Verified (ORGANISM R16)
+
+The project's `docs/PATHOS.md` handoff is its SOUL. The pathos skill is the AUTHORING guide (how souls are born, which sections exist); m1nd is the ENGINE that verifies one where a brain exists.
+
+- `soul_check {soul_path?}`: parse the soul into anchored CLAIMS, classify each (path/line-hint/symbol/git/consistency/receipt/runtime/declared), verify per class, and return the honesty report (`m1nd-soul-check-v0`) + the one-line **FRESHNESS RECEIPT** — "N fresh · M stale · K receipt-priced, checked <date> @<sha>". THE TWO TISSUES: verifiable tissue (Current State / Access Map / Known Problems) is machine-checkable; DECLARED tissue (North Star / Doctrine / Do-Not-Do — taste, why-we-work-this-way) is UNPROVABLE-but-curated and NEVER fake-verified. A missing anchor is `evidence-stale`, never fresh; the priced classes hold as `receipt-required`/`unprovable-now`, never folded into pass/fail; skipped classes are named in `checks_skipped`. Read-only.
+- `soul_read {soul_path?, section?}`: pull the soul body (whole or one section) + the authored headline — the explicit pull surface, never ambient. Run `soul_check` for the freshness receipt.
+- `soul_check {verify_curator_report: <report>}`: the §C8.4 SEAT CHECK — verify a curator's report passes by a DIFFERENT agent than the one that curated it (grader ≠ author; refuses silent prunes, declared-tissue removal, and a missing `still_stale` valve). Answers "who verifies the curator".
+
+THE CURATOR is a near-PR/doc-gate WORKFLOW, not a verb (the judgment is agent work; the substrate is these verbs): sweep with `soul_check` → verify against code/git/runtime (re-derive, never recall) → update durable claims via `memorize` (pass `soul_source: "<path>#<section>"` — the ONE write door, SOUL-INV-8) → prune stale NEVER silently (every removal named + where-it-went; git keeps the text) → re-check → carry the receipt in the PR body.
+
 ## Surgical And Write Surfaces
 
 - `surgical_context`: single-file edit context with callers, callees, and neighbors.
@@ -219,7 +229,7 @@ Recent source builds include these canonical families:
 - `antibody_scan`, `antibody_list`, `antibody_create`, `flow_simulate`, `epidemic`, `tremor`, `trust`, `layers`, `layer_inspect`
 - `ghost_edges`, `taint_trace`, `twins`, `refactor_plan`, `runtime_overlay`
 - `heuristics_surface`, `surgical_context`, `apply`, `view`, `batch_view`, `surgical_context_v2`, `apply_batch`, `edit_preview`, `edit_commit`
-- `search`, `glob`, `scan_all`, `cross_verify`, `coverage_session`, `external_references`, `federate_auto`, `help`, `report`, `audit`
+- `search`, `glob`, `scan_all`, `cross_verify`, `soul_check`, `soul_read`, `coverage_session`, `external_references`, `federate_auto`, `help`, `report`, `audit`
 - `daemon_start`, `daemon_stop`, `daemon_status`, `daemon_tick`, `alerts_list`, `alerts_ack`
 - `panoramic`, `persist`, `boot_memory`, `metrics`, `type_trace`, `diagram`
 - `mission_start`, `mission_event`, `mission_next`, `mission_verify`,

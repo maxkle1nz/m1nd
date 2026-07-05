@@ -29,6 +29,9 @@ pub mod perspective;
 pub mod perspective_handlers;
 // MEDULLA M6 — the `promote` verb (project-private claim → medulla, audited).
 pub mod promote_handlers;
+// ORGANISM R16 — the SOUL (`soul_check` / `soul_read`): PATHOS parsed into
+// anchored claims with verification states + the freshness receipt.
+pub mod soul_handlers;
 pub mod surgical_handlers;
 
 // v0.4.0: new tool handlers + personality
