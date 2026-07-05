@@ -112,19 +112,19 @@ pub fn memory() -> Self {
 ```jsonc
 // Ingest session memory
 {"name": "m1nd.ingest", "arguments": {
-  "path": "~/.roomanizer/memory/", "adapter": "memory",
-  "namespace": "session", "agent_id": "jimi"
+  "path": "~/.m1nd/memory/", "adapter": "memory",
+  "namespace": "session", "agent_id": "agent-a"
 }}
 
 // Query: what's most relevant to authentication right now?
 {"name": "activate", "arguments": {
-  "query": "authentication session state", "agent_id": "jimi"
+  "query": "authentication session state", "agent_id": "agent-1"
 }}
 // → Returns both code nodes (if code was also ingested) and memory nodes
 
 // Find specs without implementations
 {"name": "m1nd.missing", "arguments": {
-  "topic": "GUI web server", "agent_id": "jimi"
+  "topic": "GUI web server", "agent_id": "agent-1"
 }}
 // → specs: ["GUI-DESIGN.md"] — documents that exist
 // → code: []                — no implementation found

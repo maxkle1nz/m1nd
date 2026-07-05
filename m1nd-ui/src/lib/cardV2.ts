@@ -138,7 +138,7 @@ export interface AlivenessG4 {
  *
  * INTERIM HONESTY (§4A.3.1 G4): `active_agent_sessions`/`queries_processed` come
  * from the OWNER-GLOBAL `health` counters — they are NOT partitioned per brain,
- * so sessions on OTHER hosted brains (e.g. Cherry, GitRooms) inflate this card's
+ * so sessions on OTHER hosted brains (e.g. project-b, project-c) inflate this card's
  * numbers. Until per-brain partition lands (§9.5.1, keyed on
  * `session.bound_project_root`), the caption is qualified "across all brains" so
  * the count never claims a per-brain attribution it cannot back.

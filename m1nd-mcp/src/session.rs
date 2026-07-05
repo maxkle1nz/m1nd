@@ -844,7 +844,7 @@ impl SessionState {
     ///
     /// Returns a compact `reception` block ONLY when the caller's resolved root
     /// (hop-2 `M1nd-Caller-Root`) is KNOWN and does NOT fall under the bound
-    /// workspace / ingest roots — the live Antigravity/Cherry failure, made loud.
+    /// workspace / ingest roots — the live Antigravity/project-b failure, made loud.
     /// Returns `None` on:
     ///   (a) unknown caller root — honesty by omission, §9.5.4 absent ≠ wrong; and
     ///   (b) match — TT-INV-12 silence-when-matched (silent binding is legal only
@@ -952,7 +952,7 @@ impl SessionState {
     }
 
     /// The Hall card / Brain Chip display name: the basename of
-    /// [`project_root_display`] — "m1nd", "Cerrybubbles1" — never a runtime dir
+    /// [`project_root_display`] — "m1nd", "project-b" — never a runtime dir
     /// name ("claude") nor "agent-memory". `None` when the brain has no roots.
     pub fn display_name(&self) -> Option<String> {
         self.project_root_display().map(|root| basename_of(&root))

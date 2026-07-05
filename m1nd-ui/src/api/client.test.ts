@@ -9,7 +9,7 @@ import { test, mock, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { api } from './client';
 
-const CHERRY = '/Users/kle1nz/CHERRYBUBBLES/Cerrybubbles1';
+const CHERRY = '/path/to/project-b';
 const ENCODED = encodeURIComponent(CHERRY);
 
 /** Install a fetch spy that records URLs and returns a given JSON body. */

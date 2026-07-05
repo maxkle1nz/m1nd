@@ -79,8 +79,8 @@ Ingest or re-ingest a codebase, descriptor, or memory/document corpus into the g
   "params": {
     "name": "ingest",
     "arguments": {
-      "agent_id": "jimi",
-      "path": "/Users/cosmophonix/clawd/roomanizer-os/backend",
+      "agent_id": "agent-1",
+      "path": "/path/to/project-f/backend",
       "adapter": "code",
       "mode": "replace",
       "incremental": false
@@ -166,7 +166,7 @@ Resolve the canonical local artifact set for a universally ingested document by 
   "params": {
     "name": "document_resolve",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "path": "docs/specs/auth.md"
     }
   }
@@ -341,7 +341,7 @@ Start local-first document watchers for one or more roots and supported document
   "params": {
     "name": "auto_ingest_start",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "roots": ["/project/docs", "/project/wiki"],
       "formats": ["universal", "light"],
       "debounce_ms": 200
@@ -418,7 +418,7 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
   "params": {
     "name": "health",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
@@ -437,7 +437,7 @@ Server health and statistics. Returns node/edge counts, query count, uptime, mem
   "plasticity_state": "active",
   "last_persist_time": "2026-03-13T10:30:00Z",
   "active_sessions": [
-    { "agent_id": "jimi", "last_active": "2026-03-13T11:25:00Z" }
+    { "agent_id": "agent-1", "last_active": "2026-03-13T11:25:00Z" }
   ]
 }
 ```
@@ -500,7 +500,7 @@ mutate files, refresh host bindings, or probe retrieval automatically.
   "params": {
     "name": "trust_selftest",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
@@ -582,7 +582,7 @@ as `ingest`.
   "params": {
     "name": "session_handshake",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
@@ -677,7 +677,7 @@ call targeted a different workspace.
   "params": {
     "name": "recovery_playbook",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "observed_tool": "seek",
       "observed_proof_state": "blocked",
       "observed_candidates": 0
@@ -767,7 +767,7 @@ federation instead of diagnosing a stale graph.
   "params": {
     "name": "doctor",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "observed_tool": "seek",
       "observed_proof_state": "blocked",
       "observed_candidates": 0
@@ -786,7 +786,7 @@ federation instead of diagnosing a stale graph.
   "params": {
     "name": "doctor",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "observed_tool": "tools/list",
       "observed_proof_state": "blocked",
       "observed_tool_count": 3,
@@ -858,7 +858,7 @@ Validate a proposed modification plan against the code graph. Detects gaps (affe
   "params": {
     "name": "validate_plan",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "actions": [
         { "action_type": "modify", "file_path": "backend/session_pool.py", "description": "Add connection timeout" },
         { "action_type": "modify", "file_path": "backend/worker_pool.py", "description": "Update pool acquire to use timeout" },
@@ -968,7 +968,7 @@ Pin a subgraph region and capture a baseline snapshot for change monitoring. Loc
   "params": {
     "name": "lock_create",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "scope": "subgraph",
       "root_nodes": ["file::chat_handler.py"],
       "radius": 2
@@ -981,7 +981,7 @@ Pin a subgraph region and capture a baseline snapshot for change monitoring. Loc
 
 ```json
 {
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "scope": "subgraph",
   "baseline_nodes": 1639,
   "baseline_edges": 707,
@@ -1034,8 +1034,8 @@ Set a watcher strategy on a lock. Watchers determine when the lock automatically
   "params": {
     "name": "lock_watch",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001",
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001",
       "strategy": "on_ingest"
     }
   }
@@ -1046,7 +1046,7 @@ Set a watcher strategy on a lock. Watchers determine when the lock automatically
 
 ```json
 {
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "strategy": "on_ingest",
   "previous_strategy": null
 }
@@ -1087,8 +1087,8 @@ Compute what changed in a locked region since the baseline was captured. Returns
   "params": {
     "name": "lock_diff",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
@@ -1099,7 +1099,7 @@ Compute what changed in a locked region since the baseline was captured. Returns
 ```json
 {
   "diff": {
-    "lock_id": "lock_jimi_001",
+    "lock_id": "lock_agent1_001",
     "no_changes": false,
     "new_nodes": ["file::chat_handler.py::fn::new_method"],
     "removed_nodes": [],
@@ -1123,7 +1123,7 @@ Compute what changed in a locked region since the baseline was captured. Returns
 ```json
 {
   "diff": {
-    "lock_id": "lock_jimi_001",
+    "lock_id": "lock_agent1_001",
     "no_changes": true,
     "new_nodes": [],
     "removed_nodes": [],
@@ -1176,8 +1176,8 @@ Re-capture the lock baseline from the current graph without releasing the lock. 
   "params": {
     "name": "lock_rebase",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
@@ -1187,7 +1187,7 @@ Re-capture the lock baseline from the current graph without releasing the lock. 
 
 ```json
 {
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "previous_generation": 42,
   "new_generation": 45,
   "baseline_nodes": 1645,
@@ -1231,8 +1231,8 @@ Release a lock and free its resources. Removes the lock state, cleans up pending
   "params": {
     "name": "lock_release",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
@@ -1242,7 +1242,7 @@ Release a lock and free its resources. Removes the lock state, cleans up pending
 
 ```json
 {
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "released": true
 }
 ```

@@ -115,7 +115,7 @@ Every tool requires the `agent_id` parameter:
 |-----------|------|----------|-------------|
 | `agent_id` | `string` | Yes | Identifier for the calling agent. Used for session tracking, perspective ownership, lock ownership, and multi-agent coordination. |
 
-Agent IDs are free-form strings. Convention: use the agent's name or role identifier (e.g. `"jimi"`, `"hacker-auth"`, `"forge-build"`).
+Agent IDs are free-form strings. Convention: use the agent's name or role identifier (e.g. `"agent-1"`, `"hacker-auth"`, `"forge-build"`).
 
 ## JSON-RPC Request Format
 
@@ -131,7 +131,7 @@ m1nd uses the [MCP protocol](https://modelcontextprotocol.io/) over JSON-RPC 2.0
   "params": {
         "name": "activate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session management"
     }
   }

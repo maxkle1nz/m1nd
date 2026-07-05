@@ -83,7 +83,7 @@ export interface InstanceRegistryEntry {
   brain_kind?: string | null;
   /**
    * The brain's PROJECT name — the Hall card's headline (HUMAN-LAYER-PRD §4A.3).
-   * The repo basename ("m1nd", "Cerrybubbles1"), NEVER the runtime dir ("claude")
+   * The repo basename ("m1nd", "project-b"), NEVER the runtime dir ("claude")
    * nor its `agent-memory` sidecar. Computed server-side (http_server.rs
    * `instances_listing`): bound brain → its primary code ingest root's basename;
    * project brain → its store manifest's project_root basename. Absent only on a

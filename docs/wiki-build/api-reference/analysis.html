@@ -207,7 +207,7 @@
   "params": {
     "name": "m1nd.impact",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node_id": "file::chat_handler.py",
       "direction": "forward",
       "include_causal_chains": true
@@ -274,7 +274,7 @@
   "params": {
     "name": "m1nd.predict",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "changed_node": "file::session_pool.py",
       "top_k": 5
     }
@@ -330,7 +330,7 @@
   "params": {
     "name": "m1nd.counterfactual",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node_ids": ["file::spawner.py"],
       "include_cascade": true
     }
@@ -387,7 +387,7 @@
   "params": {
     "name": "m1nd.fingerprint",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "target_node": "file::session_pool.py",
       "similarity_threshold": 0.7
     }
@@ -444,7 +444,7 @@
   "params": {
     "name": "m1nd.hypothesize",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "claim": "worker_pool depends on whatsapp_manager at runtime"
     }
   }
@@ -525,7 +525,7 @@
   "params": {
     "name": "m1nd.differential",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "snapshot_a": "/path/to/before.json",
       "snapshot_b": "current",
       "question": "what new coupling was introduced?"
@@ -590,7 +590,7 @@
   "params": {
     "name": "m1nd.diverge",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "baseline": "2026-03-01",
       "scope": "backend/stormender*"
     }

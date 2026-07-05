@@ -8,19 +8,17 @@ import os
 import subprocess
 import time
 
-CLAWD = "/Users/cosmophonix/clawd"
+# Base directory holding the repos you want watched. Point this at your own
+# workspace and list one entry per repo below (path prefix -> namespace name).
+WORKSPACE = os.path.expanduser(os.environ.get("M1ND_WORKSPACE", "~/workspace"))
 
 PATH_TO_NAMESPACE = {
-    f"{CLAWD}/crush":        "crush",
-    f"{CLAWD}/roomanizer-os": "roomanizer",
-    f"{CLAWD}/openclaw":     "openclaw",
-    f"{CLAWD}/RESON":        "reson",
-    f"{CLAWD}/kosmo-only":   "kosmo",
-    f"{CLAWD}/jimi-cli-ui":  "jimi-cli",
-    f"{CLAWD}/crush-work":   "crush-work",
+    f"{WORKSPACE}/openclaw":   "openclaw",
+    f"{WORKSPACE}/project-a":  "project-a",
+    f"{WORKSPACE}/project-b":  "project-b",
 }
 
-SMART_INGEST = "/Users/cosmophonix/.m1nd/smart-ingest.py"
+SMART_INGEST = os.path.expanduser("~/.m1nd/smart-ingest.py")
 LOCK_FILE = "/tmp/m1nd-watcher.lock"
 DEBOUNCE_SECS = 3
 

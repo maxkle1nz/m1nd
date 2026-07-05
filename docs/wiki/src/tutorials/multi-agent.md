@@ -1,6 +1,6 @@
 # Multi-Agent Usage
 
-m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how ROOMANIZER OS uses m1nd with 19 agents.
+m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how a production orchestration system uses m1nd with 19 agents.
 
 ## How It Works
 
@@ -21,7 +21,7 @@ The graph is shared. Learning by one agent benefits all agents. Perspectives are
 Every m1nd tool requires an `agent_id` parameter. This is a free-form string, but consistent naming matters:
 
 ```
-agent_id: "jimi"          -- orchestrator
+agent_id: "orchestrator"          -- orchestrator
 agent_id: "hacker-auth"   -- security hardening agent
 agent_id: "forge-api"     -- API building agent
 agent_id: "analyst-perf"  -- performance analysis agent
@@ -410,14 +410,14 @@ The merge automatically detects where independent investigations converged (12 s
 }
 ```
 
-## Real-World Example: ROOMANIZER OS
+## Real-World Example: a production orchestration system
 
-ROOMANIZER OS is a multi-agent orchestration system that uses m1nd as its shared code intelligence layer. Here is how it works in production:
+A production multi-agent orchestration system uses m1nd as its shared code intelligence layer. Here is how it works in production:
 
 ### Architecture
 
 ```
-JIMI (orchestrator)
+orchestrator
   |
   +-- hacker-auth (security agent)     --+
   +-- forge-api (API builder)           --+-- All share one m1nd instance
@@ -431,38 +431,38 @@ One m1nd instance serves 19 agents. The graph covers a 335-file Python backend (
 
 ### Orchestrator Boot Sequence
 
-When JIMI (the orchestrator) starts a session:
+When the orchestrator starts a session:
 
 ```jsonc
 // Step 1: Pre-orient with the in-session front door
 // north composes trust + task context + prior memory + sufficiency + next_move + honest_gaps.
 // If it returns needs_ingest, ingest the repo and call north again.
 {"method":"tools/call","params":{"name":"north","arguments":{
-  "agent_id":"jimi","task":"resume orchestration for the backend"
+  "agent_id":"orchestrator","task":"resume orchestration for the backend"
 }}}
 
 // Step 2: Check what changed since last session
-{"method":"tools/call","params":{"name":"drift","arguments":{"agent_id":"jimi","since":"last_session"}}}
+{"method":"tools/call","params":{"name":"drift","arguments":{"agent_id":"orchestrator","since":"last_session"}}}
 
 // Step 3: Re-ingest if the graph is stale
 {"method":"tools/call","params":{"name":"ingest","arguments":{
-  "path":"/project/backend","agent_id":"jimi","incremental":true
+  "path":"/project/backend","agent_id":"orchestrator","incremental":true
 }}}
 ```
 
 ### Task Delegation with Graph Context
 
-When JIMI delegates a security hardening task:
+When the orchestrator delegates a security hardening task:
 
 ```jsonc
 // Before spawning the security agent, get blast radius context
 {"method":"tools/call","params":{"name":"impact","arguments":{
-  "node_id":"file::auth.py","agent_id":"jimi"
+  "node_id":"file::auth.py","agent_id":"orchestrator"
 }}}
 
 // Warm up the graph for the security task
 {"method":"tools/call","params":{"name":"warmup","arguments":{
-  "task_description":"harden authentication token validation","agent_id":"jimi"
+  "task_description":"harden authentication token validation","agent_id":"orchestrator"
 }}}
 
 // The security agent then uses the primed graph
@@ -509,7 +509,7 @@ When Agent A finds something that Agent B needs to investigate:
 
 // Orchestrator merges with Agent B's independent findings
 {"method":"tools/call","params":{"name":"trail_merge","arguments":{
-  "agent_id":"jimi",
+  "agent_id":"orchestrator",
   "trail_ids":["trail-hacker-001","trail-analyst-002"]
 }}}
 ```

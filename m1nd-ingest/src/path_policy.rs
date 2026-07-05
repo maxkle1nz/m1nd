@@ -15,7 +15,6 @@ pub const NOISE_DIR_NAMES: &[&str] = &[
     ".svn",
     ".venv",
     ".vault",
-    ".roomanizer",
     "__pycache__",
     "build",
     "coverage",

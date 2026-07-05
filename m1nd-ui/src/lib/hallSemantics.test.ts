@@ -2,7 +2,7 @@
  * Hall semantics — honesty tests at the data layer (HUMAN-LAYER-PRD §4A).
  * Fixtures are REAL captured envelopes (INV-01: never hand-written JSON) —
  * ../__fixtures__/instances.json + instance_self.json were captured live from the
- * served owner on :1338 (the bound m1nd brain + the hosted Cherry project brain).
+ * served owner on :1338 (the bound m1nd brain + the hosted project-b project brain).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

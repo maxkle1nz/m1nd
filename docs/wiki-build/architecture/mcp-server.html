@@ -207,10 +207,10 @@
 <p><strong>Framed mode</strong> (HTTP-style headers):</p>
 <pre><code>Content-Length: 142\r\n
 \r\n
-{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"agent-1"}},"id":1}
 </code></pre>
 <p><strong>Line mode</strong> (raw JSON):</p>
-<pre><code>{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+<pre><code>{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"agent-1"}},"id":1}
 </code></pre>
 <p>Detection is based on the first non-whitespace byte: if it is <code>{</code> or <code>[</code>, the message is treated as line-mode JSON. Otherwise, it is parsed as framed with <code>Content-Length</code> headers. Responses are written in the same mode as the incoming request.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -238,7 +238,7 @@
         "name": "m1nd.activate",
         "arguments": {
             "query": "chat handler",
-            "agent_id": "jimi",
+            "agent_id": "agent-1",
             "top_k": 20,
             "dimensions": ["structural", "semantic", "temporal", "causal"],
             "xlr": true
@@ -595,7 +595,7 @@
     Open --&gt; [*]: perspective_close
 </code></pre>
 <h3 id="perspective-ids"><a class="header" href="#perspective-ids">Perspective IDs</a></h3>
-<p>Generated as <code>persp_{agent_prefix}_{counter:03}</code>. Each agent has an independent monotonic counter. Example: Agent “jimi” creates perspectives <code>persp_jimi_001</code>, <code>persp_jimi_002</code>, etc.</p>
+<p>Generated as <code>persp_{agent_prefix}_{counter:03}</code>. Each agent has an independent monotonic counter. Example: Agent “agent-1” creates perspectives <code>persp_agent1_001</code>, <code>persp_agent1_002</code>, etc.</p>
 <h3 id="resource-limits"><a class="header" href="#resource-limits">Resource Limits</a></h3>
 <p><code>PerspectiveLimits</code> caps resource usage:</p>
 <ul>

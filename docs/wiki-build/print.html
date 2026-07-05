@@ -1332,10 +1332,10 @@ let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20
 <p><strong>Framed mode</strong> (HTTP-style headers):</p>
 <pre><code>Content-Length: 142\r\n
 \r\n
-{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"agent-1"}},"id":1}
 </code></pre>
 <p><strong>Line mode</strong> (raw JSON):</p>
-<pre><code>{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+<pre><code>{"jsonrpc":"2.0","method":"tools/call","params":{"name":"m1nd.activate","arguments":{"query":"chat","agent_id":"agent-1"}},"id":1}
 </code></pre>
 <p>Detection is based on the first non-whitespace byte: if it is <code>{</code> or <code>[</code>, the message is treated as line-mode JSON. Otherwise, it is parsed as framed with <code>Content-Length</code> headers. Responses are written in the same mode as the incoming request.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1363,7 +1363,7 @@ let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20
         "name": "m1nd.activate",
         "arguments": {
             "query": "chat handler",
-            "agent_id": "jimi",
+            "agent_id": "agent-1",
             "top_k": 20,
             "dimensions": ["structural", "semantic", "temporal", "causal"],
             "xlr": true
@@ -1720,7 +1720,7 @@ let (format, adapter) = DocumentRouter::detect_directory(root); // samples ≤20
     Open --&gt; [*]: perspective_close
 </code></pre>
 <h3 id="perspective-ids"><a class="header" href="#perspective-ids">Perspective IDs</a></h3>
-<p>Generated as <code>persp_{agent_prefix}_{counter:03}</code>. Each agent has an independent monotonic counter. Example: Agent “jimi” creates perspectives <code>persp_jimi_001</code>, <code>persp_jimi_002</code>, etc.</p>
+<p>Generated as <code>persp_{agent_prefix}_{counter:03}</code>. Each agent has an independent monotonic counter. Example: Agent “agent-1” creates perspectives <code>persp_agent1_001</code>, <code>persp_agent1_002</code>, etc.</p>
 <h3 id="resource-limits"><a class="header" href="#resource-limits">Resource Limits</a></h3>
 <p><code>PerspectiveLimits</code> caps resource usage:</p>
 <ul>
@@ -2638,7 +2638,7 @@ if fallback {
 </tbody>
 </table>
 </div>
-<p>Agent IDs are free-form strings. Convention: use the agent’s name or role identifier (e.g. <code>"jimi"</code>, <code>"hacker-auth"</code>, <code>"forge-build"</code>).</p>
+<p>Agent IDs are free-form strings. Convention: use the agent’s name or role identifier (e.g. <code>"agent-1"</code>, <code>"hacker-auth"</code>, <code>"forge-build"</code>).</p>
 <h2 id="json-rpc-request-format"><a class="header" href="#json-rpc-request-format">JSON-RPC Request Format</a></h2>
 <p>m1nd uses the <a href="https://modelcontextprotocol.io/">MCP protocol</a> over JSON-RPC 2.0 via stdio. All tool calls use the <code>tools/call</code> method.</p>
 <h3 id="request-structure"><a class="header" href="#request-structure">Request structure</a></h3>
@@ -2649,7 +2649,7 @@ if fallback {
   "params": {
         "name": "activate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session management"
     }
   }
@@ -2776,7 +2776,7 @@ if fallback {
   "params": {
     "name": "activate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session pool management",
       "top_k": 5,
       "include_ghost_edges": true
@@ -2880,7 +2880,7 @@ if fallback {
   "params": {
     "name": "warmup",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "task_description": "Refactor the WhatsApp message routing to support group chats",
       "boost_strength": 0.2
     }
@@ -2938,7 +2938,7 @@ if fallback {
   "params": {
     "name": "resonate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "authentication flow",
       "top_k": 10
     }
@@ -3017,7 +3017,7 @@ if fallback {
   "params": {
     "name": "m1nd.impact",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node_id": "file::chat_handler.py",
       "direction": "forward",
       "include_causal_chains": true
@@ -3084,7 +3084,7 @@ if fallback {
   "params": {
     "name": "m1nd.predict",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "changed_node": "file::session_pool.py",
       "top_k": 5
     }
@@ -3140,7 +3140,7 @@ if fallback {
   "params": {
     "name": "m1nd.counterfactual",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node_ids": ["file::spawner.py"],
       "include_cascade": true
     }
@@ -3197,7 +3197,7 @@ if fallback {
   "params": {
     "name": "m1nd.fingerprint",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "target_node": "file::session_pool.py",
       "similarity_threshold": 0.7
     }
@@ -3254,7 +3254,7 @@ if fallback {
   "params": {
     "name": "m1nd.hypothesize",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "claim": "worker_pool depends on whatsapp_manager at runtime"
     }
   }
@@ -3335,7 +3335,7 @@ if fallback {
   "params": {
     "name": "m1nd.differential",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "snapshot_a": "/path/to/before.json",
       "snapshot_b": "current",
       "question": "what new coupling was introduced?"
@@ -3400,7 +3400,7 @@ if fallback {
   "params": {
     "name": "m1nd.diverge",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "baseline": "2026-03-01",
       "scope": "backend/stormender*"
     }
@@ -3484,7 +3484,7 @@ if fallback {
   "params": {
     "name": "m1nd.learn",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session pool management",
       "feedback": "correct",
       "node_ids": ["file::session_pool.py", "file::worker_pool.py"],
@@ -3540,7 +3540,7 @@ if fallback {
   "params": {
     "name": "m1nd.drift",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "since": "last_session",
       "include_weight_drift": true
     }
@@ -3597,7 +3597,7 @@ if fallback {
   "params": {
     "name": "m1nd.why",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "source": "file::worker_pool.py",
       "target": "file::whatsapp_manager.py",
       "max_hops": 4
@@ -3668,7 +3668,7 @@ if fallback {
   "params": {
     "name": "trail_save",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "label": "auth-leak-investigation",
       "hypotheses": [
         {
@@ -3694,9 +3694,9 @@ if fallback {
 </code></pre>
 <h3 id="example-response-3-2"><a class="header" href="#example-response-3-2">Example Response</a></h3>
 <pre><code class="language-json">{
-  "trail_id": "trail_jimi_001_a1b2c3",
+  "trail_id": "trail_agent1_001_a1b2c3",
   "label": "auth-leak-investigation",
-  "agent_id": "jimi",
+  "agent_id": "agent-1",
   "nodes_saved": 47,
   "hypotheses_saved": 2,
   "conclusions_saved": 0,
@@ -3741,15 +3741,15 @@ if fallback {
   "params": {
     "name": "trail_resume",
     "arguments": {
-      "agent_id": "jimi",
-      "trail_id": "trail_jimi_001_a1b2c3"
+      "agent_id": "agent-1",
+      "trail_id": "trail_agent1_001_a1b2c3"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-4-1"><a class="header" href="#example-response-4-1">Example Response</a></h3>
 <pre><code class="language-json">{
-  "trail_id": "trail_jimi_001_a1b2c3",
+  "trail_id": "trail_agent1_001_a1b2c3",
   "label": "auth-leak-investigation",
   "stale": false,
   "generations_behind": 3,
@@ -3757,8 +3757,8 @@ if fallback {
   "nodes_reactivated": 47,
   "hypotheses_downgraded": [],
   "trail": {
-    "trail_id": "trail_jimi_001_a1b2c3",
-    "agent_id": "jimi",
+    "trail_id": "trail_agent1_001_a1b2c3",
+    "agent_id": "agent-1",
     "label": "auth-leak-investigation",
     "status": "active",
     "created_at_ms": 1710300000000,
@@ -3809,7 +3809,7 @@ if fallback {
   "params": {
     "name": "trail_list",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "filter_status": "saved",
       "filter_tags": ["security"]
     }
@@ -3820,8 +3820,8 @@ if fallback {
 <pre><code class="language-json">{
   "trails": [
     {
-      "trail_id": "trail_jimi_001_a1b2c3",
-      "agent_id": "jimi",
+      "trail_id": "trail_agent1_001_a1b2c3",
+      "agent_id": "agent-1",
       "label": "auth-leak-investigation",
       "status": "saved",
       "created_at_ms": 1710300000000,
@@ -3871,8 +3871,8 @@ if fallback {
   "params": {
     "name": "m1nd.trail.merge",
     "arguments": {
-      "agent_id": "jimi",
-      "trail_ids": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
+      "agent_id": "agent-1",
+      "trail_ids": ["trail_agent1_001_a1b2c3", "trail_analyst_002_d4e5f6"],
       "label": "combined-auth-investigation"
     }
   }
@@ -3880,9 +3880,9 @@ if fallback {
 </code></pre>
 <h3 id="example-response-6-1"><a class="header" href="#example-response-6-1">Example Response</a></h3>
 <pre><code class="language-json">{
-  "merged_trail_id": "trail_jimi_003_g7h8i9",
+  "merged_trail_id": "trail_agent1_003_g7h8i9",
   "label": "combined-auth-investigation",
-  "source_trails": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
+  "source_trails": ["trail_agent1_001_a1b2c3", "trail_analyst_002_d4e5f6"],
   "nodes_merged": 83,
   "hypotheses_merged": 5,
   "conflicts": [
@@ -3960,7 +3960,7 @@ if fallback {
   "params": {
     "name": "m1nd.seek",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "code that validates user credentials",
       "top_k": 5,
       "node_types": ["function", "class"]
@@ -4034,7 +4034,7 @@ if fallback {
   "params": {
     "name": "m1nd.scan",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "pattern": "error_handling",
       "scope": "backend/",
       "severity_min": 0.5
@@ -4115,7 +4115,7 @@ if fallback {
   "params": {
     "name": "m1nd.missing",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "database connection pooling",
       "min_sibling_activation": 0.3
     }
@@ -4181,7 +4181,7 @@ if fallback {
   "params": {
     "name": "m1nd.trace",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "error_text": "Traceback (most recent call last):\n  File \"backend/chat_handler.py\", line 234, in handle_message\n  File \"backend/session_pool.py\", line 89, in acquire\n  File \"backend/worker_pool.py\", line 156, in submit\nTimeoutError: pool exhausted",
       "language": "python",
       "top_k": 5
@@ -4285,7 +4285,7 @@ if fallback {
   "params": {
     "name": "m1nd.timeline",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node": "file::backend/chat_handler.py",
       "depth": "30d",
       "top_k": 5
@@ -4301,14 +4301,14 @@ if fallback {
     {
       "date": "2026-03-10",
       "commit": "a1b2c3d",
-      "author": "cosmophonix",
+      "author": "dev",
       "delta": "+45/-12",
       "co_changed": ["stream_parser.py", "chat_routes.py"]
     },
     {
       "date": "2026-03-05",
       "commit": "e4f5g6h",
-      "author": "cosmophonix",
+      "author": "dev",
       "delta": "+120/-30",
       "co_changed": ["session_pool.py", "worker_pool.py"]
     }
@@ -4407,7 +4407,7 @@ if fallback {
   "params": {
     "name": "m1nd.federate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "repos": [
         { "name": "backend", "path": "/project/backend" },
         { "name": "frontend", "path": "/project/frontend" },
@@ -4494,7 +4494,7 @@ if fallback {
   "params": {
     "name": "m1nd.federate_auto",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "scope": "docs",
       "execute": false
     }
@@ -4578,7 +4578,7 @@ if fallback {
   "params": {
     "name": "perspective_start",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session management and connection pooling",
       "anchor_node": "file::session_pool.py"
     }
@@ -4587,7 +4587,7 @@ if fallback {
 </code></pre>
 <h3 id="example-response-9"><a class="header" href="#example-response-9">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "mode": "anchored",
   "anchor_node": "file::session_pool.py",
   "focus_node": "file::session_pool.py",
@@ -4659,8 +4659,8 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.routes",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "page": 2,
       "page_size": 6,
       "route_set_version": 100
@@ -4670,7 +4670,7 @@ if fallback {
 </code></pre>
 <h3 id="example-response-1-4"><a class="header" href="#example-response-1-4">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "mode": "anchored",
   "mode_effective": "anchored",
   "anchor": "file::session_pool.py",
@@ -4734,8 +4734,8 @@ if fallback {
   "params": {
     "name": "perspective_inspect",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_a1b2c3",
       "route_set_version": 100
     }
@@ -4812,8 +4812,8 @@ if fallback {
   "params": {
     "name": "perspective_peek",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_index": 1,
       "route_set_version": 100
     }
@@ -4871,8 +4871,8 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.follow",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_a1b2c3",
       "route_set_version": 100
     }
@@ -4881,7 +4881,7 @@ if fallback {
 </code></pre>
 <h3 id="example-response-4-3"><a class="header" href="#example-response-4-3">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "previous_focus": "file::session_pool.py",
   "new_focus": "file::worker_pool.py",
   "mode": "anchored",
@@ -4951,8 +4951,8 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.suggest",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_set_version": 101
     }
   }
@@ -4960,7 +4960,7 @@ if fallback {
 </code></pre>
 <h3 id="example-response-5-3"><a class="header" href="#example-response-5-3">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "suggestion": {
     "action": "follow",
     "route_id": "R_j1k2l3",
@@ -5007,8 +5007,8 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.affinity",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_j1k2l3",
       "route_set_version": 101
     }
@@ -5061,8 +5061,8 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.branch",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "branch_name": "auth-path"
     }
   }
@@ -5070,8 +5070,8 @@ if fallback {
 </code></pre>
 <h3 id="example-response-7-1"><a class="header" href="#example-response-7-1">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
-  "branch_perspective_id": "persp_jimi_002",
+  "perspective_id": "persp_agent1_001",
+  "branch_perspective_id": "persp_agent1_002",
   "branch_name": "auth-path",
   "branched_from_focus": "file::worker_pool.py"
 }
@@ -5110,15 +5110,15 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.back",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001"
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-8-1"><a class="header" href="#example-response-8-1">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "restored_focus": "file::session_pool.py",
   "restored_mode": "anchored",
   "routes": [
@@ -5175,17 +5175,17 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.compare",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id_a": "persp_jimi_001",
-      "perspective_id_b": "persp_jimi_002"
+      "agent_id": "agent-1",
+      "perspective_id_a": "persp_agent1_001",
+      "perspective_id_b": "persp_agent1_002"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-9-1"><a class="header" href="#example-response-9-1">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id_a": "persp_jimi_001",
-  "perspective_id_b": "persp_jimi_002",
+  "perspective_id_a": "persp_agent1_001",
+  "perspective_id_b": "persp_agent1_002",
   "shared_nodes": ["worker_pool.py", "process_manager.py", "session_pool.py"],
   "unique_to_a": ["spawner.py", "config.py"],
   "unique_to_b": ["auth_discovery.py", "middleware.py"],
@@ -5230,17 +5230,17 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.list",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-10"><a class="header" href="#example-response-10">Example Response</a></h3>
 <pre><code class="language-json">{
-  "agent_id": "jimi",
+  "agent_id": "agent-1",
   "perspectives": [
     {
-      "perspective_id": "persp_jimi_001",
+      "perspective_id": "persp_agent1_001",
       "mode": "anchored",
       "focus_node": "file::worker_pool.py",
       "route_count": 12,
@@ -5250,7 +5250,7 @@ if fallback {
       "last_accessed_ms": 1710300500000
     },
     {
-      "perspective_id": "persp_jimi_002",
+      "perspective_id": "persp_agent1_002",
       "mode": "anchored",
       "focus_node": "file::auth_discovery.py",
       "route_count": 8,
@@ -5296,17 +5296,17 @@ if fallback {
   "params": {
     "name": "m1nd.perspective.close",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_002"
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_002"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-11"><a class="header" href="#example-response-11">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_002",
+  "perspective_id": "persp_agent1_002",
   "closed": true,
-  "locks_released": ["lock_jimi_003"]
+  "locks_released": ["lock_agent1_003"]
 }
 </code></pre>
 <h3 id="when-to-use-11"><a class="header" href="#when-to-use-11">When to Use</a></h3>
@@ -5324,7 +5324,7 @@ if fallback {
 <p>A complete perspective exploration session, from start to close:</p>
 <pre><code>1. START a perspective from a query
    perspective_start(query="authentication and session security")
-   -&gt; persp_jimi_001, 12 routes, anchored to auth_discovery.py
+   -&gt; persp_agent1_001, 12 routes, anchored to auth_discovery.py
 
 2. BROWSE routes (page 1 already returned by start)
    Routes: R01 auth_discovery.py, R02 middleware.py, R03 principal_registry.py, ...
@@ -5343,14 +5343,14 @@ if fallback {
 
 6. BRANCH before exploring a risky path
    m1nd.perspective.branch(branch_name="session-path")
-   -&gt; new persp_jimi_002, same focus
+   -&gt; new persp_agent1_002, same focus
 
 7. FOLLOW different routes in each branch
    Branch 1: follow toward principal_registry.py
    Branch 2: follow toward session_pool.py
 
 8. COMPARE the two branches
-   m1nd.perspective.compare(perspective_id_a="persp_jimi_001", perspective_id_b="persp_jimi_002")
+   m1nd.perspective.compare(perspective_id_a="persp_agent1_001", perspective_id_b="persp_agent1_002")
    -&gt; shared: [auth_discovery.py], unique_to_a: [principal_registry.py], unique_to_b: [session_pool.py]
 
 9. BACK to undo the last follow in branch 1
@@ -5358,8 +5358,8 @@ if fallback {
    -&gt; restored focus: auth_discovery.py
 
 10. CLOSE both perspectives when done
-    m1nd.perspective.close(perspective_id="persp_jimi_001")
-    m1nd.perspective.close(perspective_id="persp_jimi_002")
+    m1nd.perspective.close(perspective_id="persp_agent1_001")
+    m1nd.perspective.close(perspective_id="persp_agent1_002")
 </code></pre>
 <p>This workflow demonstrates the full exploration cycle: start with a query, navigate through the graph by following routes, branch to explore alternatives, compare branches, and close when done.</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -5392,8 +5392,8 @@ if fallback {
   "params": {
     "name": "m1nd.ingest",
     "arguments": {
-      "agent_id": "jimi",
-      "path": "/Users/cosmophonix/clawd/roomanizer-os/backend",
+      "agent_id": "agent-1",
+      "path": "/path/to/project-f/backend",
       "adapter": "code",
       "mode": "replace",
       "incremental": false
@@ -5475,7 +5475,7 @@ if fallback {
   "params": {
     "name": "m1nd.health",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
@@ -5491,7 +5491,7 @@ if fallback {
   "plasticity_state": "active",
   "last_persist_time": "2026-03-13T10:30:00Z",
   "active_sessions": [
-    { "agent_id": "jimi", "last_active": "2026-03-13T11:25:00Z" }
+    { "agent_id": "agent-1", "last_active": "2026-03-13T11:25:00Z" }
   ]
 }
 </code></pre>
@@ -5531,7 +5531,7 @@ if fallback {
   "params": {
     "name": "m1nd.validate_plan",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "actions": [
         { "action_type": "modify", "file_path": "backend/session_pool.py", "description": "Add connection timeout" },
         { "action_type": "modify", "file_path": "backend/worker_pool.py", "description": "Update pool acquire to use timeout" },
@@ -5646,7 +5646,7 @@ if fallback {
   "params": {
     "name": "m1nd.lock.create",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "scope": "subgraph",
       "root_nodes": ["file::chat_handler.py"],
       "radius": 2
@@ -5656,7 +5656,7 @@ if fallback {
 </code></pre>
 <h3 id="example-response-3-5"><a class="header" href="#example-response-3-5">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "scope": "subgraph",
   "baseline_nodes": 1639,
   "baseline_edges": 707,
@@ -5707,8 +5707,8 @@ if fallback {
   "params": {
     "name": "m1nd.lock.watch",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001",
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001",
       "strategy": "on_ingest"
     }
   }
@@ -5716,7 +5716,7 @@ if fallback {
 </code></pre>
 <h3 id="example-response-4-4"><a class="header" href="#example-response-4-4">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "strategy": "on_ingest",
   "previous_strategy": null
 }
@@ -5755,8 +5755,8 @@ if fallback {
   "params": {
     "name": "m1nd.lock.diff",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
@@ -5764,7 +5764,7 @@ if fallback {
 <h3 id="example-response-changes-detected"><a class="header" href="#example-response-changes-detected">Example Response (changes detected)</a></h3>
 <pre><code class="language-json">{
   "diff": {
-    "lock_id": "lock_jimi_001",
+    "lock_id": "lock_agent1_001",
     "no_changes": false,
     "new_nodes": ["file::chat_handler.py::fn::new_method"],
     "removed_nodes": [],
@@ -5785,7 +5785,7 @@ if fallback {
 <h3 id="example-response-no-changes"><a class="header" href="#example-response-no-changes">Example Response (no changes)</a></h3>
 <pre><code class="language-json">{
   "diff": {
-    "lock_id": "lock_jimi_001",
+    "lock_id": "lock_agent1_001",
     "no_changes": true,
     "new_nodes": [],
     "removed_nodes": [],
@@ -5836,15 +5836,15 @@ if fallback {
   "params": {
     "name": "m1nd.lock.rebase",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-5-4"><a class="header" href="#example-response-5-4">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "previous_generation": 42,
   "new_generation": 45,
   "baseline_nodes": 1645,
@@ -5886,15 +5886,15 @@ if fallback {
   "params": {
     "name": "m1nd.lock.release",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-6-4"><a class="header" href="#example-response-6-4">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "released": true
 }
 </code></pre>
@@ -6489,7 +6489,7 @@ cargo build --release
 <p>Next: <a href="#multi-agent-usage">Multi-Agent Tutorial</a> – how multiple agents share one graph.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="multi-agent-usage"><a class="header" href="#multi-agent-usage">Multi-Agent Usage</a></h1>
-<p>m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how ROOMANIZER OS uses m1nd with 19 agents.</p>
+<p>m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how a production orchestration system uses m1nd with 19 agents.</p>
 <h2 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h2>
 <p>m1nd runs as a single process with a single shared graph. Multiple MCP clients connect to the same instance (or multiple instances reading from the same persisted state). Every tool call includes an <code>agent_id</code> parameter that identifies the caller.</p>
 <pre><code>  Agent A (Claude Code)  ----+
@@ -6501,7 +6501,7 @@ cargo build --release
 <p>The graph is shared. Learning by one agent benefits all agents. Perspectives are isolated per agent. Trails can be shared across agents.</p>
 <h2 id="agent-id-conventions"><a class="header" href="#agent-id-conventions">Agent ID Conventions</a></h2>
 <p>Every m1nd tool requires an <code>agent_id</code> parameter. This is a free-form string, but consistent naming matters:</p>
-<pre><code>agent_id: "jimi"          -- orchestrator
+<pre><code>agent_id: "agent-1"          -- orchestrator
 agent_id: "hacker-auth"   -- security hardening agent
 agent_id: "forge-api"     -- API building agent
 agent_id: "analyst-perf"  -- performance analysis agent
@@ -6809,10 +6809,10 @@ agent_id: "analyst-perf"  -- performance analysis agent
   }
 }
 </code></pre>
-<h2 id="real-world-example-roomanizer-os"><a class="header" href="#real-world-example-roomanizer-os">Real-World Example: ROOMANIZER OS</a></h2>
-<p>ROOMANIZER OS is a multi-agent orchestration system that uses m1nd as its shared code intelligence layer. Here is how it works in production:</p>
+<h2 id="real-world-example-project-f-os"><a class="header" href="#real-world-example-project-f-os">Real-World Example: a production orchestration system</a></h2>
+<p>a production orchestration system is a multi-agent orchestration system that uses m1nd as its shared code intelligence layer. Here is how it works in production:</p>
 <h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
-<pre><code>JIMI (orchestrator)
+<pre><code>the orchestrator (orchestrator)
   |
   +-- hacker-auth (security agent)     --+
   +-- forge-api (API builder)           --+-- All share one m1nd instance
@@ -6823,28 +6823,28 @@ agent_id: "analyst-perf"  -- performance analysis agent
 </code></pre>
 <p>One m1nd instance serves 19 agents. The graph covers a 335-file Python backend (~52K lines), a React frontend, and MCP server infrastructure.</p>
 <h3 id="orchestrator-boot-sequence"><a class="header" href="#orchestrator-boot-sequence">Orchestrator Boot Sequence</a></h3>
-<p>When JIMI (the orchestrator) starts a session:</p>
+<p>When the orchestrator (the orchestrator) starts a session:</p>
 <pre><code class="language-jsonc">// Step 1: Check m1nd health
-{"method":"tools/call","params":{"name":"m1nd.health","arguments":{"agent_id":"jimi"}}}
+{"method":"tools/call","params":{"name":"m1nd.health","arguments":{"agent_id":"agent-1"}}}
 
 // Step 2: Check what changed since last session
-{"method":"tools/call","params":{"name":"m1nd.drift","arguments":{"agent_id":"jimi","since":"last_session"}}}
+{"method":"tools/call","params":{"name":"m1nd.drift","arguments":{"agent_id":"agent-1","since":"last_session"}}}
 
 // Step 3: Re-ingest if the graph is stale
 {"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{
-  "path":"/project/backend","agent_id":"jimi","incremental":true
+  "path":"/project/backend","agent_id":"agent-1","incremental":true
 }}}
 </code></pre>
 <h3 id="task-delegation-with-graph-context"><a class="header" href="#task-delegation-with-graph-context">Task Delegation with Graph Context</a></h3>
-<p>When JIMI delegates a security hardening task:</p>
+<p>When the orchestrator delegates a security hardening task:</p>
 <pre><code class="language-jsonc">// Before spawning the security agent, get blast radius context
 {"method":"tools/call","params":{"name":"m1nd.impact","arguments":{
-  "node_id":"file::auth.py","agent_id":"jimi"
+  "node_id":"file::auth.py","agent_id":"agent-1"
 }}}
 
 // Warm up the graph for the security task
 {"method":"tools/call","params":{"name":"m1nd.warmup","arguments":{
-  "task_description":"harden authentication token validation","agent_id":"jimi"
+  "task_description":"harden authentication token validation","agent_id":"agent-1"
 }}}
 
 // The security agent then uses the primed graph
@@ -6882,7 +6882,7 @@ agent_id: "analyst-perf"  -- performance analysis agent
 
 // Orchestrator merges with Agent B's independent findings
 {"method":"tools/call","params":{"name":"m1nd.trail.merge","arguments":{
-  "agent_id":"jimi",
+  "agent_id":"agent-1",
   "trail_ids":["trail-hacker-001","trail-analyst-002"]
 }}}
 </code></pre>
@@ -6944,7 +6944,7 @@ agent_id: "analyst-perf"  -- performance analysis agent
 <p>All other file types use a generic fallback extractor that identifies functions, classes, and imports through heuristic pattern matching. The generic extractor produces a less detailed graph but still captures useful structure.</p>
 <p>Tree-sitter integration is planned, which would add support for 64+ languages.</p>
 <h3 id="is-m1nd-open-source"><a class="header" href="#is-m1nd-open-source">Is m1nd open source?</a></h3>
-<p>Yes. MIT license. Source at <a href="https://github.com/cosmophonix/m1nd">github.com/cosmophonix/m1nd</a>.</p>
+<p>Yes. MIT license. Source at <a href="https://github.com/maxkle1nz/m1nd">github.com/maxkle1nz/m1nd</a>.</p>
 <hr>
 <h2 id="installation"><a class="header" href="#installation">Installation</a></h2>
 <h3 id="what-platforms-does-m1nd-support"><a class="header" href="#what-platforms-does-m1nd-support">What platforms does m1nd support?</a></h3>
@@ -7108,7 +7108,7 @@ agent_id: "analyst-perf"  -- performance analysis agent
 <hr>
 <h2 id="contributing"><a class="header" href="#contributing">Contributing</a></h2>
 <h3 id="how-do-i-contribute"><a class="header" href="#how-do-i-contribute">How do I contribute?</a></h3>
-<p>See <a href="https://github.com/cosmophonix/m1nd/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>. Fork the repo, create a branch, make your changes with tests, and open a PR.</p>
+<p>See <a href="https://github.com/maxkle1nz/m1nd/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>. Fork the repo, create a branch, make your changes with tests, and open a PR.</p>
 <h3 id="what-is-the-test-suite"><a class="header" href="#what-is-the-test-suite">What is the test suite?</a></h3>
 <pre><code class="language-bash">cargo test --all
 </code></pre>
@@ -7128,7 +7128,7 @@ agent_id: "analyst-perf"  -- performance analysis agent
 <li><strong>Documentation</strong>: Tutorials, examples, and translations</li>
 </ol>
 <h3 id="where-do-i-report-bugs"><a class="header" href="#where-do-i-report-bugs">Where do I report bugs?</a></h3>
-<p>GitHub Issues at <a href="https://github.com/cosmophonix/m1nd/issues">github.com/cosmophonix/m1nd/issues</a>. Use the <code>bug</code> label.</p>
+<p>GitHub Issues at <a href="https://github.com/maxkle1nz/m1nd/issues">github.com/maxkle1nz/m1nd/issues</a>. Use the <code>bug</code> label.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="benchmarks"><a class="header" href="#benchmarks">Benchmarks</a></h1>
 <p>For the raw research artifacts and patch backlog that produced the current public numbers, see:</p>
@@ -7267,7 +7267,7 @@ python3 scripts/benchmark/summarize_benchmarks.py --help
 <p>JSON serialization scales linearly with state size. A 10K-node graph persists in under 100ms. A 100K-node graph would take approximately 1 second.</p>
 <h2 id="reproducibility-1"><a class="header" href="#reproducibility-1">Reproducibility</a></h2>
 <p>To reproduce these benchmarks:</p>
-<pre><code class="language-bash">git clone https://github.com/cosmophonix/m1nd.git
+<pre><code class="language-bash">git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build --release
 

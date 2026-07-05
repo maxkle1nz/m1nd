@@ -16,7 +16,7 @@ Get m1nd running and fire your first graph query in under 30 seconds.
 ### Option 1 — Build from source (recommended)
 
 ```bash
-git clone https://github.com/cosmophonix/m1nd.git
+git clone https://github.com/maxkle1nz/m1nd.git
 cd m1nd
 cargo build --release
 ```

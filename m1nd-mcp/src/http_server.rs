@@ -827,7 +827,7 @@ async fn handle_instances(State(state): State<Arc<AppState>>) -> impl IntoRespon
 /// named (HUMAN-LAYER-PRD §4A.3, promoting #260's "REST/GUI bound-only"
 /// residue). Every registry entry is enriched with two honest fields BEFORE it
 /// reaches the Hall:
-///   - `display_name` — the repo basename ("m1nd", "Cerrybubbles1"), the card's
+///   - `display_name` — the repo basename ("m1nd", "project-b"), the card's
 ///     name. NEVER the runtime dir ("claude") nor its `agent-memory` sidecar.
 ///   - `project_root` — the repo the brain maps, the card's path.
 ///
@@ -978,7 +978,7 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
     // ── Cold disk union (the "hosted brain vanishes after restart" fix) ──────────
     // The instance registry only re-lists a project brain once a routed call
     // warm-boots it, so after every owner restart a dormant project brain is
-    // absent from the Hall until touched (field-proven reincidence: "Cherry
+    // absent from the Hall until touched (field-proven reincidence: "project-b
     // sumiu"). But a brain that exists on disk IS a brain the Hall must show and
     // `?brain=` can open — listing is a cheap manifest read, never a warm-boot.
     // Union the disk roster in: any store manifest whose canonical root is not

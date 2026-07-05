@@ -167,7 +167,7 @@ function useSelf(enabled: boolean) {
  * Ingest modal — SOFT PROOF skin + the clobber ban (§4A.4, INV-11).
  *
  * A bare foreign-path ingest REPLACES the bound graph for everyone (field-proven
- * on Cherry/almus). So on a NON-EMPTY owner without project_root routing, a
+ * on project-b/project-d). So on a NON-EMPTY owner without project_root routing, a
  * foreign path is never offered — the affordance is the isolated one-call
  * bootstrap (when advertised) or nothing. On an empty owner it is safe (nothing
  * to clobber). Feature-detected via GET /api/tools, never assumed.

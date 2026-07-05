@@ -291,16 +291,16 @@ test('naming guard: the bound card shows "m1nd" (its repo), not "agent-memory"/"
   assert.equal(bound.display_name, 'm1nd');
 });
 
-test('naming guard: the project card shows "Cerrybubbles1", not the fingerprint store dir', () => {
+test('naming guard: the project card shows "project-b", not the fingerprint store dir', () => {
   const text = cardName(project, false);
-  assert.match(text, /Cerrybubbles1/);
+  assert.match(text, /project-b/);
   // The fingerprint hash (the pre-fix leak) must not be the headline.
   assert.doesNotMatch(text, /68c5ce186f6efcd2/);
-  assert.equal(project.display_name, 'Cerrybubbles1');
+  assert.equal(project.display_name, 'project-b');
 });
 
 // ── Project-brain semantics: a project brain is NOT an instance (§4A.3) ───────
-// Max's live screenshot: the Cherry project card wore "counts unknown — not
+// Max's live screenshot: the project-b project card wore "counts unknown — not
 // running" + a "stale lock" badge — instance language on an in-process brain.
 
 test('project card shows its RECORDED counts, never "not running"', () => {

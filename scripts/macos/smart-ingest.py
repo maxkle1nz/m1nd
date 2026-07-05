@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-smart-ingest.py — JIMI m1nd intelligent namespace ingest
-Ingests only relevant project namespaces, skipping iOS pods and noise.
+smart-ingest.py — m1nd intelligent namespace ingest
+Ingests only relevant project namespaces, skipping vendored pods and noise.
 
 Usage:
     python3 smart-ingest.py              # Full ingest all namespaces
-    python3 smart-ingest.py crush        # Single namespace
+    python3 smart-ingest.py project-a    # Single namespace
     python3 smart-ingest.py --incremental  # All namespaces, incremental
 """
 
@@ -17,17 +17,15 @@ import urllib.error
 import os
 
 M1ND_PORT = int(os.environ.get("M1ND_PORT", "1337"))
-CLAWD = "/Users/cosmophonix/clawd"
+# Base directory holding the repos you want ingested. Point this at your own
+# workspace and list one entry per repo below.
+WORKSPACE = os.path.expanduser(os.environ.get("M1ND_WORKSPACE", "~/workspace"))
 
 # Ordered by priority — highest first
 NAMESPACES = [
-    {"name": "crush",       "path": f"{CLAWD}/crush",          "mode": "replace"},
-    {"name": "roomanizer",  "path": f"{CLAWD}/roomanizer-os",  "mode": "merge"},
-    {"name": "openclaw",    "path": f"{CLAWD}/openclaw",       "mode": "merge"},
-    {"name": "reson",       "path": f"{CLAWD}/RESON",          "mode": "merge"},
-    {"name": "kosmo",       "path": f"{CLAWD}/kosmo-only",     "mode": "merge"},
-    {"name": "jimi-cli",    "path": f"{CLAWD}/jimi-cli-ui",    "mode": "merge"},
-    {"name": "crush-work",  "path": f"{CLAWD}/crush-work",     "mode": "merge"},
+    {"name": "project-a",  "path": f"{WORKSPACE}/project-a",  "mode": "replace"},
+    {"name": "openclaw",   "path": f"{WORKSPACE}/openclaw",   "mode": "merge"},
+    {"name": "project-b",  "path": f"{WORKSPACE}/project-b",  "mode": "merge"},
 ]
 
 

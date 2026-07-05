@@ -30,7 +30,7 @@ Spreading activation query across the graph. The primary structural search tool 
   "params": {
     "name": "activate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session pool management",
       "top_k": 5,
       "include_ghost_edges": true
@@ -140,7 +140,7 @@ Task-based warmup and priming. Activates the graph around a task description and
   "params": {
     "name": "warmup",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "task_description": "Refactor the WhatsApp message routing to support group chats",
       "boost_strength": 0.2
     }
@@ -204,7 +204,7 @@ Resonance analysis: standing waves, harmonics, sympathetic pairs, and resonant f
   "params": {
     "name": "resonate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "authentication flow",
       "top_k": 10
     }
