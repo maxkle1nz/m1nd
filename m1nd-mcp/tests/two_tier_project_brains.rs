@@ -93,6 +93,26 @@ fn write_project_b_repo(root: &Path) {
     .expect("lib.rs");
 }
 
+/// A distinct scratch repo #`n` with a unique sentinel fn, so each bootstrapped
+/// brain has an identifiable graph the warm-boot can be asserted against. Node
+/// counts scale a little with `n` so no two are accidentally identical.
+fn write_numbered_repo(root: &Path, n: usize) {
+    std::fs::create_dir_all(root.join("src")).expect("mk src");
+    std::fs::write(
+        root.join("Cargo.toml"),
+        format!("[package]\nname = \"scratch{n}\"\nversion = \"0.0.0\"\n"),
+    )
+    .expect("Cargo.toml");
+    // n+1 unique fns so counts differ per repo and are non-trivial.
+    let mut body = String::new();
+    for i in 0..=n {
+        body.push_str(&format!(
+            "pub fn scratch_{n}_probe_{i}() -> i64 {{ {i} }}\n"
+        ));
+    }
+    std::fs::write(root.join("src/lib.rs"), body).expect("lib.rs");
+}
+
 // ---------------------------------------------------------------------------
 // Owner harness — a real AppState around a real SessionState, driven through
 // the real `handle_mcp_post` (the wire seam attach bridges use).
@@ -106,6 +126,13 @@ struct Owner {
 /// etc.), exactly like `--serve` boots: `McpServer::new` warm-boots the snapshot
 /// when present, else starts fresh.
 fn mk_owner(runtime: &Path) -> Owner {
+    mk_owner_with_cap(runtime, m1nd_mcp::project_brains::DEFAULT_WARM_BRAIN_CAP)
+}
+
+/// Like [`mk_owner`] but with an explicit warm-brain cap — the eviction-gate
+/// (§C9.1) proof pins the bound small so a handful of scratch brains force
+/// eviction.
+fn mk_owner_with_cap(runtime: &Path, cap: usize) -> Owner {
     std::fs::create_dir_all(runtime).expect("mk runtime");
     let config = McpConfig {
         graph_source: runtime.join("graph_snapshot.json"),
@@ -121,9 +148,10 @@ fn mk_owner(runtime: &Path) -> Owner {
         .get("tools")
         .cloned()
         .unwrap_or(serde_json::Value::Array(vec![]));
-    let project_brains = Arc::new(ProjectBrainRegistry::new(
+    let project_brains = Arc::new(ProjectBrainRegistry::with_capacity(
         runtime.join("project-brains"),
         Some(runtime.join("registry")),
+        cap,
     ));
     Owner {
         app: Arc::new(AppState {
@@ -229,6 +257,32 @@ impl Owner {
         health["node_count"]
             .as_u64()
             .unwrap_or_else(|| panic!("health without node_count: {health}"))
+    }
+
+    /// How many project brains are hydrated in the warm map RIGHT NOW.
+    fn warm_len(&self) -> usize {
+        self.app.project_brains.warm_len()
+    }
+
+    /// Bootstrap a project brain from `root` (the one-call ingest); return its
+    /// ingested node_count.
+    async fn bootstrap(&self, root: &Path, agent: &str) -> u64 {
+        let sid = self.init_session(root).await;
+        let boot = self
+            .tool(
+                &sid,
+                root,
+                "ingest",
+                serde_json::json!({
+                    "path": root.to_string_lossy(),
+                    "project_root": root.to_string_lossy(),
+                    "agent_id": agent
+                }),
+            )
+            .await;
+        boot["ingest"]["node_count"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("bootstrap without node_count: {boot}"))
     }
 }
 
@@ -586,4 +640,118 @@ async fn reception_option_carries_the_real_bootstrap_call() {
         !call.contains("separate runtime today"),
         "the roadmap-era wording must be gone once the call is real: {call}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// (7) — THE EVICTION GATE (§C9.1, ladder R15). The interim owner-hosted topology
+// recreates the blast radius two-tier was built to kill: one owner holds N warm
+// brains, so an unbounded map + one crash loses N brains' state. Law: the warm
+// map is LRU-bounded, and a brain persists-then-drops on eviction so a later call
+// warm-boots it back identical. Battery case: bootstrap cap+1 brains → the map
+// never exceeds the cap → `kill -9` the owner → EVERY brain warm-boots from its
+// own snapshot with no data loss → the bound dev graph never evicts.
+//
+// RED before this rung: the map is unbounded (no eviction — `warm_len` grows to
+// cap+1) OR (had eviction been a naive drop) the evicted brain would lose its
+// unpersisted state and warm-boot smaller than it was ingested.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn eviction_gate_bounds_the_map_and_persists_on_evict_surviving_kill9() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    const CAP: usize = 2;
+
+    // Owner bound to a dev graph, with a tiny warm-brain cap so a few scratch
+    // brains force the gate.
+    let bound_repo = tmp.path().join("bound-repo");
+    write_bound_repo(&bound_repo);
+    let owner = mk_owner_with_cap(&runtime, CAP);
+    let sid_bound = owner.init_session(&bound_repo).await;
+    let bound_ingest = owner
+        .tool(
+            &sid_bound,
+            &bound_repo,
+            "ingest",
+            serde_json::json!({"path": bound_repo.to_string_lossy(), "agent_id": "dev"}),
+        )
+        .await;
+    let bound_nodes = bound_ingest["node_count"].as_u64().unwrap_or(0);
+    assert!(bound_nodes > 0, "bound graph must ingest: {bound_ingest}");
+
+    // Bootstrap CAP+1 distinct project brains. Bootstrap auto-persists each
+    // brain's snapshot immediately (#230), so what we prove here is the map BOUND
+    // and that EVERY brain — the evicted ones included — survives a hard kill and
+    // warm-boots from its own store. (The persist-on-evict path for state mutated
+    // AFTER a brain's last persist is proven at the unit level in
+    // `project_brains.rs::eviction_persists_unpersisted_state`.)
+    let n_brains = CAP + 1;
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut ingested_nodes: Vec<u64> = Vec::new();
+    for i in 0..n_brains {
+        let root = tmp.path().join(format!("scratch-{i}"));
+        write_numbered_repo(&root, i + 1);
+        let nodes = owner.bootstrap(&root, &format!("agent-{i}")).await;
+        assert!(nodes > 0, "scratch brain {i} must ingest nodes");
+        // THE BOUND, checked on every insert: the warm map NEVER exceeds the cap.
+        // Pre-fix (unbounded map) this reaches CAP+1 and fails here.
+        assert!(
+            owner.warm_len() <= CAP,
+            "warm map exceeded the cap after bootstrapping brain {i}: {} > {CAP} \
+             (the eviction gate did not arm)",
+            owner.warm_len()
+        );
+        roots.push(root);
+        ingested_nodes.push(nodes);
+    }
+    // With cap+1 brains bootstrapped and a cap of CAP, at least one must have been
+    // evicted — so the map sits AT the cap, not below.
+    assert_eq!(
+        owner.warm_len(),
+        CAP,
+        "after bootstrapping cap+1 brains the warm map must sit at the cap"
+    );
+
+    // The bound dev graph is NOT a project brain — it lives on AppState::session,
+    // never in the evictable map — so it must answer unchanged after all the
+    // churn (it can never be the eviction victim).
+    assert_eq!(
+        owner.node_count(&sid_bound, &bound_repo).await,
+        bound_nodes,
+        "the bound dev graph must never be evicted by project-brain churn"
+    );
+
+    // KILL -9: drop the whole owner (no graceful shutdown, no final flush). The
+    // only state that survives is what persist-on-evict + bootstrap's immediate
+    // persist already wrote to each store.
+    drop(owner);
+
+    // A brand-new owner over the SAME runtime dir (fresh empty map). EVERY brain —
+    // the evicted ones included — must warm-boot from its own snapshot with its
+    // full ingested graph intact (node counts match). A brain that was evicted
+    // WITHOUT persist-on-evict would warm-boot fresh/empty and fail here.
+    let owner2 = mk_owner_with_cap(&runtime, CAP);
+    for (i, root) in roots.iter().enumerate() {
+        let sid = owner2.init_session(root).await;
+        let north = owner2
+            .tool(
+                &sid,
+                root,
+                "north",
+                serde_json::json!({"agent_id": "post-kill", "task": "orient"}),
+            )
+            .await;
+        assert!(
+            north["reception"].is_null(),
+            "post-kill, root {i} must bind its own brain silently: {}",
+            north["reception"]
+        );
+        let warm_nodes = fingerprint(&north)["node_count"].as_u64().unwrap_or(0);
+        assert_eq!(
+            warm_nodes, ingested_nodes[i],
+            "brain {i} lost state across kill-9: warm-booted {warm_nodes} nodes, \
+             ingested {} — its store was not preserved through eviction",
+            ingested_nodes[i]
+        );
+    }
 }
