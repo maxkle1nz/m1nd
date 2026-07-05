@@ -91,6 +91,36 @@ const SUFFICIENCY_WEAK_TOP: f32 = 0.18;
 const CONFORMANCE_BEDROCK_BOOST: f32 = 0.20;
 const CONFORMANCE_EROSION_MALUS: f32 = -0.30;
 
+/// Similarity gate on the graph-activation (PageRank) term of the seek rerank.
+///
+/// PageRank is a normalized centrality prior (the most-central node scores ~1.0),
+/// added as `graph_activation * 0.2`. Left ungated, a node with ~1.0 centrality
+/// but ~0 semantic/lexical relevance collects the full +0.2 and can out-rank a
+/// genuinely on-topic node whose `sem * 0.3` is smaller — centrality drowns the
+/// semantic signal, and the query's real targets never surface.
+///
+/// The fix keeps centrality as a full-strength CO-RANKER / tie-breaker but stops
+/// it from riding to the top ALONE: the activation term is scaled by a gate that
+/// ramps with the node's own relevance (`max(sem, keyword, trigram)`). A relevant
+/// node keeps essentially all of its centrality; a near-zero-relevance node keeps
+/// only `ACTIVATION_GATE_FLOOR` of it, so pure centrality can no longer swamp a
+/// semantically-central hit. `rel >= ACTIVATION_GATE_FULL` restores the full
+/// weight, so nothing changes for nodes that clearly match the query.
+const ACTIVATION_GATE_FLOOR: f32 = 0.15;
+/// Relevance at (and above) which the activation term regains its full 0.2 weight.
+const ACTIVATION_GATE_FULL: f32 = 0.30;
+
+/// Similarity gate multiplier for the graph-activation term: `ACTIVATION_GATE_FLOOR`
+/// at zero relevance, ramping linearly to `1.0` once relevance reaches
+/// `ACTIVATION_GATE_FULL`. `rel` is the node's own semantic/lexical relevance,
+/// `max(sem, keyword, trigram)`, already clamped to [0, 1] upstream.
+#[inline]
+fn activation_similarity_gate(rel: f32) -> f32 {
+    let rel = rel.clamp(0.0, 1.0);
+    let ramp = (rel / ACTIVATION_GATE_FULL).clamp(0.0, 1.0);
+    ACTIVATION_GATE_FLOOR + (1.0 - ACTIVATION_GATE_FLOOR) * ramp
+}
+
 /// Compute the answer-free sufficiency signal from retrieval outcome signals.
 ///
 /// `top_score` is the best match's combined score (0 when the set is empty).
@@ -454,9 +484,16 @@ pub fn handle_seek(
             .map(|&ti| graph.strings.resolve(ti).to_lowercase())
             .collect();
 
+        // Gate the centrality prior by the node's OWN relevance so a high-PageRank
+        // but off-topic node can't ride pure centrality to the top (see
+        // `activation_similarity_gate`). Centrality stays a full-strength co-ranker
+        // for relevant nodes and an explicit tie-break below, but never drowns the
+        // semantic signal for an irrelevant one.
+        let relevance = sem.max(kw).max(tri);
+        let gated_activation = graph_activation * activation_similarity_gate(relevance);
         let base_score = kw * 0.4
             + sem * 0.3
-            + graph_activation * 0.2
+            + gated_activation * 0.2
             + tri * 0.1
             + source_path_bias(Some(source_path_lower.as_str()), &all_tokens)
             + l2_seek_anchor_bias(
@@ -11293,6 +11330,204 @@ mod tests {
             summary.bedrock + summary.erosion + summary.neutral,
             returned,
             "every returned hit is classified exactly once"
+        );
+    }
+
+    /// A multi-token query for the rerank-balance fixture. Its length keeps the
+    /// keyword score fractional: the utility node matches only one token (low
+    /// relevance), the central node matches several (high relevance).
+    const RERANK_BALANCE_QUERY: &str =
+        "parse tokenize evaluate serialize deserialize validate normalize \
+         canonicalize interpolate marshal";
+
+    /// Build a synthetic graph that isolates the rerank balance between graph
+    /// centrality (PageRank) and semantic relevance. Three query-relevant nodes,
+    /// all sharing the query token so each has a real lexical/semantic signal:
+    ///
+    ///   * `utility`  — a hub every other node points at (high PageRank) that
+    ///     matches only ONE query token (low relevance). The query's answer in
+    ///     name only: a high-centrality, low-relevance node.
+    ///   * `central`  — matches SEVERAL query tokens (high relevance) but has
+    ///     almost no inbound edges (low PageRank). The query's real target.
+    ///   * `hub_hit`  — BOTH central (many inbound edges) AND strongly relevant.
+    ///
+    /// A wide fan-in of filler nodes pumps the utility node's PageRank far above
+    /// `central`'s, so the centrality prior is large where relevance is small.
+    ///
+    /// The keyword-matching tokens live in the node TAGS, not the label, and every
+    /// scored node carries the same opaque label prefix. That keeps the deterministic
+    /// keyword fraction the ONLY relevance lever between them — the label-derived
+    /// trigram and embedding signals stay uniformly low, so the test isolates the
+    /// centrality-vs-relevance balance without depending on embedder specifics.
+    fn build_rerank_balance_graph(
+        root: &std::path::Path,
+        util_tags: &[&str],
+        central_tags: &[&str],
+        hub_hit_tags: &[&str],
+    ) -> SessionState {
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut graph = Graph::new();
+
+        let util = graph
+            .add_node(
+                "file::mod/utility.rs",
+                "zzznode_utility",
+                NodeType::Function,
+                util_tags,
+                0.0,
+                0.0,
+            )
+            .expect("add utility");
+        let central = graph
+            .add_node(
+                "file::mod/central.rs",
+                "zzznode_central",
+                NodeType::Function,
+                central_tags,
+                0.0,
+                0.0,
+            )
+            .expect("add central");
+        let hub_hit = graph
+            .add_node(
+                "file::mod/hub_hit.rs",
+                "zzznode_hubhit",
+                NodeType::Function,
+                hub_hit_tags,
+                0.0,
+                0.0,
+            )
+            .expect("add hub_hit");
+
+        // A wide fan-in of neutral filler nodes, none carrying the query token, so
+        // they never enter the result set — they exist only to route PageRank into
+        // the two hub nodes (`utility`, `hub_hit`).
+        let edge = |g: &mut Graph, s: m1nd_core::types::NodeId, t: m1nd_core::types::NodeId| {
+            g.add_edge(
+                s,
+                t,
+                "calls",
+                FiniteF32::new(1.0),
+                EdgeDirection::Forward,
+                false,
+                FiniteF32::new(0.5),
+            )
+            .expect("edge");
+        };
+        for i in 0..24u32 {
+            let filler = graph
+                .add_node(
+                    &format!("file::mod/filler_{i}.rs"),
+                    &format!("filler_{i}"),
+                    NodeType::Function,
+                    &[],
+                    0.0,
+                    0.0,
+                )
+                .expect("add filler");
+            // Every filler points at both hubs → both accrue high PageRank.
+            edge(&mut graph, filler, util);
+            edge(&mut graph, filler, hub_hit);
+        }
+        // `central` is pointed at by a single filler only → low PageRank.
+        let lone = graph
+            .add_node(
+                "file::mod/lone.rs",
+                "lone",
+                NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add lone");
+        edge(&mut graph, lone, central);
+        graph.finalize().expect("finalize");
+
+        let mut state =
+            SessionState::initialize(graph, &config, DomainConfig::code()).expect("init session");
+        state.ingest_roots = vec![root.to_string_lossy().to_string()];
+        state.workspace_root = Some(root.to_string_lossy().to_string());
+        state
+    }
+
+    fn rank_of(o: &crate::protocol::layers::SeekOutput, id: &str) -> Option<usize> {
+        o.results.iter().position(|r| r.node_id == id)
+    }
+
+    /// REGRESSION GUARD for the field-observed rerank imbalance: a high-PageRank
+    /// but semantically weak "utility" node used to out-rank the semantically
+    /// central node, because the centrality prior (`graph_activation * 0.2`) was
+    /// added ungated and drowned the smaller `sem * 0.3` of the real target.
+    ///
+    /// With the similarity gate on the activation term:
+    ///   1. the semantically CENTRAL node out-ranks the high-centrality/low-
+    ///      relevance UTILITY node (the fix), AND
+    ///   2. a node that is BOTH central AND relevant still ranks at the very top
+    ///      (centrality still counts — it was not removed, only gated).
+    #[test]
+    fn seek_semantic_centrality_not_drowned_by_graph_activation() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // Relevance is carried by matching query TOKENS (in each node's tags):
+        //   utility → 1 matching token  (low relevance) + hub centrality (~1.0)
+        //   central → 5 matching tokens (high relevance) + near-zero centrality
+        //   hub_hit → 5 matching tokens (high relevance) + hub centrality (~1.0)
+        // See `build_rerank_balance_graph` for why tags (not labels) carry them.
+        let mut state = build_rerank_balance_graph(
+            temp.path(),
+            &["marshal"],
+            &["parse", "tokenize", "evaluate", "serialize", "validate"],
+            &["parse", "tokenize", "evaluate", "serialize", "validate"],
+        );
+        let out = run_seek_conformance(&mut state, RERANK_BALANCE_QUERY, true);
+
+        let util_rank =
+            rank_of(&out, "file::mod/utility.rs").expect("utility node present in results");
+        let central_rank =
+            rank_of(&out, "file::mod/central.rs").expect("central node present in results");
+        let hub_rank =
+            rank_of(&out, "file::mod/hub_hit.rs").expect("hub_hit node present in results");
+
+        // Sanity: the utility node really is the high-centrality one and the
+        // central node really is the low-centrality one — otherwise the test isn't
+        // exercising the imbalance it claims to.
+        let activation_of = |id: &str| {
+            out.results
+                .iter()
+                .find(|r| r.node_id == id)
+                .map(|r| r.score_breakdown.graph_activation)
+                .expect("node present")
+        };
+        assert!(
+            activation_of("file::mod/utility.rs") > activation_of("file::mod/central.rs"),
+            "fixture invalid: utility must have higher raw PageRank than central \
+             (util={}, central={})",
+            activation_of("file::mod/utility.rs"),
+            activation_of("file::mod/central.rs"),
+        );
+
+        // (1) THE FIX: the semantically central node beats the centrality-only
+        // utility node. Before the gate this assertion FAILED — the utility node
+        // rode pure PageRank to a better rank.
+        assert!(
+            central_rank < util_rank,
+            "semantically central node must out-rank the high-centrality/low-relevance \
+             utility node (central_rank={central_rank}, util_rank={util_rank})"
+        );
+
+        // (2) CENTRALITY STILL COUNTS: a node that is both central AND relevant
+        // ranks at the very top — the gate did not remove centrality's value, it
+        // only stopped it from acting alone.
+        assert_eq!(
+            hub_rank, 0,
+            "a node that is both central and relevant must rank first \
+             (hub_rank={hub_rank})"
         );
     }
 
