@@ -127,6 +127,18 @@ pub struct Cli {
     /// intended for the maintainer, never an agent (the CODE-LAND-ONLY posture).
     #[arg(long, value_name = "plan|apply|rollback")]
     pub medulla_migrate: Option<MedullaMigrateMode>,
+
+    /// The destination project brain for `--medulla-migrate`, named EXPLICITLY
+    /// as a repo root path — the brain that repo-fact claims move into and whose
+    /// root is stamped as their `Origin-Brain`. It is NEVER derived from the
+    /// ambient session binding: a second agent that bound the owner to an
+    /// unrelated repo once caused the migration to move legacy memories into the
+    /// wrong brain's store (field bug 2026-07-05). REQUIRED for `apply` (and for
+    /// `rollback`, which must locate the same store); recommended for `plan`,
+    /// which otherwise falls back to the ambient binding and loudly flags that
+    /// destination as unsafe in its JSON.
+    #[arg(long, value_name = "PATH")]
+    pub migrate_project_root: Option<String>,
 }
 
 /// The verb for `--medulla-migrate` (MEDULLA-PRD §4.2). No default: the flag

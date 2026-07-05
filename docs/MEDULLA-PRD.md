@@ -180,6 +180,8 @@ Today's shared `agent-memory/` (25 claims, live-enumerated at migration time —
 
 **Gates (mechanized, inherited from M4 + tightened):** `count(baseline) == count(project-active) + count(medulla-active)`; every claim `seek`-able at exactly one live tier; `.history/` holds every superseded original; **the ghost-pointer sweep** — `ingest_roots.json` entries pointing at deleted `.light.md` files (live example: `tokenvalidator.light.md`, §2.2c) are pruned, and per-file memorize entries collapse into the one dir root. Rollback: supersession is non-destructive; reactivate from `.history/`.
 
+**Destination is explicit, never ambient (`apply`/`rollback`):** the runner (`--medulla-migrate`) takes the destination project brain as an explicit `--migrate-project-root <repo>` argument — the brain repo-facts move into and whose root is stamped as `Origin-Brain`. It is **never derived from the ambient session binding**: a second agent that had bound the owner to an unrelated repo once caused `apply` to move legacy memories into the wrong brain's store — a silent cross-brain contamination (MED-INV-1) — so `apply`/`rollback` now refuse without the flag, and `plan` flags an ambient fallback as unsafe in its JSON (`destination_source`). `apply` is also idempotent: a re-run over an already-migrated store (nothing to move or stamp) returns `already_migrated` and writes no fresh backup, never reporting a phantom count-conservation failure. (Field bug 2026-07-05.)
+
 ---
 
 ## 5. Pull-not-push recall — the tier argument

@@ -149,3 +149,237 @@ fn medulla_migrate_requires_an_explicit_subcommand() {
     let (code2, _o2, _e2) = run(&["--medulla-migrate", "frobnicate"], &runtime_dir);
     assert_ne!(code2, 0, "an unknown subcommand value must be rejected");
 }
+
+/// Seed a runtime whose AMBIENT session binding resolves to `ambient_repo`: the
+/// owner's `ingest_roots.json` points at that repo, so a boot picks it up as the
+/// bound project. This reproduces the field condition (2026-07-05) where a second
+/// agent on another host had bound the owner to an unrelated repo, and the migrate
+/// derived its destination brain from that ambient binding — moving m1nd's legacy
+/// memories into the wrong brain's store (a MED-INV-1 cross-brain contamination).
+fn seed_runtime_bound_to(runtime_dir: &Path, ambient_repo: &Path) {
+    let medulla = runtime_dir.join("agent-memory");
+    std::fs::create_dir_all(&medulla).expect("mk medulla store");
+    std::fs::create_dir_all(ambient_repo).expect("mk ambient repo dir");
+    // The owner boots its bound project root from ingest_roots.json next to the
+    // graph (session::load_ingest_roots). Point it at the ambient repo.
+    std::fs::write(
+        runtime_dir.join("ingest_roots.json"),
+        serde_json::to_string_pretty(&vec![ambient_repo.to_string_lossy().to_string()]).unwrap(),
+    )
+    .expect("write ingest_roots.json");
+    // One code-anchored repo fact to move + one doctrine claim that stays.
+    std::fs::write(
+        medulla.join("sliceship.light.md"),
+        light_doc(
+            "SliceShip",
+            "closer",
+            "shipped.\n\n[⍂ entity: SliceShip]\n[𝔻 evidence: m1nd-mcp/src/server.rs]\n",
+        ),
+    )
+    .expect("write repo-fact claim");
+    std::fs::write(
+        medulla.join("doctrine.light.md"),
+        light_doc(
+            "Doctrine",
+            "orchestrator",
+            "The maintainer prefers pt-BR replies always.\n\n[⍂ entity: Doctrine]\n",
+        ),
+    )
+    .expect("write doctrine claim");
+}
+
+/// Recursively collect the `.light.md` file names living under a `project-brains/`
+/// tree, so the test can prove WHERE the moved claim landed without recomputing
+/// the private fingerprint-hashing scheme.
+fn light_files_under(dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                out.extend(light_files_under(&p));
+            } else if p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(".light.md"))
+            {
+                out.push(p.to_string_lossy().to_string());
+            }
+        }
+    }
+    out
+}
+
+/// RED (field bug 2026-07-05): `--medulla-migrate apply` WITHOUT an explicit
+/// destination must refuse and exit non-zero. Deriving the destination brain from
+/// the ambient session binding silently moved m1nd's legacy memories into another
+/// repo's brain. `apply` must never touch the store without an explicit target.
+#[test]
+fn apply_without_explicit_project_root_is_refused() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime_dir = tmp.path().join("runtime");
+    let ambient_repo = tmp.path().join("repo-alpha");
+    seed_runtime_bound_to(&runtime_dir, &ambient_repo);
+
+    let (code, stdout, stderr) = run(&["--medulla-migrate", "apply"], &runtime_dir);
+    assert_ne!(
+        code, 0,
+        "apply with no --migrate-project-root must exit non-zero; stdout:\n{stdout}"
+    );
+    assert!(
+        stderr.contains("--migrate-project-root"),
+        "the refusal must name the required flag; stderr:\n{stderr}"
+    );
+
+    // It refused BEFORE mutating: no backup dir, no claim moved anywhere.
+    let medulla = runtime_dir.join("agent-memory");
+    let backups: Vec<_> = std::fs::read_dir(&medulla)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".m5a-backup-"))
+        .collect();
+    assert!(backups.is_empty(), "a refused apply writes no backup dir");
+    assert!(
+        medulla.join("sliceship.light.md").exists(),
+        "a refused apply leaves the medulla store untouched"
+    );
+    let moved = light_files_under(&runtime_dir.join("project-brains"));
+    assert!(
+        moved.is_empty(),
+        "a refused apply moves nothing into any project brain, found: {moved:?}"
+    );
+}
+
+/// RED (the heart of the bug): `apply` must derive its destination brain from the
+/// EXPLICIT `--migrate-project-root`, IGNORING the ambient session binding. Here
+/// the owner is bound to `repo-alpha` (ingest_roots.json) but we migrate to
+/// `repo-beta`. The repo fact must land in repo-beta's brain and stamp
+/// `Origin-Brain: <repo-beta>` — never repo-alpha's.
+#[test]
+fn apply_uses_explicit_target_and_ignores_ambient_binding() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime_dir = tmp.path().join("runtime");
+    let ambient_repo = tmp.path().join("repo-alpha"); // the WRONG ambient binding
+    let target_repo = tmp.path().join("repo-beta"); // the explicit destination
+    seed_runtime_bound_to(&runtime_dir, &ambient_repo);
+    std::fs::create_dir_all(&target_repo).expect("mk target repo dir");
+
+    let (code, stdout, stderr) = run(
+        &[
+            "--medulla-migrate",
+            "apply",
+            "--migrate-project-root",
+            &target_repo.to_string_lossy(),
+        ],
+        &runtime_dir,
+    );
+    assert_eq!(
+        code, 0,
+        "apply with an explicit target must succeed; stderr:\n{stderr}\nstdout:\n{stdout}"
+    );
+
+    let out: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("stdout must be JSON, got {e}:\n{stdout}"));
+    let project_origin = out["project_origin"].as_str().unwrap_or_default();
+    assert_eq!(
+        project_origin,
+        target_repo.to_string_lossy(),
+        "project_origin must be the EXPLICIT target, not the ambient binding"
+    );
+    assert!(
+        !project_origin.contains("repo-alpha"),
+        "the ambient binding (repo-alpha) must NOT be the destination; got {project_origin}"
+    );
+
+    // The moved claim landed in repo-beta's brain, and its Origin-Brain stamp is
+    // repo-beta — proving the ambient binding was ignored end to end.
+    let moved = light_files_under(&runtime_dir.join("project-brains"));
+    let sliceship: Vec<_> = moved
+        .iter()
+        .filter(|p| p.ends_with("sliceship.light.md"))
+        .collect();
+    assert_eq!(
+        sliceship.len(),
+        1,
+        "the repo fact moved into exactly one project brain, found: {moved:?}"
+    );
+    let moved_text = std::fs::read_to_string(sliceship[0]).unwrap();
+    assert!(
+        moved_text.contains(&format!("Origin-Brain: {}", target_repo.to_string_lossy())),
+        "the moved claim is stamped with the explicit target origin, got:\n{moved_text}"
+    );
+    assert!(
+        !moved_text.contains("Origin-Brain: ") || !moved_text.contains("repo-alpha"),
+        "the moved claim must NOT be stamped with the ambient binding"
+    );
+}
+
+/// RED (field bug 2026-07-05, idempotency): running `apply` a SECOND time over an
+/// already-migrated store (every claim moved or stamped, nothing left to do) must
+/// report `already_migrated` with `moved: 0` and `count_conserved != false`,
+/// WITHOUT writing a fresh (empty) backup or degrading the store. In the field the
+/// second invocation reported `count_conserved: false` and created an empty backup.
+#[test]
+fn apply_is_idempotent_on_an_already_migrated_store() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime_dir = tmp.path().join("runtime");
+    let target_repo = tmp.path().join("repo-beta");
+    seed_runtime_bound_to(&runtime_dir, &tmp.path().join("repo-alpha"));
+    std::fs::create_dir_all(&target_repo).expect("mk target repo dir");
+    let medulla = runtime_dir.join("agent-memory");
+
+    let args = [
+        "--medulla-migrate",
+        "apply",
+        "--migrate-project-root",
+        target_repo.to_str().unwrap(),
+    ];
+
+    // First apply: migrates (moves the repo fact, stamps the doctrine, backs up).
+    let (code1, stdout1, stderr1) = run(&args, &runtime_dir);
+    assert_eq!(code1, 0, "first apply must succeed; stderr:\n{stderr1}");
+    let out1: serde_json::Value = serde_json::from_str(stdout1.trim()).expect("json1");
+    assert_eq!(
+        out1["plan"]["already_migrated"], false,
+        "the first apply actually migrates, got:\n{stdout1}"
+    );
+    // Clear the (legitimate) first backup so the assertion below isolates the
+    // SECOND run's behavior.
+    for e in std::fs::read_dir(&medulla).unwrap().flatten() {
+        if e.file_name().to_string_lossy().starts_with(".m5a-backup-") {
+            std::fs::remove_dir_all(e.path()).unwrap();
+        }
+    }
+
+    // Second apply over the now-migrated store: nothing to move, nothing to stamp.
+    let (code2, stdout2, stderr2) = run(&args, &runtime_dir);
+    assert_eq!(
+        code2, 0,
+        "second apply over an already-migrated store must exit 0; stderr:\n{stderr2}\nstdout:\n{stdout2}"
+    );
+    let out2: serde_json::Value = serde_json::from_str(stdout2.trim())
+        .unwrap_or_else(|e| panic!("stdout must be JSON, got {e}:\n{stdout2}"));
+    assert_eq!(
+        out2["plan"]["already_migrated"], true,
+        "a second apply with nothing to do reports already_migrated; got:\n{stdout2}"
+    );
+    assert_eq!(
+        out2["plan"]["moved_to_project"], 0,
+        "already-migrated apply moved zero claims"
+    );
+    assert_ne!(
+        out2["plan"]["count_conserved"], false,
+        "already-migrated apply must not report count_conserved:false (the field regression)"
+    );
+
+    // The essential guard: the SECOND run wrote NO fresh backup dir.
+    let backups: Vec<_> = std::fs::read_dir(&medulla)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".m5a-backup-"))
+        .collect();
+    assert!(
+        backups.is_empty(),
+        "an already-migrated apply writes no backup dir, found: {backups:?}"
+    );
+}
