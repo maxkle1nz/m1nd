@@ -4,7 +4,7 @@
  * The tree renders a brain's nodes ONLY under that brain's chip. servedBrainMatches
  * is the pure hinge: given the brain we OPENED and the `served_brain` echo the
  * owner returned, decide render (match) vs drop (mismatch). Uses the REAL two-brain
- * fixture roots (bound m1nd + hosted Cerrybubbles1) so the invariant is pinned to
+ * fixture roots (bound m1nd + hosted project-b) so the invariant is pinned to
  * the same data the Hall renders.
  */
 import { test } from 'node:test';
@@ -26,7 +26,7 @@ const list: InstanceListResponse = JSON.parse(readFileSync(join(FIX, 'instances.
 const BOUND_ROOT = list.instances.find((e) => e.brain_kind == null)!.project_root!;
 const HOSTED_ROOT = list.instances.find((e) => e.brain_kind === 'project')!.project_root!;
 
-const hostedView: ViewedBrain = { root: HOSTED_ROOT, displayName: 'Cerrybubbles1', nodeCount: 2089 };
+const hostedView: ViewedBrain = { root: HOSTED_ROOT, displayName: 'project-b', nodeCount: 2089 };
 
 // ── The selector the fetch carries ────────────────────────────────────────────
 

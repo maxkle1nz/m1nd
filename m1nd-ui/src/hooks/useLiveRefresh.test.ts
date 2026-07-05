@@ -131,7 +131,7 @@ test('a mock EventSource feed of graph_changed drives exactly one reload', () =>
 // ── §4A.9.6: brain-scoped refetch — only my brain's mutations disturb my tree ──
 
 const BOUND = null; // the bound view's viewedRoot
-const CHERRY = '/Users/kle1nz/CHERRYBUBBLES/Cerrybubbles1';
+const CHERRY = '/path/to/project-b';
 const changedFor = (root?: string): SseEvent => ({
   event_type: 'graph_changed',
   data: root === undefined ? { event: 'memorize' } : { event: 'memorize', brain_root: root },
@@ -144,13 +144,13 @@ test('§4A.9.6: an UNSCOPED graph_changed (no brain_root) refetches any viewer (
 });
 
 test('§4A.9.6: a brain-scoped event refetches ONLY the viewer of that brain', () => {
-  // Viewing Cherry: a Cherry mutation refetches; a mutation for another brain does not.
+  // Viewing project-b: a project-b mutation refetches; a mutation for another brain does not.
   assert.equal(graphChangeConcernsBrain(changedFor(CHERRY), CHERRY), true);
   assert.equal(graphChangeConcernsBrain(changedFor('/some/other/repo'), CHERRY), false);
 });
 
 test('§4A.9.6: a hosted-brain mutation never disturbs the BOUND tree', () => {
-  // Bound view (viewedRoot=null): a Cherry-scoped event is not for it.
+  // Bound view (viewedRoot=null): a project-b-scoped event is not for it.
   assert.equal(graphChangeConcernsBrain(changedFor(CHERRY), BOUND), false);
 });
 

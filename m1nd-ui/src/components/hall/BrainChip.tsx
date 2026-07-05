@@ -3,7 +3,7 @@
  *
  * One chip in the top bar on EVERY surface: brain name · node count · liveness,
  * from the same envelope the surface itself rendered. The law: no graph pixel
- * without the owning brain's name in view — the almus-class "which brain am I
+ * without the owning brain's name in view — the project-d-class "which brain am I
  * talking to?" ambiguity is killed at the chrome level. On degraded binding /
  * reception mismatch the chip wears the honesty (brick text); §3.5's banner still
  * owns the repair. Click = the Hall. SOFT PROOF; no violet (not an abstain surface).

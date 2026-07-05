@@ -109,7 +109,7 @@ export function repoBasename(workspaceRoot: string): string {
 
 /**
  * The brain's PROJECT name (HUMAN-LAYER-PRD §4A.3, Brain Chip law). The server
- * now resolves `display_name` = the repo basename ("m1nd", "Cerrybubbles1"),
+ * now resolves `display_name` = the repo basename ("m1nd", "project-b"),
  * never the runtime dir ("claude") nor its `agent-memory` sidecar. This is the
  * ONE name source for cards, the receipt, the chip, and the delete confirm
  * target — so they can never disagree. Falls back to `repoBasename(workspace)`

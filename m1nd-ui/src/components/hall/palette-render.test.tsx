@@ -34,11 +34,11 @@ test('§4A.5: filterBrains preserves registry recency order and fuzzy-matches PR
   assert.deepEqual(all.map((r) => r.entry.instance_id), rows.map((r) => r.entry.instance_id));
   // The fuzzy match is on the PROJECT name (display_name), not the plumbing path.
   assert.equal(filterBrains(rows, 'zzzznomatch').length, 0);
-  // "m1nd" finds the bound brain (its repo), "cerry" the project brain.
+  // "m1nd" finds the bound brain (its repo), "proj" the project brain.
   assert.equal(filterBrains(rows, 'm1nd').length, 1, '"m1nd" matches the bound brain by its project name');
   assert.equal(filterBrains(rows, 'm1nd')[0].entry.instance_id, bound.instance_id);
-  assert.equal(filterBrains(rows, 'cerry').length, 1, '"cerry" matches the project brain');
-  assert.equal(filterBrains(rows, 'cerry')[0].entry.instance_id, project.instance_id);
+  assert.equal(filterBrains(rows, 'proj').length, 1, '"proj" matches the project brain');
+  assert.equal(filterBrains(rows, 'proj')[0].entry.instance_id, project.instance_id);
   // The plumbing token "claude" (the runtime dir) matches NOTHING — the Hall
   // never searches by plumbing (the Brain Chip law, carried into the palette).
   assert.equal(filterBrains(rows, 'claude').length, 0, '"claude" (plumbing) matches no project name');
