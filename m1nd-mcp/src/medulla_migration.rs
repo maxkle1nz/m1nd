@@ -401,6 +401,31 @@ impl MedullaMigration {
     /// AFTER the moves, the caller should `rollback` immediately.
     pub fn apply(&self) -> M1ndResult<MigrationReceipt> {
         let plan = self.plan()?;
+
+        // Idempotency guard (field bug 2026-07-05): a store with no repo fact to
+        // move AND nothing left to stamp is already migrated. Re-running `apply`
+        // must NOT write a fresh (empty) backup nor re-report a phantom
+        // count-conservation failure — never degrade an already-migrated store.
+        // "Nothing to do" = no Project-bound claim and every staying claim already
+        // carries its `Origin-Brain`.
+        let nothing_to_move = plan.project_count == 0;
+        let nothing_to_stamp = plan.claims.iter().all(|c| c.has_origin_brain);
+        if nothing_to_move && nothing_to_stamp {
+            let medulla_after = self.live_claims()?.len();
+            let project_after = count_project_claims(&self.project_dir);
+            return Ok(MigrationReceipt {
+                backup_dir: String::new(),
+                moved_to_project: 0,
+                stamped_medulla: 0,
+                ghosts_pruned: 0,
+                baseline_count: plan.baseline_count,
+                medulla_after,
+                project_after,
+                count_conserved: true,
+                already_migrated: true,
+            });
+        }
+
         let backup_dir = self.backup()?;
 
         std::fs::create_dir_all(&self.project_dir).map_err(M1ndError::Io)?;
@@ -442,18 +467,7 @@ impl MedullaMigration {
         // Count-conservation gate: the live medulla + project stores together must
         // hold exactly the baseline count.
         let medulla_after = self.live_claims()?.len();
-        let project_after = std::fs::read_dir(&self.project_dir)
-            .map(|e| {
-                e.flatten()
-                    .filter(|d| {
-                        d.path()
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .is_some_and(|n| !n.starts_with('.') && n.ends_with(".light.md"))
-                    })
-                    .count()
-            })
-            .unwrap_or(0);
+        let project_after = count_project_claims(&self.project_dir);
         let count_conserved = plan.baseline_count == medulla_after + project_after;
 
         Ok(MigrationReceipt {
@@ -465,6 +479,7 @@ impl MedullaMigration {
             medulla_after,
             project_after,
             count_conserved,
+            already_migrated: false,
         })
     }
 
@@ -521,6 +536,29 @@ pub struct MigrationReceipt {
     pub project_after: usize,
     /// The count-conservation gate: `baseline == medulla_after + project_after`.
     pub count_conserved: bool,
+    /// True when the store was already migrated (nothing to move, nothing to
+    /// stamp): `apply` short-circuited BEFORE any backup or mutation. A
+    /// re-invocation of a done migration never degrades the store (field bug
+    /// 2026-07-05). On the normal executing path this is `false`.
+    #[serde(default)]
+    pub already_migrated: bool,
+}
+
+/// Count the LIVE `.light.md` claims in a project store (skip dot-dirs/backups),
+/// shared by `apply`'s count-conservation gate and its already-migrated guard.
+fn count_project_claims(project_dir: &Path) -> usize {
+    std::fs::read_dir(project_dir)
+        .map(|e| {
+            e.flatten()
+                .filter(|d| {
+                    d.path()
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| !n.starts_with('.') && n.ends_with(".light.md"))
+                })
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// Insert an `Origin-Brain: <value>` frontmatter line into a `.light.md` if it
@@ -933,6 +971,75 @@ mod tests {
         assert!(
             roots.contains(&s.medulla.to_string_lossy().to_string()),
             "the dir root survives"
+        );
+    }
+
+    /// Idempotency guard (field bug 2026-07-05): a SECOND `apply` over a store
+    /// with nothing left to move or stamp reports `already_migrated` with zero
+    /// moves and an empty backup path — it never writes a fresh (empty) backup nor
+    /// reports a phantom count-conservation failure.
+    #[test]
+    fn apply_is_idempotent_on_already_migrated_store() {
+        let s = scratch();
+        write_claim(
+            &s.medulla,
+            "sliceship.light.md",
+            &light_doc(
+                "SliceShip",
+                "closer",
+                "shipped.\n\n[⍂ entity: SliceShip]\n[𝔻 evidence: m1nd-mcp/src/x.rs]\n",
+            ),
+        );
+        write_claim(
+            &s.medulla,
+            "maxpref.light.md",
+            &light_doc(
+                "MaxPref",
+                "orch",
+                "maintainer doctrine.\n\n[⍂ entity: MaxPref]\n",
+            ),
+        );
+        std::fs::write(
+            &s.roots,
+            serde_json::to_string_pretty(&vec![s.medulla.to_string_lossy().to_string()]).unwrap(),
+        )
+        .unwrap();
+
+        let mig = MedullaMigration::new(&s.medulla, &s.project, &s.roots, "/path/to/repo");
+        let first = mig.apply().expect("first apply");
+        assert!(!first.already_migrated, "first apply actually migrates");
+        assert_eq!(first.moved_to_project, 1);
+
+        // Drop the first (legitimate) backup so the assertion isolates run 2.
+        for e in std::fs::read_dir(&s.medulla).unwrap().flatten() {
+            if e.file_name().to_string_lossy().starts_with(BACKUP_PREFIX) {
+                std::fs::remove_dir_all(e.path()).unwrap();
+            }
+        }
+
+        let second = mig.apply().expect("second apply");
+        assert!(
+            second.already_migrated,
+            "a re-applied migration reports already_migrated"
+        );
+        assert_eq!(second.moved_to_project, 0, "nothing moved the second time");
+        assert!(
+            second.count_conserved,
+            "already-migrated must not report a count-conservation failure"
+        );
+        assert!(
+            second.backup_dir.is_empty(),
+            "already-migrated writes no backup, got: {}",
+            second.backup_dir
+        );
+        let backups: Vec<_> = std::fs::read_dir(&s.medulla)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(BACKUP_PREFIX))
+            .collect();
+        assert!(
+            backups.is_empty(),
+            "no fresh backup dir on the second apply"
         );
     }
 

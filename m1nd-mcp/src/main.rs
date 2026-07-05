@@ -327,7 +327,11 @@ fn run_inbox_sweep(config: McpConfig, no_distribute: bool) {
 /// (mutates the store); `rollback` restores the medulla store from its most recent
 /// `apply` backup. Operator convenience — OFF the MCP surface, offline, no server
 /// transport.
-fn run_medulla_migrate(config: McpConfig, mode: m1nd_mcp::cli::MedullaMigrateMode) {
+fn run_medulla_migrate(
+    config: McpConfig,
+    mode: m1nd_mcp::cli::MedullaMigrateMode,
+    migrate_project_root: Option<String>,
+) {
     use m1nd_mcp::cli::MedullaMigrateMode;
     use m1nd_mcp::medulla_migration::MedullaMigration;
     use m1nd_mcp::project_brains::{ProjectBrainRegistry, PROJECT_BRAINS_DIR};
@@ -343,12 +347,50 @@ fn run_medulla_migrate(config: McpConfig, mode: m1nd_mcp::cli::MedullaMigrateMod
     let runtime_root = state.runtime_root.clone();
 
     // The medulla store IS the owner runtime root's `agent-memory/` (the tier is
-    // the directory, §4.1 — no move). The project brain's store is the m1nd repo's
-    // per-project `agent-memory/` under `project-brains/<fingerprint>/`. The origin
-    // stamped on moved claims is the m1nd repo root itself.
+    // the directory, §4.1 — no move). The project brain's store is the destination
+    // repo's per-project `agent-memory/` under `project-brains/<fingerprint>/`.
+    //
+    // The destination repo MUST be named explicitly (`--migrate-project-root`), and
+    // is NEVER derived from the ambient session binding: a second agent that bound
+    // the owner to an unrelated repo once caused the migration to move legacy
+    // memories into the wrong brain's store, a silent cross-brain contamination
+    // (field bug 2026-07-05, MED-INV-1). `apply`/`rollback` therefore REQUIRE the
+    // flag; `plan` may fall back to the ambient binding but flags it as unsafe.
     let medulla_dir = runtime_root.join("agent-memory");
     let ingest_roots_path = runtime_root.join("ingest_roots.json");
-    let project_origin = state.project_root_display().unwrap_or_default();
+
+    // Resolve the destination origin + whether it was explicit. For `apply` and
+    // `rollback` an absent flag is a hard refusal (exit != 0) — the store must
+    // never be mutated against a destination guessed from the environment.
+    let (project_origin, destination_source) = match (&migrate_project_root, mode) {
+        (Some(root), _) => (root.clone(), "explicit"),
+        (None, MedullaMigrateMode::Apply | MedullaMigrateMode::Rollback) => {
+            eprintln!(
+                "[m1nd-mcp][medulla_migrate] {} requires --migrate-project-root <repo>: the \
+                 destination brain must be named explicitly, never derived from the ambient \
+                 session binding (field bug 2026-07-05)",
+                match mode {
+                    MedullaMigrateMode::Apply => "apply",
+                    MedullaMigrateMode::Rollback => "rollback",
+                    MedullaMigrateMode::Plan => unreachable!(),
+                }
+            );
+            std::process::exit(2);
+        }
+        (None, MedullaMigrateMode::Plan) => {
+            eprintln!(
+                "[m1nd-mcp][medulla_migrate] WARNING: no --migrate-project-root given; plan \
+                 falls back to the ambient session binding, which is UNSAFE as a destination \
+                 (field bug 2026-07-05). Pass --migrate-project-root <repo> to target a brain \
+                 explicitly."
+            );
+            (
+                state.project_root_display().unwrap_or_default(),
+                "ambient-binding (unsafe — pass --migrate-project-root)",
+            )
+        }
+    };
+
     let registry = ProjectBrainRegistry::new(runtime_root.join(PROJECT_BRAINS_DIR), None);
     let project_dir = registry
         .store_dir_for(&ProjectBrainRegistry::canonical_key(&project_origin))
@@ -423,6 +465,7 @@ fn run_medulla_migrate(config: McpConfig, mode: m1nd_mcp::cli::MedullaMigrateMod
         "medulla_dir": medulla_dir.to_string_lossy(),
         "project_dir": project_dir.to_string_lossy(),
         "project_origin": project_origin,
+        "destination_source": destination_source,
         "plan": payload,
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
@@ -652,7 +695,7 @@ async fn main() {
     // pure dry-run; `apply`/`rollback` mutate the store (CODE-LAND-ONLY posture —
     // for the maintainer, never an agent). Runs BEFORE --serve/stdio.
     if let Some(mode) = cli.medulla_migrate {
-        run_medulla_migrate(config, mode);
+        run_medulla_migrate(config, mode, cli.migrate_project_root);
         return;
     }
 
