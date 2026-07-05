@@ -118,6 +118,15 @@ this loop by default:
    silently written into the shared medulla); the refusal hands you the one-call
    bootstrap `ingest project_root=<your repo>` — run it, then memory lands
    project-private.
+8. Memory is pull, never push (the medulla law): your default recall beat carries
+   exactly your own project brain + the shared `medulla` (promoted/doctrine) — no
+   other repo's private claim ever reaches you unless it was promoted. Every recall
+   row is labeled `tier` (`project` | `medulla`) + `origin_brain`. To inspect
+   across projects, pass `tier` on `seek`/`north`/`boot_memory`: `project`,
+   `medulla`, `project+medulla` (default), or `all-brains` (the explicit fan-out
+   over every hosted brain, each hit origin-labeled). `all-brains` is one argument
+   away and never ambient — use it only when you truly need another project's
+   knowledge.
 
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.

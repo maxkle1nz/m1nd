@@ -49,6 +49,10 @@ struct HeaderMeta {
     /// honestly "unknown", never faked.
     created: Option<String>,
     source_agent: Option<String>,
+    /// The brain a claim was born in (`Origin-Brain:` frontmatter, MEDULLA-PRD §6):
+    /// a project root, or the literal `medulla` for doctrine-born claims. Absent on
+    /// legacy files — honestly "unknown", never faked (MED-INV-4).
+    origin_brain: Option<String>,
     depends_on: Vec<String>,
     next: Vec<String>,
 }
@@ -284,6 +288,9 @@ impl L1ghtIngestAdapter {
             } else if let Some(value) = trimmed.strip_prefix("Source-Agent:") {
                 meta.source_agent = Some(value.trim().to_string());
                 current_list = None;
+            } else if let Some(value) = trimmed.strip_prefix("Origin-Brain:") {
+                meta.origin_brain = Some(value.trim().to_string());
+                current_list = None;
             } else if trimmed == "Depends on:" {
                 current_list = Some("depends_on");
             } else if trimmed == "Next:" {
@@ -340,6 +347,11 @@ impl L1ghtIngestAdapter {
         }
         if let Some(source_agent) = &header_meta.source_agent {
             prov_tags.push(format!("light:source_agent:{}", source_agent.trim()));
+        }
+        // Origin-Brain (MEDULLA-PRD §6): WHERE the claim was born, stamped so recall
+        // can label which brain a hit came from. Absent → no tag (honest "unknown").
+        if let Some(origin_brain) = &header_meta.origin_brain {
+            prov_tags.push(format!("light:origin_brain:{}", origin_brain.trim()));
         }
 
         Self::push_node(
@@ -798,11 +810,13 @@ mod confidence_tests {
             "State: verified",
             "Created: 1700000000000",
             "Source-Agent: agent-B",
+            "Origin-Brain: /path/to/repo",
             "---",
         ];
         let meta = A::parse_header(&lines);
         assert_eq!(meta.created.as_deref(), Some("1700000000000"));
         assert_eq!(meta.source_agent.as_deref(), Some("agent-B"));
+        assert_eq!(meta.origin_brain.as_deref(), Some("/path/to/repo"));
     }
 
     #[test]
@@ -823,6 +837,10 @@ mod confidence_tests {
         assert!(
             meta.source_agent.is_none(),
             "Source-Agent must be None on legacy files"
+        );
+        assert!(
+            meta.origin_brain.is_none(),
+            "Origin-Brain must be None on legacy files"
         );
     }
 }

@@ -462,6 +462,7 @@ mod tests {
                 excerpt: None,
                 authored_ms_ago: None,
                 source_agent: None,
+                origin_brain: None,
                 connections: vec![SeekConnection {
                     node_id: "x".into(),
                     label: "x".into(),
@@ -486,6 +487,7 @@ mod tests {
                 excerpt: None,
                 authored_ms_ago: None,
                 source_agent: None,
+                origin_brain: None,
                 connections: vec![],
             },
         ];

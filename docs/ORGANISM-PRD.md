@@ -721,9 +721,20 @@ flush). *Unblocks:* R3's `all-brains` half and any onboarding past brain #4. **H
 R3's `all-brains` does not ship without it, and its fan-out must warm-boot through this same gate.**
 
 **R3 — M5b: `tier` recall + no-leak proven + `all-brains`** (MEDULLA §11; gated by R15).
-*RED:* the leak permutation matrix (seed Y, assert X's beat never carries it; assert `all-brains`
-does, labeled) + the mechanized probe pair. *Unblocks:* R4's read path, R7's tier-labeled packet
-rows, the real doctrine beat.
+**[SHIPPED 2026-07-05.]** *What landed:* pull-only tier recall at the routing seam — a routed
+brain X's default beat composes exactly X's own store + the medulla; `tier` (`project` |
+`medulla` | `project+medulla` (default) | `all-brains`) selects which stores the memory beat of
+`seek`/`north`/`boot_memory` reads. The no-leak law (MED-INV-1) is mechanical: a claim from brain
+Y reaches X's default beat ONLY if it is a medulla claim (promoted/doctrine-born). `all-brains`
+fans out over every hosted store, **each warm-boot routed through the R15 eviction gate** (so a
+wide fan-out never pins more than the cap), grouped/labeled by `origin_brain`. Provenance-in-recall:
+`Origin-Brain` flows frontmatter → `light:origin_brain:` graph tag → `SeekResultEntry.origin_brain`
+→ every recall row. *Proof:* the leak permutation matrix (seed Y, assert X's default beat never
+carries it, assert `all-brains` does — labeled `origin_brain: Y`), the medulla-doctrine-surfaces-
+cross-brain case, the default-labeled case, and the `all-brains`-through-eviction (warm map ≤ cap)
+case — all RED-first (`m1nd-mcp/tests/medulla_m5b_tier_recall.rs`). *Held for the maintainer:* the
+live `:1338` was NOT migrated/restarted — CODE-LAND-ONLY. *Unblocks:* R4's read path, R7's
+tier-labeled packet rows, the real doctrine beat.
 
 **R4 — M6: the `promote` verb WITH the C8 riders** — step 2.5 origin-qualified evidence (§C8.2),
 P3 verified-only gate (§C8.3), demotion documented, agent-workflow surfaces in the SAME PR

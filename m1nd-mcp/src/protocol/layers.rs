@@ -88,6 +88,15 @@ pub struct SeekInput {
     pub token_budget: Option<usize>,
 }
 
+// NOTE (MEDULLA-PRD §5.2 · pull-not-push): the memory-tier selector `tier`
+// (`project` | `medulla` | `all-brains`, default `project+medulla`) is DELIBERATELY
+// not a `SeekInput` field. tier is a ROUTING concern — it chooses WHICH STORES the
+// memory beat reads, which `handle_seek` (searching the single store it is called on)
+// structurally cannot do. It is read from the raw tool arguments by the routing layer
+// (`mcp_http::tier_recall`), which fans out / composes across stores and labels each
+// hit with `origin_brain`. serde ignores the unknown field here, so the seek call
+// itself is untouched; the field is advertised in the hand-written seek JSON schema.
+
 /// Answer-free stop signal for goal-conditioned retrieval. It never claims to
 /// know the answer — only whether the returned context is likely *enough* to
 /// act on, whether more relevant context exists beyond what was returned, or
@@ -298,6 +307,12 @@ pub struct SeekResultEntry {
     /// `Source-Agent` frontmatter). Absent on code nodes and legacy memories.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_agent: Option<String>,
+    /// Provenance-in-recall (MEDULLA-PRD §6): which BRAIN this memory was born in
+    /// (the `Origin-Brain` frontmatter — a project root, or `medulla`). Absent on
+    /// code nodes and legacy memories with no `Origin-Brain` — rendered "unknown",
+    /// never faked (MED-INV-4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_brain: Option<String>,
     /// Connected nodes (callers, callees, importers).
     pub connections: Vec<SeekConnection>,
 }

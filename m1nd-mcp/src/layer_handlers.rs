@@ -674,6 +674,7 @@ pub fn handle_seek(
             // the intent summary. `tags` (sans provenance) still feeds the summary.
             let mut authored_ms_ago: Option<u64> = None;
             let mut source_agent: Option<String> = None;
+            let mut origin_brain: Option<String> = None;
             let tags: Vec<String> = all_tags
                 .into_iter()
                 .filter(|t| {
@@ -686,6 +687,11 @@ pub fn handle_seek(
                         false
                     } else if let Some(agent) = t.strip_prefix("light:source_agent:") {
                         source_agent = Some(agent.trim().to_string());
+                        false
+                    } else if let Some(brain) = t.strip_prefix("light:origin_brain:") {
+                        // Provenance-in-recall (MEDULLA-PRD §6): WHICH brain this
+                        // claim was born in. Absent tag → absent field ("unknown").
+                        origin_brain = Some(brain.trim().to_string());
                         false
                     } else {
                         true
@@ -742,6 +748,7 @@ pub fn handle_seek(
                 excerpt: prov.excerpt,
                 authored_ms_ago,
                 source_agent,
+                origin_brain,
                 connections,
             }
         })

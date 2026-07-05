@@ -258,6 +258,8 @@ Quick pattern:
 
 Provenance and scope (MEDULLA M5a): every `memorize` is stamped with an `Origin-Brain` — the project root it was born in, or `medulla` for the owner's own doctrine store — so recall can always name WHICH brain a claim came from. If your session's root has no project brain, a `memorize` is REFUSED rather than written into the shared medulla store; the refusal carries the one-call bootstrap (`ingest project_root=<your repo>`). Run it once, then your memory lands project-private in your own brain.
 
+Pull, never push — tier-scoped recall (MEDULLA M5b): your default memory beat carries exactly TWO feeds — your own project brain's memory + the shared `medulla` (promoted/doctrine claims). Another repo's private claim NEVER surfaces in your beat; it can only reach you if it was promoted to the medulla. Every recall row is labeled with its `tier` (`project` | `medulla`) and `origin_brain`. To inspect across projects, pass `tier` on `seek`/`north`/`boot_memory`: `project` (your store only), `medulla` (doctrine only), `project+medulla` (the default — zero change for existing callers), or `all-brains` (the explicit fan-out over every hosted brain, each hit labeled by `origin_brain`, warm-boots routed through the eviction cap). `all-brains` is one argument away and never ambient — reach for it only when you genuinely need another project's knowledge.
+
 Caveat: `ingest mode:replace` wipes agent memory nodes. Use `mode:merge` when re-ingesting code to keep agent memory intact.
 
 ## Skip Conditions

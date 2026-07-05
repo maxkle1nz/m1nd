@@ -59,6 +59,17 @@ age + author — absent, never faked, when unknown), a sufficiency signal, one \
 composes trust_selftest + orient + boot_memory + focus — reach for the pieces directly \
 only when you need just one.
 
+**Memory is PULL, never PUSH (the medulla law).** Your default recall beat carries exactly \
+TWO feeds: your own project brain's memory + the shared `medulla` (promoted/doctrine claims). \
+Another repo's private claim NEVER appears in your beat — it can only reach you if it was \
+promoted to the medulla. Every recall row is labeled with its `tier` (`project` | `medulla`) \
+and `origin_brain` (WHICH brain it came from), so you always know a claim's provenance. \
+Need to inspect across projects? Pass `tier` on `seek`/`north`/`boot_memory`: `project` (your \
+store only), `medulla` (doctrine only), `project+medulla` (the default), or `all-brains` — the \
+EXPLICIT cross-project fan-out that reads every hosted brain, each hit labeled by `origin_brain`. \
+`all-brains` is one argument away and never ambient; don't reach for it unless you actually need \
+another project's knowledge.
+
 ## 2. ACT ON VERDICTS — trust the calibration, don't override it
 
 Retrieval and prediction return a calibrated verdict; obey it:
@@ -444,7 +455,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "agent_id": { "type": "string", "description": "Calling agent identifier" },
                         "task": { "type": "string", "description": "Free-form description of the task you are about to start. The graph spread-activates on this text to find your starting context." },
                         "top_k": { "type": "integer", "default": 8, "description": "How many focus nodes to return (ranked by activation from the task)" },
-                        "scope": { "type": "string", "description": "Optional scope hint to bound orientation and trust binding" }
+                        "scope": { "type": "string", "description": "Optional scope hint to bound orientation and trust binding" },
+                        "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "Memory-tier for the packet's recall beat (pull-not-push). Default project+medulla: this brain's own memory + the shared medulla (promoted/doctrine). 'all-brains' fans out over EVERY hosted brain, each memory row labeled origin_brain — the explicit cross-project inspection, never ambient. Another brain's claim reaches your default beat only if it was promoted to the medulla." }
                     },
                     "required": ["agent_id", "task"]
                 }
@@ -1051,7 +1063,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "node_types": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Filter by node type: function, class, struct, module, file" },
                         "min_score": { "type": "number", "default": 0.1, "description": "Minimum combined score threshold" },
                         "graph_rerank": { "type": "boolean", "default": true, "description": "Whether to run graph re-ranking on embedding candidates" },
-                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest graph-importance hits that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization)" }
+                        "token_budget": { "type": "integer", "minimum": 1, "description": "Optional approx context-token budget. m1nd keeps the highest graph-importance hits that fit, drops the rest, and returns a 'budget' block (estimate = chars/4, not exact tokenization)" },
+                        "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "Memory-tier for cross-brain recall (pull-not-push). Default project+medulla: this brain's own memory + the shared medulla (promoted/doctrine). 'all-brains' fans out over EVERY hosted brain, each hit labeled origin_brain — the explicit cross-project inspection, never ambient. A claim from another brain only reaches your default beat if it was promoted to the medulla." }
                     },
                     "required": ["query", "agent_id"]
                 }
@@ -2144,7 +2157,8 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "key": { "type": "string", "description": "Canonical boot memory key" },
                         "value": { "description": "JSON value to persist for the boot memory entry" },
                         "tags": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional tags for organization" },
-                        "source_refs": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional source references backing this boot memory" }
+                        "source_refs": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Optional source references backing this boot memory" },
+                        "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "For action=list: memory-tier for cross-brain recall (pull-not-push). Default project+medulla: this brain's own entries + the shared medulla. 'all-brains' fans out over every hosted brain, each entry labeled origin_brain — the explicit cross-project inspection, never ambient." }
                     },
                     "required": ["agent_id", "action"]
                 }
@@ -3065,7 +3079,15 @@ fn handle_north(
     //    sees the durable KV facts AND the memorized L1GHT claims for its task.
     let now = now_ms();
     let stale_after_ms: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days
-                                                        // (a) boot_memory KV entries.
+                                                        // This store's own memory tier
+                                                        // (project brain vs medulla) — every
+                                                        // row from THIS store's beat carries it.
+    let own_beat_tier = if state.is_medulla_store() {
+        "medulla"
+    } else {
+        "project"
+    };
+    // (a) boot_memory KV entries.
     let boot_entries: Vec<serde_json::Value> = {
         let list = crate::boot_memory_handlers::handle_boot_memory(
             state,
@@ -3110,6 +3132,10 @@ fn handle_north(
                         if let Some(stale) = stale {
                             obj.insert("stale".into(), serde_json::json!(stale));
                         }
+                        // Tier label so a composed beat can tell project KV from
+                        // medulla KV (MEDULLA-PRD §10.4). boot KV has no per-row
+                        // origin brain; the tier is the store's own tier.
+                        obj.insert("tier".into(), serde_json::json!(own_beat_tier));
                         obj.insert(
                             "tags".into(),
                             entry.get("tags").cloned().unwrap_or(serde_json::json!([])),
@@ -3165,6 +3191,16 @@ fn handle_north(
         (r.source_agent.is_some() || r.authored_ms_ago.is_some())
             && !is_marker_fragment(&r.node_id, &r.label)
     };
+    // The tier this brain's OWN memory feed carries (MEDULLA-PRD §5.1 · §10.4): a
+    // routed project brain's own recall is `project`; the medulla/owner store's own
+    // recall is `medulla`. The cross-store compose (adding the medulla feed to a
+    // project beat, and the `all-brains` fan-out) is done by the routing layer AROUND
+    // north — here we only honestly label the single store north ran on.
+    let own_tier = if state.is_medulla_store() {
+        "medulla"
+    } else {
+        "project"
+    };
     let map_light = |r: &layers::SeekResultEntry| -> serde_json::Value {
         // age_ms is the authored age seek already computed (now − Created); absent
         // stays absent — never fabricated. staleness uses the same 30-day rule.
@@ -3183,6 +3219,13 @@ fn handle_north(
                 .map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null),
         );
+        // Provenance-in-recall (MEDULLA-PRD §6 · MED-INV-4): which brain the claim was
+        // born in + its tier. `origin_brain` is absent (unknown) on legacy files —
+        // rendered so, never faked. `tier` is this store's own tier (see above).
+        obj.insert("tier".into(), serde_json::json!(own_tier));
+        if let Some(origin) = &r.origin_brain {
+            obj.insert("origin_brain".into(), serde_json::json!(origin));
+        }
         if let Some(stale) = stale {
             obj.insert("stale".into(), serde_json::json!(stale));
         }

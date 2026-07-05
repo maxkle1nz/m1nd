@@ -36,7 +36,8 @@ use parking_lot::Mutex;
 
 use crate::http_server::{AppState, SseEvent};
 use crate::protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
-use crate::server::handle_mcp_method;
+use crate::server::{dispatch_tool, handle_mcp_method};
+use crate::session::SessionState;
 use crate::util::now_ms;
 
 /// Per-spec MCP session header name (case-insensitive on the wire).
@@ -547,11 +548,10 @@ async fn route_and_run(
             };
             if let Some(root) = sticky {
                 if let Some(brain) = app.project_brains.resolve(&root) {
-                    let mut state = brain.lock();
-                    // The brain's own reception stays silent for its root and
-                    // honest for a traveled caller (scope-guard backstop).
-                    state.caller_root = caller_root.clone();
-                    return handle_mcp_method(&mut state, &request);
+                    // Served by a PROJECT brain → its default beat is project + medulla,
+                    // and it can fan out to `all-brains` (MEDULLA-PRD §5); compose runs
+                    // AROUND the primary dispatch, holding one lock at a time.
+                    return serve_and_compose(&app, brain, &request, caller_root.clone(), true);
                 }
                 // Brain store vanished mid-session — fall through to the bound
                 // graph, whose reception will say so honestly.
@@ -566,17 +566,15 @@ async fn route_and_run(
                         if let Some(s) = app.mcp_sessions.lock().get_mut(&session_id) {
                             s.bound_project_root = Some(key);
                         }
-                        let mut state = brain.lock();
-                        state.caller_root = caller_root.clone();
-                        return handle_mcp_method(&mut state, &request);
+                        return serve_and_compose(&app, brain, &request, caller_root.clone(), true);
                     }
                 }
             }
 
-            // 4. Default: the bound graph (reception flags true unknowns there).
-            let mut session = app.session.lock();
-            session.caller_root = caller_root;
-            handle_mcp_method(&mut session, &request)
+            // 4. Default: the bound graph (reception flags true unknowns there). This
+            // IS the medulla store today — its own beat is already project+medulla by
+            // identity; `all-brains` still fans out to the hosted project brains.
+            serve_and_compose(&app, app.session.clone(), &request, caller_root, false)
         }),
     )
     .await;
@@ -603,6 +601,401 @@ async fn route_and_run(
                 data: None,
             }),
         },
+    }
+}
+
+// =========================================================================
+// MEDULLA M5b — pull-only tier recall (the read side of the medulla)
+// =========================================================================
+//
+// The routing layer is the ONLY place that can compose ACROSS stores: a tool
+// handler holds a single `&mut SessionState` and structurally cannot read a
+// sibling brain. `serve_and_compose` dispatches the tool on the primary (routed)
+// brain, then — for the memory-recall tools only — folds in the other stores the
+// tier selector names, each row labeled with its `origin_brain` (MEDULLA-PRD §6).
+//
+// THE LEAK INVARIANT (MED-INV-1), made mechanical here: a brain X default beat
+// composes exactly X's own store + the medulla — no third store is ever read
+// unless the caller passes `tier:"all-brains"`. So a claim from brain Y can reach
+// X's default beat only if it lives in the medulla (promoted / doctrine-born).
+// Pull, never push.
+//
+// Lock discipline (route_and_run's contract): NEVER hold two session locks at
+// once. Each store is locked, queried, and released before the next is touched;
+// the primary lock is dropped before any sibling is read.
+
+/// Tools whose payloads carry a durable-memory feed that tier recall composes.
+/// `seek` folds into `results`; `north` into `memory`; `boot_memory` (list) into
+/// `entries`. Every other tool is served verbatim by the primary brain.
+fn is_tier_recall_tool(tool: &str) -> bool {
+    matches!(bare_tool_name(tool), "seek" | "north" | "boot_memory")
+}
+
+/// The memory tier a caller asked for (MEDULLA-PRD §5.2). Absent / unknown →
+/// the default beat (`project + medulla`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MemoryTier {
+    /// This brain's own store only.
+    Project,
+    /// The medulla (promoted/doctrine) store only.
+    Medulla,
+    /// Default: this brain's store + the medulla.
+    ProjectAndMedulla,
+    /// The explicit cross-project fan-out — every hosted store, labeled by origin.
+    AllBrains,
+}
+
+impl MemoryTier {
+    /// Read the `tier` argument off a `tools/call` request. Absent, empty, or
+    /// unrecognized → the default beat (never an error — an unknown tier must not
+    /// break recall, and must never silently widen past the default, §12 risk 1).
+    fn from_request(request: &JsonRpcRequest) -> MemoryTier {
+        let raw = request
+            .params
+            .get("arguments")
+            .and_then(|a| a.get("tier"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        match raw {
+            "project" => MemoryTier::Project,
+            "medulla" => MemoryTier::Medulla,
+            "all-brains" | "all_brains" => MemoryTier::AllBrains,
+            // "" | "project+medulla" | anything else → the safe default.
+            _ => MemoryTier::ProjectAndMedulla,
+        }
+    }
+}
+
+/// Serve `request` on `primary` (the routed brain), then compose the tier-selected
+/// memory feed from the other stores. `primary_is_project` is true when `primary`
+/// is a per-project brain (its own beat is `project`); false when it is the bound
+/// owner, which IS the medulla today (its own beat is already `project+medulla` by
+/// identity). Non-recall tools and the `project` tier are served verbatim.
+fn serve_and_compose(
+    app: &Arc<AppState>,
+    primary: Arc<Mutex<SessionState>>,
+    request: &JsonRpcRequest,
+    caller_root: Option<String>,
+    primary_is_project: bool,
+) -> JsonRpcResponse {
+    // Non-recall tools, or a non-`tools/call` method: serve verbatim, one lock.
+    let tool_name = if request.method == "tools/call" {
+        request.params.get("name").and_then(|v| v.as_str())
+    } else {
+        None
+    };
+    let Some(tool) = tool_name.filter(|t| is_tier_recall_tool(t)) else {
+        let mut state = primary.lock();
+        state.caller_root = caller_root;
+        return handle_mcp_method(&mut state, request);
+    };
+    let tier = MemoryTier::from_request(request);
+
+    // 1. PRIMARY dispatch — the routed brain's own answer (its full envelope). We
+    //    dispatch the tool directly to get the RAW payload (not the wrapped text),
+    //    so composing is a structured merge, not string surgery. The lock is
+    //    released before any sibling store is read (lock discipline).
+    let id = request.id.clone();
+    let (mut payload, primary_origin) = {
+        let mut state = primary.lock();
+        state.caller_root = caller_root.clone();
+        let args = request
+            .params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        // Mirror handle_mcp_method's per-call agent tracking (the read-only recall
+        // tools do not autotick the daemon, so nothing else here diverges).
+        if let Some(aid) = args.get("agent_id").and_then(|v| v.as_str()) {
+            state.track_agent(aid);
+        }
+        let origin = state.origin_brain();
+        match dispatch_tool(&mut state, bare_tool_name(tool), &args) {
+            Ok(v) => (v, origin),
+            // Tool-level failure: return it verbatim (no compose over an error).
+            Err(e) => return tool_error_response(id, e.to_string()),
+        }
+    };
+    // `tier:"project"` — the primary brain's own beat, nothing folded in.
+    if tier == MemoryTier::Project {
+        return tool_result_response(id, &payload);
+    }
+
+    // 2. Decide which sibling stores to read.
+    //    - the MEDULLA feed (app.session) is added for every non-project tier, but
+    //      only when the primary is NOT already the medulla (a project brain);
+    //    - `all-brains` additionally fans out over every hosted project brain.
+    let agent_id = request
+        .params
+        .get("arguments")
+        .and_then(|a| a.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("tier-recall")
+        .to_string();
+    let query = tier_recall_query(tool, request);
+
+    let mut folded: Vec<serde_json::Value> = Vec::new();
+
+    let want_medulla = matches!(
+        tier,
+        MemoryTier::Medulla | MemoryTier::ProjectAndMedulla | MemoryTier::AllBrains
+    );
+    if want_medulla && primary_is_project {
+        // Read the medulla (the bound owner store). Its own claims are the shared
+        // doctrine feed every project beat gets (MED-INV-1's "+ medulla").
+        let medulla = app.session.clone();
+        folded.extend(store_recall_rows(
+            tool, &medulla, &agent_id, &query, "medulla",
+        ));
+    }
+
+    // `tier:"medulla"` — ONLY the medulla feed. When the primary is a PROJECT brain,
+    // drop its own project rows so only the folded medulla feed remains. When the
+    // primary already IS the medulla (the bound owner), its own rows ARE the medulla
+    // feed — keep them (nothing was folded, and stripping would return empty).
+    if tier == MemoryTier::Medulla && primary_is_project {
+        strip_memory_feed(&mut payload, tool);
+    }
+
+    if tier == MemoryTier::AllBrains {
+        // THE FAN-OUT. Every project brain on disk is resolved through the registry,
+        // which routes each warm-boot through the R15 eviction gate — so a wide
+        // fan-out can never pin more than the warm-brain cap (§C9.1). Each store's
+        // rows are labeled by its OWN origin brain (its project root). The primary
+        // brain is skipped (its rows are already in `payload`); the medulla was
+        // folded above when the primary is a project brain.
+        let primary_key = canonical_of(&primary_origin);
+        for (root, _facts, _dir) in app.project_brains.disk_roster() {
+            if canonical_of(&root) == primary_key {
+                continue; // already the primary's own rows
+            }
+            // resolve() bumps LRU + routes through insert_with_eviction: the warm
+            // map stays ≤ cap no matter how many roots this fan-out touches.
+            if let Some(brain) = app.project_brains.resolve(&root) {
+                let origin = { brain.lock().origin_brain() };
+                folded.extend(store_recall_rows(tool, &brain, &agent_id, &query, &origin));
+            }
+        }
+    }
+
+    // 3. Fold the sibling rows into the primary payload's memory feed, de-duped by
+    //    node id so a claim surfaced twice is carried once (the primary wins).
+    if !folded.is_empty() {
+        append_memory_rows(&mut payload, tool, folded);
+    }
+    // Honest label so a reader/agent knows the beat is cross-brain and how wide.
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert(
+            "tier".into(),
+            serde_json::json!(match tier {
+                MemoryTier::Project => "project",
+                MemoryTier::Medulla => "medulla",
+                MemoryTier::ProjectAndMedulla => "project+medulla",
+                MemoryTier::AllBrains => "all-brains",
+            }),
+        );
+    }
+    tool_result_response(id, &payload)
+}
+
+/// Canonicalized form of a brain origin string, for identity comparison across
+/// path alias spellings. `medulla` (and any non-path origin) passes through.
+fn canonical_of(origin: &str) -> String {
+    if origin == "medulla" {
+        return origin.to_string();
+    }
+    crate::project_brains::ProjectBrainRegistry::canonical_key(origin)
+}
+
+/// The recall query for the folded feed: `seek`/`north` carry a `query`/`task`;
+/// `boot_memory` list has none (a broad, most-recent recall). Kept aligned with
+/// north's own light-recall query shape.
+fn tier_recall_query(tool: &str, request: &JsonRpcRequest) -> String {
+    let args = request.params.get("arguments");
+    let field = match bare_tool_name(tool) {
+        "seek" => "query",
+        "north" => "task",
+        _ => "",
+    };
+    args.and_then(|a| a.get(field))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|s| !s.trim().is_empty())
+        // boot_memory (or an empty query) → a broad, most-recent memory recall.
+        .unwrap_or_else(|| "memory decision finding note claim".to_string())
+}
+
+/// Read a sibling store's memory feed in the shape the tool expects: `seek`/`north`
+/// fold L1GHT claims (via [`store_memory_rows`]); `boot_memory` folds boot-KV
+/// entries (via [`store_boot_rows`]) — same shape as the primary's own `entries`.
+fn store_recall_rows(
+    tool: &str,
+    brain: &Arc<Mutex<SessionState>>,
+    agent_id: &str,
+    query: &str,
+    origin_brain: &str,
+) -> Vec<serde_json::Value> {
+    match bare_tool_name(tool) {
+        "boot_memory" => store_boot_rows(brain, agent_id, origin_brain),
+        _ => store_memory_rows(brain, agent_id, query, origin_brain),
+    }
+}
+
+/// Read a sibling store's boot-memory KV entries (action=list), each labeled with
+/// `origin_brain` + `tier`. Same `{key, value, updated_at_ms, …}` shape the
+/// primary's own `entries` carry, so the fold is homogeneous.
+fn store_boot_rows(
+    brain: &Arc<Mutex<SessionState>>,
+    agent_id: &str,
+    origin_brain: &str,
+) -> Vec<serde_json::Value> {
+    let mut state = brain.lock();
+    let this_tier = if state.is_medulla_store() {
+        "medulla"
+    } else {
+        "project"
+    };
+    let list = crate::boot_memory_handlers::handle_boot_memory(
+        &mut state,
+        crate::boot_memory_handlers::BootMemoryInput {
+            agent_id: agent_id.to_string(),
+            action: "list".into(),
+            key: None,
+            value: None,
+            tags: Vec::new(),
+            source_refs: Vec::new(),
+        },
+    );
+    list.ok()
+        .and_then(|v| v.get("entries").and_then(|e| e.as_array()).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mut entry| {
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert("origin_brain".into(), serde_json::json!(origin_brain));
+                obj.insert("tier".into(), serde_json::json!(this_tier));
+            }
+            entry
+        })
+        .collect()
+}
+
+/// Run a LIGHT-tier recall over `brain`'s own store and return memory rows labeled
+/// with `origin_brain`. Reuses `seek` scoped to the `light::` id namespace (exactly
+/// north's mixed-graph-safe recall, §2.1) so code nodes never compete for the
+/// window; each hit becomes a `{claim, age_ms, source_agent, origin_brain, tier,
+/// node_id}` row. Empty when the store has no live L1GHT claims (honest absence).
+fn store_memory_rows(
+    brain: &Arc<Mutex<SessionState>>,
+    agent_id: &str,
+    query: &str,
+    origin_brain: &str,
+) -> Vec<serde_json::Value> {
+    const LIGHT_RECALL_SCOPE: &str = "light::";
+    let mut state = brain.lock();
+    let this_tier = if state.is_medulla_store() {
+        "medulla"
+    } else {
+        "project"
+    };
+    let out = crate::layer_handlers::handle_seek(
+        &mut state,
+        crate::protocol::layers::SeekInput {
+            query: query.to_string(),
+            agent_id: agent_id.to_string(),
+            top_k: 24,
+            scope: Some(LIGHT_RECALL_SCOPE.to_string()),
+            node_types: Vec::new(),
+            min_score: 0.1,
+            graph_rerank: true,
+            conformance_aware: true,
+            token_budget: None,
+        },
+    );
+    let now = now_ms();
+    let stale_after_ms: u64 = 30 * 24 * 60 * 60 * 1000;
+    let mut seen = std::collections::HashSet::new();
+    out.map(|o| o.results)
+        .unwrap_or_default()
+        .into_iter()
+        // A real memory row carries authorship provenance (a code node never does).
+        .filter(|r| r.source_agent.is_some() || r.authored_ms_ago.is_some())
+        .filter(|r| seen.insert(r.node_id.clone()))
+        .take(5)
+        .map(|r| {
+            let age_ms = r.authored_ms_ago;
+            let mut obj = serde_json::Map::new();
+            obj.insert("kind".into(), serde_json::json!("light"));
+            obj.insert("claim".into(), serde_json::json!(r.label));
+            if let Some(age) = age_ms {
+                obj.insert("age_ms".into(), serde_json::json!(age));
+                obj.insert("stale".into(), serde_json::json!(age > stale_after_ms));
+            }
+            obj.insert(
+                "source_agent".into(),
+                r.source_agent
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            // Provenance-in-recall: prefer the claim's OWN Origin-Brain stamp; fall
+            // back to the store's identity when the file predates the stamp.
+            let origin = r.origin_brain.unwrap_or_else(|| origin_brain.to_string());
+            obj.insert("origin_brain".into(), serde_json::json!(origin));
+            obj.insert("tier".into(), serde_json::json!(this_tier));
+            obj.insert("node_id".into(), serde_json::json!(r.node_id));
+            serde_json::Value::Object(obj)
+        })
+        .collect()
+}
+
+/// The payload key that holds a tool's memory feed.
+fn memory_feed_key(tool: &str) -> &'static str {
+    match bare_tool_name(tool) {
+        "seek" => "results",
+        "north" => "memory",
+        "boot_memory" => "entries",
+        _ => "memory",
+    }
+}
+
+/// Append folded sibling-store rows into the primary payload's memory feed,
+/// de-duped by `node_id` (the primary's own rows already present win).
+fn append_memory_rows(payload: &mut serde_json::Value, tool: &str, rows: Vec<serde_json::Value>) {
+    let key = memory_feed_key(tool);
+    let Some(obj) = payload.as_object_mut() else {
+        return;
+    };
+    let existing = obj
+        .entry(key.to_string())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    let Some(arr) = existing.as_array_mut() else {
+        return;
+    };
+    // Identity is `node_id` for light rows, `key` for boot-KV rows.
+    let row_id = |r: &serde_json::Value| -> Option<String> {
+        r.get("node_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| r.get("key").and_then(|v| v.as_str()))
+            .map(String::from)
+    };
+    let mut have: std::collections::HashSet<String> = arr.iter().filter_map(row_id).collect();
+    for row in rows {
+        if let Some(rid) = row_id(&row) {
+            if !have.insert(rid) {
+                continue; // already carried by the primary or an earlier store
+            }
+        }
+        arr.push(row);
+    }
+}
+
+/// Drop the primary brain's OWN memory feed (used by `tier:"medulla"`, which wants
+/// only the medulla's rows). Leaves the rest of the envelope intact.
+fn strip_memory_feed(payload: &mut serde_json::Value, tool: &str) {
+    let key = memory_feed_key(tool);
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert(key.to_string(), serde_json::Value::Array(Vec::new()));
     }
 }
 
