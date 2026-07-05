@@ -66,8 +66,9 @@ graph TD
         MED[(medulla<br/>promoted · doctrine-born)]
     end
     COMPOSE[packet composer<br/>project beat + medulla beat<br/>pull-not-push] --> PKT
-    PB --> COMPOSE
-    MED --> COMPOSE
+    RERANK[seek/focus rerank<br/>handle_seek · trust × tremor × conformance] --> COMPOSE
+    PB --> RERANK
+    MED --> RERANK
 
     DOOR{{"memorize — THE WRITE DOOR (C4)<br/>supersession gate · .history/ · flock ·<br/>provenance stamps · hygiene floor ·<br/>letters-never-evidence refusal"}}
     DOOR --> PB
@@ -87,7 +88,7 @@ graph TD
         SPOOL --> BOX
     end
     TEL -.->|honesty class =<br/>calibration ground truth| CAL[calibration<br/>trust ladder — grammar 1]
-    XRAY[X-RAY conformance<br/>grammar 4] -.->|conformance_boost| COMPOSE
+    XRAY[X-RAY conformance<br/>grammar 4] -.->|conformance_boost<br/>BEDROCK +0.20 · EROSION −0.30| RERANK
     CAL -.->|verdicts on every answer| PKT
 ```
 
@@ -304,6 +305,31 @@ sequenceDiagram
     A->>G: PR — battery + doc-gate + agent-docs + PATHOS (THE gate)
     Note over M: CADENCE (never per-turn): consolidation pass · promote (curation) · triage sweep
 ```
+
+### C3.4 focus ↔ mission ↔ trail — the one working-context, three renderings (JOINT-F)
+
+Three shipped subsystems name "the current working context" and had **no declared relationship**
+(the map's highest-priority overlap). The relationship, declared:
+
+> **There is ONE working context. `focus` is its live form, a `mission` is a named `focus` session
+> with a handoff, and a `trail` is its persisted, resumable form.**
+
+- **`focus`** owns the goal-conditioned working-set + attention budget while the session runs.
+- **`mission_*`** is that focus session given a name, `expected_phases`/`non_goals`/`non_claims`,
+  and a **handoff packet** — the mission verbs are the focus session's ledger, not a rival notion
+  of context. (Homed at §C3.2 as their PRD seat.)
+- **`trail_*`** (`trail_save`/`resume`/`merge`/`list`) is the **persisted form of the focus
+  working-set** — the same context frozen so a later session resumes it. `trail_save` is therefore
+  a machine-owned beat (§C3, PreCompact), never a fourth thing.
+- **One "have I gathered enough" signal, three renderings:** `focus.sufficiency`,
+  `coverage_session` (the blind-spot map), and `mission_verify` are **not three measures** — they
+  are three surfaces onto the same sufficiency question, and the stop-check that answers it is the
+  single §C2.3 enum (`gathering | sufficient | saturated`, +`not_here`/`looping`) riding
+  `focus(mode:"check")`. No surface may mint a fourth sufficiency verdict.
+
+*(This declares the relationship the map flagged; the surface unification — collapsing the three
+sufficiency renderings behind one call — is a mechanism the FOCUS/mission family owns, not new law
+minted here.)*
 
 ---
 
@@ -617,6 +643,7 @@ graph TD
     R13["R13 · reconnect-rebind<br/>(letter#49)"]
     R14["R14 · §9.5.1 per-brain partition<br/>(ONE owner: TT backend)"]
     R5["R5 · Windows CI honesty triage"]
+    R17["R17 · conformance_boost rerank<br/>X-RAY → seek/focus (JOINT-J)"]
     R16["R16 · SOUL-PRD + slices — LAST<br/>bound by C8.6"]
 ```
 
@@ -707,6 +734,17 @@ contradiction #5: HUMAN §4A.6/G4 and MEDULLA S6/MED-INV-7 are consumers, not co
 partition on `session.bound_project_root`; per-brain surfaces stop wearing owner-global numbers;
 the 2H residue family (`[needs-backend §9.5.1/§4A.9]` card fields, per-brain `calibration_armed`)
 rides this rung. *RED:* letter#51's misattribution case.
+
+**R17 — the conformance_boost rerank (JOINT-J: X-RAY steers attention) — owner: the X-RAY/seek
+family; small, parallel.** *What:* grammar-4 conformance becomes the payoff axis it was designed to
+be — the manifesto stops being a report and steers what loads. Inject an additive `conformance_boost`
+term into the shared `handle_seek` rerank (BEDROCK **+0.20**, EROSION **−0.30**); because `focus` is a
+thin layer over `handle_seek`, the same term boosts seek and focus at once. It **composes** with the
+two terms already in that rerank — trust × tremor (damping, multiplicative) × conformance (additive) —
+the one place intent-vs-reality feeds attention. *State:* shipped-partial (DESIGNED, X360 §5.5 —
+P1 malus-only leapfrog: EROSION down-ranking first). *RED:* a rerank fixture — a BEDROCK node
+out-ranks its pre-boost position and an EROSION node drops, with the composition against trust/tremor
+pinned so no term silently dominates.
 
 **R16 — SOUL: the PRD, then slices — LAST.** Bound by §C8.6's seven constraints; designed against
 a working medulla (R2–R4 landed). If the SOUL-PRD lands on main before this constitution, its row
