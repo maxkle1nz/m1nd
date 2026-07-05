@@ -139,6 +139,23 @@ this loop by default:
    it can prove). It is an ORCHESTRATOR act — a maker proposes, the orchestrator
    executes; any id may call it but `Promoted-By` audits every promotion. Demote via
    `learn wrong` on the medulla copy — never touches the project witness.
+10. Delegation is the grounded spawn (ORGANISM R6): spawning a subagent? `delegate
+    {agent_id, task}` composes the RETRIEVAL half of its spec in ONE read-only call —
+    the mother's binding (the NAMED brain the child must land on), a PROJECT-TIER
+    memory slice with age + author (explicit cargo — the child inherits exactly what
+    you chose), ranked anchors, a staleness header, dependents, and a "what m1nd could
+    NOT determine → your duties" section — rendered as `prompt_markdown` you APPEND to
+    your brief (appendix: your text wins on what-to-do, the file on what-is, the packet
+    outranks assumption only). `mission.binding` is the SAME datum reception verifies
+    (`M1nd-Caller-Root` ↔ `covers_root`), so the child VERIFIES it landed (silent on
+    match), never chooses — the child law. Abstains honestly (`needs_ingest` /
+    `unscopable` / `seeds_unresolvable`) with evidence + a `next_move`. When the child
+    returns, `debrief {agent_id, delegation_id, outcome, touched_paths|diff, findings}`
+    grades the diff against the packet and TEACHES the graph (the only mutation, via
+    `memorize`/`learn`): findings memorize under the subagent, map-miss lessons under
+    you, one `outcomes.jsonl` row per debrief (`outcome_unverified` without evidence).
+    Conformance grades PATHS, never code quality — never merge-safe. Every debrief
+    deposits memory the next `delegate` surfaces.
 
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
