@@ -428,11 +428,32 @@ Each event that survives triage adds its case to the battery of the brain it bit
 > `UnprovableReason::EvidenceUnverifiable` enum the PRD references is not yet a code
 > type; wiring the marker into the trust envelope's verdict is a later slice.
 
-### M7 — The delegation-packet memory slice
-- **Scope:** §O.12's `context.memory` rows gain `tier` + `origin_brain`; the selection rule (project task-relevant + domain doctrine, never all-brains) implemented in `delegate`'s compose; the `sources` footer stamped; packet text carries the promotion etiquette line for makers; child-binding inheritance asserted on the routing that exists (no new machinery — the probe already proved sticky recognition for new sessions).
-- **RED:** today's packet spec carries memory rows with age+author but no brain axis — a child cannot tell doctrine from project fact from foreign noise (assert on a composed packet from a two-brain fixture).
-- **GREEN:** packet golden shows both tiers labeled; a child session spawned with the packet's binding memorizes → lands project-private in the named brain (end-to-end fixture); debrief findings land under the child's id, project tier; the O.12 A/B harness gains the memory-slice columns.
-- **Battery:** two-brain packet golden · child-write-lands-home case · debrief-provenance case.
+### M7 — The delegation-packet memory slice — [SHIPPED 2026-07-05]
+> **Shipped variant (honest):** row-labeling landed at TWO seams, mirroring the M5b
+> split exactly. (1) The `delegate` composer (`delegation_handlers::recall_memory_slice`)
+> labels ITS OWN recall rows — each carries `tier` (project | medulla, from the routed
+> store's `is_medulla_store()`) + `origin_brain` (the claim's OWN `Origin-Brain` stamp,
+> falling back to the store's `origin_brain()` when the file predates the stamp — legacy
+> renders its store's identity, never a faked or absent label, MED-INV-4). (2) The
+> medulla doctrine feed is folded into the packet's NESTED `context.memory` by the
+> routing layer (`mcp_http::serve_and_compose`) — the ONE seam that can read across
+> stores — by adding `delegate` to `TIER_RECALL_TOOLS` and teaching the fold/strip
+> machinery a nested feed path (`["context","memory"]`) beside the flat feeds. The
+> packet's default beat is therefore `project + medulla` (the routing tier label is
+> stamped top-level), never `all-brains`: no other project's private claim can enter
+> (MED-INV-1, inherited from M5b's routing). Because the handler renders `prompt_markdown`
+> BEFORE the fold (it holds one lock), the routing layer **re-renders** the packet
+> deterministically after folding — reusing the SAME pure renderer — so the labeled
+> doctrine reaches the child's ONE reader string, not just a JSON router. The rendered
+> memory line now reads `- [tier] claim — origin · author, age`. **No new verb, no
+> dispatch/schema change** — this enriched the existing `delegate` output. The `sources`
+> footer + the O.12 A/B memory-slice columns are deferred to the O.12 follow-up (the
+> tier/origin axis — the child-facing law — shipped here).
+> **CODE-LAND-ONLY: the live `:1338` was NOT migrated/restarted — held for the maintainer.**
+- **Scope:** §O.12's `context.memory` rows gain `tier` + `origin_brain`; the selection rule (project task-relevant + domain doctrine, never all-brains) implemented via the routed default beat (project brain's own recall + folded medulla); packet markdown re-rendered post-fold with the labeled rows; child-binding inheritance rides the routing that exists (no new machinery — the probe already proved sticky recognition for new sessions).
+- **RED (mechanized):** the pre-M7 packet carried memory rows with age+author but no brain axis — a child cannot tell doctrine from project fact (a two-brain fixture asserted every row lacked `tier`/`origin_brain`; both tests failed on the bare rows).
+- **GREEN:** the two-brain fixture shows a medulla-tier row labeled `tier=medulla`/`origin_brain=medulla` beside a project row labeled `tier=project` + its repo-root `origin_brain`; the rendered `prompt_markdown` shows `[medulla]`/`[project]` and carries the doctrine text; the lone-brain packet still labels every row with its own store's origin (legacy → the store identity, never a crash).
+- **Battery:** two-brain packet labeling case (`m7_packet_memory_rows_carry_tier_and_origin_brain_two_brain`) · lone-brain own-origin labeling case (`m7_lone_brain_packet_still_labels_every_row_with_its_own_origin`) — both in `delegation_slices.rs`; M5b/M6/two-tier suites unregressed.
 
 ### M7b — The telemetry class, the boxes, the metric
 - **Scope:** the `memory_misdelivery` class + `kind` vocabulary (§9.1) documented in the field-report doctrine (CLAUDE-side surfaces + agent packs, same-PR gate); the mailbox distribution (§9.2 — spool → **repo-side project boxes** (`<repo>/.m1nd/inbox.jsonl`, the ownership law) + the medulla box for projectless letters only, letter ids, `answers[]` linkage, fate-state derivation, the §7.1 hygiene floor at filing time, `pending_distribution` for absent repos, the migration pass over the live letters with best-effort Lnn resolution); **`inbox_sweep` cross-boxes** (spool ∪ every known box, id-dedup, unreachable boxes named); the read surface (`GET /api/mailbox?brain=…` on the §4A.9 selector contract + the `mailbox_open_count` instances enrichment); `doctor` renders confusion_rate / volume / beats-served weekly counts + the pending-distribution count; the mailbox `"brain"` field (B3) starts being written by this repo's own agents. The human rendering is HUMAN-LAYER §4A.11 (slice 3M) — data contract only from this side.

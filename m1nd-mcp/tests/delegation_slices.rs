@@ -210,6 +210,46 @@ impl Owner {
         );
         sid
     }
+
+    /// Ingest the bound "dev" graph (a caller AT that root) — the bound owner IS
+    /// the medulla store today, so a `memorize` on this session writes a
+    /// doctrine-tier (medulla) claim. Used by the M7 two-brain fixture.
+    async fn ingest_bound(&self, root: &Path) -> String {
+        let sid = self.init_session(root).await;
+        let ing = self
+            .tool(
+                &sid,
+                root,
+                "ingest",
+                json!({"path": root.to_string_lossy(), "agent_id": "setup"}),
+            )
+            .await;
+        assert!(
+            ing["node_count"].as_u64().unwrap_or(0) > 0,
+            "bound ingest must produce nodes: {ing}"
+        );
+        sid
+    }
+
+    /// memorize a sentinel claim into the store the session is routed to.
+    async fn memorize(&self, sid: &str, caller_root: &Path, agent: &str, label: &str, text: &str) {
+        let out = self
+            .tool(
+                sid,
+                caller_root,
+                "memorize",
+                json!({
+                    "agent_id": agent,
+                    "node_label": label,
+                    "claims": [{"label": label, "text": text, "confidence": "high"}]
+                }),
+            )
+            .await;
+        assert!(
+            out["refused"].is_null(),
+            "memorize for {label} must not be refused: {out}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +670,200 @@ async fn the_loop_closes_second_delegate_surfaces_the_debrief_finding() {
         }),
         "the second packet inherits the first debrief's finding, by the subagent, with provenance: {p2}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// M7 (ORGANISM R7) — the packet memory slice carries `tier` + `origin_brain`.
+//
+// THE LAW (MEDULLA-PRD §8.2, §6 · NEXTGEN §O.12.4): every row of the delegation
+// packet's `context.memory` is LABELED cargo — a child sees not just the claim but
+// WHICH tier (project | medulla) and WHICH brain it was born in. Doctrine is
+// distinguishable from project fact; inheritance is auditable, not ambient.
+//
+// RED before M7: the packet's memory rows carried only {claim, age_days,
+// source_agent, stale} — a child could not tell a medulla doctrine claim from a
+// project fact, and no origin brain was named. This two-brain fixture is the GREEN
+// that could not exist before the row-labeling lands.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn m7_packet_memory_rows_carry_tier_and_origin_brain_two_brain() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let owner = mk_owner(&tmp.path().join("owner"));
+
+    // A doctrine claim in the medulla (the bound owner IS the medulla today).
+    let bound = tmp.path().join("bound-repo");
+    write_repo_a(&bound);
+    let sid_bound = owner.ingest_bound(&bound).await;
+    let doctrine = "route dispatch doctrine: always verify the route table size";
+    owner
+        .memorize(&sid_bound, &bound, "maintainer", doctrine, doctrine)
+        .await;
+
+    // A project brain (repo-a) with its OWN project claim.
+    let root = tmp.path().join("repo-a");
+    write_repo_a(&root);
+    let sid = owner.bootstrap(&root, ORCH).await;
+    let project_claim = "route_request returns the path length; route_table_size is fixed at 7.";
+    owner
+        .memorize(
+            &sid,
+            &root,
+            ORCH,
+            "route_request length rule",
+            project_claim,
+        )
+        .await;
+
+    // The mother delegates from the project brain — its DEFAULT beat is
+    // project + medulla, so the packet must carry BOTH tiers, each labeled.
+    let packet = owner
+        .tool(
+            &sid,
+            &root,
+            "delegate",
+            json!({
+                "agent_id": ORCH,
+                "task": "extend the request router so route_request handles an empty route path",
+                "scope": { "paths": ["src/router.rs"] }
+            }),
+        )
+        .await;
+
+    let mem = packet["context"]["memory"]
+        .as_array()
+        .expect("memory slice is an array");
+
+    // EVERY row is labeled: no bare {claim, age, author} rows survive.
+    for row in mem {
+        assert!(
+            row.get("tier").and_then(|v| v.as_str()).is_some(),
+            "every packet memory row must carry a `tier` label (project|medulla): {row}"
+        );
+        assert!(
+            row.get("origin_brain").and_then(|v| v.as_str()).is_some(),
+            "every packet memory row must carry an `origin_brain` label (never faked): {row}"
+        );
+    }
+
+    // THE PROJECT ROW: labeled tier=project, origin_brain = the repo it was born in.
+    // (The `claim` field renders the node label — the `route_request length rule`
+    // claim we memorized above.)
+    let project_row = mem
+        .iter()
+        .find(|r| {
+            r["claim"]
+                .as_str()
+                .map(|c| c.contains("route_request length rule"))
+                .unwrap_or(false)
+        })
+        .unwrap_or_else(|| panic!("the project claim must appear, labeled: {packet}"));
+    assert_eq!(
+        project_row["tier"].as_str(),
+        Some("project"),
+        "the project fact is tier=project: {project_row}"
+    );
+    assert!(
+        project_row["origin_brain"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("repo-a"),
+        "the project row's origin_brain names the brain it was born in (repo-a): {project_row}"
+    );
+
+    // THE MEDULLA ROW: the doctrine claim, labeled tier=medulla, origin=medulla —
+    // folded into the project brain's default beat, distinguishable from the fact.
+    let medulla_row = mem
+        .iter()
+        .find(|r| {
+            r["claim"]
+                .as_str()
+                .map(|c| c.contains("always verify the route table size"))
+                .unwrap_or(false)
+        })
+        .unwrap_or_else(|| {
+            panic!("the medulla doctrine claim MUST surface in the packet, labeled: {packet}")
+        });
+    assert_eq!(
+        medulla_row["tier"].as_str(),
+        Some("medulla"),
+        "the doctrine claim is tier=medulla: {medulla_row}"
+    );
+    assert_eq!(
+        medulla_row["origin_brain"].as_str(),
+        Some("medulla"),
+        "a doctrine-born claim's origin brain is medulla: {medulla_row}"
+    );
+
+    // THE CHILD READS THE MARKDOWN: the re-rendered prompt must show the labeled
+    // rows (doctrine distinguishable from project fact), not just the JSON.
+    let md = packet["prompt_markdown"].as_str().expect("prompt_markdown");
+    assert!(
+        md.contains("[medulla]") && md.contains("[project]"),
+        "the rendered packet must label memory rows by tier so the child SEES doctrine vs fact: {md}"
+    );
+    assert!(
+        md.contains("always verify the route table size"),
+        "the folded medulla doctrine must reach the child's prompt, not only the JSON: {md}"
+    );
+}
+
+/// Legacy tolerance: a memory row whose claim has NO `Origin-Brain` provenance (a
+/// pre-M5a `.light.md`, or any hit the graph tag never stamped) must still render —
+/// falling back to the store's own identity — never a faked or absent label. The
+/// project brain's own store answers with its own origin, so a lone-brain packet
+/// still labels every row (unknown is honest, never a crash).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn m7_lone_brain_packet_still_labels_every_row_with_its_own_origin() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let owner = mk_owner(&tmp.path().join("owner"));
+    let root = tmp.path().join("repo-a");
+    write_repo_a(&root);
+    let sid = owner.bootstrap(&root, ORCH).await;
+    owner
+        .memorize(
+            &sid,
+            &root,
+            ORCH,
+            "route table size",
+            "route_table_size is fixed at 7.",
+        )
+        .await;
+
+    let packet = owner
+        .tool(
+            &sid,
+            &root,
+            "delegate",
+            json!({
+                "agent_id": ORCH,
+                "task": "confirm route_table_size stays fixed at 7",
+                "scope": { "paths": ["src/router.rs"] }
+            }),
+        )
+        .await;
+
+    let mem = packet["context"]["memory"]
+        .as_array()
+        .expect("memory slice is an array");
+    assert!(
+        !mem.is_empty(),
+        "the lone brain's own claim must surface: {packet}"
+    );
+    for row in mem {
+        assert_eq!(
+            row["tier"].as_str(),
+            Some("project"),
+            "a project brain's own rows are tier=project: {row}"
+        );
+        assert!(
+            row["origin_brain"]
+                .as_str()
+                .map(|o| !o.is_empty())
+                .unwrap_or(false),
+            "every row carries a non-empty origin_brain (its own store's identity as fallback): {row}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -139,14 +139,17 @@ this loop by default:
    it can prove). It is an ORCHESTRATOR act — a maker proposes, the orchestrator
    executes; any id may call it but `Promoted-By` audits every promotion. Demote via
    `learn wrong` on the medulla copy — never touches the project witness.
-10. Delegation is the grounded spawn (ORGANISM R6): spawning a subagent? `delegate
+10. Delegation is the grounded spawn (ORGANISM R6 + R7/M7): spawning a subagent? `delegate
     {agent_id, task}` composes the RETRIEVAL half of its spec in ONE read-only call —
-    the mother's binding (the NAMED brain the child must land on), a PROJECT-TIER
-    memory slice with age + author (explicit cargo — the child inherits exactly what
-    you chose), ranked anchors, a staleness header, dependents, and a "what m1nd could
+    the mother's binding (the NAMED brain the child must land on), a LABELED memory
+    slice (M7: each row carries `tier` `project`|`medulla` + `origin_brain` beside age +
+    author — explicit cargo, the child inherits exactly what you chose AND tells doctrine
+    from project fact; the DEFAULT beat = project claims + medulla doctrine, never
+    `all-brains`), ranked anchors, a staleness header, dependents, and a "what m1nd could
     NOT determine → your duties" section — rendered as `prompt_markdown` you APPEND to
-    your brief (appendix: your text wins on what-to-do, the file on what-is, the packet
-    outranks assumption only). `mission.binding` is the SAME datum reception verifies
+    your brief (memory lines: `- [tier] claim — origin · author, age`; appendix: your
+    text wins on what-to-do, the file on what-is, the packet outranks assumption only).
+    `mission.binding` is the SAME datum reception verifies
     (`M1nd-Caller-Root` ↔ `covers_root`), so the child VERIFIES it landed (silent on
     match), never chooses — the child law. Abstains honestly (`needs_ingest` /
     `unscopable` / `seeds_unresolvable`) with evidence + a `next_move`. When the child

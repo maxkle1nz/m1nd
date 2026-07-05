@@ -799,10 +799,17 @@ with age). *Unblocks:* R7; R10 renders a stable packet; the outcomes ledger star
 calibration. *(The packet's medulla doctrine block waits for R3/R7 — Slice 1 ships project-tier
 only, honestly labeled `tier: "project"`.)*
 
-**R7 — M7: the delegation-packet memory slice** — `tier` + `origin_brain` on packet rows; the
-mother-selected slice as explicit cargo (§C5.3). *RED:* two-brain fixture — a child cannot tell
-doctrine from project fact today. *Unblocks:* child sessions that inherit exactly what the mother
-chose, auditable.
+**R7 — M7: the delegation-packet memory slice — [SHIPPED 2026-07-05]** — `tier` + `origin_brain` on
+packet rows; the mother-selected slice as explicit cargo (§C5.3). *Shipped variant:* the composer
+labels its own project rows (tier + origin from the routed store, legacy → store identity, never
+faked); the medulla doctrine feed folds into the nested `context.memory` via the M5b routing seam
+(`serve_and_compose`, `delegate` added to `TIER_RECALL_TOOLS`, nested feed path taught to the
+fold/strip machinery); the packet is re-rendered post-fold so the labeled doctrine reaches the
+child's one reader string. No new verb, no dispatch/schema change. *RED→green:* a two-brain fixture
+asserted the rows lacked `tier`/`origin_brain` (both tests red), then green with a `tier=medulla`
+doctrine row beside a `tier=project` fact row, each origin-labeled. **CODE-LAND-ONLY: live `:1338`
+NOT migrated/restarted.** *Unblocks:* child sessions that inherit exactly what the mother chose,
+auditable.
 
 **R8 — M7b: the telemetry class + boxes + fates + sweep** — `memory_misdelivery` vocabulary, the
 distribution (with §C7.5 consent-deferred box birth), letter ids + `answers[]`, fate derivation
