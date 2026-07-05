@@ -319,6 +319,134 @@ fn run_inbox_sweep(config: McpConfig, no_distribute: bool) {
     let _: BTreeMap<String, PathBuf> = known; // keep the type explicit for clarity
 }
 
+/// One-shot MEDULLA storage-split migration (MEDULLA-PRD §4.2, slice M5a). Boots a
+/// `SessionState` to recover the canonical runtime root + the bound project root,
+/// derives the two store dirs + `ingest_roots.json` from them exactly like
+/// `run_inbox_sweep` does, then runs the requested verb and prints JSON. `plan` is
+/// the pure dry-run (mutates nothing); `apply` is the gated backup-first split
+/// (mutates the store); `rollback` restores the medulla store from its most recent
+/// `apply` backup. Operator convenience — OFF the MCP surface, offline, no server
+/// transport.
+fn run_medulla_migrate(config: McpConfig, mode: m1nd_mcp::cli::MedullaMigrateMode) {
+    use m1nd_mcp::cli::MedullaMigrateMode;
+    use m1nd_mcp::medulla_migration::MedullaMigration;
+    use m1nd_mcp::project_brains::{ProjectBrainRegistry, PROJECT_BRAINS_DIR};
+
+    let server = match McpServer::new(config) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[m1nd-mcp][medulla_migrate] failed to boot session: {e}");
+            std::process::exit(1);
+        }
+    };
+    let state = server.into_session_state();
+    let runtime_root = state.runtime_root.clone();
+
+    // The medulla store IS the owner runtime root's `agent-memory/` (the tier is
+    // the directory, §4.1 — no move). The project brain's store is the m1nd repo's
+    // per-project `agent-memory/` under `project-brains/<fingerprint>/`. The origin
+    // stamped on moved claims is the m1nd repo root itself.
+    let medulla_dir = runtime_root.join("agent-memory");
+    let ingest_roots_path = runtime_root.join("ingest_roots.json");
+    let project_origin = state.project_root_display().unwrap_or_default();
+    let registry = ProjectBrainRegistry::new(runtime_root.join(PROJECT_BRAINS_DIR), None);
+    let project_dir = registry
+        .store_dir_for(&ProjectBrainRegistry::canonical_key(&project_origin))
+        .join("agent-memory");
+
+    let mig = MedullaMigration::new(
+        &medulla_dir,
+        &project_dir,
+        &ingest_roots_path,
+        project_origin.clone(),
+    );
+
+    let (mode_str, payload) = match mode {
+        MedullaMigrateMode::Plan => match mig.plan() {
+            Ok(plan) => ("plan", serde_json::to_value(&plan).unwrap_or_default()),
+            Err(e) => {
+                eprintln!("[m1nd-mcp][medulla_migrate] plan failed: {e}");
+                std::process::exit(1);
+            }
+        },
+        MedullaMigrateMode::Apply => match mig.apply() {
+            Ok(receipt) => ("apply", serde_json::to_value(&receipt).unwrap_or_default()),
+            Err(e) => {
+                eprintln!("[m1nd-mcp][medulla_migrate] apply failed: {e}");
+                std::process::exit(1);
+            }
+        },
+        MedullaMigrateMode::Rollback => {
+            // Find the most recent `.m5a-backup-*` dir written by a prior apply.
+            let backup = match most_recent_backup(&medulla_dir) {
+                Some(b) => b,
+                None => {
+                    eprintln!(
+                        "[m1nd-mcp][medulla_migrate] rollback: no backup found under {}",
+                        medulla_dir.display()
+                    );
+                    std::process::exit(1);
+                }
+            };
+            // The moved files are those now present in the project store — remove
+            // them so the project store returns to its pre-migration contents.
+            let moved: Vec<String> = std::fs::read_dir(&project_dir)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .filter_map(|e| {
+                            let name = e.file_name().to_string_lossy().to_string();
+                            (!name.starts_with('.') && name.ends_with(".light.md")).then_some(name)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            match mig.rollback(&backup.to_string_lossy(), &moved) {
+                Ok(()) => (
+                    "rollback",
+                    serde_json::json!({
+                        "restored_from": backup.to_string_lossy(),
+                        "removed_from_project": moved,
+                    }),
+                ),
+                Err(e) => {
+                    eprintln!("[m1nd-mcp][medulla_migrate] rollback failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    };
+
+    let out = serde_json::json!({
+        "schema": "m1nd-medulla-migrate-v0",
+        "mode": mode_str,
+        "medulla_dir": medulla_dir.to_string_lossy(),
+        "project_dir": project_dir.to_string_lossy(),
+        "project_origin": project_origin,
+        "plan": payload,
+    });
+    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+}
+
+/// The most recent `.m5a-backup-<ms>` dir under a medulla store, if any. The
+/// suffix is `now_ms()` at `apply` time, so lexical max over the numeric suffix
+/// is the newest backup (the rollback anchor).
+fn most_recent_backup(medulla_dir: &std::path::Path) -> Option<PathBuf> {
+    const PREFIX: &str = ".m5a-backup-";
+    std::fs::read_dir(medulla_dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path.file_name()?.to_str()?.to_string();
+            let suffix = name.strip_prefix(PREFIX)?;
+            let stamp: u128 = suffix.parse().ok()?;
+            path.is_dir().then_some((stamp, path))
+        })
+        .max_by_key(|(stamp, _)| *stamp)
+        .map(|(_, path)| path)
+}
+
 async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: bool, _port: u16) {
     if event_log.is_some() {
         eprintln!(
@@ -515,6 +643,16 @@ async fn main() {
     // never boots a server transport.
     if cli.inbox_sweep {
         run_inbox_sweep(config, cli.no_distribute);
+        return;
+    }
+
+    // --medulla-migrate plan|apply|rollback: the one-shot MEDULLA storage-split
+    // migration (MEDULLA-PRD §4.2, slice M5a). Derives every path from the runtime
+    // root like --inbox-sweep, runs offline, prints JSON, and exits. `plan` is a
+    // pure dry-run; `apply`/`rollback` mutate the store (CODE-LAND-ONLY posture —
+    // for the maintainer, never an agent). Runs BEFORE --serve/stdio.
+    if let Some(mode) = cli.medulla_migrate {
+        run_medulla_migrate(config, mode);
         return;
     }
 

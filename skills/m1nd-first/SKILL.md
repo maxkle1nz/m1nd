@@ -45,7 +45,12 @@ this loop by default:
    `project_root=<your repo root>` creates a per-project brain inside the served
    owner, ingests your repo, binds your session, and returns its north packet —
    thereafter every call from your root routes to YOUR brain automatically.
-   Absent/null `reception` = your root matches the brain serving you.
+   Absent/null `reception` = your root matches the brain serving you. An empty
+   memory beat is NOT proof of an empty store: the packet carries
+   `memory_exists: N` (the on-disk claim count) plus an honest note when recall
+   found no task-relevant match over a non-empty store — never conclude "no
+   memory" without checking the stamp; widen the task text or `seek` the store
+   directly instead.
 2. If trust is degraded or retrieval comes back `blocked`/empty unexpectedly,
    drop to the recovery path: follow `recovery_playbook` before interpreting
    absence. `wrong_workspace_binding` means rebind, intentional ingest, or real
@@ -78,6 +83,11 @@ this loop by default:
    memory-delivery fault is `class:"memory_misdelivery"`. Letters distribute
    LOCALLY into per-project boxes (`<repo>/.m1nd/inbox.jsonl`) + a medulla box;
    triage is `m1nd-mcp --inbox-sweep` / `GET /api/inbox_sweep` (CLI/REST, not MCP).
+8. Near a PR or merge, price the handoff: `soul_check` verifies a repo's soul
+   (`docs/PATHOS.md`) claim-by-claim and returns a one-line freshness receipt
+   ("N fresh · M stale · declared intact, checked <date> @<sha>") — the line a
+   cold context reads to know how much to trust the handoff; `soul_read` pulls
+   the verified body. Details under Compounding Memory below.
 
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.
@@ -104,38 +114,26 @@ Do not loop on `seek`/`activate` when the binding is nested or file-level. Eithe
 upgrade the binding to the intended repo root, or explicitly switch to direct
 files/tests and record `m1nd_usage_mode=partial_scope_orientation`.
 
-## Mission Control v0
+## Mission Control (not the default loop)
 
-When the live runtime exposes `mission_start`, use Mission Control for broad
-reviews, bug hunts, risky refactors, or any task where agents tend to loop,
-over-trust graph evidence, or lose phase discipline.
+The default loop is `north` → verbs → `memorize`, NOT a mission. Reserve
+`mission_*` for `SubagentStop` and for the rare turn where a mission is
+genuinely open (a subagent whose whole job was one scoped mission). It is NOT
+the default `Stop` path, and NOT how ordinary reviews or bug hunts run — for
+those, orient with `north`, prove directly, and close with `memorize`
+(`Stop → cross_verify(evidence_freshness) → memorize(claims, evidence)`
+directly; `memorize` needs no `mission_id`).
 
-Minimal mission loop:
-
-1. `mission_start` with the intended repo, task, mode, budget, and risk.
-2. Record meaningful actions with `mission_event` when the tool exists, or feed
-   the latest action back as `last_event` to `mission_next`.
-3. Take the starter move or ask `mission_next` for exactly one next move.
-4. Obey `do_not` unless you record a dissent event with a concrete reason.
-5. Use `mission_verify` before turning a conclusion into final output.
-6. Use `mission_handoff` when another agent or future session may resume.
-7. Use `mission_close` to produce a proof packet with verified claims, rejected
-   claims, gaps, event digest, budget use, and non-claims.
-
-Important evidence rule: a direct event does not prove every later claim. A
-claim should reference the direct proof explicitly, for example
-`event:evt_1`, `file_read:path:line`, `test_run:name`, or `runtime_probe:id`.
-
-Mission Control does not replace source reads, tests, compiler/runtime output,
-or host recovery. Its most important behavior is
-`switch_to_direct_proof`: after graph orientation, it can tell you to stop
-calling `seek`/`activate` and prove the claim directly.
-
-Bug-hunt calibration: a verified finding does not mean the hunt is done. If
-`mission_next` asks for a `direct_sweep`, do one negative-space sweep over
-public contracts/docs, boundary values, error paths, async/concurrency behavior,
-and helper/exported APIs, then record the event as `coverage_sweep`,
-`boundary_sweep`, or `edge_case_sweep` before closing.
+When a mission IS open: `mission_start` (repo, task, mode, budget, risk) →
+record actions with `mission_event` (or feed `last_event` to `mission_next` for
+exactly one next move) → obey `do_not` unless you log a dissent event →
+`mission_verify` before final output → `mission_handoff` for a resumable
+session → `mission_close` for the proof packet. A direct event does not prove
+every later claim: a claim references its direct proof explicitly
+(`event:evt_1`, `file_read:path:line`, `test_run:name`, `runtime_probe:id`).
+Its most important behavior is `switch_to_direct_proof` — after graph
+orientation it can tell you to stop calling `seek`/`activate` and prove the
+claim directly.
 
 ## Short-Audit Route
 

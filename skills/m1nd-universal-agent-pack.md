@@ -167,13 +167,16 @@ this loop by default:
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
 
-## Mission Control v0
+## Mission Control (not the default loop)
 
-If the live runtime exposes `mission_start`, use Mission Control for broad
-reviews, bug hunts, risky refactors, releases, or any task where the agent may
-loop, drift phases, or over-trust graph evidence.
+Mission Control is NOT the default loop. The default is `north` → verbs →
+`memorize` (the composable close is `Stop → cross_verify(evidence_freshness) →
+memorize(claims, evidence)` directly; `memorize` needs no `mission_id`). Reserve
+`mission_*` for `SubagentStop` and the rare turn where a mission is genuinely
+open — it is never the default `Stop` path, and not how ordinary reviews or bug
+hunts run.
 
-Minimal loop:
+When a mission IS open, the loop is small:
 
 1. Call `mission_start` with `agent_id`, `repo`, `task`, `mode`, `budget`, and
    `risk`.

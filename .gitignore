@@ -70,3 +70,8 @@ scratchpad/*
 # with local paths) live here but are NOT published with the product.
 docs/internal/
 .github/wiki/VERIFICATION_REPORT.md
+
+# Local agent-session tooling and throwaway harnesses — never published.
+/.claude/
+/CLAUDE.md
+m1nd-ingest/examples/xray_ingest.rs

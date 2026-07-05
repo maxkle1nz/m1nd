@@ -172,6 +172,38 @@ impl MedullaMigration {
     fn classify(text: &str) -> (Destination, String) {
         let lower = text.to_ascii_lowercase();
 
+        // STRONGEST signal of all: transversal doctrine the maintainer curates for
+        // EVERY project, not one repo's fact. It stays on the medulla even when it
+        // cites evidence paths — a doctrine note routinely anchors to the docs that
+        // prove it, so the code-evidence heuristic below would otherwise misfile it
+        // into a single brain (closeout field letter, 2026-07-05). These markers are
+        // deliberately UNAMBIGUOUS about cross-project reach (and bilingual, since the
+        // maintainer writes doctrine in pt-BR too) so a plain repo fact never matches.
+        const HARD_DOCTRINE_MARKERS: &[&str] = &[
+            "doctrine",
+            "doutrina",
+            "cross-project",
+            "transversal",
+            "universal across",
+            "across any project",
+            "every m1nd caller",
+            "every agent",
+            "todo agente",
+            "founder decision",
+            "sealed by max",
+            "product vocabulary",
+            "maintainer preference",
+        ];
+        if let Some(hit) = HARD_DOCTRINE_MARKERS.iter().find(|m| lower.contains(*m)) {
+            return (
+                Destination::Medulla,
+                format!(
+                    "cross-project doctrine: mentions '{hit}' — stays on the medulla \
+                     even though it cites evidence"
+                ),
+            );
+        }
+
         // Strongest project signal: the claim anchors to code evidence.
         let has_code_evidence = text.lines().any(|l| {
             let t = l.trim();
@@ -623,6 +655,32 @@ mod tests {
 
     fn write_claim(dir: &Path, file: &str, contents: &str) {
         std::fs::write(dir.join(file), contents).expect("write claim");
+    }
+
+    /// RED (closeout field letter, 2026-07-05): a cross-project doctrine note
+    /// routinely cites the docs that prove it, so it carries a `[𝔻 evidence:]`
+    /// marker. The code-evidence heuristic must NOT pull such a claim into one
+    /// repo's brain — the transversal-doctrine signal wins over the code anchor,
+    /// and it must fire on the maintainer's bilingual wording ("Doutrina").
+    #[test]
+    fn cross_project_doctrine_with_evidence_stays_on_the_medulla() {
+        let doctrine = "# SixMoves\nDoutrina destilada: every agent applies the six \
+             analytical moves across any project.\n\n[𝔻 evidence: docs/HUMAN-LAYER-PRD.md]\n";
+        assert_eq!(
+            MedullaMigration::classify(doctrine).0,
+            Destination::Medulla,
+            "transversal doctrine that cites evidence must stay medulla"
+        );
+
+        // The guard must stay narrow: a genuine repo fact that cites code
+        // evidence still routes to the project brain.
+        let repo_fact = "# SliceShip\nThe reception slice shipped on main.\n\n\
+             [𝔻 evidence: m1nd-mcp/src/server.rs]\n";
+        assert_eq!(
+            MedullaMigration::classify(repo_fact).0,
+            Destination::Project,
+            "a repo fact with code evidence still moves to the project brain"
+        );
     }
 
     /// RED framing (M5a acceptance): a store with mixed claims, zero

@@ -113,4 +113,31 @@ pub struct Cli {
     /// spool + boxes (a pure, read-only view).
     #[arg(long)]
     pub no_distribute: bool,
+
+    /// One-shot MEDULLA storage-split migration (MEDULLA-PRD §4.2, slice M5a).
+    /// Takes one required verb (no default):
+    ///   `plan`     — print the dry-run plan JSON (enumerate + classify + the
+    ///                count-conservation gate) WITHOUT mutating anything;
+    ///   `apply`    — backup-first, then move repo-fact claims into the project
+    ///                brain store, stamp `Origin-Brain`, prune ghost ingest-root
+    ///                pointers, and verify count-conservation; prints the receipt;
+    ///   `rollback` — restore the medulla store from the most recent backup.
+    /// Derives every path from the runtime root exactly like `--inbox-sweep`,
+    /// runs offline, prints JSON, and exits. `apply`/`rollback` mutate the store —
+    /// intended for the maintainer, never an agent (the CODE-LAND-ONLY posture).
+    #[arg(long, value_name = "plan|apply|rollback")]
+    pub medulla_migrate: Option<MedullaMigrateMode>,
+}
+
+/// The verb for `--medulla-migrate` (MEDULLA-PRD §4.2). No default: the flag
+/// requires one of these values, so a bare `--medulla-migrate` is a usage error.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+#[value(rename_all = "lower")]
+pub enum MedullaMigrateMode {
+    /// Pure dry-run: print the plan, mutate nothing (§11 M5a default).
+    Plan,
+    /// The gated executor: backup-first split + stamp + prune (mutates).
+    Apply,
+    /// Restore the medulla store from the most recent backup (mutates).
+    Rollback,
 }

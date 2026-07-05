@@ -2631,6 +2631,62 @@ function installRuntimeBinary(sourceBinary, targetBinary) {
   fs.renameSync(tempTarget, targetBinary);
 }
 
+// Ad-hoc codesign a freshly-installed binary on macOS. A binary written by a
+// plain file copy inherits no signature, and Gatekeeper kills the unsigned
+// replacement with OS_REASON_CODESIGNING the moment launchd re-execs it — the
+// swap "succeeds" but the daemon never comes back. `codesign --sign -` applies
+// an ad-hoc signature that satisfies the local policy. Returns a small result
+// object; a MISSING codesign tool is a warning, never fatal (Linux/Windows and
+// stripped-down macOS have no codesign — the install still stands).
+function codesignAdHoc(targetBinary) {
+  const result = runCommand("codesign", ["--force", "--sign", "-", targetBinary]);
+  if (result.error && /ENOENT/.test(result.error)) {
+    return { attempted: true, ok: false, missing: true, error: result.error };
+  }
+  return {
+    attempted: true,
+    ok: result.ok,
+    missing: false,
+    status: result.status,
+    error: result.error,
+    stderr: (result.stderr || "").trim() || undefined,
+  };
+}
+
+// The launchd service label managing a target, discovered GENERICALLY from
+// `launchctl list` — never a hardcoded personal label. `launchctl list` prints
+// `PID\tSTATUS\tLABEL` lines; we take the m1nd-owned labels (a label naming
+// m1nd), so a reload targets whatever the operator actually installed. Returns
+// the matching labels (possibly several); empty when launchctl is absent or no
+// m1nd service is loaded (then restart keeps its kill -TERM fallback).
+function managedLaunchdLabels() {
+  if (process.platform !== "darwin") return [];
+  const result = runCommand("launchctl", ["list"]);
+  if (!result.ok) return [];
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.split(/\s+/).pop() || "")
+    .filter((label) => /m1nd/i.test(label));
+}
+
+// Reload a managed launchd service so it re-execs the just-installed binary.
+// `launchctl kickstart -k gui/<uid>/<label>` stops (SIGKILL) then restarts the
+// service under the caller's GUI domain — the reliable "reload now" the plain
+// kill -TERM could miss (KeepAlive races, the TERM never reaching the service).
+// Returns one result per label kicked; empty when no m1nd label is loaded.
+function kickstartManagedServices() {
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (uid === null) return [];
+  const labels = managedLaunchdLabels();
+  return labels.map((label) => {
+    const domain = `gui/${uid}/${label}`;
+    const result = runCommand("launchctl", ["kickstart", "-k", domain]);
+    return { label, domain, ok: result.ok, status: result.status, stderr: (result.stderr || "").trim() || undefined };
+  });
+}
+
 function restart(args) {
   const sourceDir = path.resolve(args.source || args["build-from"] || process.cwd());
   const targetBinary = path.resolve(args.binary || defaultRuntimePath());
@@ -2695,6 +2751,21 @@ function restart(args) {
         installRuntimeBinary(builtBinary, targetBinary);
         result.actions.install = { ok: true, source: builtBinary, target: targetBinary };
         result.actions.installed = true;
+        // macOS: an unsigned copy is killed by Gatekeeper (OS_REASON_CODESIGNING)
+        // the moment launchd re-execs it. Ad-hoc sign the installed binary so the
+        // swap actually survives. A missing codesign tool is a loud warning, not
+        // a failure — the install still stands.
+        if (process.platform === "darwin") {
+          const sign = codesignAdHoc(targetBinary);
+          result.actions.codesign = sign;
+          if (!sign.ok) {
+            result.next_actions.push(
+              sign.missing
+                ? `codesign not found — the installed binary at ${targetBinary} is UNSIGNED and macOS may kill it (OS_REASON_CODESIGNING); sign it before relying on the swap.`
+                : `codesign failed for ${targetBinary}; the binary may be unsigned and killed by macOS on launch — sign it manually before relying on the swap.`
+            );
+          }
+        }
       } catch (error) {
         result.actions.install = {
           ok: false,
@@ -2710,6 +2781,21 @@ function restart(args) {
   }
 
   if (yes && killRequested) {
+    // On macOS a m1nd daemon is a launchd-managed service: a plain kill -TERM can
+    // race KeepAlive or never reach the service, so the OLD binary keeps running
+    // after the swap. Kickstart any managed m1nd service FIRST — it stops then
+    // re-execs the just-installed binary reliably. kill -TERM stays as the
+    // fallback (and covers non-launchd processes + non-macOS hosts).
+    const kicked = kickstartManagedServices();
+    if (kicked.length > 0) {
+      result.actions.kickstarted_services = kicked;
+      const failedKicks = kicked.filter((k) => !k.ok);
+      if (failedKicks.length > 0) {
+        result.next_actions.push(
+          `Some managed m1nd launchd services did not reload (${failedKicks.map((k) => k.label).join(", ")}); check 'launchctl print ${failedKicks[0].domain}'.`
+        );
+      }
+    }
     result.actions.stopped_processes = stopRuntimeProcesses(processes);
     const failedStops = result.actions.stopped_processes.filter((processInfo) => !processInfo.ok);
     if (failedStops.length > 0) {
@@ -2720,6 +2806,13 @@ function restart(args) {
   result.after_version = runtimeVersion(targetBinary);
 
   if (!yes) {
+    // LOUD dry-run honesty (field bug): without --yes NOTHING is installed, yet
+    // the version line reads X -> X and looks like a completed swap. When a
+    // source IS installable, say so plainly and name the target, so the dry-run
+    // can never be mistaken for the real thing.
+    if (buildable && !args["no-install"]) {
+      result.next_actions.push(`DRY RUN — nothing was installed; re-run with --yes to swap ${targetBinary}.`);
+    }
     result.next_actions.push("Re-run with --yes to build/install/stop processes, or add --no-build/--no-install/--no-kill to narrow the repair.");
   }
   result.next_actions.push("Restart or rebind the MCP host/client so it launches the installed binary.");

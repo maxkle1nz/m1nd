@@ -1,6 +1,6 @@
 ---
 name: m1nd-operator
-description: Use when the user mentions m1nd or when repo investigation, search, review, docs/spec work, or risky change prep should go through m1nd first before grep, glob, or manual file reads. Covers m1nd-first routing, L1GHT and universal document ingestion, risky edit preparation, document-to-code binding, multi-agent coordination, trails/continuity, daemon alerts, and refreshing the live m1nd tool surface from the local m1nd-mcp binary.
+description: Use when the user mentions m1nd or when repo investigation, search, review, docs/spec work, or risky change prep should go through m1nd first before grep, glob, or manual file reads. Covers m1nd-first routing, L1GHT and universal document ingestion, risky edit preparation, document-to-code binding, the served owner + --attach bridge transport, the delegation layer (delegate/debrief packets), medulla tiers and audited promotion, soul freshness receipts, trails/continuity, and daemon alerts.
 ---
 
 # m1nd Operator
@@ -99,14 +99,17 @@ nested/file-level binding when the task is repo-wide. Upgrade the binding once,
 run an isolated `--workspace-root /target/repo` probe, or switch to direct
 source/test proof and record `m1nd_usage_mode=partial_scope_orientation`.
 
-## Mission Control v0
+## Mission Control (not the default loop)
 
-Use Mission Control when the task needs an agent operating loop rather than
-another retrieval call: broad reviews, bug hunts, refactors, release checks, or
-long investigations where agents may repeat searches, drift phases, or turn
-graph hints into premature conclusions.
+Mission Control is NOT the default operating loop and NOT how ordinary reviews,
+bug hunts, or refactors run. The default is `north` → verbs → `memorize`; the
+composable close is `Stop → cross_verify(evidence_freshness) → memorize(claims,
+evidence)` DIRECTLY — `memorize` takes free-form structured claims with evidence
+paths and needs NO `mission_id`. Reserve `mission_*` for `SubagentStop` and for
+the rare turn where a mission is genuinely open (a subagent whose entire job was
+one scoped mission); it is never the default `Stop` path.
 
-The mission loop is deliberately small:
+When a mission IS open, the loop is deliberately small:
 
 1. `mission_start` creates the repo-scoped mission, route, budget envelope,
    starter moves, and non-claims.
@@ -125,18 +128,10 @@ The mission loop is deliberately small:
 
 Evidence rule: a direct mission event only proves a claim when the claim's
 `evidence_refs` names the event id or direct source/test/runtime proof. Do not
-let one direct read bless unrelated graph-only claims.
-
-Operational rule: when `mission_next` says to switch to direct proof, stop
-spending graph budget unless you record a dissent event. Mission Control is not
-a host repair tool, graph correctness proof, or autonomous multi-agent
-orchestrator.
-
-Bug-hunt rule: do not close only because one finding is verified. When
-`mission_next` returns `direct_sweep`, perform one negative-space sweep over
-public contracts/docs, boundary values, error paths, async/concurrency behavior,
-and helper/exported APIs. Feed it back as `coverage_sweep`, `boundary_sweep`, or
-`edge_case_sweep` before closing.
+let one direct read bless unrelated graph-only claims. When `mission_next` says
+to switch to direct proof, stop spending graph budget unless you record a
+dissent event. Mission Control is not a host repair tool, graph correctness
+proof, or autonomous multi-agent orchestrator.
 
 ## Short-Audit Route
 
@@ -430,6 +425,134 @@ The mailbox (MEDULLA §9.2, slice M7b): the spool is the ONE write slot; letters
 
 Caveat: `ingest mode:replace` wipes light memory nodes. Prefer `mode:merge` when re-ingesting code to preserve agent memory.
 
+## Serve/attach era — transport truth
+
+The runtime is a served OWNER plus thin bridges, not one process per host. A
+single served owner (default port `1338`) holds the live graph; hosts and probes
+ATTACH to it — there is no exclusive lease in attach mode, so many bridges share
+one graph:
+
+- Host bridge: `m1nd-mcp --attach http://127.0.0.1:1338` speaks stdio MCP to the
+  host and forwards every frame to the owner's `POST /mcp`, relaying the owner's
+  server→client push notifications back. It loads NO graph and takes NO lease.
+- Direct probe: `POST /mcp` with header `M1nd-Caller-Root: /abs/repo/root` — the
+  header is the caller identity reception verifies (`M1nd-Caller-Root` ↔
+  `covers_root`); a mismatch returns the degraded reception, not a fabricated
+  orientation.
+
+A freshly-landed verb appears ONLY after the owner is rebuilt and kickstarted —
+a live verb needs the served owner restarted (`m1nd restart --source
+/path/to/m1nd --yes` for a dev checkout, then reload the managed service). Bridges
+opened AFTER an owner restart re-recover on their own; a long-lived bridge from
+BEFORE the restart must reconnect (restart the host session). A persistent
+"failed to connect" means the owner is down — bring it back, do not thrash. If
+the tools drop mid-session, the owner was restarted underneath you: reconnect,
+do not conclude m1nd is broken.
+
+## Delegation Layer
+
+Spawning a subagent? Compose the RETRIEVAL half of its spec in ONE read-only
+call instead of hand-writing context.
+
+`delegate {agent_id, task}` returns a packet whose core is `prompt_markdown` you
+APPEND verbatim to your brief. It carries:
+
+- `mission.binding` — the NAMED brain the child must land on. This is the SAME
+  datum reception verifies (`M1nd-Caller-Root` ↔ `covers_root`), so the child
+  VERIFIES it landed (silent on a match) rather than choosing — the child law.
+- a LABELED memory slice — each row is `- [tier] claim — origin · author, age`,
+  `tier` ∈ `project | medulla`, so the child inherits doctrine-vs-project-fact,
+  not a flat blob. The slice is your DEFAULT beat (project task-relevant claims +
+  the medulla doctrine the domain touches) — never `all-brains`, never another
+  project's private claim.
+- ranked anchors, a staleness header, known static dependents, and an explicit
+  "what m1nd could NOT determine → your duties" section. Read the appendix law:
+  your text wins on WHAT-TO-DO, the packet wins on WHAT-IS, the packet outranks
+  assumption only.
+
+`delegate` abstains HONESTLY — `needs_ingest` (empty graph), `unscopable` (the
+task activates no coherent subgraph), `seeds_unresolvable` (every seed fails) —
+always with evidence + a `next_move`, never a bare no. It is PROJECT-TIER: no
+`all-brains` fan-out, and no predict/trust/tremor/xray enrichment yet; each
+omission is stated in `non_claims`, never hidden.
+
+When the subagent returns, `debrief {agent_id, delegation_id, outcome,
+diff|touched_paths, findings}` grades its real diff against the packet and TEACHES
+the graph — the ONLY mutation, through `memorize`/`learn`. It classifies each
+touched path (`in_scope | expected_change | dependent_contact | unpredicted`)
+with a worst-of verdict that carries fence existence ("stayed — no ratified
+boundaries existed"), memorizes the subagent's findings under the SUBAGENT's id
+and any map-miss lessons under YOURS (a clean run memorizes nothing), and appends
+one `outcomes.jsonl` row stamped `outcome_unverified` unless you attach
+`evidence`. Conformance grades PATHS, never code quality — it never says
+merge-safe. Every debrief deposits memory the next `delegate` surfaces, so
+skipping it wastes knowledge.
+
+Subagent report protocol (what the child returns to you): a one-line header
+`[m1nd dlg_<id>] landed <brain> · <N> anchors · <M> memory` (or the abstain +
+its `next_move`), a `DEVIATIONS:` block naming every touched path outside the
+packet's predicted set with a one-line why, and a `FINDINGS:` block of durable
+claims (each with an `evidence` path) — the exact input your `debrief` grades.
+
+## Promotion — the audited crossing
+
+`memorize` is ALWAYS project-private; a finding does NOT become shared doctrine
+by being written. The manual crossing, deliberately and rarely:
+
+```json
+promote {"brain": "<project_root>", "claim": "<slug>", "reason": "<one line>"}
+```
+
+It COPIES a verified claim UP into the medulla with the full readable chain
+(`Origin-Brain`, `Origin-Claim`, `Promoted-By`, `Promotion-Reason`); the project
+original stays in place stamped `Promoted-To` — promotion ELEVATES, never moves.
+Gates it enforces for you: only `State: verified` (or a founder claim) may
+promote (C8.3); a secret or a conflict-marker is refused at the hygiene floor
+(the medulla is the most-read store); a promoted claim's code evidence is
+origin-qualified so freshness delegates back to its home brain, or the claim is
+marked `evidence_unverifiable` (C8.2 — a medulla claim never reads fresher than
+it can prove). Etiquette: promotion is an ORCHESTRATOR act — a maker PROPOSES
+("candidate for promotion" is just a claim it memorizes), the orchestrator
+executes. Any id CAN call it (not a security boundary), but every promotion is
+auditably attributed by `Promoted-By`, so do not promote an unverified hunch.
+DEMOTE by `learn wrong` on the MEDULLA copy (or supersede it with a `moved_to:`
+medulla `memorize`) — this never touches the project witness (un-share, never
+destroy). The verb is served at the routed HTTP door; a fresh live verb needs
+the served owner rebuilt/kickstarted.
+
+## Memory Honesty and the Soul Receipt
+
+An empty memory beat is NOT proof of an empty store. `north` (and the recall
+surfaces) stamp `memory_exists: N` — the on-disk L1GHT claim count — plus an
+honest note when recall found no task-relevant match over a non-empty store.
+Never conclude "no memory": if `memory_exists > 0` while the beat is empty, the
+store simply held no task-relevant match — widen the task text, raise
+`top_k`/`token_budget`, or `seek` the store directly.
+
+Near a PR or doc-gate, price the handoff before trusting it. `soul_check` parses
+a repo's soul (`docs/PATHOS.md`) into anchored CLAIMS, classifies each
+(`path | line-hint | symbol | git | consistency | receipt | runtime | declared`),
+verifies per class, and returns the honesty report plus a one-line FRESHNESS
+RECEIPT:
+
+```text
+N fresh · M stale · K receipt-priced, checked <date> @<sha>
+```
+
+That line is what a cold context reads to know how much to trust the handoff.
+THE TWO TISSUES hold: verifiable tissue (Current State / Access Map / Known
+Problems) is machine-checkable; DECLARED tissue (North Star / Doctrine / taste /
+why-we-work-this-way) is UNPROVABLE-but-curated and NEVER fake-verified — the
+system knowing what it cannot verify IS the honesty. `soul_read` pulls the body
+(whole or one section) — the explicit pull, never ambient. THE CURATOR is a
+near-PR WORKFLOW (agent judgment on a deterministic substrate): sweep with
+`soul_check` → verify against code/git/runtime → update durable claims via
+`memorize {soul_source: "<path>#<section>"}` (the ONE write door) → prune stale
+NEVER silently (every removal named + where it went; git keeps the text) →
+re-check → carry the receipt in the PR body. Who verifies the curator (§C8.4):
+its report must pass `soul_check {verify_curator_report: <report>}` run by a
+DIFFERENT agent — grader ≠ author.
+
 ## Read These References
 
 - `references/routing-playbooks.md`
@@ -454,8 +577,22 @@ m1nd agent recover --repo /path/to/repo --from wrong_workspace_binding --json
 m1nd agent doctor --repo /path/to/repo --json
 ```
 
-The bundled probe script remains available from this skill directory for
-low-level MCP calls and compatibility:
+In the serve/attach era, the cheapest live probe is a direct HTTP call to the
+served owner — no isolated runtime, no lease, and it exercises the SAME graph the
+hosts see:
+
+```bash
+# Probe the served owner directly (identity via the caller-root header).
+curl -s http://127.0.0.1:1338/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'M1nd-Caller-Root: /path/to/repo' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"north","arguments":{"agent_id":"probe","task":"orient"}}}'
+```
+
+The bundled probe script remains a valid FALLBACK from this skill directory for
+low-level MCP calls, older binaries, and no-owner situations (it launches its own
+isolated runtime):
 
 ```bash
 python3 scripts/probe_m1nd.py tools

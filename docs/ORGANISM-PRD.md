@@ -896,7 +896,10 @@ card golden against two REAL captured packets (`preflight_north.json` warm + `pr
 green; violet-lint + icon-lint green; `tsc` clean; `vite build` green with the dist air-gap grep at
 zero external resource loads; dist regenerated + embedded (rust-embed).
 
-**R11 — the CASE-INTELLIGENCE PRD (the homeless organ, JOINT-K — PRD first, then slices).**
+**R11 — the CASE-INTELLIGENCE PRD (the homeless organ, JOINT-K — PRD first, then slices) —
+[PRD SHIPPED 2026-07-05 → `docs/CASE-INTELLIGENCE-PRD.md`: five organs under the §C2.2 overlay
+law, CASE-INV 1–7, slices S0–S4 defined there (S4 honestly gated on the ambient wave); shipping
+the PRD closes this rung].**
 After R8 (needs stable letter ids + `answers[]`). Scope, from the sealed doctrine: fingerprint
 (tool+symptom) with auto-escalation on 2nd recurrence · cases (N letters → 1 root cause → 1 fix →
 linked receipts) as the §C2.2 grouping overlay · absence sentinels in the battery (post-restart
