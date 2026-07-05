@@ -16,7 +16,7 @@ import { useTreeData, bandFor } from '../../hooks/useTreeData';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { useToastStore } from '../../stores/toastStore';
 import { flattenVisible, type TreeRow } from '../../lib/tree';
-import { blastCountPhrase } from '../../lib/softProof';
+import { blastCountPhrase, type TrustBand } from '../../lib/softProof';
 import {
   groupByKind,
   groupByLayer,
@@ -30,7 +30,8 @@ import {
   type FilterContext,
 } from '../../lib/treeLenses';
 import { api } from '../../api/client';
-import type { ImpactOutput, LayersOutput, SeekOutput, AmIStaleOutput } from '../../api/toolTypes';
+import type { ImpactOutput, LayersOutput, SeekOutput, AmIStaleOutput, NorthPacket } from '../../api/toolTypes';
+import PreFlightCard from '../preflight/PreFlightCard';
 import TreeRowView from './TreeRowView';
 import TreeDrawer from './TreeDrawer';
 import FreshnessBanner from '../soft/FreshnessBanner';
@@ -103,6 +104,18 @@ export default function LivingTree({ viewedBrain = BOUND_VIEW, onIngest }: Livin
   const [seekResult, setSeekResult] = useState<SeekOutput | null>(null);
   const [seekLoading, setSeekLoading] = useState(false);
   const [seekError, setSeekError] = useState<string | null>(null);
+
+  // The Pre-Flight Card (the hero, §4.2) — opened from the drawer's
+  // [Check before editing], seeded with the selected node. Reads the REAL north
+  // packet for the node's path, scoped to the viewed brain (§4A.9), plus one
+  // impact call for the blast line. Absent → no card mounted (never fabricated).
+  const [preflight, setPreflight] = useState<{
+    target: string;
+    band: TrustBand;
+    packet: NorthPacket | null;
+    impact: ImpactOutput | null;
+    loading: boolean;
+  } | null>(null);
 
   // Density persists as a preference (localStorage), never a mode.
   useEffect(() => {
@@ -320,6 +333,36 @@ export default function LivingTree({ viewedBrain = BOUND_VIEW, onIngest }: Livin
     },
     [brain],
   );
+
+  // Open the Pre-Flight Card seeded with a node (§3.4 → §4.2, the hero entry).
+  // Fetches the REAL north packet for the node's path + one impact call, both
+  // scoped to the viewed brain (§4A.9). Card renders immediately (loading) and
+  // fills in as the real data arrives — never a fabricated packet.
+  const openPreflight = useCallback(
+    async (row: TreeRow) => {
+      const band = bandFor(bands, row.externalId);
+      setPreflight({ target: row.name, band, packet: null, impact: null, loading: true });
+      const task = `edit ${row.path}`;
+      const [packetR, impactR] = await Promise.allSettled([
+        api.tool<NorthPacket>('north', { task }, brain),
+        row.externalId
+          ? api.tool<ImpactOutput>('impact', { node_id: row.externalId }, brain)
+          : Promise.reject(new Error('no node')),
+      ]);
+      setPreflight((cur) => {
+        // A newer open (different target) supersedes this result.
+        if (!cur || cur.target !== row.name) return cur;
+        return {
+          ...cur,
+          packet: packetR.status === 'fulfilled' ? packetR.value : null,
+          impact: impactR.status === 'fulfilled' ? impactR.value : null,
+          loading: false,
+        };
+      });
+    },
+    [bands, brain],
+  );
+  const closePreflight = useCallback(() => setPreflight(null), []);
 
   // Run meaning search (Enter in meaning mode). ESC returns to the tree. §4A.9:
   // rides the selector so a hosted brain's seek returns only ITS nodes (INV-16).
@@ -632,7 +675,49 @@ export default function LivingTree({ viewedBrain = BOUND_VIEW, onIngest }: Livin
         row={selectedRow}
         band={bandFor(bands, selectedRow?.externalId)}
         onClose={() => setSelectedPath(null)}
+        onCheckBeforeEditing={openPreflight}
       />
+
+      {/* The Pre-Flight Card (the hero, §4.2) — a calm overlay seeded from the
+          drawer's [Check before editing]. ESC / backdrop ascends. */}
+      {preflight && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4 bg-ink/20"
+          onClick={closePreflight}
+          data-role="preflight-overlay"
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg">
+            {preflight.loading && !preflight.packet ? (
+              <div className="w-full max-w-lg bg-porcelain border border-ink/15 rounded-lg shadow-card px-5 py-6 text-[13px] text-ink-soft">
+                Checking what I know about{' '}
+                <span className="font-mono text-ink">{preflight.target}</span>…
+              </div>
+            ) : preflight.packet ? (
+              <PreFlightCard
+                packet={preflight.packet}
+                target={preflight.target}
+                targetBand={preflight.band}
+                impact={preflight.impact}
+                onNextMove={() => {}}
+                onClose={closePreflight}
+              />
+            ) : (
+              <div className="w-full max-w-lg bg-porcelain border border-ink/15 rounded-lg shadow-card px-5 py-6 text-[13px] text-ink-soft">
+                Couldn't reach the brain for a pre-flight read. Verify against your files.
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={closePreflight}
+                    className="px-3 py-1 text-xs bg-bone text-ink border border-ink/20 rounded hover:shadow-contact transition-shadow"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

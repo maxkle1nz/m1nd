@@ -16,6 +16,7 @@ export interface NorthMemoryEntry {
 
 export interface NorthPacket {
   schema: string;
+  task?: string; // the task the packet was composed for (verbatim on the wire)
   needs: string | null; // "needs_ingest" when cold
   binding: { trust_mode: string; [k: string]: unknown };
   context?: { focus_nodes?: unknown[]; anchors?: unknown[]; coverage?: unknown };
@@ -24,6 +25,12 @@ export interface NorthPacket {
   next_move: string | null;
   sufficiency?: { state?: string; captured?: number; top_score?: number; why?: string };
   recovery_playbook?: unknown;
+  /** R0 honesty patch: the on-disk L1GHT store count — makes the empty-memory
+   *  line truthful (recall miss vs. truly empty store). Absent on pre-R0 packets. */
+  memory_exists?: number;
+  /** JOINT-I: the reception match rides on north; the Card's binding header echoes
+   *  it (§C1.4). `caller_root_mismatch` → the bound graph doesn't cover the caller. */
+  reception?: { match?: string; honest?: string };
 }
 
 // ── trust (TrustResult) ───────────────────────────────────────────────────────

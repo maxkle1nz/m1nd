@@ -821,9 +821,26 @@ one file, prose-only linkage. *Unblocks:* R9, R11.
 **R9 — HUMAN Slice 3M: the Mailbox view.** Pure rendering of R8's contract (INV-17/18: only the
 viewed brain's letters; receipts always linked).
 
-**R10 — the Pre-Flight Card (HUMAN Slice 1).** The §C1 reader-2 rendering, after R6 stabilizes the
-packet shape; carries the F17 cap-in-words and the Budget-Law pointer (§C11). *RED:* card golden
-against a real packet fixture.
+**R10 — the Pre-Flight Card (HUMAN Slice 1). [SHIPPED 2026-07-05]** The §C1 reader-2 rendering, after
+R6 stabilizes the packet shape; carries the F17 cap-in-words and the Budget-Law pointer (§C11).
+*What landed:* `PreFlightCard` (`components/preflight/`) renders the SAME north packet an agent
+receives, read for a human — the pure view-model in `lib/preflight.ts` (every derived value traces
+to a real packet field; a field with no packet field behind it renders absent, never invented,
+INV-01). The beats, top to bottom: **BINDING** (trust mode in action language + the real fingerprint
+node/edge counts + the JOINT-I reception rider, verbatim through the abstain-class `FreshnessBanner`),
+the **VERDICT** (`act`/`reverify`/`abstain` — abstain in quarantined iris violet — plus the `impact`
+blast line in floor language, INV-08), **ANCHORS** (focus + PageRank as a strip, real node_ids only),
+**WHAT AGENTS KNOW** (the R7 memory beat: claim + author + age + tier + origin_brain, absent-honest,
+plus the R0 `memory_exists` truthful empty line — recall miss ≠ empty store), **HONEST GAPS**
+(first-class violet `GapCard`s, one action each), and the `next_move` button (verbatim, absent → no
+button). Entry: the drawer's `[Check before editing]` opens it seeded with the selected node, fetching
+the REAL `north` + one `impact`, both scoped to the viewed brain (§4A.9); ESC/backdrop ascends. SOFT
+PROOF: matte, nothing glows, icons from the registry only, all violet delegated to the allow-listed
+soft components (`TrustDot`/`VerdictChip`/`GapCard`/`PostItChip`/`FreshnessBanner`). *RED (green):*
+card golden against two REAL captured packets (`preflight_north.json` warm + `preflight_north_degraded.json`)
++ `north_cold.json`/`impact.json`; 33 net-new tests (card render-gate + view-model), 205 UI tests
+green; violet-lint + icon-lint green; `tsc` clean; `vite build` green with the dist air-gap grep at
+zero external resource loads; dist regenerated + embedded (rust-embed).
 
 **R11 — the CASE-INTELLIGENCE PRD (the homeless organ, JOINT-K — PRD first, then slices).**
 After R8 (needs stable letter ids + `answers[]`). Scope, from the sealed doctrine: fingerprint

@@ -1,0 +1,218 @@
+{
+  "_m1nd": {
+    "read_only": false,
+    "suggest_next": [
+      "activate(query) for exploration",
+      "help for tool reference"
+    ]
+  },
+  "binding": {
+    "fingerprint": {
+      "binary_drift": null,
+      "binary_git_sha": "d02de31-dirty",
+      "binary_version": "1.3.2",
+      "cache_generation": 1,
+      "current_exe": "/tmp/m1nd-rt/bin/graph-server",
+      "edge_count": 21054,
+      "graph_finalized": true,
+      "graph_generation": 1,
+      "graph_path": "/tmp/m1nd-rt/./graph_snapshot.json",
+      "graph_path_exists": true,
+      "ingest_roots": [
+        "/workspace/repo",
+        "/tmp/m1nd-rt/agent-memory/note-01.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-02.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-03.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-04.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-05.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-06.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-07.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-08.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-09.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-10.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-11.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-12.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-13.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-14.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-15.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-16.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-17.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-18.light.md",
+        "/tmp/m1nd-rt/agent-memory/note-19.light.md",
+        "/tmp/m1nd-rt/agent-memory"
+      ],
+      "node_count": 6657,
+      "plasticity_generation": 0,
+      "plasticity_path": "/tmp/m1nd-rt/./plasticity_state.json",
+      "process_id": 74057,
+      "runtime_root": "/tmp/m1nd-rt",
+      "schema": "m1nd-binding-fingerprint-v0",
+      "workspace_root": "/tmp/m1nd-rt/agent-memory",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "graph_populated": true,
+    "graph_state": {
+      "cache_generation": 1,
+      "edge_count": 21054,
+      "finalized": true,
+      "graph_generation": 1,
+      "graph_path": "/tmp/m1nd-rt/./graph_snapshot.json",
+      "graph_path_exists": true,
+      "ingest_root_count": 21,
+      "node_count": 6657,
+      "plasticity_generation": 0,
+      "runtime_root": "/tmp/m1nd-rt",
+      "workspace_root": "/tmp/m1nd-rt/agent-memory",
+      "workspace_root_source": "graph_path_parent"
+    },
+    "ok": true,
+    "trust_mode": "full_trust"
+  },
+  "context": {
+    "anchors": [
+      {
+        "label": "write",
+        "node_id": "file::crate-api/tests/counterfactual_behavior.rs::fn::write",
+        "pagerank": 1
+      },
+      {
+        "label": "Graph",
+        "node_id": "file::crate-core/src/graph.rs::struct::Graph",
+        "pagerank": 0.3545920252799988
+      },
+      {
+        "label": "FiniteF32",
+        "node_id": "file::crate-core/src/types.rs::struct::FiniteF32",
+        "pagerank": 0.3420499861240387
+      },
+      {
+        "label": "SessionState",
+        "node_id": "file::crate-api/src/session.rs::struct::SessionState",
+        "pagerank": 0.27633166313171387
+      },
+      {
+        "label": "NodeId",
+        "node_id": "file::crate-core/src/types.rs::struct::NodeId",
+        "pagerank": 0.27555564045906067
+      }
+    ],
+    "coverage": {
+      "total": 6657,
+      "unvisited_high_value": [
+        "crate-api/tests/counterfactual_behavior.rs::fn::write",
+        "crate-core/src/graph.rs::struct::Graph",
+        "crate-core/src/types.rs::struct::FiniteF32",
+        "crate-api/src/session.rs::struct::SessionState",
+        "crate-core/src/types.rs::struct::NodeId"
+      ],
+      "visited": 73
+    },
+    "focus_nodes": [
+      {
+        "activation": 0.94652259349823,
+        "kind": "Function",
+        "label": "serve",
+        "node_id": "file::crate-api/src/server.rs::fn::serve",
+        "pagerank": 0.004755423404276371,
+        "path": "crate-api/src/server.rs"
+      },
+      {
+        "activation": 0.8937559127807617,
+        "kind": "File",
+        "label": "crate-api/src/http_server.rs",
+        "node_id": "file::crate-api/src/http_server.rs",
+        "pagerank": 0.03308394178748131,
+        "path": "crate-api/src/http_server.rs"
+      },
+      {
+        "activation": 0.8291002511978149,
+        "kind": "Module",
+        "label": "http_server",
+        "node_id": "file::crate-api/src/lib.rs::mod::http_server",
+        "pagerank": 0.003105152165517211,
+        "path": "crate-api/src/lib.rs"
+      },
+      {
+        "activation": 0.7870068550109863,
+        "kind": "Module",
+        "label": "server",
+        "node_id": "file::crate-api/src/lib.rs::mod::server",
+        "pagerank": 0.003105152165517211,
+        "path": "crate-api/src/lib.rs"
+      },
+      {
+        "activation": 0.7052369117736816,
+        "kind": "Function",
+        "label": "handle_graph_snapshot",
+        "node_id": "file::crate-api/src/http_server.rs::fn::handle_graph_snapshot",
+        "pagerank": 0.003437558887526393,
+        "path": "crate-api/src/http_server.rs"
+      },
+      {
+        "activation": 0.7052369117736816,
+        "kind": "Function",
+        "label": "handle_instance_save_target",
+        "node_id": "file::crate-api/src/http_server.rs::fn::handle_instance_save_target",
+        "pagerank": 0.003437558887526393,
+        "path": "crate-api/src/http_server.rs"
+      },
+      {
+        "activation": 0.7052369117736816,
+        "kind": "Function",
+        "label": "handle_subgraph",
+        "node_id": "file::crate-api/src/http_server.rs::fn::handle_subgraph",
+        "pagerank": 0.003437558887526393,
+        "path": "crate-api/src/http_server.rs"
+      },
+      {
+        "activation": 0.7052369117736816,
+        "kind": "Function",
+        "label": "spawn_background",
+        "node_id": "file::crate-api/src/http_server.rs::fn::spawn_background",
+        "pagerank": 0.003437558887526393,
+        "path": "crate-api/src/http_server.rs"
+      }
+    ],
+    "memory_nearby": []
+  },
+  "honest_gaps": [
+    "The memory store holds 27 durable L1GHT claim(s), but none surfaced for this task — recall found no task-relevant match, not an empty store. Broaden the task text or seek the store directly."
+  ],
+  "memory": [],
+  "memory_exists": 27,
+  "needs": null,
+  "next_move": "Call `surgical_context` on the top focus node to ground the task before editing.",
+  "non_claims": [
+    "north composes existing read-only verbs; it does not ingest, mutate, or repair the graph.",
+    "north does not refresh the host MCP binding.",
+    "north does not replace compiler, tests, or local file truth.",
+    "an absent memory age means unknown authored time, never freshly authored."
+  ],
+  "proof_state": "triaging",
+  "reception": {
+    "bound_workspace": "/tmp/m1nd-rt/agent-memory",
+    "caller_root": "/workspace/repo",
+    "honest": "this graph does NOT cover your repo",
+    "match": "caller_root_mismatch",
+    "options": [
+      {
+        "action": "continue_bound",
+        "note": "keep using this graph, but treat its answers as NOT covering your current repo — verify against local files"
+      },
+      {
+        "action": "ingest_your_repo",
+        "call": "ingest with project_root=/workspace/repo — ONE call: creates a per-project brain inside this owner, ingests your repo into it, binds this session to it, and returns its north packet; thereafter every call from this root routes to YOUR brain automatically (silent on match)"
+      }
+    ],
+    "schema": "m1nd-reception-degraded-v0"
+  },
+  "recovery_playbook": null,
+  "schema": "m1nd-north-packet-v0",
+  "sufficiency": {
+    "captured": 0.16084696352481842,
+    "state": "gathering",
+    "top_score": 0.5456612706184387,
+    "why": "the strongest match left out still scores 0.44 — relevant context did not fit (set carries 16% of the salience); raise token_budget/top_k or narrow the goal"
+  },
+  "task": "add the Pre-Flight Card to the served UI in http_server.rs"
+}
