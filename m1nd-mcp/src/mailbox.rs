@@ -1060,12 +1060,15 @@ mod tests {
     fn expand_home_and_strip_parenthetical() {
         // Use the pure core with an explicit home — mutating the process-global
         // HOME here would poison every other parallel test that resolves ~/.m1nd.
-        let home = Some(PathBuf::from("/path/to/home"));
+        let home_path = PathBuf::from("/path/to/home");
+        let home = Some(home_path.clone());
+        // Expected via join() too, so the OS path separator matches (Windows: `\`).
+        let expected = home_path.join("repo-b").to_string_lossy().to_string();
+        assert_eq!(expand_home_with("~/repo-b", home.clone()), expected);
         assert_eq!(
-            expand_home_with("~/repo-b", home.clone()),
-            "/path/to/home/repo-b"
+            expand_home_with("~", home.clone()),
+            home_path.to_string_lossy()
         );
-        assert_eq!(expand_home_with("~", home.clone()), "/path/to/home");
         assert_eq!(expand_home_with("repo-b", home), "repo-b");
         assert_eq!(strip_parenthetical("repo-a (worktree x)"), "repo-a");
         assert_eq!(strip_parenthetical("repo-a"), "repo-a");
