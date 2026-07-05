@@ -13,7 +13,7 @@
 > an **engineering estimate, not a measurement**, and is therefore written in words, never as
 > a precision bar (INV-05 applies to the PRD too).
 > **Amended 2026-07-04: §4A — the layer above the tree** (Threshold onboarding · the Hall
-> projects area · ergonomics), by founder direction (verbatim in §4A.1). Amendment anchors
+> projects area · ergonomics), by maintainer direction (paraphrased in §4A.1). Amendment anchors
 > verified at `origin/main` @ `aa3b5d9`; the per-project-brains backend it designs against is
 > the in-flight `feat/two-tier-project-brains` slice, whose tests-first contract is cited as
 > such — never claimed shipped. Upstream for the amendment: the UI/UX deep research
@@ -21,13 +21,13 @@
 > cited inline as *(research §…)*.
 > **Amended 2026-07-04 (evening): the §4A precision pass** — card anatomy v2 (§4A.3.1),
 > iconography & precision system (§4A.7), brain-label semantics (§4A.8), the per-brain Open
-> contract (§4A.9), and Reading the Tree (§4A.10) — by founder direction (verbatim in each
+> contract (§4A.9), and Reading the Tree (§4A.10) — by maintainer direction (paraphrased in each
 > section). Anchors verified at `origin/main` @ `2de6d0c` (post-#262: the Hall shipped,
 > `/api/instances` PROJECT-named). Same law as the parent amendment: surface, don't build —
 > where the backend is missing, the affordance ships disabled with the residue named.
 > **Amended 2026-07-05: §4A.11 The Mailbox** — each PROJECT's field-report caixinha (repo-side,
-> travels with git; day chapters, matte class chips, fate-lines), by founder direction
-> (verbatim in §4A.11); design-source: the Fable mailbox artifact (canonical); backend twin:
+> travels with git; day chapters, matte class chips, fate-lines), by maintainer direction
+> (paraphrased in §4A.11); design-source: the mailbox design artifact (canonical); backend twin:
 > `docs/MEDULLA-PRD.md` §9.2/M7b (landed the same PR). D3 is made concrete by this amendment;
 > INV-17/18 join §7.
 
@@ -46,7 +46,7 @@ serialized, tested, and honesty-invariant-enforced behind `POST /api/tools/{*too
 
 Three decisions shape everything below:
 
-1. **The Living Tree is the front door.** The founder's concept, verbatim intent:
+1. **The Living Tree is the front door.** The maintainer's concept, intent:
    *"an interface with the code structure like a filetree — think Cursor's filetree but
    EVOLVED — that shows the MENTAL MAP of that code, with POST-ITS stuck on it showing the
    memories anchored in the code, and a frictionless navigation system across the whole
@@ -173,7 +173,7 @@ is added to what matters, not subtracted from the rest.
 
 ### 3.3 The post-it system
 
-The founder's core image: **memories stuck to the code they talk about.** The data model
+The maintainer's core image: **memories stuck to the code they talk about.** The data model
 already exists end-to-end:
 
 - A memory is a `.light.md` claim written by `memorize`
@@ -288,7 +288,7 @@ measurement.
 ## 4. The five surfaces (re-ranked — the tree is the entry)
 
 Ranking encodes the critic's verdicts: tree first (familiarity), Pre-Flight as hero (the
-moat), map demoted to drill-down, Brain read-only. The 2026-07-04 founder amendment adds
+moat), map demoted to drill-down, Brain read-only. The 2026-07-04 maintainer amendment adds
 **S0 — the Hall** *above* the ranking: the owner-level home, specified whole in §4A. The tree
 remains the front door of a *brain*; the Hall is the front door of the *owner* — it interposes
 only when there is more than one brain to choose, or none at all.
@@ -417,7 +417,7 @@ exists with concurrency guards.
 
 ---
 
-## 4A. The layer above the tree — Threshold, Hall & ergonomics (founder amendment, 2026-07-04)
+## 4A. The layer above the tree — Threshold, Hall & ergonomics (maintainer amendment, 2026-07-04)
 
 *Lettered insert, deliberately (the `2R` precedent from TWO-TIER-BRAIN-PRD §14): renumbering
 §5–§9 would ripple through every cross-reference for zero information. §4A sits between the
@@ -425,10 +425,10 @@ surfaces (§4) and the architecture (§5) because it IS a surface layer — the 
 
 ### 4A.1 The founding ask & the placement doctrine
 
-**Founder direction, verbatim:** *"o sistema visual para humanos precisa ter um onboarding, e
-uma área para selecionar todos os projetos que temos com os mapas do m1nd, com opções de apagar
-também (dupla confirmação) e outras opções que o sistema nos oferece — SEM ter que criar nada
-novo, somente adicionando; vamos pensar nessa camada acima e de ergonomia do usuário também."*
+**Maintainer direction:** the human-facing visual system needs an onboarding and an area to
+select across all the projects that have m1nd maps, with delete options (double confirmation)
+and the other options the system already offers — WITHOUT building anything new, only adding;
+this layer above the tree and user ergonomics deserve deliberate design.
 
 The constraint is the law of this whole section: **surface, don't build.** Every affordance
 below draws a field that already serializes, a route that already answers, or a contract
@@ -446,7 +446,7 @@ registered owners). The Hall interposes exactly when the choice is real:
 | Owner state at load | Landing | Why |
 |---|---|---|
 | Zero brains anywhere (self graph empty + no registered/hosted brains) | **The Threshold** (§4A.2) | The empty state IS the onboarding |
-| Brains exist and this browser remembers a last-visited brain (localStorage) | That brain's **tree**, Brain Chip visible | Experts land in their work, not in a menu — the OrbStack posture (founder's stated taste; *research §B.1*: pull, don't push) |
+| Brains exist and this browser remembers a last-visited brain (localStorage) | That brain's **tree**, Brain Chip visible | Experts land in their work, not in a menu — the OrbStack posture (a stated design taste; *research §B.1*: pull, don't push) |
 | Brains exist, no local history | **The Hall** (§4A.3) | The choice is real; make it in one glance |
 | Binding degraded / reception mismatch | The tree's §3.5 degraded banner; the Brain Chip wears the honesty | Never hide a degraded binding behind a pretty home |
 
@@ -537,14 +537,14 @@ project brains the in-flight two-tier slice adds.
 |---|---|---|---|
 | **Name + root** | **PROJECT** basename, real repo path on hover — never the runtime dir ("claude") nor the `agent-memory` sidecar | `entry.display_name` / `entry.project_root`, resolved server-side (`http_server.rs` `instances_listing`): bound → `SessionState::project_root_display` (primary code ingest root, skipping sidecars); project → its store manifest's `project_root`; chip → self envelope's `display_name` (`session.rs` `instance_self_summary`). Fallback to the workspace basename only for a legacy unenriched entry. | **BUILT + PROJECT-named 2026-07-04** (was `workspace_root`, which leaked "agent-memory"/"claude") |
 | **Liveness dot** | sage = live · unfired grey = dormant · ochre = stale heartbeat · brick = hard failure — matte, never alarm. **A project brain has NO process status** (it lives in-process): present → a calm live dot, never a stale/failed instance band. | `owner_live` + `stale` (30 s rule) + `status` per entry — but `brain_kind:"project"` short-circuits to live (`hallSemantics.livenessBand`) | **BUILT + project-aware 2026-07-04** |
-| **Nodes · edges** | Graph size, IBM Plex Mono | self: `graph_state.node_count/edge_count`; live sibling: its own `/api/graph/stats`; **hosted project brain: its OWN entry counts** — server-enriched from the warm brain (live) or the store manifest's recorded counts (dormant), so a Cherry card shows its real 2089·7323, never "not running" | **BUILT for self + PROJECT brains 2026-07-04** (Max's screenshot: "counts unknown — not running" was instance language wrongly applied to an in-process brain); a fresh project store before first persist reads "counts not recorded yet"; **dormant OWNER-instance counts still `[needs-backend]`** (§9.5.1) |
+| **Nodes · edges** | Graph size, IBM Plex Mono | self: `graph_state.node_count/edge_count`; live sibling: its own `/api/graph/stats`; **hosted project brain: its OWN entry counts** — server-enriched from the warm brain (live) or the store manifest's recorded counts (dormant), so a project-b card shows its real 2089·7323, never "not running" | **BUILT for self + PROJECT brains 2026-07-04** (field sighting: "counts unknown — not running" was instance language wrongly applied to an in-process brain); a fresh project store before first persist reads "counts not recorded yet"; **dormant OWNER-instance counts still `[needs-backend]`** (§9.5.1) |
 | **Freshness** | "persisted 2 m ago" / "last seen 3 h ago" | self: `last_persist_secs_ago`; project brain: manifest `updated_ms`/`created_ms` (`last_activity_ms`); others: `last_heartbeat_ms` + `started_at_ms` | BUILT; snapshot-mtime for dormant OWNER brains `[needs-backend — §9.5.1]` |
 | **Trust state** | The calibration line, action language ("measured here" / "not measured yet") | open brain: `predict.calibration` (`tools.rs:2428`) + `north.binding.trust_mode` | BUILT for the open brain; **per-listed-brain `calibration_armed` `[needs-backend]`** (TWO-TIER §9.5.1, unbuilt) |
 | **Last activity** | "N queries this session" | self: `queries_processed` (`session.rs:1262`); others: heartbeat age | BUILT |
 | **Attached agents** | How many hands are on this brain | self: `active_agent_sessions` (`session.rs:1261`) + `health.agent_sessions[]` | BUILT for self; **per-hosted-brain `attached_sessions` `[needs-backend]`** (the owner knows; no surface reports it) |
 | **Memories** | Post-it count | open brain: `light`-namespace nodes in the snapshot (same aggregation the tree ships, §3.6) | BUILT for the open brain; absent-honest elsewhere |
 | **Kind badge** | ~~project / medulla / bound~~ — **superseded by §4A.8 (INV-14):** implementation class never renders on a card face; the badge is replaced by the *viewing* chip, and classes live in the receipt's `binding:` line | `brain_kind` registry field (stamped by `set_brain_kind`); legacy entries parse as absent = bound — the field survives as receipt + routing input | **BUILT as data** (two-tier landed #260); the visible badge is retired by the §4A.8 label fix (slice 1T) |
-| **Conflict chips** | shared runtime root, duplicate workspace, stale lock — calm chips, not warnings. **Lock/runtime conflicts are OWNER-process concepts and never render on a project brain** (it owns no lock). | `conflicts[]` per entry, filtered for `brain_kind:"project"` (`hallSemantics.visibleConflicts`) | **BUILT + project-aware 2026-07-04** (Max's screenshot: a "stale lock" badge on the in-process Cherry brain) |
+| **Conflict chips** | shared runtime root, duplicate workspace, stale lock — calm chips, not warnings. **Lock/runtime conflicts are OWNER-process concepts and never render on a project brain** (it owns no lock). | `conflicts[]` per entry, filtered for `brain_kind:"project"` (`hallSemantics.visibleConflicts`) | **BUILT + project-aware 2026-07-04** (field sighting: a "stale lock" badge on the in-process project-b brain) |
 
 **Hall discipline.** Heat scarcity applies (§3.2): most cards sit quiet; only a stale,
 conflicted, or failed brain earns a non-sage dot *(research §B.4, calm-tech)*. A card carries
@@ -554,9 +554,9 @@ of gauges *(research §D R6; §1's "not a dashboard" kill applies here verbatim)
 stays live the way the tree does: `graph_changed` SSE → debounced refetch → quiet in-place
 update (`useLiveRefresh` reused; stats-poll fallback when SSE is down) *(research §D R7)*.
 
-#### 4A.3.1 Card anatomy v2 — the precious fields (founder-curated, 2026-07-04)
+#### 4A.3.1 Card anatomy v2 — the precious fields (maintainer-curated, 2026-07-04)
 
-The five-fact budget above is a ceiling; v2 decides — by founder curation — **which facts
+The five-fact budget above is a ceiling; v2 decides — by maintainer curation — **which facts
 earn the face**. The Hall card answers exactly three questions in calm typography: **do I
 trust it? is it alive? what has it learned?** Identity (name · path · liveness dot · kind-free
 per §4A.8) is chrome, not a fact; the five facts spent are the counts row plus the four GOLD
@@ -569,7 +569,7 @@ fields below. Everything else is DEPTH — it lives in the receipt drawer, one d
 | G1 | **Freshness vs. git** | "12 files changed since I read them" + `[Re-read]` (the §4A.4 re-ingest, same-root) — or "everything I read is current" | `am_i_stale` (`server.rs:3407`, doc `:3391`): recomputes each inventoried file's sha256 against the ingest baseline (`state.file_inventory`, same hasher) → `stale[{path, reason: "changed"\|"missing"}]`, `fresh[]`, `checked`; the card passes the brain's snapshot file paths explicitly (the coverage-session default is per-agent, not per-repo). Session-scoped complement in the receipt: `drift` (`server.rs:3907`, `DriftInput` `core.rs:144`) | **Open/bound brain: buildable TODAY** over `POST /api/tools/am_i_stale`. Cost is real (one hash per file): computed on demand (card focus / receipt open / explicit `[Check freshness]`), cached per graph generation, never a background poll of every card — the §5.4 measure-first posture. Hosted brains: rides the §4A.9 selector |
 | G2 | **Calibration chip** | "not measured on this repo yet — answers stay at 'worth a second look'" + `[Calibrate once]` — or "measured here ✓" (receipt: exact `τ / measured_precision / coverage / n`) | The engine's own law, verbatim at rung 2: uncalibrated seek envelopes are **capped at `reverify` (`act` is UNREACHABLE)** (`TrustEnvelope` doc, `protocol/layers.rs` above `:141`); uncalibrated `predict` verdicts are honestly `abstain` (`tools.rs:2410-2428` calibration block: `calibrated, tau, target_alpha, measured_precision, coverage, n`, uncalibrated `note` verbatim). Action → `calibrate_predict` (`server.rs:4167`) | **Open/bound brain: buildable TODAY** (the calibration block rides any `predict` reply; §4.3 already renders it). A node-free per-brain read is the **`calibration_armed` registry field — `[needs-backend]`** (TWO-TIER §9.5.1, serde-default family) |
 | G3 | **The compounding meter** | "14 memories · newest 2 h ago · 1 aging" — the proof the brain gets richer, not just older | `light`-namespace nodes + `light:created:<ms>` tags in the snapshot (the §3.6 aggregation the tree already ships); "aging" = the same 30-day rule `north` applies (`server.rs:3038-3054`), mirrored client-side; receipt-depth confirmation: `cross_verify` `evidence_freshness` reason `aged_out` (`audit_handlers.rs:1003`, test `:3398`) | **Open/bound brain: TODAY** (client aggregation over the snapshot). Hosted/dormant brains: `[needs-backend]` — either the §9.5.1 enrichment family (a `memory_count`/`newest_memory_ms` stamp) or the §4A.9 selector |
-| G4 | **Aliveness** | "2 agents attached · 48 queries · **across all brains**" — one caption, not two rows (v2 merges the §4A.3 "Last activity" + "Attached agents" lines). **INTERIM (2H, honesty):** `active_agent_sessions`/`queries_processed` are OWNER-GLOBAL `health` counters, NOT partitioned per brain — sessions on other hosted brains (Cherry, GitRooms) inflate this card — so the caption is qualified "across all brains" until the real partition (keyed on `session.bound_project_root`) lands. **Partition = §9.5.1.** | self: `active_agent_sessions` + `queries_processed` (`session.rs:1256-1265`); receipt: `health.active_sessions[]` + `uptime_seconds` + `last_persist_time` (`HealthOutput`, `core.rs:509`) | **BUILT for self (owner-wide, qualified)**; per-hosted-brain `attached_sessions` + per-brain partition stay `[needs-backend]` (§4A.3 row + §9.5.1, unchanged) |
+| G4 | **Aliveness** | "2 agents attached · 48 queries · **across all brains**" — one caption, not two rows (v2 merges the §4A.3 "Last activity" + "Attached agents" lines). **INTERIM (2H, honesty):** `active_agent_sessions`/`queries_processed` are OWNER-GLOBAL `health` counters, NOT partitioned per brain — sessions on other hosted brains (e.g. project-b, project-c) inflate this card — so the caption is qualified "across all brains" until the real partition (keyed on `session.bound_project_root`) lands. **Partition = §9.5.1.** | self: `active_agent_sessions` + `queries_processed` (`session.rs:1256-1265`); receipt: `health.active_sessions[]` + `uptime_seconds` + `last_persist_time` (`HealthOutput`, `core.rs:509`) | **BUILT for self (owner-wide, qualified)**; per-hosted-brain `attached_sessions` + per-brain partition stay `[needs-backend]` (§4A.3 row + §9.5.1, unchanged) |
 
 **DEPTH — the receipt drawer** (rung 1 of the Hall; read-only, categories not gauges):
 
@@ -577,7 +577,7 @@ fields below. Everything else is DEPTH — it lives in the receipt drawer, one d
 |---|---|---|---|---|
 | D1 | **The last learned claim** | One line: "*latest claim label*" — `agent-refactor` · 2 h ago (absent → "author unknown", INV-04) | newest `light`-namespace node by `light:created` desc + `light:source_agent` tag (snapshot; same provenance rules as §3.3) | Open/bound: TODAY. Hosted: §4A.9 selector |
 | D2 | **Honest gaps** | "51 of 6,520 files visited" + "12 guessed links (dashed on the map)" + the open `honest_gaps[]` lines | `orient.coverage` (`server.rs:2703`) / `coverage_session`; ghost edges (`GhostEdgeOutput`, `core.rs:422`); `north.honest_gaps[]` (`server.rs:3219`) | Open/bound: TODAY (all three verbs REST-reachable). Hosted: §4A.9 |
-| D3 | **The Mailbox count** — the per-project inbox, **made concrete by §4A.11 (founder amendment, 2026-07-05):** "N abertas" — unresolved field-report letters in THIS project's box; click opens the Mailbox (§4A.11) | `mailbox_open_count` (`wet_ink + in_flight` only) via the §9.5.1-family instances enrichment; box contents via `GET /api/mailbox?brain=…` — both spec'd at MEDULLA-PRD §9.2 (slice M7b). The box IS the sealed doctrine's `<repo>/.m1nd/inbox.jsonl` (project property, travels with git), and `inbox_sweep` is spec'd there as the cross-box triage hand; `inbox_drop` (agent notes) remains a future letter source into the same file, not smuggled into this slice | **`[needs-backend — M7b]`**: renders nothing until the count exists; never a fabricated zero |
+| D3 | **The Mailbox count** — the per-project inbox, **made concrete by §4A.11 (maintainer amendment, 2026-07-05):** "N open" — unresolved field-report letters in THIS project's box; click opens the Mailbox (§4A.11) | `mailbox_open_count` (`wet_ink + in_flight` only) via the §9.5.1-family instances enrichment; box contents via `GET /api/mailbox?brain=…` — both spec'd at MEDULLA-PRD §9.2 (slice M7b). The box IS the sealed doctrine's `<repo>/.m1nd/inbox.jsonl` (project property, travels with git), and `inbox_sweep` is spec'd there as the cross-box triage hand; `inbox_drop` (agent notes) remains a future letter source into the same file, not smuggled into this slice | **`[needs-backend — M7b]`**: renders nothing until the count exists; never a fabricated zero |
 | D4 | **The soul line** — the brain's PATHOS headline + freshness receipt ("checked *date* @sha — N fresh · M stale · K priced"); the fifth rendering of the one packet (the Pre-Flight Card renders the same sub-atom as its header line) | the `soul` sub-atom of the north packet — headline, receipt, and the per-claim state vocabulary spec'd at **`docs/SOUL-PRD.md`** (§4.4 the beat, §6.1 the receipt; the full soul view — the document with per-claim state dots — is a later §4A slice, deliberately not designed there) | **`[needs-backend — SOUL S2]`**: absent soul ⇒ renders nothing; never a fabricated receipt |
 
 **Anti-scope (binding, the §1 kills carried down):** NO timeseries charts, NO aggregate
@@ -596,7 +596,7 @@ word.
 
 The retired drawer copy "I haven't seen evidence either way yet" collided the two — `evidence`
 is memory's word, so on a file with feedback-but-no-memory it read as "no memories" and confused
-a live reader (Max, 2026-07-04). The fixed copy is **"no feedback yet — no agent has confirmed
+a live reader (field sighting, 2026-07-04). The fixed copy is **"no feedback yet — no agent has confirmed
 or corrected answers about this file"** (+ confirmed / corrected / mixed variants when history
 exists). The invariant, pinned by test: the **feedback chip never contains the word "evidence";
 the memories panel never contains the word "feedback"** (`tree-drawer.test.tsx`). SHIPPED
@@ -618,8 +618,8 @@ the memories panel never contains the word "feedback"** (`tree-drawer.test.tsx`)
 
 **The clobber ban (binding, testable).** Today's top-bar "Read a repo" runs a bare
 `ingest {path}` (`App.tsx:129`) — on a non-empty owner pointed at a foreign path, that call
-**replaces the bound graph for everyone** (the in-flight branch's RED, field-proven on Cherry/
-almus). From Slice 0T on: a bare foreign-path ingest is **never offered** while the owner
+**replaces the bound graph for everyone** (the in-flight branch's RED, field-proven across two
+separate projects). From Slice 0T on: a bare foreign-path ingest is **never offered** while the owner
 holds a graph — the affordance is either "Re-read *this* repo" (same root) or the
 `project_root` bootstrap (when shipped). This is INV-11's sharpest tooth.
 
@@ -696,7 +696,7 @@ Two **distinct** confirmations — the card acknowledge and the typed name — a
 - **The Brain Chip — the reception echo, always in view.** One chip in the top bar, on every
   surface: **brain name · node count · liveness**, from the same envelope the surface itself
   rendered (`instance/self` / `north.binding.fingerprint`). The law: **no graph pixel without
-  the owning brain's name in view** — the almus-class ambiguity ("which brain am I talking
+  the owning brain's name in view** — the multi-brain ambiguity ("which brain am I talking
   to?") is killed at the chrome level. On degraded binding/reception mismatch the chip wears
   the honesty (terracotta text, §3.5's banner still owns the repair steps). Click = the Hall.
   This is the human rendering of the reception truth the agents get in-band (TWO-TIER §9.5.6:
@@ -749,9 +749,9 @@ carried into the pixels.
 
 ### 4A.7 Iconography & the precision system
 
-**Founder direction, verbatim:** *"deixar a UIX organizada de um jeito mais organizado, com um
-design de precisão, com ícones certos para cada coisa para fácil visualização — nerd adora
-iconezinho."*
+**Maintainer direction:** the UI/UX should be organized more cleanly, with a precision design
+and the right icon for each thing for fast visual parsing — developers respond to a good icon
+language.
 
 The ask is precision, not decoration. SOFT PROOF stays matte and calm (§6); what it gains is a
 **strict icon language** — one icon per concept, every concept always the same icon — so a
@@ -838,16 +838,16 @@ glitter" (`Sparkles` and kin) is the emission-gradient of iconography — a prom
 
 ### 4A.8 Brain-label semantics — every brain is a PROJECT
 
-**Founder question, verbatim:** *"por que m1nd aparece como THIS brain e cherrybubbles como
-project? m1nd também não é project?"*
+**The question this answers:** why does m1nd appear as "THIS brain" while another hosted
+project appears as "project"? Isn't m1nd also a project?
 
-He is right, and the fix is doctrine, not copy. The shipped Hall (1H) labels cards by
+That is right, and the fix is doctrine, not copy. The shipped Hall (1H) labels cards by
 **implementation class** — `KIND_LABEL` renders `bound → "this brain"`, `project →
 "project"`, `sibling → "sibling"` (`BrainCard.tsx:28-32`) — which leaks plumbing taxonomy
 (§4A.3's "Kind badge" row, hereby superseded) into the owner's front door. The product truth
 of the two-tier inversion (TWO-TIER §2: every repo gets its own brain; the medulla is the
-exception, not the rule) is simpler and Max said it in one line: **every brain IS a project.**
-The m1nd dev graph is not a different KIND of thing from the Cherry brain — it is the project
+exception, not the rule) is simpler, stated in one line: **every brain IS a project.**
+The m1nd dev graph is not a different KIND of thing from a second project's brain — it is the project
 brain of `~/m1nd` that happens, today, to be process-bound rather than owner-hosted. That is
 an implementation residue on a timeline (Slices 2/3 dissolve it), and residues do not get
 badges on the front door.
@@ -883,7 +883,7 @@ redesigning a surface.
 
 ### 4A.9 Per-brain Open — the REST contract (SHIPPED 2026-07-04, slice 2H)
 
-**Founder question, verbatim:** *"por que cherrybubbles não consigo dar Open?"*
+**The question this answers:** why can't I Open a hosted project's brain from the Hall?
 
 > **SHIPPED 2026-07-04 (slice 2H).** All seven contract points below are live. The
 > `?brain=<project_root>` selector routes `/api/graph/*` + `/api/tools/*` through the
@@ -908,7 +908,7 @@ carried **no brain selector** — they always answered from the graph the owner 
 (TWO-TIER §9.5.5, "Still open: per-brain browsing/execution over REST"). The MCP wire already
 routed per call (bootstrap directive → session sticky → caller-root match → bound default; the
 interim variant's silent routing), but the Hall's fetches are plain HTTP from a browser tab —
-no `M1nd-Caller-Root`, no wire session. So the Cherry card could be *listed* (enumeration
+no `M1nd-Caller-Root`, no wire session. So the hosted project card could be *listed* (enumeration
 shipped 2026-07-04) but not *entered*. **2H closed this:** the `?brain=` query param carries the
 brain identity that the header would (query over header — same-origin `fetch()`, and the graph
 routes already read query inputs), routing REST through the SAME `resolve_brain` the wire uses.
@@ -957,9 +957,9 @@ that tooltip.
    warm-boots on first fetch — the UI says so in words ("waking this brain…", INV-05), never
    a fake bar.
 
-**Acceptance (the slice is done when):** a two-brain fixture (bound m1nd + hosted Cherry)
-opens Cherry in-tab — chip reads Cherry, tree renders Cherry's 2,089·7,323, zero bound-brain
-nodes visible; Rust test proves `snapshot?brain=<cherry_root>` ≠ bound snapshot and unknown
+**Acceptance (the slice is done when):** a two-brain fixture (bound m1nd + a hosted project-b)
+opens project-b in-tab — chip reads project-b, tree renders project-b's 2,089·7,323, zero bound-brain
+nodes visible; Rust test proves `snapshot?brain=<project_b_root>` ≠ bound snapshot and unknown
 roots refuse (the `hall_brains_listing.rs` precedent extended); UI test proves every fetch
 URL carries the selector while a hosted brain is viewed, and a response whose echo names the
 WRONG brain is dropped, not rendered (INV-15); Open's tooltip residue text is deleted the
@@ -970,9 +970,9 @@ another brain's chip.
 
 ### 4A.10 Reading the Tree — categories, filters, real search
 
-**Founder feedback, verbatim:** *"no filetree é bem bagunçado o método que temos para ler as
-coisas, não tem categorias, não tem como filtrar, a busca não parece avançada — poderia buscar
-semanticamente; dá pra ir bem mais em profundidade."*
+**The feedback this answers:** in the filetree, the way we read things is messy — no categories,
+no way to filter, and the search does not feel advanced (it could search semantically); there
+is room to go much deeper.
 
 The tree's grammar (§3) is right; its READING instruments are missing. Today the surface
 ships one flat lens: directory nesting + a substring filter (`LivingTree.tsx:42-66`) +
@@ -1053,14 +1053,13 @@ of these calls carries the §4A.9 selector — Reading the Tree needs zero verbs
 any other brain (stale panel across an Open switch, wrong echo) is dropped with an honest
 notice, never rendered into the wrong tree.
 
-### 4A.11 The Mailbox — each brain its caixinha (founder amendment, 2026-07-05)
+### 4A.11 The Mailbox — each brain its caixinha (maintainer amendment, 2026-07-05)
 
-**Founder ask, verbatim:** *"dá pra colocar as caixas de um jeito bonito assim dentro do
-sistema visual humano do m1nd? cada projeto com a sua caixinha, e a do m1nd no m1nd?"*
+**The ask this answers:** can the field-report boxes be placed cleanly inside m1nd's human
+visual system? Each project with its own little box, and m1nd's box inside m1nd?
 
-**Design-source:** the Fable mailbox artifact (orchestrator seat, 2026-07-05) — the "assim"
-in the ask. Its language is CANONICAL for this view and restated below so this document
-stands alone. **Backend-source:** the mailbox architecture is spec'd whole at
+**Design-source:** the mailbox design artifact (2026-07-05). Its language is CANONICAL for
+this view and restated below so this document stands alone. **Backend-source:** the mailbox architecture is spec'd whole at
 `docs/MEDULLA-PRD.md` §9.2 (spool → distribution → **repo-side project boxes** at
 `<repo>/.m1nd/inbox.jsonl` (the ownership law: the box is the PROJECT's, travels with git)
 + one medulla box for genuinely projectless letters, letter ids + `answers[]`, fate-state
@@ -1087,7 +1086,7 @@ card's box is just the m1nd *project's* box — same view, same rules, zero spec
 transversal-tool reports (the Context7 letter, filed without a repo), research-task letters,
 owner-runtime letters. A letter that names a project NEVER appears here (MEDULLA-PRD
 MED-INV-10). It opens from the owner's own card, labeled, never mixed into a project box.
-**Honest gap:** a brainless repo's box (almus today) exists on disk, travels with git, and
+**Honest gap:** a brainless repo's box (a projectless-brain repo today) exists on disk, travels with git, and
 is swept by triage — but has no Hall card to open it from until its brain is born; the box
 is faceless, never lost.
 
@@ -1119,8 +1118,8 @@ box header states the whole truth in one line: "12 cartas · 3 abertas · 1 em v
 idempotent (MEDULLA-PRD §9.2): a letter with a project — explicit `brain` field or
 normalized `repo` (expand `~`, strip "(worktree …)" annotations, `m1nd-*` worktrees → m1nd)
 — files into **that project's repo-side box, always, brain or no brain**: m1nd → m1nd's box;
-`Cherrybubbles1` → cherry's; `gitrooms` → reporooms' (brain freshly revealed by the 2H cold
-listing, 1131 nodes — irrelevant to the rule); `~/almus` → almus' (no brain, box works).
+`project-b` → project-b's box; `project-c` → project-c's box (brain freshly revealed by the 2H cold
+listing, 1131 nodes — irrelevant to the rule); `~/project-d` → project-d's box (no brain, box works).
 Only genuinely projectless letters (owner-runtime, `all`, no-repo tool reports like the
 Context7 one) reach the medulla box; a letter whose repo dir is absent from this machine
 waits in the spool (`pending_distribution`), never re-routed. The UI never re-sorts a letter
@@ -1133,7 +1132,7 @@ of every m1nd improvement session. The m1nd team sees the conjunto; each project
 it felt there. Sweep output names any box it could not reach. *(Backend: MEDULLA-PRD §9.2 —
 `[needs-backend — M7b]`; no UI surface in this slice beyond the per-box view.)*
 
-**Acceptance (slice 3M is done when):** a two-box fixture (m1nd + Cherry, from the real
+**Acceptance (slice 3M is done when):** a two-box fixture (m1nd + project-b, from the real
 spool distributed) renders each box with only its own letters (INV-17 green); every rendered
 receipt's `↳` link resolves to a letter in the same box (INV-18 green); the D3 count equals
 the endpoint's `wet_ink + in_flight` exactly and renders absent (not zero) against an owner
@@ -1418,10 +1417,10 @@ green, claims scoped).
 > the **clobber-ban retirement** of the bare foreign-path ingest on a non-empty owner (INV-11).
 > Proofs: **80 UI tests green** (INV-09/10/11/12 each covered; 52 net-new incl. the delete floor,
 > the needs-backend sweep, the reduced-motion CSS assertion), all fed by **real captured envelopes**
-> (`instances.json`/`instance_self.json`/`delete_refusal.json`/`tools.json`, dogfooded from the live
-> `:1338` owner); violet-lint green; `tsc` clean; `npm run build` green (dist air-gapped, zero
+> (`instances.json`/`instance_self.json`/`delete_refusal.json`/`tools.json`, dogfooded from the
+> served owner); violet-lint green; `tsc` clean; `npm run build` green (dist air-gapped, zero
 > external asset loads); live smoke rendered the two REAL brains (the bound m1nd dev brain +
-> the hosted Cherry project brain born the same day) with every honesty invariant visibly working.
+> a hosted project brain born the same day) with every honesty invariant visibly working.
 > *(A kickstart of the served owner activates the new embedded dist — the running binary embeds the
 > prior build.)*
 >
@@ -1464,13 +1463,13 @@ green, claims scoped).
 > BITE, INV-14 zero-class-face + viewing-chip-count-1, INV-16 foreign-hit-dropped in both the lens logic
 > and the SeekPanel render, the card-v2 GOLD/DEPTH + anti-scope, the lens/filter residue exactness), all
 > lens/search/card fixtures are **real captured envelopes** (`seek_meaning.json` / `layers.json` /
-> `am_i_stale.json` / `predict_calibration.json`, POST'd from the live `:1338` owner); violet-lint +
+> `am_i_stale.json` / `predict_calibration.json`, POST'd from the served owner); violet-lint +
 > icon-lint green; `tsc` clean; `vite build` green with the dist air-gap grep at **zero external
-> resource loads** (lucide adds no host); **live smoke** on the dogfood `:1338` owner rendered the layer
+> resource loads** (lucide adds no host); **live smoke** on the dogfood served owner rendered the layer
 > lens (8 detected layers + "unlayered" 5,803), the meaning-search panel (verdict "worth a second look",
 > sufficiency "gathering" + the verbatim why, 16 of 847 that cleared relevance), and the Hall (one
 > viewing chip, the four GOLD rows live — "24 memories · newest 1h ago", "3 agents attached · 105
-> queries this session" — the Cherry card absent-honest, zero class labels on any face).
+> queries this session" — the hosted project card absent-honest, zero class labels on any face).
 > *(A kickstart of the served owner activates the new embedded dist — the running binary embeds the
 > prior build.)*
 >
