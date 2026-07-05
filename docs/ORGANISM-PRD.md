@@ -410,11 +410,11 @@ host-cwd default. Owner: the reception/routing family (TT Slice 2R residue). Lad
 
 ### C6.1 The census law
 
-**112 live tools** — measured at `5b1a37d` this session (unique name-array census; the critique
-independently measured 112 two days prior; NEXTGEN's "119" is corrected by amendment, §C11).
-Law: every doc census carries its pin; **the battery pins the advertised count** (a case asserts
-`tools/list` count == the documented number) so drift fails CI, not credibility (TT-INV-11 applied
-to tool counts).
+**114 live tools** — was 112 at `5b1a37d`; **+2 at R6** (`delegate` + `debrief`, this landing),
+re-measured by the same unique name-array census. (The critique independently measured 112 two days
+before R6; NEXTGEN's "119" is corrected by amendment, §C11.) Law: every doc census carries its pin;
+**the battery pins the advertised count** (a case asserts `tools/list` count == the documented
+number) so drift fails CI, not credibility (TT-INV-11 applied to tool counts).
 
 **The advertised-surface budget:** the ESSENTIAL tier (`ESSENTIAL_TOOLS`, ~25 tools, live) is the
 default face every host sees; **ceiling ≤ 40**. The full surface stays callable
@@ -780,9 +780,24 @@ compounds).** *What:* fix the teardown + `display_name` separator, or demote Win
 blocking blocks. *Owner:* the CI family.
 
 **R6 — Delegation Slices 1–2: `delegate` (project-tier packet) then `debrief`** (§O.12.10).
-*RED:* packet golden + registry record + conformance algebra cases. *Unblocks:* R7; R10 renders a
-stable packet; the outcomes ledger starts feeding calibration. *(The packet's medulla doctrine
-block waits for R3 — Slice 1 ships project-tier only, honestly labeled.)*
+**[SHIPPED 2026-07-05 · R6.]** *What landed:* `delegate` composes a read-only
+`m1nd-delegation-packet-v0` in north's class — the mother's binding (the named brain), the selected
+project-tier memory slice as explicit cargo, ranked anchors, a delegate-time staleness header, known
+static dependents, and a deterministic string-stable `prompt_markdown`; three abstain classes
+(`needs_ingest` / `unscopable` / `seeds_unresolvable`), each with evidence + `next_move`; a dumb
+registry record per packet (the debrief join key). `debrief` is the only mutation (via `memorize` /
+`learn`): conformance algebra with a worst-of verdict that always carries fence existence, findings
+memorized under the subagent + map-miss lessons under the grader, asymmetric `learn`, and one
+`outcomes.jsonl` row per debrief (stamped `outcome_unverified` without evidence). The child law
+(§C5.3) is real in code: `mission.binding.workspace_root` IS the datum reception verifies
+(`covers_root`) — one datum at two hops, silent on match. `debrief` alone joins
+`READ_ONLY_DENIED_TOOLS`; `delegate`'s omission is its ambient legality. Census 112 → 114.
+*RED (proven):* no delegate/debrief surface existed (grep-proven) — a child could not inherit the
+mother's binding + slice by any recorded act; six behavior tests drive the real HTTP seam green,
+including the loop-closing demo (a second `delegate` surfaces the first debrief's finding, by author,
+with age). *Unblocks:* R7; R10 renders a stable packet; the outcomes ledger starts feeding
+calibration. *(The packet's medulla doctrine block waits for R3/R7 — Slice 1 ships project-tier
+only, honestly labeled `tier: "project"`.)*
 
 **R7 — M7: the delegation-packet memory slice** — `tier` + `origin_brain` on packet rows; the
 mother-selected slice as explicit cargo (§C5.3). *RED:* two-brain fixture — a child cannot tell

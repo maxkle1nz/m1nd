@@ -125,6 +125,30 @@ one JSON line to `~/.m1nd/field-reports.jsonl` \
 (`{ts,agent,repo,tool,class:\"bug|honesty|friction|win\",what,expected,snippet}`) — \
 local-only, it never phones home.
 
+## 4. DELEGATE — hand a grounded packet down, debrief the return
+
+Spawning a subagent? `delegate {agent_id, task}` composes the RETRIEVAL half of its spec in ONE \
+read-only call — ranked anchors, a memory slice with real age + author, known static dependents, a \
+staleness header, a proof-command heuristic, and an explicit list of what m1nd could NOT determine — \
+and renders it as `prompt_markdown` you APPEND to your brief (the packet is an appendix: your text \
+wins on what-to-do, the file wins on what-is, the packet outranks assumption only). The packet's \
+`mission.binding` NAMES the brain the child must land on — it is the SAME datum reception uses \
+(`M1nd-Caller-Root` ↔ `covers_root`), so the child VERIFIES it landed (silent on match) rather than \
+choosing (the child law, ORGANISM §C5.3). `delegate` abstains HONESTLY — `needs_ingest` on an empty \
+graph, `unscopable` when the task activates no coherent subgraph, `seeds_unresolvable` when every \
+seed fails — always with evidence + a `next_move`, never a bare no. It is PROJECT-TIER: no \
+medulla-doctrine block, and no predict/trust/tremor/xray enrichment yet — each omission is stated in \
+`non_claims`, never hidden. \
+When the subagent returns, `debrief {agent_id, delegation_id, outcome, diff|touched_paths, findings}` \
+grades its real diff against that packet and TEACHES the graph — the only mutation, through \
+`memorize`/`learn` only. It classifies each touched path (in_scope | expected_change | \
+dependent_contact | unpredicted) with a worst-of verdict that carries fence existence (\"stayed — no \
+ratified boundaries existed\"), memorizes the subagent's findings under the subagent's id and any \
+map-miss lessons under yours (clean runs memorize nothing), and appends one `outcomes.jsonl` row \
+stamped `outcome_unverified` unless you attach `evidence`. Conformance grades PATHS, never code \
+quality — it never says merge-safe. Every debrief visibly deposits memory the next packet will \
+surface, so skipping it wastes knowledge; do it.
+
 ## SECONDARY VERBS (one line each)
 
 - `seek(query)` / `focus(task)` — budgeted retrieval; carry the trust + sufficiency signals above.
@@ -327,6 +351,8 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "session_handshake",
     "orient",
     "north",
+    "delegate",
+    "debrief",
     "am_i_stale",
     "recovery_playbook",
     "health",
@@ -478,6 +504,60 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "tier": { "type": "string", "enum": ["project", "medulla", "project+medulla", "all-brains"], "description": "Memory-tier for the packet's recall beat (pull-not-push). Default project+medulla: this brain's own memory + the shared medulla (promoted/doctrine). 'all-brains' fans out over EVERY hosted brain, each memory row labeled origin_brain — the explicit cross-project inspection, never ambient. Another brain's claim reaches your default beat only if it was promoted to the medulla." }
                     },
                     "required": ["agent_id", "task"]
+                }
+            },
+            {
+                "name": "delegate",
+                "description": "Hand a grounded packet DOWN to a subagent in ONE read-only call: the retrieval half of its spec, composed from the live graph. Returns an m1nd-delegation-packet-v0 — ranked anchors, a memory slice with real age + author, known static dependents (file-level static), a staleness header, a coverage header, a proof-command heuristic, an explicit list of what m1nd could NOT determine, and a deterministic prompt_markdown the subagent reads straight. The packet's mission.binding NAMES the brain the child must land on (the child verifies via reception, never chooses). Abstains honestly (needs_ingest on an empty graph; unscopable when the task activates no coherent subgraph; seeds_unresolvable when every seed fails) with evidence + a next_move, never a bare no. This is PROJECT-TIER: no medulla-doctrine block, and no stage-5 enrichment (predict/trust/tremor/xray) — each omission is stated in non_claims. Read-only safe.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling (orchestrator) agent identifier" },
+                        "task": { "type": "string", "description": "Free-form description of what the subagent is about to do. The graph spread-activates on this text to compose the packet's context." },
+                        "scope": {
+                            "type": "object",
+                            "description": "Optional scope. `paths` declares the subagent's may-touch set (orchestrator authority); `seeds` are node ids that inject extra context — the only context-injection channel (delegate never sees the orchestrator's conversation).",
+                            "properties": {
+                                "paths": { "type": "array", "items": { "type": "string" }, "description": "Declared may_touch paths. Absent → derived from activation." },
+                                "seeds": { "type": "array", "items": { "type": "string" }, "description": "Node ids to seed the packet's context. Every seed unresolvable → abstain." }
+                            }
+                        },
+                        "budget": {
+                            "type": "object",
+                            "description": "Packet budget — a CAP, not a quota. Default tokens 2000 (hard ceiling 8000), max_nodes 40.",
+                            "properties": {
+                                "tokens": { "type": "integer", "default": 2000, "description": "Approx token cap for the rendered packet." },
+                                "max_nodes": { "type": "integer", "default": 40, "description": "Blast-radius cap for the dependents pass." }
+                            }
+                        },
+                        "subagent_hint": { "type": "string", "description": "Optional free-form hint about which subagent this packet is for (carried into mission, never a gate)." }
+                    },
+                    "required": ["agent_id", "task"]
+                }
+            },
+            {
+                "name": "debrief",
+                "description": "Grade a spawned subagent's real diff against the packet it was handed, and teach the graph — the ONLY mutation in the delegation layer, and it mutates only through existing verbs (memorize/learn). Load the registry record by delegation_id (unknown id is a hard error, no guessing), re-check staleness (a graph_drifted caveat when the graph moved under the packet), resolve the touched set (diff `+++ b/` headers or touched_paths), classify each path (in_scope | expected_change | dependent_contact | unpredicted) with a worst-of verdict that ALWAYS carries fence existence ('stayed — no ratified boundaries existed'), memorize findings under the subagent's id (breach/unpredicted lessons under the grader's id; clean runs memorize nothing), teach asymmetrically (unpredicted → learn partial, dependent-contact → learn correct; untouched dependents never punished), flip the record to debriefed, and append ONE outcomes.jsonl row (stamped outcome_unverified unless evidence is attached). Conformance grades PATHS, never code quality — it never says merge-safe. NOT read-only.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "The grading (orchestrator) agent identifier — breach/unpredicted lessons memorize under this id." },
+                        "delegation_id": { "type": "string", "description": "The dlg_* id from the packet delegate returned. Unknown id is a hard error." },
+                        "outcome": { "type": "string", "enum": ["success", "failure", "partial"], "description": "Self-reported task outcome. Exactly these three values." },
+                        "evidence": {
+                            "type": "object",
+                            "description": "Optional proof of the outcome. Its absence stamps the row outcome_unverified.",
+                            "properties": {
+                                "cmd": { "type": "string", "description": "The proof command that was run." },
+                                "exit_status": { "type": "integer", "description": "Its exit status." }
+                            }
+                        },
+                        "diff": { "type": "string", "description": "Unified diff of the subagent's work — `+++ b/` headers give the touched set. Use this OR touched_paths." },
+                        "touched_paths": { "type": "array", "items": { "type": "string" }, "description": "Explicit touched paths, when a diff is not available." },
+                        "findings": { "type": "array", "items": { "type": "string" }, "description": "Up to 3 durable findings the subagent reported — memorized under the subagent's id." },
+                        "subagent_id": { "type": "string", "description": "The subagent's id (findings memorize under it). Falls back to agent_id when omitted." }
+                    },
+                    "required": ["agent_id", "delegation_id", "outcome"]
                 }
             },
             {
@@ -2480,6 +2560,12 @@ const READ_ONLY_DENIED_TOOLS: &[&str] = &[
     // xray_paint commits proof-state tag mutations to graph_path on disk, so a
     // read-only attach must refuse it (same stance as xray_retag).
     "xray_paint",
+    // debrief is the ONLY mutation in the delegation layer: it memorizes findings,
+    // teaches via learn, flips the registry record, and appends the outcomes
+    // ledger — a read-only attach must refuse it. `delegate` is deliberately ABSENT
+    // (it is read-only like north; its omission from this list IS its ambient
+    // legality — ORGANISM R6 / NEXTGEN-AGENT-PRD §O.12.3).
+    "debrief",
 ];
 
 /// Returns true if `tool_name` must be refused in read-only attach mode.
@@ -3469,6 +3555,25 @@ fn handle_north(
     }))
 }
 
+/// Thin wrapper so the delegation layer can reuse `orient`'s composition
+/// (anchors + focus_nodes) without re-implementing it. `orient` is private to
+/// this module; `delegate` is in `north`'s class and composes the same pieces.
+pub(crate) fn handle_orient_for_delegate(
+    state: &mut SessionState,
+    agent_id: &str,
+    task: &str,
+    top_k: u64,
+) -> M1ndResult<serde_json::Value> {
+    handle_orient(
+        state,
+        &serde_json::json!({
+            "agent_id": agent_id,
+            "task": task,
+            "top_k": top_k,
+        }),
+    )
+}
+
 /// Resolve a node id to its absolute on-disk file path for `am_i_stale`.
 ///
 /// Two paths, both grounded in already-recorded state — no new traversal logic:
@@ -3934,6 +4039,8 @@ fn dispatch_core_tool(
     match tool_name {
         "orient" => handle_orient(state, params),
         "north" => handle_north(state, params),
+        "delegate" => crate::delegation_handlers::handle_delegate(state, params),
+        "debrief" => crate::delegation_handlers::handle_debrief(state, params),
         "am_i_stale" => handle_am_i_stale(state, params),
         "activate" => {
             let input: ActivateInput =

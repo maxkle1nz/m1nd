@@ -332,7 +332,7 @@ fn default_similarity() -> f32 {
 fn default_last_session() -> String {
     "last_session".into()
 }
-fn default_feedback_strength() -> f32 {
+pub(crate) fn default_feedback_strength() -> f32 {
     0.2
 }
 fn default_adapter() -> String {
