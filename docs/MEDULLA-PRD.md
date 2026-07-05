@@ -360,8 +360,28 @@ Each event that survives triage adds its case to the battery of the brain it bit
 - **GREEN:** every live claim carries a tier by directory + `Origin-Brain` (or is on the ambiguous-triage list); count-conservation gate green; the brainless-root memorize returns the typed refusal naming the bootstrap; legacy files without `Origin-Brain` still parse and render "unknown".
 - **Battery:** triage count-conservation case · brainless-root refusal case · legacy-frontmatter tolerance case · ghost-root sweep case.
 
-### M5b — Scoped recall + the no-leak invariant proven
-- **Scope:** the `tier` argument on `seek`/`boot_memory` (default `project+medulla` — zero caller change); north's beat composes the two labeled feeds (TT §10 shape); `all-brains` owner-side fan-out with origin grouping + dormant snapshot answers; recall rows gain `origin_brain`/`tier`; **the false-absence fix** (the broad fallback surfaces most-recent claims or stamps `memory_exists: n` — never "No durable memory yet" over a non-empty store).
+### M5b — Scoped recall + the no-leak invariant proven — [SHIPPED 2026-07-05]
+> **Shipped variant (honest):** tier recall landed at the ONE seam that can read
+> across stores — the HTTP routing layer (`mcp_http::serve_and_compose`), because a
+> tool handler holds a single `&mut SessionState` and structurally cannot reach a
+> sibling brain. `tier` is therefore NOT a `SeekInput` field (serde ignores the
+> unknown arg on the seek call); it is read from the raw tool arguments by the
+> routing layer, which dispatches the tool on the routed brain, then folds in the
+> tier-selected sibling feeds — each row labeled `origin_brain` + `tier`. The
+> default beat composes the routed brain's own store + the medulla (the bound owner
+> store today); the medulla feed is folded only when the primary is a project brain
+> (the owner IS the medulla by identity, so no double-read). `all-brains` resolves
+> every `disk_roster()` store through `ProjectBrainRegistry::resolve` — the SAME
+> path that routes through R15's `insert_with_eviction`, so the warm map stays ≤ cap
+> during a wide fan-out (§C9.1 honored, not merely referenced). Provenance flows
+> end-to-end: `Origin-Brain` frontmatter → `light:origin_brain:` prov tag
+> (`l1ght_adapter`) → `SeekResultEntry.origin_brain` (`layer_handlers`) → recall rows.
+> Lock discipline held: the primary lock is dropped before any sibling is read;
+> never two session locks at once. **The false-absence fix (MED-INV-6) shipped in
+> R0/M5a** (`memory_exists: n` stamp, live on `north`); M5b did not re-touch it.
+> **CODE-LAND-ONLY: the live `:1338` was NOT migrated/restarted — held for the
+> maintainer.** `tier:"medulla"`/`"project"` explicit selectors also shipped.
+- **Scope:** the `tier` argument on `seek`/`boot_memory`/`north` (default `project+medulla` — zero caller change); north's beat composes the two labeled feeds (TT §10 shape); `all-brains` owner-side fan-out with origin grouping + dormant snapshot answers; recall rows gain `origin_brain`/`tier`; **the false-absence fix** (the broad fallback surfaces most-recent claims or stamps `memory_exists: n` — never "No durable memory yet" over a non-empty store; shipped in R0/M5a).
 - **RED (on file, mechanized):** the probe pair — `northB` returned `memory: []` + "No durable memory yet" while `seek(scope:"light::")` found claims (field row 2026-07-05); plus the leak assertion: seed brain Y with a claim, assert brain X's default beat NEVER carries it (green today via routing — pinned so it can never regress), and assert `tier:"all-brains"` DOES return it, labeled `origin_brain: Y`.
 - **GREEN:** MED-INV-1 test green across bound/project/medulla permutations; MED-INV-6 case green (non-empty store never yields false absence); `tier` absent = byte-identical behavior for existing callers (golden test); fan-out latency **measured and recorded**, not claimed (TT-INV-5).
 - **Battery:** the probe repro (this PRD's §2.2, mechanized as the seed case) · no-leak permutation matrix · false-absence case · default-unchanged golden.
