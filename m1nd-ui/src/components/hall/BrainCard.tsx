@@ -56,6 +56,11 @@ export interface BrainCardProps {
   onCalibrate?: () => void;
   onSelect: (entry: InstanceRegistryEntry) => void;
   onOpen: (entry: InstanceRegistryEntry) => void;
+  /**
+   * Open THIS brain's mailbox (§4A.11) — the D3 "N open" entry. Absent → the D3
+   * field renders nothing (the affordance needs a handler to be honest).
+   */
+  onOpenMailbox?: (entry: InstanceRegistryEntry) => void;
 }
 
 export default function BrainCard({
@@ -71,9 +76,16 @@ export default function BrainCard({
   onCalibrate,
   onSelect,
   onOpen,
+  onOpenMailbox,
 }: BrainCardProps) {
   const band = livenessBand(entry);
   const dot = LIVENESS_STYLE[band];
+  // D3 — the Mailbox entry (§4A.11). "N open" = the box's wet_ink + in_flight
+  // (external never counted). Absent-honest: the count is server-enriched ONLY
+  // when the repo has a box file, so null → the entry does not render (never a
+  // fabricated zero — INV-10). A handler is required for the affordance to exist.
+  const openCount = entry.mailbox_open_count;
+  const showMailbox = openCount != null && onOpenMailbox != null;
   // A project brain carries its own recorded counts on the entry; self/siblings
   // use the polled known counts. Freshness + conflicts also follow project
   // semantics (no process status, no lock).
@@ -137,8 +149,27 @@ export default function BrainCard({
             {shortPath(projectPath)}
           </div>
         </div>
-        <div className="text-[10px] text-ink-soft font-mono text-right shrink-0">
-          {lastSeenPhrase(freshnessMs)}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="text-[10px] text-ink-soft font-mono text-right">
+            {lastSeenPhrase(freshnessMs)}
+          </div>
+          {/* D3 — the Mailbox entry (§4A.11). Opens THIS brain's caixinha. */}
+          {showMailbox && (
+            <button
+              type="button"
+              data-role="mailbox-entry"
+              data-open-count={openCount}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenMailbox?.(entry);
+              }}
+              className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-full border border-ink/15 bg-bone text-ink-soft hover:text-ink hover:shadow-contact transition-shadow"
+              title="Open this brain's field-report mailbox"
+            >
+              <Icon name="inbox" size={14} decorative className="text-ink-soft/80" />
+              {openCount} open
+            </button>
+          )}
         </div>
       </div>
 

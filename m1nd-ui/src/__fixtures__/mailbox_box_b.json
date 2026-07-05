@@ -1,0 +1,45 @@
+{
+  "served_brain": {
+    "project_root": "/path/to/repo-beta",
+    "display_name": "repo-beta"
+  },
+  "letters": [
+    {
+      "id": "d29ce606e682",
+      "ts": "2026-07-04T13:00:00Z",
+      "agent": "probe",
+      "class": "bug",
+      "repo": "repo-beta",
+      "brain": "",
+      "tool": "ingest",
+      "what": "ingest skipped a symlinked source dir",
+      "expected": "all sources ingested",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "wet_ink"
+    },
+    {
+      "id": "7283807e34de",
+      "ts": "2026-07-05T09:00:00Z",
+      "agent": "probe",
+      "class": "win",
+      "repo": "repo-beta",
+      "brain": "",
+      "tool": "seek",
+      "what": "semantic recall nailed a fuzzy query",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "wet_ink"
+    }
+  ],
+  "counts": {
+    "wet_ink": 2,
+    "in_flight": 0,
+    "fired_clay": 0,
+    "external": 0,
+    "open": 2
+  }
+}
