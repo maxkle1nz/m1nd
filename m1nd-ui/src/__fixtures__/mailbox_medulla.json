@@ -1,0 +1,45 @@
+{
+  "served_brain": {
+    "project_root": "medulla",
+    "display_name": "medulla"
+  },
+  "letters": [
+    {
+      "id": "cec10813b270",
+      "ts": "2026-07-05T14:00:00Z",
+      "agent": "research",
+      "class": "friction",
+      "repo": "",
+      "brain": "",
+      "tool": "context7",
+      "what": "context7 docs were a version behind for a fast-moving SDK",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "external"
+    },
+    {
+      "id": "cd3e60a93563",
+      "ts": "2026-07-05T14:20:00Z",
+      "agent": "owner-runtime",
+      "class": "honesty",
+      "repo": "all",
+      "brain": "",
+      "tool": "daemon",
+      "what": "owner heartbeat drifted after a long sleep",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "wet_ink"
+    }
+  ],
+  "counts": {
+    "wet_ink": 1,
+    "in_flight": 0,
+    "fired_clay": 0,
+    "external": 1,
+    "open": 1
+  }
+}

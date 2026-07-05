@@ -1,0 +1,30 @@
+{
+  "served_brain": {
+    "project_root": "/path/to/repo-other",
+    "display_name": "repo-other"
+  },
+  "letters": [
+    {
+      "id": "8810ad581e59",
+      "ts": "2026-07-05T10:00:00Z",
+      "agent": "x",
+      "class": "bug",
+      "repo": "repo-other",
+      "brain": "",
+      "tool": "seek",
+      "what": "should never render under repo-alpha's header",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "wet_ink"
+    }
+  ],
+  "counts": {
+    "wet_ink": 1,
+    "in_flight": 0,
+    "fired_clay": 0,
+    "external": 0,
+    "open": 1
+  }
+}
