@@ -19,6 +19,18 @@ export interface GraphEdge {
   relation: string;       // "import", "call", "contains", "ghost"
 }
 
+/**
+ * The `served_brain` echo (HUMAN-LAYER-PRD §4A.9.4) attached to every
+ * `/api/graph/*` response: WHICH brain actually answered. The client asserts this
+ * against the brain it asked for and drops mismatches (INV-15) — render truth,
+ * never the request. Absent on a pre-2H owner (feature-detected via the tools
+ * stamp); when present, `project_root` is the canonical root that answered.
+ */
+export interface ServedBrain {
+  project_root: string | null;
+  display_name: string | null;
+}
+
 export interface SubgraphResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -28,6 +40,8 @@ export interface SubgraphResponse {
     query: string;
     elapsed_ms: number;
   };
+  /** §4A.9.4 — the brain that answered (absent on a pre-2H owner). */
+  served_brain?: ServedBrain;
 }
 
 // ---- Health ----
@@ -157,6 +171,16 @@ export interface ToolSchema {
   };
 }
 
+/**
+ * The GET /api/tools envelope. `rest_brain_selector` (HUMAN-LAYER-PRD §4A.9.5) is
+ * the capability stamp the Hall feature-detects to enable per-brain Open — absent
+ * on a pre-2H owner (the 0T disabled posture holds).
+ */
+export interface ToolsResponse {
+  tools: ToolSchema[];
+  rest_brain_selector?: boolean;
+}
+
 // ---- SSE events ----
 
 export interface SseActivationData {
@@ -196,6 +220,13 @@ export interface SseGraphChangedData {
   source?: string;
   batch_id?: string;
   timestamp_ms?: number;
+  /**
+   * WHICH brain mutated (HUMAN-LAYER-PRD §4A.9.6) — stamped when the mutating call
+   * named a brain via `?brain=`. Additive: absent on a bound/legacy mutation and
+   * on a pre-2H owner. A viewer refetches when this names ITS brain OR is absent
+   * (the honest over-refetch on old owners).
+   */
+  brain_root?: string;
 }
 
 export type SseEvent =

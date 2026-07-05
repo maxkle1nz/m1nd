@@ -17,7 +17,14 @@ import { api, ApiError } from '../../api/client';
 import type { InstanceRegistryEntry, InstanceListResponse, InstanceSelfResponse } from '../../types';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import { useToastStore } from '../../stores/toastStore';
-import { entryBaseUrl, brainDisplayName } from '../../lib/hallSemantics';
+import {
+  entryBaseUrl,
+  brainDisplayName,
+  brainProjectPath,
+  isProjectBrain,
+  canOpenBrainInPlace,
+} from '../../lib/hallSemantics';
+import { canonRootForCompare } from '../../lib/viewedBrain';
 import { useCardV2Data } from '../../hooks/useCardV2Data';
 import BrainCard from './BrainCard';
 import BrainReceiptDrawer from './BrainReceiptDrawer';
@@ -27,8 +34,19 @@ interface HallViewProps {
   onExit?: () => void;
   /** Open the bound brain's tree (self card / bound Open). */
   onOpenBound: () => void;
+  /**
+   * Open a brain IN THE TREE (§4A.9): the bound/self brain, OR a hosted project
+   * brain (via the `?brain=` selector). The parent sets the viewed brain and
+   * switches to the tree. A live SIBLING (own port) still opens in a new tab here.
+   */
+  onOpenBrain: (entry: InstanceRegistryEntry, isSelf: boolean) => void;
   /** Start the Threshold bootstrap ("+ Read a new repo"). */
   onBootstrap: () => void;
+  /** §4A.9.5 capability stamp — enables Open on hosted project cards when true. */
+  restSelector: boolean;
+  /** The root the tree is currently viewing (§4A.8) — the card wearing the viewing
+   *  chip. `null` = the bound brain. */
+  viewedRoot: string | null;
 }
 
 function errorDetail(error: unknown, fallback: string): string {
@@ -37,7 +55,14 @@ function errorDetail(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewProps) {
+export default function HallView({
+  onExit,
+  onOpenBound,
+  onOpenBrain,
+  onBootstrap,
+  restSelector,
+  viewedRoot,
+}: HallViewProps) {
   const [self, setSelf] = useState<InstanceSelfResponse | null>(null);
   const [instances, setInstances] = useState<InstanceRegistryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -101,14 +126,18 @@ export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewP
 
   const openBrain = useCallback(
     (entry: InstanceRegistryEntry) => {
-      if (entry.instance_id === selfId) {
-        onOpenBound();
+      const isSelf = entry.instance_id === selfId;
+      // The bound/self brain and hosted PROJECT brains open in the tree (§4A.9):
+      // hand the brain up so the parent sets the viewed brain + shows the tree.
+      if (isSelf || isProjectBrain(entry)) {
+        onOpenBrain(entry, isSelf);
         return;
       }
+      // A live SIBLING owner serves its own UI — open it in a new tab (§4A.4).
       const url = entryBaseUrl(entry);
       if (url) window.open(url, '_blank', 'noopener,noreferrer');
     },
-    [selfId, onOpenBound],
+    [selfId, onOpenBrain],
   );
 
   const saveBrain = useCallback(
@@ -196,36 +225,36 @@ export default function HallView({ onExit, onOpenBound, onBootstrap }: HallViewP
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {instances.map((entry) => (
-              <BrainCard
-                key={entry.instance_id}
-                entry={entry}
-                isSelf={entry.instance_id === selfId}
-                knownNodeCount={
-                  entry.instance_id === selfId && self ? self.graph_state.node_count : null
-                }
-                knownEdgeCount={
-                  entry.instance_id === selfId && self ? self.graph_state.edge_count : null
-                }
-                selected={entry.instance_id === selectedId}
-                // The viewing chip marks the ONE brain the tab is currently on
-                // (§4A.8). Today the tree is bound-graph-only, so that is the
-                // self/bound brain; when per-brain Open lands (2H) this flips to
-                // the served brain's id. Exactly one card ever wears it.
-                viewing={entry.instance_id === selfId}
-                // Card-v2 GOLD renders on the OPEN/bound brain only (§4A.3.1);
-                // hosted brains pass null → the fields are absent-honest.
-                gold={
-                  entry.instance_id === selfId
-                    ? { g1: v2.g1, g2: v2.g2, g3: v2.g3, g4: v2.g4 }
-                    : null
-                }
-                onReread={reread}
-                onCalibrate={calibrate}
-                onSelect={(en) => setSelectedId(en.instance_id)}
-                onOpen={openBrain}
-              />
-            ))}
+            {instances.map((entry) => {
+              const isSelf = entry.instance_id === selfId;
+              // The viewing chip marks the ONE brain the tree is currently on
+              // (§4A.8), now that per-brain Open (2H) lets it be a hosted brain.
+              // Bound view (viewedRoot=null) → the self card; a hosted view → the
+              // card whose project root matches. Exactly one card ever wears it.
+              const viewing =
+                viewedRoot == null
+                  ? isSelf
+                  : canonRootForCompare(brainProjectPath(entry)) === canonRootForCompare(viewedRoot);
+              return (
+                <BrainCard
+                  key={entry.instance_id}
+                  entry={entry}
+                  isSelf={isSelf}
+                  restSelector={restSelector}
+                  knownNodeCount={isSelf && self ? self.graph_state.node_count : null}
+                  knownEdgeCount={isSelf && self ? self.graph_state.edge_count : null}
+                  selected={entry.instance_id === selectedId}
+                  viewing={viewing}
+                  // Card-v2 GOLD renders on the OPEN/bound brain only (§4A.3.1);
+                  // hosted brains pass null → the fields are absent-honest.
+                  gold={isSelf ? { g1: v2.g1, g2: v2.g2, g3: v2.g3, g4: v2.g4 } : null}
+                  onReread={reread}
+                  onCalibrate={calibrate}
+                  onSelect={(en) => setSelectedId(en.instance_id)}
+                  onOpen={openBrain}
+                />
+              );
+            })}
           </div>
           {instances.length === 0 && !error && (
             <div className="rounded-xl border border-ink/10 bg-bone/50 px-6 py-10 text-center text-sm text-ink-soft">

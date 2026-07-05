@@ -170,11 +170,17 @@ const openTag = (out: string, role: string) => out.match(new RegExp(`<button[^>]
 /** React renders a disabled button with a bare/`=""` `disabled` ATTRIBUTE — distinct from the `disabled:` Tailwind class substring. */
 const hasDisabledAttr = (tag: string) => /\sdisabled(=""|>|\s)/.test(tag);
 
-test('INV-11: a hosted project brain (no REST routing) renders Open DISABLED with a residue tooltip', () => {
-  const out = html(<BrainCard entry={project} isSelf={false} selected={false} onSelect={noop} onOpen={noop} />);
-  // The project brain has no bound port → cannot open in place.
-  assert.ok(hasDisabledAttr(openTag(out, 'open-brain')), 'Open is disabled for the hosted brain');
-  assert.match(out, /REST brain routing/i, 'the residue is named in the tooltip');
+test('§4A.9: a hosted project brain renders Open DISABLED against an owner with no selector stamp — retired residue gone', () => {
+  // No `restSelector` → the pre-2H owner posture: Open stays disabled, but the
+  // retired "REST brain routing (not built yet)" residue is deleted (INV-11 exit).
+  const out = html(<BrainCard entry={project} isSelf={false} restSelector={false} selected={false} onSelect={noop} onOpen={noop} />);
+  assert.ok(hasDisabledAttr(openTag(out, 'open-brain')), 'Open is disabled without the stamp');
+  assert.doesNotMatch(out, /REST brain routing/i, 'the retired residue text is gone');
+});
+
+test('§4A.9: a hosted project brain renders Open ENABLED once the owner advertises the selector', () => {
+  const out = html(<BrainCard entry={project} isSelf={false} restSelector selected={false} onSelect={noop} onOpen={noop} />);
+  assert.ok(!hasDisabledAttr(openTag(out, 'open-brain')), 'Open is enabled with the stamp');
 });
 
 test('INV-11: the bound brain CAN be opened (Open is enabled)', () => {

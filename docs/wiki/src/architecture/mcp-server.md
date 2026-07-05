@@ -99,9 +99,17 @@ The `tools/list` method returns the live tool schemas with full `inputSchema` pe
 
 Under the `serve` feature (`--serve`, default port `127.0.0.1:1337`), `m1nd-mcp` also exposes an HTTP/axum surface (`m1nd-mcp/src/http_server.rs`) that serves the embedded web UI and a REST/SSE API sharing the SAME `SessionState` as the stdio transport:
 
-- `POST /api/tools/{tool}` — universal tool dispatch (same `dispatch_tool` free function the stdio transport uses).
-- `GET /api/graph/snapshot` · `subgraph` · `stats` — graph read endpoints.
-- `GET /api/instances` — **every brain this owner holds**, PROJECT-named (the Hall's brains surface, HUMAN-LAYER-PRD §4A.3). Lists the bound dev graph AND every owner-hosted per-project brain (Two-Tier interim, `project_brains.rs`). Each entry is a registry `InstanceRegistryEntry` enriched server-side (`http_server::instances_listing`) with two honest fields:
+- `POST /api/tools/{tool}` — universal tool dispatch (same `dispatch_tool` free function the stdio transport uses). Accepts the optional `?brain=<project_root>` **per-brain selector** (see below).
+- `GET /api/graph/snapshot` · `subgraph` · `stats` — graph read endpoints. Each accepts the optional `?brain=<project_root>` selector and echoes `served_brain` (see below).
+- **Per-brain selector `?brain=<project_root>` (HUMAN-LAYER-PRD §4A.9, slice 2H).** Every `/api/graph/*` read and `POST /api/tools/*` call takes an optional, URL-encoded absolute `project_root`. Resolution reuses the wire's routing verbatim (`http_server::resolve_brain` → `project_brains.rs`, #260):
+  - **absent** → the bound graph (today's behavior, byte-compatible — the serde-default posture on a URL);
+  - **names the bound root** → the bound graph (canonical-path match, so the macOS `/var`→`/private/var` alias and a trailing slash resolve);
+  - **names a known hosted brain** → that project brain, **warm-booting its dormant store on first touch**;
+  - **unknown root** → an honest `404` tool_error naming the miss (`"no brain for <root> — the Hall lists what exists"`), NEVER a filesystem read, NEVER an auto-create (creation stays consented: `ingest {project_root}` or `m1nd init`). The surface stays loopback-only — the param adds routing, not exposure.
+
+  Every `/api/graph/*` response carries a **`served_brain: {project_root, display_name}` echo** — the brain that actually answered — so a browser can ASSERT it against what it asked for and drop a mismatch (INV-15: never render one brain's nodes under another's chip). `GET /api/tools` carries a **`rest_brain_selector: true` capability stamp** so the UI feature-detects Open (never assumed, never version-sniffed).
+- `GET /api/tools` — the tool schema list + the `rest_brain_selector` capability stamp (above).
+- `GET /api/instances` — **every brain this owner holds**, PROJECT-named (the Hall's brains surface, HUMAN-LAYER-PRD §4A.3). Lists the bound dev graph AND every owner-hosted per-project brain (Two-Tier interim, `project_brains.rs`) — **warm brains from the in-memory map UNIONED with a cold DISK roster**: `ProjectBrainRegistry::disk_roster()` scans `<runtime_root>/project-brains/*/project_brain.json` manifests and surfaces every dormant brain with ZERO routed calls (display_name from the root basename, counts/freshness from the manifest — listing ≠ warm-boot; the warm map wins duplicates). This fixes the field bug where a hosted brain vanished from the Hall after an owner restart until a routed call warm-booted it. Each entry is a registry `InstanceRegistryEntry` enriched server-side (`http_server::instances_listing`) with two honest fields:
   - `display_name` — the **repo basename** ("m1nd", "Cerrybubbles1"), the brain's human name. NEVER the runtime dir ("claude") nor its `agent-memory` sidecar. Resolved from `SessionState::project_root_display` for the bound brain (its primary code ingest root, skipping `.light.md` memory files + the `agent-memory` dir) and from the store's `project_brain.json` manifest for a hosted `brain_kind:"project"` brain (whose raw `workspace_root` is the fingerprint store dir).
   - `project_root` — the repo the brain maps (the card's path).
 
@@ -118,7 +126,7 @@ Under the `serve` feature (`--serve`, default port `127.0.0.1:1337`), `m1nd-mcp`
 | `learn` | A `learn` feedback landed. |
 | `ingest` | An ingest completed (`nodes_added` / `edges_added`). |
 | `persist` | The graph persisted (a `generation` bump). |
-| `graph_changed` | **The shared graph actually mutated** — an agent ran `memorize` / `ingest` / `edit_commit` / `apply` / `learn`. Carries `{ event, agent_id?, source?, batch_id?, timestamp_ms? }`. |
+| `graph_changed` | **The shared graph actually mutated** — an agent ran `memorize` / `ingest` / `edit_commit` / `apply` / `learn`. Carries `{ event, agent_id?, source?, batch_id?, timestamp_ms?, brain_root? }`. The optional **`brain_root`** (§4A.9.6, additive — absent on a bound/legacy mutation and on a pre-2H owner) names WHICH brain mutated when the mutating call used `?brain=`; a viewer refetches when it names ITS brain OR carries no field (the honest over-refetch on old owners). |
 
 `graph_changed` is the browser (pure-reader) counterpart of the MCP transport's `notifications/m1nd/graph_changed` notification (`m1nd-mcp/src/mcp_http.rs`). Both renderings share ONE mutation-detection predicate — `mcp_http::graph_mutation_event_name` — so a read-only tool result never masquerades as a graph change on either surface. On the browser side `http_server::browser_graph_changed_event` derives the `graph_changed` event from a mutation event and the SSE handler emits it alongside the raw event. The served Living Tree listens for `graph_changed` to refresh its snapshot in place (debounced ~500 ms; a low-frequency `/api/graph/stats` poll is the graceful fallback when SSE is unavailable).
 

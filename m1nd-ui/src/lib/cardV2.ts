@@ -129,11 +129,20 @@ export function compoundingG3(snap: GraphSnapshot | null, now = Date.now()): Com
 export interface AlivenessG4 {
   sessions: number;
   queries: number;
-  /** "2 agents attached · 48 queries this session" — one caption, not two rows. */
+  /** "2 agents attached · 48 queries · across all brains" — one caption, not two rows. */
   caption: string;
 }
 
-/** The aliveness line for the open brain (self envelope). */
+/**
+ * The aliveness line for the open brain (self envelope).
+ *
+ * INTERIM HONESTY (§4A.3.1 G4): `active_agent_sessions`/`queries_processed` come
+ * from the OWNER-GLOBAL `health` counters — they are NOT partitioned per brain,
+ * so sessions on OTHER hosted brains (e.g. Cherry, GitRooms) inflate this card's
+ * numbers. Until per-brain partition lands (§9.5.1, keyed on
+ * `session.bound_project_root`), the caption is qualified "across all brains" so
+ * the count never claims a per-brain attribution it cannot back.
+ */
 export function alivenessG4(input: { active_agent_sessions?: number; queries_processed?: number } | null): AlivenessG4 | null {
   if (!input) return null;
   const sessions = input.active_agent_sessions ?? 0;
@@ -141,7 +150,7 @@ export function alivenessG4(input: { active_agent_sessions?: number; queries_pro
   return {
     sessions,
     queries,
-    caption: `${sessions} ${sessions === 1 ? 'agent' : 'agents'} attached · ${queries} ${queries === 1 ? 'query' : 'queries'} this session`,
+    caption: `${sessions} ${sessions === 1 ? 'agent' : 'agents'} attached · ${queries} ${queries === 1 ? 'query' : 'queries'} · across all brains`,
   };
 }
 

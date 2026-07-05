@@ -11,6 +11,8 @@ export type {
   ToolCallResult,
   ToolCallError,
   ToolSchema,
+  ToolsResponse,
+  ServedBrain,
   SseEvent,
   ToolId,
   ToolCategory,

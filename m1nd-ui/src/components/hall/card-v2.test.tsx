@@ -69,6 +69,16 @@ test('§4A.3.1 G4: aliveness shows the real sessions + queries from the self env
   assert.match(text, new RegExp(`${self.queries_processed} quer`));
 });
 
+test('§4A.3.1 G4 (interim honesty): the count is qualified "across all brains" — owner-wide until §9.5.1 partition', () => {
+  // active_agent_sessions/queries_processed are OWNER-GLOBAL `health` counters,
+  // not partitioned per brain (sessions on other hosted brains inflate this card).
+  // The caption must carry the owner-wide qualifier so it never claims a per-brain
+  // attribution it cannot back, and must NOT imply the count is this brain's alone.
+  const text = visible(React.createElement(BrainCardGold, { ...gold }));
+  assert.match(text, /across all brains/, 'G4 must qualify the owner-wide counter');
+  assert.doesNotMatch(text, /this session/, 'the retired "this session" copy overclaimed per-brain scope');
+});
+
 test('§4A.3.1 G2: an uncalibrated open card shows [Calibrate once] + the engine cap; calibrated shows measured ✓', () => {
   // Calibrated (the real fixture) → "measured here ✓", no Calibrate button.
   const cal = renderToStaticMarkup(React.createElement(BrainCardGold, { ...gold, onCalibrate: noop }));

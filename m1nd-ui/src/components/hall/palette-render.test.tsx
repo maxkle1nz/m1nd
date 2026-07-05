@@ -56,16 +56,27 @@ test('§4A.5: the palette renders a Brains group, recents-first, with liveness +
   assert.match(out, /last seen|seen just now/, 'each row shows freshness');
 });
 
-// ── INV-11 carried into the palette: hosted brain jump is disabled ────────────
-test('INV-11: a hosted project brain jump is DISABLED with the residue tooltip', () => {
-  const out = html(<BrainPalette isOpen instances={list.instances} selfId={bound.instance_id} onClose={noop} onOpenBound={noop} />);
-  // The project brain (no port) row is a disabled option naming the residue.
+// ── §4A.9 in the palette: hosted brain jump follows the selector stamp ────────
+test('§4A.9: a hosted project brain jump is DISABLED without the stamp — retired residue gone', () => {
+  const out = html(<BrainPalette isOpen instances={list.instances} selfId={bound.instance_id} onClose={noop} onOpenBound={noop} restSelector={false} />);
+  // Without the stamp the hosted (no-port) row is a disabled option, but the
+  // retired "REST brain routing" residue is deleted.
   const projTag = out.match(new RegExp(`<button[^>]*data-role="brain-jump"[^>]*data-openable="false"[^>]*>`))?.[0] ?? '';
-  assert.ok(hasDisabledAttr(projTag), 'the hosted brain jump is disabled');
-  assert.match(out, /REST brain routing/, 'the residue is named');
+  assert.ok(hasDisabledAttr(projTag), 'the hosted brain jump is disabled without the stamp');
+  assert.doesNotMatch(out, /REST brain routing/, 'the retired residue text is gone');
   // The bound brain jump IS enabled.
   const selfTag = out.match(new RegExp(`<button[^>]*data-role="brain-jump"[^>]*data-openable="true"[^>]*>`))?.[0] ?? '';
   assert.ok(!hasDisabledAttr(selfTag), 'the bound brain jump is enabled');
+});
+
+test('§4A.9: a hosted project brain jump is ENABLED with the stamp + a tree-open handler', () => {
+  const out = html(
+    <BrainPalette isOpen instances={list.instances} selfId={bound.instance_id} onClose={noop} onOpenBound={noop} onOpenBrain={noop} restSelector />,
+  );
+  // With the stamp the hosted row becomes openable (data-openable="true", enabled).
+  const projTag = out.match(new RegExp(`<button[^>]*data-role="brain-jump"[^>]*data-openable="true"[^>]*title="Open this brain in the tree"[^>]*>`))?.[0] ?? '';
+  assert.ok(projTag.length > 0, 'the hosted brain jump names the real tree-open action');
+  assert.ok(!hasDisabledAttr(projTag), 'the hosted brain jump is enabled with the stamp');
 });
 
 test('§4A.5: a closed palette renders nothing', () => {

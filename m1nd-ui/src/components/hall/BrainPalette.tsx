@@ -20,12 +20,19 @@ import {
   brainDisplayName,
   lastSeenPhrase,
   entryBaseUrl,
+  isProjectBrain,
+  canOpenBrainInPlace,
 } from '../../lib/hallSemantics';
 
 export interface BrainRow {
   entry: InstanceRegistryEntry;
   isSelf: boolean;
-  /** Can this brain be opened in place? (bound self, or a live sibling with a port) */
+  /** Opens in the tree (§4A.9): the bound brain, or a hosted brain when the owner
+   *  advertises the REST selector. */
+  opensInTree: boolean;
+  /** Opens in a new tab: a live sibling with its own port. */
+  opensInTab: boolean;
+  /** Openable at all (either path). Disabled + tooltip only when neither exists. */
   openable: boolean;
 }
 
@@ -46,9 +53,25 @@ interface BrainPaletteProps {
   selfId: string | null;
   /** Focus the bound brain's tree. */
   onOpenBound: () => void;
+  /**
+   * Open a brain IN THE TREE (§4A.9) — the bound brain or a hosted project brain.
+   * Optional so callers that only switch the bound brain keep working; when
+   * absent, a hosted brain is treated as not-openable-in-place.
+   */
+  onOpenBrain?: (entry: InstanceRegistryEntry, isSelf: boolean) => void;
+  /** §4A.9.5 capability stamp — enables hosted-brain jumps when true. */
+  restSelector?: boolean;
 }
 
-export default function BrainPalette({ isOpen, onClose, instances, selfId, onOpenBound }: BrainPaletteProps) {
+export default function BrainPalette({
+  isOpen,
+  onClose,
+  instances,
+  selfId,
+  onOpenBound,
+  onOpenBrain,
+  restSelector = false,
+}: BrainPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -57,9 +80,14 @@ export default function BrainPalette({ isOpen, onClose, instances, selfId, onOpe
     () =>
       instances.map((entry) => {
         const isSelf = entry.instance_id === selfId;
-        return { entry, isSelf, openable: isSelf || entryBaseUrl(entry) != null };
+        // A hosted brain opens in the tree only when we CAN route it there (the
+        // stamp is present AND the parent handed us the tree-open callback).
+        const opensInTree =
+          canOpenBrainInPlace(entry, isSelf, restSelector) && (isSelf || onOpenBrain != null);
+        const opensInTab = !opensInTree && entryBaseUrl(entry) != null;
+        return { entry, isSelf, opensInTree, opensInTab, openable: opensInTree || opensInTab };
       }),
-    [instances, selfId],
+    [instances, selfId, restSelector, onOpenBrain],
   );
   const filtered = useMemo(() => filterBrains(rows, query), [rows, query]);
 
@@ -75,8 +103,12 @@ export default function BrainPalette({ isOpen, onClose, instances, selfId, onOpe
 
   const jump = (row: BrainRow) => {
     if (!row.openable) return;
-    if (row.isSelf) onOpenBound();
-    else {
+    if (row.opensInTree) {
+      // Bound or hosted → open in the tree (§4A.9). Prefer the richer callback;
+      // fall back to the bound-only focus for the self brain.
+      if (onOpenBrain) onOpenBrain(row.entry, row.isSelf);
+      else if (row.isSelf) onOpenBound();
+    } else {
       const url = entryBaseUrl(row.entry);
       if (url) window.open(url, '_blank', 'noopener,noreferrer');
     }
@@ -142,11 +174,13 @@ export default function BrainPalette({ isOpen, onClose, instances, selfId, onOpe
                   onClick={() => jump(row)}
                   onMouseEnter={() => setSelectedIdx(i)}
                   title={
-                    row.openable
+                    row.opensInTree
                       ? row.isSelf
                         ? 'Open this brain (the tree)'
-                        : 'Open this brain in its own tab'
-                      : 'Opening a hosted project brain in place needs REST brain routing (not built yet)'
+                        : 'Open this brain in the tree'
+                      : row.opensInTab
+                        ? 'Open this brain in its own tab'
+                        : 'This owner can’t open a hosted brain yet — update it to browse hosted brains.'
                   }
                   className={`w-full text-left px-4 py-2 flex items-center gap-2 transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
                     i === selectedIdx ? 'bg-bone' : 'hover:bg-bone/60'
