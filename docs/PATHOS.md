@@ -2,13 +2,17 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-05 (**checkpoint 10 — THE DESIGN ERA CLOSES, THE CONSTRUCTION ERA
-> OPENS**). Six PRDs on `main` now form a single organism, capped by the **ORGANISM constitution**
-> (one spine · four grammars · one ritual · one cross-PRD build ladder R0–R17, adversarially
-> verified). The blueprints are done; the build order is fixed; the first three rungs shipped
-> (R0/R1/R5, #275). This is the capstone that closes the design era and hands the next agent a
-> ladder to climb — not another vision to write. Prior checkpoints (9 → 7) are summarized in
-> **Prior Eras** below; their full text lives in git history.
+> Last checkpoint: 2026-07-05 (**checkpoint 11 — THE LADDER IS CLIMBED, the close-out burst**).
+> The entire ORGANISM ladder R0–R17 is landed on `main` and live on the served owner: medulla
+> storage/tiers/promotion (R2/R3/R4), delegation (R6/R7), the per-project mailbox + UI (R8/R9),
+> Pre-Flight (R10), reconnect-rebind (R13), per-brain counters (R14), eviction (R15), the soul
+> (R16), seek-rerank conformance (R17) — and R11's deliverable, `docs/CASE-INTELLIGENCE-PRD.md`,
+> shipped as the last rung's PRD (its implementation slices S0–S4 are the next construction seed).
+> The close-out burst also wired the M5a migration CLI (`--medulla-migrate plan|apply|rollback`),
+> made `restart --binary` honest (loud dry-run + codesign + kickstart), fixed the mailbox roster's
+> duplicate-basename misrouting to the honest abstain, ran the first real `--inbox-sweep`
+> (idempotence proven live), and brought `skills/` to the serve-attach/medulla/delegation/soul era.
+> Prior checkpoints (10 → 7) are summarized in **Prior Eras** below; full text in git history.
 
 ## North Star
 m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
