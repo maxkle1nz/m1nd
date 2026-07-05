@@ -647,20 +647,31 @@ graph TD
     R16["R16 · SOUL-PRD + slices — LAST<br/>bound by C8.6"]
 ```
 
-**R0 — the honesty patch (MED-INV-6 hotfix).** *What:* the false-absence fix carved OUT of M5b and
-shipped first as a defect fix: a beat over a non-empty store surfaces memory or stamps
-`memory_exists: n` — never "No durable memory yet". *RED:* on file three times over — letter#52,
-the critic's session, and THIS session's own opening north (store ≥20 light roots, `memory: []`).
-*Unblocks:* trust in the flagship packet — every later rung's packets are honest. *(Adjudicates
-F24: urgency adopted by the split; the literal M5b-before-M5a reorder is refused — tier recall
-needs M5a's `Origin-Brain` labels; the dependency is real.)*
+**R0 — the honesty patch (MED-INV-6 hotfix). [SHIPPED 2026-07-05]** *What:* the false-absence fix
+carved OUT of M5b and shipped first as a defect fix: a beat over a non-empty store surfaces memory
+or stamps `memory_exists: n` — never "No durable memory yet". *RED:* on file three times over —
+letter#52, the critic's session, and THIS session's own opening north (store ≥20 light roots,
+`memory: []`). *Shipped:* north stamps `memory_exists` = the on-disk L1GHT store count; the false
+absence line fires only when the store is truly empty; RED→GREEN unit tests
+(`north_over_nonempty_store_never_claims_no_durable_memory` + the empty-store companion) plus
+`SessionState::light_memory_count`. *Unblocks:* trust in the flagship packet — every later rung's
+packets are honest. *(Adjudicates F24: urgency adopted by the split; the literal M5b-before-M5a
+reorder is refused — tier recall needs M5a's `Origin-Brain` labels; the dependency is real.)*
 
-**R1 — the packet diet (Budget Law enforcement, §C1.3).** *What:* dedup `fingerprint`/`graph_state`;
-the memorize write-path stops minting per-file ingest roots (flow fix); size battery-pinned on a
-reference graph (≤2k tokens MCP / ≤1,200 chars hook). *RED:* this session's live packet (dup arrays
-× 21 roots). *Unblocks:* the hook path can finally carry the packet it is doctrine-bound to
-deliver → R12; every satellite (inbox count, soul headline) enters under the one-line rule.
-*(R0 ∥ R1 — both small, both live defects, both pre-medulla.)*
+**R1 — the packet diet (Budget Law enforcement, §C1.3). [SHIPPED 2026-07-05]** *What:* dedup
+`fingerprint`/`graph_state`; the memorize write-path stops minting per-file ingest roots (flow fix);
+size battery-pinned on a reference graph (≤2k tokens MCP / ≤1,200 chars hook). *RED:* this session's
+live packet (dup arrays × 21 roots). *Shipped:* `graph_runtime_summary` carries only
+`ingest_root_count` (the full array lives once, in the fingerprint); a `.light.md` written into the
+`agent-memory` store collapses to the single store-dir root instead of one root per sidecar; the
+battery case `north_packet_within_budget` pins the live packet at ~1,419 tokens and fails CI on
+dup-arrays / sidecar-roots / >2k growth. RED→GREEN unit tests
+(`north_binding_serializes_ingest_roots_once_not_duplicated`,
+`memorize_does_not_mint_per_sidecar_ingest_roots`). *Measured:* the binding's roots footprint drops
+from ~356 tokens (array × 2, 21 roots) to ~12 (count + a 2-root array). *Unblocks:* the hook path
+can finally carry the packet it is doctrine-bound to deliver → R12; every satellite (inbox count,
+soul headline) enters under the one-line rule. *(R0 ∥ R1 — both small, both live defects, both
+pre-medulla.)*
 
 **R2 — M5a: storage split + `Origin-Brain` + migration + brainless-root refusal** (MEDULLA §11).
 *RED:* 25 mixed claims, zero `Origin-Brain`, ghost root; brainless-root memorize lands silently.

@@ -676,6 +676,12 @@ impl SessionState {
 
     pub fn graph_runtime_summary(&self) -> serde_json::Value {
         let graph = self.graph.read();
+        // Budget Law (§C1.3.4 "no duplicate serialization"): the full `ingest_roots`
+        // array is serialized ONCE, in `binding_fingerprint`. Here we carry only the
+        // COUNT — a north packet embeds both this `graph_state` and the fingerprint,
+        // so listing the array in both duplicated the roots byte-identical and blew
+        // the packet budget. Count + the canonical array in the fingerprint is the
+        // whole truth without the duplication.
         serde_json::json!({
             "node_count": graph.num_nodes(),
             "edge_count": graph.num_edges(),
@@ -684,7 +690,6 @@ impl SessionState {
             "plasticity_generation": self.plasticity_generation,
             "cache_generation": self.cache_generation,
             "ingest_root_count": self.ingest_roots.len(),
-            "ingest_roots": self.ingest_roots,
             "workspace_root": self.workspace_root,
             "workspace_root_source": self.workspace_root_source,
             "runtime_root": self.runtime_root,
@@ -942,14 +947,6 @@ impl SessionState {
     /// resolves to that; the bound graph skips its memory sidecars to reach the
     /// repo. Returns `None` only when the brain has no roots at all (empty graph).
     pub fn project_root_display(&self) -> Option<String> {
-        let is_memory_sidecar = |p: &str| {
-            p.ends_with(".light.md")
-                || std::path::Path::new(p)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "agent-memory")
-                    .unwrap_or(false)
-        };
         // 1. First real code ingest root that is not a memory sidecar.
         for root in &self.ingest_roots {
             if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {

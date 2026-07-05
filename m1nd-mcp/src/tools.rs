@@ -815,17 +815,41 @@ fn finalize_ingest(
         state.ingest_roots.clear();
         state.ingest_roots.push(input.path.clone());
     } else {
+        // Budget Law (§C1.3.4 write-path fix): a `.light.md` memory claim written
+        // into the `agent-memory` STORE must NOT mint a per-file ingest root — the
+        // store DIRECTORY is the one root, not each sidecar. Otherwise every
+        // `memorize` write grows the roots array by one, sprawling the packet.
+        // Narrowly scoped to files whose parent dir is `agent-memory`: a user
+        // ingesting an arbitrary `.light.md` by path elsewhere keeps its own root
+        // (that path is a deliberate root, not store sprawl).
+        let ingest_path = std::path::Path::new(&input.path);
+        let parent_is_agent_memory = ingest_path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(|n| n == "agent-memory")
+            .unwrap_or(false);
+        let root_to_track =
+            if input.path.ends_with(".light.md") && ingest_path.is_file() && parent_is_agent_memory
+            {
+                ingest_path
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| input.path.clone())
+            } else {
+                input.path.clone()
+            };
         // Keep the vector ordered oldest -> newest so path resolution can prefer
         // the most recent matching root deterministically.
         if let Some(pos) = state
             .ingest_roots
             .iter()
-            .position(|root| root == &input.path)
+            .position(|root| root == &root_to_track)
         {
             let root = state.ingest_roots.remove(pos);
             state.ingest_roots.push(root);
         } else {
-            state.ingest_roots.push(input.path.clone());
+            state.ingest_roots.push(root_to_track);
         }
     }
     let input_path = std::path::Path::new(&input.path);
@@ -5397,6 +5421,80 @@ mod tests {
         assert!(
             edges_after_memorize >= edges_baseline,
             "edge count must not collapse after memorize: was {edges_baseline}, now {edges_after_memorize}"
+        );
+    }
+
+    /// R1(b) — Budget Law write-path fix (RED→GREEN): the `memorize` write-path
+    /// must NOT mint a per-file ingest root for every `.light.md` claim it writes.
+    /// The store DIRECTORY is the one root; each sidecar file collapses into it.
+    /// Before the fix, memorizing N claims grew `ingest_roots` by N sidecar files,
+    /// sprawling the north packet. After: at most ONE `agent-memory` root appears,
+    /// and no individual `.light.md` file is listed as a root.
+    #[test]
+    fn memorize_does_not_mint_per_sidecar_ingest_roots() {
+        use crate::light_author_handlers::{handle_light_author, LightAuthorInput, LightClaim};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime_dir = temp.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).expect("runtime dir");
+        let config = McpConfig {
+            graph_source: runtime_dir.join("graph.json"),
+            plasticity_state: runtime_dir.join("plasticity.json"),
+            runtime_dir: Some(runtime_dir),
+            ..Default::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("init session");
+
+        // Memorize several distinct claims (default agent-memory path, ingest_after).
+        for i in 0..4 {
+            handle_light_author(
+                &mut state,
+                LightAuthorInput {
+                    agent_id: "test".into(),
+                    node_label: format!("Claim{i}"),
+                    title: None,
+                    state: None,
+                    claims: vec![LightClaim {
+                        label: format!("Fact{i}"),
+                        text: Some(format!("durable fact number {i}")),
+                        kind: Some("entity".into()),
+                        confidence: Some("high".into()),
+                        ambiguity: None,
+                        evidence: vec![],
+                        depends_on: vec![],
+                    }],
+                    output_path: None,
+                    namespace: None,
+                    ingest_after: true,
+                    mode: "merge".into(),
+                    supersedes: None,
+                },
+            )
+            .expect("memorize");
+        }
+
+        // No individual `.light.md` file may appear as an ingest root.
+        let sidecar_roots: Vec<&String> = state
+            .ingest_roots
+            .iter()
+            .filter(|r| r.ends_with(".light.md"))
+            .collect();
+        assert!(
+            sidecar_roots.is_empty(),
+            "no per-file `.light.md` sidecar may be an ingest root; found {sidecar_roots:?} in {:?}",
+            state.ingest_roots
+        );
+        // At most one `agent-memory` store dir root (the collapse target), not four.
+        let store_roots = state
+            .ingest_roots
+            .iter()
+            .filter(|r| r.ends_with("agent-memory"))
+            .count();
+        assert!(
+            store_roots <= 1,
+            "the memory store must collapse to at most ONE dir root, got {store_roots} in {:?}",
+            state.ingest_roots
         );
     }
 
