@@ -65,3 +65,8 @@ agent-memory/.locks/
 # vanish again (it was previously gitignored and died with cleared scratchpads).
 scratchpad/*
 !scratchpad/m1nd_battery.py
+
+# Internal/maintainer-only working docs (design drafts, build reports, benchmarks
+# with local paths) live here but are NOT published with the product.
+docs/internal/
+.github/wiki/VERIFICATION_REPORT.md

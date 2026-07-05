@@ -7,9 +7,9 @@ If you are contributing through real agent usage, also keep
 capture surface for moments where an agent used `m1nd`, did not get the exact
 answer it needed, and had to compensate outside the graph.
 
-For large capability waves, follow
-[docs/internal/M1ND-MAJOR-UPDATE-WORKFLOW.md](docs/internal/M1ND-MAJOR-UPDATE-WORKFLOW.md) so
-code, docs, built docs, and release surfaces move together.
+For large capability waves, move code, docs, built docs, and release surfaces
+together in the same change — a feature is not complete until the documentation
+and wiki reflect it.
 
 ## Getting Started
 
