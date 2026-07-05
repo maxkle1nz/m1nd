@@ -17,6 +17,8 @@ interface TreeDrawerProps {
   row: TreeRow | null;
   band: TrustBand;
   onClose: () => void;
+  /** Open the Pre-Flight Card seeded with this node (§3.4, the hero entry). */
+  onCheckBeforeEditing?: (row: TreeRow) => void;
 }
 
 /**
@@ -68,7 +70,7 @@ export function feedbackLine(band: TrustBand): string {
   }
 }
 
-export default function TreeDrawer({ row, band, onClose }: TreeDrawerProps) {
+export default function TreeDrawer({ row, band, onClose, onCheckBeforeEditing }: TreeDrawerProps) {
   const [impact, setImpact] = useState<ImpactOutput | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
 
@@ -136,6 +138,18 @@ export default function TreeDrawer({ row, band, onClose }: TreeDrawerProps) {
             {feedbackLine(band)}
           </div>
         </div>
+        {/* The hero entry (§3.4): open the Pre-Flight Card seeded with this node —
+            "see what the agent verified vs. guessed before it touches your code." */}
+        {onCheckBeforeEditing && (
+          <button
+            type="button"
+            data-role="check-before-editing"
+            onClick={() => onCheckBeforeEditing(row)}
+            className="mt-2 w-full text-left px-3 py-1.5 rounded bg-bone text-ink border border-ink/20 hover:shadow-contact transition-shadow text-[12px]"
+          >
+            Check before editing
+          </button>
+        )}
       </div>
 
       {/* Blast whisper (floor language) */}
