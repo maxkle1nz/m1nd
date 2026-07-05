@@ -1534,4 +1534,47 @@ function homeForTest() {
   return process.env.M1ND_TEST_HOME || os.homedir();
 }
 
+// === restart --binary honesty (dry-run loudness) =========================
+// Field bug: `restart --binary <target>` WITHOUT --yes is a silent dry-run —
+// the operator reads "version: X -> X", assumes the swap happened, and nothing
+// was installed. When a source IS installable, the plan must say so LOUDLY,
+// naming the exact target, so the dry-run can never be mistaken for a swap.
+{
+  const repoRoot = path.resolve(__dirname, "..", "..");
+  const target = path.join(mkTmpDir(), "m1nd-mcp");
+  const plan = restart({
+    source: repoRoot, // the m1nd checkout — sourceLooksBuildable() is true here
+    binary: target,
+    "no-kill": true, // do not touch real processes during the test
+  });
+  assert.strictEqual(plan.dry_run, true, "no --yes → dry run");
+  assert.strictEqual(plan.source_buildable, true, "the m1nd checkout is buildable");
+  assert(
+    plan.next_actions.some(
+      (action) =>
+        action.includes("DRY RUN") &&
+        action.includes("nothing was installed") &&
+        action.includes(target)
+    ),
+    `dry-run plan must loudly say nothing was installed and name the target ${target}; got:\n` +
+      plan.next_actions.map((a) => `  - ${a}`).join("\n")
+  );
+}
+
+// When there is NO installable source, the loud dry-run install line must NOT
+// appear (there was nothing to install — the honesty cuts both ways).
+{
+  const target = path.join(mkTmpDir(), "m1nd-mcp");
+  const plan = restart({
+    source: mkTmpDir(), // an empty dir — not a buildable m1nd checkout
+    binary: target,
+    "no-kill": true,
+  });
+  assert.strictEqual(plan.source_buildable, false, "an empty dir is not buildable");
+  assert(
+    !plan.next_actions.some((action) => action.includes("DRY RUN — nothing was installed")),
+    "with no installable source, the loud install-swap line must be absent"
+  );
+}
+
 console.log("npm cli tests ok");
