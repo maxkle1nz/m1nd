@@ -553,6 +553,7 @@ knobs at the top of the script.
 - MCP stdio client pattern: `scratchpad/focus_smoke.py` (Content-Length JSON-RPC).
 - Build: `cargo build -p m1nd-mcp --bin m1nd-mcp` → `./target/debug/m1nd-mcp`.
 - 360 vision: `docs/X360-RUNTIME-PRD.md`. Focus runtime: `docs/FOCUS-RUNTIME-PRD.md`.
+- **The Soul — THIS FILE's own future as a verified m1nd type:** `docs/SOUL-PRD.md` (claim grammar + two tissues, `soul_check` freshness receipt, curator at the doc-gate; Fable design 2026-07-05, grounded on a live probe of this very document — 12 fresh / 12 stale / 3 receipt-priced of 27 sampled claims).
 - Ambient layer per host (session-start hooks / rules files / TIER A–D recipes, fleet research 2026-07-03): `docs/HOST-INTEGRATION-MATRIX.md`.
 - git identity = Max Kle1nz <kleinz@cosmophonix.com>. **gh GOTCHA: the active
   account silently flips to `velvetside` mid-session → `gh pr create` fails with

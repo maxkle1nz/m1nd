@@ -115,6 +115,8 @@ flowchart TD
 
 Policy law: **memory is the brain; caches are the metabolism. The brain travels with git; metabolism is per-machine.** The repo's own `.gitignore:48-54` already encodes this in miniature (track `agent-memory/*.light.md`, ignore `.history/`/`.locks/`) — the policy below is that precedent, generalized.
 
+*(Pointer, 2026-07-05: the project's curated handoff document — PATHOS as a verified soul with anchored claim states, a freshness receipt, and a curator at the doc-gate — rides this same committed class and is spec'd whole at `docs/SOUL-PRD.md`; its write half mounts on the M5a→M6 medulla ladder, its read-only verifier (S0) composes shipped organs.)*
+
 | Path in `<repo>/.m1nd/` | Git | Rationale |
 |---|---|---|
 | `brain.json` | **COMMIT** | Brain identity manifest (schema §5.2). **Data only — never executable paths** (§9.4). |
