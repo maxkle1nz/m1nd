@@ -2,17 +2,24 @@
 
 > Read this first. Single source of truth for any chat / subagent / parallel
 > session working on m1nd, so we don't re-derive state or contradict each other.
-> Last checkpoint: 2026-07-03 (**checkpoint 9 — THE CONSTRUCTION ERA OPENS**). The most
-> transformative 24h in the project's history: **three official PRDs merged** (HUMAN-LAYER
-> #222, NEXTGEN §O.12 Delegation Layer #224, TWO-TIER-BRAIN #227), the **first human surface
-> SHIPPED** (Living Tree Slice 0, #232 — read-only tree + provenance post-its + trust dots in
-> `m1nd-ui`), the README **re-spined as "the shell"** (#228), the **agent-docs CI gate armed**
-> (#229), and the **field-report mailbox emptied in ~a day** (#230/#231/#233/#234/#235 + the
-> earlier #218/#219/#225/#226). Battery at **37**, zero grep losses. The runtime is a **launchd
-> medulla** warm-booting ~6.3k nodes with 4 hosts attaching one brain. OMEGA (Moves 0+1 + honest
-> Move-2 reframe) shipped in v1.2.0/1.2.1 (both released) and is now the FLOOR — the era ahead is
-> CONSTRUCTION on top of it: the tree goes alive, the Pre-Flight card renders, the two-tier brain
-> slices in, the inbox verbs land. Prior checkpoints 8.1 / 8 / 7 preserved below.
+> Last checkpoint: 2026-07-05 (**checkpoint 10 — THE DESIGN ERA CLOSES, THE CONSTRUCTION ERA
+> OPENS (climb R0)**). The design era is DONE: **six PRDs on main now form the organism**, capped
+> by the **ORGANISM constitution** (#269 + #270 follow-up) — the last blueprint of the design era,
+> adversarially verified SOUND: one spine (the north packet, N readers), four grammars (the only
+> state vocabularies), one ritual ("leave it warmer"), and **the C10 ladder R0→R17** — a single
+> cross-PRD build order any implementer can read alone. The other five that feed it: MEDULLA
+> (#266/#267 — antifragile memory across brains), SOUL (#268 — PATHOS as a verified m1nd type),
+> HUMAN-LAYER (#259/#261/#262/#263/#264 — the Hall/tree/mailbox/precision surfaces), TWO-TIER
+> (#258/#260/#265 — per-project brains, reception, routing), and NEXTGEN §O.12 (the delegation
+> layer). **The construction era's ORDER is the constitution's C10 ladder:** R0 (packet honesty)
+> is the first rung; the SAFE agent-facing rungs (R0/R1/R5) are being climbed THIS night,
+> autonomously (the `m1nd-NIGHT-GOAL.md` mandate); **R2 (the medulla storage split + migration)
+> is HELD for Max's eye — it moves live memory.** The runtime is a **launchd medulla** on
+> `:1338` warm-booting **4 brains** (m1nd bound + Cherrybubbles1/reeplay/reporooms project brains)
+> — reception is honest, the Hall renders projects, per-brain Open works. Binary served at
+> `54cb66a` (1.3.2); the night's R0/R1 land will rebuild it. Battery at **27 integration files**,
+> 112 tools. OMEGA (Moves 0+1 + honest Move-2 reframe) stays the FLOOR beneath it all. Prior
+> checkpoints 9 / 8.1 / 8 / 7 preserved below.
 > Prior: 2026-07-03 (**checkpoint 8.1 — v1.2.1 CUT: compounding live in the runtime**).
 > v1.2.1 tagged on the merge commit, published to crates.io + npm, GitHub Release cut, and
 > Max's live `:1338` owner rebuilt on the 1.2.1 binary — carrying the four field-triage fixes
@@ -37,13 +44,140 @@ m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 `rg`/Read in the inner loop, measured honestly — not tie, not "feels useful".
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
-**The era-9 arc:** OMEGA (the verifiable trust substrate — answer + map + trust receipt) is
-now the FLOOR, released and live in Max's runtime. The work ahead is CONSTRUCTION on top of
-it, across three now-official fronts: the **HUMAN LAYER** (the Living Tree + Pre-Flight card —
-a coding agent's memory made legible to a human), the **DELEGATION LAYER** (§O.12 — a parent
-agent hands a child a grounded packet and reads back a debrief), and the **TWO-TIER BRAIN**
-(per-project brains + a shared medulla, sliced in proof-grown). Each slice ships proof-grown,
-degrading to UNPROVABLE rather than a fake green — the same bar, applied to building outward.
+**The arc, at cp10 — the design era closes, the construction era opens.** OMEGA (the verifiable
+trust substrate — answer + map + trust receipt) is the FLOOR, released and live in Max's runtime.
+The design era that built on it is now DONE: six PRDs on main form **the organism**, adjudicated
+into one constitution (`docs/ORGANISM-PRD.md`) — one spine, four grammars, one ritual, and the
+**C10 ladder R0→R17** that is the single build order for everything after it. The work ahead is
+CONSTRUCTION: climb the ladder rung by rung, each RED-first, each degrading to UNPROVABLE rather
+than a fake green — the same bar, applied to building the organism. R0 (packet honesty) is the
+first rung; **R2, the medulla migration, moves Max's live memory and is HELD for his eye.**
+
+## Current State (2026-07-05, checkpoint 10 — THE DESIGN ERA CLOSES, THE CONSTRUCTION ERA OPENS)
+
+**The one sentence: the blueprints are done, and they were adjudicated into a constitution — now
+we build.** cp9 opened the construction era with three PRDs; the design era then went *deep* rather
+than wide, and closed with **six PRDs on main forming a single organism**, capped by a constitution
+that resolves their contradictions into law. What remains is not more design — it is the climb.
+
+### The design era closed — SIX PRDs on main, one organism
+
+Each is named with its one-line role. Where two disagree, **the constitution wins** (each feeder
+carries an amendment pointer, §C11):
+
+- **`docs/ORGANISM-PRD.md` — THE CONSTITUTION (#269 + #270 follow-up).** The last blueprint of the
+  design era. It adopts or refuses every finding from a joint organism map + a 26-finding
+  adversarial critique (Appendix ADJ), and lays down: **one spine** (the north packet
+  `m1nd-north-packet-v0` — one atom, N reader-views: agent/human/child/first-contact/soul, C1);
+  **four grammars** (the ONLY state vocabularies — trust ladder `act|reverify|abstain|unprovable`;
+  belief lifecycle `project_private→promoted→superseded`; letter fates
+  `wet_ink|in_flight|fired_clay|external`, derived-never-stored; X-RAY conformance
+  `BEDROCK|BLUEPRINT|EROSION|OVERGROWTH|UNPROVABLE`, C2); **one ritual** ("leave it warmer" —
+  `memorize` + `learn` + a letter only if m1nd misbehaved; the machine owns five hooks/daemon
+  beats; the repo owns the landing gate, C3); and **the C10 ladder R0→R17**, the single cross-PRD
+  build order (below). It was **adversarially verified SOUND** — the #270 follow-up folded the
+  verification pass's corrections back in. It carries no line numbers by design (the symbol is the
+  contract).
+- **`docs/MEDULLA-PRD.md` (#266/#267) — the antifragile memory layer across brains.** States not
+  vibes, pull never push: a brain's beat carries its own project memory + the medulla and *nothing
+  else unrequested*; cross-project knowledge is one explicit argument away. It makes the Two-Tier
+  memory split (Slices 5–7) implementable — storage split, `Origin-Brain` labels, tier recall,
+  promotion. Its live probe reproduced the false-absence honesty defect (the R0 seed).
+- **`docs/SOUL-PRD.md` (#268) — PATHOS as a first-class verified m1nd type.** THIS document's
+  successor-in-law: the project's agentic soul with *a system that knows what in it is real* — a
+  claim grammar, a freshness receipt, a curator at the gates. It does not replace the PATHOS
+  practice; it gives it structural trust. Bound by the constitution's §C8.6 seven constraints;
+  rides LAST on the ladder (R16), designed against a working medulla.
+- **HUMAN-LAYER (`docs/HUMAN-LAYER-PRD.md`, shipped across #259/#261/#262/#263/#264) — the human
+  face.** The Hall (brains-as-projects), the Living Tree, the Mailbox, and the precision system
+  (iconography, lenses, filters, honest semantic search). A coding agent's memory made legible to
+  a human. Slices 0T/1H/1T/2H are SHIPPED and dogfooded live.
+- **TWO-TIER (`docs/TWO-TIER-BRAIN-PRD.md`, shipped across #258/#260/#265) — reception + routing +
+  per-project brains.** The memory that travels with git: one-call `ingest(project_root)` bootstrap,
+  silent cwd routing, degraded-mode reception (a caller outside the bound repo gets honesty, not
+  silence), and per-brain Open in the browser. This is why m1nd works in ANY repo now.
+- **NEXTGEN §O.12 (`docs/NEXTGEN-AGENT-PRD.md`) — the delegation layer.** The parent→child
+  contract: a grounded delegation packet (a mother-pre-filled reception), a debrief read back on
+  return, delegation-abstain. OMEGA's reach extended from one agent to a tree of agents.
+
+### The construction era's ORDER is the constitution's C10 ladder (R0→R17)
+
+An implementer reads §C10 alone and knows what to build Monday. The long pole is the medulla state
+machine (M5a→M5b→M6, rungs R2→R3→R4); every rung composes over the write door (§C4) and the packet
+spine (§C1); **no rung lands without its RED battery case first, its doc pass, and the landing
+gate.** The rungs in play right now:
+
+- **R0 — the honesty patch (MED-INV-6 false-absence).** The FIRST rung: a beat over a non-empty
+  store surfaces memory or stamps `memory_exists: n` — never "No durable memory yet". Agent-facing,
+  SAFE to activate on live (it only improves the morning packet). **Being built THIS night.**
+- **R1 — the packet diet (Budget Law §C1.3).** Dedup `fingerprint`/`graph_state`; the `memorize`
+  write-path stops minting per-file ingest roots; size battery-pinned (≤2k tokens MCP / ≤1,200
+  chars hook). SAFE on live (a leaner packet). **Being built THIS night** (one PR with R0).
+- **R5 — Windows CI honesty.** Fix the `display_name` separator teardown, or honestly demote
+  Windows from "blocking" until it blocks again. CI-only, zero runtime risk. **This night.**
+- **R2 — M5a: storage split + `Origin-Brain` + migration + brainless-root refusal. HELD for Max's
+  eye.** The long pole. Its migration moves Max's LIVE agent-memory into per-brain dirs — doing
+  that unattended violates never-delete-unverified + the permanence-diff move. **First thing WITH
+  Max when he wakes.** R3/R4 (tier recall, the `promote` verb) stack on it. R12 (the ambient hook
+  install) is a named human gate; all distribution / Show HN are Max's.
+
+### Current runtime reality (probed live this checkpoint, `:1338`)
+
+The launchd owner is up ~2.6h, **binary 1.3.2 `54cb66a-dirty`**, warm-booting **4 brains**: the
+bound `m1nd` owner graph (6642 nodes / 21040 edges) plus three disk-backed project brains that
+warm-boot on touch and render in the Hall — **Cherrybubbles1** (2103 nodes), **reporooms** (1131),
+**reeplay** (4). 112 tools advertised. Per-brain Open works; reception is honest (a call from
+`/Users/kle1nz` gets `caller_root_mismatch` + options, never a silent wrong-brain bind); the Hall
+renders projects from the disk roster even when dormant. **Note:** the night's R0/R1 land will
+rebuild the served binary — a kickstart (`launchctl kickstart -k gui/502/com.kle1nz.m1nd-serve`)
+inherits the honesty/diet; **never kickstart a live-memory migration (R2) unattended.**
+
+### Known Problems (honest — from the mailbox, `~/.m1nd/field-reports.jsonl`)
+
+The mailbox letters ARE the RED cases for the ladder — this is the loop working:
+
+- **The false-absence class (R0 fixes) — THREE witnesses.** `north`'s memory beat returned
+  `memory: []` + honest_gaps "No durable memory yet" while the bound owner visibly holds ~20
+  `.light.md` claims (letters #52 `fable-medulla-prd`, #55 `fable-soul-prd`, #57
+  `fable-adversarial-critic` — three independent agents, two days). The #226 broad fallback scores
+  below `min_score` against the live claim set, so the envelope claims absence while memory exists
+  (the inverse of absent-never-faked). Class `honesty` — the highest-value calibration ground truth.
+- **Packet bloat (R1 fixes).** `north.binding` serializes the full 21-entry `ingest_roots` array
+  TWICE byte-identically (`fingerprint` AND `graph_state`), and every memorized `.light.md` rides
+  as its own root entry — several KB of duplicated plumbing against the one-packet / pull-not-push
+  doctrine and the ≤1,200-char hook budget.
+- **Windows CI red (R5 fixes).** `session::tests::display_name_is_the_repo_basename_not_the_agent_memory_sidecar`
+  fails on CI: `display_name()` assumes `/` separators; Windows `PathBuf::join` yields `\\`, so the
+  sidecar-vs-repo discrimination misfires. Pre-existing on main; the build floor is dishonest until
+  fixed or demoted.
+- **seek-scope-not-honored (NEW — triage).** `seek` with `scope=docs/PATHOS.md` returned 3 results
+  all OUTSIDE the requested scope (`audit_handlers`/`universal_docs`/`search_handlers`);
+  `workspace_binding` echoed the requested scope but the results ignored it — either the id-prefix
+  filter misses the `file::` compare or a broad fallback ran unlabeled. Needs a triage → RED case.
+- **The held R2 migration risk.** M5a moves live agent-memory into per-brain dirs — the one rung
+  that can lose Max's memory if run wrong. It is deliberately NOT autonomous.
+
+### The doctrine additions this era
+
+- **The six-moves checklist (MaxEyeDoctrine — the human eye, operationalized).** Max's six review
+  moves, now a memorized doctrine an agent can run without him noticing: interrogate the surface ·
+  diff of permanence (what survives a restart) · confusion-is-telemetry · whose-number-is-this ·
+  the adjacent actor · the principle sweep. It is the human-eye discipline made into a repeatable
+  agent motion (the abandonment signal + absence sentinels of R8/R11 are its mechanization).
+- **Product vocabulary (sealed, glossary-pinned).** brains (per-project graphs) · the Hall (the
+  projects area) · the shell (the operating loop the README is spined around) · the medulla (the
+  shared always-on cross-project layer). "evidence" belongs to memory, "feedback" to learn-history
+  — the two never collide in copy (pinned by test, §4A.3.1).
+- **The antifragile memory loop.** States not vibes: every claim in exactly one lifecycle state,
+  every transition an explicit recorded act; confusion becomes structurally impossible on the
+  default path; the system improves itself from pertinent information without leaking other
+  sessions' noise unrequested (MEDULLA §1, the four laws).
+- **The ephemeral-context thesis.** Contexts are **born per mission, die at close** — only the
+  distilled survives. A chat/subagent/worktree is a disposable working memory; what must persist is
+  memorized (project memory), promoted (medulla doctrine), or curated (the soul/PATHOS). The SOUL
+  layer is what makes the handoff *verifiable* — a PATHOS that the system can check for real vs
+  stale, so opening a new chat never silently loses something important. This PATHOS checkpoint is
+  that thesis in action: the artifact a fresh context reads to recover the climb.
 
 ## Current State (2026-07-03, checkpoint 9 — THE CONSTRUCTION ERA OPENS)
 
@@ -764,28 +898,32 @@ before "done" — now a standing CLAUDE.md rule) → seed the next move.
 
 ## Next Agent Prompt / next seeds
 
-**→ ACTIVE NORTH IS THE CONSTRUCTION ERA. OMEGA (§O.10, below) is the FLOOR — released and
-live — not the frontier anymore.** The frontier is building outward on three official PRDs,
-in this order, each slice proof-grown and degrading to UNPROVABLE rather than a fake green:
+**→ IF YOU WAKE INTO THIS REPO: the design era is CLOSED; the era is CONSTRUCTION. Your build
+order is not a judgment call — it is the constitution's C10 ladder.** Read
+`docs/ORGANISM-PRD.md` §C10 (the ladder, R0→R17) — an implementer reads that chapter alone and
+knows what to build. OMEGA (§O.10, below) is the FLOOR beneath the whole climb, not the frontier.
+The discipline is unchanged: RED-first (a battery case that fails without the fix, passes with it),
+adversarially verified (never trust a workflow's own green — the verifiers must actually run),
+degrade to UNPROVABLE rather than fake a green.
 
-1. **FIRST — make the tree ALIVE: SSE `graph_changed` + vendored fonts.** Living Tree Slice 0
-   ships a read-only *snapshot*; the next move is the two Slice-0 deferrals that turn it live —
-   the `graph_changed` SSE refresh (the tree updates as the graph does; this ALSO closes the
-   SSE pure-reader relay gap in Known Problems) and vendored fonts (drop the external link). This
-   is the smallest, highest-leverage next step: the human surface stops being a photo and becomes
-   a window.
-2. **THEN — Human-Layer Slice 1: the Pre-Flight Card** (`docs/HUMAN-LAYER-PRD.md`). The hero: the
-   **§O.12 delegation packet rendered** as the card a human reads before an agent acts — binding
-   trust + focus + prior memory + honest gaps, made legible. The delegation packet already exists
-   as a contract (§O.12); Slice 1 is its human face.
-3. **Two-Tier Brain slices — CLONE GATE FIRST** (`docs/TWO-TIER-BRAIN-PRD.md`). Slice in the
-   per-project-brain + medulla architecture proof-grown; the clone-gate (a project brain forks
-   cleanly from the medulla without dragging cross-project memory) is the first slice, then the
-   per-project inbox. The Slice-6 cwd-matrix battery (§21.14) is budgeted but unbuilt.
-4. **Inbox verbs — `inbox_drop` / `inbox_sweep` + a `north` inbox counter.** The per-project inbox
-   doctrine is sealed in medulla memory; the verbs that operate it (drop a cross-project note into a
-   project's inbox, sweep it on next `north`) + surfacing an inbox count in the north packet are the
-   delegation-layer's runtime hands.
+1. **Climb R0 first, then up the ladder** per the night ledger in `~/m1nd-NIGHT-GOAL.md`. R0
+   (packet honesty / MED-INV-6) is the first rung; R1 (packet diet) ∥ R0 (both small, both live
+   defects, both pre-medulla, one PR); R5 (Windows CI honesty) is parallel and anytime. After a
+   land that touches the served binary, rebuild + kickstart the live `:1338` — but ONLY for the
+   SAFE agent-facing rungs (R0/R1). Then R6 (delegation slices), R10 (the Pre-Flight Card), R7/R8
+   (the memory + telemetry slices), R9 (the Mailbox view) — the ladder's own order.
+2. **The mailbox letters ARE your RED cases.** `~/.m1nd/field-reports.jsonl` is not a suggestion
+   box — a `honesty`-class letter is calibration ground truth. Every triage session STARTS by
+   sweeping it; a confirmed bug becomes a battery case BEFORE the fix. The false-absence class
+   (R0), the packet bloat (R1), the Windows red (R5), and the new seek-scope-not-honored letter
+   are already the next cases.
+3. **NEVER live-migrate memory (R2) without Max.** M5a moves his live agent-memory into per-brain
+   dirs — the one rung that can lose memory if run wrong. It is HELD for his eye; R3/R4 (tier
+   recall, the `promote` verb) stack on it. R12 (ambient hook install) is a named human gate; all
+   distribution / Show HN copy is Max's (never write HN/Reddit copy for him).
+4. **When the ladder is climbed, the soul rides LAST (R16).** The SOUL-PRD makes THIS document a
+   verified type — designed against a working medulla (R2–R4 landed), bound by the §C8.6 seven
+   constraints. Until then, keep this PATHOS current by hand at each checkpoint (the ritual).
 
 **Doctrine pointers (carry verbatim into every spawned agent):** the **UNIVERSAL FIELD-TELEMETRY
 DOCTRINE** (every agent/repo is a sensor → REPORT to `~/.m1nd/field-reports.jsonl`, never fix
@@ -801,14 +939,17 @@ docs are authored by Fable — Opus grounds/researches beneath, Fable holds the 
 
 **↓ THE FLOOR (still-true reference): m1nd-OMEGA, `docs/NEXTGEN-AGENT-PRD.md` §O.10 — the ranked
 OMEGA roadmap, calibration-gated, reuse-first, honest.** Moves 0 (calibration) + 1 (Envelope)
-DONE and RELEASED (v1.2.0/1.2.1); the honest Move-2 reframe shipped. Read §O.1–O.11 for the vision
+DONE and RELEASED (v1.2.0/1.2.1); **the honest Move-2 reframe shipped (#203) — the original
+"solvency / token-budget savings" claim was DROPPED as an uncalibrated confident guess** (m1nd does
+not have a true token-economics signal, so it stopped asserting one). Read §O.1–O.11 for the vision
 (answer + map + trust receipt), the calibration keystone, the critic corrections, and the open
-poisoned-oracle risk. Move 2 (Solvency) and Moves 3–9 remain if the construction era ever needs to
-return to deepening the substrate — but they are NOT the active north. The verb plan: each OMEGA
-verb is a thin composer over shipping tools, ships DARK, earns `act` only once the calibrator
-certifies it.
+poisoned-oracle risk. The remaining substrate Moves (3–9) sit here as reference if the construction
+era ever needs to return to deepening OMEGA — but they are NOT the active north; the C10 ladder is.
+The verb plan: each OMEGA verb is a thin composer over shipping tools, ships DARK, earns `act` only
+once the calibrator certifies it.
 
-**OMEGA roadmap (§O.10) — Move 0 + Move 1 DONE, Move 2 next; Ω+1 is the fresh front:**
+**OMEGA roadmap (§O.10) — Move 0 + Move 1 DONE, Move 2 REFRAMED (claim dropped); Ω+1 folded into
+the ladder:**
 - **Move 0 — conformal calibration harness (keystone).** ✅ **DONE (PR #192).** First
   real number measured (predict: 28.3% act-precision @ 14.6% coverage). Gates `act`
   for every verb after it.
@@ -817,14 +958,14 @@ certifies it.
   WEIGHTING, not an any-red AND-fold** (§O.3 #1); ships DARK until the calibrator
   certifies it; **14 tests incl. the anti-AND**. Cross-repo stress test PASSED (TS/Py/Rust)
   and surfaced the gitignore fix **#194**. **v1.2.0 = Move 0 + Move 1, both landed.**
-- **Move 2 — Solvency & Stop Gate (`solvency`) — STILL NEEDS A RE-GROUND before building.**
-  Arbiter over `focus` sufficiency + `coverage_session` + a **real token-budget signal** (the
-  §O.3 #4 unit-mismatch fix — `budget_consumed`/`relevance_clearing_total`/`coverage_session`
-  do NOT subtract; wire a true token budget or build it net-new) + `am_i_stale`. **Re-verify
-  the `file:line` anchors against current `main` before coding** (the PRD anchors carry a
-  known v1.1.0 re-ground caveat; symbol is the contract, line is a hint). Then Moves 3–9
-  (§O.10), each calibration-gated, composer-over-shipping-tools, degrading to UNPROVABLE not
-  a fake green.
+- **Move 2 — the HONEST REFRAME (#203), not a pending build.** The original "Solvency & Stop
+  Gate" was going to assert a token-budget / savings economics — but m1nd has no true
+  token-economics signal (`budget_consumed`/`relevance_clearing_total`/`coverage_session` do NOT
+  subtract into one), so **the claim was removed rather than faked** (the same honesty that killed
+  the savings envelope, brand gate G1/G1.5). What survives is the *sufficiency* half —
+  `focus(mode:"check")` as an honest "enough to act?" stop signal, no economics attached. Moves
+  3–9 (§O.10) remain calibration-gated composers-over-shipping-tools if the substrate is ever the
+  active north again; today it is the FLOOR, and the frontier is the C10 ladder.
 
 **→ FRESH STRATEGIC FRONT — Ω+1, THE AMBIENT LOOP (`docs/NEXTGEN-AGENT-PRD.md § Ω+1`).**
 The next chapter after OMEGA: m1nd as the ambient nervous system of the agent loop
@@ -847,13 +988,14 @@ The reuse-first Wave roadmap (§ Ω+1.4) is now re-anchored on serve/attach at W
 ORGANIZE-first (Waves 1–3 nearly free), rewired keystone (Wave 4: `Stop → cross_verify →
 memorize` directly), swarm last.
 
-**AUTONOMOUS MANDATE (2026-06-30, still standing — target shifted from OMEGA to
-CONSTRUCTION):** run the active north — now the construction era (tree-alive → Pre-Flight
-Slice 1 → two-tier clone-gate → inbox verbs) — to completion, tested/dogfooded, UNATTENDED;
-stop only when complete. Honor the universal doc gate incl. agent surfaces at each move
-(docs/wiki/README/PATHOS current before "done"). The OMEGA-roadmap phrasing of this mandate
-is `[SHIPPED/histórico]` — Moves 0+1 landed and released; the mandate now drives building
-outward on the three PRDs.
+**AUTONOMOUS MANDATE (2026-06-30, still standing — target shifted OMEGA → CONSTRUCTION → the
+C10 ladder):** run the active north — now the construction era, whose ORDER is the constitution's
+C10 ladder (R0 → R1 → R5 SAFE-this-night; R6/R10/R7/R8/R9 next; **R2 HELD for Max**) — RED-first,
+adversarially verified, tested/dogfooded, UNATTENDED on the safe rungs; stop only when complete.
+Honor the universal doc gate incl. agent surfaces at each move (docs/wiki/README/PATHOS current
+before "done"). The OMEGA-roadmap and the cp9 three-PRD phrasings of this mandate are
+`[SHIPPED/histórico]` — Moves 0+1 landed, the design era closed; the mandate now drives climbing
+the ladder in `docs/ORGANISM-PRD.md` §C10.
 
 **MEMORY track (Subsystem D) — moves #1-#6 DONE, #7 BLOCKED, #8 largest.** #1-#2
 (`Created`/`Source-Agent` #187/#189) + **#3-#6 SHIPPED this session** (age-staleness #198,
