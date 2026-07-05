@@ -15,12 +15,12 @@
 > slices in, the inbox verbs land. Prior checkpoints 8.1 / 8 / 7 preserved below.
 > Prior: 2026-07-03 (**checkpoint 8.1 — v1.2.1 CUT: compounding live in the runtime**).
 > v1.2.1 tagged on the merge commit, published to crates.io + npm, GitHub Release cut, and
-> Max's live `:1338` owner rebuilt on the 1.2.1 binary — carrying the four field-triage fixes
+> the served owner rebuilt on the 1.2.1 binary — carrying the four field-triage fixes
 > (#211 `north`×L1GHT recall = THE compounding fix; #212 temp-graph tempdir; #218 numeric
 > `confidence`; #219 closure cry-wolf killed, ambiguous-blocked 9/11 → 0/11).
 > Prior: 2026-07-02 (**checkpoint 8 — v1.2.0 CUT: the first OMEGA-era release**).
-> Tagged `v1.2.0`, published to crates.io + npm, GitHub Release cut, and Max's live
-> `:1338` owner upgraded to the 1.2.0 binary. The era content shipped since v1.1.0:
+> Tagged `v1.2.0`, published to crates.io + npm, GitHub Release cut, and the served
+> owner upgraded to the 1.2.0 binary. The era content shipped since v1.1.0:
 > OMEGA Moves 0 (calibration) + 1 (Envelope) + the Move-2 honest reframe; `north`
 > pre-orient; memory moves #1-#6; the root-`.gitignore` fix (#194); smoothed-Jaccard
 > co-change (#206, calibration-proven **+3pts** over raw counts); binary version+sha
@@ -38,7 +38,7 @@ m1nd = operational intelligence for coding agents. The bar: genuinely BEAT plain
 Run a continuous, chained improvement engine: measure (battery) → fix+test the
 real defect → checkpoint → seed the next cycle. Never sugarcoat results.
 **The era-9 arc:** OMEGA (the verifiable trust substrate — answer + map + trust receipt) is
-now the FLOOR, released and live in Max's runtime. The work ahead is CONSTRUCTION on top of
+now the FLOOR, released and live in the served runtime. The work ahead is CONSTRUCTION on top of
 it, across three now-official fronts: the **HUMAN LAYER** (the Living Tree + Pre-Flight card —
 a coding agent's memory made legible to a human), the **DELEGATION LAYER** (§O.12 — a parent
 agent hands a child a grounded packet and reads back a debrief), and the **TWO-TIER BRAIN**
@@ -53,37 +53,37 @@ degrading to UNPROVABLE rather than a fake green — the same bar, applied to bu
 > the HOST-INTEGRATION-MATRIX (#241), reception §9.5 (#238), and the MCP-Registry manifest
 > (`server.json` + npm `mcpName`, #243) — semver MINOR for the new host surfaces. Tagged on
 > the merge commit; crates.io + npm + GitHub Release via the release workflow; registry
-> publish follows once npm serves 1.3.0 (`mcp-publisher login github` is Max's device-code
-> moment). The wiki changelog's never-tagged `1.2.2` draft was absorbed into 1.3.0.
+> publish follows once npm serves 1.3.0 (`mcp-publisher login github` is the maintainer's
+> device-code moment). The wiki changelog's never-tagged `1.2.2` draft was absorbed into 1.3.0.
 
 > **cp9 addendum-2 (2026-07-04): THE DISTRIBUTION WAVE.** Registry publish is DONE —
-> `io.github.maxkle1nz/m1nd` v1.3.0 live and verified on the public API (device-flow by Max).
+> `io.github.maxkle1nz/m1nd` v1.3.0 live and verified on the public API (device-flow by the maintainer).
 > **v1.3.1** followed same-night: npm + crates.io keywords/categories were shipping EMPTY
 > (the discovery half of "published" had never been done) — filled on all packages, `glama.json`
 > added, repo topics set (12), repo description aligned to the canonical tagline. External:
 > **punkpeye/awesome-mcp-servers PR #9192 OPEN+mergeable** (fixes the 3 faults that killed the
 > abandoned #3238; Glama badge validated by their bot); appcypher verified to accept NO external
-> PRs (entry staged in fork); mcp.so is login-gated (values in Max's queue). Auto-cascade:
+> PRs (entry staged in fork); mcp.so is login-gated (values in the maintainer's queue). Auto-cascade:
 > PulseMCP ingests the official registry weekly → **verify m1nd appears ~2026-07-10**.
 > **Gates for future agents:** awesome-rust requires >50★ OR >2000 downloads (m1nd was 20★/523
-> on 2026-07-04) — do NOT submit before the bar; This Week in Rust PR waits for Max's engineering
-> article; NEVER write HN/Reddit copy for Max (anti-LLM-text backlash is real — he writes, agents
-> supply facts); never reuse identical copy across channels. Max's full playbook:
-> `~/m1nd-launch-kit.md` (local-only).
+> on 2026-07-04) — do NOT submit before the bar; This Week in Rust PR waits for the maintainer's
+> engineering article; NEVER write HN/Reddit copy for the maintainer (anti-LLM-text backlash is real — the
+> maintainer writes, agents supply facts); never reuse identical copy across channels. The maintainer's full
+> playbook: `~/m1nd-launch-kit.md` (local-only).
 
 > **cp9 addendum-3 (2026-07-04): RECEPTION DEGRADED MODE SHIPPED (Slice 2R degraded, §9.5.5).**
-> The top field friction (a caller in repo X silently wearing repo Y's brain — Antigravity/almus
-> + Cherry ×2) is now flagged, not silent: the `--attach` bridge stamps `M1nd-Caller-Root`
+> The top field friction (a caller in repo X silently wearing repo Y's brain — three field
+> sightings across different repos on 2026-07-03/04/05) is now flagged, not silent: the `--attach` bridge stamps `M1nd-Caller-Root`
 > (hop 2; absent → unknown, legacy-compatible), the owner compares it against
 > `workspace_root`+`ingest_roots` (reuses the mismatch guard's path comparison), and
 > `north`/`health`/`session_handshake` carry `m1nd-reception-degraded-v0` ONLY on mismatch
 > (TT-INV-12 silence-on-match; omission on unknown). Proof: RED→green + battery 3/3 e2e +
-> live almus-vs-m1nd replay. Slice 2R proper (what_exists, `bind`, walk-up verdicts,
+> live cross-project replay (project-d vs m1nd). Slice 2R proper (what_exists, `bind`, walk-up verdicts,
 > `m1nd init` create path) stays open — stamped in the PRD. Live owners need a kickstart
 > (rebuild+restart) to inherit the honesty.
 
 > **cp9 addendum-4 (2026-07-04): PER-BRAIN OPEN SHIPPED (Human-Layer slice 2H, §4A.9) + the
-> cold-listing bug fixed.** Max's live blocker — *"por que cherrybubbles não consigo dar Open?"*
+> cold-listing bug fixed.** A live blocker — "why can't I Open a hosted project's tree?"
 > — is closed. The browser surface was bound-graph-only; now `/api/graph/*` + `POST
 > /api/tools/*` take `?brain=<project_root>`, routed through the SAME resolution the wire uses
 > (`http_server::resolve_brain` → `project_brains.rs`, #260): absent = bound (byte-compatible),
@@ -94,12 +94,12 @@ degrading to UNPROVABLE rather than a fake green — the same bar, applied to bu
 > the tree opens a hosted brain in-tab dropping echo mismatches (INV-15), the Brain Chip flips
 > to the echo, dormant stores warm-boot in words (INV-05), and every 1T lens/filter/
 > meaning-search rides the selector (INV-16). **Also fixed (same slice, field mailbox class:bug
-> "Cherry sumiu"):** a dormant project brain vanished from the Hall after an owner restart until
+> "a dormant project brain vanished"):** a dormant project brain vanished from the Hall after an owner restart until
 > a routed call warm-booted it — now `ProjectBrainRegistry::disk_roster()` scans
 > `project-brains/*/project_brain.json` on disk and unions dormant brains into the listing with
 > ZERO routed calls (counts from the manifest; warm map wins duplicates). **UNIT C (copy):** the
 > tree drawer's learn-history chip said "I haven't seen evidence either way yet" — colliding
-> with L1GHT's `evidence:` (memory) and confusing Max live; new copy is "no feedback yet — no
+> with L1GHT's `evidence:` (memory) and confusing users live; new copy is "no feedback yet — no
 > agent has confirmed or corrected answers about this file" (+ confirmed/corrected/mixed
 > variants), pinned by a test that the feedback chip never says "evidence" and the memories
 > panel never says "feedback" (glossary sealed in PRD §4A.3.1). Proof: `per_brain_open.rs` (7/7,
@@ -107,14 +107,14 @@ degrading to UNPROVABLE rather than a fake green — the same bar, applied to bu
 > clippy -D warnings, fmt, `tsc` + violet-lint + icon-lint green, dist regenerated. **Residue
 > now:** hosted-brain delete, in-UI stop, eject (V2), the inbox verbs (§4A.3.1-D3), and the
 > §9.5.1 dormant-owner registry fields — each still named-honest. **Kickstart note:** dist is
-> rust-embedded — live owners need a served-owner restart to inherit both the REST selector and
+> rust-embedded — served owners need a restart to inherit both the REST selector and
 > the cold-listing fix.
 
 **The 24h harvest: OMEGA shipped as the floor, three PRDs made official, the first human
 surface landed, and the field-report mailbox went from full to empty.** This is the checkpoint
 where m1nd stops being only "a better `rg` for agents" and becomes a substrate with a *human
 face* (the Living Tree), a *delegation contract* (the §O.12 packet/debrief), and a *two-tier
-memory shape* (per-project brains + medulla) — all three grounded in official, Fable-authored
+memory shape* (per-project brains + medulla) — all three grounded in official
 PRDs, with Slice 0 of the human layer already SHIPPED and dogfooded.
 
 ### The three official PRDs (the era's blueprints — all merged)
@@ -125,12 +125,12 @@ PRDs, with Slice 0 of the human layer already SHIPPED and dogfooded.
 - **`docs/NEXTGEN-AGENT-PRD.md` §O.12 (#224) — the Delegation Layer.** The parent→child contract:
   a grounded **delegation packet** (north-style binding + focus for the child), a **debrief** read
   back on return, and **delegation-abstain** (a parent that honestly declines to delegate when it
-  can't ground the child). 3-Fable design. This is OMEGA's reach extended from one agent to a tree
+  can't ground the child). This is OMEGA's reach extended from one agent to a tree
   of agents — the moat becomes institutional memory across a delegation graph.
 - **`docs/TWO-TIER-BRAIN-PRD.md` (#227) — per-project brains + a shared medulla.** The memory
   architecture: each project gets its own brain (its graph + its memories), and a shared **medulla**
   holds cross-project doctrine/taxonomy (the launchd-served always-on layer). Proof-grown slices:
-  the clone-gate first, then the per-project inbox. 3-Fable design.
+  the clone-gate first, then the per-project inbox.
 
 ### Living Tree Slice 0 — SHIPPED (#232, the first human surface)
 The served UI (`m1nd-ui`) now opens on a **read-only Living Tree**: the filetree assembled from
@@ -160,15 +160,15 @@ orientation from the real north packet, each beat ESC-dismissable-forever (INV-1
 Chip** on every surface (no graph pixel without the owning brain's name), the **Cmd+K Brains group**,
 a tested **reduced-motion contract**, and the **clobber-ban retirement** of the bare foreign-path
 ingest on a non-empty owner (INV-11). Proof: **80 UI tests green** (52 net-new; INV-09/10/11/12 each
-covered), all fed by REAL captured `:1338` envelopes; violet-lint green; `tsc` clean; build
-air-gapped; live smoke rendered the two real brains (the m1nd dev brain + the Cherry project brain).
+covered), all fed by REAL captured served-owner envelopes; violet-lint green; `tsc` clean; build
+air-gapped; live smoke rendered the two real brains (the m1nd dev brain + a project brain).
 **Honest deviation:** the tool-command palette re-skin stays deferred — 0T's Brains group ships as a
 focused new `BrainPalette`, not a retrofit of the deferred-legacy cyberpunk `CommandPalette`.
 **Kickstart note:** the dist is rust-embedded, so activating the new UI needs a served-owner restart.
 
 ### Human layer Slice 1T — SHIPPED (`feat/tree-precision-1t`, the precision system + reading instruments)
-Client-heavy, bound brain, ZERO new verbs — the founder's "design de precisão, com ícones certos para
-cada coisa" made real. **Iconography (§4A.7):** `lucide-react` vendored (ISC — verified; license text
+Client-heavy, bound brain, ZERO new verbs — the "precision design, with the right icons for
+each thing" requirement made real. **Iconography (§4A.7):** `lucide-react` vendored (ISC — verified; license text
 alongside the registry as the fonts do), a central `lib/icons/registry.tsx` that is the ONLY lucide
 import site (the verbatim CONCEPT→ICON table), `<Icon>` fixing stroke 1.5 + `currentColor` (so the
 violet quarantine covers icons for free) + sizes 14/16 + the aria-label contract, and `StatCell`/
@@ -186,10 +186,10 @@ claim, D2 honest gaps); hosted brains show it absent-honest; on-demand fetch onl
 modes — `name` (instant) and `meaning` (`seek`), the `SeekPanel` rendering the `sufficiency` + verdict
 the UI used to discard (no sparkle), a hit-click jumping the tree, a breadcrumb + density toggle, `/`
 focuses search. Proof: **142 UI tests green** (51 net-new; INV-13/14/16 by name + the icon-lint BITE), all
-lens/search/card fixtures REAL captured `:1338` envelopes; violet-lint + icon-lint green; `tsc` clean;
-build air-gapped (lucide adds no host); live smoke on `:1338` rendered the layer lens (8 layers +
+lens/search/card fixtures REAL captured served-owner envelopes; violet-lint + icon-lint green; `tsc` clean;
+build air-gapped (lucide adds no host); live smoke on the served owner rendered the layer lens (8 layers +
 "unlayered" 5,803), the meaning panel (verdict "worth a second look", sufficiency "gathering" + the
-verbatim why, 16 of 847 cleared), and the Hall (one viewing chip, the four GOLD rows live, Cherry
+verbatim why, 16 of 847 cleared), and the Hall (one viewing chip, the four GOLD rows live, a project brain
 absent-honest, zero class labels). **Residue:** ~~per-brain lens/search still bound-only~~ — **CLOSED
 2026-07-04 (slice 2H shipped, §4A.9; see cp9 addendum-4)**; the trigram-fallback / empty-result
 captions are typed + unit-proven but await a real embed-off case e2e. **Kickstart note:** dist is
@@ -222,7 +222,7 @@ case → fix, and the mailbox empties.
 ### The runtime is now a persistent nervous system (not a tool-you-call)
 - **launchd medulla on the current `main` binary** — a persistent served m1nd (the serve/attach
   prerequisite the checkpoint-7 A/B identified), warm-booting **~6.3k nodes** per boot.
-- **SessionStart hook (`north`) is LIVE in Max's Claude** — the ambient pre-orient wire fires for real
+- **SessionStart hook (`north`) is LIVE in the served Claude host** — the ambient pre-orient wire fires for real
   (this is the served-attach variant the A/B said was the prerequisite, now stood up).
 - **4 hosts attach one brain** — the multi-host single-brain topology is real, not a diagram.
 - **Agent-id taxonomy `host:tier:name[@parent]`** + **per-project inbox doctrine** are SEALED in the
@@ -244,7 +244,7 @@ tree when done.
 
 ### Where OMEGA + memory sit now (the floor beneath the construction)
 OMEGA **Move 0 (calibration) + Move 1 (Envelope)** + the **honest Move-2 reframe** shipped in
-**v1.2.0 (#209) and v1.2.1 (#220)** — both RELEASED to crates.io + npm with GitHub Releases, Max's
+**v1.2.0 (#209) and v1.2.1 (#220)** — both RELEASED to crates.io + npm with GitHub Releases, the served
 runtime rebuilt on the tagged binaries. `north` pre-orient, memory moves #1–#6, smoothed-Jaccard
 co-change (#206, calibration-proven +3pts), binary version-honesty (#205), and the agent-native MCP
 `initialize` instructions (#208) are all live. This is the substrate the construction era builds on;
@@ -254,9 +254,9 @@ its detailed ledger is preserved in the checkpoint-8 section below.
 
 ## Current State (2026-07-03, checkpoint 8.1 — v1.2.1 CUT, compounding live)
 
-**v1.2.1 IS RELEASED — and the compounding is now live in Max's runtime.** Tag `v1.2.1` on
+**v1.2.1 IS RELEASED — and the compounding is now live in the served runtime.** Tag `v1.2.1` on
 the merge commit, `release.yml` published `m1nd-core` / `m1nd-ingest` / `m1nd-mcp` to crates.io
-+ `@maxkle1nz/m1nd` to npm, a GitHub Release was cut, and Max's live `:1338` owner was rebuilt
++ `@maxkle1nz/m1nd` to npm, a GitHub Release was cut, and the served owner was rebuilt
 on the tagged binary (`--version` → `1.2.1 (<sha>)`). The patch carries the four field-triage
 fixes merged since the 1.2.0 tag: **#211 `north` composes L1GHT agent-memory recall — THE
 compounding fix** (memorize once, recall through the front door thereafter); #212 temp-graph
@@ -265,7 +265,7 @@ ambiguity tag fires only on genuine ties — the cry-wolf killed** (ambiguous-bl
 honesty guard proven). Battery grew to **37/37**. `m1nd-openclaw` stays `0.1.0`.
 **Field-report mailbox: 5 reports / 4 resolved / 1 residue** — the four fixes above closed their
 reports; the residue is a follow-up on unresolved-tag granularity (still open). The live north
-memory-recall proof (agent-memory surfacing through `north` on the running :1338 binary) was
+memory-recall proof (agent-memory surfacing through `north` on the running served binary) was
 captured at cut time — this checkpoint is where compounding stopped being an A/B hypothesis and
 became a live runtime property.
 
@@ -285,13 +285,13 @@ the new embedded dist. Verdict/state renderer is read-only — humans read memor
 Slices 1–3 (Pre-Flight Card, Honesty HUD + Change Preview, Project Brain) stay spec'd in
 `docs/HUMAN-LAYER-PRD.md`. UI-only change; no engine/agent-surface behavior moved.
 
-**Brand gates (pending 1.2.2):** **G1 (#221) CLOSED** — the per-response unmeasured `savings`/`tokens_saved`/`gaia` envelope was removed. **G1.5 (#234) CLOSED** (founder decision 2026-07-03, mailbox L16) — the opt-in `savings`/`report` unmeasured-claims surface is killed: `savings` removed entirely (tool + handler + `Savings*` types + `SavingsTracker`/`GlobalSavingsState` accounting; nothing writes `savings_state.json` anymore), `report` stripped of every tokens-saved/CO2 field but keeps its honest counts + heuristic hotspots — completing the beta.7 de-advertisement.
+**Brand gates (pending 1.2.2):** **G1 (#221) CLOSED** — the per-response unmeasured `savings`/`tokens_saved`/`gaia` envelope was removed. **G1.5 (#234) CLOSED** (maintainer decision 2026-07-03, mailbox L16) — the opt-in `savings`/`report` unmeasured-claims surface is killed: `savings` removed entirely (tool + handler + `Savings*` types + `SavingsTracker`/`GlobalSavingsState` accounting; nothing writes `savings_state.json` anymore), `report` stripped of every tokens-saved/CO2 field but keeps its honest counts + heuristic hotspots — completing the beta.7 de-advertisement.
 
 ---
 
 **v1.2.0 IS RELEASED.** Tag `v1.2.0` on the merge commit, `release.yml` published
 `m1nd-core` / `m1nd-ingest` / `m1nd-mcp` to crates.io + `@maxkle1nz/m1nd` to npm (the
-v1.1.0 precedent), a GitHub Release was cut with real era notes, and Max's live `:1338`
+v1.1.0 precedent), a GitHub Release was cut with real era notes, and the served
 owner was rebuilt on the tagged binary (`--version` → `1.2.0 (<sha>)`). `m1nd-openclaw`
 stays `0.1.0` (versioned independently).
 
@@ -353,7 +353,7 @@ human's explicit call.
    for the `unresolved` tag (explicitly out of scope — unresolved semantics unchanged); see Known
    Problems → "closure UNRESOLVED node-granularity".
 2. **`memorize` unanchored on a live runtime** — evidence paths didn't anchor to code nodes
-   against the running owner (friction/bug on the live `:1338` runtime).
+   against the running owner (friction/bug on the served runtime).
 3. **the `temp` artifact bug** — a stray `temp` file dropped in cwd by a battery/tool path
    (bug; the battery already `rm -f temp`s around it, but the source drop is unfixed).
 4. **stale instructions = FIXED** — the old flat WORKFLOWS instructions string; closed by #208
@@ -361,7 +361,7 @@ human's explicit call.
 5. **north marker-fragment slot waste = FIXED (field-triage batch A, mailbox L28).** north's
    memory beat AND its anchor/focus surfaces spent slots on L1GHT MARKER FRAGMENTS — the
    annotation nodes the l1ght_adapter mints per marker line (`𝔻 confidence: …`, `𝔻 evidence: …`,
-   `⟁ depends_on: …`, `⍂/⍐/⍌` declarations). Live founder SessionStart hook evidence: 2/5 memory
+   `⟁ depends_on: …`, `⍂/⍐/⍌` declarations). Live SessionStart hook evidence: 2/5 memory
    slots + 4/4 anchor slots wasted on `𝔻 confidence: …` rows instead of real claims/code. Root
    cause: marker nodes inherit their file's `source_agent`/`authored_ms_ago` prov-tags, so the
    memory recall's provenance test kept them; and on a memory-heavy graph they rank into the
@@ -374,7 +374,7 @@ human's explicit call.
    case `north_recalls_memorized_claim` extended to assert no memory/anchor row is a marker.
 
 ### Runtime carry-over (post-upgrade honesty)
-Max's live owner was upgraded to the 1.2.0 binary, so **any calibration rows scaled against the
+The served owner was upgraded to the 1.2.0 binary, so **any calibration rows scaled against the
 OLD binary are now stale — re-run `calibrate_predict` once per ingested repo** on the live
 runtime to refresh them (done at upgrade if the graph had an ingested repo; noted honestly if
 the graph was empty).
@@ -405,7 +405,7 @@ the graph was empty).
 - **THE PRE-FLIGHT A/B EXPERIMENT returned its first REAL verdict (isolated, honest).** An
   isolated A/B tested whether the `north` pre-flight packet (injected via a Claude Code hook)
   helps a real headless `claude -p` agent — full write-up folded into the PRD **§Ω+1.3b**.
-  Isolation held (Max's global config untouched). Verdict:
+  Isolation held (the global config untouched). Verdict:
   - **The wire EXISTS in headless.** Hooks FIRE in `claude -p` (proven with a canary); `north`
     is delivered to the model VERBATIM; ~110ms/fire; fail-open (never blocks a turn).
   - **HELPS orientation.** Arm B (north injected) opened the CORRECT file first — `config.py`,
@@ -523,12 +523,12 @@ the graph was empty).
   scan honesty (#167/#172: `total_matches_validated` = survivors; `mitigated` visible).
 
 ## Operating Doctrine
-Proof-grown: measure before claiming; verify subagent work yourself (re-run the
+Proof-grown: measure before claiming; verify work yourself (re-run the
 battery / a probe), never trust a report. Battery-gate risky core changes. Fix
-AND test every defect. Commit+push always (PR → CI → merge as Max Kle1nz /
-maxkle1nz). Never bypass branch protection (admin-merge is blocked by design).
-Delegate deep changes to Opus subagents with a tight, source-grounded spec + a
-battery gate; orchestrate + verify. Update this file at big checkpoints.
+AND test every defect. Commit+push always (PR → CI → merge). Never bypass branch
+protection (admin-merge is blocked by design). Land deep changes with a tight,
+source-grounded spec + a battery gate; verify before claiming. Update this file
+at big checkpoints.
 **Agent-docs gate (CI, PR-only):** `scripts/agent_docs_gate.py` + the `agent-docs-gate`
 job in `ci.yml` FAIL any PR that changes an agent-workflow surface (the MCP
 `M1ND_INSTRUCTIONS` string / tool schemas / verb dispatch in `server.rs`+`tools.rs`,
@@ -538,7 +538,7 @@ installer under `npm/`) without ALSO updating agent-facing docs in the same PR
 root `CLAUDE.md`/`AGENTS.md`). Anti-cry-wolf: it ARMS only on those surfaces —
 unrelated core internals never trip it. Escape hatches: an instructions-only edit
 self-satisfies, and the PR label **`agent-docs-exempt`** skips it for genuine
-no-behavioral-change refactors. It reports (not required-check yet); Max can promote
+no-behavioral-change refactors. It reports (not required-check yet); a maintainer can promote
 it to blocking in branch-protection settings. Born from PR #216 (installed skills
 taught a stale era for ~2 weeks). Portable via the `SURFACE_PATHS`/`DOC_PATHS`
 knobs at the top of the script.
@@ -553,12 +553,9 @@ knobs at the top of the script.
 - MCP stdio client pattern: `scratchpad/focus_smoke.py` (Content-Length JSON-RPC).
 - Build: `cargo build -p m1nd-mcp --bin m1nd-mcp` → `./target/debug/m1nd-mcp`.
 - 360 vision: `docs/X360-RUNTIME-PRD.md`. Focus runtime: `docs/FOCUS-RUNTIME-PRD.md`.
-- **The Soul — THIS FILE's own future as a verified m1nd type:** `docs/SOUL-PRD.md` (claim grammar + two tissues, `soul_check` freshness receipt, curator at the doc-gate; Fable design 2026-07-05, grounded on a live probe of this very document — 12 fresh / 12 stale / 3 receipt-priced of 27 sampled claims).
+- **The Soul — THIS FILE's own future as a verified m1nd type:** `docs/SOUL-PRD.md` (claim grammar + two tissues, `soul_check` freshness receipt, curator at the doc-gate; design 2026-07-05, grounded on a live probe of this very document — 12 fresh / 12 stale / 3 receipt-priced of 27 sampled claims).
 - Ambient layer per host (session-start hooks / rules files / TIER A–D recipes, fleet research 2026-07-03): `docs/HOST-INTEGRATION-MATRIX.md`.
-- git identity = Max Kle1nz <kleinz@cosmophonix.com>. **gh GOTCHA: the active
-  account silently flips to `velvetside` mid-session → `gh pr create` fails with
-  "must be a collaborator". Run `gh auth switch --user maxkle1nz` before EVERY
-  push/PR.**
+- git identity = Max Kle1nz <kleinz@cosmophonix.com>.
 - Battery is now 36 cases (JSON key `records`, each row has `m1nd_pass`; summary carries
   `m1nd_pass`/`m1nd_pass_rate`); per-case `check=lambda res,q,c:` hook + `has_direct_calls_edge`
   helper enable structural cross-file assertions via the live client.
@@ -595,12 +592,12 @@ knobs at the top of the script.
     remains the dedicated harder cycle. This is the #1 remaining correctness gap in the graph itself.
   - **Living Tree Slice-0 deferrals** (repeated here so they're not lost): live `graph_changed` SSE
     refresh, vendored fonts, and the stale-flip e2e — all carried into Slice 1.
-  - **PATHOS auto-refresh: the push-back to `main` is BLOCKED by branch protection (needs Max's
-    call).** The pattern is installed and PROVEN up to the last hop: the Action regenerates both
-    auto sections and commits as Max Kle1nz on the runner, but the direct push is rejected (GH006 —
+  - **PATHOS auto-refresh: the push-back to `main` is BLOCKED by branch protection (needs a
+    maintainer call).** The pattern is installed and PROVEN up to the last hop: the Action regenerates both
+    auto sections and commits on the runner, but the direct push is rejected (GH006 —
     required status checks; `GITHUB_TOKEN` has no bypass; first live runs 2026-07-03). The workflow
     now fail-softs (warning + step summary, never a perpetually red run) and already prefers a
-    `PATHOS_REFRESH_TOKEN` secret if present. **Unblock = Max's decision:** (A) fine-grained admin
+    `PATHOS_REFRESH_TOKEN` secret if present. **Unblock = a maintainer decision:** (A) fine-grained admin
     PAT (Contents read/write) in the `PATHOS_REFRESH_TOKEN` secret — zero workflow edits needed; or
     (B) required-checks bypass for `github-actions` (a protection change). Until then the auto
     sections only refresh when a PR (like this one) carries a regenerated copy.
@@ -625,7 +622,7 @@ knobs at the top of the script.
     encodes the current intent). Measured residue: 8/11 connected pairs still blocked, now all on
     `unresolved`. Follow-up task spawned.
   - **`memorize` unanchored on the live runtime (seeded field report #2).** Evidence paths
-    didn't anchor to code nodes against the running `:1338` owner — friction/bug on the live
+    didn't anchor to code nodes against the running served owner — friction/bug on the live
     runtime specifically. Reproduce against a served-attach graph, then fix.
   - **the `temp` artifact drop (seeded field report #3).** A stray `temp` file lands in cwd via
     a battery/tool path; the battery works around it (`rm -f temp`) but the SOURCE drop is
@@ -635,7 +632,7 @@ knobs at the top of the script.
     decision — feedback verb on recall? auto-stamp on `activate` touch?); #8 is the largest and
     leans on #7. Both carry forward unchanged.
 - **Ω+1 ambient-loop OPEN RISKS (the four critic corrections, baked into the PRD § Ω+1.3
-  — this design is NOT shipped, it is a direction awaiting Max's green-light on hook
+  — this design is NOT shipped, it is a direction awaiting a maintainer green-light on hook
   install).**
   - **Hook latency must be MEASURED, not asserted.** Every PRE/POST hook is an MCP
     round-trip; a 12-edit refactor pays 12× `am_i_stale` + 12× `ghost_edges`→`predict`,
@@ -737,8 +734,8 @@ knobs at the top of the script.
 - Multi-session: sibling sessions touch this repo (a launchd medulla serves the live
   brain; a sibling worktree may hold a test/CI-flake fix — e.g. `m1nd-flake2` this era) —
   `git fetch` before acting, confirm `git branch --show-current` before commit. `main` is
-  held by the primary worktree (/Users/kle1nz/m1nd); do feature work in an isolated
-  worktree (e.g. /Users/kle1nz/m1nd-<mission>) with the shared `CARGO_TARGET_DIR`, and
+  held by the primary worktree (`<repo>`); do feature work in an isolated
+  worktree (e.g. `<repo>-<mission>`) with the shared `CARGO_TARGET_DIR`, and
   `git worktree remove` it when done (disk-hygiene rule).
 
 ## Proof Standard
@@ -756,11 +753,10 @@ as an allowed output ONLY when measured precision-at-coverage clears the stated 
 budget — until then `act` is structurally withheld and the verb emits
 `reverify`/`abstain`/`unprovable`. Both gates, in that order. Recalibration, not
 retraining: the number is re-measured against ground truth, never asserted in a README.
-Engine cadence (proof-grown): delegate each move to a worktree-isolated Opus subagent
-with a tight source-grounded spec + battery gate → the orchestrator verifies the gate
-+ battery itself on the REAL diff (targeted re-run, never trust the report) →
-commit/PR/auto-merge as Max → the UNIVERSAL DOC GATE (docs/wiki/README/PATHOS current
-before "done" — now a standing CLAUDE.md rule) → seed the next move.
+Engine cadence (proof-grown): each move lands in a worktree-isolated slice with a tight
+source-grounded spec + battery gate → verify the gate + battery on the REAL diff
+(targeted re-run, never trust the report) → commit/PR/merge → the UNIVERSAL DOC GATE
+(docs/wiki/README/PATHOS current before "done") → seed the next move.
 
 ## Next Agent Prompt / next seeds
 
@@ -794,8 +790,7 @@ mailbox and a confirmed bug becomes a battery case BEFORE the fix); the **UNIVER
 agent surfaces** (docs/wiki/README/PATHOS current before "done"; any change to HOW agents work
 updates the agent-read surfaces — CLAUDE.md/AGENTS.md, skills/, host packs, MCP instructions — in
 the SAME PR; the agent-docs CI gate #229 enforces this); the **DISK HYGIENE rule** (shared
-`CARGO_TARGET_DIR` + worktree sweeps); and **Fable writes the PRDs** (PRD/UML/architecture-vision
-docs are authored by Fable — Opus grounds/researches beneath, Fable holds the writing seat).
+`CARGO_TARGET_DIR` + worktree sweeps).
 
 ---
 
@@ -839,8 +834,8 @@ harm, but compounding is architecturally BLOCKED in the naïve hook setup.
   validate (a) cross-fire compounding, (b) latency-at-scale on a large repo, (c) a harder
   RESCUE task** (the last A/B was too easy — both arms 3/3). Only after that validation does
   the live wiring earn a green-light.
-- **DO NOT install hooks in Max's live env without his green-light AND the serve/attach
-  validation.** Installing hooks into the live Claude Code / Codex environment CHANGES Max's
+- **DO NOT install hooks in the live env without a maintainer green-light AND the serve/attach
+  validation.** Installing hooks into the live Claude Code / Codex environment CHANGES the user's
   workflow (a decision, not an autonomous ship), and the naïve shim pays re-ingest latency +
   can't compound — the served-attach variant is the prerequisite.
 The reuse-first Wave roadmap (§ Ω+1.4) is now re-anchored on serve/attach at Wave 0, then
@@ -880,8 +875,8 @@ auto-load #201). **What's left NEEDS DECISIONS, not just execution:**
     they are unprovable.
 
 Each cycle: measure → fix+test → update THIS file → seed the next. Run parallel
-worktree-isolated Opus frentes on non-overlapping surfaces; go SOLO if rate-limited
-(parallel bursts tripped the API rate limit this session — serialize then).
+worktree-isolated work on non-overlapping surfaces; go SOLO if rate-limited
+(parallel bursts can trip the API rate limit — serialize then).
 
 ## Do Not Do
 - Don't edit/build m1nd source while a battery/subagent is building on the shared
@@ -919,9 +914,9 @@ worktree-isolated Opus frentes on non-overlapping surfaces; go SOLO if rate-limi
 
 - Checkpoint 9 — the construction era opens (3 PRDs, Living Tree, mailbox swept) + auto-refresh installed (#236)
 - The shell is the product — README re-spined around the operating loop (#228)
-- TWO-TIER-BRAIN-PRD — per-project brains + shared medulla (official, proof-grown; 3-Fable design) (#227)
-- The 5 launch plates (SOFT PROOF, founder-approved) (#223)
-- §O.12 — the Delegation Layer (packet, debrief, delegation-abstain; 3-Fable design) (#224)
+- TWO-TIER-BRAIN-PRD — per-project brains + shared medulla (official, proof-grown) (#227)
+- The 5 launch plates (SOFT PROOF, maintainer-approved) (#223)
+- §O.12 — the Delegation Layer (packet, debrief, delegation-abstain) (#224)
 - HUMAN-LAYER-PRD — the Living Tree, post-it memory, Pre-Flight hero (vision → spec) (#222)
 
 **Features**
