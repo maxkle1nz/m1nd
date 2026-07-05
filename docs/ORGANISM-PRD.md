@@ -694,7 +694,18 @@ soul headline) enters under the one-line rule. *(R0 ∥ R1 — both small, both 
 pre-medulla.)*
 
 **R2 — M5a: storage split + `Origin-Brain` + migration + brainless-root refusal** (MEDULLA §11).
-*RED:* 25 mixed claims, zero `Origin-Brain`, ghost root; brainless-root memorize lands silently.
+**[SHIPPED 2026-07-05]** *What:* the tier IS the directory — `Origin-Brain` stamped on every
+`memorize` (`SessionState::origin_brain()` → project root, or `medulla` for the owner store;
+rendered in `render_light_markdown`); the brainless-root refusal at the top of
+`handle_light_author` (medulla store + known foreign caller root → refused with the typed one-call
+bootstrap, never a silent shared-store write); the migration as a standalone, pure-filesystem
+`MedullaMigration` (`medulla_migration.rs`) — `plan` (pure-read dry-run default) → `apply`
+(backup-first + count-conserving) → `rollback` (byte-for-byte restore), with the ghost-pointer sweep
+of `ingest_roots.json`. *RED→GREEN:* today 25 mixed claims, zero `Origin-Brain`, ghost root, and a
+brainless-root memorize lands silently → now every claim carries a tier by directory + `Origin-Brain`,
+the refusal redirects honestly, and the migration maps claims to the right store with a proven
+migrate→rollback round-trip (no data loss). **CODE-LAND-ONLY: the LIVE migration is HELD for the
+maintainer — the code lands and is scratch-proven, but no live owner is migrated here.**
 *Unblocks:* R3 (labels), R4 (a real store to promote into), all provenance law (§C8).
 
 **R15 — the eviction gate (§C9.1). [SHIPPED 2026-07-05]** *What:* LRU + persist-on-evict in the

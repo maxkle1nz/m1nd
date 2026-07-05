@@ -148,6 +148,14 @@ pub struct LightAuthorInput {
     /// invalidate-and-keep sequence.
     #[serde(skip)]
     pub supersedes: Option<String>,
+    /// Internal only (never from the tool call): the `Origin-Brain` this claim is
+    /// born in — the routed brain's project root, or `medulla` for the owner's own
+    /// doctrine store (MEDULLA-PRD §6). `#[serde(skip)]` keeps it off the public
+    /// schema; the handler fills it from the session before rendering. `None` (only
+    /// on hand-built inputs that never went through the handler) renders no line —
+    /// honestly "unknown", the legacy-file behavior.
+    #[serde(skip)]
+    pub origin_brain: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +167,55 @@ pub fn handle_light_author(
     state: &mut SessionState,
     mut input: LightAuthorInput,
 ) -> M1ndResult<Value> {
+    // 0. Brainless-root refusal (MEDULLA-PRD §2.3 S2 / §11 M5a).
+    //    A default-path memorize routed to the MEDULLA store (the owner's own
+    //    doctrine store) whose caller root is a KNOWN foreign repo the medulla does
+    //    NOT cover is a session on a root with no project brain. Routing step 4
+    //    (`mcp_http.rs`) defaults such a write into the shared store — silently
+    //    polluting the doctrine-to-be with one repo's private fact. Refuse it, and
+    //    hand back the exact one-call bootstrap that fixes it (the same directive
+    //    `reception.options[]` already carries). Only fires when:
+    //      - this is the medulla store (a project brain owns its own writes), and
+    //      - the caller root is KNOWN (a header was sent — absent ≠ wrong), and
+    //      - the medulla does not cover that root (a bound/covered caller is home).
+    //    An explicit `output_path` override bypasses (migration + tests write
+    //    into a named store directly); doctrine-born medulla writes come from
+    //    covered/headerless owner sessions and are unaffected.
+    if input.output_path.is_none() && state.is_medulla_store() {
+        if let Some(caller_root) = state.caller_root.clone() {
+            if !state.covers_root(&caller_root) {
+                return Ok(json!({
+                    "ok": false,
+                    "schema": "m1nd-memorize-v0",
+                    "refused": "brainless_root",
+                    "caller_root": caller_root,
+                    "reason": format!(
+                        "this session's root '{caller_root}' has no project brain — a memorize here would land in the shared medulla store and pollute cross-project doctrine. Bootstrap your repo's own brain first (one call), then memorize routes there automatically.",
+                    ),
+                    "fix": {
+                        "action": "ingest_your_repo",
+                        "call": format!(
+                            "ingest with project_root={caller_root} — ONE call: creates a per-project brain inside this owner, ingests your repo into it, binds this session to it; thereafter every memorize from this root lands project-private (silent on match)"
+                        ),
+                    },
+                    "bytes_written": 0,
+                    "claims_written": 0,
+                    "ingested": false,
+                    "superseded": false,
+                }));
+            }
+        }
+    }
+
+    // Stamp the Origin-Brain this claim is born in (MEDULLA-PRD §6). The handler
+    // is the single honest source: a project brain stamps its project root, the
+    // medulla stamps `medulla`. Only for the default agent-memory path — an
+    // explicit `output_path` write (migration carries its own stamp in the claim)
+    // keeps its input's origin_brain untouched.
+    if input.output_path.is_none() {
+        input.origin_brain = Some(state.origin_brain());
+    }
+
     // 1. Resolve output path.
     let out_path = resolve_output_path(state, &input)?;
 
@@ -322,6 +379,13 @@ pub fn render_light_markdown(input: &LightAuthorInput) -> String {
     // ignores unknown frontmatter keys, so these are backward-compatible.
     out.push_str(&format!("Created: {}\n", now_ms()));
     out.push_str(&format!("Source-Agent: {}\n", input.agent_id));
+    // Provenance: WHERE the claim was born (MEDULLA-PRD §6 · §3.3). Absent on
+    // legacy files (and on hand-built inputs that never went through the handler)
+    // means "unknown" — the parser ignores unknown keys, so this is
+    // backward-compatible and never backfilled by guess (MED-INV-4 / TT-INV-2).
+    if let Some(origin) = &input.origin_brain {
+        out.push_str(&format!("Origin-Brain: {}\n", origin));
+    }
     // Supersession lineage: names the slug whose prior belief this write invalidates
     // (the prior copy is retained in `agent-memory/.history/` as `State: outdated`).
     // Frontmatter-only for now; the parser tolerates unknown keys. A graph-visible
@@ -678,6 +742,7 @@ mod tests {
             ingest_after: false,
             mode: "merge".into(),
             supersedes: None,
+            origin_brain: None,
         }
     }
 
@@ -816,6 +881,7 @@ mod tests {
             ingest_after: true,
             mode: "merge".into(),
             supersedes: None,
+            origin_brain: None,
         };
 
         let result = handle_light_author(&mut state, input).expect("memorize ok");
@@ -981,6 +1047,7 @@ mod tests {
             ingest_after: false,
             mode: "merge".into(),
             supersedes: None,
+            origin_brain: None,
         }
     }
 
@@ -1355,6 +1422,160 @@ mod tests {
         assert!(
             md.contains("[𝔻 confidence: 0.9]"),
             "rendered markdown must carry the coerced confidence marker, got:\n{md}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // MEDULLA slice M5a — Origin-Brain stamping + brainless-root refusal
+    // -----------------------------------------------------------------------
+
+    /// The medulla store (the owner's own session) stamps `Origin-Brain: medulla`
+    /// on every claim it writes (MEDULLA-PRD §6). RED before M5a: no Origin-Brain
+    /// line was rendered at all.
+    #[test]
+    fn m5a_medulla_session_stamps_origin_brain_medulla() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        // A default-boot session is the medulla store (not a project brain).
+        assert!(state.is_medulla_store(), "default session is the medulla");
+
+        let input = super_input("DoctrineClaim", "authored", "0.7");
+        handle_light_author(&mut state, input).expect("memorize");
+
+        let live = state
+            .runtime_root
+            .join("agent-memory")
+            .join("doctrineclaim.light.md");
+        let text = std::fs::read_to_string(&live).expect("read live");
+        assert!(
+            text.contains("Origin-Brain: medulla"),
+            "medulla claim must be stamped Origin-Brain: medulla, got:\n{text}"
+        );
+    }
+
+    /// A project brain (a session wearing the `project_brain_manifest` source with
+    /// its project root as workspace) stamps `Origin-Brain: <project root>`
+    /// (MEDULLA-PRD §6). This is the provenance promotion/recall needs to tell
+    /// which brain a claim came from.
+    #[test]
+    fn m5a_project_brain_stamps_origin_brain_with_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        // Make this session a project brain, exactly as `boot_store` does.
+        state.workspace_root = Some("/path/to/repo".into());
+        state.workspace_root_source = Some("project_brain_manifest".into());
+        state.ingest_roots = vec!["/path/to/repo".into()];
+        assert!(!state.is_medulla_store(), "now it is a project brain");
+        assert_eq!(state.origin_brain(), "/path/to/repo");
+
+        let input = super_input("ProjectFact", "authored", "0.7");
+        handle_light_author(&mut state, input).expect("memorize");
+
+        let live = state
+            .runtime_root
+            .join("agent-memory")
+            .join("projectfact.light.md");
+        let text = std::fs::read_to_string(&live).expect("read live");
+        assert!(
+            text.contains("Origin-Brain: /path/to/repo"),
+            "project claim must be stamped with its project root, got:\n{text}"
+        );
+    }
+
+    /// Brainless-root refusal (MEDULLA-PRD §2.3 S2 / §11 M5a). A memorize on the
+    /// medulla session whose caller root is a KNOWN foreign repo the medulla does
+    /// not cover must be REFUSED (not silently written into the shared store), and
+    /// the refusal must hand back the one-call bootstrap that fixes it. RED today:
+    /// step-4 routing writes it silently into the medulla-to-be.
+    #[test]
+    fn m5a_brainless_root_memorize_is_refused_with_bootstrap_fix() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        // A foreign caller root the medulla does not cover.
+        state.caller_root = Some("/path/to/project-a".into());
+        assert!(
+            !state.covers_root("/path/to/project-a"),
+            "precondition: the medulla does not cover this root"
+        );
+
+        let input = super_input("ForeignFact", "authored", "0.7");
+        let result = handle_light_author(&mut state, input).expect("call returns");
+
+        assert_eq!(result["ok"], false, "the write must be refused");
+        assert_eq!(result["refused"], "brainless_root");
+        assert_eq!(result["ingested"], false);
+        let call = result["fix"]["call"].as_str().unwrap_or("");
+        assert!(
+            call.contains("ingest with project_root=/path/to/project-a"),
+            "refusal must carry the typed one-call bootstrap, got: {call}"
+        );
+
+        // And NOTHING was written into the shared medulla store (no pollution).
+        let live = state
+            .runtime_root
+            .join("agent-memory")
+            .join("foreignfact.light.md");
+        assert!(
+            !live.exists(),
+            "a refused brainless-root write must not touch the shared store"
+        );
+    }
+
+    /// The refusal must NOT fire for a caller whose root the medulla DOES cover
+    /// (an owner-session doctrine write is legitimate — the one exception, §3.1).
+    #[test]
+    fn m5a_covered_caller_on_medulla_is_not_refused() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        // Make a known root the medulla covers, and call from it.
+        state.ingest_roots = vec!["/path/to/owner-repo".into()];
+        state.caller_root = Some("/path/to/owner-repo".into());
+        assert!(state.covers_root("/path/to/owner-repo"));
+
+        let input = super_input("OwnerDoctrine", "authored", "0.7");
+        let result = handle_light_author(&mut state, input).expect("memorize");
+        assert_ne!(
+            result["refused"], "brainless_root",
+            "a covered caller must not be refused"
+        );
+        let live = state
+            .runtime_root
+            .join("agent-memory")
+            .join("ownerdoctrine.light.md");
+        assert!(live.exists(), "the covered doctrine write lands");
+        let text = std::fs::read_to_string(&live).unwrap();
+        assert!(text.contains("Origin-Brain: medulla"));
+    }
+
+    /// A headerless medulla session (no caller_root — direct HTTP / stdio) is NOT
+    /// refused: absent ≠ wrong (§9.5.4). It writes as a medulla doctrine claim.
+    #[test]
+    fn m5a_headerless_medulla_write_is_allowed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut state = build_session(temp.path());
+        assert!(state.caller_root.is_none(), "no caller header");
+
+        let input = super_input("HeaderlessDoctrine", "authored", "0.7");
+        let result = handle_light_author(&mut state, input).expect("memorize");
+        assert_ne!(result["refused"], "brainless_root");
+        let live = state
+            .runtime_root
+            .join("agent-memory")
+            .join("headerlessdoctrine.light.md");
+        assert!(live.exists());
+    }
+
+    /// Legacy tolerance: a hand-built input with `origin_brain: None` (never went
+    /// through the handler) renders NO Origin-Brain line — honestly "unknown",
+    /// backward-compatible (MED-INV-4).
+    #[test]
+    fn m5a_absent_origin_brain_renders_no_line() {
+        let input = super_input("NoOrigin", "authored", "0.7");
+        assert!(input.origin_brain.is_none());
+        let md = render_light_markdown(&input);
+        assert!(
+            !md.contains("Origin-Brain:"),
+            "absent origin_brain must render no line (unknown, never faked), got:\n{md}"
         );
     }
 }

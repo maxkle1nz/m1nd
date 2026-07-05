@@ -213,9 +213,15 @@ fn write_tools_return_real_envelopes_through_the_bridge() {
     wait_until_serving(&base_url);
 
     // 2. The REAL `--attach` bridge, stdio host on one side, owner on the other.
+    //    Pin the bridge's caller root to the ingested repo (via M1ND_WORKSPACE_ROOT)
+    //    so its hop-2 header names a root the bound graph COVERS after the ingest
+    //    below — otherwise the bridge's own cwd is a foreign brainless root and the
+    //    memorize is correctly refused (MEDULLA M5a S2), which this test is not
+    //    exercising.
     let mut bridge = Command::new(BIN)
         .arg("--attach")
         .arg(&base_url)
+        .env("M1ND_WORKSPACE_ROOT", &repo)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

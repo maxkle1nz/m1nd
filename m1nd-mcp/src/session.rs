@@ -973,6 +973,40 @@ impl SessionState {
         self.project_root_display().map(|root| basename_of(&root))
     }
 
+    /// True when THIS store is the medulla — the owner's own memory-of-doctrine
+    /// store, not a per-project brain (MEDULLA-PRD §4.1: the tier IS the directory).
+    ///
+    /// A project brain is born through [`ProjectBrainRegistry::boot_store`], which
+    /// stamps `workspace_root_source = "project_brain_manifest"` — the one honest
+    /// signal that a session is a routed per-project store rather than the bound
+    /// owner. Everything else (the bound dev graph today; the owner's own store)
+    /// is the medulla store: its `agent-memory/` dir holds `promoted` /
+    /// doctrine-born claims (post-migration) and is what every session's default
+    /// beat reads beside its own project memory.
+    pub fn is_medulla_store(&self) -> bool {
+        self.workspace_root_source.as_deref() != Some("project_brain_manifest")
+    }
+
+    /// The `Origin-Brain` label to stamp on a claim born in THIS store
+    /// (MEDULLA-PRD §6 · §3.3 frontmatter grammar):
+    /// - a per-project brain → its project root (`/path/to/repo`), the WHERE-born;
+    /// - the medulla store → the literal `medulla` (doctrine-born, no project origin).
+    ///
+    /// This is metadata, not a security boundary — it is rendered everywhere so
+    /// promotion/recall can say which brain a claim came from. Absent on legacy
+    /// files means "unknown", never faked (TT-INV-2 / MED-INV-4).
+    pub fn origin_brain(&self) -> String {
+        if self.is_medulla_store() {
+            "medulla".to_string()
+        } else {
+            // A project brain: its project root is the origin. Prefer the real
+            // repo root over the runtime sidecar, mirroring display naming.
+            self.project_root_display()
+                .or_else(|| self.workspace_root.clone())
+                .unwrap_or_else(|| "medulla".to_string())
+        }
+    }
+
     /// How many durable L1GHT memory claims exist on disk in this brain's store
     /// (`<runtime_root>/agent-memory/*.light.md`). This is the ground-truth count
     /// of the memory store itself, independent of whether recall surfaced any of

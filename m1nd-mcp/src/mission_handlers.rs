@@ -424,6 +424,8 @@ fn try_write_light_memory(
         ingest_after: true,
         mode: "merge".into(),
         supersedes: None,
+        // Default path: the handler stamps Origin-Brain from the session (§6).
+        origin_brain: None,
     };
 
     let result = handle_light_author(state, light_input)

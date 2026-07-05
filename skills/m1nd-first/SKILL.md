@@ -256,6 +256,8 @@ Quick pattern:
 4. After code changes, `cross_verify(check:["evidence_freshness"])` tells you which memorized claims now cite stale code. A merge re-ingest also returns `memory_freshness` inline.
 5. `mission_close(write_light_memory:true)` combines closing a mission and persisting its verified claims in one step.
 
+Provenance and scope (MEDULLA M5a): every `memorize` is stamped with an `Origin-Brain` — the project root it was born in, or `medulla` for the owner's own doctrine store — so recall can always name WHICH brain a claim came from. If your session's root has no project brain, a `memorize` is REFUSED rather than written into the shared medulla store; the refusal carries the one-call bootstrap (`ingest project_root=<your repo>`). Run it once, then your memory lands project-private in your own brain.
+
 Caveat: `ingest mode:replace` wipes agent memory nodes. Use `mode:merge` when re-ingesting code to keep agent memory intact.
 
 ## Skip Conditions

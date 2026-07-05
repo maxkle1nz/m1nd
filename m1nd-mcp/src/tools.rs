@@ -5272,6 +5272,7 @@ mod tests {
                 ingest_after: true,
                 mode: "merge".into(),
                 supersedes: None,
+                origin_brain: None,
             },
         )
         .expect("memorize");
@@ -5404,6 +5405,7 @@ mod tests {
                 ingest_after: true,
                 mode: "merge".into(),
                 supersedes: None,
+                origin_brain: None,
             },
         )
         .expect("memorize");
@@ -5469,6 +5471,7 @@ mod tests {
                     ingest_after: true,
                     mode: "merge".into(),
                     supersedes: None,
+                    origin_brain: None,
                 },
             )
             .expect("memorize");
