@@ -2,7 +2,8 @@
 
 **PATHOS native and verified · the agentic soul as a first-class m1nd type: anchored claims, two tissues, the curator at the gates**
 
-> **Status:** OFFICIAL — maintainer-directed design, 2026-07-05. This PRD writes the layer the organism map calls its single biggest gap (`[unwritten — SOUL thesis]`): the project's curated handoff document — PATHOS — becomes a verified m1nd type with a claim grammar, a freshness receipt, and a curator workflow. It does not replace the PATHOS practice (the skill, the doctrine, the living `docs/PATHOS.md`); it gives that practice the STRUCTURAL trust it has so far earned only behaviorally.
+> **Status:** OFFICIAL — maintainer-directed design, 2026-07-05. **S0 SHIPPED + S1 substrate SHIPPED (ladder R16, 2026-07-05)** — see the shipped notes in §9. This PRD writes the layer the organism map calls its single biggest gap (`[unwritten — SOUL thesis]`): the project's curated handoff document — PATHOS — becomes a verified m1nd type with a claim grammar, a freshness receipt, and a curator workflow. It does not replace the PATHOS practice (the skill, the doctrine, the living `docs/PATHOS.md`); it gives that practice the STRUCTURAL trust it has so far earned only behaviorally.
+> **Shipped so far (2026-07-05):** `soul_check` + `soul_read` (S0, read-only: parse → classify → verify → the freshness receipt); `soul_update` as a memorize mode with `Soul-Source` provenance + the §C8.4 curator seat check (S1 substrate). **Deferred with honest notes:** the automated curator sweep + ENXUTO budget enforcement (S1 automation — agent-executed by design, §5.4); the north-packet `soul` sub-atom + Hall D4 (S2 — the fifth reader); the pathos-skill call-through (S3). The seed battery case ran against the LIVE cp10 soul: **13 fresh · 14 stale · 61 declared**.
 > **Provenance:** design seat, single-seat. Every `file:line` anchor verified in this worktree at `origin/main` @ `5b1a37d` (the commit that merged `docs/MEDULLA-PRD.md`, #267 — this PRD rides that state machine and never re-decides it). **The symbol is the contract, the line is a hint — re-anchor at implementation start.**
 > **Ground includes a LIVE PROBE** (2026-07-05): `soul_check`'s algorithm was run BY HAND against the current `docs/PATHOS.md` (cp9 + 4 addenda) — 27 mechanically checkable claims sampled, every anchor tested against the repo, git, and the running served owner (binary 1.3.2). §2.3 reports the numbers verbatim; they are this PRD's RED state and S0's seed battery case. Two field letters were filed during the probe (`~/.m1nd/field-reports.jsonl`, 2026-07-05 `fable-soul-prd`: a repro of the false-absence defect, class `honesty`; a seek scope-escape, class `friction`).
 > **Sisters, same organism:** the memory state machine and stores this PRD mounts on — `docs/MEDULLA-PRD.md` (§3 states, §4 storage, §7 promote). The lifecycle grammar and the one-packet spine — the organism map (JOINT-A/B/E/H), whose verdicts are adopted here as law. The human face — `docs/HUMAN-LAYER-PRD.md` §4A (receipt echo only from this side). The delegation dovetail — `docs/NEXTGEN-AGENT-PRD.md` §O.12.
@@ -349,14 +350,72 @@ The Hall card's receipt drawer gains **D4: the soul line** — headline + freshn
 
 **Where the soul sits in the organism's build order (map §5, adopted):** the soul's WRITE half — store citizens with `Origin-Brain`, curator claims riding tier-labeled recall, promoted-apex dovetail — mounts on the medulla ladder and comes AFTER it: **S1+ depend on M5a (origin stamping + store discipline); the beat's tier labels ride M5b; the promoted-apex reading of curated claims arrives only with M6.** The soul layer as a whole is the ladder's LAST layer, as the map orders it. **The one honest exception is S0:** a read-only verifier over a git-tracked document, composing organs that are ALL SHIPPED today (document pipeline, bindings/drift, cross_verify, git, fs) — it writes nothing, touches no store, and needs no medulla state to exist. It ships first because it is the RED-maker: it turns today's drift into a measured, regressable number that the whole ladder above benefits from.
 
-### S0 — parse + check, read-only (the receipt is born)
+### S0 — parse + check, read-only (the receipt is born) — [SHIPPED 2026-07-05 · ladder R16]
 - **Scope:** the soul document profile over the universal pipeline (routing `docs/PATHOS.md` through it — probe RED: no cache entry today); the claim grammar + check classes `path`/`line-hint`/`git`/`consistency` (+ `symbol` via existing bindings); tissue mapping by section; `soul_check` v0 + the honesty report + the receipt line; `soul_read` v0. No writes, no hooks, no north change.
+
+> **Shipped (honest):** `m1nd-mcp/src/soul_handlers.rs` — a READ-ONLY verifier that
+> parses the soul markdown DIRECTLY into anchored claims (reuse-first: it composes the
+> SHIPPED organs rather than requiring a routed document-cache entry, so it works on a
+> soul the standard ingest never routed — the probe's RED). Check classes land as
+> designed: `path`/`line-hint` (fs stat, moved line = `line_drift` not a lie),
+> `symbol` (resolved against the live graph the same way `compute_bindings` walks
+> `id_to_node`), `git` (tags via `rev-parse refs/tags`, PR refs via the squash-merge
+> `(#N)` log convention), the intra-soul `consistency` pass (no fs — catches battery
+> "36" vs "37"). git verification rides `audit_handlers::resolve_git_root_from_state`
+> verbatim. `soul_check` emits `m1nd-soul-check-v0` (per-state counts, stale rows with
+> reason class, `checks_skipped`, `soul_lag`, and the one-line **freshness receipt**);
+> `soul_read` (`m1nd-soul-read-v0`) is the explicit pull surface (whole / section +
+> headline). The TWO TISSUES hold: declared sections (North Star / Doctrine / Do-Not-Do
+> / Proof-Standard doctrine) are counted, never verified (SOUL-INV-5); a missing anchor
+> is `evidence_stale`, never fresh (SOUL-INV-3); the priced classes hold as
+> `receipt-required`/`unprovable-now`, never folded into pass/fail. **The seed battery
+> case, run against the LIVE cp10 `docs/PATHOS.md`: 13 verified-fresh · 14 evidence-stale
+> · 61 declared (88 claims, 27 verifiable, 13 unanchored).** The one genuine
+> `evidence_file_missing` is `scratchpad/focus_smoke.py` (the Access Map cites a deleted
+> probe — exactly the drift the PRD predicted); the 13 unanchored are Known-Problems
+> prose bullets (SOUL-INV-1 working). Cases (`m1nd-mcp/tests/soul_check_behavior.rs`):
+> `soul_check_reports_fresh_stale_and_declared_with_a_receipt`,
+> `soul_check_never_fake_fresh_and_declared_is_never_verified`,
+> `soul_check_consistency_pass_catches_intra_soul_contradiction`,
+> `soul_read_pulls_body_and_section_and_headline`, + the ignored live-PATHOS probe
+> (`probe_real_pathos_reports_the_honest_numbers`, run with `--ignored`). **Residue:**
+> S0 parses the markdown directly rather than materializing a `document_resolve` cache
+> entry (the receipt is disposable, §3.6 — a cache entry is a V-later optimization, not
+> a correctness need); the `symbol` class was not EXERCISED against the live soul (cp10
+> carries no `mod::sym` anchors in verifiable tissue — honestly named in `checks_skipped`).
 - **RED (live now, §2.3):** `document_resolve('docs/PATHOS.md')` → no entry; the 27-claim hand probe: 12 fresh / 12 stale / 3 priced — including the five missing files, `line_drift` 52→67, `contradicted` 36-vs-37, `superseded` Next-Agent #1, `unanchored` glama.json.
 - **GREEN:** `soul_check` on the CURRENT cp9 reproduces the hand probe's findings (allowing for interim drift), each stale row carrying the right reason class; zero fake-fresh (every skipped class named); declared tissue counted, never verified.
 - **Battery:** the probe mechanized as the seed case (assert the known 12 by class) · fake-fresh guard (a doctored soul with a missing anchor must NOT report fresh) · declared-tissue guard (doctrine text yields zero verification attempts) · consistency case (plant two disagreeing numbers, expect `contradicted`).
 
-### S1 — the curator at the doc-gate `[depends: M5a]`
+### S1 — the curator at the doc-gate `[depends: M5a]` — [PARTIALLY SHIPPED 2026-07-05 · ladder R16 — the substrate + the seat check]
 - **Scope:** the curator contract (§5.2–5.4): worklist mode of `soul_check`, `soul_update` as the memorize mode with `Soul-Source` provenance (+ `Origin-Brain`, which is WHY M5a gates this), the curator report schema, ENXUTO budgets advisory, demotion rules, the PR-body receipt convention; skill/agent-pack text taught the pass (agent-docs gate satisfied in the same PR).
+
+> **Shipped (honest — the SUBSTRATE, not the automation):** the curator's mechanical
+> half is real; its judgment half stays agent work (§5.4, by design — "the substrate is
+> deterministic; the judgment is LLM work").
+> * **`soul_update` — the write half (SOUL-INV-8).** A MODE of `memorize`, never a
+>   parallel path: `LightAuthorInput` gained a `soul_source` field
+>   (`light_author_handlers.rs`) rendered as `Soul-Source: <path>#<section>` frontmatter,
+>   riding the ONE sink with every existing gate (supersession, flock, `WouldDowngrade`,
+>   hygiene floor, `Origin-Brain` stamping — which is why M5a gates this). The parser
+>   tolerates the unknown key, so it is backward-compatible.
+> * **Who verifies the curator (§C8.4 — the circularity answered).** `soul_check
+>   {verify_curator_report: <report>}` is the SEAT CHECK: it refuses a report whose
+>   `curated_by` equals the grading `agent_id` (grader ≠ author), refuses a silent prune
+>   (every removal needs a `why` + `where_it_went` — SOUL-INV-2), refuses removal of
+>   declared tissue without `proposed: true` (SOUL-INV-5), and requires the `still_stale`
+>   honesty valve to be present. Output `m1nd-soul-curator-seatcheck-v0`. A flag on the
+>   existing verb, not a new one (§C8.4's flag-first law).
+> Cases: `curator_report_seatcheck_requires_grader_not_author_and_no_silent_prune`,
+> `soul_update_writes_through_memorize_with_soul_source_provenance`.
+> **Residue (deferred, honestly):** the curator PASS as an automated sweep (worklist →
+> auto-demotion of stale text → ENXUTO budget enforcement → PR-body receipt injection)
+> is NOT shipped — it is agent-executed prose work (§5.4) that composes these verbs; the
+> `still_stale`/`declined`/`pruned` report SCHEMA is validated by the seat check but not
+> yet EMITTED by an automated curator. The ENXUTO line budgets (§5.3) remain advisory
+> v1, un-enforced. The `superseded`-by-consistency auto-detection (probe stale #12's
+> class) is designed but the consistency pass currently detects only numeric
+> contradiction, not self-supersession — a later slice.
 - **RED:** today's gate is doctrine-only — nothing runs at it; the addenda accrete (4 on cp9); a self-superseded next-step sat unmarked (probe #12); nothing prunes; `memorize` has no soul provenance.
 - **GREEN:** a real curation of the live soul executed at a real burst close: report emitted, prunes visible in the diff and named, `still_stale` honest, receipt improves or the reason is named; a `WouldDowngrade`-class refusal proven for a weaker soul claim rewrite.
 - **Battery:** curation end-to-end on a fixture soul (stale seed → report → receipt delta) · never-silent-prune case (every removed live-tissue line accounted in the report) · declared-tissue-lock case (curator cannot remove doctrine) · budget-overrun advisory case.

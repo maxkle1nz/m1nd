@@ -5305,6 +5305,7 @@ mod tests {
                 promotion_reason: None,
                 promoted_to: None,
                 evidence_unverifiable: false,
+                soul_source: None,
             },
         )
         .expect("memorize");
@@ -5443,6 +5444,7 @@ mod tests {
                 promotion_reason: None,
                 promoted_to: None,
                 evidence_unverifiable: false,
+                soul_source: None,
             },
         )
         .expect("memorize");
@@ -5514,6 +5516,7 @@ mod tests {
                     promotion_reason: None,
                     promoted_to: None,
                     evidence_unverifiable: false,
+                    soul_source: None,
                 },
             )
             .expect("memorize");

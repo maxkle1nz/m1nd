@@ -461,6 +461,7 @@ pub fn promote_claim(
         promotion_reason: Some(input.reason.clone()),
         promoted_to: None,
         evidence_unverifiable: reanchor.evidence_unverifiable,
+        soul_source: None,
     };
 
     // Write through the supersession-aware medulla write path so a weaker
