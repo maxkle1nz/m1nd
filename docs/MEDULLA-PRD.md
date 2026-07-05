@@ -338,8 +338,24 @@ Each event that survives triage adds its case to the battery of the brain it bit
 
 **Numbering note (the 2R precedent, deliberately):** Two-Tier's §14 already assigns Slice 6 (hooks v2) and Slice 7 (migration runbook) — renumbering them would ripple through every cross-reference for zero information. The medulla ladder is therefore lettered **M5a → M7b**: it extends Slice 5's medulla scope, pulls TT §15 V2-item-2 (promotion mechanization) into a gated slice, and lands the §O.12/§11 dovetail. The TT slices keep their numbers; runbook M4/M5 execute WITH M5a. Every slice is independently shippable, ends at the documentation gate, and holds all TT-INV + MED-INV.
 
-### M5a — Storage split + migration (the medulla becomes a real store)
-- **Scope:** `Origin-Brain` stamping in `memorize` (`light_author_handlers.rs:316-331` frontmatter block); the medulla store formalized at the existing `agent-memory/` path (no move); the §4.2 triage executed (deepened runbook M4: m1nd-repo claims → the m1nd project store; doctrine stays; count-conserving gates); ghost-pointer sweep of `ingest_roots.json`; S2 closed — **an unbootstrapped root's `memorize` is refused with the one-call bootstrap as the typed fix** (`reception.options[]` already carries the exact invocation) instead of silently writing into the medulla-to-be.
+### M5a — Storage split + migration (the medulla becomes a real store) — [SHIPPED 2026-07-05]
+> **Shipped variant (honest):** all four M5a pieces landed as designed. The
+> `Origin-Brain` stamp is derived in `SessionState::origin_brain()` (medulla vs
+> project brain distinguished by `workspace_root_source == "project_brain_manifest"`)
+> and rendered in `render_light_markdown`'s frontmatter (after `Source-Agent`, per
+> §3.3). The brainless-root refusal lives at the TOP of `handle_light_author`
+> (`light_author_handlers.rs`), gated on `is_medulla_store() && caller_root set &&
+> !covers_root(caller_root)` — so a covered owner-doctrine write and a headerless
+> session (absent ≠ wrong) are NOT refused. The **migration is a standalone,
+> pure-filesystem module** (`medulla_migration.rs`, `MedullaMigration::{plan,apply,
+> rollback}`) — `plan` is the pure-read dry-run default; `apply` is backup-first +
+> count-conserving; `rollback` restores byte-for-byte. It operates on directory
+> paths, never a live `SessionState`, so it is structurally incapable of touching a
+> running owner's graph. **CODE-LAND-ONLY: the LIVE migration is NOT run — it is
+> held for the maintainer.** Reversibility proven by a migrate→rollback round-trip
+> test; ghost-pointer sweep prunes dangling per-file `.light.md` pointers and
+> collapses live ones into the dir root.
+- **Scope:** `Origin-Brain` stamping in `memorize` (`light_author_handlers.rs` frontmatter block); the medulla store formalized at the existing `agent-memory/` path (no move); the §4.2 triage logic (deepened runbook M4: m1nd-repo claims → the m1nd project store; doctrine stays; count-conserving gates); ghost-pointer sweep of `ingest_roots.json`; S2 closed — **an unbootstrapped root's `memorize` is refused with the one-call bootstrap as the typed fix** (`reception.options[]` already carries the exact invocation) instead of silently writing into the medulla-to-be.
 - **RED (live now):** the §2.2c inventory — 25 mixed claims in one dir, zero `Origin-Brain` fields, `tokenvalidator.light.md` ghost root; a memorize with `M1nd-Caller-Root` on a brainless root lands in the shared dir (assert today's silence).
 - **GREEN:** every live claim carries a tier by directory + `Origin-Brain` (or is on the ambiguous-triage list); count-conservation gate green; the brainless-root memorize returns the typed refusal naming the bootstrap; legacy files without `Origin-Brain` still parse and render "unknown".
 - **Battery:** triage count-conservation case · brainless-root refusal case · legacy-frontmatter tolerance case · ghost-root sweep case.

@@ -19,6 +19,7 @@ pub mod instance_registry;
 pub mod layer_handlers;
 pub mod light_author_handlers;
 pub mod lock_handlers;
+pub mod medulla_migration;
 pub mod mission_handlers;
 pub mod persist_handlers;
 pub mod perspective;

@@ -83,6 +83,12 @@ space as code, surfaces in later `seek`/`north`, and self-flags as stale via \
 Pass `write_light_memory:true` to `mission_close` to persist its verified claims in one \
 step. This is how knowledge compounds instead of being lost between sessions.
 
+Every `memorize` is stamped with an `Origin-Brain` (the project root it was born in, or \
+`medulla` for the owner's own doctrine store) so recall can always say WHICH brain a claim \
+came from. If your session's root has no project brain, a `memorize` is REFUSED (not \
+silently written into the shared medulla) — the refusal hands you the one-call bootstrap \
+(`ingest project_root=<your repo>`); run it, then your memory lands project-private.
+
 Then leave ONE field-telemetry signal and keep working (report, never detour): when a \
 retrieval was right or wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF misbehaves \
 (a bug, friction, or an honesty miss — it claimed fresh/closed/act and was wrong), append \

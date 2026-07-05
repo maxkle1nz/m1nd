@@ -112,6 +112,12 @@ this loop by default:
    JSON line in `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves
    (local-only; never fix m1nd mid-mission — report). Record the investigation
    path: m1nd calls, recovery path, files inspected, commands run.
+   Every `memorize` is stamped with an `Origin-Brain` (its project root, or
+   `medulla` for the owner's doctrine store), so recall names which brain a claim
+   came from. A `memorize` from a root with NO project brain is REFUSED (never
+   silently written into the shared medulla); the refusal hands you the one-call
+   bootstrap `ingest project_root=<your repo>` — run it, then memory lands
+   project-private.
 
 This is the trained-agent behavior to preserve across hosts: m1nd is graph plus
 operating doctrine, not graph alone.
