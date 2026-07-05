@@ -46,7 +46,7 @@ const gold = {
   g1: freshnessG1(stale),
   g2: calibrationG2(predict.calibration),
   g3: compoundingG3(snap),
-  g4: alivenessG4({ active_agent_sessions: self.active_agent_sessions, queries_processed: self.queries_processed }),
+  g4: alivenessG4({ attached_sessions: self.active_agent_sessions, query_count: self.queries_processed }),
 };
 const noop = () => {};
 
@@ -69,13 +69,13 @@ test('§4A.3.1 G4: aliveness shows the real sessions + queries from the self env
   assert.match(text, new RegExp(`${self.queries_processed} quer`));
 });
 
-test('§4A.3.1 G4 (interim honesty): the count is qualified "across all brains" — owner-wide until §9.5.1 partition', () => {
-  // active_agent_sessions/queries_processed are OWNER-GLOBAL `health` counters,
-  // not partitioned per brain (sessions on other hosted brains inflate this card).
-  // The caption must carry the owner-wide qualifier so it never claims a per-brain
-  // attribution it cannot back, and must NOT imply the count is this brain's alone.
+test('§4A.3.1 G4 (R14 partition): the count is THIS brain\'s own — no "across all brains" qualifier', () => {
+  // The §9.5.1 partition (keyed on session.bound_project_root) landed: G4 now
+  // shows the brain's OWN attached-sessions + queries, so the interim owner-wide
+  // qualifier is REMOVED. The count no longer folds in other hosted brains'
+  // sessions, so it may claim per-brain attribution honestly.
   const text = visible(React.createElement(BrainCardGold, { ...gold }));
-  assert.match(text, /across all brains/, 'G4 must qualify the owner-wide counter');
+  assert.doesNotMatch(text, /across all brains/, 'the interim qualifier is retired once partitioned');
   assert.doesNotMatch(text, /this session/, 'the retired "this session" copy overclaimed per-brain scope');
 });
 

@@ -80,15 +80,33 @@ test('§4A.3.1 G3: the compounding meter counts DISTINCT memories + newest + agi
   assert.ok(farFuture!.aging > 0, 'with now +400d, dated memories are aging');
 });
 
-// ── G4 — aliveness ────────────────────────────────────────────────────────────
+// ── G4 — aliveness (per-brain partition, ladder R14 / §9.5.1) ──────────────────
 test('§4A.3.1 G4: aliveness merges sessions + queries into ONE caption (not two rows)', () => {
-  const g4 = alivenessG4(self);
+  // The self envelope's counters ARE the bound brain's own (routing dispatches
+  // per-brain); mapped into the per-brain attached_sessions/query_count shape.
+  const g4 = alivenessG4({ attached_sessions: self.active_agent_sessions, query_count: self.queries_processed });
   assert.ok(g4);
   assert.equal(g4!.sessions, self.active_agent_sessions);
   assert.equal(g4!.queries, self.queries_processed);
   assert.match(g4!.caption, new RegExp(`${self.active_agent_sessions} agent`));
   assert.match(g4!.caption, new RegExp(`${self.queries_processed} quer`));
   assert.equal(alivenessG4(null), null, 'absent → nothing (hosted brain honesty)');
+});
+
+test('§4A.3.1 G4 (R14 partition): the "across all brains" qualifier is GONE — the number is per-brain', () => {
+  // The partition (§9.5.1, keyed on session.bound_project_root) lands: the count
+  // is now truly this brain's own, so the interim owner-wide qualifier is removed.
+  const g4 = alivenessG4({ attached_sessions: 2, query_count: 48 });
+  assert.ok(g4);
+  assert.doesNotMatch(g4!.caption, /across all brains/, 'the interim qualifier must be gone once partitioned');
+  assert.equal(g4!.caption, '2 agents attached · 48 queries');
+});
+
+test('§4A.3.1 G4 (absent-honest): a dormant brain with no live sessions renders nothing, never a fabricated 0', () => {
+  // A dormant project brain has no warm SessionState → the backend sends null for
+  // attached_sessions/query_count; G4 must be absent, never "0 agents · 0 queries".
+  assert.equal(alivenessG4({ attached_sessions: null, query_count: null }), null);
+  assert.equal(alivenessG4({}), null, 'both fields missing → absent, not a zero row');
 });
 
 // ── D1 — the last learned claim ───────────────────────────────────────────────

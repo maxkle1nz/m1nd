@@ -411,6 +411,25 @@ impl ProjectBrainRegistry {
         Some((g.num_nodes() as u64, g.num_edges() as u64))
     }
 
+    /// Live per-brain aliveness for a project brain that is warm in the map RIGHT
+    /// NOW — the R14 partition source (TWO-TIER §9.5.1). Returns
+    /// `(attached_sessions, query_count, calibration_armed)` read from the brain's
+    /// OWN [`SessionState`]: its distinct wire-session count, its own
+    /// `queries_processed`, and whether its calibration table is armed. `None` when
+    /// the brain is dormant on disk — a dormant brain has no live wire sessions, so
+    /// the caller renders these ABSENT (never a fabricated 0; TT-INV-2). Locks the
+    /// map briefly, then the brain lock — never across an `.await`.
+    pub fn warm_session_stats(&self, canonical_root: &str) -> Option<(u64, u64, bool)> {
+        let key = Self::canonical_key(canonical_root);
+        let brain = self.brains.lock().get(&key).map(|w| w.brain.clone())?;
+        let state = brain.lock();
+        Some((
+            state.sessions.len() as u64,
+            state.queries_processed,
+            state.calibration_armed(),
+        ))
+    }
+
     /// The COLD roster: every project brain this owner has ON DISK, read only from
     /// each store's inert `project_brain.json` manifest (never the multi-MB
     /// snapshot — listing ≠ warm-boot). This is the fix for the "hosted brain

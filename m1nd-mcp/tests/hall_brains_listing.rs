@@ -505,6 +505,147 @@ async fn dormant_project_brain_reports_manifest_counts_after_restart() {
 }
 
 // ---------------------------------------------------------------------------
+// (F) per-brain session/query PARTITION (ladder R14 / TWO-TIER §9.5.1).
+//
+// The honesty gap (field-report letter#51): the Hall's G4 aliveness line and the
+// instances listing wore the OWNER-GLOBAL session/query counters — sessions on
+// OTHER hosted brains inflated a card. R14 partitions on the session's bound
+// brain: each brain's entry reports ITS OWN attached-sessions + query-count, and
+// the owner-wide total stays only on the owner's own receipt, labeled owner-wide.
+//
+// The partition is provable because each brain is a full SessionState and routed
+// calls dispatch against the brain that owns the caller (mcp_http::route_and_run):
+// a tool call carrying `agent_id` records a session (track_agent) on THAT brain,
+// and its `queries_processed` counts only that brain's queries. We drive the two
+// brains to DISTINCT, divergent counts and assert no card wears the global sum.
+// ---------------------------------------------------------------------------
+
+/// The per-brain attached-session count the R14 partition puts on each entry.
+fn attached_sessions(entry: &serde_json::Value) -> Option<u64> {
+    entry["attached_sessions"].as_u64()
+}
+
+/// The per-brain query count the R14 partition puts on each entry.
+fn query_count(entry: &serde_json::Value) -> Option<u64> {
+    entry["query_count"].as_u64()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn per_brain_counters_partition_on_the_bound_brain_not_owner_global() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let (owner, bound_repo, project_repo) = owner_with_two_brains(tmp.path()).await;
+
+    // Drive DIVERGENT traffic so the partition is unmistakable:
+    //   bound brain: a SECOND distinct agent hits it (agent "setup" already did
+    //     the ingest) → 2 distinct sessions on the bound brain;
+    //   project brain: no new agents → its 1 bootstrap session ("project-b-agent")
+    //     stands alone.
+    // If the counters were owner-global, EITHER card would read the same inflated
+    // sum (3 sessions); the partition makes them 2 and 1.
+    let sid_extra = owner.init_session(&bound_repo).await;
+    owner
+        .tool(
+            &sid_extra,
+            &bound_repo,
+            "north",
+            serde_json::json!({"task": "bump the bound brain", "agent_id": "bound-second-agent"}),
+        )
+        .await;
+
+    let listing = instances_listing(&owner.app);
+    let list = brains(&listing);
+    let bound = bound_of(list);
+    let project = project_of(list);
+
+    // ── The partition: each card wears its OWN attached-session count. ──────────
+    assert_eq!(
+        attached_sessions(bound),
+        Some(2),
+        "the bound brain's entry must report ONLY its own attached sessions \
+         (setup + bound-second-agent = 2), never the owner-global sum: {bound}"
+    );
+    assert_eq!(
+        attached_sessions(project),
+        Some(1),
+        "the project brain's entry must report ONLY its own attached sessions \
+         (project-b-agent = 1), never inflated by the bound brain's sessions: {project}"
+    );
+
+    // ── The query count is per-brain too — each card wears its OWN queries. ─────
+    // Read each brain's TRUE own `queries_processed` straight from its SessionState
+    // and assert the card echoes exactly that. The owner-global counter (a naive
+    // implementation) would put the SUM on both cards; the partition puts each
+    // brain's own number on its own card.
+    let bound_own_q = { owner.app.session.lock().queries_processed };
+    let project_key = ProjectBrainRegistry::canonical_key(&project_repo.to_string_lossy());
+    let project_own_q = owner
+        .app
+        .project_brains
+        .warm_session_stats(&project_key)
+        .expect("the project brain is warm")
+        .1;
+    let bound_q = query_count(bound).expect("bound entry must carry a per-brain query_count");
+    let project_q = query_count(project).expect("project entry must carry a per-brain query_count");
+    assert_eq!(
+        bound_q, bound_own_q,
+        "the bound card's query_count must be the bound brain's OWN queries \
+         ({bound_own_q}), not the owner-global sum: {bound}"
+    );
+    assert_eq!(
+        project_q, project_own_q,
+        "the project card's query_count must be the project brain's OWN queries \
+         ({project_own_q}), never inflated by the bound brain's traffic: {project}"
+    );
+
+    // ── The owner-wide total is NOT gone — it lives on the owner's own receipt. ──
+    // The bound entry IS the owner's own brain; its per-brain session count IS the
+    // owner's own SessionState session count (2), correctly attributed — never the
+    // cross-brain sum (which would be 3, folding in the project brain's session).
+    let owner_wide_sessions = { owner.app.session.lock().sessions.len() as u64 };
+    assert_eq!(
+        attached_sessions(bound),
+        Some(owner_wide_sessions),
+        "the bound/self brain's per-brain count IS the owner's own SessionState \
+         session count (2), correctly attributed — not the cross-brain sum: {bound}"
+    );
+    // The cross-brain sum (bound + project sessions) is what the OLD global counter
+    // would have shown on EVERY card. Prove no card wears it.
+    let cross_brain_sum = owner_wide_sessions + attached_sessions(project).unwrap();
+    assert_ne!(
+        attached_sessions(bound),
+        Some(cross_brain_sum),
+        "the bound card must NOT wear the cross-brain session sum (the honesty gap): {bound}"
+    );
+    assert_ne!(
+        attached_sessions(project),
+        Some(cross_brain_sum),
+        "the project card must NOT wear the cross-brain session sum (the honesty gap): {project}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dormant_project_brain_omits_live_session_counters_absent_honest() {
+    // A brain warm-booted only for listing (no routed session) has no live wire
+    // sessions — the per-brain live counters are ABSENT, never a fabricated 0
+    // (TT-INV-2). We prove the absent-honest posture on a dormant brain: after a
+    // restart the project brain is on disk with no warm SessionState, so its live
+    // attached-session count is absent.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let runtime = tmp.path().join("runtime");
+    let (owner, _bound, _proj) = owner_with_two_brains(tmp.path()).await;
+    drop(owner);
+
+    let owner2 = mk_owner(&runtime);
+    let listing = instances_listing(&owner2.app);
+    let hosted = project_of(brains(&listing));
+    assert!(
+        hosted["attached_sessions"].is_null(),
+        "a dormant project brain has no live wire sessions — attached_sessions must \
+         be absent (null), never a fabricated 0: {hosted}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Fixture capture — REAL enriched `/api/instances` output for the UI tests.
 //
 // Run explicitly to (re)generate the UI fixture from a scratch owner shaped

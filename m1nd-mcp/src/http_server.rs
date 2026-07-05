@@ -868,12 +868,28 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| s.to_string())
     };
-    let (self_runtime_root, self_project_root, self_display_name) = {
+    // The owner's own brain also carries the per-brain aliveness the R14 partition
+    // (TWO-TIER §9.5.1) puts on its card: its OWN attached-session + query counts,
+    // read from its own SessionState in the same lock. These are the bound brain's
+    // own numbers — no longer conflated with the project brains' sessions. The
+    // owner-WIDE total (sum across all hosted brains) stays only on the owner's
+    // receipt (`/api/instances/self`, `/api/health`), labeled owner-wide there.
+    let (
+        self_runtime_root,
+        self_project_root,
+        self_display_name,
+        self_attached_sessions,
+        self_query_count,
+        self_calibration_armed,
+    ) = {
         let session = state.session.lock();
         (
             canon_root(&session.runtime_root.to_string_lossy()),
             session.project_root_display(),
             session.display_name(),
+            session.sessions.len() as u64,
+            session.queries_processed,
+            session.calibration_armed(),
         )
     };
     let store_base = state.project_brains.base_dir().to_path_buf();
@@ -888,54 +904,69 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
             let is_project = entry.brain_kind.as_deref() == Some("project");
             let mut project_counts: Option<(u64, u64)> = None;
             let mut project_updated_ms: Option<u64> = None;
+            // The R14 per-brain partition (§9.5.1): each entry's OWN aliveness —
+            // `(attached_sessions, query_count, calibration_armed)`. `None` = this
+            // brain has no live SessionState right now (a dormant project brain),
+            // so the live counters render ABSENT, never a fabricated 0 (TT-INV-2).
+            let mut brain_aliveness: Option<(u64, u64, bool)> = None;
 
-            let (display_name, project_root) =
-                if canon_root(&entry.runtime_root) == self_runtime_root {
-                    // The bound/dev graph this owner serves.
-                    (self_display_name.clone(), self_project_root.clone())
-                } else if is_project {
-                    // A hosted project brain: its workspace_root IS its store dir;
-                    // the manifest there names the real repo it maps AND records
-                    // its last-known size (the cheap dormant-count source).
-                    let store_path = std::path::Path::new(&entry.workspace_root);
-                    let facts =
-                        crate::project_brains::store_facts_for_store(store_path).or_else(|| {
-                            // Defensive: if the entry's store path drifted, try
-                            // resolving under our own store base by basename.
-                            store_path
-                                .file_name()
-                                .map(|name| store_base.join(name))
-                                .and_then(|p| crate::project_brains::store_facts_for_store(&p))
-                        });
-                    match facts {
-                        Some(f) => {
-                            // Warm brain counts win (live truth); else the
-                            // manifest's recorded counts (honest for a dormant
-                            // store); else absent — never a fabricated zero.
-                            project_counts = state.project_brains.warm_counts(&f.project_root).or(
-                                match (f.node_count, f.edge_count) {
-                                    (Some(n), Some(e)) => Some((n, e)),
-                                    _ => None,
-                                },
-                            );
-                            project_updated_ms = f.updated_ms;
-                            let name = crate::session::basename_of(&f.project_root);
-                            (Some(name), Some(f.project_root))
-                        }
-                        // Manifest unreadable → honest fallback to the store basename
-                        // rather than invent a name.
-                        None => (
-                            Some(crate::session::basename_of(&entry.workspace_root)),
-                            Some(entry.workspace_root.clone()),
-                        ),
+            let (display_name, project_root) = if canon_root(&entry.runtime_root)
+                == self_runtime_root
+            {
+                // The bound/dev graph this owner serves — its OWN counters.
+                brain_aliveness = Some((
+                    self_attached_sessions,
+                    self_query_count,
+                    self_calibration_armed,
+                ));
+                (self_display_name.clone(), self_project_root.clone())
+            } else if is_project {
+                // A hosted project brain: its workspace_root IS its store dir;
+                // the manifest there names the real repo it maps AND records
+                // its last-known size (the cheap dormant-count source).
+                let store_path = std::path::Path::new(&entry.workspace_root);
+                let facts =
+                    crate::project_brains::store_facts_for_store(store_path).or_else(|| {
+                        // Defensive: if the entry's store path drifted, try
+                        // resolving under our own store base by basename.
+                        store_path
+                            .file_name()
+                            .map(|name| store_base.join(name))
+                            .and_then(|p| crate::project_brains::store_facts_for_store(&p))
+                    });
+                match facts {
+                    Some(f) => {
+                        // Warm brain counts win (live truth); else the
+                        // manifest's recorded counts (honest for a dormant
+                        // store); else absent — never a fabricated zero.
+                        project_counts = state.project_brains.warm_counts(&f.project_root).or(
+                            match (f.node_count, f.edge_count) {
+                                (Some(n), Some(e)) => Some((n, e)),
+                                _ => None,
+                            },
+                        );
+                        // R14 partition (§9.5.1): this brain's OWN aliveness,
+                        // from its warm SessionState. A dormant brain (no warm
+                        // state) leaves this None → live counters absent-honest.
+                        brain_aliveness = state.project_brains.warm_session_stats(&f.project_root);
+                        project_updated_ms = f.updated_ms;
+                        let name = crate::session::basename_of(&f.project_root);
+                        (Some(name), Some(f.project_root))
                     }
-                } else {
-                    // A sibling owner: name it by its own workspace basename.
-                    (
+                    // Manifest unreadable → honest fallback to the store basename
+                    // rather than invent a name.
+                    None => (
                         Some(crate::session::basename_of(&entry.workspace_root)),
                         Some(entry.workspace_root.clone()),
-                    )
-                };
+                    ),
+                }
+            } else {
+                // A sibling owner: name it by its own workspace basename.
+                (
+                    Some(crate::session::basename_of(&entry.workspace_root)),
+                    Some(entry.workspace_root.clone()),
+                )
+            };
             // MEDULLA-PRD §9.2 (slice M7b), the D3 face count: `mailbox_open_count`
             // = the repo-side box's `wet_ink + in_flight`. Rendered ONLY when the
             // box FILE exists on disk (a repo with no box yields absent, never a
@@ -971,6 +1002,22 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
                         None => serde_json::Value::Null,
                     },
                 );
+                // R14 per-brain partition (§9.5.1): the entry's OWN aliveness.
+                // Present only when a live SessionState backs this brain (the bound
+                // brain always; a warm project brain). Absent (null) for a dormant
+                // project brain — no live wire sessions to count (TT-INV-2), never 0.
+                match brain_aliveness {
+                    Some((sessions, queries, calibrated)) => {
+                        map.insert("attached_sessions".into(), serde_json::json!(sessions));
+                        map.insert("query_count".into(), serde_json::json!(queries));
+                        map.insert("calibration_armed".into(), serde_json::json!(calibrated));
+                    }
+                    None => {
+                        map.insert("attached_sessions".into(), serde_json::Value::Null);
+                        map.insert("query_count".into(), serde_json::Value::Null);
+                        map.insert("calibration_armed".into(), serde_json::Value::Null);
+                    }
+                }
                 if is_project {
                     // Project-brain semantics: counts from the store/warm brain
                     // (absent-honest, never 0), freshness from the manifest, and
