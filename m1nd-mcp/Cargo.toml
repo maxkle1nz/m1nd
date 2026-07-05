@@ -31,6 +31,12 @@ regex = "1"
 glob = "0.3"
 notify = "8.2"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+# Letter ids are `sha256(raw line bytes)[0..12]` (MEDULLA-PRD §9.2): stable and
+# machine-independent by construction, so git-traveled boxes dedup across
+# machines. DefaultHasher (SipHash) is NOT cross-version/platform stable, which
+# would break that contract. sha2 0.10 is already in Cargo.lock transitively —
+# declaring it direct adds NO new crate to the build graph.
+sha2 = "0.10"
 
 # HTTP server (behind "serve" feature)
 axum = { version = "0.8", optional = true }

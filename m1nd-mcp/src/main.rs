@@ -220,6 +220,105 @@ fn load_config_from_cli(cli: &Cli) -> McpConfig {
     }
 }
 
+/// One-shot mailbox triage (MEDULLA-PRD §9.2). Boots a `SessionState` to recover
+/// the canonical runtime root + the known project brains, distributes the spool
+/// into per-project boxes + the medulla box (unless `no_distribute`), then prints
+/// the cross-box sweep as JSON. Pure operator convenience — OFF the MCP surface.
+fn run_inbox_sweep(config: McpConfig, no_distribute: bool) {
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    let server = match McpServer::new(config) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[m1nd-mcp][inbox_sweep] failed to boot session: {e}");
+            std::process::exit(1);
+        }
+    };
+    let state = server.into_session_state();
+    let runtime_root = state.runtime_root.clone();
+    let worktree_base = state
+        .project_root_display()
+        .as_deref()
+        .map(m1nd_mcp::mailbox::project_basename)
+        .unwrap_or_default();
+
+    // Known project roots: the bound root + every disk-roster brain store.
+    let mut roots: Vec<String> = Vec::new();
+    if let Some(bound) = state.project_root_display() {
+        roots.push(bound);
+    }
+    let registry = m1nd_mcp::project_brains::ProjectBrainRegistry::new(
+        runtime_root.join(m1nd_mcp::project_brains::PROJECT_BRAINS_DIR),
+        None,
+    );
+    for (_key, facts, _dir) in registry.disk_roster() {
+        roots.push(facts.project_root);
+    }
+
+    let (known, mut boxes) = m1nd_mcp::mailbox::boxes_from_roots(&roots, &worktree_base);
+    boxes.push(m1nd_mcp::mailbox::KnownBox {
+        label: "medulla".into(),
+        path: m1nd_mcp::mailbox::medulla_box_path(&runtime_root),
+        reachable: true,
+    });
+
+    let spool = m1nd_mcp::mailbox::spool_path_for_runtime(&runtime_root);
+    let foreign: std::collections::BTreeSet<String> =
+        ["context7", "browseros", "playwright", "semgrep"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+    let distribution = if no_distribute {
+        None
+    } else {
+        match m1nd_mcp::mailbox::distribute(&spool, &runtime_root, &worktree_base, &known) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                eprintln!("[m1nd-mcp][inbox_sweep] distribution failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    };
+
+    // Re-derive boxes AFTER distribution so a box born this run is swept.
+    let (_known2, mut boxes2) = m1nd_mcp::mailbox::boxes_from_roots(&roots, &worktree_base);
+    boxes2.push(m1nd_mcp::mailbox::KnownBox {
+        label: "medulla".into(),
+        path: m1nd_mcp::mailbox::medulla_box_path(&runtime_root),
+        reachable: true,
+    });
+    let _ = boxes; // the pre-distribution list is superseded by boxes2
+
+    let sweep = match m1nd_mcp::mailbox::inbox_sweep(&spool, &boxes2, &foreign) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[m1nd-mcp][inbox_sweep] sweep failed: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let out = serde_json::json!({
+        "schema": "m1nd-inbox-sweep-v0",
+        "spool_path": spool.to_string_lossy(),
+        "distribution": distribution.map(|d| serde_json::json!({
+            "spool_total": d.spool_total,
+            "appended": d.appended,
+            "to_project": d.to_project,
+            "to_medulla": d.to_medulla,
+            "pending": d.pending,
+        })),
+        "total": sweep.total,
+        "open": sweep.open,
+        "misdelivery": sweep.misdelivery,
+        "unreachable": sweep.unreachable,
+        "letters": sweep.letters,
+    });
+    println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    let _: BTreeMap<String, PathBuf> = known; // keep the type explicit for clarity
+}
+
 async fn run_stdio_server(config: McpConfig, event_log: Option<String>, no_gui: bool, _port: u16) {
     if event_log.is_some() {
         eprintln!(
@@ -408,6 +507,16 @@ async fn main() {
     }
 
     let config = load_config_from_cli(&cli);
+
+    // --inbox-sweep: the one-shot triage hand (MEDULLA-PRD §9.2, §C6.2 — CLI/REST
+    // only, OFF the MCP surface). Distribute the spool into per-project boxes +
+    // the medulla box (idempotent, LOCAL, safe to re-run — telemetry not memory),
+    // then print the cross-box sweep and exit. Runs BEFORE --serve/stdio so it
+    // never boots a server transport.
+    if cli.inbox_sweep {
+        run_inbox_sweep(config, cli.no_distribute);
+        return;
+    }
 
     let event_log = cli.event_log;
     let watch_events = cli.watch_events;

@@ -455,7 +455,68 @@ Each event that survives triage adds its case to the battery of the brain it bit
 - **GREEN:** the two-brain fixture shows a medulla-tier row labeled `tier=medulla`/`origin_brain=medulla` beside a project row labeled `tier=project` + its repo-root `origin_brain`; the rendered `prompt_markdown` shows `[medulla]`/`[project]` and carries the doctrine text; the lone-brain packet still labels every row with its own store's origin (legacy → the store identity, never a crash).
 - **Battery:** two-brain packet labeling case (`m7_packet_memory_rows_carry_tier_and_origin_brain_two_brain`) · lone-brain own-origin labeling case (`m7_lone_brain_packet_still_labels_every_row_with_its_own_origin`) — both in `delegation_slices.rs`; M5b/M6/two-tier suites unregressed.
 
-### M7b — The telemetry class, the boxes, the metric
+### M7b — The telemetry class, the boxes, the metric — [SHIPPED 2026-07-05]
+> **Shipped variant (honest):** M7b landed as a **pure-filesystem module**
+> (`mailbox.rs`, mirroring `medulla_migration.rs`) — no live `SessionState`, so
+> distribution/sweep/read are scratch-testable and structurally incapable of
+> touching a running owner's graph. **Letter id = `sha256(raw line bytes)[0..12]`**
+> via a direct `sha2 0.10` dep (already in Cargo.lock transitively — SipHash's
+> `DefaultHasher` is NOT cross-version/platform stable, which would break the
+> git-travel dedup contract, so the spec's sha256 is load-bearing). The
+> **distribution rule** normalizes `repo`/`brain` (expand `~`, strip parenthetical
+> annotations, `<base>-*` worktree names collapse to `<base>` — kept NEUTRAL: the
+> rule is "a `<base>-<suffix>` sibling collapses to `<base>`", the project basename
+> is an input, not a hardcoded name) and files each letter into exactly ONE box:
+> a project letter → `<repo>/.m1nd/inbox.jsonl` (**consent-deferred birth** writes
+> an ignore-by-default `.gitignore` covering `inbox.jsonl`, §C7.5; an existing one
+> is never rewritten), a projectless letter → the medulla box
+> (`<runtime_root>/inbox.jsonl`), an absent-repo letter → `pending_distribution`
+> (named, NEVER re-routed — MED-INV-10). Distribution is idempotent
+> (append-with-dedup by content id; a box's git-traveled letters survive
+> un-clobbered). **Fates are derived** (`wet_ink`/`in_flight`/`fired_clay`/
+> `external`) from the reply graph (`answers[]`) at read time — never stored; the
+> "abertas" count = `wet_ink + in_flight` (`external` visible, never counted).
+> **`inbox_sweep`** unions the spool ∪ every known box (id-dedup, each letter once,
+> unreachable boxes named) — shipped as **CLI (`--inbox-sweep`) + REST
+> (`GET /api/inbox_sweep`)**, OFF the MCP surface (§C6.2). **`GET /api/mailbox?brain=`**
+> reuses the §4A.9 `resolve_brain` selector verbatim (registered roots only,
+> `served_brain` echo; `?brain=medulla` → the medulla box) and reads ONLY the
+> resolved brain's repo-side box (INV-17). **`doctor`** gained a `mailbox` block
+> (counts only: `memory_misdelivery`, `confusion_rate_7d`, `spool_letters`,
+> `pending_distribution`). `/api/instances` gained the `mailbox_open_count`
+> enrichment (absent-honest when no box file — never a fabricated zero). *Proof:*
+> RED-first — today all 62 live letters are one global file, prose-only linkage,
+> no fates, no per-brain query; GREEN is 14 unit cases (`mailbox::tests`:
+> distribution-into-exactly-one-box, MED-INV-10, idempotence, git-inlet dedup,
+> pending→files-when-present, consent-birth `.gitignore`, fate derivation,
+> external-excluded, sweep-union, the `memory_misdelivery` vocabulary + count,
+> stable-id) + 5 end-to-end cases over the REAL routing/read seam
+> (`tests/mailbox_m7b.rs`): distribution+MED-INV-10+idempotence, box-scoped
+> `/api/mailbox` + `served_brain` echo, the `medulla` selector, unknown-brain
+> honest miss, sweep-union naming unreachable. All NEUTRAL fixtures (`repo-a`/
+> `repo-b`) — the CODE names no project; the LOCAL boxes the distributor writes DO
+> carry project names, which is correct (boxes are local per-repo files, never
+> committed to the public repo). Clippy `-D warnings` clean, `fmt --check` clean.
+> **CODE-LAND-ONLY: the LIVE `~/.m1nd/field-reports.jsonl` was NOT distributed and
+> `:1338` was NOT restarted — held for the maintainer** (a rebuild/kickstart serves
+> the new REST routes + CLI mode; `m1nd-mcp --inbox-sweep` runs the live
+> distribution locally when the maintainer chooses — it is idempotent + safe).
+> **Honest residue:** (a) the CLI/REST `known_repos` map is built from the bound
+> root + registry brains + absolute-path letters — a **bare-name letter for a
+> brainless, non-bound repo** (e.g. a client repo present on disk but never
+> ingested) resolves to `pending_distribution` rather than its dir, because the
+> one-shot has no filesystem search root; the fix (a `--repos-root` search hint or
+> path resolution against a known parent) is a follow-up, and the spec's
+> `pending_distribution` fallback (named, never medulla) makes this honest, not
+> lossy. (b) The `in_flight` fate is derivable but always empty today — the spool
+> schema has no "referenced-but-not-closed" signal distinct from a closing answer
+> (a reference IS a close), so a referenced letter is `fired_clay`; the derivation
+> is ready the moment a non-closing reference class appears. (c) The §7.1
+> secret-scan hygiene floor at filing time is NOT yet wired — distribution files
+> letters verbatim; the floor is a named follow-up before the live committed-box
+> path (today boxes are ignore-by-default, so uncommitted). (d) The §C2.2
+> orchestrator note (supersede the sealed `project-inbox-doctrine` medulla memory)
+> is a runtime-memory act for the landing orchestrator, not in this PR.
 - **Scope:** the `memory_misdelivery` class + `kind` vocabulary (§9.1) documented in the field-report doctrine (CLAUDE-side surfaces + agent packs, same-PR gate); the mailbox distribution (§9.2 — spool → **repo-side project boxes** (`<repo>/.m1nd/inbox.jsonl`, the ownership law) + the medulla box for projectless letters only, letter ids, `answers[]` linkage, fate-state derivation, the §7.1 hygiene floor at filing time, `pending_distribution` for absent repos, the migration pass over the live letters with best-effort Lnn resolution); **`inbox_sweep` cross-boxes** (spool ∪ every known box, id-dedup, unreachable boxes named); the read surface (`GET /api/mailbox?brain=…` on the §4A.9 selector contract + the `mailbox_open_count` instances enrichment); `doctor` renders confusion_rate / volume / beats-served weekly counts + the pending-distribution count; the mailbox `"brain"` field (B3) starts being written by this repo's own agents. The human rendering is HUMAN-LAYER §4A.11 (slice 3M) — data contract only from this side.
 - **RED:** the four live confusion rows (S6, S7×2, S8) exist untyped in the mailbox — no counter can be computed without hand-reading; `doctor` says nothing about memory delivery; 53 letters live in one file with prose-only linkage — no per-project view can exist, the project-b letters are invisible from the project-b card, and nothing a project felt travels with its git (assert: a fresh clone carries zero letters).
 - **GREEN:** distribution files every live letter into exactly one box by the §9.2 rule — m1nd variants → m1nd's box, `project-b` → project-b's, `project-c` → project-c's, `~/project-d` → project-d's (no brain, repo-side box) — idempotent (a second run appends nothing); **no repo-bearing letter is in the medulla box** (MED-INV-10 assertion over the whole migrated set); the medulla box holds exactly the projectless letters (owner-runtime ×7, `all`, the Context7 letter); a letter whose repo dir is absent stays `pending_distribution`, counted by doctor, and files on the next run once the dir exists; a box seeded with a git-traveled letter (id not in the local spool) survives distribution un-clobbered and dedup holds; `inbox_sweep` returns the union with each letter once; every `class:triage` letter written post-slice carries `answers[]` and flips its target to `fired_clay`; the "abertas" count excludes `external`; `GET /api/mailbox?brain=<project-b_root>` returns only project-b's letters with the `served_brain` echo; `doctor` prints the weekly numbers (counts only); the five `kind`s each have one battery case derived from its live precedent row (or a synthetic where none exists yet — `leak` — marked synthetic).

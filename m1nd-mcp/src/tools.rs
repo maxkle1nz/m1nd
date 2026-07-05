@@ -4311,6 +4311,30 @@ pub fn handle_doctor(
         .last_persist_time
         .map(|last| last.elapsed().as_secs_f64());
 
+    // MEDULLA-PRD §9.3 — the confusion metric, read as COUNTS ONLY (no
+    // uncalibrated quality scores): `confusion_rate` = confirmed
+    // `memory_misdelivery` letters this week, against total letters (volume) and
+    // the pending-distribution count. Best-effort over the spool; a doctor call
+    // holds no brain registry, so `known_repos` is empty here — `pending`
+    // over-reports named-but-here repos (the exact per-repo resolution rides the
+    // sweep/instances surfaces, which DO hold the registry). Fail-open: a spool
+    // read error yields an absent block, never a doctor failure.
+    let mailbox_block = {
+        let worktree_base = state
+            .project_root_display()
+            .as_deref()
+            .map(crate::session::basename_of)
+            .unwrap_or_default();
+        let now_ms = crate::util::now_ms();
+        crate::mailbox::doctor_mailbox(
+            &state.runtime_root,
+            &worktree_base,
+            &std::collections::BTreeMap::new(),
+            now_ms,
+        )
+        .ok()
+    };
+
     Ok(serde_json::json!({
         "schema": "m1nd-doctor-v0",
         "status": status,
@@ -4342,6 +4366,9 @@ pub fn handle_doctor(
             "operator_rule": "if ingest is unavailable, m1nd cannot repair or refresh the active graph from inside this host session",
         },
         "graph_state": state.graph_runtime_summary(),
+        // MEDULLA-PRD §9.3: the antifragility metric — confusion_rate (weekly
+        // memory_misdelivery count) / volume / pending-distribution. Counts only.
+        "mailbox": mailbox_block,
         "context_guard": {
             "schema": "m1nd-context-guard-v0",
             "wrong_workspace_binding": wrong_workspace_binding,

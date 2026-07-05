@@ -123,7 +123,14 @@ retrieval was right or wrong, `learn(correct|wrong|partial)`; when m1nd ITSELF m
 (a bug, friction, or an honesty miss — it claimed fresh/closed/act and was wrong), append \
 one JSON line to `~/.m1nd/field-reports.jsonl` \
 (`{ts,agent,repo,tool,class:\"bug|honesty|friction|win\",what,expected,snippet}`) — \
-local-only, it never phones home.
+local-only, it never phones home. A memory-delivery fault (a claim leaked across brains, a \
+false absence, a write to the wrong store) is `class:\"memory_misdelivery\"` with a \
+`kind` of leak|false_absence|wrong_store_write|misattribution|vanished. The spool is the ONE \
+write slot; letters distribute LOCALLY into per-project boxes (`<repo>/.m1nd/inbox.jsonl`, \
+travels with git) + the medulla box for projectless letters — a letter naming a project \
+NEVER lands in the medulla. Triage is `m1nd-mcp --inbox-sweep` (CLI) or `GET /api/inbox_sweep` \
+(the union of spool + every box, each letter once); a project's box reads via \
+`GET /api/mailbox?brain=<root>`. These are CLI/REST surfaces — NOT MCP tools (never in the loop).
 
 ## 4. DELEGATE — hand a grounded packet down, debrief the return
 

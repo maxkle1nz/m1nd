@@ -110,8 +110,12 @@ this loop by default:
    `confidence` and repo-relative `evidence` paths), then leave one
    field-telemetry signal — `learn(correct|wrong|partial)` on a retrieval, or one
    JSON line in `~/.m1nd/field-reports.jsonl` when m1nd itself misbehaves
-   (local-only; never fix m1nd mid-mission — report). Record the investigation
-   path: m1nd calls, recovery path, files inspected, commands run.
+   (local-only; never fix m1nd mid-mission — report). A memory-delivery fault is
+   `class:"memory_misdelivery"` + a `kind`. Letters distribute LOCALLY into
+   per-project boxes (`<repo>/.m1nd/inbox.jsonl`, git-travelling) + a medulla box
+   for projectless letters; triage is `m1nd-mcp --inbox-sweep` / `GET /api/inbox_sweep`
+   and a project's box reads via `GET /api/mailbox?brain=<root>` (CLI/REST, not MCP).
+   Record the investigation path: m1nd calls, recovery path, files inspected, commands run.
    Every `memorize` is stamped with an `Origin-Brain` (its project root, or
    `medulla` for the owner's doctrine store), so recall names which brain a claim
    came from. A `memorize` from a root with NO project brain is REFUSED (never

@@ -99,4 +99,18 @@ pub struct Cli {
     /// Requires the `serve` feature.
     #[arg(long)]
     pub attach: Option<String>,
+
+    /// One-shot triage: distribute the field-report spool into per-project boxes
+    /// (`<repo>/.m1nd/inbox.jsonl`) + the medulla box, then print the cross-box
+    /// sweep (spool ∪ every known box, de-duplicated by content id) as JSON and
+    /// exit. Idempotent (append-with-dedup), LOCAL, safe to re-run — it is
+    /// telemetry, not memory (MEDULLA-PRD §9.2). Add `--no-distribute` to sweep
+    /// the EXISTING boxes without filing anything new first.
+    #[arg(long)]
+    pub inbox_sweep: bool,
+
+    /// With `--inbox-sweep`: skip the distribution pass and only read the current
+    /// spool + boxes (a pure, read-only view).
+    #[arg(long)]
+    pub no_distribute: bool,
 }
