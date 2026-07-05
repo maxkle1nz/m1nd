@@ -74,7 +74,10 @@ this loop by default:
    `confidence` and repo-relative `evidence` paths) so the next session starts
    ahead, then leave one field-telemetry signal — `learn(correct|wrong|partial)`
    on a retrieval, or one JSON line in `~/.m1nd/field-reports.jsonl` when m1nd
-   itself misbehaves (local-only; never fix m1nd mid-mission — report).
+   itself misbehaves (local-only; never fix m1nd mid-mission — report). A
+   memory-delivery fault is `class:"memory_misdelivery"`. Letters distribute
+   LOCALLY into per-project boxes (`<repo>/.m1nd/inbox.jsonl`) + a medulla box;
+   triage is `m1nd-mcp --inbox-sweep` / `GET /api/inbox_sweep` (CLI/REST, not MCP).
 
 This is the `m1nd-trained` behavior measured in internal bug-hunt rounds: graph
 plus operating doctrine, not graph alone.

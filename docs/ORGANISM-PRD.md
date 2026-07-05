@@ -811,12 +811,29 @@ doctrine row beside a `tier=project` fact row, each origin-labeled. **CODE-LAND-
 NOT migrated/restarted.** *Unblocks:* child sessions that inherit exactly what the mother chose,
 auditable.
 
-**R8 — M7b: the telemetry class + boxes + fates + sweep** — `memory_misdelivery` vocabulary, the
+**R8 — M7b: the telemetry class + boxes + fates + sweep** — [SHIPPED 2026-07-05] —
+`memory_misdelivery` vocabulary, the
 distribution (with §C7.5 consent-deferred box birth), letter ids + `answers[]`, fate derivation
 (+ receipt `disposition`, §C2.2), `inbox_sweep` as CLI/REST (§C6.2), `GET /api/mailbox`,
 `confusion_rate` in doctor. **Carries the §C2.2 orchestrator note: supersede the sealed
 inbox-doctrine memory at this landing.** *RED:* four live confusion rows untyped; 53+ letters in
 one file, prose-only linkage. *Unblocks:* R9, R11.
+> **Shipped (honest):** landed as the pure-filesystem `mailbox.rs` module (letter
+> id = `sha256[0..12]` for cross-machine dedup; distribution files each letter into
+> exactly one box by the normalized `repo`/`brain` — repo-side box or the medulla
+> box, MED-INV-10 held; consent-deferred `.gitignore` birth, §C7.5; idempotent
+> append-with-dedup). Fates derived (`wet_ink`/`in_flight`/`fired_clay`/`external`,
+> the §C2.2 grammar; `external` never counted). `inbox_sweep` shipped as
+> `--inbox-sweep` CLI + `GET /api/inbox_sweep` (OFF the MCP surface, §C6.2);
+> `GET /api/mailbox?brain=` reuses the §4A.9 selector (`served_brain` echo);
+> `doctor` gained the `mailbox` counts block; `/api/instances` gained
+> `mailbox_open_count` (absent-honest). Proof: 14 unit + 5 REST-e2e cases, NEUTRAL
+> fixtures. **CODE-LAND-ONLY:** the live spool was NOT distributed and `:1338` was
+> NOT restarted (held for the maintainer; `m1nd-mcp --inbox-sweep` runs the local
+> distribution when chosen). The §C2.2 orchestrator memory-supersession + the
+> secret-scan hygiene floor at filing remain the landing/next-slice acts (see
+> MEDULLA §11 M7b shipped-residue). *Unblocks:* R9 (the Mailbox view renders this
+> contract), R11 (case intelligence over the stable ids + `answers[]`).
 
 **R9 — HUMAN Slice 3M: the Mailbox view.** Pure rendering of R8's contract (INV-17/18: only the
 viewed brain's letters; receipts always linked).

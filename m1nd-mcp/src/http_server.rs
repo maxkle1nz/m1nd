@@ -724,6 +724,11 @@ pub fn build_router(state: Arc<AppState>, dev_mode: bool) -> Router {
         .route("/api/graph/stats", get(handle_graph_stats))
         .route("/api/graph/subgraph", get(handle_subgraph))
         .route("/api/graph/snapshot", get(handle_graph_snapshot))
+        // MEDULLA-PRD §9.2 (slice M7b) — the mailbox read surface. `?brain=` reuses
+        // the §4A.9 selector (registered roots only, served_brain echo); the cross-
+        // box triage sweep is CLI/REST-only, OFF the MCP surface (§C6.2).
+        .route("/api/mailbox", get(handle_mailbox))
+        .route("/api/inbox_sweep", get(handle_inbox_sweep))
         .route("/api/events", get(handle_sse))
         .with_state(state.clone())
         .layer(DefaultBodyLimit::max(1_048_576)); // 1MB body limit (FM-A-004)
@@ -931,6 +936,19 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
                         Some(entry.workspace_root.clone()),
                     )
                 };
+            // MEDULLA-PRD §9.2 (slice M7b), the D3 face count: `mailbox_open_count`
+            // = the repo-side box's `wet_ink + in_flight`. Rendered ONLY when the
+            // box FILE exists on disk (a repo with no box yields absent, never a
+            // fabricated zero — INV-10 discipline). Reading a small JSONL per card
+            // is cheap and skipped entirely when the file is missing.
+            let mailbox_open_count: Option<usize> = project_root.as_deref().and_then(|root| {
+                let box_path = std::path::Path::new(root).join(crate::mailbox::BOX_REL_PATH);
+                if box_path.is_file() {
+                    crate::mailbox::mailbox_open_count(&box_path, &foreign_tool_markers()).ok()
+                } else {
+                    None
+                }
+            });
             if let Some(map) = value.as_object_mut() {
                 map.insert(
                     "display_name".into(),
@@ -943,6 +961,13 @@ pub fn instances_listing(state: &AppState) -> serde_json::Value {
                     "project_root".into(),
                     match project_root {
                         Some(r) => serde_json::Value::String(r),
+                        None => serde_json::Value::Null,
+                    },
+                );
+                map.insert(
+                    "mailbox_open_count".into(),
+                    match mailbox_open_count {
+                        Some(n) => serde_json::json!(n),
                         None => serde_json::Value::Null,
                     },
                 );
@@ -1800,6 +1825,161 @@ async fn handle_graph_snapshot(
             // §4A.9.4: the served_brain echo makes INV-15 testable — the client
             // asserts this against what it asked for and drops mismatches.
             "served_brain": served_brain,
+        }))
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    graph_response(result)
+}
+
+/// The set of tool markers judged `external` (about a tool that is NOT m1nd) for
+/// fate derivation (§C2.2). A transversal tool like Context7 filed a mailbox
+/// letter about itself — it is not m1nd's to close, so its letter wears `◌`.
+/// Neutral, small, extendable; empty would make nothing external.
+fn foreign_tool_markers() -> std::collections::BTreeSet<String> {
+    ["context7", "browseros", "playwright", "semgrep"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// The project roots this owner knows (bound root + every disk-roster brain) —
+/// the inputs to `boxes_from_roots`. De-duplicated by the registry's canonical key.
+fn known_project_roots(state: &Arc<AppState>) -> Vec<String> {
+    let mut roots: Vec<String> = Vec::new();
+    if let Some(bound) = state.session.lock().project_root_display() {
+        roots.push(bound);
+    }
+    for (_key, facts, _dir) in state.project_brains.disk_roster() {
+        roots.push(facts.project_root);
+    }
+    roots
+}
+
+/// The bound owner's runtime root (the medulla box's home) + the worktree base
+/// name (the bound project's basename, whose worktrees are `<base>-*`).
+fn owner_runtime_and_base(state: &Arc<AppState>) -> (std::path::PathBuf, String) {
+    let s = state.session.lock();
+    let base = s
+        .project_root_display()
+        .as_deref()
+        .map(crate::session::basename_of)
+        .unwrap_or_default();
+    (s.runtime_root.clone(), base)
+}
+
+/// `GET /api/mailbox?brain=<project_root>` (MEDULLA-PRD §9.2, slice M7b) — returns
+/// ONLY the named brain's box letters with derived fates + counts + the
+/// `served_brain` echo (the §4A.9 selector contract reused verbatim). `?brain=`
+/// absent → the bound brain's box; `?brain=medulla` → the medulla box (the
+/// projectless letters). The read is scoped to THIS box only, never a re-fold of
+/// the spool (MED-INV-1 / INV-17).
+async fn handle_mailbox(
+    State(state): State<Arc<AppState>>,
+    Query(brain): Query<BrainQuery>,
+) -> impl IntoResponse {
+    let state = state.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let foreign = foreign_tool_markers();
+        let (runtime_root, worktree_base) = owner_runtime_and_base(&state);
+
+        // The medulla box is addressed by the literal `medulla` selector.
+        let is_medulla = brain
+            .brain
+            .as_deref()
+            .map(|b| b.trim().eq_ignore_ascii_case("medulla"))
+            .unwrap_or(false);
+
+        if is_medulla {
+            let box_path = crate::mailbox::medulla_box_path(&runtime_root);
+            let view = crate::mailbox::read_box(&box_path, &foreign)?;
+            return Ok::<_, m1nd_core::error::M1ndError>(serde_json::json!({
+                "served_brain": served_brain_json(Some("medulla".into()), Some("medulla".into())),
+                "letters": view.letters,
+                "counts": {
+                    "wet_ink": view.counts.wet_ink,
+                    "in_flight": view.counts.in_flight,
+                    "fired_clay": view.counts.fired_clay,
+                    "external": view.counts.external,
+                    "open": view.counts.open(),
+                },
+            }));
+        }
+
+        // Otherwise the §4A.9 selector resolves the brain (registered roots only)
+        // and gives its served_brain echo; the box is that repo's repo-side file.
+        let (session, served_brain) = resolve_brain(&state, brain.brain.as_deref())?;
+        let repo_root = {
+            let s = session.lock();
+            s.project_root_display()
+        };
+        let Some(repo_root) = repo_root else {
+            // A brain with no code root (memory-only) → its box is the medulla box.
+            let box_path = crate::mailbox::medulla_box_path(&runtime_root);
+            let view = crate::mailbox::read_box(&box_path, &foreign)?;
+            return Ok(serde_json::json!({
+                "served_brain": served_brain,
+                "letters": view.letters,
+                "counts": {
+                    "wet_ink": view.counts.wet_ink,
+                    "in_flight": view.counts.in_flight,
+                    "fired_clay": view.counts.fired_clay,
+                    "external": view.counts.external,
+                    "open": view.counts.open(),
+                },
+            }));
+        };
+        let _ = worktree_base;
+        let box_path = std::path::Path::new(&repo_root).join(crate::mailbox::BOX_REL_PATH);
+        let view = crate::mailbox::read_box(&box_path, &foreign)?;
+        Ok(serde_json::json!({
+            "served_brain": served_brain,
+            "letters": view.letters,
+            "counts": {
+                "wet_ink": view.counts.wet_ink,
+                "in_flight": view.counts.in_flight,
+                "fired_clay": view.counts.fired_clay,
+                "external": view.counts.external,
+                "open": view.counts.open(),
+            },
+        }))
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    graph_response(result)
+}
+
+/// `GET /api/inbox_sweep` (MEDULLA-PRD §9.2, §C6.2 — CLI/REST only, OFF the MCP
+/// surface): the triage session's whole view — spool ∪ every known box,
+/// de-duplicated by content id (each letter once), with any unreachable box
+/// NAMED, never silently skipped. No `?brain=` selector: the sweep is
+/// deliberately cross-box (the m1nd team keeps seeing the conjunto).
+async fn handle_inbox_sweep(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let state = state.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let foreign = foreign_tool_markers();
+        let (runtime_root, worktree_base) = owner_runtime_and_base(&state);
+        let spool = crate::mailbox::spool_path_for_runtime(&runtime_root);
+
+        let roots = known_project_roots(&state);
+        let (_known, mut boxes) = crate::mailbox::boxes_from_roots(&roots, &worktree_base);
+        // The medulla box is a known box too (always reachable — it is owner-local).
+        boxes.push(crate::mailbox::KnownBox {
+            label: "medulla".into(),
+            path: crate::mailbox::medulla_box_path(&runtime_root),
+            reachable: true,
+        });
+
+        let sweep = crate::mailbox::inbox_sweep(&spool, &boxes, &foreign)?;
+        Ok::<_, m1nd_core::error::M1ndError>(serde_json::json!({
+            "schema": "m1nd-inbox-sweep-v0",
+            "letters": sweep.letters,
+            "total": sweep.total,
+            "open": sweep.open,
+            "misdelivery": sweep.misdelivery,
+            "unreachable": sweep.unreachable,
         }))
     })
     .await
