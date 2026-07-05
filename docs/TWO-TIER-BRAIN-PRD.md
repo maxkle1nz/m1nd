@@ -455,6 +455,8 @@ Every memory item carries `tier: project|medulla` + the source brain's fingerpri
 
 **`agent_id` convention:** `host:role`, lowercase, single colon. Hosts: `claude, codex, gemini, antigravity, human, ci`. Roles: `orchestrator, maker, reviewer, researcher, guardian, founder, battery`. Examples: `claude:orchestrator`, `codex:maker`, `human:founder`, `ci:battery`.
 
+> **[A1 · superseded by `docs/ORGANISM-PRD.md` §C5.1]** The `host:role` sketch above is **superseded** by the canonical grammar `host:tier:name[@parent]` (e.g. `claude:main:fable-orchestrator`, `claude:sub:burst-1t@fable-orchestrator`). The promote-gate parses the **tier** token (`tier == "main"` OR `human:founder`), never greps the name; hosts are open data, never a hardcoded enum. Source of design law: §C5.1.
+
 **Transport (net-new, tiny):** `M1ND_AGENT_ID` env read at bridge start and injected into every forwarded call's meta; per-call explicit `agent_id` (already a free-form string in the verbs — no schema change) wins. `mcp-config` writes each host's default (`M1ND_AGENT_ID=codex:maker`, etc.).
 
 **Attribution:** `memorize`/`learn`/`mission_*` stamp `agent_id` + brain; promotion chains preserve `origin_brain → promoted_by` (§8). Cross-brand provenance becomes readable history: *"codex:maker learned this in cherry; claude:orchestrator promoted it."* Restated plainly: provenance is **audit**, not enforcement (§8, §21.1).
@@ -706,6 +708,8 @@ Install replaces `~/.m1nd/bin/m1nd-mcp` keeping ONE `.bak` (today's 6 baks/~350 
 ---
 
 ## 19. Multi-agent choreography
+
+> **[A2 · pointer to `docs/ORGANISM-PRD.md` §C2.2 · §C7.5]** The letter grammar (derived fates `wet_ink | in_flight | fired_clay | external`; `rejected`/`expired` → receipt **dispositions**, not fates) and box-birth consent (consent-deferred: local box now, git-travel only after `m1nd init`'s loud warning) are **constitutional law** at §C2.2 and §C7.5. `docs/MEDULLA-PRD.md` §9.2 stays the mechanism spec; where it disagrees, the constitution wins.
 
 **Scene:** one repo, simultaneously — `claude:orchestrator`, `codex:maker`, `antigravity:reviewer`, plus subagents. All bridges walk up to the same `brain.json` → same `runtime_root` → **the same owner process**. One graph, one memory, one calibration. Writes serialize inside the single owner at call granularity — the ReadWrite lease means exactly one writer process *exists*, so cross-process write races are impossible by construction, not by discipline.
 

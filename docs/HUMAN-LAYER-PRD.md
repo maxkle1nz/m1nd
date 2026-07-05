@@ -309,6 +309,8 @@ Fully specified in §3. The 2-second read: *names, dots, tags*. The depth ladder
 
 ### 4.2 S2 — the Pre-Flight Card (the hero)
 
+> **[A5 · pointer to `docs/ORGANISM-PRD.md` §C1.3]** The card renders a **budget-bound packet** (north ≤ 2,000 tokens MCP / ≤ 1,200 chars hook; satellites enter as one line — count/headline + pull verb; omitted sections drop into `non_claims`). The card is a **rendering**: a field with no packet field behind it is fabrication — it renders, never widens. Source of law: §C1.3.
+
 **The moment:** the human (or their agent) is about to touch the code. One calm card answers
 — in this order, top to bottom —
 

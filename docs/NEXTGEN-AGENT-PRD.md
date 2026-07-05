@@ -18,7 +18,7 @@ m1nd-OMEGA is the **verifiable trust substrate that autonomous agents route ever
 
 ## O.2 The questions only m1nd answers (the egregious census, deduped)
 
-These are questions no grep/LSP/RAG/CPG product answers today — each grounded in a tool that ships in m1nd's grounded catalog (the 119-tool census these signals are read off of). They are the raw signals OMEGA composes; OMEGA invents none of them.
+These are questions no grep/LSP/RAG/CPG product answers today — each grounded in a tool that ships in m1nd's grounded catalog (the ~~119~~ **112-tool census** @ `5b1a37d`, re-measured at every landing and battery-pinned — see `docs/ORGANISM-PRD.md` §C6.1 [A3]). They are the raw signals OMEGA composes; OMEGA invents none of them.
 
 **Sufficiency & economics (agent-native, no human equivalent)**
 - *Do I already have ENOUGH context to act, or is there still-relevant code I haven't seen?* — `seek`/`focus` answer-free knee-test verdict (sufficient / gathering / saturated).
@@ -144,6 +144,8 @@ This is a content-addressed graph wrapped in a typed-relation evidence layer wit
 ### O.4.2 A signal-chaining planner (`north`), not a query DSL
 
 A consistent SOTA finding is that **LLMs hallucinate raw graph queries** — a DSL is a hallucination trap. So OMEGA exposes **fused cognitive verbs**, not a language. Reuse the orchestrator pattern m1nd already ships in `audit` (which fans health + panoramic + layers + scan_all + cross_verify + fingerprint + trust + tremor + ghost_edges into one report) and `orient`. Add a small set of **named compositions** as new verbs — `underwrite(edit_plan)` → #2, `envelope(any_answer)` → #1, `quarantine_on_boot()` → #3, `stop_gate(goal[, remaining_budget])` → #4, `negative_space(topic)` → #5, `swarm_collision(node)` → #8, `handoff_receipt()` → #9. Each verb fans out the existing tools **in parallel**, dedupes into one budget-bounded bundle, and returns the §O.4.1 triple. The agent never sees the chaining; it sees one verb, one receipt.
+
+> **[A4 · amended by `docs/ORGANISM-PRD.md` §C6.2]** Of the designed verbs above, only ~~`underwrite`~~ **`underwrite`** survives as a verb (verdicts renamed onto the trust ladder). The rest are killed as verbs, kept as capabilities: ~~`envelope(any_answer)`~~ is the §O.4.1 response layer (§O.4.1 wins — not a call); ~~`quarantine_on_boot()`~~ folds into `north`; ~~`stop_gate()`~~ → `focus(mode:"check")`; ~~`negative_space()`~~ → an `audit`/`missing` mode; ~~`swarm_collision()`~~ → the packet's `swarm.collisions[]` field; ~~`handoff_receipt()`~~ → fields on `mission_close`/`mission_handoff`. Source of law: §C6.2.
 
 ### O.4.3 Query the honesty signals, not the graph
 
