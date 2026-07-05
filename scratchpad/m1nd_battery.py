@@ -1123,7 +1123,7 @@ def suite_m1nd(repo):
 
 
 def suite_ts(repo):
-    """Probe suite for the Cherrybubbles TS monolith (server.ts, ~10.4k lines).
+    """Probe suite for the project-b TS monolith (server.ts, ~10.4k lines).
     Ground truth = real named functions verified by reading server.ts.
     The original complaint was monolith-TS, so this is the relevant stress case.
     """

@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT="/Users/cosmophonix/SISTEMA/m1nd"
+ROOT="${M1ND_REPO_ROOT:-$HOME/m1nd}"
 SOCK="${M1ND_OPENCLAW_SOCKET:-/tmp/m1nd-openclaw.sock}"
-RUNTIME_DIR="${M1ND_RUNTIME_DIR:-/Users/cosmophonix/SISTEMA/m1nd-data}"
+RUNTIME_DIR="${M1ND_RUNTIME_DIR:-$HOME/.m1nd}"
 GRAPH="${M1ND_GRAPH_SOURCE:-${RUNTIME_DIR}/graph.json}"
 PLASTICITY="${M1ND_PLASTICITY_STATE:-${RUNTIME_DIR}/plasticity.json}"
 

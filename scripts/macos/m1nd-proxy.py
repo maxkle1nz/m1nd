@@ -17,15 +17,15 @@ import threading
 M1ND_PORT = int(os.environ.get("M1ND_PORT", "1337"))
 M1ND_BIN = os.environ.get(
     "M1ND_BIN",
-    "/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd/target/release/m1nd-mcp"
+    os.path.expanduser("~/m1nd/target/release/m1nd-mcp")
 )
 M1ND_GRAPH = os.environ.get(
     "M1ND_GRAPH_SOURCE",
-    "/Users/cosmophonix/.m1nd/graph.json"
+    os.path.expanduser("~/.m1nd/graph.json")
 )
 M1ND_PLAST = os.environ.get(
     "M1ND_PLASTICITY_STATE",
-    "/Users/cosmophonix/.m1nd/plasticity.json"
+    os.path.expanduser("~/.m1nd/plasticity.json")
 )
 
 _server_proc = None

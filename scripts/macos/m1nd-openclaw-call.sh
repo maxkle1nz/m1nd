@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT="/Users/cosmophonix/SISTEMA/m1nd"
+ROOT="${M1ND_REPO_ROOT:-$HOME/m1nd}"
 SOCK="${M1ND_OPENCLAW_SOCKET:-/tmp/m1nd-openclaw.sock}"
 BIN_RELEASE="${ROOT}/target/release/m1nd-openclaw-client"
 BIN_DEBUG="${ROOT}/target/debug/m1nd-openclaw-client"

@@ -6,7 +6,7 @@
     <string>world.m1nd.mcp-server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/cosmophonix/clawd/roomanizer-os/mcp/m1nd/target/release/m1nd-mcp</string>
+        <string>/path/to/m1nd/target/release/m1nd-mcp</string>
         <string>--serve</string>
         <string>--port</string>
         <string>1337</string>
@@ -16,19 +16,19 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>M1ND_GRAPH_SOURCE</key>
-        <string>/Users/cosmophonix/.m1nd/graph.json</string>
+        <string>/path/to/.m1nd/graph.json</string>
         <key>M1ND_PLASTICITY_STATE</key>
-        <string>/Users/cosmophonix/.m1nd/plasticity.json</string>
+        <string>/path/to/.m1nd/plasticity.json</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardErrorPath</key>
-    <string>/Users/cosmophonix/.m1nd/m1nd-mcp.err.log</string>
+    <string>/path/to/.m1nd/m1nd-mcp.err.log</string>
     <key>StandardOutPath</key>
-    <string>/Users/cosmophonix/.m1nd/m1nd-mcp.out.log</string>
+    <string>/path/to/.m1nd/m1nd-mcp.out.log</string>
     <key>WorkingDirectory</key>
-    <string>/Users/cosmophonix/.m1nd</string>
+    <string>/path/to/.m1nd</string>
 </dict>
 </plist>
