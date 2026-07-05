@@ -320,6 +320,26 @@ fn same_path(a: &str, b: &Path) -> bool {
     ca == canon(b)
 }
 
+/// Canonicalized string form of a path string (for comparing a reception field's
+/// stored root against a fixture path across `/tmp` → `/private/tmp` aliases).
+fn canon_str(s: &str) -> String {
+    Path::new(s)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(s))
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Extract the `project_root=<path>` argument a reception `ingest_your_repo` call
+/// string carries — the exact root the front desk points the caller at. Reads up to
+/// the first space after the token (roots in these tests have no spaces).
+fn project_root_arg(call: &str) -> String {
+    call.split("project_root=")
+        .nth(1)
+        .map(|rest| rest.split_whitespace().next().unwrap_or("").to_string())
+        .unwrap_or_default()
+}
+
 /// Common setup: owner + bound repo ingested as the "dev graph".
 /// Returns (owner, bound_repo, bound node_count).
 async fn owner_with_bound_graph(tmp: &Path) -> (Owner, PathBuf, u64) {
@@ -754,4 +774,172 @@ async fn eviction_gate_bounds_the_map_and_persists_on_evict_surviving_kill9() {
             ingested_nodes[i]
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// (8) — RECONNECT-REBIND (§C5.4, ladder R13, field letter#49). After an MCP
+// reconnect the wire session is minted fresh (`bound_project_root: None`) and the
+// bridge stamps `M1nd-Caller-Root` = the HOST CWD — which, when the host was
+// launched from a dir ABOVE the repo (the classic `~` launch), is an ANCESTOR of
+// the repo, not the repo. So `caller_root` has no brain of its own and the bound
+// graph does not cover it: today the call falls to the owner graph and reception
+// suggests `ingest project_root=<host cwd>` — the WRONG root, missing the existing
+// project brain that sits UNDER the caller_root.
+//
+// Law: a rebind after a session-id change re-runs first-contact classification
+// with the disk roster consulted, so an EXISTING project brain is preferred over
+// the owner graph. When exactly one known brain relates to the caller_root by
+// ancestry, reception names THAT brain's root (`known_brain` + the `ingest_your_repo`
+// call points at the repo, not the host cwd). Ambiguity is honest: 0 or >1 related
+// brains → the plain unknown-repo reception, unchanged.
+//
+// RED before this rung: the reconnect reception suggests `project_root=<host cwd>`
+// and carries no `known_brain` — the existing brain is invisible to the front desk.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reconnect_reception_prefers_the_existing_brain_over_the_host_cwd() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let (owner, _bound_repo, _n0) = owner_with_bound_graph(tmp.path()).await;
+
+    // The host is launched from a workspace dir; the real repo lives one level in
+    // (`<ws>/project-b`). The reconnect's caller_root will be `<ws>`, an ancestor
+    // of the brain root — the field shape of letter#49.
+    let workspace = tmp.path().join("workspace");
+    let project_b = workspace.join("project-b");
+    write_project_b_repo(&project_b);
+
+    // Bootstrap brain B from a session correctly rooted at the repo (the day it was
+    // ingested). This leaves a project brain ON DISK for `<ws>/project-b`.
+    let sid_boot = owner.init_session(&project_b).await;
+    let boot = owner
+        .tool(
+            &sid_boot,
+            &project_b,
+            "ingest",
+            serde_json::json!({
+                "path": project_b.to_string_lossy(),
+                "project_root": project_b.to_string_lossy(),
+                "agent_id": "bootstrapper"
+            }),
+        )
+        .await;
+    assert_eq!(boot["schema"], "m1nd-project-brain-bootstrap-v0");
+
+    // THE RECONNECT. A brand-new wire session whose caller_root is the HOST CWD
+    // (`<ws>`, the ancestor) — the bind to brain B is gone, the bridge re-stamped
+    // the launch dir, not the repo.
+    let sid_reconnect = owner.init_session(&workspace).await;
+    let north = owner
+        .tool(
+            &sid_reconnect,
+            &workspace,
+            "north",
+            serde_json::json!({"agent_id": "reconnected", "task": "orient"}),
+        )
+        .await;
+
+    // It is NOT a silent match (the caller_root is the ancestor, not the repo), so
+    // reception fires — but it must POINT AT brain B, never the host cwd.
+    let reception = &north["reception"];
+    assert_eq!(
+        reception["match"], "caller_root_mismatch",
+        "the reconnect from an ancestor cwd is still a mismatch (fires reception): {north}"
+    );
+    assert_eq!(
+        reception["known_brain"].as_str().map(canon_str),
+        Some(canon(&project_b)),
+        "reconnect reception must name the EXISTING brain under the caller_root, \
+         not fall to the owner graph blind: {reception}"
+    );
+    let ingest_call = reception["options"]
+        .as_array()
+        .and_then(|opts| opts.iter().find(|o| o["action"] == "ingest_your_repo"))
+        .and_then(|o| o["call"].as_str())
+        .unwrap_or_default();
+    let suggested_root = project_root_arg(ingest_call);
+    assert!(
+        same_path(&suggested_root, &project_b),
+        "the reconnect `ingest_your_repo` call must target the repo root, \
+         got project_root={suggested_root:?} from: {ingest_call}"
+    );
+    assert!(
+        !same_path(&suggested_root, &workspace),
+        "the reconnect reception must NOT suggest the bare host cwd \
+         (the letter#49 defect): project_root={suggested_root:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reconnect_unknown_root_keeps_the_plain_reception_and_a_match_stays_silent() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let (owner, _bound_repo, _n0) = owner_with_bound_graph(tmp.path()).await;
+
+    let workspace = tmp.path().join("workspace");
+    let project_b = workspace.join("project-b");
+    write_project_b_repo(&project_b);
+    let sid_boot = owner.init_session(&project_b).await;
+    let boot = owner
+        .tool(
+            &sid_boot,
+            &project_b,
+            "ingest",
+            serde_json::json!({
+                "path": project_b.to_string_lossy(),
+                "project_root": project_b.to_string_lossy(),
+                "agent_id": "bootstrapper"
+            }),
+        )
+        .await;
+    assert_eq!(boot["schema"], "m1nd-project-brain-bootstrap-v0");
+
+    // (a) A caller root with NO related brain anywhere on its ancestry — the honest
+    //     unknown-repo reception is UNCHANGED: no `known_brain`, the option points at
+    //     the caller's own root (the virgin-repo path stays exactly as before).
+    let stranger = tmp.path().join("stranger-elsewhere");
+    std::fs::create_dir_all(&stranger).expect("mk stranger");
+    let sid_stranger = owner.init_session(&stranger).await;
+    let north_stranger = owner
+        .tool(
+            &sid_stranger,
+            &stranger,
+            "north",
+            serde_json::json!({"agent_id": "stranger", "task": "orient"}),
+        )
+        .await;
+    let reception = &north_stranger["reception"];
+    assert_eq!(
+        reception["match"], "caller_root_mismatch",
+        "an unrelated root still gets the honest mismatch block: {north_stranger}"
+    );
+    assert!(
+        reception.get("known_brain").is_none() || reception["known_brain"].is_null(),
+        "no related brain → no known_brain hint (honest absence): {reception}"
+    );
+    let stranger_call = reception["options"]
+        .as_array()
+        .and_then(|opts| opts.iter().find(|o| o["action"] == "ingest_your_repo"))
+        .and_then(|o| o["call"].as_str())
+        .unwrap_or_default();
+    assert!(
+        same_path(&project_root_arg(stranger_call), &stranger),
+        "an unrelated root keeps suggesting its OWN root, unchanged: {stranger_call}"
+    );
+
+    // (b) TT-INV-12 preserved: a caller rooted EXACTLY at brain B still binds
+    //     silently — the roster consult must never turn a matched root into a packet.
+    let sid_match = owner.init_session(&project_b).await;
+    let north_match = owner
+        .tool(
+            &sid_match,
+            &project_b,
+            "north",
+            serde_json::json!({"agent_id": "matched", "task": "project_b_probe"}),
+        )
+        .await;
+    assert!(
+        north_match["reception"].is_null(),
+        "a matched caller_root must stay silent even with the roster consulted (TT-INV-12): {}",
+        north_match["reception"]
+    );
 }

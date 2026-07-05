@@ -713,7 +713,25 @@ async fn route_and_run(
             // 4. Default: the bound graph (reception flags true unknowns there). This
             // IS the medulla store today — its own beat is already project+medulla by
             // identity; `all-brains` still fans out to the hosted project brains.
-            serve_and_compose(&app, app.session.clone(), &request, caller_root, false)
+            //
+            // RECONNECT-REBIND (§C5.4, ladder R13): the owner-default reception says
+            // "this graph does NOT cover your repo" and, before this rung, suggested
+            // `ingest project_root=<caller_root>` — the host cwd. After an MCP
+            // reconnect that cwd collapses to the host launch dir, an ANCESTOR of the
+            // real repo (letter#49). If the disk roster holds exactly ONE known brain
+            // related to the caller by ancestry, we rewrite the mismatch reception to
+            // name THAT brain — the existing brain is preferred over the owner graph.
+            // The roster consult happens only on the mismatch path (step 4), never on
+            // a match (steps 2/3 already routed + returned), so TT-INV-12 silence is
+            // untouched; 0 or >1 related brains leave the reception exactly as today.
+            let response = serve_and_compose(
+                &app,
+                app.session.clone(),
+                &request,
+                caller_root.clone(),
+                false,
+            );
+            enrich_reception_with_roster(response, &app, caller_root.as_deref())
         }),
     )
     .await;
@@ -964,6 +982,96 @@ fn serve_and_compose(
         }
     }
     tool_result_response(id, &payload)
+}
+
+/// RECONNECT-REBIND (§C5.4, ladder R13). The owner-default reception is produced
+/// by the bound `SessionState` (`reception_verdict`), which structurally cannot see
+/// the sibling project-brain roster. This routing-seam post-step — the ONE place
+/// that holds BOTH the caller_root and the registry — layers the roster onto that
+/// verdict: when the response carries a `caller_root_mismatch` reception AND the
+/// disk roster names exactly one known brain related to the caller by ancestry
+/// (`covering_brain`), it rewrites the reception to PREFER that existing brain over
+/// the host cwd:
+///   - `known_brain` names the repo root the caller should land on;
+///   - the `ingest_your_repo` option's `call` points at the brain root (a re-ingest
+///     is a warm re-bind — it resolves the existing store, not a fresh birth), not
+///     the ancestor cwd the letter#49 defect suggested;
+///   - `honest` gains the reconnect hint so a reader knows a known brain was found.
+///
+/// A response with no reception, a matched/unknown reception, or no unique roster
+/// candidate is returned VERBATIM — honest absence, never a fabricated pick. Reuses
+/// the tier-recall pattern of parsing `content[0].text` → mutating → re-serializing,
+/// so all three reception-bearing verbs (north / health / session_handshake) are
+/// enriched through one seam without a per-tool branch.
+fn enrich_reception_with_roster(
+    response: JsonRpcResponse,
+    app: &Arc<AppState>,
+    caller_root: Option<&str>,
+) -> JsonRpcResponse {
+    let Some(caller_root) = caller_root else {
+        return response; // unknown caller → no match to enrich (honesty by omission)
+    };
+    // Only a successful tool result carries a reception-bearing payload.
+    let Some(result) = response.result.as_ref() else {
+        return response;
+    };
+    let Some(text) = result
+        .get("content")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+    else {
+        return response;
+    };
+    let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(text) else {
+        return response; // non-JSON content (never a reception carrier) → verbatim
+    };
+
+    // Gate on a real mismatch reception — a match/unknown/absent one is left alone.
+    let is_mismatch = payload
+        .get("reception")
+        .and_then(|r| r.get("match"))
+        .and_then(|m| m.as_str())
+        == Some("caller_root_mismatch");
+    if !is_mismatch {
+        return response;
+    }
+
+    // The roster consult: exactly one known brain related to the caller by ancestry.
+    let Some(brain_root) = app.project_brains.covering_brain(caller_root) else {
+        return response; // 0 = unknown repo, >1 = ambiguous → plain reception
+    };
+
+    // Rewrite the mismatch reception to point at the existing brain.
+    if let Some(reception) = payload.get_mut("reception").and_then(|r| r.as_object_mut()) {
+        reception.insert("known_brain".into(), serde_json::json!(brain_root));
+        reception.insert(
+            "honest".into(),
+            serde_json::json!(
+                "this graph does NOT cover your repo — but a known project brain covers your \
+                 caller root; rebind to it instead of the host cwd (reconnect-rebind, §C5.4)"
+            ),
+        );
+        if let Some(options) = reception.get_mut("options").and_then(|o| o.as_array_mut()) {
+            for option in options.iter_mut() {
+                if option.get("action").and_then(|a| a.as_str()) == Some("ingest_your_repo") {
+                    if let Some(obj) = option.as_object_mut() {
+                        obj.insert(
+                            "call".into(),
+                            serde_json::json!(format!(
+                                "ingest with project_root={brain_root} — a project brain already \
+                                 exists for this root; ONE call warm-resolves it and binds this \
+                                 session to it (a re-bind after reconnect, not a fresh birth), \
+                                 then every call from your root routes to it automatically"
+                            )),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    tool_result_response(response.id, &payload)
 }
 
 /// Canonicalized form of a brain origin string, for identity comparison across

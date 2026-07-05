@@ -458,6 +458,78 @@ impl ProjectBrainRegistry {
         }
         out
     }
+
+    /// RECONNECT-REBIND (§C5.4, ladder R13). Given a `caller_root` that neither
+    /// matches the bound graph nor resolves to a brain of its own, ask the disk
+    /// roster: is there exactly ONE known project brain related to this caller by
+    /// ancestry — the caller is UNDER a brain's root (a monorepo subdir), or a
+    /// brain's root is UNDER the caller (the host was launched from a dir ABOVE the
+    /// repo, the letter#49 shape where `caller_root` collapsed to the host cwd)?
+    ///
+    /// Returns that brain's canonical root when the relation is UNAMBIGUOUS —
+    /// exactly one roster entry is on the caller's ancestry chain in either
+    /// direction. Returns `None` when zero relate (a genuine unknown repo → the
+    /// plain reception, unchanged) OR when more than one relate (ambiguous: nested
+    /// brains / a workspace over several repos — the front desk must not fabricate a
+    /// single pick; honesty over a guess). An exact-match root is NOT a rebind
+    /// candidate here — that path is a silent bind, handled before this consult.
+    ///
+    /// Inert read only (roster manifests only, never a warm-boot) — a pure
+    /// classification the routing seam layers onto the mismatch reception.
+    pub fn covering_brain(&self, caller_root: &str) -> Option<String> {
+        let caller_key = Self::canonical_key(caller_root);
+        let caller_path = Path::new(&caller_key);
+        let mut related: Vec<String> = Vec::new();
+        for (brain_key, _facts, _dir) in self.disk_roster() {
+            if brain_key == caller_key {
+                // Exact match is a silent bind, not a rebind candidate — skip so it
+                // can never surface as a mismatch suggestion.
+                continue;
+            }
+            let brain_path = Path::new(&brain_key);
+            // Related when one path is an ancestor of the other (either direction).
+            let related_pair = path_starts_with_loosely(caller_path, brain_path)
+                || path_starts_with_loosely(brain_path, caller_path);
+            if related_pair && !related.iter().any(|r| r == &brain_key) {
+                related.push(brain_key);
+            }
+        }
+        match related.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None, // 0 = unknown repo, >1 = ambiguous → honest plain reception
+        }
+    }
+}
+
+/// Loose ancestry test (canonicalize + `/`-normalize + trailing-slash-safe prefix),
+/// mirroring `SessionState::path_starts_with_loosely` so the reconnect roster
+/// consult uses the SAME "is this path under that root" rule the reception mismatch
+/// guard and the Two-Tier routing layer already share (one definition of "covers").
+fn path_starts_with_loosely(path: &Path, root: &Path) -> bool {
+    if root.as_os_str().is_empty() {
+        return false;
+    }
+    if path.starts_with(root) {
+        return true;
+    }
+    if let (Ok(path), Ok(root)) = (path.canonicalize(), root.canonicalize()) {
+        if path.starts_with(root) {
+            return true;
+        }
+    }
+    let path_text = normalized_path_for_compare(path);
+    let root_text = normalized_path_for_compare(root);
+    if path_text == root_text {
+        return true;
+    }
+    path_text.starts_with(&format!("{root_text}/"))
+}
+
+fn normalized_path_for_compare(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string()
 }
 
 /// The real project root a store belongs to, read from its `project_brain.json`
@@ -618,5 +690,83 @@ mod eviction_gate_tests {
             );
         }
         assert_eq!(reg.warm_len(), 3, "map sits at the cap after churn");
+    }
+
+    /// RECONNECT-REBIND roster consult (§C5.4, ladder R13). `covering_brain` reads
+    /// the disk roster and returns the UNIQUE brain related to a caller by ancestry —
+    /// the classification the routing seam layers onto a mismatch reception so an
+    /// existing brain is preferred over the host cwd. This pins every branch:
+    ///   - caller UNDER a brain root (monorepo subdir) → that brain;
+    ///   - brain root UNDER the caller (the letter#49 host-cwd shape) → that brain;
+    ///   - no relation → None (unknown repo, plain reception);
+    ///   - >1 related → None (ambiguous, honesty over a guess);
+    ///   - an EXACT match → None (a silent bind, never a rebind suggestion).
+    #[test]
+    fn covering_brain_prefers_the_unique_related_brain_and_abstains_on_ambiguity() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 8);
+
+        // A brain on disk for `<tmp>/workspace/repo-a`. Create the dir so its key
+        // canonicalizes to the SAME spelling the roster reports (macOS /tmp →
+        // /private/tmp), then write its manifest — the ONLY input covering_brain
+        // reads (no warm-boot).
+        let workspace = tmp.path().join("workspace");
+        let repo_a = workspace.join("repo-a");
+        std::fs::create_dir_all(&repo_a).expect("mk repo-a");
+        let key_a = ProjectBrainRegistry::canonical_key(&repo_a.to_string_lossy());
+        reg.write_manifest(&key_a, Some(1), Some(0))
+            .expect("manifest A");
+
+        // (letter#49 shape) caller = the workspace ABOVE the repo → the repo brain.
+        assert_eq!(
+            reg.covering_brain(&workspace.to_string_lossy()),
+            Some(key_a.clone()),
+            "a brain root UNDER the caller (host-cwd-above-repo) must be found"
+        );
+
+        // caller = a subdir INSIDE the repo → the repo brain (monorepo subdir shape).
+        let subdir = repo_a.join("src").join("deep");
+        std::fs::create_dir_all(&subdir).expect("mk subdir");
+        assert_eq!(
+            reg.covering_brain(&subdir.to_string_lossy()),
+            Some(key_a.clone()),
+            "a caller UNDER a brain root must be found"
+        );
+
+        // caller = the brain root EXACTLY → None (that is a silent bind, not a rebind).
+        assert_eq!(
+            reg.covering_brain(&repo_a.to_string_lossy()),
+            None,
+            "an exact-match root is a silent bind, never a mismatch suggestion"
+        );
+
+        // caller = an unrelated sibling → None (genuine unknown repo).
+        let stranger = tmp.path().join("elsewhere").join("stranger");
+        std::fs::create_dir_all(&stranger).expect("mk stranger");
+        assert_eq!(
+            reg.covering_brain(&stranger.to_string_lossy()),
+            None,
+            "an unrelated root has no covering brain (plain reception)"
+        );
+
+        // Add a SECOND brain also under the workspace → the workspace now relates to
+        // two brains → ambiguous → None (the front desk must not fabricate a pick).
+        let repo_b = workspace.join("repo-b");
+        std::fs::create_dir_all(&repo_b).expect("mk repo-b");
+        let key_b = ProjectBrainRegistry::canonical_key(&repo_b.to_string_lossy());
+        reg.write_manifest(&key_b, Some(1), Some(0))
+            .expect("manifest B");
+        assert_eq!(
+            reg.covering_brain(&workspace.to_string_lossy()),
+            None,
+            "two brains under one caller root is ambiguous → honest None, not a guess"
+        );
+        // But a caller inside repo-a still resolves uniquely to repo-a (repo-b is not
+        // on its ancestry chain).
+        assert_eq!(
+            reg.covering_brain(&subdir.to_string_lossy()),
+            Some(key_a),
+            "a caller deep inside one repo still resolves to that repo unambiguously"
+        );
     }
 }
