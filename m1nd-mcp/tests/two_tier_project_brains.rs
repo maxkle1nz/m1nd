@@ -3,7 +3,7 @@
 //!
 //! THE FRICTION (field-reported, the mission's RED): the served owner is bound to
 //! ONE graph (the m1nd dev graph). An agent whose session is rooted in ANOTHER
-//! repo (Cherry, almus — `field-reports.jsonl` 2026-07-03/04) either gets the
+//! repo (project-b, project-d — `field-reports.jsonl` 2026-07-03/04) either gets the
 //! WRONG graph's answers, or — if it follows today's reception option and calls
 //! `ingest path=<its repo>` — it REPLACES the bound graph: the owner's single
 //! `SessionState` is clobbered and the m1nd dev brain is destroyed for everyone.
@@ -78,17 +78,17 @@ fn write_bound_repo(root: &Path) {
     .expect("lib.rs");
 }
 
-/// The OTHER project ("repo B" — the Cherry stand-in): 1 file, unique sentinel.
+/// The OTHER project ("repo B" — the project-b stand-in): 1 file, unique sentinel.
 fn write_project_b_repo(root: &Path) {
     std::fs::create_dir_all(root.join("src")).expect("mk src");
     std::fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"cherryorbit\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"projectb\"\nversion = \"0.0.0\"\n",
     )
     .expect("Cargo.toml");
     std::fs::write(
         root.join("src/lib.rs"),
-        "pub fn cherry_orbit_probe() -> i64 { 42 }\npub struct CherryOrbit { pub v: i64 }\n",
+        "pub fn project_b_probe() -> i64 { 42 }\npub struct ProjectBOrbit { pub v: i64 }\n",
     )
     .expect("lib.rs");
 }
@@ -304,7 +304,7 @@ async fn bootstrap_creates_project_brain_without_touching_bound_graph() {
     let project_b = tmp.path().join("project-b");
     write_project_b_repo(&project_b);
 
-    // A session rooted in project B (the Cherry situation).
+    // A session rooted in project B (the project-b situation).
     let sid_b = owner.init_session(&project_b).await;
 
     // THE ONE CALL. Pre-fix this is the clobber: `project_root` is inert and the
@@ -317,7 +317,7 @@ async fn bootstrap_creates_project_brain_without_touching_bound_graph() {
             serde_json::json!({
                 "path": project_b.to_string_lossy(),
                 "project_root": project_b.to_string_lossy(),
-                "agent_id": "cherry-agent"
+                "agent_id": "project-b-agent"
             }),
         )
         .await;
@@ -375,7 +375,7 @@ async fn bootstrap_creates_project_brain_without_touching_bound_graph() {
             &sid_b,
             &project_b,
             "north",
-            serde_json::json!({"agent_id": "cherry-agent", "task": "cherry_orbit_probe"}),
+            serde_json::json!({"agent_id": "project-b-agent", "task": "project_b_probe"}),
         )
         .await;
     assert!(
@@ -443,7 +443,7 @@ async fn new_session_from_project_root_binds_silently() {
             &sid_new,
             &project_b,
             "north",
-            serde_json::json!({"agent_id": "fresh-session", "task": "cherry_orbit_probe"}),
+            serde_json::json!({"agent_id": "fresh-session", "task": "project_b_probe"}),
         )
         .await;
     assert!(
@@ -520,7 +520,7 @@ async fn project_brain_warm_boots_after_owner_restart() {
             &sid2,
             &project_b,
             "north",
-            serde_json::json!({"agent_id": "morning-session", "task": "cherry_orbit_probe"}),
+            serde_json::json!({"agent_id": "morning-session", "task": "project_b_probe"}),
         )
         .await;
     assert!(

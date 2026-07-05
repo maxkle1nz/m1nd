@@ -2,9 +2,9 @@
 //!
 //! THE SEAM (Max's screenshot verdict, 2026-07-04): the Hall listed the OLD
 //! instance registry (one card, runtime name "claude"), while the NEW per-project
-//! brains #260 ships (e.g. the Cherry brain) were invisible — #260's declared
+//! brains #260 ships (e.g. the project-b brain) were invisible — #260's declared
 //! residue was "REST/GUI bound-only". Verdict: the Hall must show PROJECTS
-//! ("m1nd", "Cerrybubbles1"), never plumbing ("claude", "agent-memory").
+//! ("m1nd", "project-b"), never plumbing ("claude", "agent-memory").
 //!
 //! This pins the promoted REST surface (`http_server::brains_listing`, the pure
 //! body of `GET /api/brains`) against a REAL owner driven through the SAME wire
@@ -53,12 +53,12 @@ fn write_project_repo(root: &Path) {
     std::fs::create_dir_all(root.join("src")).expect("mk src");
     std::fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"cherryorbit\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"projectb\"\nversion = \"0.0.0\"\n",
     )
     .expect("Cargo.toml");
     std::fs::write(
         root.join("src/lib.rs"),
-        "pub fn cherry_orbit_probe() -> i64 { 42 }\n",
+        "pub fn project_b_probe() -> i64 { 42 }\n",
     )
     .expect("lib.rs");
 }
@@ -222,7 +222,7 @@ async fn owner_with_two_brains(tmp: &Path) -> (Owner, PathBuf, PathBuf) {
             serde_json::json!({
                 "path": project_repo.to_string_lossy(),
                 "project_root": project_repo.to_string_lossy(),
-                "agent_id": "cherry-agent"
+                "agent_id": "project-b-agent"
             }),
         )
         .await;
@@ -458,7 +458,7 @@ async fn dormant_project_brain_reports_manifest_counts_after_restart() {
 // Fixture capture — REAL enriched `/api/instances` output for the UI tests.
 //
 // Run explicitly to (re)generate the UI fixture from a scratch owner shaped
-// like the live :1338 owner (a "m1nd" dev repo + a "Cerrybubbles1" project
+// like the live :1338 owner (a "m1nd" dev repo + a "project-b" project
 // brain), so the Hall's render-proof fixtures are real captured API output, not
 // hand-written JSON:
 //   cargo test -p m1nd-mcp --features serve --test hall_brains_listing \
@@ -472,7 +472,7 @@ async fn dormant_project_brain_reports_manifest_counts_after_restart() {
 // (the tmpdir base is machine-specific and noisy): bound → /Users/kle1nz/m1nd
 // (runtime /Users/kle1nz/.m1nd/runtimes/claude, workspace .../agent-memory —
 // the exact leak the fix must survive), project →
-// /Users/kle1nz/CHERRYBUBBLES/Cerrybubbles1.
+// /path/to/project-b.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -480,7 +480,7 @@ async fn dormant_project_brain_reports_manifest_counts_after_restart() {
 async fn capture_brains_fixture() {
     let tmp = tempfile::tempdir().expect("tempdir");
     // Shape the scratch owner like the real :1338 owner: a "m1nd" dev repo and a
-    // "Cerrybubbles1" project brain — so the captured names are the real ones.
+    // "project-b" project brain — so the captured names are the real ones.
     let bound_repo = tmp.path().join("m1nd");
     write_bound_repo(&bound_repo);
     let owner = mk_owner(&tmp.path().join("runtime"));
@@ -494,7 +494,7 @@ async fn capture_brains_fixture() {
         )
         .await;
 
-    let cherry = tmp.path().join("CHERRYBUBBLES").join("Cerrybubbles1");
+    let cherry = tmp.path().join("project-b");
     write_project_repo(&cherry);
     let sid_c = owner.init_session(&cherry).await;
     owner
@@ -505,7 +505,7 @@ async fn capture_brains_fixture() {
             serde_json::json!({
                 "path": cherry.to_string_lossy(),
                 "project_root": cherry.to_string_lossy(),
-                "agent_id": "cherry-agent"
+                "agent_id": "project-b-agent"
             }),
         )
         .await;

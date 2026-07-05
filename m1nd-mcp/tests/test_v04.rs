@@ -181,15 +181,15 @@ fn test_search_literal_exact_match() {
     // the exact query string (case-insensitive by default).
 
     let input: SearchInput = serde_json::from_str(
-        r#"{"agent_id":"a","query":"ROOMANIZER_BACKEND_URL","mode":"literal"}"#,
+        r#"{"agent_id":"a","query":"SERVICE_BACKEND_URL","mode":"literal"}"#,
     )
     .expect("SearchInput must deserialize");
 
-    assert_eq!(input.query, "ROOMANIZER_BACKEND_URL");
+    assert_eq!(input.query, "SERVICE_BACKEND_URL");
     assert_eq!(input.mode, SearchMode::Literal);
     assert!(!input.case_sensitive); // default
 
-    let out = build_search_output("ROOMANIZER_BACKEND_URL", "literal", 2);
+    let out = build_search_output("SERVICE_BACKEND_URL", "literal", 2);
     // Every result must reference the queried string somewhere
     assert!(
         !out.results.is_empty(),

@@ -1,9 +1,9 @@
 //! Per-brain Open — the REST `?brain=` selector (HUMAN-LAYER-PRD §4A.9, slice 2H).
 //!
-//! Founder question, verbatim: *"por que cherrybubbles não consigo dar Open?"*
+//! Founder question, verbatim: *"por que project-b não consigo dar Open?"*
 //!
 //! The browser surface was bound-graph-only: `/api/graph/*` and `/api/tools/*`
-//! carried no brain selector, so a hosted project brain (the Cherry card) could be
+//! carried no brain selector, so a hosted project brain (the project-b card) could be
 //! LISTED but not ENTERED. This slice adds the `?brain=<project_root>` selector
 //! that reuses the wire's routing (`ProjectBrainRegistry`, #260) so the Hall can
 //! open ANY project brain in-tab.
@@ -65,18 +65,18 @@ fn write_project_repo(root: &Path) {
     std::fs::create_dir_all(root.join("src")).expect("mk src");
     std::fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"cherryorbit\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"projectb\"\nversion = \"0.0.0\"\n",
     )
     .expect("Cargo.toml");
     std::fs::write(
         root.join("src/lib.rs"),
-        "pub fn cherry_a() -> i64 { 1 }\n\
-         pub fn cherry_b() -> i64 { 2 }\n\
-         pub fn cherry_c() -> i64 { 3 }\n\
-         pub struct CherryOne { pub v: i64 }\n\
-         pub struct CherryTwo { pub v: i64 }\n\
-         pub struct CherryThree { pub v: i64 }\n\
-         pub enum CherryKind { A, B, C }\n",
+        "pub fn probe_a() -> i64 { 1 }\n\
+         pub fn probe_b() -> i64 { 2 }\n\
+         pub fn probe_c() -> i64 { 3 }\n\
+         pub struct ProbeOne { pub v: i64 }\n\
+         pub struct ProbeTwo { pub v: i64 }\n\
+         pub struct ProbeThree { pub v: i64 }\n\
+         pub enum ProbeKind { A, B, C }\n",
     )
     .expect("lib.rs");
 }
@@ -245,7 +245,7 @@ async fn owner_with_two_brains(tmp: &Path) -> (Owner, PathBuf, PathBuf) {
             serde_json::json!({
                 "path": project_repo.to_string_lossy(),
                 "project_root": project_repo.to_string_lossy(),
-                "agent_id": "cherry-agent"
+                "agent_id": "project-b-agent"
             }),
         )
         .await;
@@ -480,7 +480,7 @@ async fn tool_route_dispatches_against_the_selected_brain() {
 
 // ---------------------------------------------------------------------------
 // (6) The disk-union fix — after a restart, the Hall lists the hosted brain from
-//     its manifest with ZERO routed calls (the "Cherry vanished" reincidence).
+//     its manifest with ZERO routed calls (the "project-b vanished" reincidence).
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -507,7 +507,7 @@ async fn hall_lists_dormant_project_brain_from_disk_after_restart() {
     // durable `project_brain.json` manifest remains on disk. Delete the project's
     // registry entry to model that: now ONLY the disk manifest can surface it.
     // Before the fix, the Hall would show only the bound brain here (the field-
-    // proven "Cherry sumiu" reincidence: post-kickstart instances=['m1nd']).
+    // proven "project-b sumiu" reincidence: post-kickstart instances=['m1nd']).
     let instances_dir = runtime.join("registry").join("instances");
     if let Ok(rd) = std::fs::read_dir(&instances_dir) {
         for e in rd.flatten() {

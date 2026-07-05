@@ -354,7 +354,7 @@ mod tests {
         g.set_node_provenance(
             code,
             NodeProvenanceInput {
-                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/m1nd-core/src/seed.rs"),
+                source_path: Some("~/m1nd/m1nd-core/src/seed.rs"),
                 line_start: Some(1),
                 line_end: Some(4),
                 excerpt: Some("fn resolve()"),
@@ -365,7 +365,7 @@ mod tests {
         g.set_node_provenance(
             docs,
             NodeProvenanceInput {
-                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/docs/wiki/seed.md"),
+                source_path: Some("~/m1nd/docs/wiki/seed.md"),
                 line_start: Some(1),
                 line_end: Some(4),
                 excerpt: Some("resolve"),
@@ -408,7 +408,7 @@ mod tests {
         g.set_node_provenance(
             precise,
             NodeProvenanceInput {
-                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/m1nd-ingest/src/resolve.rs"),
+                source_path: Some("~/m1nd/m1nd-ingest/src/resolve.rs"),
                 line_start: Some(1),
                 line_end: Some(4),
                 excerpt: Some("struct ResolutionStats"),
@@ -419,7 +419,7 @@ mod tests {
         g.set_node_provenance(
             generic,
             NodeProvenanceInput {
-                source_path: Some("/Users/cosmophonix/SISTEMA/m1nd/docs/wiki/graph.md"),
+                source_path: Some("~/m1nd/docs/wiki/graph.md"),
                 line_start: Some(1),
                 line_end: Some(4),
                 excerpt: Some("Graph overview"),

@@ -138,12 +138,12 @@ mod tests {
         let mut state = SessionState::initialize(graph, &config, domain).unwrap();
 
         let input = BootMemoryInput {
-            agent_id: "jimi".into(),
+            agent_id: "agent-a".into(),
             action: "set".into(),
             key: Some("boot_doctrine".into()),
             value: Some(json!({"codex": "house"})),
             tags: vec!["boot".into()],
-            source_refs: vec!["/Users/cosmophonix/SISTEMA/FIRESTARTER.md".into()],
+            source_refs: vec!["~/notes.md".into()],
         };
         handle_boot_memory(&mut state, input).unwrap();
 

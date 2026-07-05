@@ -7464,7 +7464,7 @@ mod tests {
     /// When the caller's resolved root (hop-2 `M1nd-Caller-Root`) is KNOWN and
     /// falls OUTSIDE the bound workspace, north must carry a `reception` block
     /// flagging the mismatch honestly. THIS FAILS BEFORE THE FIX (no `reception`
-    /// key) — that silence is exactly the live Antigravity/Cherry failure this
+    /// key) — that silence is exactly the live Antigravity/project-b failure this
     /// slice kills.
     #[test]
     fn north_reception_flags_caller_root_mismatch() {

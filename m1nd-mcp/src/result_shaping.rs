@@ -407,7 +407,7 @@ mod tests {
                 tags: vec![],
                 provenance: Some(ProvenanceOutput {
                     source_path: Some(
-                        "/Users/cosmophonix/SISTEMA/m1nd/m1nd-core/Cargo.toml".into(),
+                        "~/m1nd/m1nd-core/Cargo.toml".into(),
                     ),
                     line_start: None,
                     line_end: None,
@@ -458,7 +458,7 @@ mod tests {
                 },
                 heuristic_signals: None,
                 intent_summary: "crate".into(),
-                file_path: Some("/Users/cosmophonix/SISTEMA/m1nd/m1nd-core/Cargo.toml".into()),
+                file_path: Some("~/m1nd/m1nd-core/Cargo.toml".into()),
                 line_start: None,
                 line_end: None,
                 excerpt: None,
@@ -483,7 +483,7 @@ mod tests {
                 heuristic_signals: None,
                 intent_summary: "impl".into(),
                 file_path: Some(
-                    "/Users/cosmophonix/SISTEMA/m1nd/m1nd-ingest/src/extract/rust_lang.rs".into(),
+                    "~/m1nd/m1nd-ingest/src/extract/rust_lang.rs".into(),
                 ),
                 line_start: Some(1),
                 line_end: Some(4),
