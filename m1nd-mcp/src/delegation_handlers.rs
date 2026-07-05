@@ -62,9 +62,11 @@ const CALIBRATION_NEEDED_ROWS: u64 = 30;
 /// graph and disk both drift under it). 4 hours (§O.12.4).
 const PACKET_TTL_MS: u64 = 4 * 60 * 60 * 1000;
 /// Default token budget for the rendered packet — a cap, not a quota (§O.12.4).
-const DEFAULT_BUDGET_TOKENS: u64 = 2000;
+/// `pub` so the routing layer reuses the SAME default when it re-renders the packet
+/// after folding the medulla feed (M7), rather than duplicating the constant.
+pub const DEFAULT_BUDGET_TOKENS: u64 = 2000;
 /// Hard ceiling: beyond this the packet competes with the work itself.
-const HARD_BUDGET_TOKENS: u64 = 8000;
+pub const HARD_BUDGET_TOKENS: u64 = 8000;
 /// Default blast-radius cap for the dependents pass.
 const DEFAULT_MAX_NODES: usize = 40;
 
@@ -494,7 +496,7 @@ pub fn handle_delegate(state: &mut SessionState, params: &Value) -> M1ndResult<V
     let non_claims = json!([
         "the map is a file-level static view, not a fence — the file wins on what-is, the packet outranks only assumption.",
         "delegate composes read-only verbs; it does not ingest, mutate, or repair the graph (its only write is the dumb registry record).",
-        "this is a PROJECT-TIER packet: the medulla-doctrine block is not composed in this slice (later slices add it).",
+        "the memory slice is the DEFAULT beat (project + medulla): each row is labeled `tier` + `origin_brain` — never `all-brains`, never another project's private claims.",
         "stage-5 enrichment is NOT in this packet: no predict/co_change_warnings section (coupling is unknown, not absent).",
         "stage-5 enrichment is NOT in this packet: no trust/tremor risk_map (edit risk is ungraded here).",
         "stage-5 enrichment is NOT in this packet: no xray_gate must_not_touch (no ratified fence exists — breach cannot fire yet).",
@@ -671,11 +673,28 @@ fn node_resolves(state: &SessionState, seed: &str) -> bool {
 
 /// The L1GHT memory slice — north's exact recall (scoped to the `light::` id
 /// namespace so code nodes never compete), each row `{claim, age_days|null,
-/// source_agent, stale}`.
+/// source_agent, stale, tier, origin_brain}`.
+///
+/// M7 (ORGANISM R7 · MEDULLA-PRD §6, §8.2): every row is LABELED cargo — `tier`
+/// (project | medulla, from the routed store's identity) + `origin_brain` (the
+/// claim's OWN `Origin-Brain` stamp, falling back to the store's identity when the
+/// file predates the stamp — unknown is rendered honestly, never faked, MED-INV-4).
+/// This is the delegate composer labeling ITS OWN rows; the medulla doctrine feed
+/// is folded in — already tier/origin-labeled — by the routing layer
+/// (`mcp_http::serve_and_compose`), the ONE seam that can read across stores (M5b).
 fn recall_memory_slice(state: &mut SessionState, agent_id: &str, task: &str) -> Value {
     const LIGHT_RECALL_SCOPE: &str = "light::";
     let now_day_ms: u64 = 24 * 60 * 60 * 1000;
     let stale_after_ms: u64 = 30 * now_day_ms;
+    // The routed brain's own tier + fallback origin — computed once, mirrors
+    // `store_memory_rows` (mcp_http.rs). A project brain labels its rows
+    // `tier: project`; the bound owner (the medulla) labels them `tier: medulla`.
+    let this_tier = if state.is_medulla_store() {
+        "medulla"
+    } else {
+        "project"
+    };
+    let store_origin = state.origin_brain();
     let hits = layer_handlers::handle_seek(
         state,
         layers::SeekInput {
@@ -717,6 +736,18 @@ fn recall_memory_slice(state: &mut SessionState, agent_id: &str, task: &str) -> 
             if let Some(stale) = stale {
                 obj.insert("stale".into(), json!(stale));
             }
+            // M7 labels: prefer the claim's OWN Origin-Brain stamp; fall back to the
+            // store's identity when the file predates the stamp (unknown → the
+            // store's own origin, never a faked or absent label).
+            let origin = r
+                .origin_brain
+                .clone()
+                .unwrap_or_else(|| store_origin.clone());
+            obj.insert("origin_brain".into(), json!(origin));
+            obj.insert("tier".into(), json!(this_tier));
+            // `node_id` is the fold identity the routing layer de-dupes on when it
+            // composes the medulla feed into this slice (append_memory_rows).
+            obj.insert("node_id".into(), json!(r.node_id));
             Value::Object(obj)
         })
         .collect();
@@ -970,7 +1001,10 @@ pub fn render_delegation_packet(packet: &Value, budget_tokens: u64) -> String {
     out.push('\n');
 
     // --- memory slice (sufficiency-gated under the cap) ---
-    out.push_str("### Prior memory (age + author, or honest absence)\n");
+    // M7: each row is LABELED cargo — `tier` (doctrine vs project fact) + the brain
+    // it was born in — so the child inherits WHICH tier/brain a claim came from, not
+    // just the claim. Absent provenance renders "unknown", never faked (MED-INV-4).
+    out.push_str("### Prior memory (tier · origin · author · age, or honest absence)\n");
     if let Some(mem) = packet
         .get("context")
         .and_then(|c| c.get("memory"))
@@ -984,21 +1018,35 @@ pub fn render_delegation_packet(packet: &Value, budget_tokens: u64) -> String {
         let cap = if budget_tokens < 1000 { 2 } else { 5 };
         for m in mem.iter().take(cap) {
             let claim = m.get("claim").and_then(|v| v.as_str()).unwrap_or("");
+            let tier = m.get("tier").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let origin = m
+                .get("origin_brain")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let author = m
                 .get("source_agent")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown-author");
+            // Age is rendered from `age_days` (delegate rows) or `age_ms` (folded
+            // medulla rows carry ms); absent → honestly "age unknown".
             let age = m
                 .get("age_days")
                 .and_then(|v| v.as_u64())
                 .map(|d| format!("{d}d old"))
+                .or_else(|| {
+                    m.get("age_ms")
+                        .and_then(|v| v.as_u64())
+                        .map(|ms| format!("{}d old", ms / (24 * 60 * 60 * 1000)))
+                })
                 .unwrap_or_else(|| "age unknown".to_string());
             let stale = if m.get("stale").and_then(|v| v.as_bool()).unwrap_or(false) {
                 " [STALE — verify against the file]"
             } else {
                 ""
             };
-            out.push_str(&format!("- {claim} — {author}, {age}{stale}\n"));
+            out.push_str(&format!(
+                "- [{tier}] {claim} — {origin} · {author}, {age}{stale}\n"
+            ));
         }
     }
     out.push('\n');

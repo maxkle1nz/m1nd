@@ -765,9 +765,15 @@ async fn route_and_run(
 
 /// Tools whose payloads carry a durable-memory feed that tier recall composes.
 /// `seek` folds into `results`; `north` into `memory`; `boot_memory` (list) into
-/// `entries`. Every other tool is served verbatim by the primary brain.
+/// `entries`; `delegate` folds the medulla doctrine feed into its NESTED
+/// `context.memory` slice (M7 · ORGANISM R7) so a delegation packet's inherited
+/// memory carries doctrine beside project fact, each row tier/origin-labeled. Every
+/// other tool is served verbatim by the primary brain.
 fn is_tier_recall_tool(tool: &str) -> bool {
-    matches!(bare_tool_name(tool), "seek" | "north" | "boot_memory")
+    matches!(
+        bare_tool_name(tool),
+        "seek" | "north" | "boot_memory" | "delegate"
+    )
 }
 
 /// The memory tier a caller asked for (MEDULLA-PRD §5.2). Absent / unknown →
@@ -935,6 +941,28 @@ fn serve_and_compose(
             }),
         );
     }
+    // M7: the delegate packet's `prompt_markdown` is the ONE string the child reads.
+    // The handler rendered it from PROJECT rows only (it holds one lock, can't reach
+    // the medulla); now that the medulla doctrine rows are folded into the structured
+    // `context.memory`, re-render deterministically so the labeled doctrine reaches
+    // the child, not just a JSON router. Reuses the same pure renderer — no second
+    // rendering path.
+    if bare_tool_name(tool) == "delegate"
+        && payload.get("verdict").and_then(|v| v.as_str()) == Some("packet")
+    {
+        let budget_tokens = request
+            .params
+            .get("arguments")
+            .and_then(|a| a.get("budget"))
+            .and_then(|b| b.get("tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(crate::delegation_handlers::DEFAULT_BUDGET_TOKENS)
+            .min(crate::delegation_handlers::HARD_BUDGET_TOKENS);
+        let md = crate::delegation_handlers::render_delegation_packet(&payload, budget_tokens);
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("prompt_markdown".into(), serde_json::json!(md));
+        }
+    }
     tool_result_response(id, &payload)
 }
 
@@ -954,7 +982,7 @@ fn tier_recall_query(tool: &str, request: &JsonRpcRequest) -> String {
     let args = request.params.get("arguments");
     let field = match bare_tool_name(tool) {
         "seek" => "query",
-        "north" => "task",
+        "north" | "delegate" => "task",
         _ => "",
     };
     args.and_then(|a| a.get(field))
@@ -1088,27 +1116,46 @@ fn store_memory_rows(
         .collect()
 }
 
-/// The payload key that holds a tool's memory feed.
-fn memory_feed_key(tool: &str) -> &'static str {
+/// Where a tool's durable-memory feed lives in its payload: a flat top-level key
+/// for `seek`/`north`/`boot_memory`, or the NESTED `context.memory` slice for
+/// `delegate` (M7). The path is walked (creating intermediate objects) so the same
+/// fold/strip machinery serves both shapes.
+fn memory_feed_path(tool: &str) -> &'static [&'static str] {
     match bare_tool_name(tool) {
-        "seek" => "results",
-        "north" => "memory",
-        "boot_memory" => "entries",
-        _ => "memory",
+        "seek" => &["results"],
+        "boot_memory" => &["entries"],
+        "delegate" => &["context", "memory"],
+        // north and the default fall through to the flat `memory` feed.
+        _ => &["memory"],
     }
+}
+
+/// Resolve (creating if absent) the mutable memory-feed array for `tool`, walking
+/// the nested path from [`memory_feed_path`]. Returns `None` only when an
+/// intermediate value exists but is not an object/array (a malformed payload).
+fn memory_feed_mut<'a>(
+    payload: &'a mut serde_json::Value,
+    tool: &str,
+) -> Option<&'a mut Vec<serde_json::Value>> {
+    let path = memory_feed_path(tool);
+    let (last, parents) = path.split_last()?;
+    let mut cursor = payload;
+    for key in parents {
+        let obj = cursor.as_object_mut()?;
+        cursor = obj
+            .entry((*key).to_string())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    }
+    let obj = cursor.as_object_mut()?;
+    obj.entry((*last).to_string())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()))
+        .as_array_mut()
 }
 
 /// Append folded sibling-store rows into the primary payload's memory feed,
 /// de-duped by `node_id` (the primary's own rows already present win).
 fn append_memory_rows(payload: &mut serde_json::Value, tool: &str, rows: Vec<serde_json::Value>) {
-    let key = memory_feed_key(tool);
-    let Some(obj) = payload.as_object_mut() else {
-        return;
-    };
-    let existing = obj
-        .entry(key.to_string())
-        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-    let Some(arr) = existing.as_array_mut() else {
+    let Some(arr) = memory_feed_mut(payload, tool) else {
         return;
     };
     // Identity is `node_id` for light rows, `key` for boot-KV rows.
@@ -1130,11 +1177,11 @@ fn append_memory_rows(payload: &mut serde_json::Value, tool: &str, rows: Vec<ser
 }
 
 /// Drop the primary brain's OWN memory feed (used by `tier:"medulla"`, which wants
-/// only the medulla's rows). Leaves the rest of the envelope intact.
+/// only the medulla's rows). Leaves the rest of the envelope intact. Walks the same
+/// (possibly nested) feed path so it clears `delegate`'s `context.memory` too.
 fn strip_memory_feed(payload: &mut serde_json::Value, tool: &str) {
-    let key = memory_feed_key(tool);
-    if let Some(obj) = payload.as_object_mut() {
-        obj.insert(key.to_string(), serde_json::Value::Array(Vec::new()));
+    if let Some(arr) = memory_feed_mut(payload, tool) {
+        arr.clear();
     }
 }
 
