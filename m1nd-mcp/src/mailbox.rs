@@ -834,30 +834,62 @@ pub fn project_basename(root: &str) -> String {
 /// registry `disk_roster` + the bound root). `worktree_base` is the project whose
 /// worktrees are `<base>-*`. A root whose dir is absent is still listed as an
 /// UNREACHABLE box (named by the sweep), never dropped.
+///
+/// A bare `repo` name resolves against `known_repos` by normalized basename, so a
+/// name that maps to a SINGLE root routes cleanly. When a basename maps to more
+/// than one DISTINCT root (two brains sharing a basename in different parents),
+/// the name is left OUT of `known_repos` — a bare letter for it abstains to
+/// `Pending` rather than being silently routed into whichever root won a
+/// first-wins race. This mirrors `covering_brain`'s unique/abstain law: exactly
+/// one match resolves, zero-or-more-than-one is honest doubt, never a guess. Every
+/// distinct root is still listed as a named `KnownBox` (the sweep surfaces it).
 pub fn boxes_from_roots(
     project_roots: &[String],
     worktree_base: &str,
 ) -> (BTreeMap<String, PathBuf>, Vec<KnownBox>) {
-    let mut known: BTreeMap<String, PathBuf> = BTreeMap::new();
+    // Group the DISTINCT dirs each normalized name resolves to. A repeated exact
+    // (name, dir) pair is the same brain seen twice (roster + bound root) — one
+    // distinct dir, so it still resolves; two DIFFERENT dirs is the ambiguity.
+    let mut dirs_by_name: BTreeMap<String, BTreeSet<PathBuf>> = BTreeMap::new();
     let mut boxes: Vec<KnownBox> = Vec::new();
-    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut seen_box: BTreeSet<(String, PathBuf)> = BTreeSet::new();
 
     for root in project_roots {
         let dir = PathBuf::from(root.trim());
         let name = normalize_repo(root, worktree_base);
-        if name.is_empty() || !seen.insert(name.clone()) {
+        if name.is_empty() {
             continue;
         }
         let reachable = dir.is_dir();
         if reachable {
-            known.insert(name.clone(), dir.clone());
+            dirs_by_name
+                .entry(name.clone())
+                .or_default()
+                .insert(dir.clone());
         }
-        boxes.push(KnownBox {
-            label: name,
-            path: box_path_for_repo(&dir),
-            reachable,
-        });
+        // One named box per distinct (name, dir): every root stays visible, but a
+        // dir listed twice is not duplicated in the sweep.
+        if seen_box.insert((name.clone(), dir.clone())) {
+            boxes.push(KnownBox {
+                label: name,
+                path: box_path_for_repo(&dir),
+                reachable,
+            });
+        }
     }
+
+    // Only names with exactly ONE distinct reachable dir are resolvable; an
+    // ambiguous basename is dropped so a bare letter for it stays Pending.
+    let known: BTreeMap<String, PathBuf> = dirs_by_name
+        .into_iter()
+        .filter_map(
+            |(name, dirs)| match dirs.into_iter().collect::<Vec<_>>().as_slice() {
+                [only] => Some((name, only.clone())),
+                _ => None,
+            },
+        )
+        .collect();
+
     (known, boxes)
 }
 
@@ -1497,5 +1529,90 @@ mod tests {
         assert_eq!(id1, id2, "trailing newline does not change the id");
         assert_eq!(id1.len(), 12, "id is the 12-hex-char sha256 prefix");
         assert!(id1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    // --- bare repo names resolve against the roster by unique basename --------
+    //
+    // The first real sweep left most letters pending: a letter whose `repo` is a
+    // bare name (or a worktree variant of it) must resolve to the roster brain
+    // whose bound_project_root basename matches UNIQUELY — even when that brain is
+    // NOT the bound worktree_base. Mirrors covering_brain's unique/abstain law:
+    // exactly one match resolves; zero or >1 stays Pending (honest, never a guess).
+
+    #[test]
+    fn bare_name_resolves_against_unique_roster_basename() {
+        let s = Scratch::new("bare-name");
+        let runtime = s.path("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        // A roster brain bound deep under an unrelated path; only its basename
+        // ("repo-alpha") matches the bare letter. worktree_base is a DIFFERENT
+        // project, so the collapse rule alone cannot save the bare name.
+        let repo_alpha = mk_repo(&s, "place").join("repo-alpha");
+        std::fs::create_dir_all(&repo_alpha).unwrap();
+
+        let roots = vec![repo_alpha.to_string_lossy().to_string()];
+        let (known, _boxes) = boxes_from_roots(&roots, "some-bound-project");
+
+        // Bare name → resolves to the unique roster brain.
+        let bare: Letter =
+            serde_json::from_str(r#"{"repo":"repo-alpha","tool":"x","class":"bug"}"#).unwrap();
+        assert_eq!(
+            resolve_box(&bare, &runtime, "some-bound-project", &known),
+            BoxTarget::Project(repo_alpha.clone()),
+            "a bare name resolves to the roster brain whose basename matches uniquely"
+        );
+
+        // Worktree/annotation variant of the same bare name → same resolution.
+        let variant: Letter = serde_json::from_str(
+            r#"{"repo":"repo-alpha (worktree repo-alpha-x)","tool":"x","class":"bug"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_box(&variant, &runtime, "some-bound-project", &known),
+            BoxTarget::Project(repo_alpha),
+            "a parenthetical worktree variant collapses to the same bare name and resolves"
+        );
+    }
+
+    #[test]
+    fn ambiguous_basename_abstains_to_pending_never_guesses() {
+        let s = Scratch::new("ambiguous-basename");
+        let runtime = s.path("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        // TWO distinct roster roots that share the basename "repo-alpha".
+        let a1 = mk_repo(&s, "place1").join("repo-alpha");
+        let a2 = mk_repo(&s, "place2").join("repo-alpha");
+        std::fs::create_dir_all(&a1).unwrap();
+        std::fs::create_dir_all(&a2).unwrap();
+
+        let roots = vec![
+            a1.to_string_lossy().to_string(),
+            a2.to_string_lossy().to_string(),
+        ];
+        let (known, boxes) = boxes_from_roots(&roots, "bound");
+
+        // The ambiguous basename must NOT be a resolvable known repo (a guess
+        // would silently misroute every "repo-alpha" letter into whichever root
+        // won a first-wins race).
+        assert!(
+            !known.contains_key("repo-alpha"),
+            "an ambiguous basename must not resolve to a single root: {known:?}"
+        );
+
+        // A bare "repo-alpha" letter therefore stays Pending — honest, not a guess.
+        let bare: Letter =
+            serde_json::from_str(r#"{"repo":"repo-alpha","tool":"x","class":"bug"}"#).unwrap();
+        assert_eq!(
+            resolve_box(&bare, &runtime, "bound", &known),
+            BoxTarget::Pending("repo-alpha".to_string()),
+            "an ambiguous bare name abstains to Pending (0-or->1 → never chute)"
+        );
+
+        // Both ambiguous roots are still NAMED as boxes (visible, never silently
+        // dropped) — the sweep surfaces them, it just cannot route a bare name.
+        assert!(
+            boxes.iter().filter(|b| b.label == "repo-alpha").count() >= 1,
+            "the ambiguous roots remain visible as named boxes"
+        );
     }
 }
