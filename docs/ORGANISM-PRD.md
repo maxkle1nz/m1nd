@@ -1,15 +1,15 @@
 # THE m1nd ORGANISM — the constitution
 
-> **Mandate (founder, verbatim):** *"fechar o PRD + ULM de todos os sistemas e subsistemas, para
-> poder implementar da melhor forma, sem spaghetti code, conectando com o que você já viu, mas indo
-> em profundidade antes para achar ainda mais conexões úteis que possam realmente fechar este loop."*
+> **Mandate:** close the PRD + UML for every system and subsystem, so it can be implemented
+> cleanly — no spaghetti code — connecting with what has already been mapped, but going deep first
+> to find still more useful connections that can genuinely close this loop.
 >
-> **Seat:** Fable, master architect · 2026-07-05. **Inputs adjudicated as law-drafts:** the Organism
+> **2026-07-05. Inputs adjudicated as law-drafts:** the Organism
 > Map (joint-mapper, 2026-07-05 — subsystem inventory, JOINTs A–K, contradictions, homeless list,
 > dependency reality) and the Adversarial Critique (26-finding ledger; 7 blockers). **Every finding
 > is adopted or refused with reasons — Appendix ADJ.** Ground: repo @ `main` `5b1a37d` (MEDULLA PRD
 > merged, #267); tool census **112** re-measured this session from `server.rs` (name-array, unique);
-> live `:1338` owner probed this session (binary 1.3.2) — the probe itself reproduced two of the
+> the served owner probed this session (binary 1.3.2) — the probe itself reproduced two of the
 > critique's live defects (F10 duplicate serialization; the MED-INV-6 false absence, third witness).
 > **SOUL-PRD: absent from main at write time** (re-checked); this constitution writes its SLOT and
 > binding constraints (§C8), never its internals.
@@ -113,7 +113,7 @@ appears in views by selection — never invented per-view. (Map contradiction #3
 | **Agent** | `north` result | `next_move`, `recovery_playbook`, verb-level `_m1nd` hints | a fabricated age or presence (absent-never-faked); another brain's memory unlabeled (MED-INV-1) |
 | **Human** | the Pre-Flight Card (HUMAN §4.2) | rendering only: action language, fate-lines, calm badges | **data absent from the packet** — a card field with no packet field is fabrication; the card renders, never widens |
 | **Delegation child** | the §O.12.4 packet | the orchestrator's brief (always the head), scope + duties, respawn blocks | unlabeled cross-brain memory (M7 tier labels mandatory); quoted code bodies (stale shadows); dropping the duties section |
-| **First contact** | the `reception` block | `options[]`, each with the exact call + consequence | an interruption on match (TT-INV-12: silence on match); an auto-bind on mismatch (the Antigravity rule) |
+| **First contact** | the `reception` block | `options[]`, each with the exact call + consequence | an interruption on match (TT-INV-12: silence on match); an auto-bind on mismatch (the caller-root-mismatch rule) |
 | **Soul headline** | reserved slot (§C8.6) | **ONE line** — "what this brain IS" — plus the pull verb | a second line; any claim that bypasses grammar 2 or the two-tissues law |
 
 The reception match verdict additionally echoes on the Hall's Brain Chip and the Card's binding
@@ -176,7 +176,7 @@ grammar dies at review.
 ### C2.2 The letter-grammar adjudication (F1 — blocker, resolved)
 
 Three letter grammars were in flight. **The derived grammar wins** (MEDULLA §9.2, the newest
-founder approval, carrying the same law that made `aged` an overlay: *state that can be recomputed
+approval, carrying the same law that made `aged` an overlay: *state that can be recomputed
 must not be stored where it can drift*). The reconciliations, explicit:
 
 - **Mapping from the sealed doctrine's grammar:** `open → wet_ink` · `triaged(resolves:<id>) →
@@ -258,7 +258,7 @@ census collapses to:
   not the ritual list. Until SubagentStop mechanizes it, the packet's report protocol
   (`[m1nd dlg_…]` + DEVIATIONS/FINDINGS) is the manual half.
 - **Promotion is NEVER a closing moment.** It is curation on the medulla's cadence (consolidation
-  pass / founder review). No instructions text may ever add "consider promoting" to session close.
+  pass / maintainer review). No instructions text may ever add "consider promoting" to session close.
 
 ### C3.2 The four "closes", disambiguated (the JOINT-A trap, defused)
 
@@ -361,7 +361,7 @@ One door means one place to hold every invariant, one battery surface, zero drif
 ### C5.1 The agent_id law (supersedes TWO-TIER §11 — amendment written there, §C11)
 
 **Canonical grammar: `host:tier:name[@parent]`**, lowercase —
-`claude:main:fable-orchestrator`, `claude:sub:burst-1t@fable-orchestrator`, `human:founder`,
+`host:main:orchestrator`, `host:sub:burst-1t@orchestrator`, `human:maintainer`,
 `ci:battery`. Field practice + the sealed identity taxonomy win over the older `host:role` sketch.
 One grammar, one parser, one test:
 
@@ -369,7 +369,7 @@ One grammar, one parser, one test:
 - **the `tier` token carries the seat** (`main` = the orchestrating seat, `sub` = spawned);
 - **the `name` token carries the role label** for human readability (`*-orchestrator`, `burst-*`);
 - **role-bearing gates parse the TIER token**, never grep the name: `promote` executes when
-  `tier == "main"` OR `agent_id == human:founder` (etiquette-by-audit unchanged, TT-INV-7 — the
+  `tier == "main"` OR `agent_id == human:maintainer` (etiquette-by-audit unchanged, TT-INV-7 — the
   predicate is parseable, violations auditable via `Promoted-By`);
 - `@parent` chains provenance for spawn trees; absent = top-level.
 
@@ -381,7 +381,7 @@ typed, non-breaking. The designed carrier that returned the reception packet **a
 whatever verb the agent first called** is **repealed** — a `seek` that returns a non-seek shape
 breaks every typed client on day one. The full `m1nd-reception-v0` packet (`what_exists`
 enumeration, walk-up verdicts, options) rides **inside the block** or behind the `bind` answer.
-The founder's requirement ("o sistema deveria já dar toda a informação") is satisfied by the block.
+The requirement ("the system should already surface all the information") is satisfied by the block.
 
 ### C5.3 The child law: a delegation packet IS a mother-pre-filled reception (JOINT-C, constitutional)
 
@@ -451,26 +451,26 @@ re-pin the battery case in the same PR.
 
 ---
 
-## C7 — Universality: the stranger test (F11 · F12 · F17 · Max's law)
+## C7 — Universality: the stranger test (F11 · F12 · F17 · the universality law)
 
 ### C7.1 The constitutional invariant
 
 **ORG-INV-2 · The stranger test.** Every mechanism must have a birth story on a fresh
-`npm i -g` machine: no founder file, no launchd, no Claude, no `~/m1nd` checkout. A feature that
-only exists on the founder's machine is a prototype wearing a feature's name. Every PRD slice
+`npm i -g` machine: no maintainer file, no launchd, no Claude, no `~/m1nd` checkout. A feature that
+only exists on the maintainer's machine is a prototype wearing a feature's name. Every PRD slice
 states its stranger story or its honest tier (below).
 
 ### C7.2 The medulla birth story
 
 - **`m1nd init --medulla`** (and the first-run doctor offer) creates a **host-neutral medulla** at
   `~/.m1nd/medulla/` on machines that never had one — the doctrine tier, the promotion target, and
-  the medulla box exist for every user, not only the founder.
-- **Migration note:** Max's `~/.m1nd/runtimes/claude/` remains HIS medulla via the registry's
+  the medulla box exist for every user, not only the maintainer.
+- **Migration note:** the maintainer's `~/.m1nd/runtimes/claude/` remains their medulla via the registry's
   `brain_kind` — the `[KILLED: S6 directory move]` decision protected a live migration and stands;
   it does **not** define the fresh-install default. New docs and doctor prescriptions name the
   host-neutral path; the host-named path is grandfathered, never taught.
 - **Doctrine precedence, in m1nd's own terms:** `medulla-absolute > project claim >
-  medulla-default`. The founder's `CLAUDE.md` mapping (ABSOLUTE-global > repo > general-global) is
+  medulla-default`. The maintainer's `CLAUDE.md` mapping (ABSOLUTE-global > repo > general-global) is
   demoted to an *example instantiation*. MED-INV-8's pruned-to-pointers rule points at **medulla
   claims** (portable to every host), never at a host's private rule file.
 
@@ -492,8 +492,8 @@ The mailbox distributor may create `<repo>/.m1nd/` to file a box, **but with an
 ignore-by-default `.gitignore` covering `inbox.jsonl` until the repo's own `m1nd init` flips it to
 committed** — the loud-warning ceremony remains the ONE consent moment for committed telemetry
 (TT-INV-8 amended here by law, not by silence: *boxes get a consent-deferred birth — local
-immediately, git-traveling only after init*). The founder's ask survives whole: `~/almus` gets its
-box today (local, swept by triage); it starts traveling when almus consents. The §7.1 secret-scan
+immediately, git-traveling only after init*). The maintainer's ask survives whole: `~/project-d` gets its
+box today (local, swept by triage); it starts traveling when project-d consents. The §7.1 secret-scan
 floor at filing stands unchanged.
 
 ### C7.6 Calibration is metabolism (F17)
@@ -527,7 +527,7 @@ construction — declared tissue wearing verified costume at the most-read tier.
 ### C8.3 The promotion evidence-class gate (F14)
 
 **P3** joins P1/P2: a claim may promote only if `State: verified` OR `Source-Agent` is
-`human:founder`. One frontmatter check inside the M6 verb, one battery case. Declared maker
+`human:maintainer`. One frontmatter check inside the M6 verb, one battery case. Declared maker
 findings stop one verb short of every session's doctrine beat.
 
 ### C8.4 The curator laws (F15) — and who verifies the curator
@@ -600,7 +600,7 @@ written against the **contract** (same input/output), so it survives the transpo
 **ORG-INV-4 · Loopback-only is a named invariant, not an implicit premise.** The bind surface
 refuses non-loopback binds outright, battery-pinned. Remote access is a V-later design with
 **auth required at that door** — filed as design debt by name, so the first tunnel/VPS PR meets a
-written refusal instead of an unauthenticated brain carrying the founder's cross-project mind.
+written refusal instead of an unauthenticated brain carrying the user's cross-project mind.
 
 ### C9.4 Door-coverage honesty (F21)
 
@@ -722,7 +722,7 @@ one auto-generated calibration ground truth, the JOINT-D seam made real).
 **R12 — the ambient wave (the distillation gate in its real home).** Stop → `cross_verify` →
 `memorize` with the evidence-anchored distiller (Correction 4: anchor to what the turn touched,
 never free-summarize); PreCompact `trail_save`; SessionEnd persist. Depends on serve/attach (done)
-+ R1 (the hook budget) + **Max's green-light for hook install** (named human gate). *RED:* the A/B
++ R1 (the hook budget) + **a maintainer green-light for hook install** (named human gate). *RED:* the A/B
 harness re-run against the served owner.
 
 **R13 — reconnect-rebind (§C5.4).** Small, parallel; owner: reception/routing. *RED:* reconnect
@@ -758,7 +758,7 @@ joins here at landing with the §C8.6 checkmarks verified against its text.
 | Full per-brain calibration mechanism | TT §9.5.1 family (R14) + the §C7.6 birth rider | needs R14's partition; the birth rider covers the fresh-brain case meanwhile |
 | `inbox_drop` | **dissolved** (§C6.2) | the spool append IS the drop; a CLI convenience may ride R8 only if a real consumer proves need |
 | SSE pure-reader relay gap | Living Tree Slice 1 (PATHOS Known Problems) | already owned there; not this constitution's to re-own |
-| PATHOS auto-refresh push-back | Max (decision A/B — PAT secret vs checks bypass) | human decision, named |
+| PATHOS auto-refresh push-back | the maintainer (decision A/B — PAT secret vs checks bypass) | human decision, named |
 
 ---
 
@@ -783,7 +783,7 @@ law (F22's "superseded-by" pointers, instantiated):
 - The §C2.2 orchestrator action note (supersede the sealed inbox-doctrine memory) — executes at
   R8's landing, a runtime-memory act.
 - PATHOS's OMEGA-floor blurb still describes Move 2 in its pre-reframe "solvency/token-budget"
-  wording — one curated line for the next PATHOS checkpoint (PATHOS is the orchestrator's file,
+  wording — one curated line for the next PATHOS checkpoint (PATHOS is a hand-curated handoff file,
   not amended from a mission PR).
 
 ---
@@ -801,7 +801,7 @@ scrutiny; where I bent one, the bend and its reason are visible.
 | F# | Sev | Verdict | Where | Reason (one line) |
 |---|---|---|---|---|
 | F1 | blocker | **ADOPTED-AMENDED** | §C2.2 | derived grammar wins; `rejected`/`expired` become receipt **dispositions**, not fates — new fate words would need stored state on the target, breaking the derived-only law that made this grammar win; case = overlay; doctrine-memory supersession scheduled at R8 |
-| F2 | shaper | **ADOPTED** | §C5.1 · A1 | `host:tier:name[@parent]` canon; TT §11 amended; the gate parses `tier == "main"` or `human:founder` — one grammar, one parser, one test |
+| F2 | shaper | **ADOPTED** | §C5.1 · A1 | `host:tier:name[@parent]` canon; TT §11 amended; the gate parses `tier == "main"` or `human:maintainer` — one grammar, one parser, one test |
 | F3 | shaper | **ADOPTED** | §C2.3 | one stop enum; `stop_gate` mints no words; the check rides `focus(mode:"check")` |
 | F4 | shaper | **ADOPTED** | §C2.3 | `MEMORY_AGE_HALF_LIFE`: one constant, one computing site, two renderings at most |
 | F5 | position | **ADOPTED AS LAW** | §C2 | the four grammars + the three must-not-unify refusals, verbatim into the constitution |
@@ -810,9 +810,9 @@ scrutiny; where I bent one, the bend and its reason are visible.
 | F8 | shaper | **ADOPTED** | §C6.2 · A4 | §O.4.1 wins: the envelope is a response layer, never a verb; Move 1 re-read accordingly |
 | F10 | blocker | **ADOPTED** | §C1.3 | all five budget clauses, the §O.12.4 numbers binding; the live dup + root-sprawl reproduced in THIS session's own packet — flow fix mandated, not just stock sweep |
 | F11 | blocker | **ADOPTED** | §C7.1–.4 | stranger test as ORG-INV; `m1nd init --medulla` at host-neutral path; precedence in m1nd's own terms; hosts are data; OS tier honest |
-| F12 | shaper | **ADOPTED** (option b) | §C7.5 | consent-deferred box birth: box now, git-travel after init's loud warning — TT-INV-8 amended by law, the founder's caixinha preserved |
+| F12 | shaper | **ADOPTED** (option b) | §C7.5 | consent-deferred box birth: box now, git-travel after init's loud warning — TT-INV-8 amended by law, the maintainer's box preserved |
 | F13 | blocker | **ADOPTED** | §C8.2 | promote step 2.5: origin-qualified evidence + delegated re-hash or `evidence_unverifiable` (X360's existing state); a medulla claim never reads fresher than it can prove |
-| F14 | shaper | **ADOPTED** | §C8.3 | P3: `State: verified` or founder-sourced, checked inside the verb |
+| F14 | shaper | **ADOPTED** | §C8.3 | P3: `State: verified` or maintainer-sourced, checked inside the verb |
 | F15 | shaper | **ADOPTED** | §C8.4 | evidence-union parents; merge-and-recite never re-phrase; confidence caps at max(children) |
 | F16 | shaper | **ADOPTED** | §C8.5 · §C4 | letters = witness tissue; `evidence:` refusal at the write door, same mechanism class as the conflict-marker guard |
 | F17 | shaper | **ADOPTED** | §C7.6 · §C1.4 | calibration at birth; the cap said in words; binding-trust vs verdict-cap visually distinct |
