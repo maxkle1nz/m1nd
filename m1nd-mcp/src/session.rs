@@ -489,17 +489,22 @@ pub(crate) fn parse_cargo_package_version(cargo_toml: &str) -> Option<String> {
 }
 
 /// The last path component of a filesystem root — the human name of a repo
-/// ("/Users/x/m1nd" → "m1nd"). Trailing slashes are tolerated; a rootless or
+/// ("/Users/x/m1nd" → "m1nd"). Separator-agnostic: splits on BOTH '/' and '\\'
+/// so a Windows-style `C:\\Users\\x\\m1nd` ingest root resolves to "m1nd" on any
+/// OS (`std::path::Path::file_name` only honours the native separator, so a
+/// backslash path silently fails to split on Unix — hence the explicit both-
+/// separator handling here). Trailing separators are tolerated; a rootless or
 /// empty input returns the trimmed input unchanged (honest, never a panic).
 /// Shared by the bound-brain display name and the project-brain listing so both
 /// name a brain the same way. Mirrors the UI's `repoBasename` exactly.
 pub(crate) fn basename_of(root: &str) -> String {
-    root.trim()
-        .trim_end_matches('/')
-        .rsplit('/')
+    let trimmed = root.trim();
+    trimmed
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
         .next()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| root.trim())
+        .unwrap_or(trimmed)
         .to_string()
 }
 
@@ -924,14 +929,11 @@ impl SessionState {
     /// resolves to that; the bound graph skips its memory sidecars to reach the
     /// repo. Returns `None` only when the brain has no roots at all (empty graph).
     pub fn project_root_display(&self) -> Option<String> {
-        let is_memory_sidecar = |p: &str| {
-            p.ends_with(".light.md")
-                || std::path::Path::new(p)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "agent-memory")
-                    .unwrap_or(false)
-        };
+        // Separator-agnostic (see `basename_of`): a Windows-style ingest root
+        // ending in `\agent-memory` must be recognised as a sidecar on any OS,
+        // and `Path::file_name` only honours the native separator.
+        let is_memory_sidecar =
+            |p: &str| p.ends_with(".light.md") || basename_of(p) == "agent-memory";
         // 1. First real code ingest root that is not a memory sidecar.
         for root in &self.ingest_roots {
             if !is_memory_sidecar(root) && std::path::Path::new(root).is_dir() {
@@ -2286,7 +2288,7 @@ fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> M1ndResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SessionState, WORKSPACE_ROOT_ENV_CANDIDATES};
+    use super::{basename_of, SessionState, WORKSPACE_ROOT_ENV_CANDIDATES};
     use crate::server::McpConfig;
     use m1nd_core::domain::DomainConfig;
     use m1nd_core::graph::Graph;
@@ -2395,6 +2397,65 @@ mod tests {
             state.project_root_display().as_deref(),
             Some(repo.to_string_lossy().as_ref()),
             "the project root must resolve to the real repo directory"
+        );
+    }
+
+    #[test]
+    fn basename_of_is_separator_agnostic_for_windows_backslash_roots() {
+        // The Windows-CI-honesty defect: `basename_of` split only on '/', so a
+        // backslash ingest root came out as the whole path, not the repo name.
+        // This exercises backslash input on ANY OS — it fails before the fix and
+        // passes after, pinning the separator-agnostic contract deterministically
+        // without needing a Windows runner.
+        assert_eq!(basename_of(r"C:\Users\kle1nz\m1nd"), "m1nd");
+        assert_eq!(basename_of(r"C:\Users\kle1nz\m1nd\"), "m1nd");
+        assert_eq!(
+            basename_of(r"\\server\share\Cerrybubbles1"),
+            "Cerrybubbles1"
+        );
+        // Mixed separators (extended-length / normalised Windows paths) also work.
+        assert_eq!(basename_of(r"C:/Users/kle1nz\m1nd"), "m1nd");
+        // The Unix path still resolves as before — no regression.
+        assert_eq!(basename_of("/Users/kle1nz/m1nd"), "m1nd");
+    }
+
+    #[test]
+    fn display_name_resolves_repo_from_backslash_ingest_roots() {
+        // Reproduces the failing Windows-CI scenario deterministically on any OS:
+        // ingest roots use backslash separators (as they do on Windows), the
+        // `agent-memory` sidecar must still be skipped, and the repo basename must
+        // resolve to "m1nd" — not the whole backslash path, not "agent-memory".
+        // (On a non-Windows runner the backslash paths are not real dirs, so
+        // `project_root_display` reaches the repo via the "first ingest root"
+        // fallback rather than the `is_dir` primary; on Windows it takes the
+        // primary. Either way the basename contract this test pins holds.)
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config = McpConfig {
+            graph_source: temp.path().join("graph_snapshot.json"),
+            plasticity_state: temp.path().join("plasticity_state.json"),
+            runtime_dir: Some(temp.path().to_path_buf()),
+            ..McpConfig::default()
+        };
+        let mut state = SessionState::initialize(Graph::new(), &config, DomainConfig::code())
+            .expect("initialize session");
+        state.workspace_root = Some(r"D:\runtimes\claude\agent-memory".to_string());
+        state.ingest_roots = vec![
+            r"D:\Users\kle1nz\m1nd".to_string(),
+            r"D:\runtimes\claude\agent-memory\some-memory.light.md".to_string(),
+            r"D:\runtimes\claude\agent-memory".to_string(),
+        ];
+
+        assert_eq!(
+            state.display_name().as_deref(),
+            Some("m1nd"),
+            "a backslash repo ingest root must name the brain by its repo basename"
+        );
+        // The `agent-memory` sidecar (both the .light.md and the backslash dir)
+        // must be skipped; only the real repo root survives as the display root.
+        assert_eq!(
+            state.project_root_display().as_deref(),
+            Some(r"D:\Users\kle1nz\m1nd"),
+            "the backslash `agent-memory` sidecar must be skipped for the real repo"
         );
     }
 
