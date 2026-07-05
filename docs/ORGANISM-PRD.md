@@ -584,9 +584,29 @@ crash now takes N brains' warm state — "16:44 at scale"). Law:
 > persist-on-evict.** Battery-pinned: bootstrap K+1 brains → owner RSS bounded → `kill -9` the
 > owner → **every brain warm-boots from its own snapshot**.
 
+**[SHIPPED 2026-07-05 — ladder R15.]** The warm project-brain map
+(`ProjectBrainRegistry.brains`) is now LRU-bounded at `DEFAULT_WARM_BRAIN_CAP = 4`
+(configurable via `with_capacity`). Every insert — both the one-call bootstrap and a
+warm-boot resolve — routes through `insert_with_eviction`: when the map would exceed the
+cap it picks the least-recently-used **project** brain, calls `SessionState::persist()`
+on it (the same #230 store-write path a warm-boot re-hydrates from), then drops the `Arc`.
+The **bound dev graph is never in this map** (it lives on `AppState::session`), so it can
+never be an eviction victim — only project brains evict. Battery case
+`eviction_gate_bounds_the_map_and_persists_on_evict_surviving_kill9`
+(`tests/two_tier_project_brains.rs`): bootstrap cap+1 brains → the map never exceeds the
+cap → the bound graph answers unchanged → `drop(owner)` (the kill-9 stand-in) → a fresh
+owner over the same store warm-boots **every** brain, evicted ones included, with matching
+node counts. The persist-on-evict step is isolated at the unit level
+(`project_brains::eviction_gate_tests::eviction_persists_unpersisted_state`): a node added
+to a brain's in-memory graph **after its last persist** reaches the on-disk snapshot only
+because eviction flushed it (RED without the flush: the store snapshot is never written).
+
 **Line of intent, recorded:** the interim owner-hosted variant is **topology debt**; TT Slices 2/3
 (process-per-repo) are its retirement. Its convenience killed live friction and must not quietly
-become the end state — §2's whole argument was against exactly that end state.
+become the end state — §2's whole argument was against exactly that end state. **Residue:** the cap
+bounds warm state but the blast radius is still N-brains-per-owner until the process-per-repo flip;
+eviction is LRU-by-touch (no size/age weighting yet); `tier:"all-brains"` (R3) fans out over the
+disk roster and must warm-boot through this same gate so a wide fan-out cannot pin more than the cap.
 
 ### C9.2 `promote` across the topology flip (F19)
 
@@ -677,10 +697,17 @@ pre-medulla.)*
 *RED:* 25 mixed claims, zero `Origin-Brain`, ghost root; brainless-root memorize lands silently.
 *Unblocks:* R3 (labels), R4 (a real store to promote into), all provenance law (§C8).
 
-**R15 — the eviction gate (§C9.1).** *What:* LRU + persist-on-evict in the owner. *RED:* bootstrap
-K+1 → kill -9 → warm-boot-per-brain case (fails today by construction). *Unblocks:* R3's
-`all-brains` half and any onboarding past brain #4. **Hard pre-condition — R3's `all-brains` does
-not ship without it.**
+**R15 — the eviction gate (§C9.1). [SHIPPED 2026-07-05]** *What:* LRU + persist-on-evict in the
+owner's warm project-brain map (`ProjectBrainRegistry`, cap `DEFAULT_WARM_BRAIN_CAP = 4`), the bound
+dev graph pinned (it is not in the map, so it never evicts). *RED→GREEN:* the map was unbounded —
+bootstrapping cap+1 brains grew it to cap+1 (`warm_len` assert, RED by construction); now every
+insert routes through `insert_with_eviction`, which persists-then-drops the LRU project brain so the
+map never exceeds the cap and a `kill -9` (owner drop) is survived by every brain warm-booting from
+its own store (`eviction_gate_bounds_the_map_and_persists_on_evict_surviving_kill9`); the flush of
+state mutated after a brain's last persist is isolated in
+`eviction_gate_tests::eviction_persists_unpersisted_state` (RED: no snapshot written without the
+flush). *Unblocks:* R3's `all-brains` half and any onboarding past brain #4. **Hard pre-condition —
+R3's `all-brains` does not ship without it, and its fan-out must warm-boot through this same gate.**
 
 **R3 — M5b: `tier` recall + no-leak proven + `all-brains`** (MEDULLA §11; gated by R15).
 *RED:* the leak permutation matrix (seed Y, assert X's beat never carries it; assert `all-brains`
@@ -827,7 +854,7 @@ scrutiny; where I bent one, the bend and its reason are visible.
 | F15 | shaper | **ADOPTED** | §C8.4 | evidence-union parents; merge-and-recite never re-phrase; confidence caps at max(children) |
 | F16 | shaper | **ADOPTED** | §C8.5 · §C4 | letters = witness tissue; `evidence:` refusal at the write door, same mechanism class as the conflict-marker guard |
 | F17 | shaper | **ADOPTED** | §C7.6 · §C1.4 | calibration at birth; the cap said in words; binding-trust vs verdict-cap visually distinct |
-| F18 | blocker | **ADOPTED** | §C9.1 | eviction gate hard at brain #5 or `all-brains`, whichever first; kill-9 battery case; interim named topology debt with its retirement |
+| F18 | blocker | **ADOPTED · SHIPPED 2026-07-05 (R15)** | §C9.1 | eviction gate hard at brain #5 or `all-brains`, whichever first; kill-9 battery case; interim named topology debt with its retirement. Shipped: LRU cap (4) + persist-on-evict in `ProjectBrainRegistry`, bound graph pinned, kill-9 warm-boot battery green |
 | F19 | shaper | **ADOPTED** | §C9.2 | promote direction inverts at canon topology; contract-level battery survives the flip |
 | F20 | shaper | **ADOPTED** | §C9.3 | loopback-only as named ORG-INV; non-loopback binds refused; auth required at the future remote door |
 | F21 | shaper | **ADOPTED** | §C9.4 | invariants stated with door coverage until all doors route |

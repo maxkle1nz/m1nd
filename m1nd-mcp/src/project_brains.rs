@@ -25,12 +25,20 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use m1nd_core::error::{M1ndError, M1ndResult};
 use parking_lot::Mutex;
 
 use crate::session::SessionState;
+
+/// Default warm-brain cap (§C9.1 F18): how many project brains the owner keeps
+/// hydrated in memory at once. The bound dev graph is NOT counted here — it lives
+/// on `AppState::session`, never in this map, so it can never be evicted. A cap of
+/// 4 means the eviction gate arms before brain #5, exactly as the ladder rung
+/// specifies ("before the owner hosts brain #5"). Override via the constructor.
+pub const DEFAULT_WARM_BRAIN_CAP: usize = 4;
 
 /// Store-dir manifest: records which project root a store belongs to, so a
 /// warm-boot can verify the fingerprint really is this root's brain (hash
@@ -42,27 +50,79 @@ const MANIFEST_FILE: &str = "project_brain.json";
 /// The dir under the owner's `runtime_root` that holds all project-brain stores.
 pub const PROJECT_BRAINS_DIR: &str = "project-brains";
 
+/// A warm brain plus its LRU access tick. The tick is bumped on every resolve so
+/// the eviction gate can pick the least-recently-used victim on a linear scan
+/// (the cap is tiny — an O(cap) scan beats an ordered-map dependency, mother
+/// rule). `Clone` hands out the `Arc` without the tick.
+struct WarmBrain {
+    brain: Arc<Mutex<SessionState>>,
+    /// Monotonic last-touch stamp from the registry's own counter — clock-free so
+    /// eviction order is deterministic in tests, never wall-time dependent.
+    last_used: u64,
+}
+
 /// Registry of owner-hosted per-project brains, keyed by canonicalized project
 /// root. Lives on `AppState` beside (never inside) the bound session.
 pub struct ProjectBrainRegistry {
-    /// Live brains. The map lock is held only for lookup/insert — never across
-    /// an engine build or an ingest (those run on the unshared brain first).
-    brains: Mutex<HashMap<String, Arc<Mutex<SessionState>>>>,
+    /// Live brains. The map lock is held only for lookup/insert/evict — never
+    /// across an engine build or an ingest (those run on the unshared brain
+    /// first). Bounded by `capacity`: the LRU eviction gate (§C9.1) persists then
+    /// drops the least-recently-used brain before the map exceeds the cap.
+    brains: Mutex<HashMap<String, WarmBrain>>,
     /// `<owner runtime_root>/project-brains`.
     base_dir: PathBuf,
     /// The owner's registry dir, so project-brain instances/leases land in the
     /// SAME phonebook (`brain_kind:"project"` tells them apart — mission D rides
     /// the existing `list_instances` surface, zero new listing code).
     registry_dir: Option<PathBuf>,
+    /// Warm-brain cap (§C9.1). The map never holds more than this many project
+    /// brains hydrated; the bound dev graph is not in the map, so it is never a
+    /// candidate. Zero would evict on every insert, so it is clamped to ≥1.
+    capacity: usize,
+    /// Monotonic LRU clock — bumped on every touch so the newest touch always has
+    /// the highest stamp and the eviction victim is `min(last_used)`.
+    tick: AtomicU64,
 }
 
 impl ProjectBrainRegistry {
+    /// Build a registry with the default warm-brain cap
+    /// ([`DEFAULT_WARM_BRAIN_CAP`]).
     pub fn new(base_dir: PathBuf, registry_dir: Option<PathBuf>) -> Self {
+        Self::with_capacity(base_dir, registry_dir, DEFAULT_WARM_BRAIN_CAP)
+    }
+
+    /// Build a registry with an explicit warm-brain cap. `capacity` is clamped to
+    /// ≥1 (a zero cap would evict a brain the instant it was inserted). Surfaced
+    /// for the eviction-gate battery case, which pins the bound at a small K to
+    /// force eviction with a handful of scratch brains.
+    pub fn with_capacity(
+        base_dir: PathBuf,
+        registry_dir: Option<PathBuf>,
+        capacity: usize,
+    ) -> Self {
         Self {
             brains: Mutex::new(HashMap::new()),
             base_dir,
             registry_dir,
+            capacity: capacity.max(1),
+            tick: AtomicU64::new(0),
         }
+    }
+
+    /// Next monotonic LRU stamp.
+    fn next_tick(&self) -> u64 {
+        self.tick.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// The warm-brain cap this registry enforces (§C9.1).
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// How many project brains are hydrated in the map RIGHT NOW (diagnostics /
+    /// the eviction-gate proof: assert the count never exceeds `capacity`).
+    pub fn warm_len(&self) -> usize {
+        self.brains.lock().len()
     }
 
     /// Canonical map key for a project root (resolves symlinks/`/tmp` aliases so
@@ -111,8 +171,14 @@ impl ProjectBrainRegistry {
     /// graph or to reception).
     pub fn resolve(&self, caller_root: &str) -> Option<Arc<Mutex<SessionState>>> {
         let key = Self::canonical_key(caller_root);
-        if let Some(brain) = self.brains.lock().get(&key) {
-            return Some(brain.clone());
+        {
+            let mut map = self.brains.lock();
+            if let Some(warm) = map.get_mut(&key) {
+                // Touch: this is now the most-recently-used brain, so it is the
+                // LAST the eviction gate would drop.
+                warm.last_used = self.next_tick();
+                return Some(warm.brain.clone());
+            }
         }
         if !self.manifest_matches(&key) {
             return None;
@@ -120,10 +186,9 @@ impl ProjectBrainRegistry {
         // Dormant store → warm-boot OUTSIDE the map lock (engine build is slow).
         let state = self.boot_store(&key).ok()?;
         let built = Arc::new(Mutex::new(state));
-        let mut map = self.brains.lock();
-        // A racer may have booted it meanwhile — first insert wins, both callers
-        // get the same brain.
-        Some(map.entry(key).or_insert(built).clone())
+        // Insert through the eviction gate: a warm-boot that grows the map past
+        // the cap persists-then-drops the LRU victim before this brain lands.
+        Some(self.insert_with_eviction(key, built))
     }
 
     /// Boot (fresh or warm) a store's SessionState through the SAME path the
@@ -188,11 +253,10 @@ impl ProjectBrainRegistry {
                 // after ingest below so a DORMANT store still reports its size.
                 self.write_manifest(&key, None, None)?;
                 let built = Arc::new(Mutex::new(state));
-                self.brains
-                    .lock()
-                    .entry(key.clone())
-                    .or_insert(built)
-                    .clone()
+                // Through the eviction gate: bootstrapping brain #cap+1 persists
+                // then drops the LRU victim before this new brain lands, so the
+                // map never exceeds the cap (§C9.1).
+                self.insert_with_eviction(key.clone(), built)
             }
         };
 
@@ -232,6 +296,69 @@ impl ProjectBrainRegistry {
         let _ = self.write_manifest(&key, node_count, edge_count);
 
         Ok((brain, ingest_result, reused))
+    }
+
+    /// THE EVICTION GATE (§C9.1). Insert `built` under `key`, persisting-then-
+    /// dropping least-recently-used project brains first so the warm map never
+    /// exceeds `capacity`. The bound dev graph is not in this map, so it is never
+    /// a candidate — only project brains evict.
+    ///
+    /// Concurrency: a racer may have inserted `key` while `built` was booting
+    /// outside the lock (both call sites boot before calling here). First insert
+    /// wins — we return the incumbent and let `built` drop unpersisted (its store
+    /// on disk is unchanged; nothing was mutated in it). Otherwise we evict down
+    /// to room, then insert `built` fresh.
+    fn insert_with_eviction(
+        &self,
+        key: String,
+        built: Arc<Mutex<SessionState>>,
+    ) -> Arc<Mutex<SessionState>> {
+        // Collect victims under the lock, but persist + drop them OUTSIDE it (a
+        // graph snapshot write is slow and must not stall other routed calls).
+        let victims: Vec<Arc<Mutex<SessionState>>>;
+        let resolved: Arc<Mutex<SessionState>>;
+        {
+            let mut map = self.brains.lock();
+            if let Some(warm) = map.get_mut(&key) {
+                // Racer won — adopt the incumbent, touch it, discard `built`.
+                warm.last_used = self.next_tick();
+                return warm.brain.clone();
+            }
+            // Evict LRU victims until inserting one more stays within the cap.
+            let mut evicted = Vec::new();
+            while map.len() + 1 > self.capacity {
+                let Some(victim_key) = map
+                    .iter()
+                    .min_by_key(|(_, w)| w.last_used)
+                    .map(|(k, _)| k.clone())
+                else {
+                    break; // map empty (cap is ≥1, so this cannot loop forever)
+                };
+                if let Some(warm) = map.remove(&victim_key) {
+                    evicted.push(warm.brain);
+                }
+            }
+            let last_used = self.next_tick();
+            map.insert(
+                key,
+                WarmBrain {
+                    brain: built.clone(),
+                    last_used,
+                },
+            );
+            victims = evicted;
+            resolved = built;
+        }
+        // PERSIST-ON-EVICT: flush each victim's graph to its store BEFORE the Arc
+        // drops, so a later routed call warm-boots it back identical (#230/#262).
+        // Best-effort per victim: a persist failure is logged, never fatal — the
+        // gate's job is to bound memory; the store keeps its last good snapshot.
+        for victim in victims {
+            if let Err(e) = victim.lock().persist() {
+                eprintln!("[m1nd] WARNING: project-brain persist-on-evict failed: {e}");
+            }
+        }
+        resolved
     }
 
     /// Write (or refresh) the store manifest. Records the project root (identity),
@@ -278,7 +405,7 @@ impl ProjectBrainRegistry {
     /// counts). Locks the map only briefly, then the brain's graph read-lock.
     pub fn warm_counts(&self, canonical_root: &str) -> Option<(u64, u64)> {
         let key = Self::canonical_key(canonical_root);
-        let brain = self.brains.lock().get(&key).cloned()?;
+        let brain = self.brains.lock().get(&key).map(|w| w.brain.clone())?;
         let state = brain.lock();
         let g = state.graph.read();
         Some((g.num_nodes() as u64, g.num_edges() as u64))
@@ -353,4 +480,124 @@ pub struct StoreFacts {
     pub node_count: Option<u64>,
     pub edge_count: Option<u64>,
     pub updated_ms: Option<u64>,
+}
+
+#[cfg(test)]
+mod eviction_gate_tests {
+    use super::*;
+
+    /// PERSIST-ON-EVICT teeth (§C9.1). The kill-9 battery case in
+    /// `tests/two_tier_project_brains.rs` proves the map bound + that every brain
+    /// warm-boots after a hard kill; but bootstrap auto-persists, so that test
+    /// cannot isolate the persist-on-evict step from the bootstrap persist. This
+    /// unit test does: it mutates a brain's IN-MEMORY graph AFTER its last persist
+    /// (a node added directly, exactly the shape of any non-auto-persisting graph
+    /// mutation like `learn`/`apply`), then forces its eviction and asserts the
+    /// mutation reached the on-disk snapshot — i.e. the eviction gate flushed it.
+    ///
+    /// RED without persist-on-evict: the victim is dropped with the added node
+    /// still only in memory, its store snapshot is never written, and the reload
+    /// below finds no snapshot (0 nodes) — the exact "16:44 at scale" data loss
+    /// the gate exists to prevent.
+    #[test]
+    fn eviction_persists_unpersisted_state() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let base = tmp.path().join("project-brains");
+        // Cap 1: inserting a second brain must evict the first.
+        let reg = ProjectBrainRegistry::with_capacity(base, None, 1);
+
+        let root_a = tmp.path().join("repo-a").to_string_lossy().to_string();
+        let root_b = tmp.path().join("repo-b").to_string_lossy().to_string();
+        let key_a = ProjectBrainRegistry::canonical_key(&root_a);
+        let key_b = ProjectBrainRegistry::canonical_key(&root_b);
+
+        // Boot brain A (fresh empty graph, its snapshot path under A's store).
+        let state_a = reg.boot_store(&key_a).expect("boot A");
+        let store_a = reg.store_dir_for(&key_a);
+        let snapshot_a = store_a.join("graph_snapshot.json");
+        assert!(
+            !snapshot_a.exists(),
+            "precondition: A has no snapshot on disk yet"
+        );
+
+        // Mutate A's IN-MEMORY graph AFTER any persist — this state exists ONLY in
+        // memory until something flushes it.
+        {
+            let mut g = state_a.graph.write();
+            g.add_node(
+                "evict::sentinel",
+                "evict_sentinel",
+                m1nd_core::types::NodeType::Function,
+                &[],
+                0.0,
+                0.0,
+            )
+            .expect("add sentinel node");
+            // Rebuild the CSR so the graph is query/persist-ready (the ingest path
+            // does this; a raw add_node leaves the CSR stale).
+            g.finalize().expect("finalize A's graph");
+        }
+        let brain_a = Arc::new(Mutex::new(state_a));
+        reg.insert_with_eviction(key_a.clone(), brain_a);
+        assert_eq!(reg.warm_len(), 1, "A is the sole warm brain");
+        assert!(
+            !snapshot_a.exists(),
+            "A's mutation is still only in memory — no snapshot yet"
+        );
+
+        // Insert brain B → cap is 1 → A (the LRU, and only) is evicted. The gate
+        // MUST persist A before dropping it.
+        let state_b = reg.boot_store(&key_b).expect("boot B");
+        let brain_b = Arc::new(Mutex::new(state_b));
+        reg.insert_with_eviction(key_b.clone(), brain_b);
+
+        assert_eq!(reg.warm_len(), 1, "map stays at the cap after B lands");
+        assert!(
+            reg.warm_counts(&key_b).is_some(),
+            "B is the surviving warm brain"
+        );
+        assert!(
+            reg.warm_counts(&key_a).is_none(),
+            "A was evicted from the warm map"
+        );
+
+        // THE PROOF: A's on-disk snapshot now exists AND carries the sentinel node
+        // added after its last persist — persist-on-evict flushed it.
+        assert!(
+            snapshot_a.exists(),
+            "persist-on-evict must have written A's snapshot before dropping it"
+        );
+        let reloaded = m1nd_core::snapshot::load_graph(&snapshot_a).expect("reload A's store");
+        let sentinel = reloaded
+            .strings
+            .lookup("evict::sentinel")
+            .and_then(|interned| reloaded.id_to_node.get(&interned));
+        assert!(
+            sentinel.is_some(),
+            "A's evicted snapshot must contain the node mutated after its last \
+             persist — persist-on-evict is the only thing that could have saved it"
+        );
+    }
+
+    /// The bound dev graph is not in this map, and eviction only ever touches
+    /// project brains: a cap of K holds at most K project brains, no matter how
+    /// many distinct roots resolve through the registry.
+    #[test]
+    fn map_never_exceeds_capacity() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let reg = ProjectBrainRegistry::with_capacity(tmp.path().join("pb"), None, 3);
+        for i in 0..10 {
+            let key = ProjectBrainRegistry::canonical_key(
+                &tmp.path().join(format!("r{i}")).to_string_lossy(),
+            );
+            let state = reg.boot_store(&key).expect("boot");
+            reg.insert_with_eviction(key, Arc::new(Mutex::new(state)));
+            assert!(
+                reg.warm_len() <= 3,
+                "warm map exceeded cap after insert {i}: {}",
+                reg.warm_len()
+            );
+        }
+        assert_eq!(reg.warm_len(), 3, "map sits at the cap after churn");
+    }
 }
