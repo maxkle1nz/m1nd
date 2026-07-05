@@ -156,12 +156,31 @@ stamped `outcome_unverified` unless you attach `evidence`. Conformance grades PA
 quality — it never says merge-safe. Every debrief visibly deposits memory the next packet will \
 surface, so skipping it wastes knowledge; do it.
 
+## 5. THE SOUL — trust the handoff by a receipt, not by faith
+
+A repo's `docs/PATHOS.md` is its SOUL: the curated handoff — north, state, doctrine, access, \
+known problems, next moves. The pathos skill is the AUTHORING guide (how souls are born, which \
+sections exist); m1nd is the ENGINE that verifies one. `soul_check` parses the soul into \
+anchored CLAIMS, classifies each (path/line-hint/symbol/git/consistency/receipt/runtime/declared), \
+verifies per class, and returns the honesty report + a one-line FRESHNESS RECEIPT — \"N fresh · \
+M stale · K receipt-priced, checked <date> @<sha>\" — the line a cold context reads to know how \
+much to trust the handoff. THE TWO TISSUES hold: verifiable tissue (state/access/known-problems) \
+is machine-checkable; DECLARED tissue (taste, doctrine, why-we-work-this-way) is \
+UNPROVABLE-but-curated and NEVER fake-verified — the system knowing what it cannot verify IS the \
+honesty. `soul_read` pulls the body (whole or a section) — the explicit pull surface, never \
+ambient. THE CURATOR is a near-PR/doc-gate WORKFLOW (not a verb): sweep with soul_check → verify \
+against code/git/runtime → update durable claims via `memorize` (with `soul_source` provenance, \
+the ONE write door) → prune stale NEVER silently (every removal named, git keeps the text) → \
+re-check → carry the receipt in the PR body. WHO VERIFIES THE CURATOR (§C8.4): its report must \
+pass `soul_check {verify_curator_report: <report>}` run by a DIFFERENT agent — grader ≠ author.
+
 ## SECONDARY VERBS (one line each)
 
 - `seek(query)` / `focus(task)` — budgeted retrieval; carry the trust + sufficiency signals above.
 - `impact(node)` — directional blast radius before a change; `why(a,b)` — the load-bearing path between two nodes.
 - `trust_selftest` / `recovery_playbook` — run when trust looks off or retrieval is blocked; `doctor` for deeper host-surface/graph diagnosis.
 - `am_i_stale(claim)` — check BEFORE editing on the strength of remembered/cached knowledge.
+- `soul_check` / `soul_read` — verify (freshness receipt) / pull the project's PATHOS handoff soul.
 - `coverage_session` — surface the blind spots in what you have and haven't looked at this session.
 - `ingest` — (re)load the repo when the graph is empty or the code changed under you.
 ";
@@ -382,6 +401,8 @@ pub const ESSENTIAL_TOOLS: &[&str] = &[
     "validate_plan",
     "surgical_context_v2",
     "cross_verify",
+    "soul_check",
+    "soul_read",
     "mission_start",
     "mission_next",
     "mission_close",
@@ -1900,6 +1921,32 @@ fn all_tool_schemas_inner() -> serde_json::Value {
                         "check": { "type": "array", "items": { "type": "string", "enum": ["existence", "loc", "hash", "evidence_freshness"] }, "default": [], "description": "Checks to run (empty = all): existence, loc, hash, evidence_freshness. evidence_freshness reports stale_evidence — memorize claims whose grounded_in code changed since ingest." },
                         "include_dotfiles": { "type": "boolean", "default": false, "description": "Include selected dotfiles while verifying disk state" },
                         "dotfile_patterns": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Allowed dotfile patterns when include_dotfiles=true" }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "soul_check",
+                "description": "Verify the SOUL (the project's PATHOS handoff): parse it into anchored claims, classify each (path/line-hint/symbol/git/consistency/receipt/runtime/declared), verify per class, and emit the honesty report + one-line FRESHNESS RECEIPT (N fresh / M stale / K receipt-priced, dated @sha). The two tissues hold: declared tissue (taste/doctrine) is UNPROVABLE-but-curated, never fake-verified. Read-only. Pass verify_curator_report to run the §C8.4 seat check (a curator's output must pass by a DIFFERENT agent — grader ≠ author).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "soul_path": { "type": "string", "description": "Soul document path (default discovery: docs/PATHOS.md then PATHOS.md at the repo root)" },
+                        "verify_curator_report": { "type": "object", "description": "A curator report to seat-verify (ORGANISM §C8.4): checks grader ≠ its curated_by, never-silent-prune, declared-tissue lock, and the still_stale honesty valve. When set, no document is re-parsed." }
+                    },
+                    "required": ["agent_id"]
+                }
+            },
+            {
+                "name": "soul_read",
+                "description": "Pull the SOUL (PATHOS) body — whole or one section — plus its headline. The explicit pull surface behind the pull-not-push law: the body is never ambient. Run soul_check for the freshness receipt.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "agent_id": { "type": "string", "description": "Calling agent identifier" },
+                        "soul_path": { "type": "string", "description": "Soul document path (default discovery order)" },
+                        "section": { "type": "string", "description": "Return only this section (case-insensitive substring on the '## <Heading>'); absent = whole document" }
                     },
                     "required": ["agent_id"]
                 }
@@ -4610,6 +4657,20 @@ fn dispatch_core_tool(
                      stdio/paramless door does not host the crossing (door-coverage honesty, §C9.4)."
                 .into(),
         }),
+        // -----------------------------------------------------------------
+        // ORGANISM R16: the SOUL — PATHOS native and verified (SOUL-PRD).
+        // Read-only over a git-tracked document; writes NOTHING (S0).
+        // -----------------------------------------------------------------
+        "soul_check" => {
+            let input: layers::SoulCheckInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::soul_handlers::handle_soul_check(state, input)
+        }
+        "soul_read" => {
+            let input: layers::SoulReadInput =
+                serde_json::from_value(params.clone()).map_err(M1ndError::Serde)?;
+            crate::soul_handlers::handle_soul_read(state, input)
+        }
         // -----------------------------------------------------------------
         // v0.7.0: Diagnostic tools
         // -----------------------------------------------------------------

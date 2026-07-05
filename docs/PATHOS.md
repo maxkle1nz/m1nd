@@ -39,9 +39,13 @@ Each PRD, one line:
 - **`docs/MEDULLA-PRD.md` — antifragile memory across per-project brains.** The memory state
   machine (per-brain storage · `Origin-Brain` labels · tier recall with no cross-brain leak ·
   promotion into a shared doctrine tier), designed to get stronger under churn rather than drift.
-- **`docs/SOUL-PRD.md` — PATHOS native, verified, curated.** This very handoff becomes a first-class
-  m1nd type: a claim grammar with a freshness receipt (`soul_check`) and a curator at the doc-gate,
-  so the soul rides LAST on the ladder as the curated apex of promoted claims.
+- **`docs/SOUL-PRD.md` — PATHOS native, verified, curated. [R16 S0 + S1 substrate SHIPPED
+  2026-07-05]** This very handoff is now a first-class m1nd type: `soul_check` parses THIS file into
+  anchored claims and returns a freshness receipt (last run on cp10: 13 fresh · 14 stale · 61
+  declared); `soul_read` is the explicit pull; `soul_update` (a `memorize` mode with `Soul-Source`
+  provenance) + the §C8.4 curator seat check (grader ≠ author) are the curator's substrate. The
+  automated curator sweep + the north-packet soul beat (S2) + the skill call-through (S3) are the
+  honest residue. The soul rode LAST on the ladder as designed.
 - **`docs/HUMAN-LAYER-PRD.md` — the human face.** The Hall (projects area) · the Living Tree
   (memory-decorated filetree) · the mailbox · the precision system (iconography, lenses, honest
   search) · the Pre-Flight card — an agent's memory made legible to a human.
@@ -134,9 +138,13 @@ no-behavioral-change refactors.
 ## Access Map
 - Battery harness: `scratchpad/m1nd_battery.py` — **TRACKED in-repo** (protected by the `.gitignore`
   negation `!scratchpad/m1nd_battery.py`, so it survives scratchpad clears). Fresh ingest +
-  ground-truth PASS/FAIL + `rg` head-to-head; the m1nd suite runs green with zero grep losses. Probes:
-  `impact_probe.py`, `edge_proof.py`. Reports: `M1ND_BATTERY_REPORT.md`, `battery_FINAL.txt`.
-- MCP stdio client pattern: `scratchpad/focus_smoke.py` (Content-Length JSON-RPC).
+  ground-truth PASS/FAIL + `rg` head-to-head; the m1nd suite runs green with zero grep losses.
+  (Prior throwaway probes `impact_probe.py`/`edge_proof.py`/`focus_smoke.py` and the
+  `M1ND_BATTERY_REPORT.md`/`battery_FINAL.txt` reports were scratchpad-cleared — pruned here by the
+  R16 curator pass; the tracked battery is the durable one.)
+- **The soul is verified now (R16 · `soul_check`):** run `soul_check` (or `soul_read`) against THIS
+  file — it parses PATHOS into anchored claims and returns the freshness receipt (N fresh · M stale ·
+  K priced @sha). The pathos skill is the AUTHORING guide; m1nd is the ENGINE.
 - Build: `cargo build -p m1nd-mcp --bin m1nd-mcp` → `./target/debug/m1nd-mcp`.
 - **The constitution + the build order:** `docs/ORGANISM-PRD.md` (§C10 is THE ladder; §C11 the
   amendment ledger). The five other PRDs: `MEDULLA-PRD.md`, `SOUL-PRD.md`, `HUMAN-LAYER-PRD.md`,

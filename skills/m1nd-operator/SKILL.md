@@ -409,6 +409,7 @@ source reads, tests, runtime probes, or CI evidence.
 - Need background structural monitoring: use `daemon_start`, `daemon_status`, `daemon_tick`, `alerts_list`, and `alerts_ack`.
 - Need to persist a durable finding across sessions: use `memorize` with `evidence` paths pointing at the relevant code; ingest that code first so evidence anchors. Use `mission_close(write_light_memory:true)` for one-step mission + memory commit.
 - Need to check whether memorized claims still cite current code: use `cross_verify(check:["evidence_freshness"])`; returns `stale_evidence[]` + count.
+- Need to know how much to trust the project's PATHOS handoff (near a PR / doc-gate): use `soul_check` — it parses `docs/PATHOS.md` into anchored claims and returns the freshness receipt (N fresh · M stale · K priced @sha), with declared tissue counted but never fake-verified. `soul_read` pulls the body. The curator is a workflow: sweep → verify → `memorize {soul_source}` → prune-never-silently → re-check; its report is seat-verified by a DIFFERENT agent via `soul_check {verify_curator_report}` (§C8.4).
 
 ## Compounding Memory
 

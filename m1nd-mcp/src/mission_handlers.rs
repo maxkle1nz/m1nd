@@ -431,6 +431,7 @@ fn try_write_light_memory(
         promotion_reason: None,
         promoted_to: None,
         evidence_unverifiable: false,
+        soul_source: None,
     };
 
     let result = handle_light_author(state, light_input)

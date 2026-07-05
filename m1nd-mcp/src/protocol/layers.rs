@@ -3125,6 +3125,42 @@ pub struct MissionHandoffInput {
 }
 
 // =========================================================================
+// SOUL (ORGANISM ladder R16 · SOUL-PRD) — PATHOS as a first-class m1nd type.
+// The soul verbs are read-only over a git-tracked document; the write half
+// (soul_update) rides the ONE memorize sink (SOUL-INV-8), never a new door.
+// =========================================================================
+
+/// `soul_check` — parse the soul (PATHOS) into anchored claims, classify each by
+/// check class, verify per class, and emit the honesty report + freshness receipt.
+/// Read-only: it touches no store and never edits the document (SOUL-PRD §4).
+#[derive(Clone, Debug, Deserialize)]
+pub struct SoulCheckInput {
+    pub agent_id: String,
+    /// Soul document path (repo-relative or absolute). Default: discovery order
+    /// `docs/PATHOS.md` → `PATHOS.md` at the resolved repo root (SOUL-PRD §3.1).
+    #[serde(default)]
+    pub soul_path: Option<String>,
+    /// When set, verify a curator report produced by ANOTHER agent instead of
+    /// re-parsing the document: the §C8.4 "who verifies the curator" seat check.
+    /// The report's `curated_by` must differ from `agent_id` (grader ≠ author).
+    #[serde(default)]
+    pub verify_curator_report: Option<serde_json::Value>,
+}
+
+/// `soul_read` — the explicit pull surface (SOUL-PRD §4). Returns the soul body
+/// (whole or one section) plus its last freshness receipt line. Never ambient.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SoulReadInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub soul_path: Option<String>,
+    /// Return only this section (matched against the skill's `## <Heading>`),
+    /// case-insensitive substring. Absent → the whole document.
+    #[serde(default)]
+    pub section: Option<String>,
+}
+
+// =========================================================================
 // Tests
 // =========================================================================
 

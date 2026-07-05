@@ -571,7 +571,7 @@ A letter is citable as **provenance** ("this was felt, on this date, by this age
 reference in a claim's body is fine; a letter path in `evidence:` is **refused at the write door**
 (§C4). Binding on M7b and on the SOUL-PRD.
 
-### C8.6 The SOUL slot (F26 — the constraints bind the soul, not the reverse)
+### C8.6 The SOUL slot (F26 — the constraints bind the soul, not the reverse) — [S0 + S1 substrate SHIPPED 2026-07-05 · R16]
 
 The SOUL-PRD (in flight, absent from main at this writing) inherits, non-negotiably:
 
@@ -586,6 +586,25 @@ The SOUL-PRD (in flight, absent from main at this writing) inherits, non-negotia
 
 If the SOUL-PRD needs to break any of these, it argues the exception in writing against this
 section — the constitution is the null hypothesis it must beat.
+
+> **Shipped (honest — the seven constraints, checked against the code):** R16's S0 + S1
+> substrate landed with every constraint held. (1) **No fifth grammar** — soul claim
+> states (`verified-fresh`/`evidence-stale`/`superseded`/`receipt-required`/`declared`)
+> are computed at check time from doc+anchors+repo truth, never a stored per-claim field
+> (SOUL-INV-7). (2) **The headline obeys the one-line rule** — `soul_read` returns ONE
+> authored headline; the north sub-atom (S2) is deferred but bounded ≤220 chars by design.
+> (3) **`soul_*` beat the zero-new-verbs null hypothesis in writing** — SOUL-PRD §4 argues
+> it: `soul_check`/`soul_read` are read-only composers a `kind:`-tagged medulla claim
+> cannot be (they verify a git-tracked DOCUMENT against reality); the curator is NOT a
+> verb (a workflow); `soul_update` is a MODE of `memorize`, not a new verb. (4) **Letters
+> never evidence** — the soul never reads a letter path as evidence; it verifies fs/git/
+> graph anchors only. (5) **`soul_update` routes through the write door** — it is the
+> `soul_source` field on `LightAuthorInput`, rendered as `Soul-Source` frontmatter through
+> the ONE `memorize` sink (SOUL-INV-8), same gates as every write. (6) **Curator output is
+> seat-verified** — `soul_check {verify_curator_report}` refuses grader==author (§C8.4).
+> (7) **The soul rides LAST** — R16 is the ladder's finale, mounted on the shipped medulla
+> (R2–R4). The one honest exception argued in writing (SOUL-PRD §9): S0 is read-only and
+> mounts on organs all shipped BEFORE the medulla, so it ships first as the RED-maker.
 
 ---
 
@@ -932,9 +951,22 @@ byte-identical. Battery: `m1nd_wins` unchanged (20/20, 38/38 pass) before vs aft
 P3 (freshness-aware `Unprovable` downgrade) + P4 (calibration surface for the three constants) remain
 deferred — see the X360 §5.5 note.
 
-**R16 — SOUL: the PRD, then slices — LAST.** Bound by §C8.6's seven constraints; designed against
-a working medulla (R2–R4 landed). If the SOUL-PRD lands on main before this constitution, its row
-joins here at landing with the §C8.6 checkmarks verified against its text.
+**R16 — SOUL: the PRD, then slices — LAST. [S0 + S1 substrate SHIPPED 2026-07-05]** Bound by
+§C8.6's seven constraints; designed against a working medulla (R2–R4 landed). *What shipped:*
+`soul_handlers.rs` — `soul_check` (parse `docs/PATHOS.md` → anchored claims → classify
+path/line-hint/symbol/git/consistency → verify → the honesty report + one-line **freshness
+receipt**: N-fresh/M-stale/K-priced @sha) + `soul_read` (the explicit pull), both read-only; plus
+S1's substrate — `soul_update` as a `memorize` mode carrying `Soul-Source` provenance through the
+ONE write door, and the §C8.4 curator SEAT CHECK (`soul_check {verify_curator_report}` refuses
+grader==author, silent prunes, declared-tissue removal, a missing `still_stale` valve). *RED-first
+proof:* no soul surface existed on `main` (grep-proven); `soul_check_behavior.rs` is the GREEN that
+could not exist before — 6 cases + an ignored live-PATHOS probe. *Seed battery, on the LIVE cp10
+soul:* **13 fresh · 14 stale · 61 declared** (the Access Map cites a deleted probe — the drift the
+PRD predicted, now measured). §C8.6's seven constraints verified against the code (see the C8.6
+shipped note). *Deferred, honest:* the automated curator SWEEP + ENXUTO budget enforcement (S1
+automation — agent-executed by design), the north-packet `soul` sub-atom + Hall D4 (S2), the
+pathos-skill call-through (S3). If the SOUL-PRD row lands here at merge, the §C8.6 checkmarks are
+verified against its text.
 
 **Parked (owner named, no rung — parked is a state, not a euphemism for dropped):**
 
