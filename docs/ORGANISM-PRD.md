@@ -396,13 +396,19 @@ read-sides of one binding contract; `M1nd-Caller-Root` (reception's wire fact) a
 - the child's `memorize` lands project-private in the named brain under the child's own id
   (MEDULLA §8 made constitutional; M7 carries the tier-labeled memory slice).
 
-### C5.4 Reconnect-rebind (letter#49 — slotted, owner named)
+### C5.4 Reconnect-rebind (letter#49 — [SHIPPED 2026-07-05 · R13])
 
 After an MCP reconnect, the wire-session bind drops and `caller_root` collapses to the host cwd —
 a session that HAD a brain silently loses it. Law: **a rebind after session-id change re-runs
-first-contact classification with the previous sticky choice as a candidate** — route to the
+first-contact classification with the disk roster consulted as a candidate** — route to the
 existing brain on a match, or surface reception suggesting `project_root=<that repo>`, never the
 host-cwd default. Owner: the reception/routing family (TT Slice 2R residue). Ladder: §C10 R13.
+
+**[SHIPPED]** the roster consult landed as `ProjectBrainRegistry::covering_brain` (the UNIQUE brain
+related to the caller by ancestry, `None` on zero/ambiguous) + `mcp_http::enrich_reception_with_roster`
+at the owner-default mismatch seam: the mismatch reception now carries `known_brain` and its
+`ingest_your_repo` call points at the existing repo root (a warm re-bind), not the host cwd — silent
+match untouched (TT-INV-12). See §C10 R13 for the full receipt.
 
 ---
 
@@ -892,9 +898,26 @@ never free-summarize); PreCompact `trail_save`; SessionEnd persist. Depends on s
 + R1 (the hook budget) + **a maintainer green-light for hook install** (named human gate). *RED:* the A/B
 harness re-run against the served owner.
 
-**R13 — reconnect-rebind (§C5.4).** Small, parallel; owner: reception/routing. *RED:* reconnect
-fixture — sticky bind survives a session-id change or reception re-fires with the prior root as
-candidate.
+**R13 — reconnect-rebind (§C5.4). [SHIPPED 2026-07-05.]** *What landed:* the reconnect misroute
+(field letter#49) is closed at the routing seam. After an MCP reconnect the wire session is minted
+fresh (`bound_project_root` cleared) and the bridge re-stamps `M1nd-Caller-Root` = the host cwd —
+which, when the host was launched ABOVE the repo, is an ANCESTOR of it, not the repo. So the
+caller_root had no brain of its own, the bound graph did not cover it, and the call fell to the owner
+graph with reception suggesting `ingest project_root=<host cwd>` — the wrong root, blind to the
+existing project brain under the caller. The fix consults the disk roster (the R8 cold-listing
+machinery) at the ONE seam that holds both the caller_root and the registry: a new
+`ProjectBrainRegistry::covering_brain` returns the UNIQUE known brain related to the caller by
+ancestry (either direction) and abstains (`None`) on zero (unknown repo) or more than one (ambiguous
+— nested brains / a workspace over several repos: honesty over a guess); an exact-match root is
+excluded (that path is a silent bind, not a rebind). On the owner-default mismatch path,
+`mcp_http::enrich_reception_with_roster` rewrites the reception to name that brain — `known_brain` +
+the `ingest_your_repo` call now points at the repo root (a warm re-bind, not a fresh birth). One seam
+covers `north` / `health` / `session_handshake`; a matched caller still binds silently (TT-INV-12
+preserved). **Proof:** RED→GREEN in `m1nd-mcp/tests/two_tier_project_brains.rs`
+(`reconnect_reception_prefers_the_existing_brain_over_the_host_cwd` — the letter#49 shape;
+`reconnect_unknown_root_keeps_the_plain_reception_and_a_match_stays_silent` — the unchanged branches)
++ the `covering_brain` unit test in `project_brains.rs` (both ancestry directions, no-relation `None`,
+ambiguity `None`, exact-match excluded). Full `cargo test -p m1nd-mcp` green (802); clippy + fmt clean.
 
 **R14 — the §9.5.1 per-brain partition — ONE owner: the TWO-TIER backend. [SHIPPED 2026-07-05.]**
 (Resolves map contradiction #5: HUMAN §4A.6/G4 and MEDULLA S6/MED-INV-7 are consumers, not
