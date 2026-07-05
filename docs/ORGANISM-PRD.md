@@ -835,8 +835,20 @@ one file, prose-only linkage. *Unblocks:* R9, R11.
 > MEDULLA §11 M7b shipped-residue). *Unblocks:* R9 (the Mailbox view renders this
 > contract), R11 (case intelligence over the stable ids + `answers[]`).
 
-**R9 — HUMAN Slice 3M: the Mailbox view.** Pure rendering of R8's contract (INV-17/18: only the
-viewed brain's letters; receipts always linked).
+**R9 — HUMAN Slice 3M: the Mailbox view. [SHIPPED 2026-07-05]** Pure rendering of R8's contract
+(INV-17/18: only the viewed brain's letters; receipts always linked). *What landed:* the caixinha
+per brain — `lib/mailbox.ts` (fate-line derivation ● / ◍ / ↳ / ◌, day-chapter grouping, the
+class→matte-chip palette drawn from the five EXISTING non-violet token families, the in-box
+receipt-linkage resolver, the INV-17 echo guard reusing §4A.9's `servedBrainMatches`) +
+`components/hall/MailboxView.tsx` (`MailboxBody`, the pure component-testable surface, behind a thin
+fetch shell). The Hall card's D3 field becomes the ENTRY — "N open" opens THAT brain's box
+(`GET /api/mailbox?brain=<root>`), absent-honest (renders only when `mailbox_open_count` exists,
+never a fabricated zero). The medulla box is its own labeled entry from the Hall header
+("Medulla — relatos transversais", projectless letters only). Read-only: zero compose affordances
+in the DOM. 20 new tests from five REAL captured `/api/mailbox` fixtures (neutral repo names in the
+committed fixtures — the live data it displays may name projects, but that is local runtime data,
+never committed). `npm test` 227 green; tsc + vite build green; violet-lint + icon-lint green
+(external wears stone, not violet); dist regenerated + committed; air-gap grep zero external hosts.
 
 **R10 — the Pre-Flight Card (HUMAN Slice 1). [SHIPPED 2026-07-05]** The §C1 reader-2 rendering, after
 R6 stabilizes the packet shape; carries the F17 cap-in-words and the Budget-Law pointer (§C11).

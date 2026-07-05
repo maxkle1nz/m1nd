@@ -26,8 +26,10 @@ import {
 } from '../../lib/hallSemantics';
 import { canonRootForCompare } from '../../lib/viewedBrain';
 import { useCardV2Data } from '../../hooks/useCardV2Data';
+import { Icon } from '../../lib/icons/registry';
 import BrainCard from './BrainCard';
 import BrainReceiptDrawer from './BrainReceiptDrawer';
+import MailboxView from './MailboxView';
 
 interface HallViewProps {
   /** ESC at the Hall (rung −1) ascends out of it — the parent owns where to. */
@@ -68,6 +70,9 @@ export default function HallView({
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  // The brain whose Mailbox (§4A.11) is open beside the grid, or null. The medulla
+  // box is addressed by the literal `medulla` root; a project brain by its root.
+  const [mailboxFor, setMailboxFor] = useState<{ root: string; name: string | null } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const addToast = useToastStore((s) => s.addToast);
 
@@ -140,6 +145,15 @@ export default function HallView({
     [selfId, onOpenBrain],
   );
 
+  // Open a brain's caixinha (§4A.11): the D3 "N open" entry. The box is that
+  // repo's repo-side file, addressed by its project root (the medulla box is a
+  // separate, labeled entry point — not a card's D3).
+  const openMailbox = useCallback((entry: InstanceRegistryEntry) => {
+    const root = brainProjectPath(entry);
+    if (!root) return;
+    setMailboxFor({ root, name: brainDisplayName(entry) });
+  }, []);
+
   const saveBrain = useCallback(
     async (entry: InstanceRegistryEntry) => {
       setSavingId(entry.instance_id);
@@ -199,15 +213,30 @@ export default function HallView({
               Every map m1nd holds for you. {instances.length} {instances.length === 1 ? 'brain' : 'brains'}.
             </p>
           </div>
-          <button
-            type="button"
-            data-role="bootstrap-new"
-            onClick={onBootstrap}
-            className="px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
-            title="Read a new repo into its own brain"
-          >
-            + Read a new repo
-          </button>
+          <div className="flex items-center gap-2">
+            {/* The medulla box (§4A.11) — its own labeled entry, holding ONLY the
+                projectless letters (transversal tools, owner runtime). Opened by
+                the literal `medulla` selector, never mixed into a project box. */}
+            <button
+              type="button"
+              data-role="medulla-entry"
+              onClick={() => setMailboxFor({ root: 'medulla', name: 'medulla' })}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-bone text-ink-soft border border-ink/15 rounded hover:text-ink hover:shadow-contact transition-shadow"
+              title="Relatos transversais — a caixa da medulla (sem projeto)"
+            >
+              <Icon name="inbox" size={14} decorative className="text-ink-soft/80" />
+              Medulla
+            </button>
+            <button
+              type="button"
+              data-role="bootstrap-new"
+              onClick={onBootstrap}
+              className="px-3 py-1.5 text-xs bg-bone text-ink border border-ink/15 rounded hover:shadow-contact transition-shadow"
+              title="Read a new repo into its own brain"
+            >
+              + Read a new repo
+            </button>
+          </div>
         </div>
 
         {/* Grid */}
@@ -252,6 +281,7 @@ export default function HallView({
                   onCalibrate={calibrate}
                   onSelect={(en) => setSelectedId(en.instance_id)}
                   onOpen={openBrain}
+                  onOpenMailbox={openMailbox}
                 />
               );
             })}
@@ -277,6 +307,15 @@ export default function HallView({
         // Card-v2 DEPTH (§4A.3.1) — only for the OPEN/bound brain's receipt.
         depth={selected?.instance_id === selfId ? { d1: v2.d1, d2: v2.d2, calibrationReceipt: v2.g2?.receipt ?? null } : null}
       />
+
+      {/* The Mailbox (§4A.11) — a drawer-class surface beside the grid. ESC returns. */}
+      {mailboxFor && (
+        <MailboxView
+          brainRoot={mailboxFor.root}
+          displayName={mailboxFor.name}
+          onClose={() => setMailboxFor(null)}
+        />
+      )}
     </div>
   );
 }

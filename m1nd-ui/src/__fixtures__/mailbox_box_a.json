@@ -1,0 +1,109 @@
+{
+  "served_brain": {
+    "project_root": "/path/to/repo-alpha",
+    "display_name": "repo-alpha"
+  },
+  "letters": [
+    {
+      "id": "ecb13716d079",
+      "ts": "2026-07-04T09:12:00Z",
+      "agent": "scout",
+      "class": "bug",
+      "repo": "repo-alpha",
+      "brain": "",
+      "tool": "seek",
+      "what": "seek returned a stale node after an edit_commit",
+      "expected": "the reingested node",
+      "snippet": "seek(\"parser\") -> id 7 (old)",
+      "answers": [],
+      "answered_by": [
+        "0e01ceffb7a0"
+      ],
+      "state": "fired_clay"
+    },
+    {
+      "id": "0e01ceffb7a0",
+      "ts": "2026-07-04T15:40:00Z",
+      "agent": "triage",
+      "class": "triage",
+      "repo": "repo-alpha",
+      "brain": "",
+      "tool": "triage",
+      "what": "reproduced and fixed: the reingest now invalidates the seek cache",
+      "expected": "",
+      "snippet": "",
+      "answers": [
+        "ecb13716d079"
+      ],
+      "answered_by": [],
+      "state": "wet_ink"
+    },
+    {
+      "id": "02a089f45fac",
+      "ts": "2026-07-04T11:05:00Z",
+      "agent": "scout",
+      "class": "win",
+      "repo": "repo-alpha",
+      "brain": "",
+      "tool": "north",
+      "what": "north surfaced the right anchor on the first call",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "wet_ink"
+    },
+    {
+      "id": "8c22018ce2a9",
+      "ts": "2026-07-05T08:20:00Z",
+      "agent": "scout",
+      "class": "bug",
+      "repo": "repo-alpha",
+      "brain": "",
+      "tool": "impact",
+      "what": "impact under-counted a co-change edge",
+      "expected": "the full blast set",
+      "snippet": "impact(x) -> 3, actual 5",
+      "answers": [],
+      "answered_by": [],
+      "state": "wet_ink"
+    },
+    {
+      "id": "7047bd515b45",
+      "ts": "2026-07-05T10:02:00Z",
+      "agent": "scout",
+      "class": "friction",
+      "repo": "repo-alpha",
+      "brain": "",
+      "tool": "trust",
+      "what": "trust selftest is slow on a cold graph",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "in_flight"
+    },
+    {
+      "id": "97ad9c530c15",
+      "ts": "2026-07-05T12:30:00Z",
+      "agent": "scout",
+      "class": "friction",
+      "repo": "repo-alpha",
+      "brain": "",
+      "tool": "context7",
+      "what": "context7 rate-limited during a docs fetch",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [],
+      "state": "external"
+    }
+  ],
+  "counts": {
+    "wet_ink": 3,
+    "in_flight": 1,
+    "fired_clay": 1,
+    "external": 1,
+    "open": 4
+  }
+}

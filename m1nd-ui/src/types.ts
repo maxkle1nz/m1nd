@@ -128,6 +128,15 @@ export interface InstanceRegistryEntry {
    * G2) — a measured τ exists for this repo. Absent (null) for a dormant brain.
    */
   calibration_armed?: boolean | null;
+  /**
+   * The D3 face count (HUMAN-LAYER-PRD §4A.11, MEDULLA-PRD §9.2 M7b): "N open" —
+   * the repo-side box's `wet_ink + in_flight` (unresolved letters only; external
+   * NEVER counted). Server-enriched from `<repo>/.m1nd/inbox.jsonl` and rendered
+   * ONLY when the box file exists — absent (null) for a repo with no box, never a
+   * fabricated zero (INV-10 discipline). Clicking it opens the Mailbox for this
+   * brain (`GET /api/mailbox?brain=<root>`).
+   */
+  mailbox_open_count?: number | null;
 }
 
 export interface InstanceSelfResponse {

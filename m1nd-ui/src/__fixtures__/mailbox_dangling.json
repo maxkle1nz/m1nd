@@ -1,0 +1,32 @@
+{
+  "served_brain": {
+    "project_root": "/path/to/repo-gamma",
+    "display_name": "repo-gamma"
+  },
+  "letters": [
+    {
+      "id": "5891fde1ea52",
+      "ts": "2026-07-05T10:00:00Z",
+      "agent": "scout",
+      "class": "bug",
+      "repo": "repo-gamma",
+      "brain": "",
+      "tool": "seek",
+      "what": "a legacy prose ref claimed this was closed",
+      "expected": "",
+      "snippet": "",
+      "answers": [],
+      "answered_by": [
+        "deadbeef0000"
+      ],
+      "state": "fired_clay"
+    }
+  ],
+  "counts": {
+    "wet_ink": 0,
+    "in_flight": 0,
+    "fired_clay": 1,
+    "external": 0,
+    "open": 0
+  }
+}

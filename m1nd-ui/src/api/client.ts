@@ -7,6 +7,7 @@ import type {
   ToolsResponse,
 } from './types';
 import type { GraphSnapshot } from '../lib/snapshot';
+import type { MailboxResponse } from '../lib/mailbox';
 
 // The base is ALWAYS same-origin ('') so requests ride the Vite dev proxy in dev
 // (which forwards /api to the owner — default :1337, retargetable via M1ND_API in
@@ -119,4 +120,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ agent_id: 'gui', ...params }),
     }).then((r) => r.result),
+
+  /**
+   * The caixinha (HUMAN-LAYER-PRD §4A.11): one brain's field-report box with
+   * derived fates + honest counts + the `served_brain` echo. `brain` is the
+   * project root (or the literal `medulla` for the projectless box); absent →
+   * the bound brain's box. The read is scoped to THIS box only (INV-17).
+   */
+  mailbox: (brain?: string | null) => apiFetch<MailboxResponse>(withBrain('/api/mailbox', brain)),
 };
