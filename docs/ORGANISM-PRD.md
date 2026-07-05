@@ -877,11 +877,24 @@ harness re-run against the served owner.
 fixture — sticky bind survives a session-id change or reception re-fires with the prior root as
 candidate.
 
-**R14 — the §9.5.1 per-brain partition — ONE owner: the TWO-TIER backend.** (Resolves map
-contradiction #5: HUMAN §4A.6/G4 and MEDULLA S6/MED-INV-7 are consumers, not co-owners.) Counters
-partition on `session.bound_project_root`; per-brain surfaces stop wearing owner-global numbers;
-the 2H residue family (`[needs-backend §9.5.1/§4A.9]` card fields, per-brain `calibration_armed`)
-rides this rung. *RED:* letter#51's misattribution case.
+**R14 — the §9.5.1 per-brain partition — ONE owner: the TWO-TIER backend. [SHIPPED 2026-07-05.]**
+(Resolves map contradiction #5: HUMAN §4A.6/G4 and MEDULLA S6/MED-INV-7 are consumers, not
+co-owners.) *What:* the session/query counters stop being owner-global and partition on the
+session's bound brain (`session.bound_project_root`) — because each project brain is a full
+`SessionState` and a routed call dispatches against the brain that owns the caller
+(`mcp_http::route_and_run` → `serve_and_compose`), the counters were already partitioned at the data
+layer; R14 exposes the partition at the surface. `http_server.rs::instances_listing` now enriches
+every `/api/instances` entry with its OWN `attached_sessions` + `query_count` + `calibration_armed`
+(self from its own `SessionState`; a warm project brain via `ProjectBrainRegistry::warm_session_stats`;
+a dormant brain absent-honest, never a faked 0), so per-brain surfaces (the Hall G4 line, per-brain
+calibration state) stop wearing owner-global numbers. The owner-wide total moves to the owner's own
+receipt, labeled owner-wide — not gone, correctly attributed. The 2H residue family (the
+`[needs-backend §9.5.1]` card fields, per-brain `calibration_armed`) rides this rung and becomes real;
+the interim "across all brains" G4 caption is removed. *RED→GREEN (letter#51's misattribution case,
+PROVEN):* `m1nd-mcp/tests/hall_brains_listing.rs::per_brain_counters_partition_on_the_bound_brain_not_owner_global`
+(two brains driven to divergent counts, each card wears its OWN count and NEVER the cross-brain sum) +
+`dormant_project_brain_omits_live_session_counters_absent_honest`; UI `cardV2.test.ts`/`card-v2.test.tsx`
+(qualifier gone, absent-honest). Full `cargo test -p m1nd-mcp` green; UI 207/207; clippy + fmt clean.
 
 **R17 — the conformance_boost rerank (JOINT-J: X-RAY steers attention) — owner: the X-RAY/seek
 family; small, parallel. [SHIPPED 2026-07-05]** *What:* grammar-4 conformance becomes the payoff axis it
@@ -916,7 +929,7 @@ joins here at landing with the §C8.6 checkmarks verified against its text.
 | Item | Owner | Why parked |
 |---|---|---|
 | Cross-machine zombie claims (supersession forks once memory travels by git) | TWO-TIER V2 (named at TT §21.3 + MEDULLA §12.3) | blocked on git-travel being real (TT Slice 3); revisit at that landing |
-| Full per-brain calibration mechanism | TT §9.5.1 family (R14) + the §C7.6 birth rider | needs R14's partition; the birth rider covers the fresh-brain case meanwhile |
+| Full per-brain calibration mechanism | TT §9.5.1 family (R14) + the §C7.6 birth rider | R14's partition landed (per-brain `calibration_armed` now surfaces on each `/api/instances` entry, 2026-07-05); the FULL per-brain calibration *measurement* mechanism still rides the birth rider — R14 exposes armed-vs-not, not a per-brain re-measure |
 | `inbox_drop` | **dissolved** (§C6.2) | the spool append IS the drop; a CLI convenience may ride R8 only if a real consumer proves need |
 | SSE pure-reader relay gap | Living Tree Slice 1 (PATHOS Known Problems) | already owned there; not this constitution's to re-own |
 | PATHOS auto-refresh push-back | the maintainer (decision A/B — PAT secret vs checks bypass) | human decision, named |

@@ -110,6 +110,24 @@ export interface InstanceRegistryEntry {
    * its card's "last seen" instead of the instance heartbeat.
    */
   last_activity_ms?: number | null;
+  /**
+   * The brain's OWN attached-session count (ladder R14 / TWO-TIER §9.5.1) — the
+   * distinct wire sessions bound to THIS brain, partitioned on
+   * `session.bound_project_root`, NOT the owner-global total (which stays on the
+   * owner's receipt, labeled owner-wide). Feeds the card's G4 aliveness line.
+   * Absent (null) for a dormant brain with no live SessionState — never a faked 0.
+   */
+  attached_sessions?: number | null;
+  /**
+   * The brain's OWN query count (R14 / §9.5.1) — its `queries_processed`,
+   * partitioned per brain. Absent (null) for a dormant brain; never a faked 0.
+   */
+  query_count?: number | null;
+  /**
+   * Whether THIS brain's `predict` calibration is armed (R14 / §9.5.1 card field
+   * G2) — a measured τ exists for this repo. Absent (null) for a dormant brain.
+   */
+  calibration_armed?: boolean | null;
 }
 
 export interface InstanceSelfResponse {

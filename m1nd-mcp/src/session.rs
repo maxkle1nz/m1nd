@@ -2121,6 +2121,16 @@ impl SessionState {
         self.start_time.elapsed().as_secs_f64()
     }
 
+    /// Whether this brain's `predict` calibration is armed — a measured conformal
+    /// τ exists for this repo (TWO-TIER §9.5.1 card field G2). Uncalibrated brains
+    /// cap `predict` verdicts at `abstain` (`tools.rs`), so the Hall renders "not
+    /// measured on this repo yet". A cheap per-brain read for the R14 partition.
+    pub fn calibration_armed(&self) -> bool {
+        self.calibration_table
+            .get(m1nd_core::calibration::CALIBRATION_SIGNAL_PREDICT)
+            .is_some()
+    }
+
     /// Track an agent session. Creates a new session if first contact,
     /// otherwise updates last_seen and increments query_count.
     pub fn track_agent(&mut self, agent_id: &str) {

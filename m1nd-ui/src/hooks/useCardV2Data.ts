@@ -61,9 +61,14 @@ export function useCardV2Data(enabled: boolean, self: InstanceSelfResponse | nul
   const [data, setData] = useState(EMPTY);
   const [tick, setTick] = useState(0);
 
-  // G4 is free (the self envelope the Hall already polls).
+  // G4 is free (the self envelope the Hall already polls). PARTITIONED (R14 /
+  // §9.5.1): the self envelope's `active_agent_sessions`/`queries_processed` ARE
+  // the bound brain's OWN counters — routed project-brain calls dispatch against
+  // that brain's SessionState, never the owner's, so these count only the bound
+  // brain's traffic (the owner-WIDE total lives on the receipt, labeled so). The
+  // "across all brains" qualifier is gone; the count is truly this brain's.
   useEffect(() => {
-    setData((d) => ({ ...d, g4: alivenessG4(self ? { active_agent_sessions: self.active_agent_sessions, queries_processed: self.queries_processed } : null) }));
+    setData((d) => ({ ...d, g4: alivenessG4(self ? { attached_sessions: self.active_agent_sessions, query_count: self.queries_processed } : null) }));
   }, [self]);
 
   // Snapshot-derived G3 + D1 (one fetch when the card opens).
