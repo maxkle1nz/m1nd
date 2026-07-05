@@ -209,8 +209,8 @@
   "params": {
     "name": "m1nd.ingest",
     "arguments": {
-      "agent_id": "jimi",
-      "path": "/Users/cosmophonix/clawd/roomanizer-os/backend",
+      "agent_id": "agent-1",
+      "path": "/path/to/project-f/backend",
       "adapter": "code",
       "mode": "replace",
       "incremental": false
@@ -292,7 +292,7 @@
   "params": {
     "name": "m1nd.health",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
@@ -308,7 +308,7 @@
   "plasticity_state": "active",
   "last_persist_time": "2026-03-13T10:30:00Z",
   "active_sessions": [
-    { "agent_id": "jimi", "last_active": "2026-03-13T11:25:00Z" }
+    { "agent_id": "agent-1", "last_active": "2026-03-13T11:25:00Z" }
   ]
 }
 </code></pre>
@@ -348,7 +348,7 @@
   "params": {
     "name": "m1nd.validate_plan",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "actions": [
         { "action_type": "modify", "file_path": "backend/session_pool.py", "description": "Add connection timeout" },
         { "action_type": "modify", "file_path": "backend/worker_pool.py", "description": "Update pool acquire to use timeout" },
@@ -463,7 +463,7 @@
   "params": {
     "name": "m1nd.lock.create",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "scope": "subgraph",
       "root_nodes": ["file::chat_handler.py"],
       "radius": 2
@@ -473,7 +473,7 @@
 </code></pre>
 <h3 id="example-response-3"><a class="header" href="#example-response-3">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "scope": "subgraph",
   "baseline_nodes": 1639,
   "baseline_edges": 707,
@@ -524,8 +524,8 @@
   "params": {
     "name": "m1nd.lock.watch",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001",
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001",
       "strategy": "on_ingest"
     }
   }
@@ -533,7 +533,7 @@
 </code></pre>
 <h3 id="example-response-4"><a class="header" href="#example-response-4">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "strategy": "on_ingest",
   "previous_strategy": null
 }
@@ -572,8 +572,8 @@
   "params": {
     "name": "m1nd.lock.diff",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
@@ -581,7 +581,7 @@
 <h3 id="example-response-changes-detected"><a class="header" href="#example-response-changes-detected">Example Response (changes detected)</a></h3>
 <pre><code class="language-json">{
   "diff": {
-    "lock_id": "lock_jimi_001",
+    "lock_id": "lock_agent1_001",
     "no_changes": false,
     "new_nodes": ["file::chat_handler.py::fn::new_method"],
     "removed_nodes": [],
@@ -602,7 +602,7 @@
 <h3 id="example-response-no-changes"><a class="header" href="#example-response-no-changes">Example Response (no changes)</a></h3>
 <pre><code class="language-json">{
   "diff": {
-    "lock_id": "lock_jimi_001",
+    "lock_id": "lock_agent1_001",
     "no_changes": true,
     "new_nodes": [],
     "removed_nodes": [],
@@ -653,15 +653,15 @@
   "params": {
     "name": "m1nd.lock.rebase",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-5"><a class="header" href="#example-response-5">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "previous_generation": 42,
   "new_generation": 45,
   "baseline_nodes": 1645,
@@ -703,15 +703,15 @@
   "params": {
     "name": "m1nd.lock.release",
     "arguments": {
-      "agent_id": "jimi",
-      "lock_id": "lock_jimi_001"
+      "agent_id": "agent-1",
+      "lock_id": "lock_agent1_001"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-6"><a class="header" href="#example-response-6">Example Response</a></h3>
 <pre><code class="language-json">{
-  "lock_id": "lock_jimi_001",
+  "lock_id": "lock_agent1_001",
   "released": true
 }
 </code></pre>

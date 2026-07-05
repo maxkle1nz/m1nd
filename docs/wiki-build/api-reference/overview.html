@@ -309,7 +309,7 @@
 </tbody>
 </table>
 </div>
-<p>Agent IDs are free-form strings. Convention: use the agent’s name or role identifier (e.g. <code>"jimi"</code>, <code>"hacker-auth"</code>, <code>"forge-build"</code>).</p>
+<p>Agent IDs are free-form strings. Convention: use the agent’s name or role identifier (e.g. <code>"agent-1"</code>, <code>"hacker-auth"</code>, <code>"forge-build"</code>).</p>
 <h2 id="json-rpc-request-format"><a class="header" href="#json-rpc-request-format">JSON-RPC Request Format</a></h2>
 <p>m1nd uses the <a href="https://modelcontextprotocol.io/">MCP protocol</a> over JSON-RPC 2.0 via stdio. All tool calls use the <code>tools/call</code> method.</p>
 <h3 id="request-structure"><a class="header" href="#request-structure">Request structure</a></h3>
@@ -320,7 +320,7 @@
   "params": {
         "name": "activate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session management"
     }
   }

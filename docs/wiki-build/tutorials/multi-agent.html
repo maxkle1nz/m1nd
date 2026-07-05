@@ -181,7 +181,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="multi-agent-usage"><a class="header" href="#multi-agent-usage">Multi-Agent Usage</a></h1>
-<p>m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how ROOMANIZER OS uses m1nd with 19 agents.</p>
+<p>m1nd is designed for multi-agent systems. One m1nd instance serves many agents simultaneously. This tutorial covers agent identity, concurrent access, perspective isolation, trail sharing, and a real-world example of how a production orchestration system uses m1nd with 19 agents.</p>
 <h2 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h2>
 <p>m1nd runs as a single process with a single shared graph. Multiple MCP clients connect to the same instance (or multiple instances reading from the same persisted state). Every tool call includes an <code>agent_id</code> parameter that identifies the caller.</p>
 <pre><code>  Agent A (Claude Code)  ----+
@@ -193,7 +193,7 @@
 <p>The graph is shared. Learning by one agent benefits all agents. Perspectives are isolated per agent. Trails can be shared across agents.</p>
 <h2 id="agent-id-conventions"><a class="header" href="#agent-id-conventions">Agent ID Conventions</a></h2>
 <p>Every m1nd tool requires an <code>agent_id</code> parameter. This is a free-form string, but consistent naming matters:</p>
-<pre><code>agent_id: "jimi"          -- orchestrator
+<pre><code>agent_id: "agent-1"          -- orchestrator
 agent_id: "hacker-auth"   -- security hardening agent
 agent_id: "forge-api"     -- API building agent
 agent_id: "analyst-perf"  -- performance analysis agent
@@ -501,10 +501,10 @@ agent_id: "analyst-perf"  -- performance analysis agent
   }
 }
 </code></pre>
-<h2 id="real-world-example-roomanizer-os"><a class="header" href="#real-world-example-roomanizer-os">Real-World Example: ROOMANIZER OS</a></h2>
-<p>ROOMANIZER OS is a multi-agent orchestration system that uses m1nd as its shared code intelligence layer. Here is how it works in production:</p>
+<h2 id="real-world-example-project-f-os"><a class="header" href="#real-world-example-project-f-os">Real-World Example: a production orchestration system</a></h2>
+<p>a production orchestration system is a multi-agent orchestration system that uses m1nd as its shared code intelligence layer. Here is how it works in production:</p>
 <h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
-<pre><code>JIMI (orchestrator)
+<pre><code>the orchestrator (orchestrator)
   |
   +-- hacker-auth (security agent)     --+
   +-- forge-api (API builder)           --+-- All share one m1nd instance
@@ -515,28 +515,28 @@ agent_id: "analyst-perf"  -- performance analysis agent
 </code></pre>
 <p>One m1nd instance serves 19 agents. The graph covers a 335-file Python backend (~52K lines), a React frontend, and MCP server infrastructure.</p>
 <h3 id="orchestrator-boot-sequence"><a class="header" href="#orchestrator-boot-sequence">Orchestrator Boot Sequence</a></h3>
-<p>When JIMI (the orchestrator) starts a session:</p>
+<p>When the orchestrator (the orchestrator) starts a session:</p>
 <pre><code class="language-jsonc">// Step 1: Check m1nd health
-{"method":"tools/call","params":{"name":"m1nd.health","arguments":{"agent_id":"jimi"}}}
+{"method":"tools/call","params":{"name":"m1nd.health","arguments":{"agent_id":"agent-1"}}}
 
 // Step 2: Check what changed since last session
-{"method":"tools/call","params":{"name":"m1nd.drift","arguments":{"agent_id":"jimi","since":"last_session"}}}
+{"method":"tools/call","params":{"name":"m1nd.drift","arguments":{"agent_id":"agent-1","since":"last_session"}}}
 
 // Step 3: Re-ingest if the graph is stale
 {"method":"tools/call","params":{"name":"m1nd.ingest","arguments":{
-  "path":"/project/backend","agent_id":"jimi","incremental":true
+  "path":"/project/backend","agent_id":"agent-1","incremental":true
 }}}
 </code></pre>
 <h3 id="task-delegation-with-graph-context"><a class="header" href="#task-delegation-with-graph-context">Task Delegation with Graph Context</a></h3>
-<p>When JIMI delegates a security hardening task:</p>
+<p>When the orchestrator delegates a security hardening task:</p>
 <pre><code class="language-jsonc">// Before spawning the security agent, get blast radius context
 {"method":"tools/call","params":{"name":"m1nd.impact","arguments":{
-  "node_id":"file::auth.py","agent_id":"jimi"
+  "node_id":"file::auth.py","agent_id":"agent-1"
 }}}
 
 // Warm up the graph for the security task
 {"method":"tools/call","params":{"name":"m1nd.warmup","arguments":{
-  "task_description":"harden authentication token validation","agent_id":"jimi"
+  "task_description":"harden authentication token validation","agent_id":"agent-1"
 }}}
 
 // The security agent then uses the primed graph
@@ -574,7 +574,7 @@ agent_id: "analyst-perf"  -- performance analysis agent
 
 // Orchestrator merges with Agent B's independent findings
 {"method":"tools/call","params":{"name":"m1nd.trail.merge","arguments":{
-  "agent_id":"jimi",
+  "agent_id":"agent-1",
   "trail_ids":["trail-hacker-001","trail-analyst-002"]
 }}}
 </code></pre>

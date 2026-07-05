@@ -41,7 +41,7 @@ Enter a perspective: creates a navigable route surface from a query. Returns the
   "params": {
     "name": "perspective_start",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session management and connection pooling",
       "anchor_node": "file::session_pool.py"
     }
@@ -53,7 +53,7 @@ Enter a perspective: creates a navigable route surface from a query. Returns the
 
 ```json
 {
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "mode": "anchored",
   "anchor_node": "file::session_pool.py",
   "focus_node": "file::session_pool.py",
@@ -127,8 +127,8 @@ Browse the current route set with pagination.
   "params": {
     "name": "perspective_routes",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "page": 2,
       "page_size": 6,
       "route_set_version": 100
@@ -141,7 +141,7 @@ Browse the current route set with pagination.
 
 ```json
 {
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "mode": "anchored",
   "mode_effective": "anchored",
   "anchor": "file::session_pool.py",
@@ -207,8 +207,8 @@ Specify the route by either `route_id` (stable, content-addressed) or `route_ind
   "params": {
     "name": "perspective_inspect",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_a1b2c3",
       "route_set_version": 100
     }
@@ -289,8 +289,8 @@ Extract a small relevant code or documentation slice from a route's target node.
   "params": {
     "name": "perspective_peek",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_index": 1,
       "route_set_version": 100
     }
@@ -353,8 +353,8 @@ Follow a route: move focus to the target node and synthesize new routes from the
   "params": {
     "name": "perspective_follow",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_a1b2c3",
       "route_set_version": 100
     }
@@ -366,7 +366,7 @@ Follow a route: move focus to the target node and synthesize new routes from the
 
 ```json
 {
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "previous_focus": "file::session_pool.py",
   "new_focus": "file::worker_pool.py",
   "mode": "anchored",
@@ -438,8 +438,8 @@ Get the next best move suggestion based on navigation history. Analyzes the rout
   "params": {
     "name": "perspective_suggest",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_set_version": 101
     }
   }
@@ -450,7 +450,7 @@ Get the next best move suggestion based on navigation history. Analyzes the rout
 
 ```json
 {
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "suggestion": {
     "action": "follow",
     "route_id": "R_j1k2l3",
@@ -500,8 +500,8 @@ Epistemic notice: these are **probable** connections, not verified graph edges.
   "params": {
     "name": "perspective_affinity",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_j1k2l3",
       "route_set_version": 101
     }
@@ -559,8 +559,8 @@ Fork the current navigation state into a new perspective branch. The branch star
   "params": {
     "name": "perspective_branch",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "branch_name": "auth-path"
     }
   }
@@ -571,8 +571,8 @@ Fork the current navigation state into a new perspective branch. The branch star
 
 ```json
 {
-  "perspective_id": "persp_jimi_001",
-  "branch_perspective_id": "persp_jimi_002",
+  "perspective_id": "persp_agent1_001",
+  "branch_perspective_id": "persp_agent1_002",
   "branch_name": "auth-path",
   "branched_from_focus": "file::worker_pool.py"
 }
@@ -613,8 +613,8 @@ Navigate back to the previous focus, restoring the checkpoint state. Like browse
   "params": {
     "name": "perspective_back",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001"
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001"
     }
   }
 }
@@ -624,7 +624,7 @@ Navigate back to the previous focus, restoring the checkpoint state. Like browse
 
 ```json
 {
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "restored_focus": "file::session_pool.py",
   "restored_mode": "anchored",
   "routes": [
@@ -683,9 +683,9 @@ Compare two perspectives on shared/unique nodes and dimension deltas. Both persp
   "params": {
     "name": "perspective_compare",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id_a": "persp_jimi_001",
-      "perspective_id_b": "persp_jimi_002"
+      "agent_id": "agent-1",
+      "perspective_id_a": "persp_agent1_001",
+      "perspective_id_b": "persp_agent1_002"
     }
   }
 }
@@ -695,8 +695,8 @@ Compare two perspectives on shared/unique nodes and dimension deltas. Both persp
 
 ```json
 {
-  "perspective_id_a": "persp_jimi_001",
-  "perspective_id_b": "persp_jimi_002",
+  "perspective_id_a": "persp_agent1_001",
+  "perspective_id_b": "persp_agent1_002",
   "shared_nodes": ["worker_pool.py", "process_manager.py", "session_pool.py"],
   "unique_to_a": ["spawner.py", "config.py"],
   "unique_to_b": ["auth_discovery.py", "middleware.py"],
@@ -743,7 +743,7 @@ List all perspectives for an agent. Returns compact summaries with status, focus
   "params": {
     "name": "perspective_list",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
@@ -753,10 +753,10 @@ List all perspectives for an agent. Returns compact summaries with status, focus
 
 ```json
 {
-  "agent_id": "jimi",
+  "agent_id": "agent-1",
   "perspectives": [
     {
-      "perspective_id": "persp_jimi_001",
+      "perspective_id": "persp_agent1_001",
       "mode": "anchored",
       "focus_node": "file::worker_pool.py",
       "route_count": 12,
@@ -766,7 +766,7 @@ List all perspectives for an agent. Returns compact summaries with status, focus
       "last_accessed_ms": 1710300500000
     },
     {
-      "perspective_id": "persp_jimi_002",
+      "perspective_id": "persp_agent1_002",
       "mode": "anchored",
       "focus_node": "file::auth_discovery.py",
       "route_count": 8,
@@ -814,8 +814,8 @@ Close a perspective and release associated locks. Frees memory and stops route c
   "params": {
     "name": "perspective_close",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_002"
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_002"
     }
   }
 }
@@ -825,9 +825,9 @@ Close a perspective and release associated locks. Frees memory and stops route c
 
 ```json
 {
-  "perspective_id": "persp_jimi_002",
+  "perspective_id": "persp_agent1_002",
   "closed": true,
-  "locks_released": ["lock_jimi_003"]
+  "locks_released": ["lock_agent1_003"]
 }
 ```
 
@@ -850,7 +850,7 @@ A complete perspective exploration session, from start to close:
 ```
 1. START a perspective from a query
    perspective_start(query="authentication and session security")
-   -> persp_jimi_001, 12 routes, anchored to auth_discovery.py
+   -> persp_agent1_001, 12 routes, anchored to auth_discovery.py
 
 2. BROWSE routes (page 1 already returned by start)
    Routes: R01 auth_discovery.py, R02 middleware.py, R03 principal_registry.py, ...
@@ -869,14 +869,14 @@ A complete perspective exploration session, from start to close:
 
 6. BRANCH before exploring a risky path
    perspective_branch(branch_name="session-path")
-   -> new persp_jimi_002, same focus
+   -> new persp_agent1_002, same focus
 
 7. FOLLOW different routes in each branch
    Branch 1: follow toward principal_registry.py
    Branch 2: follow toward session_pool.py
 
 8. COMPARE the two branches
-   perspective_compare(perspective_id_a="persp_jimi_001", perspective_id_b="persp_jimi_002")
+   perspective_compare(perspective_id_a="persp_agent1_001", perspective_id_b="persp_agent1_002")
    -> shared: [auth_discovery.py], unique_to_a: [principal_registry.py], unique_to_b: [session_pool.py]
 
 9. BACK to undo the last follow in branch 1
@@ -884,8 +884,8 @@ A complete perspective exploration session, from start to close:
    -> restored focus: auth_discovery.py
 
 10. CLOSE both perspectives when done
-    perspective_close(perspective_id="persp_jimi_001")
-    perspective_close(perspective_id="persp_jimi_002")
+    perspective_close(perspective_id="persp_agent1_001")
+    perspective_close(perspective_id="persp_agent1_002")
 ```
 
 This workflow demonstrates the full exploration cycle: start with a query, navigate through the graph by following routes, branch to explore alternatives, compare branches, and close when done.

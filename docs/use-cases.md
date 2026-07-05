@@ -155,7 +155,7 @@ Pipeline: trail.save (mid-session) → trail.list (next session) → trail.resum
 ```
 
 **Real session proof:**
-- Trail `trail_jimi_001_af21f9bc` saved mid-investigation with all hypotheses and activated nodes
+- Trail `trail_agent1_001_af21f9bc` saved mid-investigation with all hypotheses and activated nodes
 - Resumed in a subsequent session with exact context restored
 - Two parallel trails (attestation + WhatsApp) merged with conflict detection
 
@@ -163,14 +163,14 @@ Pipeline: trail.save (mid-session) → trail.list (next session) → trail.resum
 // Save investigation state
 {
   "tool": "trail.save",
-  "trail_id": "trail_jimi_001",
+  "trail_id": "trail_agent1_001",
   "agent_id": "audit-001",
   "notes": "investigating session_pool TOCTOU. 3 bugs found. next: sacred_memory concurrent write"
 }
-// → Returns: trail_jimi_001_af21f9bc saved. Restores to this exact graph activation state.
+// → Returns: trail_agent1_001_af21f9bc saved. Restores to this exact graph activation state.
 
 // Days later, resume
-{ "tool": "trail.resume", "trail_id": "trail_jimi_001_af21f9bc" }
+{ "tool": "trail.resume", "trail_id": "trail_agent1_001_af21f9bc" }
 // → Graph reactivates to investigation context. Pick up from exactly where you left off.
 
 // Merge two agents' trails
@@ -190,16 +190,16 @@ Pipeline: drift → layers → activate(domain) → why(a, b) → counterfactual
 
 ```jsonc
 // What changed since last session?
-{ "tool": "drift", "since": "last_session", "agent_id": "jimi" }
+{ "tool": "drift", "since": "last_session", "agent_id": "agent-1" }
 // → Returns: which modules gained/lost edges. Where the system "moved" while you were away.
 
 // What layers does this system have?
-{ "tool": "layers", "agent_id": "jimi" }
+{ "tool": "layers", "agent_id": "agent-1" }
 // → Returns: ConnectionManager (98 nodes), API (161 nodes), Core (5,036 nodes)
 // → Plus violations: nodes that bridge layers they shouldn't.
 
 // What's related to this concept?
-{ "tool": "activate", "query": "chat escalation deep work", "agent_id": "jimi" }
+{ "tool": "activate", "query": "chat escalation deep work", "agent_id": "agent-1" }
 // → Returns: ranked nodes. Spreads across structural + semantic + causal dimensions.
 
 // Why does A connect to B?
@@ -378,7 +378,7 @@ Periodic architectural health review, pre-refactor analysis.
 // Find duplicate or near-duplicate modules
 { "tool": "fingerprint", "threshold": 0.8, "agent_id": "dev" }
 // → Returns: pairs with structural similarity > 80%
-// → 0 twins on ROOMANIZER = clean. No accidental duplication.
+// → 0 twins on a well-factored codebase = clean. No accidental duplication.
 // → On a legacy codebase: likely finds 10-20% duplicate service classes.
 
 // What if we removed/consolidated these modules?
@@ -1242,7 +1242,7 @@ curl -s -X POST http://localhost:1337/api/tools/apply_batch \
 # → {"passed": true, "files_verified": 1, "node_delta": 23, "edge_delta": 41}
 ```
 
-If `verify.passed` is `false`, the orchestrator (JIMI) sees the failure immediately via
+If `verify.passed` is `false`, the orchestrator (the orchestrator) sees the failure immediately via
 the pulse SSE stream and can re-queue the failing agent before the rest of the swarm
 merges. No broken files silently accumulate in the graph.
 

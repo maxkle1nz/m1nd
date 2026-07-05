@@ -29,7 +29,7 @@ Explicit feedback-based edge adjustment. After using `activate` or other query t
   "params": {
     "name": "learn",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session pool management",
       "feedback": "correct",
       "node_ids": ["file::session_pool.py", "file::worker_pool.py"],
@@ -92,7 +92,7 @@ Weight and structural drift analysis. Compares the current graph state against a
   "params": {
     "name": "drift",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "since": "last_session",
       "include_weight_drift": true
     }
@@ -154,7 +154,7 @@ Path explanation between two nodes. Finds and explains the relationship paths co
   "params": {
     "name": "why",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "source": "file::worker_pool.py",
       "target": "file::whatsapp_manager.py",
       "max_hops": 4
@@ -229,7 +229,7 @@ Persist the current investigation state -- nodes visited, hypotheses formed, con
   "params": {
     "name": "trail_save",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "label": "auth-leak-investigation",
       "hypotheses": [
         {
@@ -258,9 +258,9 @@ Persist the current investigation state -- nodes visited, hypotheses formed, con
 
 ```json
 {
-  "trail_id": "trail_jimi_001_a1b2c3",
+  "trail_id": "trail_agent1_001_a1b2c3",
   "label": "auth-leak-investigation",
-  "agent_id": "jimi",
+  "agent_id": "agent-1",
   "nodes_saved": 47,
   "hypotheses_saved": 2,
   "conclusions_saved": 0,
@@ -306,8 +306,8 @@ Restore a saved investigation. Re-injects activation boosts into the graph, vali
   "params": {
     "name": "trail_resume",
     "arguments": {
-      "agent_id": "jimi",
-      "trail_id": "trail_jimi_001_a1b2c3"
+      "agent_id": "agent-1",
+      "trail_id": "trail_agent1_001_a1b2c3"
     }
   }
 }
@@ -317,7 +317,7 @@ Restore a saved investigation. Re-injects activation boosts into the graph, vali
 
 ```json
 {
-  "trail_id": "trail_jimi_001_a1b2c3",
+  "trail_id": "trail_agent1_001_a1b2c3",
   "label": "auth-leak-investigation",
   "stale": false,
   "generations_behind": 3,
@@ -325,8 +325,8 @@ Restore a saved investigation. Re-injects activation boosts into the graph, vali
   "nodes_reactivated": 47,
   "hypotheses_downgraded": [],
   "trail": {
-    "trail_id": "trail_jimi_001_a1b2c3",
-    "agent_id": "jimi",
+    "trail_id": "trail_agent1_001_a1b2c3",
+    "agent_id": "agent-1",
     "label": "auth-leak-investigation",
     "status": "active",
     "created_at_ms": 1710300000000,
@@ -378,7 +378,7 @@ List saved investigation trails with optional filters. Returns compact summaries
   "params": {
     "name": "trail_list",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "filter_status": "saved",
       "filter_tags": ["security"]
     }
@@ -392,8 +392,8 @@ List saved investigation trails with optional filters. Returns compact summaries
 {
   "trails": [
     {
-      "trail_id": "trail_jimi_001_a1b2c3",
-      "agent_id": "jimi",
+      "trail_id": "trail_agent1_001_a1b2c3",
+      "agent_id": "agent-1",
       "label": "auth-leak-investigation",
       "status": "saved",
       "created_at_ms": 1710300000000,
@@ -445,8 +445,8 @@ Combine two or more investigation trails. Merges visited nodes, hypotheses, and 
   "params": {
     "name": "trail_merge",
     "arguments": {
-      "agent_id": "jimi",
-      "trail_ids": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
+      "agent_id": "agent-1",
+      "trail_ids": ["trail_agent1_001_a1b2c3", "trail_analyst_002_d4e5f6"],
       "label": "combined-auth-investigation"
     }
   }
@@ -457,9 +457,9 @@ Combine two or more investigation trails. Merges visited nodes, hypotheses, and 
 
 ```json
 {
-  "merged_trail_id": "trail_jimi_003_g7h8i9",
+  "merged_trail_id": "trail_agent1_003_g7h8i9",
   "label": "combined-auth-investigation",
-  "source_trails": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
+  "source_trails": ["trail_agent1_001_a1b2c3", "trail_analyst_002_d4e5f6"],
   "nodes_merged": 83,
   "hypotheses_merged": 5,
   "conflicts": [

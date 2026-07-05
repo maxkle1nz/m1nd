@@ -197,4 +197,4 @@ Pure Rust. No runtime dependencies on the green path. No mandatory API keys.
 
 ---
 
-*Created by [Max Elias Kleinschmidt](https://github.com/cosmophonix) · The graph must learn.*
+*Created by [Max Elias Kleinschmidt](https://github.com/maxkle1nz) · The graph must learn.*

@@ -312,7 +312,7 @@ Interpretation:
   stays inside the tool, instead of kicking the agent into a fresh manual
   reformulation pass
 
-This is exactly the kind of improvement that matters for JIMI-style agents:
+This is exactly the kind of improvement that matters for orchestrator-style agents:
 less dead-end failure, less rediscovery, and fewer wasted retries.
 
 `warm_perspective_stale_route_recovery`

@@ -214,7 +214,7 @@
   "params": {
     "name": "perspective_start",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session management and connection pooling",
       "anchor_node": "file::session_pool.py"
     }
@@ -223,7 +223,7 @@
 </code></pre>
 <h3 id="example-response"><a class="header" href="#example-response">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "mode": "anchored",
   "anchor_node": "file::session_pool.py",
   "focus_node": "file::session_pool.py",
@@ -295,8 +295,8 @@
   "params": {
     "name": "m1nd.perspective.routes",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "page": 2,
       "page_size": 6,
       "route_set_version": 100
@@ -306,7 +306,7 @@
 </code></pre>
 <h3 id="example-response-1"><a class="header" href="#example-response-1">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "mode": "anchored",
   "mode_effective": "anchored",
   "anchor": "file::session_pool.py",
@@ -370,8 +370,8 @@
   "params": {
     "name": "perspective_inspect",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_a1b2c3",
       "route_set_version": 100
     }
@@ -448,8 +448,8 @@
   "params": {
     "name": "perspective_peek",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_index": 1,
       "route_set_version": 100
     }
@@ -507,8 +507,8 @@
   "params": {
     "name": "m1nd.perspective.follow",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_a1b2c3",
       "route_set_version": 100
     }
@@ -517,7 +517,7 @@
 </code></pre>
 <h3 id="example-response-4"><a class="header" href="#example-response-4">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "previous_focus": "file::session_pool.py",
   "new_focus": "file::worker_pool.py",
   "mode": "anchored",
@@ -587,8 +587,8 @@
   "params": {
     "name": "m1nd.perspective.suggest",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_set_version": 101
     }
   }
@@ -596,7 +596,7 @@
 </code></pre>
 <h3 id="example-response-5"><a class="header" href="#example-response-5">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "suggestion": {
     "action": "follow",
     "route_id": "R_j1k2l3",
@@ -643,8 +643,8 @@
   "params": {
     "name": "m1nd.perspective.affinity",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "route_id": "R_j1k2l3",
       "route_set_version": 101
     }
@@ -697,8 +697,8 @@
   "params": {
     "name": "m1nd.perspective.branch",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001",
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001",
       "branch_name": "auth-path"
     }
   }
@@ -706,8 +706,8 @@
 </code></pre>
 <h3 id="example-response-7"><a class="header" href="#example-response-7">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
-  "branch_perspective_id": "persp_jimi_002",
+  "perspective_id": "persp_agent1_001",
+  "branch_perspective_id": "persp_agent1_002",
   "branch_name": "auth-path",
   "branched_from_focus": "file::worker_pool.py"
 }
@@ -746,15 +746,15 @@
   "params": {
     "name": "m1nd.perspective.back",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_001"
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_001"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-8"><a class="header" href="#example-response-8">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_001",
+  "perspective_id": "persp_agent1_001",
   "restored_focus": "file::session_pool.py",
   "restored_mode": "anchored",
   "routes": [
@@ -811,17 +811,17 @@
   "params": {
     "name": "m1nd.perspective.compare",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id_a": "persp_jimi_001",
-      "perspective_id_b": "persp_jimi_002"
+      "agent_id": "agent-1",
+      "perspective_id_a": "persp_agent1_001",
+      "perspective_id_b": "persp_agent1_002"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-9"><a class="header" href="#example-response-9">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id_a": "persp_jimi_001",
-  "perspective_id_b": "persp_jimi_002",
+  "perspective_id_a": "persp_agent1_001",
+  "perspective_id_b": "persp_agent1_002",
   "shared_nodes": ["worker_pool.py", "process_manager.py", "session_pool.py"],
   "unique_to_a": ["spawner.py", "config.py"],
   "unique_to_b": ["auth_discovery.py", "middleware.py"],
@@ -866,17 +866,17 @@
   "params": {
     "name": "m1nd.perspective.list",
     "arguments": {
-      "agent_id": "jimi"
+      "agent_id": "agent-1"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-10"><a class="header" href="#example-response-10">Example Response</a></h3>
 <pre><code class="language-json">{
-  "agent_id": "jimi",
+  "agent_id": "agent-1",
   "perspectives": [
     {
-      "perspective_id": "persp_jimi_001",
+      "perspective_id": "persp_agent1_001",
       "mode": "anchored",
       "focus_node": "file::worker_pool.py",
       "route_count": 12,
@@ -886,7 +886,7 @@
       "last_accessed_ms": 1710300500000
     },
     {
-      "perspective_id": "persp_jimi_002",
+      "perspective_id": "persp_agent1_002",
       "mode": "anchored",
       "focus_node": "file::auth_discovery.py",
       "route_count": 8,
@@ -932,17 +932,17 @@
   "params": {
     "name": "m1nd.perspective.close",
     "arguments": {
-      "agent_id": "jimi",
-      "perspective_id": "persp_jimi_002"
+      "agent_id": "agent-1",
+      "perspective_id": "persp_agent1_002"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-11"><a class="header" href="#example-response-11">Example Response</a></h3>
 <pre><code class="language-json">{
-  "perspective_id": "persp_jimi_002",
+  "perspective_id": "persp_agent1_002",
   "closed": true,
-  "locks_released": ["lock_jimi_003"]
+  "locks_released": ["lock_agent1_003"]
 }
 </code></pre>
 <h3 id="when-to-use-11"><a class="header" href="#when-to-use-11">When to Use</a></h3>
@@ -960,7 +960,7 @@
 <p>A complete perspective exploration session, from start to close:</p>
 <pre><code>1. START a perspective from a query
    perspective_start(query="authentication and session security")
-   -&gt; persp_jimi_001, 12 routes, anchored to auth_discovery.py
+   -&gt; persp_agent1_001, 12 routes, anchored to auth_discovery.py
 
 2. BROWSE routes (page 1 already returned by start)
    Routes: R01 auth_discovery.py, R02 middleware.py, R03 principal_registry.py, ...
@@ -979,14 +979,14 @@
 
 6. BRANCH before exploring a risky path
    m1nd.perspective.branch(branch_name="session-path")
-   -&gt; new persp_jimi_002, same focus
+   -&gt; new persp_agent1_002, same focus
 
 7. FOLLOW different routes in each branch
    Branch 1: follow toward principal_registry.py
    Branch 2: follow toward session_pool.py
 
 8. COMPARE the two branches
-   m1nd.perspective.compare(perspective_id_a="persp_jimi_001", perspective_id_b="persp_jimi_002")
+   m1nd.perspective.compare(perspective_id_a="persp_agent1_001", perspective_id_b="persp_agent1_002")
    -&gt; shared: [auth_discovery.py], unique_to_a: [principal_registry.py], unique_to_b: [session_pool.py]
 
 9. BACK to undo the last follow in branch 1
@@ -994,8 +994,8 @@
    -&gt; restored focus: auth_discovery.py
 
 10. CLOSE both perspectives when done
-    m1nd.perspective.close(perspective_id="persp_jimi_001")
-    m1nd.perspective.close(perspective_id="persp_jimi_002")
+    m1nd.perspective.close(perspective_id="persp_agent1_001")
+    m1nd.perspective.close(perspective_id="persp_agent1_002")
 </code></pre>
 <p>This workflow demonstrates the full exploration cycle: start with a query, navigate through the graph by following routes, branch to explore alternatives, compare branches, and close when done.</p>
 

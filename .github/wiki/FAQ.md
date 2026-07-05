@@ -590,7 +590,7 @@ For cross-process visibility (two separate processes), use `--event-log`:
 
 ### Is it open source? What license?
 
-Yes. m1nd is MIT licensed. See [LICENSE](https://github.com/cosmophonix/m1nd/blob/main/LICENSE).
+Yes. m1nd is MIT licensed. See [LICENSE](https://github.com/maxkle1nz/m1nd/blob/main/LICENSE).
 
 MIT means: use it commercially, modify it, distribute it, integrate it — with attribution. No
 copyleft requirement, no usage restrictions.
@@ -613,7 +613,7 @@ The MCP layer in `m1nd-mcp` is thin: most new tools are 20-50 lines of wiring.
 **Benchmarks** — Run m1nd against your codebase and report performance. We want to understand
 where it works well and where it doesn't.
 
-See [CONTRIBUTING.md](https://github.com/cosmophonix/m1nd/blob/main/CONTRIBUTING.md) for
+See [CONTRIBUTING.md](https://github.com/maxkle1nz/m1nd/blob/main/CONTRIBUTING.md) for
 guidelines on pull requests, testing, and commit style.
 
 ---

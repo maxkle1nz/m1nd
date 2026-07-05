@@ -218,11 +218,11 @@ Pipeline: drift → activate(domain) → why(a, b) → counterfactual(modules)
 
 ```jsonc
 // What changed since last session?
-{ "tool": "drift", "since": "last_session", "agent_id": "jimi" }
+{ "tool": "drift", "since": "last_session", "agent_id": "agent-1" }
 // → Returns: which modules gained/lost edges. Where the system "moved" while you were away.
 
 // What's related to this concept?
-{ "tool": "activate", "query": "chat escalation deep work", "agent_id": "jimi" }
+{ "tool": "activate", "query": "chat escalation deep work", "agent_id": "agent-1" }
 // → Returns: ranked nodes. Signal spreads across structural, semantic, temporal, and causal dimensions.
 
 // Why does A connect to B?

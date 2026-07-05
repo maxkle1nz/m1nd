@@ -41,7 +41,7 @@ V2 upgrade path will replace keyword matching with real embeddings (fastembed-rs
   "params": {
     "name": "seek",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "code that validates user credentials",
       "top_k": 5,
       "node_types": ["function", "class"]
@@ -120,7 +120,7 @@ Pattern-aware structural code analysis with graph-validated findings. Detects st
   "params": {
     "name": "scan",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "pattern": "error_handling",
       "scope": "backend/",
       "severity_min": 0.5
@@ -201,7 +201,7 @@ Detect structural holes and missing connections. Given a topic query, finds area
   "params": {
     "name": "missing",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "database connection pooling",
       "min_sibling_activation": 0.3
     }
@@ -272,7 +272,7 @@ Map runtime errors to structural root causes via stacktrace analysis. Parses the
   "params": {
     "name": "trace",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "error_text": "Traceback (most recent call last):\n  File \"backend/chat_handler.py\", line 234, in handle_message\n  File \"backend/session_pool.py\", line 89, in acquire\n  File \"backend/worker_pool.py\", line 156, in submit\nTimeoutError: pool exhausted",
       "language": "python",
       "top_k": 5
@@ -376,7 +376,7 @@ Git-based temporal history for a node. Returns the change history, co-change par
   "params": {
     "name": "timeline",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node": "file::backend/chat_handler.py",
       "depth": "30d",
       "top_k": 5
@@ -395,14 +395,14 @@ Git-based temporal history for a node. Returns the change history, co-change par
     {
       "date": "2026-03-10",
       "commit": "a1b2c3d",
-      "author": "cosmophonix",
+      "author": "dev",
       "delta": "+45/-12",
       "co_changed": ["stream_parser.py", "chat_routes.py"]
     },
     {
       "date": "2026-03-05",
       "commit": "e4f5g6h",
-      "author": "cosmophonix",
+      "author": "dev",
       "delta": "+120/-30",
       "co_changed": ["session_pool.py", "worker_pool.py"]
     }
@@ -489,7 +489,7 @@ Node IDs in the federated graph use `{repo_name}::file::path` format.
   "params": {
     "name": "federate",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "repos": [
         { "name": "backend", "path": "/project/backend" },
         { "name": "frontend", "path": "/project/frontend" },
@@ -580,7 +580,7 @@ Turn explicit external path evidence, local manifest/workspace hints, import/pac
   "params": {
     "name": "federate_auto",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "scope": "docs",
       "execute": false
     }

@@ -28,7 +28,7 @@ Impact radius / blast analysis for a node. Propagates signal outward from a sour
   "params": {
     "name": "impact",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node_id": "file::chat_handler.py",
       "direction": "forward",
       "include_causal_chains": true
@@ -100,7 +100,7 @@ Co-change prediction for a modified node. Given a node that was just changed, pr
   "params": {
     "name": "predict",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "changed_node": "file::session_pool.py",
       "top_k": 5
     }
@@ -161,7 +161,7 @@ What-if node removal simulation. Simulates removing one or more nodes from the g
   "params": {
     "name": "counterfactual",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "node_ids": ["file::spawner.py"],
       "include_cascade": true
     }
@@ -223,7 +223,7 @@ Activation fingerprint and equivalence detection. Computes a structural fingerpr
   "params": {
     "name": "fingerprint",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "target_node": "file::session_pool.py",
       "similarity_threshold": 0.7
     }
@@ -286,7 +286,7 @@ Supported claim patterns (auto-detected from natural language): `NEVER_CALLS`, `
   "params": {
     "name": "hypothesize",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "claim": "worker_pool depends on whatsapp_manager at runtime"
     }
   }
@@ -367,7 +367,7 @@ Focused structural diff between two graph snapshots. Compares edges, weights, no
   "params": {
     "name": "differential",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "snapshot_a": "/path/to/before.json",
       "snapshot_b": "current",
       "question": "what new coupling was introduced?"
@@ -437,7 +437,7 @@ Structural drift detection between a baseline and the current graph state. Highe
   "params": {
     "name": "diverge",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "baseline": "2026-03-01",
       "scope": "backend/stormender*"
     }

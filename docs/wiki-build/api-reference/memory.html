@@ -208,7 +208,7 @@
   "params": {
     "name": "m1nd.learn",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "query": "session pool management",
       "feedback": "correct",
       "node_ids": ["file::session_pool.py", "file::worker_pool.py"],
@@ -264,7 +264,7 @@
   "params": {
     "name": "m1nd.drift",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "since": "last_session",
       "include_weight_drift": true
     }
@@ -321,7 +321,7 @@
   "params": {
     "name": "m1nd.why",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "source": "file::worker_pool.py",
       "target": "file::whatsapp_manager.py",
       "max_hops": 4
@@ -392,7 +392,7 @@
   "params": {
     "name": "trail_save",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "label": "auth-leak-investigation",
       "hypotheses": [
         {
@@ -418,9 +418,9 @@
 </code></pre>
 <h3 id="example-response-3"><a class="header" href="#example-response-3">Example Response</a></h3>
 <pre><code class="language-json">{
-  "trail_id": "trail_jimi_001_a1b2c3",
+  "trail_id": "trail_agent1_001_a1b2c3",
   "label": "auth-leak-investigation",
-  "agent_id": "jimi",
+  "agent_id": "agent-1",
   "nodes_saved": 47,
   "hypotheses_saved": 2,
   "conclusions_saved": 0,
@@ -465,15 +465,15 @@
   "params": {
     "name": "trail_resume",
     "arguments": {
-      "agent_id": "jimi",
-      "trail_id": "trail_jimi_001_a1b2c3"
+      "agent_id": "agent-1",
+      "trail_id": "trail_agent1_001_a1b2c3"
     }
   }
 }
 </code></pre>
 <h3 id="example-response-4"><a class="header" href="#example-response-4">Example Response</a></h3>
 <pre><code class="language-json">{
-  "trail_id": "trail_jimi_001_a1b2c3",
+  "trail_id": "trail_agent1_001_a1b2c3",
   "label": "auth-leak-investigation",
   "stale": false,
   "generations_behind": 3,
@@ -481,8 +481,8 @@
   "nodes_reactivated": 47,
   "hypotheses_downgraded": [],
   "trail": {
-    "trail_id": "trail_jimi_001_a1b2c3",
-    "agent_id": "jimi",
+    "trail_id": "trail_agent1_001_a1b2c3",
+    "agent_id": "agent-1",
     "label": "auth-leak-investigation",
     "status": "active",
     "created_at_ms": 1710300000000,
@@ -533,7 +533,7 @@
   "params": {
     "name": "trail_list",
     "arguments": {
-      "agent_id": "jimi",
+      "agent_id": "agent-1",
       "filter_status": "saved",
       "filter_tags": ["security"]
     }
@@ -544,8 +544,8 @@
 <pre><code class="language-json">{
   "trails": [
     {
-      "trail_id": "trail_jimi_001_a1b2c3",
-      "agent_id": "jimi",
+      "trail_id": "trail_agent1_001_a1b2c3",
+      "agent_id": "agent-1",
       "label": "auth-leak-investigation",
       "status": "saved",
       "created_at_ms": 1710300000000,
@@ -595,8 +595,8 @@
   "params": {
     "name": "m1nd.trail.merge",
     "arguments": {
-      "agent_id": "jimi",
-      "trail_ids": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
+      "agent_id": "agent-1",
+      "trail_ids": ["trail_agent1_001_a1b2c3", "trail_analyst_002_d4e5f6"],
       "label": "combined-auth-investigation"
     }
   }
@@ -604,9 +604,9 @@
 </code></pre>
 <h3 id="example-response-6"><a class="header" href="#example-response-6">Example Response</a></h3>
 <pre><code class="language-json">{
-  "merged_trail_id": "trail_jimi_003_g7h8i9",
+  "merged_trail_id": "trail_agent1_003_g7h8i9",
   "label": "combined-auth-investigation",
-  "source_trails": ["trail_jimi_001_a1b2c3", "trail_analyst_002_d4e5f6"],
+  "source_trails": ["trail_agent1_001_a1b2c3", "trail_analyst_002_d4e5f6"],
   "nodes_merged": 83,
   "hypotheses_merged": 5,
   "conflicts": [

@@ -296,7 +296,7 @@ m1nd is shaped by real usage. If you're using it and hit a limitation, open an i
 have a use case that doesn't fit the current tools, open an issue. The near-term roadmap is
 driven by what users actually need.
 
-For contributions: see [CONTRIBUTING.md](https://github.com/cosmophonix/m1nd/blob/main/CONTRIBUTING.md).
+For contributions: see [CONTRIBUTING.md](https://github.com/maxkle1nz/m1nd/blob/main/CONTRIBUTING.md).
 
 For discussions: use GitHub Discussions.
 

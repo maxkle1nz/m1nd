@@ -29,12 +29,12 @@ m1nd-mcp accepts two JSON-RPC transport formats on stdin, auto-detected per mess
 ```
 Content-Length: 142\r\n
 \r\n
-{"jsonrpc":"2.0","method":"tools/call","params":{"name":"activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"activate","arguments":{"query":"chat","agent_id":"agent-1"}},"id":1}
 ```
 
 **Line mode** (raw JSON):
 ```
-{"jsonrpc":"2.0","method":"tools/call","params":{"name":"activate","arguments":{"query":"chat","agent_id":"jimi"}},"id":1}
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"activate","arguments":{"query":"chat","agent_id":"agent-1"}},"id":1}
 ```
 
 Detection is based on the first non-whitespace byte: if it is `{` or `[`, the message is treated as line-mode JSON. Otherwise, it is parsed as framed with `Content-Length` headers. Responses are written in the same mode as the incoming request.
@@ -68,7 +68,7 @@ Requests follow the JSON-RPC 2.0 specification with MCP conventions:
         "name": "activate",
         "arguments": {
             "query": "chat handler",
-            "agent_id": "jimi",
+            "agent_id": "agent-1",
             "top_k": 20,
             "dimensions": ["structural", "semantic", "temporal", "causal"],
             "xlr": true
@@ -110,7 +110,7 @@ Under the `serve` feature (`--serve`, default port `127.0.0.1:1337`), `m1nd-mcp`
   Every `/api/graph/*` response carries a **`served_brain: {project_root, display_name}` echo** — the brain that actually answered — so a browser can ASSERT it against what it asked for and drop a mismatch (INV-15: never render one brain's nodes under another's chip). `GET /api/tools` carries a **`rest_brain_selector: true` capability stamp** so the UI feature-detects Open (never assumed, never version-sniffed).
 - `GET /api/tools` — the tool schema list + the `rest_brain_selector` capability stamp (above).
 - `GET /api/instances` — **every brain this owner holds**, PROJECT-named (the Hall's brains surface, HUMAN-LAYER-PRD §4A.3). Lists the bound dev graph AND every owner-hosted per-project brain (Two-Tier interim, `project_brains.rs`) — **warm brains from the in-memory map UNIONED with a cold DISK roster**: `ProjectBrainRegistry::disk_roster()` scans `<runtime_root>/project-brains/*/project_brain.json` manifests and surfaces every dormant brain with ZERO routed calls (display_name from the root basename, counts/freshness from the manifest — listing ≠ warm-boot; the warm map wins duplicates). This fixes the field bug where a hosted brain vanished from the Hall after an owner restart until a routed call warm-booted it. Each entry is a registry `InstanceRegistryEntry` enriched server-side (`http_server::instances_listing`) with two honest fields:
-  - `display_name` — the **repo basename** ("m1nd", "Cerrybubbles1"), the brain's human name. NEVER the runtime dir ("claude") nor its `agent-memory` sidecar. Resolved from `SessionState::project_root_display` for the bound brain (its primary code ingest root, skipping `.light.md` memory files + the `agent-memory` dir) and from the store's `project_brain.json` manifest for a hosted `brain_kind:"project"` brain (whose raw `workspace_root` is the fingerprint store dir).
+  - `display_name` — the **repo basename** ("m1nd", "project-b"), the brain's human name. NEVER the runtime dir ("claude") nor its `agent-memory` sidecar. Resolved from `SessionState::project_root_display` for the bound brain (its primary code ingest root, skipping `.light.md` memory files + the `agent-memory` dir) and from the store's `project_brain.json` manifest for a hosted `brain_kind:"project"` brain (whose raw `workspace_root` is the fingerprint store dir).
   - `project_root` — the repo the brain maps (the card's path).
 
   The bound brain floats first; the rest keep the registry's freshest-heartbeat order. The raw runtime fields (`workspace_root`, `runtime_root`, `pid`, `brain_kind`, …) stay on each entry, demoted to the receipt drawer.
@@ -482,7 +482,7 @@ stateDiagram-v2
 
 ### Perspective IDs
 
-Generated as `persp_{agent_prefix}_{counter:03}`. Each agent has an independent monotonic counter. Example: Agent "jimi" creates perspectives `persp_jimi_001`, `persp_jimi_002`, etc.
+Generated as `persp_{agent_prefix}_{counter:03}`. Each agent has an independent monotonic counter. Example: Agent "agent-1" creates perspectives `persp_agent1_001`, `persp_agent1_002`, etc.
 
 ### Resource Limits
 
